@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install just --locked
       - uses: actions/setup-go@v5
         with:
           go-version-file: prover/server/go.mod
