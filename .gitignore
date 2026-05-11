@@ -1,0 +1,6 @@
+/target/
+/forester/target/
+/forester/test-ledger/
+/forester/.surfpool/
+/forester/logs/
+/.DS_Store

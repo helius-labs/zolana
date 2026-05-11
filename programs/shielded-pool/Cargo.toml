@@ -1,0 +1,29 @@
+[package]
+name = "shielded-pool-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+
+[dependencies]
+borsh = { workspace = true }
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+pinocchio = "0.10"
+thiserror = { workspace = true }
+zolana-interface = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

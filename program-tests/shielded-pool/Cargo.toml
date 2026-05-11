@@ -1,0 +1,11 @@
+[package]
+name = "shielded-pool-tests"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+borsh = { workspace = true }
+pinocchio = "0.10"
+shielded-pool-program = { workspace = true }
+zolana-interface = { workspace = true }

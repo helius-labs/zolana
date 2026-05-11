@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install just --locked
+      - run: cargo install cargo-machete --locked
+      - run: cargo fmt --all -- --check
+      - run: cargo machete --skip-target-dir
+      - run: just clippy
+      - run: just verify-rust
+      - run: just check-all
+
+  prover-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - run: just prover-server-test

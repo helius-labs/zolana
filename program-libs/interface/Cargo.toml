@@ -1,0 +1,14 @@
+[package]
+name = "zolana-interface"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[features]
+default = []
+solana = ["dep:solana-instruction", "dep:solana-pubkey"]
+
+[dependencies]
+borsh = { workspace = true }
+solana-instruction = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }

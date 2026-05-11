@@ -1,0 +1,130 @@
+use anchor_lang::solana_program::{msg, program_error::ProgramError};
+use light_program_profiler::profile;
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError as PinocchioProgramError};
+use pinocchio_token_program::processor::{burn::process_burn, burn_checked::process_burn_checked};
+
+use crate::shared::{
+    compressible_top_up::calculate_and_execute_compressible_top_ups, convert_pinocchio_token_error,
+};
+
+pub(crate) type ProcessorFn = fn(&[AccountInfo], &[u8]) -> Result<(), PinocchioProgramError>;
+
+/// Base instruction data length constants
+pub(crate) const BASE_LEN_UNCHECKED: usize = 8;
+pub(crate) const BASE_LEN_CHECKED: usize = 9;
+
+/// Burn account indices: [ctoken=0, cmint=1, authority=2, system_program=3, fee_payer=4 (optional)]
+const BURN_CMINT_IDX: usize = 1;
+const BURN_CTOKEN_IDX: usize = 0;
+const PAYER_IDX: usize = 2;
+#[allow(dead_code)]
+const SYSTEM_PROGRAM_IDX: usize = 3;
+const FEE_PAYER_IDX: usize = 4;
+
+/// Process ctoken burn instruction
+///
+/// Instruction data format (same as CTokenTransfer/CTokenMintTo):
+/// - 8 bytes: amount (legacy, no max_top_up enforcement)
+/// - 10 bytes: amount + max_top_up (u16, u16::MAX = no limit, 0 = no top-ups allowed)
+///
+/// Account layout:
+/// 0: source CToken account (writable)
+/// 1: CMint account (writable)
+/// 2: authority (signer, readonly if fee_payer provided, writable otherwise)
+/// 3: system_program (readonly) - required for rent top-up CPIs
+/// 4: fee_payer (optional, signer, writable) - pays for top-ups instead of authority
+#[profile]
+#[inline(always)]
+pub fn process_ctoken_burn(
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> Result<(), ProgramError> {
+    process_ctoken_supply_change_inner::<BASE_LEN_UNCHECKED, BURN_CMINT_IDX, BURN_CTOKEN_IDX>(
+        accounts,
+        instruction_data,
+        process_burn,
+    )
+}
+
+/// Process ctoken burn_checked instruction
+///
+/// Instruction data format:
+/// - 9 bytes: amount (8) + decimals (1) - legacy, no max_top_up enforcement
+/// - 11 bytes: amount (8) + decimals (1) + max_top_up (2, u16, u16::MAX = no limit, 0 = no top-ups allowed)
+///
+/// Account layout (same as burn):
+/// 0: source CToken account (writable)
+/// 1: CMint account (writable)
+/// 2: authority (signer, readonly if fee_payer provided, writable otherwise)
+/// 3: system_program (readonly) - required for rent top-up CPIs
+/// 4: fee_payer (optional, signer, writable) - pays for top-ups instead of authority
+#[profile]
+#[inline(always)]
+pub fn process_ctoken_burn_checked(
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> Result<(), ProgramError> {
+    process_ctoken_supply_change_inner::<BASE_LEN_CHECKED, BURN_CMINT_IDX, BURN_CTOKEN_IDX>(
+        accounts,
+        instruction_data,
+        process_burn_checked,
+    )
+}
+
+/// Shared inner implementation for ctoken mint_to and burn variants.
+///
+/// # Type Parameters
+/// * `BASE_LEN` - Base instruction data length (8 for unchecked, 9 for checked)
+/// * `CMINT_IDX` - Index of CMint account (0 for mint_to, 1 for burn)
+/// * `CTOKEN_IDX` - Index of CToken account (1 for mint_to, 0 for burn)
+///
+/// # Arguments
+/// * `accounts` - Account layout: [cmint/ctoken, ctoken/cmint, authority]
+/// * `instruction_data` - Serialized instruction data
+/// * `processor` - Pinocchio processor function
+#[inline(always)]
+pub(crate) fn process_ctoken_supply_change_inner<
+    const BASE_LEN: usize,
+    const CMINT_IDX: usize,
+    const CTOKEN_IDX: usize,
+>(
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+    processor: ProcessorFn,
+) -> Result<(), ProgramError> {
+    if accounts.len() < 3 {
+        msg!(
+            "CToken: expected at least 3 accounts received {}",
+            accounts.len()
+        );
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+
+    if instruction_data.len() < BASE_LEN {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // u16::MAX means no limit, 0 means no top-ups allowed
+    let max_top_up = match instruction_data.len() {
+        len if len == BASE_LEN => u16::MAX, // Legacy: no max_top_up limit
+        len if len == BASE_LEN + 2 => u16::from_le_bytes(
+            instruction_data[BASE_LEN..BASE_LEN + 2]
+                .try_into()
+                .map_err(|_| ProgramError::InvalidInstructionData)?,
+        ),
+        _ => return Err(ProgramError::InvalidInstructionData),
+    };
+
+    processor(accounts, &instruction_data[..BASE_LEN]).map_err(convert_pinocchio_token_error)?;
+
+    // Calculate and execute top-ups for both CMint and CToken
+    // SAFETY: accounts.len() >= 3 validated at function entry
+    let cmint = &accounts[CMINT_IDX];
+    let ctoken = &accounts[CTOKEN_IDX];
+    // Use fee_payer if provided, otherwise fall back to authority
+    let authority_payer = accounts.get(PAYER_IDX);
+    let fee_payer = accounts.get(FEE_PAYER_IDX);
+    let effective_payer = fee_payer.or(authority_payer);
+
+    calculate_and_execute_compressible_top_ups(cmint, ctoken, effective_payer, max_top_up)
+}

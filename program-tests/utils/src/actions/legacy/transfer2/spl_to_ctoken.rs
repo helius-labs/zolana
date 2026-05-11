@@ -1,0 +1,60 @@
+use light_client::{
+    indexer::Indexer,
+    rpc::{Rpc, RpcError},
+};
+use light_compressed_token_sdk::{
+    constants::SPL_TOKEN_PROGRAM_ID, spl_interface::find_spl_interface_pda,
+};
+use light_token::instruction::TransferFromSpl;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
+use spl_pod::bytemuck::pod_from_bytes;
+use spl_token_2022::pod::PodAccount;
+
+/// Transfer SPL tokens to compressed tokens
+pub async fn spl_to_light_token_transfer<R: Rpc + Indexer>(
+    rpc: &mut R,
+    source_spl_token_account: Pubkey,
+    destination: Pubkey,
+    amount: u64,
+    authority: &Keypair,
+    payer: &Keypair,
+    decimals: u8,
+) -> Result<Signature, RpcError> {
+    let token_account_info = rpc
+        .get_account(source_spl_token_account)
+        .await?
+        .ok_or_else(|| RpcError::CustomError("SPL token account not found".to_string()))?;
+
+    let pod_account = pod_from_bytes::<PodAccount>(&token_account_info.data)
+        .map_err(|e| RpcError::CustomError(format!("Failed to parse SPL token account: {}", e)))?;
+
+    let mint = pod_account.mint;
+
+    let (spl_interface_pda, spl_interface_pda_bump) = find_spl_interface_pda(&mint, false);
+
+    let ix = TransferFromSpl {
+        amount,
+        spl_interface_pda_bump,
+        source_spl_token_account,
+        destination,
+        authority: authority.pubkey(),
+        mint,
+        payer: payer.pubkey(),
+        spl_interface_pda,
+        spl_token_program: SPL_TOKEN_PROGRAM_ID, // TODO: make dynamic
+        decimals,
+    }
+    .instruction()
+    .map_err(|e| RpcError::CustomError(e.to_string()))?;
+
+    let mut signers = vec![payer];
+    if authority.pubkey() != payer.pubkey() {
+        signers.push(authority);
+    }
+
+    rpc.create_and_send_transaction(&[ix], &payer.pubkey(), &signers)
+        .await
+}

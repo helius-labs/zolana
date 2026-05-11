@@ -1,0 +1,163 @@
+use std::{env, path::Path, process::Command};
+
+use light_hasher::{Hasher, Poseidon};
+use light_sparse_merkle_tree::changelog::ChangelogEntry;
+use num_bigint::{BigInt, BigUint};
+use num_traits::{Num, ToPrimitive};
+use serde::Serialize;
+
+use crate::errors::ProverClientError;
+
+const DEFAULT_LIGHT_CLI_PACKAGE: &str = "@lightprotocol/zk-compression-cli@0.28.4";
+
+pub fn get_project_root() -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        String::from_utf8(output.stdout).ok()
+    } else {
+        None
+    }
+}
+
+pub fn get_light_cli_command() -> Option<String> {
+    if let Ok(command) = env::var("LIGHT_CLI_CMD") {
+        let command = command.trim();
+        if !command.is_empty() {
+            return Some(command.to_string());
+        }
+    }
+
+    if let Ok(path) = env::var("LIGHT_CLI_BIN") {
+        let path = path.trim();
+        if !path.is_empty() {
+            return Some(shell_quote(path));
+        }
+    }
+
+    if let Some(project_root) = get_project_root() {
+        let local_cli = Path::new(project_root.trim()).join("cli/test_bin/run");
+        if local_cli.is_file() {
+            return Some(shell_quote(&local_cli.to_string_lossy()));
+        }
+    }
+
+    if let Some(path) = find_in_path("light") {
+        return Some(shell_quote(&path));
+    }
+
+    find_in_path("npm").map(|_| {
+        let package =
+            env::var("LIGHT_CLI_PACKAGE").unwrap_or_else(|_| DEFAULT_LIGHT_CLI_PACKAGE.to_string());
+        format!(
+            "npm exec --yes --package {} -- light",
+            shell_quote(&package)
+        )
+    })
+}
+
+fn find_in_path(binary: &str) -> Option<String> {
+    let paths = env::var_os("PATH")?;
+    for dir in env::split_paths(&paths) {
+        let candidate = dir.join(binary);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub fn change_endianness(bytes: &[u8]) -> Vec<u8> {
+    let mut vec = Vec::with_capacity(bytes.len());
+    for chunk in bytes.chunks(32) {
+        vec.extend(chunk.iter().rev());
+    }
+    vec
+}
+pub fn convert_endianness_128(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .chunks(64)
+        .flat_map(|b| b.iter().copied().rev().collect::<Vec<u8>>())
+        .collect::<Vec<u8>>()
+}
+
+pub fn bigint_to_u8_32(n: &BigInt) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    let (_, bytes_be) = n.to_bytes_be();
+    if bytes_be.len() > 32 {
+        Err("Number too large to fit in [u8; 32]")?;
+    }
+    let mut array = [0; 32];
+    let bytes = &bytes_be[..bytes_be.len()];
+    array[(32 - bytes.len())..].copy_from_slice(bytes);
+    Ok(array)
+}
+
+pub fn compute_root_from_merkle_proof<const HEIGHT: usize>(
+    leaf: [u8; 32],
+    path_elements: &[[u8; 32]; HEIGHT],
+    path_index: usize,
+) -> Result<([u8; 32], ChangelogEntry<HEIGHT>), ProverClientError> {
+    let mut changelog_entry = ChangelogEntry::default_with_index(path_index);
+
+    let mut current_hash = leaf;
+    let mut current_index = path_index;
+    for (level, path_element) in path_elements.iter().enumerate() {
+        changelog_entry.path[level] = Some(current_hash);
+        if current_index.is_multiple_of(2) {
+            current_hash = Poseidon::hashv(&[&current_hash, path_element])?;
+        } else {
+            current_hash = Poseidon::hashv(&[path_element, &current_hash])?;
+        }
+        current_index /= 2;
+    }
+
+    Ok((current_hash, changelog_entry))
+}
+
+pub fn big_uint_to_string(big_uint: &BigUint) -> String {
+    format!("0x{}", big_uint.to_str_radix(16))
+}
+
+pub fn big_int_to_string(big_int: &BigInt) -> String {
+    format!("0x{}", big_int.to_str_radix(16))
+}
+pub fn string_to_big_int(hex_str: &str) -> Option<BigInt> {
+    if hex_str.starts_with("0x") || hex_str.starts_with("0X") {
+        BigInt::from_str_radix(&hex_str[2..], 16).ok()
+    } else {
+        None
+    }
+}
+
+pub fn create_vec_of_string(number_of_utxos: usize, element: &BigInt) -> Vec<String> {
+    vec![big_int_to_string(element); number_of_utxos]
+}
+
+pub fn create_vec_of_u32(number_of_utxos: usize, element: &BigInt) -> Vec<u32> {
+    vec![element.to_u32().unwrap(); number_of_utxos]
+}
+
+pub fn create_vec_of_vec_of_string(
+    number_of_utxos: usize,
+    elements: &[BigInt],
+) -> Vec<Vec<String>> {
+    let vec: Vec<String> = elements
+        .iter()
+        .map(|e| format!("0x{}", e.to_str_radix(16)))
+        .collect();
+    vec![vec; number_of_utxos]
+}
+
+pub fn create_json_from_struct<T>(json_struct: &T) -> String
+where
+    T: Serialize,
+{
+    serde_json::to_string(json_struct).expect("JSON serialization failed for valid struct")
+}

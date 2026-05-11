@@ -1,0 +1,59 @@
+[package]
+name = "light-registry"
+version = "2.1.0"
+description = "Light core protocol logic"
+repository = "https://github.com/Lightprotocol/light-protocol"
+license = "Apache-2.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "light_registry"
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Required by Anchor-generated instruction/accounts code and CPI interfaces.
+    "borsh",
+    "light-macros",
+    "light-system-program-anchor",
+]
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+test-sbf = []
+bench-sbf = []
+sdk = []
+
+[dependencies]
+aligned-sized = { workspace = true }
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+account-compression = { workspace = true }
+light-compressible = { workspace = true, features = ["anchor"] }
+light-token-interface = { workspace = true, features = ["anchor"] }
+light-zero-copy = { workspace = true }
+light-system-program-anchor = { workspace = true, features = ["cpi"] }
+light-account-checks = { workspace = true, features = ["solana", "std", "msg"] }
+light-program-profiler = { workspace = true }
+light-macros = { workspace = true }
+bitvec = { workspace = true }
+borsh = { workspace = true }
+solana-account-info = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+spl-pod = { workspace = true }
+solana-security-txt = "1.1.0"
+light-merkle-tree-metadata = { workspace = true, features = ["anchor"] }
+light-batched-merkle-tree = { workspace = true }
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-sdk = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

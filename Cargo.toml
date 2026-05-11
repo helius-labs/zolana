@@ -1,0 +1,225 @@
+[workspace]
+members = [
+    "forester",
+    "forester-utils",
+    "program-libs/interface",
+    "program-libs/batched-merkle-tree",
+    "program-tests/create-address-test-program",
+    "program-tests/merkle-tree",
+    "program-tests/registry",
+    "program-tests/shielded-pool",
+    "program-tests/utils",
+    "programs/account-compression",
+    "programs/compressed-token/anchor",
+    "programs/compressed-token/program",
+    "programs/registry",
+    "programs/shielded-pool",
+    "program-libs/heap",
+    "anchor-programs/system",
+    "prover/client",
+    "sdk-libs/cli",
+    "sdk-libs/client",
+    "sdk-libs/compressed-token-sdk",
+    "sdk-libs/event",
+    "sdk-tests/csdk-anchor-full-derived-test",
+    "sdk-libs/photon-api",
+    "sdk-libs/program-test",
+    "sdk-libs/token-sdk",
+    "xtask",
+]
+default-members = [
+    "forester",
+    "forester-utils",
+    "prover/client",
+    "sdk-libs/photon-api",
+    "program-libs/interface",
+    "programs/shielded-pool",
+]
+exclude = ["external/photon"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+# Local workspace crates kept in this reduced monorepo.
+account-compression = { path = "programs/account-compression", version = "2.0.0", features = ["cpi"] }
+anchor-compressed-token = { path = "programs/compressed-token/anchor", version = "2.0.0", default-features = false, features = ["cpi", "custom-heap"] }
+create-address-test-program = { path = "program-tests/create-address-test-program", version = "1.0.0", features = ["cpi"] }
+csdk-anchor-full-derived-test = { path = "sdk-tests/csdk-anchor-full-derived-test", version = "0.1.0", features = ["no-entrypoint"] }
+forester-utils = { path = "forester-utils", version = "2.0.0" }
+zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
+shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
+light-compressed-token = { path = "programs/compressed-token/program", version = "2.1.0", features = ["cpi"] }
+light-compressed-token-sdk = { path = "sdk-libs/compressed-token-sdk", version = "0.23.0" }
+light-client = { path = "sdk-libs/client", version = "0.23.0" }
+light-test-utils = { path = "program-tests/utils", version = "1.2.1" }
+light-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
+light-prover-client = { path = "prover/client", version = "8.0.0" }
+light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
+light-system-program-anchor = { path = "anchor-programs/system", version = "2.0.0", features = ["cpi"] }
+light-token = { path = "sdk-libs/token-sdk", version = "0.23.0" }
+light-token-client = "0.23.0"
+photon-api = { path = "sdk-libs/photon-api", version = "0.56.0" }
+
+# Published Light Protocol crates.
+aligned-sized = "1.1.0"
+light-array-map = "0.2.0"
+light-account = { version = "0.23.0", default-features = false }
+light-account-checks = { version = "0.8.0", default-features = false }
+light-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", version = "0.11.0" }
+light-bloom-filter = "0.6.0"
+light-bounded-vec = "2.0.1"
+light-compressed-account = { version = "0.11.0", default-features = false }
+light-compressible = { version = "0.6.0", default-features = false }
+light-concurrent-merkle-tree = "5.0.0"
+light-hash-set = "4.0.0"
+light-hasher = { version = "5.0.0", default-features = false }
+light-heap = { path = "program-libs/heap", version = "2.0.0" }
+light-indexed-array = "0.3.0"
+light-indexed-merkle-tree = "5.0.0"
+light-instruction-decoder = "0.23.0"
+light-instruction-decoder-derive = "0.4.0"
+light-event = { path = "sdk-libs/event", version = "0.23.1" }
+light-macros = "2.2.0"
+light-merkle-tree-metadata = "0.11.0"
+light-merkle-tree-reference = { path = "program-tests/merkle-tree", version = "4.0.0" }
+light-program-profiler = "0.1.0"
+light-verifier = "10.0.0"
+light-sdk = "0.23.0"
+light-sdk-macros = "0.23.0"
+light-sdk-types = { version = "0.23.0", default-features = false }
+light-sparse-merkle-tree = "0.3.0"
+light-token-interface = "0.5.0"
+light-token-types = "0.23.0"
+light-zero-copy = { version = "0.6.0", default-features = false }
+
+# Solana and SPL.
+anchor-lang = "0.31.1"
+light-anchor-spl = { version = "0.31.1", features = ["memo"] }
+anchor-spl = "0.31.1"
+borsh = { version = "0.10.4", default-features = false }
+solana-account = "2.2"
+solana-account-info = "2.2"
+solana-account-decoder = "2.3"
+solana-account-decoder-client-types = "2.3"
+solana-address-lookup-table-interface = { version = "2.2.1", features = ["bytemuck", "bincode"] }
+solana-banks-client = "2.3"
+solana-bn254 = "3.2.1"
+solana-client = "2.3"
+solana-clock = "2.2"
+solana-commitment-config = "2.2"
+solana-compute-budget = "2.3"
+solana-compute-budget-interface = "2.2"
+solana-cpi = "2.2"
+solana-hash = "2.3"
+solana-instruction = "2.3"
+solana-keypair = "2.2"
+solana-logger = "2.3"
+solana-message = "2.2"
+solana-msg = "2.2"
+solana-program = "2.3"
+solana-program-error = "2.2"
+solana-pubkey = "2.4.0"
+solana-rpc-client = "2.3"
+solana-rpc-client-api = "2.3"
+solana-security-txt = "1.1.1"
+solana-sdk = "2.3"
+solana-signature = "2.3"
+solana-signer = "2.2"
+solana-system-interface = "1"
+solana-sysvar = "2.2"
+solana-transaction = "2.2"
+solana-transaction-error = "2.2"
+solana-transaction-status = "2.3"
+solana-transaction-status-client-types = "2.3"
+spl-token = "7.0.0"
+spl-token-2022 = { version = "7.0.0", features = ["no-entrypoint"] }
+spl-token-2022-interface = "1.0.0"
+spl-pod = "0.5.1"
+pinocchio = "0.9"
+pinocchio-pubkey = "0.3.0"
+pinocchio-system = "0.3.0"
+pinocchio-token-program = { git = "https://github.com/Lightprotocol/token", rev = "f7bee9bbc8039c224a88ea76e9ae2edd78e0f9c3" }
+
+# Async, HTTP, logging, and utilities.
+anyhow = "1.0"
+async-channel = "2.5"
+async-trait = "0.1.82"
+arrayvec = "0.7"
+base64 = "0.13"
+bb8 = "0.8.6"
+bitvec = { version = "1.0.1", default-features = false }
+bs58 = "0.5.1"
+bytemuck = "1.19.0"
+chrono = "0.4"
+dashmap = "6.1.0"
+env_logger = "0.11"
+futures = "0.3.31"
+governor = "0.8.0"
+hex = "0.4"
+lazy_static = "1.5.0"
+log = "0.4"
+litesvm = "0.7"
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
+rand = "0.8.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serial_test = "3.2.0"
+sha2 = "0.10"
+smallvec = "1.15"
+tabled = "0.20"
+thiserror = "2.0"
+tinyvec = "1.10.0"
+tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+zerocopy = "0.8.25"
+
+# Prover math/crypto.
+ark-bn254 = "0.5"
+ark-serialize = "0.5"
+ark-std = "0.5"
+
+[patch.crates-io]
+account-compression = { path = "programs/account-compression" }
+light-compressed-token = { path = "programs/compressed-token/program" }
+light-compressed-token-sdk = { path = "sdk-libs/compressed-token-sdk" }
+light-batched-merkle-tree = { path = "program-libs/batched-merkle-tree" }
+light-client = { path = "sdk-libs/client" }
+light-event = { path = "sdk-libs/event" }
+light-heap = { path = "program-libs/heap" }
+light-merkle-tree-reference = { path = "program-tests/merkle-tree" }
+light-program-test = { path = "sdk-libs/program-test" }
+light-registry = { path = "programs/registry" }
+light-system-program-anchor = { path = "anchor-programs/system" }
+light-token = { path = "sdk-libs/token-sdk" }
+
+[profile.dev]
+opt-level = 0
+debug = "line-tables-only"
+strip = "none"
+
+[profile.dev.package.syn]
+opt-level = 3
+
+[profile.dev.package.proc-macro2]
+opt-level = 3
+
+[profile.dev.package.quote]
+opt-level = 3
+
+[profile.dev.package.serde_derive]
+opt-level = 3
+
+[profile.dev.package.ark-ff-macros]
+opt-level = 3
+
+[profile.dev.package.ark-ff-asm]
+opt-level = 3
+
+[profile.release]
+overflow-checks = true

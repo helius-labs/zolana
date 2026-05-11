@@ -1,0 +1,36 @@
+[package]
+name = "create-address-test-program"
+version = "1.0.0"
+description = "Test program using generalized account compression"
+repository = "https://github.com/Lightprotocol/light-protocol"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Used by the Anchor macro-expanded test program and its CPI account wiring.
+    "light-system-program-anchor",
+]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "create_address_test_program"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+default = []
+
+[dependencies]
+light-hasher = { workspace = true, features = ["poseidon"] }
+anchor-lang = { workspace = true }
+light-system-program-anchor = { workspace = true, features = ["cpi"] }
+account-compression = { workspace = true, features = ["cpi"] }
+light-compressed-account = { workspace = true, features = ["anchor"] }
+light-sdk = { workspace = true, features = ["anchor", "v2"] }
+light-sdk-types = { workspace = true }
+light-instruction-decoder = { workspace = true }

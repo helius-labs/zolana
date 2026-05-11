@@ -1,0 +1,20 @@
+use pinocchio::error::ProgramError;
+use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum ShieldedPoolError {
+    #[error("invalid instruction data")]
+    InvalidInstructionData,
+    #[error("invalid address tree configuration")]
+    InvalidAddressTreeConfig,
+    #[error("insert addresses requires at least one address")]
+    EmptyAddressBatch,
+    #[error("batch update root cannot be zero")]
+    EmptyBatchUpdateRoot,
+}
+
+impl From<ShieldedPoolError> for ProgramError {
+    fn from(error: ShieldedPoolError) -> Self {
+        ProgramError::Custom(error as u32)
+    }
+}

@@ -1,0 +1,79 @@
+[package]
+name = "light-client"
+version = "0.23.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/lightprotocol/light-protocol"
+description = "Client library for Light Protocol"
+
+[features]
+default = ["v2"]
+devenv = ["v2"]
+v2 = []
+program-test = ["solana-banks-client", "litesvm"]
+anchor = ["anchor-lang", "light-sdk/anchor", "light-token/anchor"]
+
+[dependencies]
+# Solana dependencies
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
+solana-account-decoder-client-types = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-instruction = { workspace = true }
+solana-program-error = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true }
+solana-hash = { workspace = true }
+solana-clock = { workspace = true }
+solana-signature = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-account = { workspace = true }
+solana-keypair = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-banks-client = { workspace = true, optional = true }
+solana-address-lookup-table-interface = { version = "2.2.1", features = [
+    "bytemuck",
+    "bincode",
+] }
+solana-message = { workspace = true }
+spl-token-2022-interface = { workspace = true }
+spl-pod = { workspace = true }
+
+# Light Protocol dependencies
+light-merkle-tree-metadata = { workspace = true, features = ["solana"] }
+light-concurrent-merkle-tree = { workspace = true }
+light-indexed-merkle-tree = { workspace = true }
+light-sdk = { workspace = true, features = ["v2", "cpi-context"] }
+light-account = { workspace = true }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-compressed-account = { workspace = true, features = ["solana", "poseidon"] }
+light-token = { workspace = true, features = ["cpi-context"] }
+light-compressed-token-sdk = { workspace = true }
+light-token-interface = { workspace = true }
+light-event = { workspace = true }
+light-compressible = { workspace = true }
+light-sdk-types = { workspace = true }
+
+photon-api = { workspace = true }
+light-prover-client = { workspace = true }
+litesvm = { workspace = true, optional = true }
+
+# External dependencies
+anchor-lang = { workspace = true, optional = true }
+borsh = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+num-bigint = { workspace = true }
+base64 = { workspace = true }
+bs58 = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
+reqwest = { workspace = true }
+futures = { workspace = true }
+
+serde_json = { workspace = true }
+tracing = { workspace = true }
+lazy_static = { workspace = true }
+rand = { workspace = true }
+
+# Tests are in program-tests/client-test/tests/light-client.rs

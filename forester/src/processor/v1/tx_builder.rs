@@ -1,0 +1,210 @@
+use std::{sync::Arc, time::Duration};
+
+use account_compression::processor::initialize_address_merkle_tree::Pubkey;
+use async_trait::async_trait;
+use forester_utils::rpc_pool::SolanaRpcPool;
+use light_client::rpc::Rpc;
+use solana_program::hash::Hash;
+use solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount,
+    instruction::Instruction,
+    signature::{Keypair, Signer},
+};
+use tokio::sync::Mutex;
+use tracing::{trace, warn};
+
+use crate::{
+    epoch_manager::WorkItem,
+    processor::{
+        tx_cache::ProcessedHashCache,
+        v1::{config::BuildTransactionBatchConfig, helpers::fetch_proofs_and_create_instructions},
+    },
+    smart_transaction::{
+        create_smart_transaction, CreateSmartTransactionConfig, PreparedTransaction,
+    },
+    Result,
+};
+
+#[async_trait]
+#[allow(clippy::too_many_arguments)]
+pub trait TransactionBuilder: Send + Sync {
+    fn epoch(&self) -> u64;
+    async fn build_signed_transaction_batch(
+        &self,
+        payer: &Keypair,
+        derivation: &Pubkey,
+        recent_blockhash: &Hash,
+        last_valid_block_height: u64,
+        priority_fee: Option<u64>,
+        work_items: &[WorkItem],
+        config: BuildTransactionBatchConfig,
+    ) -> Result<(Vec<PreparedTransaction>, u64)>;
+}
+
+pub struct EpochManagerTransactions<R: Rpc> {
+    pub pool: Arc<SolanaRpcPool<R>>,
+    pub epoch: u64,
+    pub phantom: std::marker::PhantomData<R>,
+    pub processed_hash_cache: Arc<Mutex<ProcessedHashCache>>,
+    pub address_lookup_tables: Vec<AddressLookupTableAccount>,
+    pub enable_v1_multi_nullify: bool,
+}
+
+impl<R: Rpc> EpochManagerTransactions<R> {
+    pub fn new(
+        pool: Arc<SolanaRpcPool<R>>,
+        epoch: u64,
+        cache: Arc<Mutex<ProcessedHashCache>>,
+        address_lookup_tables: Vec<AddressLookupTableAccount>,
+        enable_v1_multi_nullify: bool,
+    ) -> Self {
+        Self {
+            pool,
+            epoch,
+            phantom: std::marker::PhantomData,
+            processed_hash_cache: cache,
+            address_lookup_tables,
+            enable_v1_multi_nullify,
+        }
+    }
+}
+
+#[async_trait]
+impl<R: Rpc> TransactionBuilder for EpochManagerTransactions<R> {
+    fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    async fn build_signed_transaction_batch(
+        &self,
+        payer: &Keypair,
+        derivation: &Pubkey,
+        recent_blockhash: &Hash,
+        last_valid_block_height: u64,
+        priority_fee: Option<u64>,
+        work_items: &[WorkItem],
+        config: BuildTransactionBatchConfig,
+    ) -> Result<(Vec<PreparedTransaction>, u64)> {
+        let mut cache = self.processed_hash_cache.lock().await;
+
+        let work_items: Vec<&WorkItem> = work_items
+            .iter()
+            .filter(|item| {
+                let hash_str = bs58::encode(&item.queue_item_data.hash).into_string();
+                if cache.contains(&hash_str) {
+                    trace!("Skipping already processed hash: {}", hash_str);
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        // Add items with short timeout (30 seconds) for processing
+        for item in &work_items {
+            let hash_str = bs58::encode(&item.queue_item_data.hash).into_string();
+            cache.add_with_timeout(&hash_str, Duration::from_secs(15));
+            trace!("Added {} to cache with 15s timeout", hash_str);
+        }
+
+        let work_item_hashes: Vec<String> = work_items
+            .iter()
+            .map(|item| bs58::encode(&item.queue_item_data.hash).into_string())
+            .collect();
+
+        drop(cache);
+
+        if work_items.is_empty() {
+            trace!("All items in this batch were recently processed, skipping batch");
+            return Ok((vec![], last_valid_block_height));
+        }
+
+        let work_items = work_items
+            .iter()
+            .map(|&item| item.clone())
+            .collect::<Vec<_>>();
+
+        let use_multi_nullify =
+            self.enable_v1_multi_nullify && !self.address_lookup_tables.is_empty();
+        let mut transactions = vec![];
+        let all_instructions = match fetch_proofs_and_create_instructions(
+            payer.pubkey(),
+            *derivation,
+            self.pool.clone(),
+            self.epoch,
+            work_items.as_slice(),
+            use_multi_nullify,
+        )
+        .await
+        {
+            Ok((_, instructions)) => instructions,
+            Err(e) => {
+                // Check if it's a "Record Not Found" error
+                let err_str = e.to_string();
+                return if err_str.to_lowercase().contains("record not found")
+                    || err_str.to_lowercase().contains("not found")
+                {
+                    warn!("Record not found in indexer, skipping batch: {}", e);
+                    // Return empty transactions but don't propagate the error
+                    Ok((vec![], last_valid_block_height))
+                } else {
+                    // For any other error, propagate it
+                    Err(e)
+                };
+            }
+        };
+
+        let batch_size = if !self.address_lookup_tables.is_empty() {
+            1
+        } else {
+            config.batch_size.max(1) as usize
+        };
+
+        for labeled_chunk in all_instructions.chunks(batch_size) {
+            let label = labeled_chunk
+                .iter()
+                .map(|li| li.label.as_str())
+                .collect::<Vec<_>>()
+                .join("+");
+            let instructions: Vec<Instruction> = labeled_chunk
+                .iter()
+                .map(|li| li.instruction.clone())
+                .collect();
+
+            // Dynamic CU based on number of nullifications in the instruction.
+            let nullify_count: u32 = labeled_chunk.iter().map(|li| li.nullify_count).sum();
+            let dynamic_cu_limit = Some(match nullify_count {
+                1 => 300_000,
+                2 => 600_000,
+                3 => 900_000,
+                _ => 1_000_000,
+            });
+
+            let prepared = create_smart_transaction(CreateSmartTransactionConfig {
+                payer: payer.insecure_clone(),
+                instructions,
+                recent_blockhash: *recent_blockhash,
+                compute_unit_price: priority_fee,
+                compute_unit_limit: dynamic_cu_limit,
+                last_valid_block_height,
+                address_lookup_tables: self.address_lookup_tables.clone(),
+            })
+            .await?
+            .with_label(label);
+            transactions.push(prepared);
+        }
+
+        if !transactions.is_empty() {
+            let mut cache = self.processed_hash_cache.lock().await;
+            for hash_str in work_item_hashes {
+                cache.extend_timeout(&hash_str, Duration::from_secs(30));
+                trace!(
+                    "Extended cache timeout for {} to 30s after successful transaction creation",
+                    hash_str
+                );
+            }
+        }
+
+        Ok((transactions, last_valid_block_height))
+    }
+}

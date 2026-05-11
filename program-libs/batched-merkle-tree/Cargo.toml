@@ -1,0 +1,78 @@
+[package]
+name = "light-batched-merkle-tree"
+version = "0.11.0"
+description = "Batch Merkle tree implementation."
+readme = "README.md"
+repository = "https://github.com/Lightprotocol/light-protocol"
+license = "Apache-2.0"
+edition = "2021"
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Used through feature-gated Solana account traits and cfg paths.
+    "solana-account-info",
+    "solana-pubkey",
+    "solana-sysvar",
+]
+
+[features]
+default = ["solana"]
+test-only = []
+solana = [
+    "solana-program-error",
+    "solana-account-info",
+    "solana-sysvar",
+    "solana-pubkey",
+    "solana-msg",
+    "light-zero-copy/solana",
+    "light-hasher/solana",
+    "light-hasher/keccak",
+    "light-account-checks/solana",
+    "light-bloom-filter/solana",
+    "light-macros/solana",
+    "light-compressed-account/solana",
+    "light-compressed-account/keccak",
+    "light-merkle-tree-metadata/solana",
+]
+pinocchio = [
+    "dep:pinocchio",
+    "light-zero-copy/pinocchio",
+    "light-hasher/pinocchio",
+    "light-account-checks/pinocchio",
+    "light-bloom-filter/pinocchio",
+    "light-macros/pinocchio",
+    "light-compressed-account/pinocchio",
+    "light-compressed-account/keccak",
+    "light-merkle-tree-metadata/pinocchio",
+]
+
+[dependencies]
+light-account-checks = { workspace = true }
+aligned-sized = { workspace = true }
+solana-program-error = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }
+solana-sysvar = { workspace = true, optional = true }
+solana-msg = { workspace = true, optional = true }
+solana-account-info = { workspace = true, optional = true }
+light-zero-copy = { workspace = true, features = ["std"] }
+light-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+light-bloom-filter = { workspace = true }
+light-verifier = { workspace = true }
+thiserror = { workspace = true }
+light-merkle-tree-metadata = { workspace = true }
+borsh = { workspace = true }
+zerocopy = { workspace = true }
+pinocchio = { version = "0.10", optional = true }
+light-compressed-account = { workspace = true, features = ["std", "keccak"] }
+light-macros = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+light-merkle-tree-reference = { workspace = true }
+light-account-checks = { workspace = true, features = ["test-only"] }
+light-compressed-account = { workspace = true, features = ["new-unique", "keccak"] }
+light-hasher = { workspace = true, features = ["keccak"] }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']

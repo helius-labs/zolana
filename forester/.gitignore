@@ -1,0 +1,11 @@
+logs
+/target
+.idea
+.env
+.env.devnet
+.env.mainnet
+*.json
+!package.json
+!metrics-contract.json
+spawn.sh
+spawn_devnet.sh

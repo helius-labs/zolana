@@ -1,0 +1,11 @@
+**/*.log
+.git/
+**/test-ledger/
+**/logs/
+target
+**/target/
+node_modules
+**/node_modules
+Dockerfile
+.dockerignore
+.git
