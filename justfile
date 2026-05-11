@@ -55,6 +55,13 @@ test-forester-smoke:
 # Default test target keeps CI cheap while preserving forester test compilation.
 test: test-forester-compile test-forester-smoke
 
+# Cheap tests for the initial shielded-pool/interface/registry scaffold.
+test-scaffold:
+    cargo test -p zolana-interface --features solana
+    cargo test -p shielded-pool-program --lib --tests
+    cargo test -p shielded-pool-tests
+    cargo test -p registry-tests
+
 # Check photon-api's OpenAPI regeneration path against external/photon.
 check-photon-generate:
     cargo check -p photon-api --features generate
@@ -140,6 +147,9 @@ prover-server-test:
 
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
+
+xtask-create-verifying-keys-smoke:
+    cargo run -p xtask -- create-verifying-keys --limit 1
 
 # === Maintenance ===
 

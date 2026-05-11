@@ -6141,7 +6141,6 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
- "borsh 0.10.4",
  "pinocchio 0.10.2",
  "shielded-pool-program",
  "zolana-interface",
@@ -11330,6 +11329,9 @@ dependencies = [
 [[package]]
 name = "xtask"
 version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "yoke"

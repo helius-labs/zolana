@@ -1,27 +1,22 @@
+#[cfg(feature = "solana")]
 pub mod builders;
 pub mod instruction_data;
 pub mod tag;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 
 pub use instruction_data::{
     BatchUpdateAddressTreeData, CreateAddressTreeData, InsertAddressesData,
 };
 pub use tag::InstructionTag;
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub enum ShieldedPoolInstruction {
-    CreateAddressTree(CreateAddressTreeData),
-    InsertAddresses(InsertAddressesData),
-    BatchUpdateAddressTree(BatchUpdateAddressTreeData),
-}
+#[cfg(feature = "solana")]
+pub use builders::*;
 
-impl ShieldedPoolInstruction {
-    pub fn tag(&self) -> InstructionTag {
-        match self {
-            Self::CreateAddressTree(_) => InstructionTag::CreateAddressTree,
-            Self::InsertAddresses(_) => InstructionTag::InsertAddresses,
-            Self::BatchUpdateAddressTree(_) => InstructionTag::BatchUpdateAddressTree,
-        }
-    }
+pub fn encode_instruction<T: BorshSerialize>(tag: u8, payload: &T) -> Vec<u8> {
+    let mut data = vec![tag];
+    payload
+        .serialize(&mut data)
+        .expect("shielded-pool instruction serialization is infallible");
+    data
 }

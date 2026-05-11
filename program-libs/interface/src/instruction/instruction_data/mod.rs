@@ -1,20 +1,7 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+pub mod batch_update_address_tree;
+pub mod create_address_tree;
+pub mod insert_addresses;
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct CreateAddressTreeData {
-    pub height: u8,
-    pub queue_capacity: u32,
-    pub canopy_depth: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct InsertAddressesData {
-    pub addresses: Vec<[u8; 32]>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct BatchUpdateAddressTreeData {
-    pub start_index: u64,
-    pub new_root: [u8; 32],
-    pub proof_hash: [u8; 32],
-}
+pub use batch_update_address_tree::BatchUpdateAddressTreeData;
+pub use create_address_tree::CreateAddressTreeData;
+pub use insert_addresses::InsertAddressesData;

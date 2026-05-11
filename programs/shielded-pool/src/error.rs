@@ -11,6 +11,10 @@ pub enum ShieldedPoolError {
     EmptyAddressBatch,
     #[error("batch update root cannot be zero")]
     EmptyBatchUpdateRoot,
+    #[error("address tree accounts are invalid")]
+    InvalidAddressTreeAccounts,
+    #[error("address tree state mutation is not implemented for this scaffold")]
+    AddressTreeMutationUnsupported,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

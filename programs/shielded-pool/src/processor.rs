@@ -1,13 +1,15 @@
 use borsh::BorshDeserialize;
-use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::ShieldedPoolInstruction;
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_interface::instruction::{
+    tag, BatchUpdateAddressTreeData, CreateAddressTreeData, InsertAddressesData,
+};
 
 use crate::{
     error::ShieldedPoolError,
     instructions::{
-        batch_update_address_tree::process_batch_update_address_tree,
-        create_address_tree::process_create_address_tree,
-        insert_addresses::process_insert_addresses,
+        batch_update_address_tree::processor::process_batch_update_address_tree,
+        create_address_tree::processor::process_create_address_tree,
+        insert_addresses::processor::process_insert_addresses,
     },
 };
 
@@ -16,16 +18,26 @@ pub fn process_instruction(
     accounts: &[AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let instruction = ShieldedPoolInstruction::try_from_slice(instruction_data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    let (ix_tag, payload) = instruction_data
+        .split_first()
+        .ok_or(ProgramError::InvalidInstructionData)?;
 
-    match instruction {
-        ShieldedPoolInstruction::CreateAddressTree(data) => {
+    match *ix_tag {
+        tag::CREATE_ADDRESS_TREE => {
+            let data = CreateAddressTreeData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
             process_create_address_tree(accounts, data)
         }
-        ShieldedPoolInstruction::InsertAddresses(data) => process_insert_addresses(accounts, data),
-        ShieldedPoolInstruction::BatchUpdateAddressTree(data) => {
+        tag::INSERT_ADDRESSES => {
+            let data = InsertAddressesData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+            process_insert_addresses(accounts, data)
+        }
+        tag::BATCH_UPDATE_ADDRESS_TREE => {
+            let data = BatchUpdateAddressTreeData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
             process_batch_update_address_tree(accounts, data)
         }
+        _ => Err(ProgramError::InvalidInstructionData),
     }
 }

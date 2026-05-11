@@ -1,17 +1,23 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_interface::instruction::{CreateAddressTreeData, ShieldedPoolInstruction};
+use borsh::BorshDeserialize;
+use zolana_interface::instruction::{
+    encode_instruction, tag, CreateAddressTreeData, InstructionTag,
+};
 
 #[test]
 fn instruction_roundtrip_preserves_tag_and_payload() {
-    let instruction = ShieldedPoolInstruction::CreateAddressTree(CreateAddressTreeData {
+    let payload = CreateAddressTreeData {
         height: 26,
         queue_capacity: 1024,
         canopy_depth: 10,
-    });
+    };
 
-    let bytes = instruction.try_to_vec().unwrap();
-    let decoded = ShieldedPoolInstruction::try_from_slice(&bytes).unwrap();
+    let bytes = encode_instruction(tag::CREATE_ADDRESS_TREE, &payload);
+    let decoded = CreateAddressTreeData::try_from_slice(&bytes[1..]).unwrap();
 
-    assert_eq!(decoded, instruction);
-    assert_eq!(decoded.tag(), instruction.tag());
+    assert_eq!(bytes[0], tag::CREATE_ADDRESS_TREE);
+    assert_eq!(
+        InstructionTag::try_from(bytes[0]),
+        Ok(InstructionTag::CreateAddressTree)
+    );
+    assert_eq!(decoded, payload);
 }
