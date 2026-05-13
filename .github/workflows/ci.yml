@@ -2,10 +2,45 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  RUSTFLAGS: "-D warnings"
+
 jobs:
-  rust:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  machete:
+    name: cargo-machete
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: machete
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install cargo-machete --locked
+      - run: cargo machete --skip-target-dir
+
+  clippy:
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,26 +48,161 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install just --locked
-      - run: cargo install cargo-machete --locked
-      - run: cargo fmt --all -- --check
-      - run: cargo machete --skip-target-dir
       - run: just clippy
-      - run: just verify-rust
-      - run: just test-scaffold
+
+  check:
+    name: cargo check (workspace + SBF fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
       - run: just check-all
 
-  prover-server:
+  photon-api-codegen:
+    name: photon-api OpenAPI regen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just check-photon-generate
+
+  test-scaffold:
+    name: tests / scaffold
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install just --locked
+      - run: just test-scaffold
+
+  test-program-libs:
+    name: tests / program-libs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-program-libs
+
+  test-compressed-token:
+    name: tests / compressed-token
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-compressed-token
+
+  test-merkle-tree:
+    name: tests / merkle-tree-reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-merkle-tree
+
+  test-sdk-libs:
+    name: tests / sdk-libs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-sdk-libs
+
+  forester-compile:
+    name: forester / test compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-forester-compile
+
+  forester-smoke:
+    name: forester / smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just test-forester-smoke
+
+  xtask-verifying-keys:
+    name: xtask / verifying-keys smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install just --locked
+      - run: just xtask-create-verifying-keys-smoke
+
+  prover-server:
+    name: prover-server (go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
-      - run: just xtask-create-verifying-keys-smoke
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install just --locked
       - run: just prover-server-test
