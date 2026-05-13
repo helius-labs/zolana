@@ -1,0 +1,31 @@
+name: Setup Rust
+description: Install the stable Rust toolchain, warm the Cargo cache, and (optionally) install `just`. Run after actions/checkout.
+
+inputs:
+  components:
+    description: Comma-separated Rust toolchain components (e.g. "rustfmt,clippy")
+    required: false
+    default: ""
+  shared-key:
+    description: Swatinem rust-cache shared-key for cross-workflow cache reuse.
+    required: false
+    default: rust-stable
+  install-just:
+    description: Install the `just` task runner via taiki-e/install-action.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.components }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.shared-key }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    - if: inputs.install-just == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: just

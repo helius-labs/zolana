@@ -1,0 +1,46 @@
+name: prover-server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "prover/**"
+      - "xtask/**"
+      - ".github/workflows/prover-server.yml"
+      - ".github/actions/setup-rust/**"
+  pull_request:
+    paths:
+      - "prover/**"
+      - "xtask/**"
+      - ".github/workflows/prover-server.yml"
+      - ".github/actions/setup-rust/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  go-tests:
+    name: prover-server / go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: extractions/setup-just@v2
+      - run: just prover-server-test
+
+  xtask-verifying-keys:
+    name: xtask / verifying-keys smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: just xtask-create-verifying-keys-smoke

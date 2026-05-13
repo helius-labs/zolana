@@ -1,0 +1,62 @@
+name: forester
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "forester/**"
+      - "forester-utils/**"
+      - "programs/**"
+      - "program-libs/**"
+      - "program-tests/**"
+      - "sdk-libs/**"
+      - "sdk-tests/**"
+      - "anchor-programs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/forester.yml"
+      - ".github/actions/setup-rust/**"
+  pull_request:
+    paths:
+      - "forester/**"
+      - "forester-utils/**"
+      - "programs/**"
+      - "program-libs/**"
+      - "program-tests/**"
+      - "sdk-libs/**"
+      - "sdk-tests/**"
+      - "anchor-programs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/forester.yml"
+      - ".github/actions/setup-rust/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  compile:
+    name: forester / test compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-rust
+      - run: just test-forester-compile
+
+  smoke:
+    name: forester / smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-rust
+      - run: just test-forester-smoke
