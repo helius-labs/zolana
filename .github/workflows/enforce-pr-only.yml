@@ -1,0 +1,45 @@
+name: enforce-pr-only
+
+# Fail any push to `main` that did not come from a merged pull request.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  enforce:
+    name: reject direct push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify commit came from a merged pull request
+        env:
+          COMMITTER_USERNAME: ${{ github.event.head_commit.committer.username }}
+          COMMITTER_EMAIL: ${{ github.event.head_commit.committer.email }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          PUSHER: ${{ github.event.pusher.name }}
+        run: |
+          set -euo pipefail
+
+          # GitHub applies merged PR commits with committer "web-flow".
+          if [[ "$COMMITTER_USERNAME" == "web-flow" ]]; then
+            echo "OK: commit was applied by GitHub via a merged pull request."
+            exit 0
+          fi
+          if [[ "$COMMITTER_EMAIL" == "noreply@github.com" ]]; then
+            echo "OK: commit was applied by GitHub (noreply committer)."
+            exit 0
+          fi
+
+          # Rebase-merge and merge-commit messages start with these markers.
+          case "$MESSAGE" in
+            "Merge pull request #"*|"Merge branch "*|"Squashed commit of"*)
+              echo "OK: commit message matches a pull-request merge."
+              exit 0
+              ;;
+          esac
+
+          echo "::error title=Direct push to main::User '$PUSHER' pushed directly to main. Open a pull request instead. See repo Settings → Branches for branch-protection enforcement."
+          exit 1
