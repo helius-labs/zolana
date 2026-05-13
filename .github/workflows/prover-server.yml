@@ -28,6 +28,10 @@ jobs:
   go-tests:
     name: prover-server / go test
     runs-on: ubuntu-latest
+    # gnark circuit compilation across the full TestCombined / TestInclusion /
+    # TestNonInclusion / batch_* CSV fixtures can take ~30-45 min; allow
+    # headroom but cap so a runaway test fails fast.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

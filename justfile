@@ -165,7 +165,10 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    go test ./...
+    # Scoped to ./prover/... (skips the redis-dependent `server` package tests)
+    # and uses the upstream 60m timeout — TestCombined alone compiles ~672
+    # groth16 circuits and exceeds Go's default 10m.
+    go test ./prover/... -timeout 60m
 
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
