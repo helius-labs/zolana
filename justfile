@@ -170,7 +170,18 @@ prover-server-test:
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
 
+# Smoke-tests the xtask by hashing a single proving key. CI doesn't have the
+# (gitignored, ~2.6GB) proving keys, so we skip cleanly when the directory is
+# missing or empty rather than failing the build.
 xtask-create-verifying-keys-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    keys_dir=prover/server/proving-keys
+    if [[ ! -d "$keys_dir" ]] || [[ -z "$(ls -A "$keys_dir" 2>/dev/null)" ]]; then
+        echo "$keys_dir is missing or empty; skipping xtask verifying-keys smoke."
+        echo "Populate $keys_dir locally (e.g. from the upstream gnark keys) to run this for real."
+        exit 0
+    fi
     cargo run -p xtask -- create-verifying-keys --limit 1
 
 # === Maintenance ===
