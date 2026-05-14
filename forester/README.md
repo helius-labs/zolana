@@ -176,11 +176,11 @@ See `.env.example` for a complete example configuration.
 
 ## Testing
 
-Use the root `justfile` for local tests so the Light CLI, SBF fixture builds,
+Use the root `justfile` for local tests so zolana, SBF fixture builds,
 and bounded e2e defaults stay consistent:
 
 ```bash
-# Bounded local e2e smoke against the npm Light CLI local validator
+# Bounded local e2e smoke against the zolana local validator
 just test-forester-e2e
 
 # Full local e2e surface with all tree families enabled

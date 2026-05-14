@@ -7,8 +7,9 @@ export FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS := env_var_or_default("FORESTER
 export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_SECONDS", "900")
 export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
 export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
-light-cli-package := env_var_or_default("LIGHT_CLI_PACKAGE", "@lightprotocol/zk-compression-cli@0.28.4")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
+surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
+surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -101,35 +102,101 @@ verify: verify-rust prover-server-test
 check-light-cli:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -n "${LIGHT_CLI_CMD:-}" ]]; then
+    if [[ -n "${ZOLANA_CLI_CMD:-}" ]]; then
+        echo "Using ZOLANA_CLI_CMD=$ZOLANA_CLI_CMD"
+    elif [[ -n "${LIGHT_CLI_CMD:-}" ]]; then
         echo "Using LIGHT_CLI_CMD=$LIGHT_CLI_CMD"
+    elif [[ -n "${ZOLANA_CLI_BIN:-}" ]]; then
+        test -x "$ZOLANA_CLI_BIN"
+        echo "Using ZOLANA_CLI_BIN=$ZOLANA_CLI_BIN"
     elif [[ -n "${LIGHT_CLI_BIN:-}" ]]; then
         test -x "$LIGHT_CLI_BIN"
         echo "Using LIGHT_CLI_BIN=$LIGHT_CLI_BIN"
-    elif command -v light >/dev/null 2>&1; then
-        echo "Using light from PATH: $(command -v light)"
-    elif command -v npm >/dev/null 2>&1; then
-        echo "Using npm exec --yes --package {{light-cli-package}} -- light"
+    elif [[ -x target/debug/zolana ]]; then
+        echo "Using target/debug/zolana"
+    elif [[ -x target/release/zolana ]]; then
+        echo "Using target/release/zolana"
+    elif command -v zolana >/dev/null 2>&1; then
+        echo "Using zolana from PATH: $(command -v zolana)"
     else
-        echo "Light CLI not found. Install npm and @lightprotocol/zk-compression-cli, set LIGHT_CLI_BIN, or set LIGHT_CLI_CMD." >&2
+        echo "zolana CLI not found. Run 'just build-zolana-cli', set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD." >&2
         exit 1
     fi
 
-install-light-cli:
-    npm install -g {{light-cli-package}}
+build-zolana-cli:
+    cargo build -p zolana-cli
 
-build-forester-test-deps:
+verify-light-fixtures:
+    cd sdk-libs/cli/bin && shasum -a 256 -c SHA256SUMS
+
+install-surfpool:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$(uname -m)" in
+        x86_64|amd64) arch=x64 ;;
+        arm64|aarch64) arch=arm64 ;;
+        *) echo "unsupported surfpool architecture: $(uname -m)" >&2; exit 1 ;;
+    esac
+    asset="surfpool-${os}-${arch}.tar.gz"
+    url="https://github.com/Lightprotocol/surfpool/releases/download/{{surfpool-release-tag}}/${asset}"
+    mkdir -p target/tools
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+    curl -sSfL "$url" -o "$tmpdir/$asset"
+    tar -xzf "$tmpdir/$asset" -C "$tmpdir"
+    surfpool_bin=$(find "$tmpdir" -type f -name surfpool -perm -111 | head -n 1)
+    if [[ -z "$surfpool_bin" ]]; then
+        surfpool_bin=$(find "$tmpdir" -type f -name surfpool | head -n 1)
+    fi
+    if [[ -z "$surfpool_bin" ]]; then
+        echo "surfpool binary not found in $asset" >&2
+        exit 1
+    fi
+    cp "$surfpool_bin" target/tools/surfpool
+    chmod +x target/tools/surfpool
+    target/tools/surfpool --version | grep "{{surfpool-version}}"
+
+# Install the Photon indexer binary at the commit pinned in `external/photon`.
+# The zolana test-validator launcher starts `photon` from PATH; read the SHA
+# from the submodule so CI and local runs use the exact indexer revision pinned
+# by this reduced workspace.
+install-photon:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -e external/photon/.git ]]; then
+        echo "external/photon submodule not initialized; run 'git submodule update --init --recursive'" >&2
+        exit 1
+    fi
+    photon_rev=$(git -C external/photon rev-parse HEAD)
+    echo "Installing Photon indexer @ ${photon_rev} (from external/photon submodule)"
+    cargo install --git https://github.com/lightprotocol/photon.git \
+        --rev "${photon_rev}" --locked --force --bin photon photon-indexer
+
+build-light-programs: verify-light-fixtures
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/compressed-token/program/Cargo.toml
+    mkdir -p target/deploy
+    cp sdk-libs/cli/bin/spl_noop.so target/deploy/spl_noop.so
+    cp sdk-libs/cli/bin/light_system_program_pinocchio.so target/deploy/light_system_program_pinocchio.so
+
+build-forester-test-deps: build-light-programs
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/create-address-test-program/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
+
+build-prover-server:
+    mkdir -p target
+    cd prover/server && go build -o ../../target/prover-server .
 
 # Run the forester PDA integration test that deploys the local csdk SBF fixture.
 test-forester-pda: check-light-cli build-forester-test-deps
     cargo test -p forester --test test_compressible_pda -- --nocapture
 
-# Run a bounded local forester e2e smoke. The npm Light CLI local validator
+# Run a bounded local forester e2e smoke. The zolana local validator launcher
 # advances slots quickly and preloads V2 trees with 500/250 element ZKP batches,
 # so this validates deterministic V1 state and compressible-account behavior.
-test-forester-e2e: check-light-cli
+test-forester-e2e: check-light-cli build-light-programs
     TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::test
 
 # Run the bounded local forester e2e smoke without rebuilding SBF dependencies.
@@ -137,7 +204,7 @@ test-forester-e2e-local: check-light-cli
     TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::local
 
 # Run the full forester e2e surface with all tree families enabled.
-test-forester-e2e-full: check-light-cli
+test-forester-e2e-full: check-light-cli build-light-programs
     just forester::test-full
 
 # Run the full forester e2e surface without rebuilding SBF dependencies.

@@ -3,5 +3,7 @@
 /forester/test-ledger/
 /forester/.surfpool/
 /forester/logs/
+/.surfpool/
+/test-ledger/
 /.DS_Store
 /.idea

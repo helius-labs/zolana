@@ -8,8 +8,6 @@ use serde::Serialize;
 
 use crate::errors::ProverClientError;
 
-const DEFAULT_LIGHT_CLI_PACKAGE: &str = "@lightprotocol/zk-compression-cli@0.28.4";
-
 pub fn get_project_root() -> Option<String> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -17,21 +15,23 @@ pub fn get_project_root() -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        String::from_utf8(output.stdout).ok()
+        String::from_utf8(output.stdout)
+            .ok()
+            .map(|root| root.trim().to_string())
     } else {
         None
     }
 }
 
 pub fn get_light_cli_command() -> Option<String> {
-    if let Ok(command) = env::var("LIGHT_CLI_CMD") {
+    if let Ok(command) = env::var("ZOLANA_CLI_CMD").or_else(|_| env::var("LIGHT_CLI_CMD")) {
         let command = command.trim();
         if !command.is_empty() {
             return Some(command.to_string());
         }
     }
 
-    if let Ok(path) = env::var("LIGHT_CLI_BIN") {
+    if let Ok(path) = env::var("ZOLANA_CLI_BIN").or_else(|_| env::var("LIGHT_CLI_BIN")) {
         let path = path.trim();
         if !path.is_empty() {
             return Some(shell_quote(path));
@@ -39,24 +39,19 @@ pub fn get_light_cli_command() -> Option<String> {
     }
 
     if let Some(project_root) = get_project_root() {
-        let local_cli = Path::new(project_root.trim()).join("cli/test_bin/run");
-        if local_cli.is_file() {
-            return Some(shell_quote(&local_cli.to_string_lossy()));
+        for relative_path in ["target/debug/zolana", "target/release/zolana"] {
+            let local_cli = Path::new(&project_root).join(relative_path);
+            if local_cli.is_file() {
+                return Some(shell_quote(&local_cli.to_string_lossy()));
+            }
         }
     }
 
-    if let Some(path) = find_in_path("light") {
+    if let Some(path) = find_in_path("zolana") {
         return Some(shell_quote(&path));
     }
 
-    find_in_path("npm").map(|_| {
-        let package =
-            env::var("LIGHT_CLI_PACKAGE").unwrap_or_else(|_| DEFAULT_LIGHT_CLI_PACKAGE.to_string());
-        format!(
-            "npm exec --yes --package {} -- light",
-            shell_quote(&package)
-        )
-    })
+    None
 }
 
 fn find_in_path(binary: &str) -> Option<String> {

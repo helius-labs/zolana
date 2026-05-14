@@ -14,7 +14,7 @@
 //! ## Testing Features
 //! - Fast in-memory indexer and SVM via [LiteSVM](https://github.com/LiteSVM/LiteSVM)
 //! - Supports custom programs
-//! - Prover server via [Light CLI](https://www.npmjs.com/package/@lightprotocol/zk-compression-cli)
+//! - Prover server via the repo-local `zolana` CLI
 
 #![allow(deprecated)]
 #![allow(clippy::result_large_err)]
@@ -40,14 +40,12 @@
 //!
 //! ## Prerequisites
 //!
-//! 1. **ZK Compression CLI**: Required to start the prover server and download Light Protocol programs
+//! 1. **Local validator artifacts**: Required to load Light Protocol programs
 //!    ```bash
-//!    npm i -g @lightprotocol/zk-compression-cli
+//!    just build-light-programs
 //!    ```
-//!    - If programs are missing after CLI installation, run `light test-validator` once to download them
 //!
-//! 2. **Build programs**: Run `cargo test-sbf` to build program binaries and set the required
-//!    environment variables for locating program artifacts
+//! 2. **zolana CLI**: Run `just build-zolana-cli` before tests that spawn the local validator or prover
 //!
 //! ## Prover Server
 //!

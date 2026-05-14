@@ -23,7 +23,7 @@ build:
 build-test-deps:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path ../program-tests/create-address-test-program/Cargo.toml
 
-# Bounded local e2e smoke for the npm Light CLI local validator. The full
+# Bounded local e2e smoke for the zolana local validator. The full
 # all-tree test is available through test-full/local-full.
 test: build-test-deps
     TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 cargo test --package forester e2e_test -- --nocapture

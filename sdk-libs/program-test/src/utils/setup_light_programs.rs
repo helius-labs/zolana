@@ -41,7 +41,7 @@ pub fn setup_light_programs(
     let mut program_test = program_test.with_transaction_history(0);
     // find path to bin where light cli stores program binaries.
     let light_bin_path = find_light_bin().ok_or(RpcError::CustomError(
-        "Failed to find light binary path. To use light-program-test zk compression cli needs to be installed and light system programs need to be downloaded. Light system programs are downloaded the first time light test-validator is run.".to_string(),
+        "Failed to find Light Protocol program artifacts. Run `just build-light-programs` or set LIGHT_PROTOCOL_PROGRAMS_DIR.".to_string(),
     ))?;
     let light_bin_path = light_bin_path
         .to_str()
