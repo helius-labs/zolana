@@ -157,10 +157,9 @@ install-surfpool:
     chmod +x target/tools/surfpool
     target/tools/surfpool --version | grep "{{surfpool-version}}"
 
-# Install the Photon indexer binary at the commit pinned in `external/photon`.
-# The zolana test-validator launcher starts `photon` from PATH; read the SHA
-# from the submodule so CI and local runs use the exact indexer revision pinned
-# by this reduced workspace.
+# Build the Photon indexer binary from the commit pinned in `external/photon`.
+# Debug mode is enough for local validator tests and avoids the long release
+# compile that `cargo install --git` would do in every CI forester job.
 install-photon:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -169,9 +168,12 @@ install-photon:
         exit 1
     fi
     photon_rev=$(git -C external/photon rev-parse HEAD)
-    echo "Installing Photon indexer @ ${photon_rev} (from external/photon submodule)"
-    cargo install --git https://github.com/lightprotocol/photon.git \
-        --rev "${photon_rev}" --locked --force --bin photon photon-indexer
+    echo "Building Photon indexer @ ${photon_rev} (from external/photon submodule)"
+    cargo build --manifest-path external/photon/Cargo.toml --locked --bin photon
+    mkdir -p target/tools
+    cp external/photon/target/debug/photon target/tools/photon
+    chmod +x target/tools/photon
+    target/tools/photon --version
 
 build-light-programs: verify-light-fixtures
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml

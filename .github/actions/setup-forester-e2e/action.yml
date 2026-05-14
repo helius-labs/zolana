@@ -3,8 +3,8 @@ description: |
   Installs the full toolchain needed to run forester integration tests against
   a local validator: Rust + just (via setup-rust), Go for the repo-local prover,
   the Solana / Anza CLI (for `cargo build-sbf`), the repo-local zolana CLI,
-  a pinned surfpool binary, and the Photon indexer binary (pinned to the SHA of
-  the `external/photon` submodule).
+  a pinned surfpool binary, and the Photon indexer binary built from the pinned
+  `external/photon` submodule.
   Run after `actions/checkout` (with submodules enabled).
 
 inputs:
@@ -41,7 +41,7 @@ runs:
     - name: Install surfpool (pinned in justfile)
       shell: bash
       run: just install-surfpool
-    - name: Install Photon indexer (pinned to external/photon submodule SHA)
+    - name: Build Photon indexer (pinned to external/photon submodule SHA)
       shell: bash
       run: just install-photon
     - name: Build local prover server
@@ -59,13 +59,14 @@ runs:
         echo "ZOLANA_CLI_BIN=${GITHUB_WORKSPACE}/target/debug/zolana" >> "$GITHUB_ENV"
         echo "LIGHT_CLI_BIN=${GITHUB_WORKSPACE}/target/debug/zolana" >> "$GITHUB_ENV"
         echo "SURFPOOL_BIN=${GITHUB_WORKSPACE}/target/tools/surfpool" >> "$GITHUB_ENV"
+        echo "PHOTON_BIN=${GITHUB_WORKSPACE}/target/tools/photon" >> "$GITHUB_ENV"
         echo "PROVER_BIN=${GITHUB_WORKSPACE}/target/prover-server" >> "$GITHUB_ENV"
         echo "LIGHT_PROTOCOL_PROGRAMS_DIR=${GITHUB_WORKSPACE}/target/deploy" >> "$GITHUB_ENV"
         echo "LIGHT_PROTOCOL_ACCOUNTS_DIR=${GITHUB_WORKSPACE}/sdk-libs/cli/accounts" >> "$GITHUB_ENV"
     - name: Verify local validator tools
       shell: bash
       run: |
-        photon --version
+        target/tools/photon --version
         target/debug/zolana --help
         target/tools/surfpool --version
         test -x target/prover-server
