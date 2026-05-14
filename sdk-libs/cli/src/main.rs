@@ -581,14 +581,8 @@ fn start_indexer_service(
 
     println!("Starting Photon: {} {}", photon.display(), args.join(" "));
     let mut child = spawn_service(&photon, &args, "photon")?;
-    wait_for_http_get_with_child(
-        indexer_port,
-        "/getIndexerHealth",
-        READINESS_TIMEOUT,
-        &mut child,
-        "Photon",
-    )
-    .with_context(|| format!("Photon on port {indexer_port} did not become ready"))?;
+    wait_for_photon_health_with_child(indexer_port, READINESS_TIMEOUT, &mut child)
+        .with_context(|| format!("Photon on port {indexer_port} did not become ready"))?;
     println!("Photon started successfully");
     std::mem::forget(child);
     Ok(())
@@ -638,6 +632,14 @@ fn wait_for_http_get_with_child(
     })
 }
 
+fn wait_for_photon_health_with_child(
+    port: u16,
+    timeout: Duration,
+    child: &mut Child,
+) -> Result<()> {
+    wait_until_with_child(timeout, child, "Photon", || photon_health(port))
+}
+
 fn wait_until_with_child<F>(
     timeout: Duration,
     child: &mut Child,
@@ -669,6 +671,12 @@ fn rpc_health(port: u16) -> bool {
         == Some("ok")
 }
 
+fn photon_health(port: u16) -> bool {
+    json_rpc_request(port, "/getIndexerHealth", "getIndexerHealth")
+        .map(|value| value.get("result").and_then(Value::as_str) == Some("ok"))
+        .unwrap_or(false)
+}
+
 fn rpc_u64(port: u16, method: &str) -> Result<u64> {
     let value = rpc_request(port, method)?;
     value
@@ -678,6 +686,10 @@ fn rpc_u64(port: u16, method: &str) -> Result<u64> {
 }
 
 fn rpc_request(port: u16, method: &str) -> Result<Value> {
+    json_rpc_request(port, "/", method)
+}
+
+fn json_rpc_request(port: u16, path: &str, method: &str) -> Result<Value> {
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -688,7 +700,7 @@ fn rpc_request(port: u16, method: &str) -> Result<Value> {
     let response = http_request(
         port,
         "POST",
-        "/",
+        path,
         Some(("application/json", body.as_bytes())),
     )?;
     let status = http_status(&response).ok_or_else(|| anyhow!("invalid HTTP response"))?;
