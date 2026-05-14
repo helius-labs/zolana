@@ -520,7 +520,7 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     let mut args = vec![
         "start".to_string(),
         "--keys-dir".to_string(),
-        path_string(&keys_dir)?,
+        path_string_with_trailing_separator(&keys_dir)?,
         "--prover-address".to_string(),
         format!("0.0.0.0:{prover_port}"),
         "--auto-download".to_string(),
@@ -881,6 +881,14 @@ fn path_string(path: &Path) -> Result<String> {
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| anyhow!("path is not valid UTF-8: {}", path.display()))
+}
+
+fn path_string_with_trailing_separator(path: &Path) -> Result<String> {
+    let mut value = path_string(path)?;
+    if !value.ends_with(std::path::MAIN_SEPARATOR) {
+        value.push(std::path::MAIN_SEPARATOR);
+    }
+    Ok(value)
 }
 
 fn print_help() {

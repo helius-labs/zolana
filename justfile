@@ -174,6 +174,10 @@ install-photon:
     cp external/photon/target/debug/photon target/tools/photon
     chmod +x target/tools/photon
     target/tools/photon --version
+    if [[ "${CI:-}" == "true" ]]; then
+        echo "Cleaning external/photon/target to leave disk for prover keys"
+        rm -rf external/photon/target
+    fi
 
 build-light-programs: verify-light-fixtures
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
