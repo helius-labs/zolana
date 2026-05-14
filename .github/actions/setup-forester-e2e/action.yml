@@ -1,0 +1,48 @@
+name: Setup forester e2e environment
+description: |
+  Installs the full toolchain needed to run forester integration tests against
+  a local validator: Rust + just (via setup-rust), Node, the Solana / Anza CLI
+  (for `cargo build-sbf`), and the Light CLI (`@lightprotocol/zk-compression-cli`,
+  pinned in the root justfile via the `light-cli-package` variable). Run after
+  `actions/checkout` (with submodules enabled).
+
+inputs:
+  solana-version:
+    description: Anza CLI version to install (must satisfy workspace solana-sdk = "2.3").
+    required: false
+    default: "2.3.0"
+  node-version:
+    description: Node.js version for `npm install -g` of the Light CLI.
+    required: false
+    default: "20"
+  shared-key:
+    description: Swatinem rust-cache shared-key for cross-workflow cache reuse.
+    required: false
+    default: rust-stable
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-rust
+      with:
+        shared-key: ${{ inputs.shared-key }}
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: Install Anza CLI ${{ inputs.solana-version }}
+      shell: bash
+      run: |
+        sh -c "$(curl -sSfL https://release.anza.xyz/v${{ inputs.solana-version }}/install)"
+        echo "${HOME}/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+    - name: Verify Solana toolchain
+      shell: bash
+      run: |
+        export PATH="${HOME}/.local/share/solana/install/active_release/bin:$PATH"
+        solana --version
+        cargo build-sbf --version
+    - name: Install Light CLI (pinned in justfile)
+      shell: bash
+      run: just install-light-cli
+    - name: Verify Light CLI
+      shell: bash
+      run: light --version || true

@@ -43,24 +43,17 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
-  compile:
-    name: forester / test compile
+  unit:
+    name: forester / compile + smoke
     runs-on: ubuntu-latest
+    # Smoke tests reuse the artifacts produced by the compile step, so we keep
+    # them in the same job rather than paying for two cold builds.
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-rust
       - run: just test-forester-compile
-
-  smoke:
-    name: forester / smoke test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup-rust
       - run: just test-forester-smoke
 
   e2e:
