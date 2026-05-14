@@ -8,6 +8,11 @@ export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_
 export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
 export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
 light-cli-package := env_var_or_default("LIGHT_CLI_PACKAGE", "@lightprotocol/zk-compression-cli@0.28.4")
+# Pin the Solana platform-tools bundle used by `cargo build-sbf`. Rust 1.85+
+# (platform-tools v1.46+) is required because `blake3 1.8.5 → digest 0.11.3
+# → block-buffer 0.12.0` declare `edition = "2024"` in their manifests, which
+# the older platform-tools bundled with Anza CLI 2.3.x cannot parse.
+sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.46")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -118,8 +123,8 @@ install-light-cli:
     npm install -g {{light-cli-package}}
 
 build-forester-test-deps:
-    cargo build-sbf --manifest-path program-tests/create-address-test-program/Cargo.toml
-    cargo build-sbf --manifest-path sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/create-address-test-program/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
 
 # Run the forester PDA integration test that deploys the local csdk SBF fixture.
 test-forester-pda: check-light-cli build-forester-test-deps
