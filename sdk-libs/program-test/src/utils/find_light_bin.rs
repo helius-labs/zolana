@@ -1,4 +1,8 @@
-use std::{env, path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 const REQUIRED_PROGRAMS: &[&str] = &[
     "light_registry.so",
@@ -24,7 +28,7 @@ pub fn find_light_bin() -> Option<PathBuf> {
         root.join("cli/bin"),
     ]
     .into_iter()
-    .find(|path| has_required_programs(path))
+    .find(|path| has_required_programs(path.as_path()))
 }
 
 fn env_dir(name: &str) -> Option<PathBuf> {
@@ -33,7 +37,7 @@ fn env_dir(name: &str) -> Option<PathBuf> {
     has_required_programs(&path).then_some(path)
 }
 
-fn has_required_programs(path: &PathBuf) -> bool {
+fn has_required_programs(path: &Path) -> bool {
     path.is_dir()
         && REQUIRED_PROGRAMS
             .iter()
