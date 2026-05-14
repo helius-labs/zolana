@@ -12,7 +12,7 @@ export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_
 export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
 export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
 # Platform-tools bundle used by `cargo build-sbf` (see root justfile rationale).
-sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.46")
+sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 
 default:
     @just --list
