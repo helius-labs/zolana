@@ -48,9 +48,10 @@ check-all:
 test-forester-compile:
     cargo test -p forester --no-run
 
-# Fast runtime smoke test that does not require local SBF services.
 test-forester-smoke:
     cargo test -p forester --test metrics_contract_test
+    cargo test -p forester --test test_nullify_state_v1_multi_tx_size
+    cargo test -p forester --test priority_fee_test
 
 # Default test target keeps CI cheap while preserving forester test compilation.
 test: test-forester-compile test-forester-smoke
