@@ -233,6 +233,23 @@ xtask-create-verifying-keys-smoke:
     fi
     cargo run -p xtask -- create-verifying-keys --limit 1
 
+# === Docs ===
+
+# Re-render docs/diagrams/*.dot to PNG + SVG. Requires graphviz (`brew install graphviz`).
+render-diagrams:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v dot >/dev/null 2>&1; then
+        echo "graphviz 'dot' not found; install with 'brew install graphviz'" >&2
+        exit 1
+    fi
+    for src in docs/diagrams/*.dot; do
+        base="${src%.dot}"
+        dot -Tpng -Gdpi=144 "$src" -o "${base}.png"
+        dot -Tsvg "$src" -o "${base}.svg"
+        echo "rendered ${base}.png and ${base}.svg"
+    done
+
 # === Maintenance ===
 
 metadata:
