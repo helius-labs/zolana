@@ -5,7 +5,7 @@
 /forester/logs/
 /.surfpool/
 /test-ledger/
-/.DS_Store
+.DS_Store
 /.idea
 .claude
 docs
