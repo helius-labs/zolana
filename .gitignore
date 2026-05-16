@@ -3,4 +3,5 @@
 /forester/test-ledger/
 /forester/.surfpool/
 /forester/logs/
-/.DS_Store
+.DS_Store
+.claude

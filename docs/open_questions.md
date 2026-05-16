@@ -23,7 +23,8 @@
     1. completely off-chain
     2. just two signatures
 8. TODO:
-    1. define utxo data structure
+    1. define all RPC user flows
+    2. define utxo data structure
     2. encryption of outputs (actual 
     3. shielded escrow (PSP) diagram akin to the 
     4. mapping
@@ -32,3 +33,5 @@
         2. how you can use it
         3. tradeoffs
         4. here is how you can integrate
+    6. add PSP seeds hash
+    7. what if we define blinding Poseidon(rnd, current slot) to add an additional safeguard that every utxo is different
