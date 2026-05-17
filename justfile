@@ -153,6 +153,15 @@ xtask-create-verifying-keys-smoke:
 
 # === Docs ===
 
+# Regenerate docs/api/README.md from docs/api/openapi.yaml. Requires python3 + PyYAML.
+gen-api-readme:
+    ./docs/api/generate-readme.sh
+
+# Build and open the OpenAPI HTML reference (Redoc). Requires npx.
+api-docs:
+    npx @redocly/cli build-docs docs/api/openapi.yaml -o /tmp/zolana-api-docs.html
+    open /tmp/zolana-api-docs.html
+
 # Re-render docs/diagrams/*.dot to PNG + SVG. Requires graphviz (`brew install graphviz`).
 render-diagrams:
     #!/usr/bin/env bash

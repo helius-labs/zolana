@@ -1,0 +1,405 @@
+openapi: "3.0.3"
+info:
+  title: Zolana RPC API
+  description: |
+    JSON-RPC 2.0 API surface for the Zolana shielded pool.
+
+    The API is served by independent backends that MAY be bundled by a single RPC provider:
+
+    - **Photon Indexer** -- indexes the UTXO tree, nullifier tree, and encrypted UTXOs. Default-pocket users fetch ciphertexts here and decrypt client-side.
+    - **Pocket RPC** -- holds a policy pocket's auditor key; serves decrypted UTXOs and balances to policy-pocket users.
+    - **Decryption Service** -- opt-in; holds a per-user decryption capability for default-pocket users who want server-built proof inputs (Mode 1).
+    - **Merge Service** -- opt-in; merges a user's UTXOs into fewer larger UTXOs.
+
+    Each method accepts a JSON-RPC 2.0 request envelope and returns a JSON-RPC 2.0 response.
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://rpc.zolana.local
+    description: Local development server
+
+tags:
+  - name: photon
+    description: Photon Indexer
+  - name: pocket
+    description: Pocket RPC
+  - name: decryption
+    description: Decryption Service
+  - name: merge
+    description: Merge Service
+
+paths:
+  # ---------------------------------------------------------------------------
+  # photon
+  # ---------------------------------------------------------------------------
+  /get_encrypted_utxos:
+    post:
+      operationId: get_encrypted_utxos
+      tags: [photon]
+      summary: Fetch encrypted UTXOs matching a byte filter
+      description: |
+        Returns encrypted UTXO records whose `encrypted_utxos` blob matches all of the
+        supplied byte filters. Filters are AND-ed. Each filter is a `(offset, bytes)`
+        pair; the server matches if `blob[offset .. offset + len(bytes)] == bytes`.
+
+        The set of indexed offsets is implementation-defined; see the indexing
+        strategy in the spec. Filters on unindexed offsets MAY be rejected.
+
+        Results are ordered by `(slot, tx_index, output_index)` and paginated via
+        the opaque `cursor` field.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetEncryptedUtxosRequest"
+      responses:
+        "200":
+          description: Matching encrypted UTXOs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetEncryptedUtxosResponse"
+
+  /get_proof:
+    post:
+      operationId: get_proof
+      tags: [photon]
+      summary: Request a Groth16 proof for a transact instruction
+      description: |
+        Submits proof inputs to the prover and returns a compressed Groth16 proof.
+        Caller is responsible for constructing the proof inputs (Mode 2) or
+        delegating to the Decryption Service (Mode 1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetProofRequest"
+      responses:
+        "200":
+          description: Compressed proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetProofResponse"
+
+  /send_transaction:
+    post:
+      operationId: send_transaction
+      tags: [photon]
+      summary: Submit a transact transaction via the relayer
+      description: |
+        Submits a transaction to the SPP. Two modes:
+
+        - **Mode 1 (server-built proof inputs)** -- caller signs `P256(recipient || amount)`;
+          the RPC selects input UTXOs, builds proof inputs, fetches the proof, and submits.
+          Requires a Decryption Service relationship.
+        - **Mode 2 (client-built proof inputs)** -- caller signs `P256(tx_hash)` where
+          `tx_hash` binds all input and output UTXO hashes. The RPC acts as a relayer only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendTransactionRequest"
+      responses:
+        "200":
+          description: Submission result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendTransactionResponse"
+
+  # ---------------------------------------------------------------------------
+  # pocket
+  # ---------------------------------------------------------------------------
+  /get_decrypted_utxos:
+    post:
+      operationId: get_decrypted_utxos
+      tags: [pocket]
+      summary: Fetch decrypted UTXOs for a pocket member
+      description: |
+        Returns the caller's UTXOs decrypted server-side using the pocket auditor key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetDecryptedUtxosRequest"
+      responses:
+        "200":
+          description: Decrypted UTXOs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDecryptedUtxosResponse"
+
+  /get_balance:
+    post:
+      operationId: get_balance
+      tags: [pocket]
+      summary: Get aggregate shielded balance for a pocket member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetBalanceRequest"
+      responses:
+        "200":
+          description: Per-asset balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetBalanceResponse"
+
+  /get_instruction:
+    post:
+      operationId: get_instruction
+      tags: [pocket]
+      summary: Build a transact instruction for the caller to sign
+      description: |
+        Returns a built instruction (with proof) for the caller to sign and submit
+        directly. Used for shield, where the user signs the Solana transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetInstructionRequest"
+      responses:
+        "200":
+          description: Built instruction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetInstructionResponse"
+
+components:
+  schemas:
+    # ------------------------- photon: get_encrypted_utxos -------------------------
+    ByteFilter:
+      type: object
+      required: [offset, bytes]
+      properties:
+        offset:
+          type: integer
+          format: uint32
+          description: Byte offset into the `encrypted_utxos` blob.
+        bytes:
+          type: string
+          format: byte
+          description: Base64-encoded bytes to match at `offset`.
+
+    Cursor:
+      type: string
+      description: |
+        Opaque pagination cursor. Encodes `(slot, tx_index, output_index)`.
+
+    EncryptedUtxoRecord:
+      type: object
+      required: [utxo_index, leaf_index, slot, tx_signature, encrypted_utxos]
+      properties:
+        utxo_index:
+          type: integer
+          format: uint64
+          description: Monotonic index assigned by the indexer.
+        leaf_index:
+          type: integer
+          format: uint64
+          description: Index of the UTXO hash leaf in the UTXO tree.
+        slot:
+          type: integer
+          format: uint64
+        tx_signature:
+          type: string
+          description: Base58 Solana transaction signature.
+        encrypted_utxos:
+          type: string
+          format: byte
+          description: Base64-encoded `encrypted_utxos` blob from the `transact` instruction.
+
+    GetEncryptedUtxosRequest:
+      type: object
+      required: [filters]
+      properties:
+        filters:
+          type: array
+          description: Byte filters, AND-ed.
+          items:
+            $ref: "#/components/schemas/ByteFilter"
+        cursor:
+          $ref: "#/components/schemas/Cursor"
+        limit:
+          type: integer
+          format: uint32
+          default: 100
+
+    GetEncryptedUtxosResponse:
+      type: object
+      required: [utxos]
+      properties:
+        utxos:
+          type: array
+          items:
+            $ref: "#/components/schemas/EncryptedUtxoRecord"
+        next_cursor:
+          $ref: "#/components/schemas/Cursor"
+
+    # ------------------------- photon: get_proof -------------------------
+    GetProofRequest:
+      type: object
+      description: TBD. Proof inputs for the SPP Groth16 circuit.
+
+    GetProofResponse:
+      type: object
+      required: [proof]
+      properties:
+        proof:
+          type: string
+          format: byte
+          description: 192-byte compressed Groth16 proof, base64-encoded.
+
+    # ------------------------- photon: send_transaction -------------------------
+    SendTransactionRequest:
+      oneOf:
+        - $ref: "#/components/schemas/SendTransactionMode1Request"
+        - $ref: "#/components/schemas/SendTransactionMode2Request"
+      discriminator:
+        propertyName: mode
+
+    SendTransactionMode1Request:
+      type: object
+      required: [mode, recipient, amount, signature]
+      properties:
+        mode:
+          type: string
+          enum: [mode1]
+        recipient:
+          type: string
+          description: P256 SEC1-compressed pubkey, base64-encoded.
+        amount:
+          type: integer
+          format: uint64
+        asset_id:
+          type: integer
+          format: uint64
+        signature:
+          type: string
+          format: byte
+          description: P256 signature over `recipient || amount`, base64-encoded.
+
+    SendTransactionMode2Request:
+      type: object
+      required: [mode, transact_instruction]
+      properties:
+        mode:
+          type: string
+          enum: [mode2]
+        transact_instruction:
+          type: string
+          format: byte
+          description: Serialized `transact` instruction including proof and encrypted_utxos.
+
+    SendTransactionResponse:
+      type: object
+      required: [signature]
+      properties:
+        signature:
+          type: string
+          description: Base58 Solana transaction signature.
+
+    # ------------------------- pocket: get_decrypted_utxos -------------------------
+    DecryptedUtxo:
+      type: object
+      required: [utxo_hash, owner, asset_id, asset_amount, blinding, leaf_index]
+      properties:
+        utxo_hash:
+          type: string
+          format: byte
+        owner:
+          type: string
+          description: P256 SEC1-compressed pubkey, base64-encoded.
+        asset_id:
+          type: integer
+          format: uint64
+        asset_amount:
+          type: integer
+          format: uint64
+        blinding:
+          type: string
+          format: byte
+        leaf_index:
+          type: integer
+          format: uint64
+
+    GetDecryptedUtxosRequest:
+      type: object
+      required: [owner]
+      properties:
+        owner:
+          type: string
+          description: P256 SEC1-compressed pubkey, base64-encoded.
+        cursor:
+          $ref: "#/components/schemas/Cursor"
+        limit:
+          type: integer
+          format: uint32
+          default: 100
+
+    GetDecryptedUtxosResponse:
+      type: object
+      required: [utxos]
+      properties:
+        utxos:
+          type: array
+          items:
+            $ref: "#/components/schemas/DecryptedUtxo"
+        next_cursor:
+          $ref: "#/components/schemas/Cursor"
+
+    # ------------------------- pocket: get_balance -------------------------
+    AssetBalance:
+      type: object
+      required: [asset_id, amount]
+      properties:
+        asset_id:
+          type: integer
+          format: uint64
+        amount:
+          type: integer
+          format: uint64
+
+    GetBalanceRequest:
+      type: object
+      required: [owner]
+      properties:
+        owner:
+          type: string
+
+    GetBalanceResponse:
+      type: object
+      required: [balances]
+      properties:
+        balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetBalance"
+
+    # ------------------------- pocket: get_instruction -------------------------
+    GetInstructionRequest:
+      type: object
+      description: TBD. Parameters for building a transact instruction (typically shield).
+
+    GetInstructionResponse:
+      type: object
+      required: [instruction]
+      properties:
+        instruction:
+          type: string
+          format: byte
+          description: Serialized Solana instruction, base64-encoded.

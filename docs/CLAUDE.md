@@ -32,8 +32,6 @@ Options for Fetch Performance:
 1. user nonce + nonce nullifier
   1. a nullifier is derived from the nonce and inserted into the nullifier tree
   2. we can rerandomize the nonce_nullifier and use it to fetch encrypted utxos. Rerandomization makes it harder to cluster failed requests. Does that work?
-  3. issues this doesnt work for unsolicited transfers for that we need FMD or sth else
-  4. users should request transfers and include an address in the request
-2. FMD
-3. Encrypt the pubkeys to an RPC
-4. Encrypt the whole cipher text to an RPC
+  3. users should request transfers and include an address in the request; unsolicited transfers are not supported by this option
+2. Encrypt the pubkeys to an RPC
+3. Encrypt the whole cipher text to an RPC
