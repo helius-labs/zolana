@@ -6,10 +6,6 @@ pub fn get_protocol_config_pda_address() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[PROTOCOL_CONFIG_PDA_SEED], &crate::ID)
 }
 
-pub fn get_cpi_authority_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[crate::CPI_AUTHORITY_PDA_SEED], &crate::ID)
-}
-
 pub fn get_forester_epoch_pda_from_authority(authority: &Pubkey, epoch: u64) -> (Pubkey, u8) {
     let forester_pda = get_forester_pda(authority);
     get_forester_epoch_pda(&forester_pda.0, epoch)

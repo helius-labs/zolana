@@ -1,6 +1,7 @@
 use shielded_pool_program::process_instruction;
 use zolana_interface::instruction::{
-    encode_instruction, tag, CreateAddressTreeData, InsertAddressesData,
+    encode_instruction, tag, AppendStateLeavesData, CreateAddressTreeData, CreateStateTreeData,
+    InsertAddressesData,
 };
 
 #[test]
@@ -99,4 +100,56 @@ fn create_address_tree_payload_can_be_decoded() {
         <CreateAddressTreeData as borsh::BorshDeserialize>::try_from_slice(&encoded[1..]).unwrap();
 
     assert_eq!(decoded, data);
+}
+
+#[test]
+fn rejects_create_state_tree_without_accounts() {
+    let data = encode_instruction(
+        tag::CREATE_STATE_TREE,
+        &CreateStateTreeData {
+            height: 26,
+            canopy_depth: 10,
+        },
+    );
+    let program_id = pinocchio::Address::from([0u8; 32]);
+
+    assert!(process_instruction(&program_id, &[], &data).is_err());
+}
+
+#[test]
+fn rejects_invalid_create_state_tree_config() {
+    let data = encode_instruction(
+        tag::CREATE_STATE_TREE,
+        &CreateStateTreeData {
+            height: 0,
+            canopy_depth: 10,
+        },
+    );
+    let program_id = pinocchio::Address::from([0u8; 32]);
+
+    assert!(process_instruction(&program_id, &[], &data).is_err());
+}
+
+#[test]
+fn rejects_empty_append_state_leaves_batch() {
+    let data = encode_instruction(
+        tag::APPEND_STATE_LEAVES,
+        &AppendStateLeavesData { leaves: vec![] },
+    );
+    let program_id = pinocchio::Address::from([0u8; 32]);
+
+    assert!(process_instruction(&program_id, &[], &data).is_err());
+}
+
+#[test]
+fn non_empty_append_state_leaves_without_accounts_does_not_succeed() {
+    let data = encode_instruction(
+        tag::APPEND_STATE_LEAVES,
+        &AppendStateLeavesData {
+            leaves: vec![[1u8; 32]],
+        },
+    );
+    let program_id = pinocchio::Address::from([0u8; 32]);
+
+    assert!(process_instruction(&program_id, &[], &data).is_err());
 }

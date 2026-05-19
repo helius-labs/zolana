@@ -1,20 +1,20 @@
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::CreateAddressTreeData;
 
-use super::{init::batched_tree_params, verify::verify};
+use super::{init::init_address_tree_account, verify::verify};
 use crate::error::ShieldedPoolError;
 
 pub fn process_create_address_tree(
+    program_id: &Address,
     accounts: &[AccountView],
     data: CreateAddressTreeData,
 ) -> ProgramResult {
     let verified = verify(accounts, &data)?;
-    let _batched_tree_params = batched_tree_params(&data);
-    let _account_keys = (
-        verified.signer.address(),
-        verified.tree.address(),
-        verified.queue.address(),
-    );
-
-    Err(ShieldedPoolError::AddressTreeMutationUnsupported.into())
+    let tree_pubkey = *verified.tree.address();
+    // SAFETY: `MutableAddressTreeAccounts::tree` is the writable account passed
+    // by the caller and not aliased with any other borrowed account.
+    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    init_address_tree_account(bytes, program_id, &tree_pubkey)
+        .map_err(|_| ShieldedPoolError::InvalidAddressTreeAccounts)?;
+    Ok(())
 }
