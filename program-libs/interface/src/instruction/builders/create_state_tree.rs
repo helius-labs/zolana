@@ -14,10 +14,7 @@ pub fn create_state_tree(payer: Pubkey, tree: Pubkey, data: CreateStateTreeData)
 
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        accounts: vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new(tree, false),
-        ],
+        accounts: vec![AccountMeta::new(payer, true), AccountMeta::new(tree, false)],
         data: instruction_data,
     }
 }

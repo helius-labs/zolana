@@ -2,7 +2,9 @@ use pinocchio::{AccountView, ProgramResult};
 use zolana_interface::instruction::AppendStateLeavesData;
 
 use super::verify::verify;
-use crate::{error::ShieldedPoolError, instructions::create_state_tree::init::append_leaves_to_account};
+use crate::{
+    error::ShieldedPoolError, instructions::create_state_tree::init::append_leaves_to_account,
+};
 
 pub fn process_append_state_leaves(
     accounts: &[AccountView],

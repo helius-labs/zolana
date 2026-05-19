@@ -67,8 +67,7 @@ fn insert_advances_queue_next_index() {
 
     let slot: u64 = 7;
     {
-        let mut tree =
-            BatchedMerkleTreeAccount::address_from_bytes(&mut buf, &TREE).unwrap();
+        let mut tree = BatchedMerkleTreeAccount::address_from_bytes(&mut buf, &TREE).unwrap();
         let initial_next_index = tree.get_metadata().queue_batches.next_index;
         tree.insert_address_into_queue(&[3u8; 32], &slot).unwrap();
         tree.insert_address_into_queue(&[4u8; 32], &slot).unwrap();

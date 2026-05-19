@@ -1,4 +1,4 @@
-use pinocchio::{Address, AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::CreateAddressTreeData;
 
 use super::{init::init_address_tree_account, verify::verify};
