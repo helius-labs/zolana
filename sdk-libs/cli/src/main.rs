@@ -20,16 +20,13 @@ const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
-const LIGHT_SYSTEM_PROGRAM_ID: &str = "SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7";
-const LIGHT_COMPRESSED_TOKEN_ID: &str = "cTokenmWW8bLPjZEBAUgYy3zKxQZW6VKi7bqNFEVv3m";
-const ACCOUNT_COMPRESSION_ID: &str = "compr6CUsB5m2jS4Y3831ztGSTnDpnKJTKS95d64XVq";
 const LIGHT_REGISTRY_ID: &str = "Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX";
 
+// Programs auto-loaded into `zolana test-validator`. The shielded-pool program
+// will be added here once it has a stable program ID and a compiled .so on
+// the fixture release.
 const SYSTEM_PROGRAMS: &[(&str, &str)] = &[
     (SPL_NOOP_ID, "spl_noop.so"),
-    (LIGHT_SYSTEM_PROGRAM_ID, "light_system_program_pinocchio.so"),
-    (LIGHT_COMPRESSED_TOKEN_ID, "light_compressed_token.so"),
-    (ACCOUNT_COMPRESSION_ID, "account_compression.so"),
     (LIGHT_REGISTRY_ID, "light_registry.so"),
 ];
 
