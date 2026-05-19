@@ -35,7 +35,7 @@ pub mod csdk_anchor_full_derived_test {
     };
 
     pub fn d8_pda_only<'info>(
-        ctx: Context<'_, '_, '_, 'info, D8PdaOnly<'info>>,
+        ctx: Context<'info, D8PdaOnly<'info>>,
         params: D8PdaOnlyParams,
     ) -> Result<()> {
         ctx.accounts.d8_pda_only_record.owner = params.owner;

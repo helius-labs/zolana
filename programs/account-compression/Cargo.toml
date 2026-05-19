@@ -23,6 +23,11 @@ test-sbf = []
 bench-sbf = ["custom-heap"]
 test = []
 migrate-state = []
+idl-build = [
+    "anchor-lang/idl-build",
+    "light-compressed-account/idl-build",
+    "light-merkle-tree-metadata/idl-build",
+]
 
 
 [dependencies]
@@ -42,6 +47,7 @@ solana-security-txt = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["solana"] }
 light-merkle-tree-metadata = { workspace = true, features = ["anchor"] }
 light-zero-copy = { workspace = true }
+zerocopy = { workspace = true, features = ["derive"] }
 
 [target.'cfg(not(target_os = "solana"))'.dependencies]
 solana-sdk = { workspace = true }

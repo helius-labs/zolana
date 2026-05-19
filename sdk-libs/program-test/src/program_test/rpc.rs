@@ -17,11 +17,10 @@ use light_event::{
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_sdk::{
     account::Account,
-    address_lookup_table::AddressLookupTableAccount,
     clock::{Clock, Slot},
     hash::Hash,
     instruction::Instruction,
-    message::VersionedMessage,
+    message::{AddressLookupTableAccount, VersionedMessage},
     pubkey::Pubkey,
     rent::Rent,
     signature::{Keypair, Signature},
@@ -685,7 +684,11 @@ impl Rpc for LightProgramTest {
         let mut cold_lookup_indices: Vec<usize> = Vec::new();
         let mut cold_lookup_pubkeys: Vec<[u8; 32]> = Vec::new();
 
-        for (i, (address, maybe_account)) in addresses.iter().zip(on_chain_accounts).enumerate() {
+        for (i, (address, maybe_account)) in addresses
+            .iter()
+            .zip(on_chain_accounts.into_iter())
+            .enumerate()
+        {
             if let Some(account) = maybe_account {
                 if account.lamports > 0 {
                     results[i] = Some(AccountInterface::hot(**address, account));

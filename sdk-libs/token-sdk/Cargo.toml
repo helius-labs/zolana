@@ -9,7 +9,7 @@ repository = "https://github.com/Lightprotocol/light-protocol"
 [features]
 default = []
 v1 = ["light-compressed-token-sdk/v1"]
-anchor = ["anchor-lang", "light-token-types/anchor", "light-token-interface/anchor", "light-compressed-token-sdk/anchor"]
+anchor = ["anchor-lang", "light-token-types/anchor", "light-token-interface/anchor", "light-compressed-token-sdk/anchor", "dep:light-sdk-macros"]
 # idl-build feature enables IDL generation for client-side tooling and SDK generation
 idl-build = ["anchor", "anchor-lang/idl-build", "light-sdk/idl-build", "light-compressed-token-sdk/idl-build"]
 cpi-context = ["light-sdk/cpi-context", "light-compressed-token-sdk/cpi-context"]
@@ -37,6 +37,7 @@ light-token-interface = { workspace = true, features = ["solana"] }
 light-sdk = { workspace = true, features = ["v2", "cpi-context"] }
 light-account = { workspace = true }
 light-batched-merkle-tree = { workspace = true }
+light-macros = { workspace = true }
 thiserror = { workspace = true }
 # Serialization
 borsh = { workspace = true }
@@ -47,12 +48,16 @@ solana-instruction = { workspace = true }
 solana-account-info = { workspace = true }
 solana-cpi = { workspace = true }
 solana-program-error = { workspace = true }
+arrayvec = { workspace = true }
+spl-pod = { workspace = true }
 light-account-checks = { workspace = true, features = ["solana"] }
 light-sdk-types = { workspace = true, features = ["v2"] }
+light-zero-copy = { workspace = true }
 light-program-profiler = { workspace = true }
 
 # Optional Anchor dependency
 anchor-lang = { workspace = true, optional = true }
+light-sdk-macros = { workspace = true, optional = true }
 
 [dev-dependencies]
 light-account-checks = { workspace = true, features = ["test-only", "pinocchio", "std"] }

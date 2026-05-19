@@ -10,17 +10,6 @@ edition = "2021"
 crate-type = ["cdylib", "lib"]
 name = "light_compressed_token"
 
-[package.metadata.cargo-machete]
-ignored = [
-    # Required by Anchor-generated program code, custom SBF heap setup, and security metadata.
-    "account-compression",
-    "light-heap",
-    "light-system-program-anchor",
-    "pinocchio-pubkey",
-    "solana-security-txt",
-    "zerocopy",
-]
-
 [features]
 no-entrypoint = []
 no-log-ix-name = []
@@ -43,7 +32,11 @@ profile-heap = [
 ]
 cpi-context = []
 cpi-without-program-ids = []
-idl-build = ["anchor-compressed-token/idl-build", "anchor-lang/idl-build"]
+idl-build = [
+    "anchor-compressed-token/idl-build",
+    "anchor-lang/idl-build",
+    "account-compression/idl-build",
+]
 
 [dependencies]
 light-program-profiler = { workspace = true }
@@ -52,7 +45,8 @@ anchor-lang = { workspace = true }
 spl-token = { workspace = true, features = ["no-entrypoint"] }
 account-compression = { workspace = true, features = ["cpi", "no-idl"] }
 light-system-program-anchor = { workspace = true, features = ["cpi"] }
-solana-security-txt = "1.1.0"
+solana-security-txt = { workspace = true }
+solana-msg = { workspace = true }
 light-hasher = { workspace = true }
 light-heap = { workspace = true, optional = true }
 light-compressed-account = { workspace = true, features = ["anchor"] }
@@ -68,7 +62,7 @@ light-macros = { workspace = true }
 solana-pubkey = { workspace = true }
 arrayvec = { workspace = true }
 tinyvec = { workspace = true }
-pinocchio = { workspace = true, features = ["std"] }
+pinocchio = { workspace = true }
 light-token-interface = { workspace = true, features = ["anchor"] }
 light-array-map = { workspace = true }
 pinocchio-pubkey = { workspace = true }

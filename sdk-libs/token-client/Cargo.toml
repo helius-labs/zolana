@@ -1,0 +1,33 @@
+[package]
+name = "light-token-client"
+version = "0.23.0"
+description = "Client library for Light Tokens"
+repository = "https://github.com/Lightprotocol/light-protocol"
+license = "Apache-2.0"
+edition = { workspace = true }
+
+[features]
+
+[dependencies]
+# Light Protocol dependencies
+light-token-types = { workspace = true }
+light-compressed-account = { workspace = true, features = ["std"] }
+light-compressible = { workspace = true, features = ["anchor"] }
+light-token-interface = { workspace = true }
+light-sdk = { workspace = true }
+light-client = { workspace = true, features = ["v2"] }
+light-token = { workspace = true }
+light-compressed-token-sdk = { workspace = true }
+light-zero-copy = { workspace = true }
+
+# Solana dependencies
+solana-pubkey = { workspace = true, features = ["sha2", "curve25519"] }
+solana-instruction = { workspace = true }
+solana-msg = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signer = { workspace = true }
+solana-signature = { workspace = true }
+solana-system-interface = { workspace = true }
+spl-token-2022 = { workspace = true }
+spl-pod = { workspace = true }
+borsh = { workspace = true }

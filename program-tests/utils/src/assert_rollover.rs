@@ -148,7 +148,7 @@ pub fn assert_rolledover_queues_metadata(
     );
     assert_eq!(
         old_queue_metadata.next_queue,
-        light_compressed_account::Pubkey::from(*new_queue_pubkey)
+        light_compressed_account::Pubkey::from(*new_queue_pubkey).into()
     );
     assert_eq!(
         old_merkle_tree_lamports,

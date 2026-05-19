@@ -6,7 +6,7 @@ use light_token_interface::{
     instructions::mint_action::{ZAction, ZMintActionCompressedInstructionData},
     state::{Mint, MintConfig},
 };
-use spl_pod::solana_msg::msg;
+use solana_msg::msg;
 use tinyvec::ArrayVec;
 
 use crate::{
@@ -46,19 +46,19 @@ pub fn get_zero_copy_configs(
             ZAction::UpdateMintAuthority(_) => {}
             ZAction::UpdateFreezeAuthority(_) => {}
             ZAction::RemoveMetadataKey(_) => {}
-            ZAction::UpdateMetadataAuthority(auth_action)
-                if auth_action.new_authority.to_bytes() == [0u8; 32] =>
-            {
+            ZAction::UpdateMetadataAuthority(auth_action) => {
                 // Validate extension index for authority revocation
-                let extension_index = auth_action.extension_index as usize;
-                if extension_index >= output_extensions_config.len() {
-                    msg!("Extension index {} out of bounds", extension_index);
-                    return Err(
-                        anchor_compressed_token::ErrorCode::MintActionInvalidExtensionIndex.into(),
-                    );
+                if auth_action.new_authority.to_bytes() == [0u8; 32] {
+                    let extension_index = auth_action.extension_index as usize;
+                    if extension_index >= output_extensions_config.len() {
+                        msg!("Extension index {} out of bounds", extension_index);
+                        return Err(
+                            anchor_compressed_token::ErrorCode::MintActionInvalidExtensionIndex
+                                .into(),
+                        );
+                    }
                 }
             }
-            ZAction::UpdateMetadataAuthority(_) => {}
             _ => {}
         }
     }

@@ -9,7 +9,8 @@ use solana_client::{
     rpc_response::{Response as RpcResponse, RpcKeyedAccount},
 };
 use solana_rpc_client_api::filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType};
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
+use solana_commitment_config::CommitmentConfig;
+use solana_sdk::pubkey::Pubkey;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 

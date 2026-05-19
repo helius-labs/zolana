@@ -23,6 +23,7 @@ aligned-sized = { workspace = true }
 anchor-lang = { workspace = true }
 account-compression = { workspace = true, features = ["cpi"] }
 light-compressed-account = { workspace = true, features = ["new-unique"] }
+borsh = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

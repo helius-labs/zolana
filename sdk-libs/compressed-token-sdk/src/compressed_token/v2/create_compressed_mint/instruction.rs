@@ -74,12 +74,12 @@ pub fn create_compressed_mint_cpi(
         instruction_data = instruction_data.with_cpi_context(ctx);
     }
 
-    let meta_config = if let Some(cpi_context_pubkey) = cpi_context_pubkey {
+    let meta_config = if cpi_context_pubkey.is_some() {
         MintActionMetaConfig::new_cpi_context(
             &instruction_data,
             input.payer,
             input.mint_authority,
-            cpi_context_pubkey,
+            cpi_context_pubkey.unwrap(),
         )?
     } else {
         MintActionMetaConfig::new_create_mint(

@@ -72,7 +72,7 @@ fn common_lookup_table_accounts() -> Vec<Pubkey> {
         account_compression::ID,
         Pubkey::new_from_array(NOOP_PUBKEY),
         crate::ID,
-        solana_sdk::compute_budget::ID,
+        solana_compute_budget_interface::ID,
     ]
 }
 
@@ -176,8 +176,8 @@ pub fn compress_proofs(proofs: &[&[[u8; 32]; 16]]) -> Option<CompressedProofs> {
     let mut proof_bitvecs = [0u32; 4];
     for (proof_idx, _) in proofs.iter().enumerate() {
         let bv = proof_bitvecs[proof_idx].view_bits_mut::<Lsb0>();
-        for pool_index in &pool_indices[proof_idx] {
-            bv.set(*pool_index, true);
+        for level in 0..16 {
+            bv.set(pool_indices[proof_idx][level], true);
         }
     }
 
@@ -521,7 +521,7 @@ pub fn create_initialize_batched_merkle_tree_instruction(
     let protocol_config_pda = get_protocol_config_pda_address().0;
     let instruction_data = crate::instruction::InitializeBatchedStateMerkleTree {
         bump,
-        params: params.try_to_vec().unwrap(),
+        params: borsh::to_vec(&params).unwrap(),
     };
     let accounts = crate::accounts::InitializeBatchedStateMerkleTreeAndQueue {
         authority,
@@ -653,7 +653,7 @@ pub fn create_initialize_batched_address_merkle_tree_instruction(
 
     let instruction_data = crate::instruction::InitializeBatchedAddressMerkleTree {
         bump,
-        params: params.try_to_vec().unwrap(),
+        params: borsh::to_vec(&params).unwrap(),
     };
     let protocol_config_pda = get_protocol_config_pda_address().0;
     let accounts = crate::accounts::InitializeBatchedAddressTree {

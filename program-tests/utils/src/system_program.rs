@@ -424,9 +424,14 @@ pub async fn compressed_transaction_test<
                 None => 0,
             };
     }
-    if let Some(recipient) = inputs.recipient {
+    if inputs.recipient.is_some() {
         // TODO: assert sender balance after fee refactor
-        recipient_balance_pre = match inputs.rpc.get_account(recipient).await.unwrap() {
+        recipient_balance_pre = match inputs
+            .rpc
+            .get_account(inputs.recipient.unwrap())
+            .await
+            .unwrap()
+        {
             Some(account) => account.lamports,
             None => 0,
         };
@@ -507,7 +512,7 @@ pub fn create_invoke_instruction(
     if sort {
         inputs_struct
             .output_compressed_accounts
-            .sort_by_key(|a| a.merkle_tree_index);
+            .sort_by(|a, b| a.merkle_tree_index.cmp(&b.merkle_tree_index));
     }
     let mut inputs = Vec::new();
 
@@ -526,7 +531,7 @@ pub fn create_invoke_instruction(
         account_compression_authority: get_cpi_authority_pda(&light_system_program::ID),
         sol_pool_pda,
         decompression_recipient,
-        system_program: solana_sdk::system_program::ID,
+        system_program: anchor_lang::solana_program::system_program::ID,
     };
     Instruction {
         program_id: light_system_program::ID,
