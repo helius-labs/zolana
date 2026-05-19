@@ -7,12 +7,7 @@ use crate::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 
-pub fn create_address_tree(
-    payer: Pubkey,
-    tree: Pubkey,
-    queue: Pubkey,
-    data: CreateAddressTreeData,
-) -> Instruction {
+pub fn create_address_tree(payer: Pubkey, tree: Pubkey, data: CreateAddressTreeData) -> Instruction {
     let mut instruction_data = vec![tag::CREATE_ADDRESS_TREE];
     data.serialize(&mut instruction_data)
         .expect("shielded-pool instruction serialization is infallible");
@@ -22,7 +17,6 @@ pub fn create_address_tree(
         accounts: vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(queue, false),
         ],
         data: instruction_data,
     }

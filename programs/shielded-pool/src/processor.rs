@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub fn process_instruction(
-    _program_id: &Address,
+    program_id: &Address,
     accounts: &[AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
@@ -29,7 +29,7 @@ pub fn process_instruction(
         tag::CREATE_ADDRESS_TREE => {
             let data = CreateAddressTreeData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_address_tree(accounts, data)
+            process_create_address_tree(program_id, accounts, data)
         }
         tag::INSERT_ADDRESSES => {
             let data = InsertAddressesData::try_from_slice(payload)
