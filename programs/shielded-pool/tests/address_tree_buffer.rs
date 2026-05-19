@@ -39,3 +39,26 @@ fn init_rejects_undersized_buffer() {
 fn address_tree_account_size_is_nonzero() {
     assert!(address_tree_account_size() > 0);
 }
+
+#[test]
+fn insert_advances_queue_next_index() {
+    let mut buf = allocate_buffer();
+    init_address_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+
+    let slot: u64 = 7;
+    {
+        let mut tree =
+            BatchedMerkleTreeAccount::address_from_bytes(&mut buf, &TREE).unwrap();
+        let initial_next_index = tree.get_metadata().queue_batches.next_index;
+        tree.insert_address_into_queue(&[3u8; 32], &slot).unwrap();
+        tree.insert_address_into_queue(&[4u8; 32], &slot).unwrap();
+        assert_eq!(
+            tree.get_metadata().queue_batches.next_index,
+            initial_next_index + 2
+        );
+    }
+
+    // Reload the tree to confirm the queue counter persisted to bytes.
+    let tree = BatchedMerkleTreeAccount::address_from_bytes(&mut buf, &TREE).unwrap();
+    assert_eq!(tree.get_metadata().queue_batches.next_index, 2);
+}
