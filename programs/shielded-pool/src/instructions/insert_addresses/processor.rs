@@ -1,7 +1,7 @@
 use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
-    AccountView, ProgramResult,
+    AccountView, Address, ProgramResult,
 };
 use zolana_interface::instruction::InsertAddressesData;
 
@@ -9,10 +9,11 @@ use super::verify::verify;
 use crate::error::ShieldedPoolError;
 
 pub fn process_insert_addresses(
+    program_id: &Address,
     accounts: &[AccountView],
     data: InsertAddressesData,
 ) -> ProgramResult {
-    let verified = verify(accounts, &data)?;
+    let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
     let current_slot = Clock::get()?.slot;
 

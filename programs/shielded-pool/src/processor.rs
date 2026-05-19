@@ -34,22 +34,22 @@ pub fn process_instruction(
         tag::INSERT_ADDRESSES => {
             let data = InsertAddressesData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_insert_addresses(accounts, data)
+            process_insert_addresses(program_id, accounts, data)
         }
         tag::BATCH_UPDATE_ADDRESS_TREE => {
             let data = BatchUpdateAddressTreeData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_batch_update_address_tree(accounts, data)
+            process_batch_update_address_tree(program_id, accounts, data)
         }
         tag::CREATE_STATE_TREE => {
             let data = CreateStateTreeData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_state_tree(accounts, data)
+            process_create_state_tree(program_id, accounts, data)
         }
         tag::APPEND_STATE_LEAVES => {
             let data = AppendStateLeavesData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_append_state_leaves(accounts, data)
+            process_append_state_leaves(program_id, accounts, data)
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }

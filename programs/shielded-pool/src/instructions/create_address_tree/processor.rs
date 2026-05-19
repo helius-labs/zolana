@@ -9,7 +9,7 @@ pub fn process_create_address_tree(
     accounts: &[AccountView],
     data: CreateAddressTreeData,
 ) -> ProgramResult {
-    let verified = verify(accounts, &data)?;
+    let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
     // SAFETY: `MutableAddressTreeAccounts::tree` is the writable account passed
     // by the caller and not aliased with any other borrowed account.

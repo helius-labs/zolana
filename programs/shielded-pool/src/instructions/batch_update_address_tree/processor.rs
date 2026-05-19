@@ -2,17 +2,18 @@ use light_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataBatchNullifyInputs,
 };
 use light_compressed_account::instruction_data::compressed_proof::CompressedProof;
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
 use super::verify::verify;
 use crate::error::ShieldedPoolError;
 
 pub fn process_batch_update_address_tree(
+    program_id: &Address,
     accounts: &[AccountView],
     data: BatchUpdateAddressTreeData,
 ) -> ProgramResult {
-    let verified = verify(accounts, &data)?;
+    let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
 
     // SAFETY: `MutableAddressTreeAccounts::tree` is the writable account passed

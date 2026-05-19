@@ -1,4 +1,4 @@
-use pinocchio::{error::ProgramError, AccountView};
+use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::instruction::CreateStateTreeData;
 
 use crate::{
@@ -7,6 +7,7 @@ use crate::{
 };
 
 pub fn verify<'a>(
+    program_id: &Address,
     accounts: &'a [AccountView],
     data: &CreateStateTreeData,
 ) -> Result<MutableStateTreeAccounts<'a>, ProgramError> {
@@ -15,5 +16,5 @@ pub fn verify<'a>(
     if data.height == 0 || (data.height as usize) != HEIGHT {
         return Err(ShieldedPoolError::InvalidStateTreeConfig.into());
     }
-    crate::instructions::loader::load_mutable_state_tree_accounts(accounts)
+    crate::instructions::loader::load_mutable_state_tree_accounts(program_id, accounts, true)
 }
