@@ -17,6 +17,7 @@ test-sbf = []
 [dependencies]
 borsh = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-compressed-account = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }
 light-sparse-merkle-tree = { workspace = true }
 pinocchio = "0.10"

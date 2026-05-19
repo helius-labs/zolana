@@ -41,6 +41,26 @@ fn address_tree_account_size_is_nonzero() {
 }
 
 #[test]
+fn batch_update_rejects_garbage_proof_on_empty_queue() {
+    // No addresses have been inserted, so the pending batch isn't ready.
+    // update_tree_from_address_queue must error before any proof check.
+    let mut buf = allocate_buffer();
+    init_address_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+
+    let mut tree = BatchedMerkleTreeAccount::address_from_bytes(&mut buf, &TREE).unwrap();
+    let inputs = light_batched_merkle_tree::merkle_tree::InstructionDataBatchNullifyInputs {
+        new_root: [1u8; 32],
+        compressed_proof:
+            light_compressed_account::instruction_data::compressed_proof::CompressedProof {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
+            },
+    };
+    assert!(tree.update_tree_from_address_queue(inputs).is_err());
+}
+
+#[test]
 fn insert_advances_queue_next_index() {
     let mut buf = allocate_buffer();
     init_address_tree_account(&mut buf, &OWNER, &TREE).unwrap();

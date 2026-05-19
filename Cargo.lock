@@ -2881,6 +2881,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "light-batched-merkle-tree",
+ "light-compressed-account",
  "light-hasher",
  "light-sparse-merkle-tree",
  "pinocchio",
