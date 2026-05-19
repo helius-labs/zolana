@@ -47,4 +47,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just xtask-create-verifying-keys-smoke

@@ -53,6 +53,8 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-forester-compile
       - run: just test-forester-smoke
 
@@ -80,6 +82,8 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-forester-e2e
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Available disk space (pre)
         run: df -h /
       - run: just test-forester-e2e
@@ -109,6 +113,8 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-forester-e2e
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just forester::test-compressible-pda
       - run: just forester::test-compressible-mint
       - run: just forester::test-compressible-ctoken

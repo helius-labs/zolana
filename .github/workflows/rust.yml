@@ -33,6 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure git auth for private cargo git deps
+        env:
+          TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -47,6 +52,7 @@ jobs:
         with:
           shared-key: machete
           install-just: "false"
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-machete
@@ -62,6 +68,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just clippy
 
   check:
@@ -72,6 +79,8 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
 
   photon-api-codegen:
@@ -82,6 +91,8 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-photon-generate
 
   test-scaffold:
@@ -90,6 +101,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-scaffold
 
   test-compressed-token:
@@ -98,6 +111,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-compressed-token
 
   test-sdk-libs:
@@ -106,4 +121,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs

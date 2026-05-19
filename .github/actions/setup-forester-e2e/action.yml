@@ -16,6 +16,10 @@ inputs:
     description: Swatinem rust-cache shared-key for cross-workflow cache reuse.
     required: false
     default: rust-stable
+  private-libs-token:
+    description: PAT forwarded to setup-rust for fetching private cargo git deps.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -23,6 +27,7 @@ runs:
     - uses: ./.github/actions/setup-rust
       with:
         shared-key: ${{ inputs.shared-key }}
+        private-libs-token: ${{ inputs.private-libs-token }}
     - uses: actions/setup-go@v5
       with:
         go-version-file: prover/server/go.mod
