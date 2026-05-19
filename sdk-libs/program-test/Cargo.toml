@@ -1,0 +1,28 @@
+[package]
+name = "light-program-test"
+version = "0.23.0"
+description = "Litesvm-based test rig for the shielded-pool + registry programs."
+license = "Apache-2.0"
+edition.workspace = true
+
+[features]
+default = []
+# Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or
+# absolute path passed at construction time). The default search path is
+# `<workspace>/target/deploy/shielded_pool_program.so`.
+
+[dependencies]
+borsh = { workspace = true }
+litesvm = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+solana-hash = { workspace = true }
+thiserror = { workspace = true }
+zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+serial_test = { workspace = true }
