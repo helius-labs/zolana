@@ -15,11 +15,13 @@ use anchor_lang::prelude::*;
 pub mod constants;
 pub mod epoch;
 pub mod errors;
+pub mod forester;
 pub mod protocol_config;
 pub mod selection;
 pub mod utils;
 
 pub use crate::epoch::{finalize_registration::*, register_epoch::*, report_work::*};
+pub use forester::forest_address_tree::*;
 pub use protocol_config::{initialize::*, update::*};
 pub use selection::forester::*;
 
@@ -202,5 +204,16 @@ pub mod light_registry {
         ctx.accounts.epoch_pda.total_work += ctx.accounts.forester_epoch_pda.work_counter;
         ctx.accounts.forester_epoch_pda.has_reported_work = true;
         Ok(())
+    }
+
+    /// Drives a single batched-address-tree root update on the shielded-pool
+    /// program. Registry CPIs into shielded-pool with its CPI authority PDA
+    /// as signer and bumps the forester's work counter for the epoch.
+    pub fn forest_address_tree<'info>(
+        ctx: Context<'info, ForestAddressTree<'info>>,
+        bump: u8,
+        data: zolana_interface::instruction::BatchUpdateAddressTreeData,
+    ) -> Result<()> {
+        forester::forest_address_tree::process_forest_address_tree(ctx, bump, data)
     }
 }
