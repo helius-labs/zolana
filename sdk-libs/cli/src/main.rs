@@ -1,7 +1,7 @@
 use std::{
     env,
     fs::{self, OpenOptions},
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -481,12 +481,14 @@ fn program_file_path(name: &str) -> Result<PathBuf> {
         return Ok(target_candidate);
     }
 
-    let vendored_candidate = root.join("sdk-libs/cli/bin").join(name);
-    if vendored_candidate.exists() {
-        return Ok(vendored_candidate);
+    if let Ok(cache) = fixtures_cache_dir() {
+        let cache_candidate = cache.join("bin").join(name);
+        if cache_candidate.exists() {
+            return Ok(cache_candidate);
+        }
     }
 
-    bail!("missing {name}; run `just build-light-programs` to build/copy local validator artifacts")
+    bail!("missing {name}; run `just fetch-fixtures` (or `just build-light-programs` for repo-built artifacts)")
 }
 
 fn accounts_dir() -> Result<PathBuf> {
@@ -497,12 +499,32 @@ fn accounts_dir() -> Result<PathBuf> {
         }
     }
 
-    let path = project_root()?.join("sdk-libs/cli/accounts");
-    if path.exists() {
-        return Ok(path);
+    if let Ok(cache) = fixtures_cache_dir() {
+        let path = cache.join("accounts");
+        if path.exists() {
+            return Ok(path);
+        }
     }
 
-    bail!("missing vendored account fixtures at sdk-libs/cli/accounts")
+    bail!("missing account fixtures; run `just fetch-fixtures`")
+}
+
+fn fixtures_cache_dir() -> Result<PathBuf> {
+    let tag = fs::read_to_string(project_root()?.join(".fixtures-version"))
+        .context("reading .fixtures-version")?
+        .trim()
+        .to_string();
+    if tag.is_empty() {
+        bail!(".fixtures-version is empty");
+    }
+
+    let cache_root = if let Some(dir) = env::var_os("ZOLANA_CACHE_DIR") {
+        PathBuf::from(dir)
+    } else {
+        let home = env::var("HOME").context("HOME is not set; cannot resolve fixtures cache")?;
+        PathBuf::from(home).join(".cache/zolana")
+    };
+    Ok(cache_root.join("fixtures").join(tag))
 }
 
 fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()> {
@@ -741,9 +763,23 @@ fn http_request(
         stream.write_all(body)?;
     }
 
-    let mut response = String::new();
-    stream.read_to_string(&mut response)?;
-    Ok(response)
+    let mut response = Vec::new();
+    let mut buf = [0_u8; 4096];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => response.extend_from_slice(&buf[..n]),
+            Err(error)
+                if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+                    && !response.is_empty() =>
+            {
+                break;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    String::from_utf8(response).context("HTTP response was not UTF-8")
 }
 
 fn http_status(response: &str) -> Option<u16> {

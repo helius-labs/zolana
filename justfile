@@ -117,8 +117,32 @@ check-light-cli:
 build-zolana-cli:
     cargo build -p zolana-cli
 
-verify-light-fixtures:
-    cd sdk-libs/cli/bin && shasum -a 256 -c SHA256SUMS
+# Download and verify the Light test-validator fixtures pinned in
+# .fixtures-version into ${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/<tag>.
+# Idempotent: no-op when the cache already has a verified bundle.
+fetch-fixtures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=$(tr -d '[:space:]' < .fixtures-version)
+    cache_root="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}"
+    dest="${cache_root}/fixtures/${tag}"
+    if [[ -f "${dest}/SHA256SUMS" ]] && (cd "$dest" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); then
+        echo "fixtures ${tag} already cached at ${dest}"
+        exit 0
+    fi
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    url="https://github.com/helius-labs/zolana/releases/download/${tag}/light-fixtures.tar.gz"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    echo "fetching ${url}"
+    curl -sSfL "$url" -o "$tmp/light-fixtures.tar.gz"
+    tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
+    cd "$dest" && shasum -a 256 -c SHA256SUMS
+    echo "fixtures ${tag} ready at ${dest}"
+
+# Back-compat alias; build-light-programs and CI used to invoke this.
+verify-light-fixtures: fetch-fixtures
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -170,13 +194,17 @@ install-photon:
         rm -rf external/photon/target
     fi
 
-build-light-programs: verify-light-fixtures
+build-light-programs: fetch-fixtures
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/compressed-token/program/Cargo.toml
     mkdir -p target/deploy
-    cp sdk-libs/cli/bin/spl_noop.so target/deploy/spl_noop.so
-    cp sdk-libs/cli/bin/light_system_program_pinocchio.so target/deploy/light_system_program_pinocchio.so
+    tag=$(tr -d '[:space:]' < .fixtures-version)
+    fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
+    cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
+    cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
 build-forester-test-deps: build-light-programs
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/create-address-test-program/Cargo.toml

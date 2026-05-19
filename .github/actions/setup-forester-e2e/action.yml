@@ -50,6 +50,18 @@ runs:
     - name: Build zolana CLI
       shell: bash
       run: just build-zolana-cli
+    - name: Resolve fixtures tag
+      id: fixtures
+      shell: bash
+      run: |
+        tag=$(tr -d '[:space:]' < .fixtures-version)
+        echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+        echo "dir=${HOME}/.cache/zolana/fixtures/${tag}" >> "$GITHUB_OUTPUT"
+    - name: Cache Light Protocol fixtures
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/zolana/fixtures
+        key: light-fixtures-${{ steps.fixtures.outputs.tag }}
     - name: Build Light Protocol local validator artifacts
       shell: bash
       run: just build-light-programs
@@ -62,7 +74,7 @@ runs:
         echo "PHOTON_BIN=${GITHUB_WORKSPACE}/target/tools/photon" >> "$GITHUB_ENV"
         echo "PROVER_BIN=${GITHUB_WORKSPACE}/target/prover-server" >> "$GITHUB_ENV"
         echo "LIGHT_PROTOCOL_PROGRAMS_DIR=${GITHUB_WORKSPACE}/target/deploy" >> "$GITHUB_ENV"
-        echo "LIGHT_PROTOCOL_ACCOUNTS_DIR=${GITHUB_WORKSPACE}/sdk-libs/cli/accounts" >> "$GITHUB_ENV"
+        echo "LIGHT_PROTOCOL_ACCOUNTS_DIR=${{ steps.fixtures.outputs.dir }}/accounts" >> "$GITHUB_ENV"
     - name: Verify local validator tools
       shell: bash
       run: |
