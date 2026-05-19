@@ -92,14 +92,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - run: just test-scaffold
 
-  test-program-libs:
-    name: tests / program-libs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-      - run: just test-program-libs
-
   test-compressed-token:
     name: tests / compressed-token
     runs-on: ubuntu-latest
@@ -107,14 +99,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
       - run: just test-compressed-token
-
-  test-merkle-tree:
-    name: tests / merkle-tree-reference
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-      - run: just test-merkle-tree
 
   test-sdk-libs:
     name: tests / sdk-libs

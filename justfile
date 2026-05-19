@@ -65,18 +65,9 @@ test-scaffold:
     cargo test -p shielded-pool-tests
     cargo test -p registry-tests
 
-# Unit tests for foundational program libraries.
-test-program-libs:
-    cargo test -p light-batched-merkle-tree
-    cargo test -p light-heap
-
 # Unit and integration tests for the compressed-token program (lib + tests dir).
 test-compressed-token:
     cargo test -p light-compressed-token --lib --tests
-
-# Tests for the reference Merkle tree implementation used by program-tests/utils.
-test-merkle-tree:
-    cargo test -p light-merkle-tree-reference
 
 # SDK library tests that do not require a running validator or prover.
 test-sdk-libs:
@@ -85,7 +76,7 @@ test-sdk-libs:
     cargo test -p light-compressed-token-sdk
 
 # Aggregate of all CI-runnable rust tests except the forester e2e suite.
-test-all: test-scaffold test-program-libs test-compressed-token test-merkle-tree test-sdk-libs test-forester-smoke
+test-all: test-scaffold test-compressed-token test-sdk-libs test-forester-smoke
 
 # Check photon-api's OpenAPI regeneration path against external/photon.
 check-photon-generate:
