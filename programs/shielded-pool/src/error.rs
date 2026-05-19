@@ -15,6 +15,14 @@ pub enum ShieldedPoolError {
     InvalidAddressTreeAccounts,
     #[error("address tree state mutation is not implemented for this scaffold")]
     AddressTreeMutationUnsupported,
+    #[error("invalid state tree configuration")]
+    InvalidStateTreeConfig,
+    #[error("append state leaves requires at least one leaf")]
+    EmptyStateLeafBatch,
+    #[error("state tree accounts are invalid")]
+    InvalidStateTreeAccounts,
+    #[error("state tree mutation is not implemented for this scaffold")]
+    StateTreeMutationUnsupported,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

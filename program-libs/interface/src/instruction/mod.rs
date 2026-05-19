@@ -6,7 +6,8 @@ pub mod tag;
 use borsh::BorshSerialize;
 
 pub use instruction_data::{
-    BatchUpdateAddressTreeData, CreateAddressTreeData, InsertAddressesData,
+    AppendStateLeavesData, BatchUpdateAddressTreeData, CreateAddressTreeData, CreateStateTreeData,
+    InsertAddressesData,
 };
 pub use tag::InstructionTag;
 
