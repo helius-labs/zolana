@@ -16,13 +16,12 @@ pub mod constants;
 pub mod epoch;
 pub mod errors;
 pub mod protocol_config;
+pub mod selection;
 pub mod utils;
-
-#[cfg(not(target_os = "solana"))]
-pub mod sdk;
 
 pub use crate::epoch::{finalize_registration::*, register_epoch::*, report_work::*};
 pub use protocol_config::{initialize::*, update::*};
+pub use selection::forester::*;
 
 use anchor_lang::solana_program::pubkey::Pubkey;
 use errors::RegistryError;
@@ -42,7 +41,7 @@ declare_id!("Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX");
 #[program]
 pub mod light_registry {
     use super::*;
-    use crate::protocol_config::check_protocol_config;
+    use crate::protocol_config::update::check_protocol_config;
 
     /// Initializes the protocol config pda. Can only be called once by the
     /// program account keypair.

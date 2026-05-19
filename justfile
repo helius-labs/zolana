@@ -38,52 +38,26 @@ build-release:
 check:
     cargo check
 
-# Check the workspace plus forester test targets. SBF fixture crates are checked
-# as libraries in the same no-entrypoint shape used by forester tests.
+# Check the entire workspace.
 check-all:
-    cargo check --workspace --exclude csdk-anchor-full-derived-test --exclude create-address-test-program
-    cargo check -p forester --all-targets
-    cargo check -p csdk-anchor-full-derived-test --lib --features no-entrypoint
-    cargo check -p create-address-test-program --lib --features no-entrypoint
+    cargo check --workspace --all-targets
 
-# Compile all forester test binaries without running the integration suite.
-test-forester-compile:
-    cargo test -p forester --no-run
-
-test-forester-smoke:
-    cargo test -p forester --test metrics_contract_test
-    cargo test -p forester --test test_nullify_state_v1_multi_tx_size
-    cargo test -p forester --test priority_fee_test
-
-# Default test target keeps CI cheap while preserving forester test compilation.
-test: test-forester-compile test-forester-smoke
+# Default test target. Tests for the surviving slice (interface, registry,
+# shielded-pool program). Forester e2e tests will be reintroduced when the
+# foresting logic is rebuilt against the new combined tree type.
+test: test-scaffold
 
 # Cheap tests for the initial shielded-pool/interface/registry scaffold.
 test-scaffold:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
-    cargo test -p registry-tests
 
-# Unit and integration tests for the compressed-token program (lib + tests dir).
-test-compressed-token:
-    cargo test -p light-compressed-token --lib --tests
-
-# SDK library tests that do not require a running validator or prover.
-test-sdk-libs:
-    cargo test -p light-event
-    cargo test -p light-token
-    cargo test -p light-compressed-token-sdk
-
-# Aggregate of all CI-runnable rust tests except the forester e2e suite.
-test-all: test-scaffold test-compressed-token test-sdk-libs test-forester-smoke
-
-# Check photon-api's OpenAPI regeneration path against external/photon.
-check-photon-generate:
-    cargo check -p photon-api --features generate
+# Aggregate of all CI-runnable rust tests.
+test-all: test-scaffold
 
 # Rust-only verification for machines without Go installed.
-verify-rust: check test check-photon-generate
+verify-rust: check test
 
 # Full verification for the reduced workspace.
 verify: verify-rust prover-server-test
@@ -199,42 +173,15 @@ build-light-programs: fetch-fixtures
     set -euo pipefail
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/compressed-token/program/Cargo.toml
     mkdir -p target/deploy
     tag=$(tr -d '[:space:]' < .fixtures-version)
     fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
     cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
     cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
-build-forester-test-deps: build-light-programs
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/create-address-test-program/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
-
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
-
-# Run the forester PDA integration test that deploys the local csdk SBF fixture.
-test-forester-pda: check-light-cli build-forester-test-deps
-    cargo test -p forester --test test_compressible_pda -- --nocapture
-
-# Run a bounded local forester e2e smoke. The zolana local validator launcher
-# advances slots quickly and preloads V2 trees with 500/250 element ZKP batches,
-# so this validates deterministic V1 state and compressible-account behavior.
-test-forester-e2e: check-light-cli build-light-programs
-    TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::test
-
-# Run the bounded local forester e2e smoke without rebuilding SBF dependencies.
-test-forester-e2e-local: check-light-cli
-    TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::local
-
-# Run the full forester e2e surface with all tree families enabled.
-test-forester-e2e-full: check-light-cli build-light-programs
-    just forester::test-full
-
-# Run the full forester e2e surface without rebuilding SBF dependencies.
-test-forester-e2e-full-local: check-light-cli
-    just forester::local-full
 
 # === Formatting and linting ===
 
@@ -245,9 +192,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --exclude csdk-anchor-full-derived-test --exclude create-address-test-program -- -D warnings
-    cargo clippy -p csdk-anchor-full-derived-test --lib --features no-entrypoint -- -D warnings
-    cargo clippy -p create-address-test-program --lib --features no-entrypoint -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # === Prover server ===
 

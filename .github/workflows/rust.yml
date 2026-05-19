@@ -72,7 +72,7 @@ jobs:
       - run: just clippy
 
   check:
-    name: cargo check (workspace + SBF fixtures)
+    name: cargo check (workspace)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,18 +83,6 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
 
-  photon-api-codegen:
-    name: photon-api OpenAPI regen
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup-rust
-        with:
-          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: just check-photon-generate
-
   test-scaffold:
     name: tests / scaffold
     runs-on: ubuntu-latest
@@ -104,23 +92,3 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-scaffold
-
-  test-compressed-token:
-    name: tests / compressed-token
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-        with:
-          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: just test-compressed-token
-
-  test-sdk-libs:
-    name: tests / sdk-libs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-        with:
-          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: just test-sdk-libs

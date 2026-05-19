@@ -42,7 +42,6 @@ light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-prog
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
 light-bounded-vec = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.0.1" }
 light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0", default-features = false }
-light-compressible = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0", default-features = false }
 light-concurrent-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0" }
 light-hash-set = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "4.0.0" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
@@ -162,7 +161,6 @@ light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-prog
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-bounded-vec = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-compressible = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-concurrent-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-hash-set = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }

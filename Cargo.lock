@@ -5208,8 +5208,3 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.0",
 ]
-
-[[patch.unused]]
-name = "light-compressible"
-version = "0.6.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ec85ef08ebb21576fe4df3a06bc2cdca938c2d2c"
