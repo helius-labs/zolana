@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Build a fixtures bundle from sdk-libs/cli/{bin,accounts} for upload to a
-# GitHub release. The bundle is what `just fetch-fixtures` will pull and
-# verify on developer machines and in CI.
+# Build a fixtures bundle for upload to a GitHub release.
+#
+# Bin/accounts source defaults to sdk-libs/cli/{bin,accounts}, which only
+# exists for the v1 bootstrap (`light-fixtures-zkc-0.28.4`). For subsequent
+# releases, point FIXTURES_BIN_DIR / FIXTURES_ACCOUNTS_DIR at wherever you
+# staged the new fixtures (e.g. an extracted prior release, or freshly built
+# .so files).
 #
 # Output (under target/fixtures/):
 #   light-fixtures.tar.gz           the archive to upload
@@ -16,8 +20,8 @@
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
-src_bin="$root/sdk-libs/cli/bin"
-src_accounts="$root/sdk-libs/cli/accounts"
+src_bin="${FIXTURES_BIN_DIR:-$root/sdk-libs/cli/bin}"
+src_accounts="${FIXTURES_ACCOUNTS_DIR:-$root/sdk-libs/cli/accounts}"
 
 if [[ ! -d "$src_bin" || ! -d "$src_accounts" ]]; then
     echo "error: expected $src_bin and $src_accounts to exist" >&2

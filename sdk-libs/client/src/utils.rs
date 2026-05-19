@@ -10,7 +10,7 @@ pub fn find_light_bin() -> Option<PathBuf> {
     }
 
     let root = project_root()?;
-    [root.join("target/deploy"), root.join("sdk-libs/cli/bin")]
+    [root.join("target/deploy")]
         .into_iter()
         .find(|path| path.join("account_compression.so").is_file())
 }

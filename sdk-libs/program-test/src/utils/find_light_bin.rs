@@ -22,13 +22,9 @@ pub fn find_light_bin() -> Option<PathBuf> {
     }
 
     let root = project_root()?;
-    [
-        root.join("target/deploy"),
-        root.join("sdk-libs/cli/bin"),
-        root.join("cli/bin"),
-    ]
-    .into_iter()
-    .find(|path| has_required_programs(path.as_path()))
+    [root.join("target/deploy")]
+        .into_iter()
+        .find(|path| has_required_programs(path.as_path()))
 }
 
 fn env_dir(name: &str) -> Option<PathBuf> {

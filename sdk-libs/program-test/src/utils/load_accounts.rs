@@ -28,6 +28,11 @@ pub fn find_accounts_dir() -> Option<PathBuf> {
         }
     }
 
+    let cache = fixtures_cache_dir()?.join("accounts");
+    cache.is_dir().then_some(cache)
+}
+
+fn fixtures_cache_dir() -> Option<PathBuf> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -35,10 +40,18 @@ pub fn find_accounts_dir() -> Option<PathBuf> {
     if !output.status.success() {
         return None;
     }
-
-    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let accounts_path = PathBuf::from(root).join("sdk-libs/cli/accounts");
-    accounts_path.is_dir().then_some(accounts_path)
+    let root = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    let tag = fs::read_to_string(root.join(".fixtures-version"))
+        .ok()?
+        .trim()
+        .to_string();
+    if tag.is_empty() {
+        return None;
+    }
+    let cache_root = std::env::var_os("ZOLANA_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/zolana")))?;
+    Some(cache_root.join("fixtures").join(tag))
 }
 
 /// Load all accounts from the accounts directory
@@ -46,7 +59,7 @@ pub fn find_accounts_dir() -> Option<PathBuf> {
 pub fn load_all_accounts_from_dir() -> Result<HashMap<Pubkey, Account>, RpcError> {
     let accounts_dir = find_accounts_dir().ok_or_else(|| {
         RpcError::CustomError(
-            "Failed to find account fixtures. Set LIGHT_PROTOCOL_ACCOUNTS_DIR or use the vendored sdk-libs/cli/accounts directory.".to_string(),
+            "Failed to find account fixtures. Run `just fetch-fixtures` or set LIGHT_PROTOCOL_ACCOUNTS_DIR.".to_string(),
         )
     })?;
 
@@ -119,7 +132,7 @@ pub fn load_all_accounts_from_dir() -> Result<HashMap<Pubkey, Account>, RpcError
 pub fn load_account_from_dir(pubkey: &Pubkey, prefix: Option<&str>) -> Result<Account, RpcError> {
     let accounts_dir = find_accounts_dir().ok_or_else(|| {
         RpcError::CustomError(
-            "Failed to find account fixtures. Set LIGHT_PROTOCOL_ACCOUNTS_DIR or use the vendored sdk-libs/cli/accounts directory.".to_string(),
+            "Failed to find account fixtures. Run `just fetch-fixtures` or set LIGHT_PROTOCOL_ACCOUNTS_DIR.".to_string(),
         )
     })?;
 
