@@ -1,0 +1,114 @@
+name: forester
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "forester/**"
+      - "forester-utils/**"
+      - "programs/**"
+      - "program-libs/**"
+      - "program-tests/**"
+      - "sdk-libs/**"
+      - "sdk-tests/**"
+      - "anchor-programs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/forester.yml"
+      - ".github/actions/setup-rust/**"
+      - ".github/actions/setup-forester-e2e/**"
+  pull_request:
+    paths:
+      - "forester/**"
+      - "forester-utils/**"
+      - "programs/**"
+      - "program-libs/**"
+      - "program-tests/**"
+      - "sdk-libs/**"
+      - "sdk-tests/**"
+      - "anchor-programs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/forester.yml"
+      - ".github/actions/setup-rust/**"
+      - ".github/actions/setup-forester-e2e/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  unit:
+    name: forester / compile + smoke
+    runs-on: ubuntu-latest
+    # Smoke tests reuse the artifacts produced by the compile step, so we keep
+    # them in the same job rather than paying for two cold builds.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-rust
+      - run: just test-forester-compile
+      - run: just test-forester-smoke
+
+  e2e:
+    name: forester / e2e (bounded)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:8.0.1
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      RUSTFLAGS: "--cfg tokio_unstable -D warnings"
+      TEST_MODE: local
+      FORESTER_ENABLE_COMPRESSIBLE: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-forester-e2e
+      - name: Available disk space (pre)
+        run: df -h /
+      - run: just test-forester-e2e
+      - name: Available disk space (post)
+        if: always()
+        run: df -h /
+
+  compressible:
+    name: forester / compressible (pda, mint, ctoken)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      redis:
+        image: redis:8.0.1
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      RUST_LOG: forester=debug,light_client=debug
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-forester-e2e
+      - run: just forester::test-compressible-pda
+      - run: just forester::test-compressible-mint
+      - run: just forester::test-compressible-ctoken

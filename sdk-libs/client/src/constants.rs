@@ -30,13 +30,13 @@ pub const NULLIFIED_STATE_TREE_LOOKUP_TABLE_DEVNET: Pubkey =
 /// ```bash
 ///
 /// # By cloning from mainnet
-/// light test-validator --validator-args "\
+/// zolana test-validator --validator-args "\
 ///   --clone 9NYFyEqPkyXUhkerbGHXUXkvb4qpzeEdHuGpgbgpH1NJ \
 ///   --url https://api.mainnet-beta.solana.com \
 ///   --upgradeable-program <your_program_id> <your_program_path> ~/.config/solana/id.json"
 ///
 /// # With a local LUT file
-/// light test-validator --validator-args "\
+/// zolana test-validator --validator-args "\
 ///   --account 9NYFyEqPkyXUhkerbGHXUXkvb4qpzeEdHuGpgbgpH1NJ ./scripts/lut.json \
 ///   --url https://api.mainnet-beta.solana.com \
 ///   --upgradeable-program <your_program_id> <your_program_path> ~/.config/solana/id.json"

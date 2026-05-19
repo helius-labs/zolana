@@ -7,7 +7,7 @@
 //! For pinocchio solana program development see [`light-sdk-pinocchio`](https://docs.rs/light-sdk-pinocchio).
 //! For rust client developement see [`light-client`](https://docs.rs/light-client).
 //! For rust program testing see [`light-program-test`](https://docs.rs/light-program-test).
-//! For local test validator with light system programs see [Light CLI](https://www.npmjs.com/package/@lightprotocol/zk-compression-cli).
+//! For local test validator with Light Protocol programs, build and use the repo-local `zolana` CLI.
 //!
 //! ## Features
 //! - Connect to various RPC endpoints (local test validator, devnet/mainnet)
@@ -17,9 +17,10 @@
 //!
 //! ## Prerequisites
 //!
-//! For local test validator usage, install the Light CLI:
+//! For local test validator usage, build the local launcher and artifacts:
 //! ```bash
-//! npm i -g @lightprotocol/zk-compression-cli
+//! just build-zolana-cli
+//! just build-light-programs
 //! ```
 //!
 //! ## Example

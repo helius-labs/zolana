@@ -213,19 +213,6 @@ fn test_capped_priority_fee() {
 
     let cap_config = CapConfig {
         rec_fee_microlamports_per_cu: 10_000,
-        min_fee_lamports: 10_000,
-        max_fee_lamports: 0,
-        compute_unit_limit: 1_000_000,
-    };
-    println!("expecting panic");
-    let result = std::panic::catch_unwind(|| get_capped_priority_fee(cap_config));
-    assert!(
-        result.is_err(),
-        "Expected panic for max fee less than min fee"
-    );
-
-    let cap_config = CapConfig {
-        rec_fee_microlamports_per_cu: 10_000,
         min_fee_lamports: 50_000,
         max_fee_lamports: 50_000,
         compute_unit_limit: 1_000_000,

@@ -79,7 +79,6 @@ light-heap = { path = "program-libs/heap", version = "2.0.0" }
 light-indexed-array = "0.3.0"
 light-indexed-merkle-tree = "5.0.0"
 light-instruction-decoder = "0.23.0"
-light-instruction-decoder-derive = "0.4.0"
 light-event = { path = "sdk-libs/event", version = "0.23.1" }
 light-macros = "2.2.0"
 light-merkle-tree-metadata = "0.11.0"
@@ -87,7 +86,6 @@ light-merkle-tree-reference = { path = "program-tests/merkle-tree", version = "4
 light-program-profiler = "0.1.0"
 light-verifier = "10.0.0"
 light-sdk = "0.23.0"
-light-sdk-macros = "0.23.0"
 light-sdk-types = { version = "0.23.0", default-features = false }
 light-sparse-merkle-tree = "0.3.0"
 light-token-interface = "0.5.0"
@@ -96,7 +94,6 @@ light-zero-copy = { version = "0.6.0", default-features = false }
 
 # Solana and SPL.
 anchor-lang = "0.31.1"
-light-anchor-spl = { version = "0.31.1", features = ["memo"] }
 anchor-spl = "0.31.1"
 borsh = { version = "0.10.4", default-features = false }
 solana-account = "2.2"
@@ -115,7 +112,6 @@ solana-cpi = "2.2"
 solana-hash = "2.3"
 solana-instruction = "2.3"
 solana-keypair = "2.2"
-solana-logger = "2.3"
 solana-message = "2.2"
 solana-msg = "2.2"
 solana-program = "2.3"
@@ -169,8 +165,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serial_test = "3.2.0"
 sha2 = "0.10"
-smallvec = "1.15"
-tabled = "0.20"
 thiserror = "2.0"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }

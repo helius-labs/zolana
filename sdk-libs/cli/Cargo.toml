@@ -9,5 +9,5 @@ name = "zolana"
 path = "src/main.rs"
 
 [dependencies]
-light-prover-client = { workspace = true }
-
+anyhow = { workspace = true }
+serde_json = { workspace = true }

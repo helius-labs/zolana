@@ -15,4 +15,5 @@ num-traits = { workspace = true }
 light-indexed-array = { workspace = true }
 
 [dev-dependencies]
+light-hasher = { workspace = true, features = ["keccak", "sha256"] }
 rand = { workspace = true }

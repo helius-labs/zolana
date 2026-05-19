@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"light/light-prover/logging"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -219,6 +220,10 @@ func (m *LazyKeyManager) releaseLoadingLock(key string, ch chan struct{}) {
 	close(ch)
 }
 
+func (m *LazyKeyManager) keyPath(filename string) string {
+	return filepath.Join(m.keysDir, filename)
+}
+
 func (m *LazyKeyManager) determineMerkleKeyPath(
 	inclusionTreeHeight uint32,
 	inclusionCompressedAccounts uint32,
@@ -228,21 +233,21 @@ func (m *LazyKeyManager) determineMerkleKeyPath(
 ) string {
 	if inclusionCompressedAccounts > 0 && nonInclusionCompressedAccounts > 0 {
 		if version == 1 && inclusionTreeHeight == 26 && nonInclusionTreeHeight == 26 {
-			return fmt.Sprintf("%sv1_combined_26_26_%d_%d.key", m.keysDir, inclusionCompressedAccounts, nonInclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v1_combined_26_26_%d_%d.key", inclusionCompressedAccounts, nonInclusionCompressedAccounts))
 		} else if version == 2 && inclusionTreeHeight == 32 && nonInclusionTreeHeight == 40 {
-			return fmt.Sprintf("%sv2_combined_32_40_%d_%d.key", m.keysDir, inclusionCompressedAccounts, nonInclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v2_combined_32_40_%d_%d.key", inclusionCompressedAccounts, nonInclusionCompressedAccounts))
 		}
 	} else if inclusionCompressedAccounts > 0 {
 		if version == 1 && inclusionTreeHeight == 26 {
-			return fmt.Sprintf("%sv1_inclusion_26_%d.key", m.keysDir, inclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v1_inclusion_26_%d.key", inclusionCompressedAccounts))
 		} else if version == 2 && inclusionTreeHeight == 32 {
-			return fmt.Sprintf("%sv2_inclusion_32_%d.key", m.keysDir, inclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v2_inclusion_32_%d.key", inclusionCompressedAccounts))
 		}
 	} else if nonInclusionCompressedAccounts > 0 {
 		if version == 1 && nonInclusionTreeHeight == 26 {
-			return fmt.Sprintf("%sv1_non-inclusion_26_%d.key", m.keysDir, nonInclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v1_non-inclusion_26_%d.key", nonInclusionCompressedAccounts))
 		} else if version == 2 && nonInclusionTreeHeight == 40 {
-			return fmt.Sprintf("%sv2_non-inclusion_40_%d.key", m.keysDir, nonInclusionCompressedAccounts)
+			return m.keyPath(fmt.Sprintf("v2_non-inclusion_40_%d.key", nonInclusionCompressedAccounts))
 		}
 	}
 
@@ -253,21 +258,21 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 	switch circuitType {
 	case BatchAppendCircuitType:
 		if treeHeight == 32 && batchSize == 500 {
-			return fmt.Sprintf("%sbatch_append_32_500.key", m.keysDir)
+			return m.keyPath("batch_append_32_500.key")
 		} else if treeHeight == 32 && batchSize == 10 {
-			return fmt.Sprintf("%sbatch_append_32_10.key", m.keysDir)
+			return m.keyPath("batch_append_32_10.key")
 		}
 	case BatchUpdateCircuitType:
 		if treeHeight == 32 && batchSize == 500 {
-			return fmt.Sprintf("%sbatch_update_32_500.key", m.keysDir)
+			return m.keyPath("batch_update_32_500.key")
 		} else if treeHeight == 32 && batchSize == 10 {
-			return fmt.Sprintf("%sbatch_update_32_10.key", m.keysDir)
+			return m.keyPath("batch_update_32_10.key")
 		}
 	case BatchAddressAppendCircuitType:
 		if treeHeight == 40 && batchSize == 250 {
-			return fmt.Sprintf("%sbatch_address-append_40_250.key", m.keysDir)
+			return m.keyPath("batch_address-append_40_250.key")
 		} else if treeHeight == 40 && batchSize == 10 {
-			return fmt.Sprintf("%sbatch_address-append_40_10.key", m.keysDir)
+			return m.keyPath("batch_address-append_40_10.key")
 		}
 	}
 
@@ -347,7 +352,7 @@ func (m *LazyKeyManager) tryParseSpecificConfig(config string) string {
 	if strings.HasPrefix(config, "batch_") ||
 		strings.HasPrefix(config, "v1_") ||
 		strings.HasPrefix(config, "v2_") {
-		return fmt.Sprintf("%s%s.key", m.keysDir, config)
+		return m.keyPath(fmt.Sprintf("%s.key", config))
 	}
 	return ""
 }

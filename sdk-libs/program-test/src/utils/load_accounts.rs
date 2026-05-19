@@ -21,46 +21,24 @@ struct AccountInfo {
 }
 
 pub fn find_accounts_dir() -> Option<PathBuf> {
-    #[cfg(not(feature = "devenv"))]
-    {
-        use std::process::Command;
-        let output = Command::new("which")
-            .arg("light")
-            .output()
-            .expect("Failed to execute 'which light'");
-
-        if !output.status.success() {
-            return None;
+    if let Ok(path) = std::env::var("LIGHT_PROTOCOL_ACCOUNTS_DIR") {
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            return Some(path);
         }
-
-        let light_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let mut light_bin_path = PathBuf::from(light_path);
-        light_bin_path.pop();
-
-        let accounts_dir =
-            light_bin_path.join("../lib/node_modules/@lightprotocol/zk-compression-cli/accounts");
-
-        Some(accounts_dir.canonicalize().unwrap_or(accounts_dir))
     }
-    #[cfg(feature = "devenv")]
-    {
-        println!("Use only in light protocol monorepo. Using 'git rev-parse --show-toplevel' to find the accounts directory");
-        let light_protocol_toplevel = String::from_utf8_lossy(
-            &std::process::Command::new("git")
-                .arg("rev-parse")
-                .arg("--show-toplevel")
-                .output()
-                .expect("Failed to get top-level directory")
-                .stdout,
-        )
-        .trim()
-        .to_string();
 
-        // In devenv mode, we don't load accounts from directory
-        // This path won't be used as we initialize accounts directly
-        let accounts_path = PathBuf::from(format!("{}/cli/accounts/", light_protocol_toplevel));
-        Some(accounts_path)
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let accounts_path = PathBuf::from(root).join("sdk-libs/cli/accounts");
+    accounts_path.is_dir().then_some(accounts_path)
 }
 
 /// Load all accounts from the accounts directory
@@ -68,7 +46,7 @@ pub fn find_accounts_dir() -> Option<PathBuf> {
 pub fn load_all_accounts_from_dir() -> Result<HashMap<Pubkey, Account>, RpcError> {
     let accounts_dir = find_accounts_dir().ok_or_else(|| {
         RpcError::CustomError(
-            "Failed to find accounts directory. Make sure light CLI is installed.".to_string(),
+            "Failed to find account fixtures. Set LIGHT_PROTOCOL_ACCOUNTS_DIR or use the vendored sdk-libs/cli/accounts directory.".to_string(),
         )
     })?;
 
@@ -141,7 +119,7 @@ pub fn load_all_accounts_from_dir() -> Result<HashMap<Pubkey, Account>, RpcError
 pub fn load_account_from_dir(pubkey: &Pubkey, prefix: Option<&str>) -> Result<Account, RpcError> {
     let accounts_dir = find_accounts_dir().ok_or_else(|| {
         RpcError::CustomError(
-            "Failed to find accounts directory. Make sure light CLI is installed.".to_string(),
+            "Failed to find account fixtures. Set LIGHT_PROTOCOL_ACCOUNTS_DIR or use the vendored sdk-libs/cli/accounts directory.".to_string(),
         )
     })?;
 

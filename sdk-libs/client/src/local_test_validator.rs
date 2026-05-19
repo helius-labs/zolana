@@ -57,7 +57,7 @@ impl Default for LightValidatorConfig {
 
 pub async fn spawn_validator(config: LightValidatorConfig) {
     let cli_path = get_light_cli_command().expect(
-        "failed to find Light CLI; install npm and @lightprotocol/zk-compression-cli, set LIGHT_CLI_BIN, or set LIGHT_CLI_CMD",
+        "failed to find zolana CLI; run `just build-zolana-cli`, set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD",
     );
     let mut path = format!("{cli_path} test-validator");
     if !config.enable_indexer {

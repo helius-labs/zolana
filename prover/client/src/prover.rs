@@ -38,7 +38,7 @@ pub async fn spawn_prover() {
             #[cfg(feature = "devenv")]
             {
                 get_light_cli_command().expect(
-                    "failed to find Light CLI; install npm and @lightprotocol/zk-compression-cli, set LIGHT_CLI_BIN, or set LIGHT_CLI_CMD",
+                    "failed to find zolana CLI; run `just build-zolana-cli`, set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD",
                 )
             }
             #[cfg(not(feature = "devenv"))]

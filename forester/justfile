@@ -11,6 +11,8 @@ export FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS := env_var_or_default("FORESTER
 export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_SECONDS", "900")
 export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
 export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
+# Platform-tools bundle used by `cargo build-sbf` (see root justfile rationale).
+sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 
 default:
     @just --list
@@ -19,9 +21,9 @@ build:
     cargo build -p forester --release
 
 build-test-deps:
-    cargo build-sbf --manifest-path ../program-tests/create-address-test-program/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path ../program-tests/create-address-test-program/Cargo.toml
 
-# Bounded local e2e smoke for the npm Light CLI local validator. The full
+# Bounded local e2e smoke for the zolana local validator. The full
 # all-tree test is available through test-full/local-full.
 test: build-test-deps
     TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 cargo test --package forester e2e_test -- --nocapture
@@ -39,7 +41,7 @@ local-full:
     cargo test --package forester e2e_test -- --nocapture
 
 build-compressible-test-deps:
-    cargo build-sbf --manifest-path ../sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path ../sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
 
 test-compressible-pda: build-compressible-test-deps
     RUST_LOG=forester=debug,light_client=debug \
