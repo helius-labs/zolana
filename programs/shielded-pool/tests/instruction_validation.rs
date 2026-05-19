@@ -1,37 +1,16 @@
 use shielded_pool_program::process_instruction;
 use zolana_interface::instruction::{
-    encode_instruction, tag, AppendStateLeavesData, CreateAddressTreeData, CreateStateTreeData,
-    InsertAddressesData,
+    encode_instruction, tag, AppendStateLeavesData, CreatePoolTreeData, InsertAddressesData,
 };
 
-#[test]
-fn rejects_create_address_tree_without_accounts() {
-    let data = encode_instruction(
-        tag::CREATE_ADDRESS_TREE,
-        &CreateAddressTreeData {
-            height: 26,
-            queue_capacity: 1024,
-            canopy_depth: 10,
-        },
-    );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+fn program_id() -> pinocchio::Address {
+    pinocchio::Address::new_from_array([0u8; 32])
 }
 
 #[test]
-fn rejects_invalid_create_address_tree_config() {
-    let data = encode_instruction(
-        tag::CREATE_ADDRESS_TREE,
-        &CreateAddressTreeData {
-            height: 0,
-            queue_capacity: 1024,
-            canopy_depth: 10,
-        },
-    );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+fn rejects_create_pool_tree_without_accounts() {
+    let data = encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData);
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
 }
 
 #[test]
@@ -40,31 +19,28 @@ fn rejects_empty_insert_batch() {
         tag::INSERT_ADDRESSES,
         &InsertAddressesData { addresses: vec![] },
     );
-    let program_id = pinocchio::Address::from([0u8; 32]);
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
+}
 
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+#[test]
+fn rejects_empty_append_state_leaves_batch() {
+    let data = encode_instruction(
+        tag::APPEND_STATE_LEAVES,
+        &AppendStateLeavesData { leaves: vec![] },
+    );
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
 }
 
 #[test]
 fn rejects_malformed_payload() {
-    let data = vec![tag::CREATE_ADDRESS_TREE, 1, 2, 3];
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+    let data = vec![tag::INSERT_ADDRESSES, 1, 2, 3];
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
 }
 
 #[test]
-fn encodes_first_byte_tags() {
-    let data = encode_instruction(
-        tag::CREATE_ADDRESS_TREE,
-        &CreateAddressTreeData {
-            height: 26,
-            queue_capacity: 1024,
-            canopy_depth: 10,
-        },
-    );
-
-    assert_eq!(data[0], tag::CREATE_ADDRESS_TREE);
+fn rejects_unknown_instruction_tag() {
+    let data = vec![255];
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
 }
 
 #[test]
@@ -75,70 +51,7 @@ fn non_empty_insert_without_accounts_does_not_succeed() {
             addresses: vec![[1u8; 32]],
         },
     );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
-}
-
-#[test]
-fn rejects_unknown_instruction_tag() {
-    let data = vec![255];
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
-}
-
-#[test]
-fn create_address_tree_payload_can_be_decoded() {
-    let data = CreateAddressTreeData {
-        height: 26,
-        queue_capacity: 1024,
-        canopy_depth: 10,
-    };
-    let encoded = encode_instruction(tag::CREATE_ADDRESS_TREE, &data);
-    let decoded =
-        <CreateAddressTreeData as borsh::BorshDeserialize>::try_from_slice(&encoded[1..]).unwrap();
-
-    assert_eq!(decoded, data);
-}
-
-#[test]
-fn rejects_create_state_tree_without_accounts() {
-    let data = encode_instruction(
-        tag::CREATE_STATE_TREE,
-        &CreateStateTreeData {
-            height: 26,
-            canopy_depth: 10,
-        },
-    );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
-}
-
-#[test]
-fn rejects_invalid_create_state_tree_config() {
-    let data = encode_instruction(
-        tag::CREATE_STATE_TREE,
-        &CreateStateTreeData {
-            height: 0,
-            canopy_depth: 10,
-        },
-    );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
-}
-
-#[test]
-fn rejects_empty_append_state_leaves_batch() {
-    let data = encode_instruction(
-        tag::APPEND_STATE_LEAVES,
-        &AppendStateLeavesData { leaves: vec![] },
-    );
-    let program_id = pinocchio::Address::from([0u8; 32]);
-
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
 }
 
 #[test]
@@ -149,7 +62,11 @@ fn non_empty_append_state_leaves_without_accounts_does_not_succeed() {
             leaves: vec![[1u8; 32]],
         },
     );
-    let program_id = pinocchio::Address::from([0u8; 32]);
+    assert!(process_instruction(&program_id(), &[], &data).is_err());
+}
 
-    assert!(process_instruction(&program_id, &[], &data).is_err());
+#[test]
+fn encodes_first_byte_tags() {
+    let data = encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData);
+    assert_eq!(data[0], tag::CREATE_POOL_TREE);
 }

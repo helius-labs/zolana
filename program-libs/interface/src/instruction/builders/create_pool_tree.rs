@@ -3,16 +3,14 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, CreateAddressTreeData},
+    instruction::{tag, CreatePoolTreeData},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
-pub fn create_address_tree(
-    payer: Pubkey,
-    tree: Pubkey,
-    data: CreateAddressTreeData,
-) -> Instruction {
-    let mut instruction_data = vec![tag::CREATE_ADDRESS_TREE];
+/// Initialize a combined-account shielded-pool tree (state sub-tree +
+/// address sub-tree co-located).
+pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -> Instruction {
+    let mut instruction_data = vec![tag::CREATE_POOL_TREE];
     data.serialize(&mut instruction_data)
         .expect("shielded-pool instruction serialization is infallible");
 

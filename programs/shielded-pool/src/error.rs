@@ -5,24 +5,16 @@ use thiserror::Error;
 pub enum ShieldedPoolError {
     #[error("invalid instruction data")]
     InvalidInstructionData,
-    #[error("invalid address tree configuration")]
-    InvalidAddressTreeConfig,
+    #[error("pool tree accounts are invalid")]
+    InvalidPoolTreeAccounts,
     #[error("insert addresses requires at least one address")]
     EmptyAddressBatch,
-    #[error("batch update root cannot be zero")]
-    EmptyBatchUpdateRoot,
-    #[error("address tree accounts are invalid")]
-    InvalidAddressTreeAccounts,
-    #[error("address tree state mutation is not implemented for this scaffold")]
-    AddressTreeMutationUnsupported,
-    #[error("invalid state tree configuration")]
-    InvalidStateTreeConfig,
     #[error("append state leaves requires at least one leaf")]
     EmptyStateLeafBatch,
-    #[error("state tree accounts are invalid")]
-    InvalidStateTreeAccounts,
-    #[error("state tree mutation is not implemented for this scaffold")]
-    StateTreeMutationUnsupported,
+    #[error("batch update root cannot be zero")]
+    EmptyBatchUpdateRoot,
+    #[error("pool tree mutation failed")]
+    PoolTreeMutationFailed,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

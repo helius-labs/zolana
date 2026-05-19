@@ -1,21 +1,20 @@
 use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::AppendStateLeavesData;
+use zolana_interface::instruction::CreatePoolTreeData;
 
-use super::verify::verify;
-use crate::{
-    error::ShieldedPoolError,
-    instructions::create_pool_tree::init::append_state_leaves as append_to_pool,
-};
+use super::{init::init_pool_tree_account, verify::verify};
+use crate::error::ShieldedPoolError;
 
-pub fn process_append_state_leaves(
+pub fn process_create_pool_tree(
     program_id: &Address,
     accounts: &[AccountView],
-    data: AppendStateLeavesData,
+    data: CreatePoolTreeData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
+    let tree_pubkey = *verified.tree.address();
     // SAFETY: `MutablePoolTreeAccounts::tree` is the writable account passed
     // by the caller and not aliased with any other borrowed account.
     let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
-    append_to_pool(bytes, &data.leaves).map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
+    init_pool_tree_account(bytes, program_id, &tree_pubkey)
+        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
     Ok(())
 }
