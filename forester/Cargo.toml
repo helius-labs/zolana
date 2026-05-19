@@ -8,67 +8,10 @@ publish = false
 default = []
 
 [dependencies]
-anchor-lang = { workspace = true }
 clap = { version = "4.5.53", features = ["derive", "env"] }
-solana-sdk = { workspace = true }
-solana-commitment-config = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
-solana-client = { workspace = true }
-solana-account-decoder = { workspace = true }
-solana-program = { workspace = true }
-account-compression = { workspace = true }
-light-account-checks = { workspace = true }
-light-batched-merkle-tree = { workspace = true }
-light-compressed-account = { workspace = true, features = ["std"] }
-light-hash-set = { workspace = true, features = ["solana"] }
-light-hasher = { workspace = true, features = ["poseidon"] }
-light-prover-client = { workspace = true }
-light-registry = { workspace = true }
-forester-utils = { workspace = true }
-light-client = { workspace = true, features = ["v2"] }
-light-merkle-tree-metadata = { workspace = true }
-light-sdk = { workspace = true, features = ["anchor"] }
-light-account = { workspace = true }
-light-compressible = { workspace = true, default-features = false, features = ["solana"] }
-light-token-interface = { workspace = true }
-light-compressed-token-sdk = { workspace = true }
-solana-rpc-client-api = { workspace = true }
-solana-transaction-status = { workspace = true }
-solana-transaction-status-client-types = { workspace = true }
-base64 = { workspace = true }
-serde_json = { workspace = true }
-serde = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-reqwest = { workspace = true, features = ["json", "rustls-tls", "blocking"] }
-futures = { workspace = true }
+anyhow = { workspace = true }
 thiserror = { workspace = true }
-borsh = { workspace = true }
-bs58 = { workspace = true }
-hex = { workspace = true }
-env_logger = { workspace = true }
-async-trait = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
-anyhow = { workspace = true }
-
-prometheus = "0.14"
-lazy_static = { workspace = true }
-warp = { version = "0.4", features = ["server"] }
-dashmap = { workspace = true }
-scopeguard = "1.2"
-itertools = "0.14"
-async-channel = "2.5"
 dotenvy = "0.15"
-
-[dev-dependencies]
-serial_test = { workspace = true }
-light-prover-client = { workspace = true, features = ["devenv"] }
-light-test-utils = { workspace = true }
-light-program-test = { workspace = true, features = ["devenv"] }
-light-compressed-token = { workspace = true }
-light-token = { workspace = true }
-light-token-client = { workspace = true }
-rand = { workspace = true }
-create-address-test-program = { workspace = true }
-csdk-anchor-full-derived-test = { workspace = true }

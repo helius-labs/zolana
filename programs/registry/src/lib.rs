@@ -3,50 +3,30 @@
 #![allow(deprecated)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::diverging_sub_expression)]
-use account_compression::{
-    utils::constants::CPI_AUTHORITY_PDA_SEED, AddressMerkleTreeConfig, AddressQueueConfig,
-    NullifierQueueConfig, StateMerkleTreeConfig,
-};
+//! Registry program — admin and forester-registration slice only.
+//!
+//! All v1/v2 tree instructions, the compressible/ctoken instructions, and the
+//! light-system-program registration paths were removed in the shielded-pool
+//! reshape. One new forester instruction for the combined address+state tree
+//! type will be added in a later phase.
+
 use anchor_lang::prelude::*;
-use light_merkle_tree_metadata::merkle_tree::MerkleTreeMetadata;
 
-pub mod account_compression_cpi;
-pub mod errors;
-pub use account_compression_cpi::{
-    batch_append::*, batch_nullify::*, batch_update_address_tree::*,
-    initialize_batched_address_tree::*, initialize_batched_state_tree::*,
-    initialize_tree_and_queue::*, migrate_state::*, nullify::*, register_program::*,
-    rollover_batched_address_tree::*, rollover_batched_state_tree::*, rollover_state_tree::*,
-    update_address_tree::*,
-};
-pub use compressible::{
-    claim::*, compress_and_close::*, create_config::*, create_config_counter::*, update_config::*,
-    withdraw_funding_pool::*,
-};
-pub use protocol_config::{initialize::*, update::*};
-
-pub use crate::epoch::{finalize_registration::*, register_epoch::*, report_work::*};
-pub mod compressible;
 pub mod constants;
 pub mod epoch;
+pub mod errors;
 pub mod protocol_config;
-pub mod selection;
 pub mod utils;
-use account_compression::MigrateLeafParams;
-use anchor_lang::solana_program::pubkey::Pubkey;
-use errors::RegistryError;
-use light_batched_merkle_tree::{
-    initialize_address_tree::InitAddressTreeAccountsInstructionData,
-    initialize_state_tree::InitStateTreeAccountsInstructionData,
-    merkle_tree::BatchedMerkleTreeAccount, queue::BatchedQueueAccount,
-};
-use light_compressible::registry_instructions::CreateCompressibleConfig as CreateCompressibleConfigData;
-use protocol_config::state::ProtocolConfig;
-pub use selection::forester::*;
 
-use crate::compressible::compressed_token::CompressAndCloseIndices;
 #[cfg(not(target_os = "solana"))]
 pub mod sdk;
+
+pub use crate::epoch::{finalize_registration::*, register_epoch::*, report_work::*};
+pub use protocol_config::{initialize::*, update::*};
+
+use anchor_lang::solana_program::pubkey::Pubkey;
+use errors::RegistryError;
+use protocol_config::state::ProtocolConfig;
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
@@ -61,11 +41,8 @@ declare_id!("Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX");
 
 #[program]
 pub mod light_registry {
-
-    use constants::DEFAULT_WORK_V1;
-    use light_compressible::config::{CompressibleConfig, CompressibleConfigState};
-
     use super::*;
+    use crate::protocol_config::check_protocol_config;
 
     /// Initializes the protocol config pda. Can only be called once by the
     /// program account keypair.
@@ -108,49 +85,6 @@ pub mod light_registry {
             ctx.accounts.protocol_config_pda.config = protocol_config;
         }
         Ok(())
-    }
-
-    pub fn register_system_program(ctx: Context<RegisterProgram>, bump: u8) -> Result<()> {
-        let bump = &[bump];
-        let seeds = [CPI_AUTHORITY_PDA_SEED, bump];
-        let signer_seeds = &[&seeds[..]];
-
-        let accounts = account_compression::cpi::accounts::RegisterProgramToGroup {
-            authority: ctx.accounts.cpi_authority.to_account_info(),
-            program_to_be_registered: ctx.accounts.program_to_be_registered.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
-            registered_program_pda: ctx.accounts.registered_program_pda.to_account_info(),
-            group_authority_pda: ctx.accounts.group_pda.to_account_info(),
-        };
-
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.account_compression_program.key(),
-            accounts,
-            signer_seeds,
-        );
-
-        account_compression::cpi::register_program_to_group(cpi_ctx)
-    }
-
-    pub fn deregister_system_program(ctx: Context<DeregisterProgram>, bump: u8) -> Result<()> {
-        let bump = &[bump];
-        let seeds = [CPI_AUTHORITY_PDA_SEED, bump];
-        let signer_seeds = &[&seeds[..]];
-
-        let accounts = account_compression::cpi::accounts::DeregisterProgram {
-            authority: ctx.accounts.cpi_authority.to_account_info(),
-            registered_program_pda: ctx.accounts.registered_program_pda.to_account_info(),
-            group_authority_pda: ctx.accounts.group_pda.to_account_info(),
-            close_recipient: ctx.accounts.authority.to_account_info(),
-        };
-
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.account_compression_program.key(),
-            accounts,
-            signer_seeds,
-        );
-
-        account_compression::cpi::deregister_program(cpi_ctx)
     }
 
     pub fn register_forester(
@@ -198,7 +132,6 @@ pub mod light_registry {
         ctx: Context<'info, RegisterForesterEpoch<'info>>,
         epoch: u64,
     ) -> Result<()> {
-        // Only init if not initialized
         if ctx.accounts.epoch_pda.registered_weight == 0 {
             (*ctx.accounts.epoch_pda).clone_from(&EpochPda {
                 epoch,
@@ -208,7 +141,6 @@ pub mod light_registry {
             });
         }
         let current_solana_slot = anchor_lang::solana_program::clock::Clock::get()?.slot;
-        // Init epoch account if not initialized
         let current_epoch = ctx
             .accounts
             .epoch_pda
@@ -218,7 +150,6 @@ pub mod light_registry {
         if current_epoch != epoch {
             return err!(RegistryError::InvalidEpoch);
         }
-        // check that epoch is in registration phase is in process_register_for_epoch
         process_register_for_epoch(
             &ctx.accounts.authority.key(),
             &mut ctx.accounts.forester_pda,
@@ -229,9 +160,6 @@ pub mod light_registry {
         Ok(())
     }
 
-    /// This transaction can be included as additional instruction in the first
-    /// work instructions during the active phase.
-    /// Registration Period must be over.
     pub fn finalize_registration<'info>(
         ctx: Context<'info, FinalizeRegistration<'info>>,
     ) -> Result<()> {
@@ -247,11 +175,6 @@ pub mod light_registry {
         ctx.accounts.forester_epoch_pda.total_epoch_weight =
             Some(ctx.accounts.epoch_pda.registered_weight);
         ctx.accounts.forester_epoch_pda.finalize_counter += 1;
-        // Check limit for finalize counter to throw if exceeded
-        // Is a safeguard so that noone can block parallelism.
-        // This instruction can be passed with nullify instructions, to prevent
-        // read locking the epoch account for more than X transactions limit
-        // the number of syncs without failing the tx to X
         if ctx.accounts.forester_epoch_pda.finalize_counter
             > ctx
                 .accounts
@@ -280,608 +203,5 @@ pub mod light_registry {
         ctx.accounts.epoch_pda.total_work += ctx.accounts.forester_epoch_pda.work_counter;
         ctx.accounts.forester_epoch_pda.has_reported_work = true;
         Ok(())
-    }
-
-    pub fn initialize_address_merkle_tree(
-        ctx: Context<InitializeMerkleTreeAndQueue>,
-        bump: u8,
-        program_owner: Option<Pubkey>,
-        forester: Option<Pubkey>,
-        merkle_tree_config: AddressMerkleTreeConfig,
-        queue_config: AddressQueueConfig,
-    ) -> Result<()> {
-        // Address V1 trees are deprecated.
-        // Light foresters (fee-based) are disabled for address V1 trees.
-        // New address V1 trees must be program owned with a designated forester.
-        // New address V1 trees must not have network fees.
-        if program_owner.is_none() {
-            msg!("Program owner must be defined.");
-            return err!(RegistryError::ProgramOwnerUndefined);
-        }
-        if merkle_tree_config.network_fee.is_some() {
-            msg!("Network fee must be None.");
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        // A designated program-owned forester is required for address V1 trees.
-        // Light foresters (fee-based) will not service address V1 trees.
-        if forester.is_none() {
-            msg!("Forester pubkey required for program-owned trees.");
-            return err!(RegistryError::ForesterUndefined);
-        }
-        // Unused parameter
-        if queue_config.network_fee.is_some() {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        process_initialize_address_merkle_tree(
-            ctx,
-            bump,
-            0,
-            program_owner,
-            forester,
-            merkle_tree_config,
-            queue_config,
-        )
-    }
-
-    pub fn initialize_state_merkle_tree(
-        ctx: Context<InitializeMerkleTreeAndQueue>,
-        bump: u8,
-        program_owner: Option<Pubkey>,
-        forester: Option<Pubkey>,
-        merkle_tree_config: StateMerkleTreeConfig,
-        queue_config: NullifierQueueConfig,
-    ) -> Result<()> {
-        // Program owned trees are disabled
-        if program_owner.is_some() {
-            msg!("Program owner must not be defined.");
-            return err!(RegistryError::ProgramOwnerDefined);
-        }
-        // The network fee must be either zero or the same as the protocol config.
-        // Only trees with a network fee will be serviced by light foresters.
-        if let Some(network_fee) = merkle_tree_config.network_fee {
-            if network_fee != ctx.accounts.protocol_config_pda.config.network_fee {
-                return err!(RegistryError::InvalidNetworkFee);
-            }
-            if forester.is_some() {
-                msg!("Forester pubkey must not be defined for trees serviced by light foresters.");
-                return err!(RegistryError::ForesterDefined);
-            }
-            if ctx.accounts.authority.key() != ctx.accounts.protocol_config_pda.authority {
-                return err!(RegistryError::InvalidSigner);
-            }
-        } else if forester.is_none() {
-            msg!("Forester pubkey required for trees without a network fee.");
-            msg!("Trees without a network fee will not be serviced by light foresters.");
-            return err!(RegistryError::ForesterUndefined);
-        }
-
-        // Unused parameter
-        if queue_config.network_fee.is_some() {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        check_cpi_context(
-            ctx.accounts
-                .cpi_context_account
-                .as_ref()
-                .unwrap()
-                .to_account_info(),
-            &ctx.accounts.protocol_config_pda.config,
-        )?;
-        process_initialize_state_merkle_tree(
-            &ctx,
-            bump,
-            0,
-            program_owner,
-            forester,
-            merkle_tree_config,
-            queue_config,
-        )?;
-
-        process_initialize_cpi_context(
-            bump,
-            ctx.accounts.authority.to_account_info(),
-            ctx.accounts
-                .cpi_context_account
-                .as_ref()
-                .unwrap()
-                .to_account_info(),
-            ctx.accounts.merkle_tree.to_account_info(),
-            ctx.accounts
-                .light_system_program
-                .as_ref()
-                .unwrap()
-                .to_account_info(),
-        )
-    }
-
-    pub fn nullify<'info>(
-        ctx: Context<'info, NullifyLeaves<'info>>,
-        bump: u8,
-        change_log_indices: Vec<u64>,
-        leaves_queue_indices: Vec<u16>,
-        indices: Vec<u64>,
-        proofs: Vec<Vec<[u8; 32]>>,
-    ) -> Result<()> {
-        let metadata = ctx.accounts.merkle_tree.load()?.metadata;
-        check_forester(
-            &metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.nullifier_queue.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-
-        process_nullify(
-            &ctx,
-            bump,
-            change_log_indices,
-            leaves_queue_indices,
-            indices,
-            proofs,
-        )
-    }
-
-    /// Nullifies 2-4 leaves in a single instruction via sequential CPIs.
-    /// Uses proof deduplication: nearby leaves share Merkle proof nodes at
-    /// common ancestor levels. The `nodes` vec is a deduplicated pool of
-    /// unique nodes, and each proof's bitvec selects which 16 nodes from
-    /// the pool form that proof.
-    pub fn nullify_state_v1_multi<'info>(
-        ctx: Context<'info, NullifyLeaves<'info>>,
-        change_log_index: u16,
-        queue_indices: [u16; 4],
-        leaf_indices: [u32; 4],
-        proof_bitvecs: [u32; 4],
-        nodes: Vec<[u8; 32]>,
-    ) -> Result<()> {
-        let metadata = ctx.accounts.merkle_tree.load()?.metadata;
-        let count = account_compression_cpi::nullify::count_from_leaf_indices(&leaf_indices)?;
-        check_forester(
-            &metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.nullifier_queue.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            count as u64 * DEFAULT_WORK_V1,
-        )?;
-
-        process_nullify_state_v1_multi(
-            &ctx,
-            count,
-            change_log_index,
-            queue_indices,
-            leaf_indices,
-            proof_bitvecs,
-            nodes,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn update_address_merkle_tree(
-        ctx: Context<UpdateAddressMerkleTree>,
-        bump: u8,
-        changelog_index: u16,
-        indexed_changelog_index: u16,
-        value: u16,
-        low_address_index: u64,
-        low_address_value: [u8; 32],
-        low_address_next_index: u64,
-        low_address_next_value: [u8; 32],
-        low_address_proof: [[u8; 32]; 16],
-    ) -> Result<()> {
-        let metadata = ctx.accounts.merkle_tree.load()?.metadata;
-
-        check_forester(
-            &metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.queue.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-        process_update_address_merkle_tree(
-            &ctx,
-            bump,
-            changelog_index,
-            indexed_changelog_index,
-            value,
-            low_address_index,
-            low_address_value,
-            low_address_next_index,
-            low_address_next_value,
-            low_address_proof,
-        )
-    }
-
-    pub fn rollover_address_merkle_tree_and_queue<'info>(
-        ctx: Context<'info, RolloverAddressMerkleTreeAndQueue<'info>>,
-        bump: u8,
-    ) -> Result<()> {
-        let metadata = ctx.accounts.old_merkle_tree.load()?.metadata;
-        check_forester(
-            &metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.old_queue.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-
-        process_rollover_address_merkle_tree_and_queue(&ctx, bump)
-    }
-
-    pub fn rollover_state_merkle_tree_and_queue<'info>(
-        ctx: Context<'info, RolloverStateMerkleTreeAndQueue<'info>>,
-        bump: u8,
-    ) -> Result<()> {
-        let metadata = ctx.accounts.old_merkle_tree.load()?.metadata;
-        check_forester(
-            &metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.old_queue.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-
-        check_cpi_context(
-            ctx.accounts.cpi_context_account.to_account_info(),
-            &ctx.accounts.protocol_config_pda.config,
-        )?;
-        process_rollover_state_merkle_tree_and_queue(&ctx, bump)?;
-        process_initialize_cpi_context(
-            bump,
-            ctx.accounts.authority.to_account_info(),
-            ctx.accounts.cpi_context_account.to_account_info(),
-            ctx.accounts.new_merkle_tree.to_account_info(),
-            ctx.accounts.light_system_program.to_account_info(),
-        )
-    }
-
-    pub fn initialize_batched_state_merkle_tree<'info>(
-        ctx: Context<'info, InitializeBatchedStateMerkleTreeAndQueue<'info>>,
-        bump: u8,
-        params: Vec<u8>,
-    ) -> Result<()> {
-        let params = InitStateTreeAccountsInstructionData::try_from_slice(&params)?;
-        // Program owned trees are disabled
-        if params.program_owner.is_some() {
-            msg!("Program owner must not be defined.");
-            return err!(RegistryError::ProgramOwnerDefined);
-        }
-        if let Some(network_fee) = params.network_fee {
-            if network_fee != ctx.accounts.protocol_config_pda.config.network_fee {
-                return err!(RegistryError::InvalidNetworkFee);
-            }
-            if params.forester.is_some() {
-                msg!("Forester pubkey must not be defined for trees serviced by light foresters.");
-                return err!(RegistryError::ForesterDefined);
-            }
-        } else {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        if ctx.accounts.authority.key() != ctx.accounts.protocol_config_pda.authority {
-            return err!(RegistryError::InvalidSigner);
-        }
-        check_cpi_context(
-            ctx.accounts.cpi_context_account.to_account_info(),
-            &ctx.accounts.protocol_config_pda.config,
-        )?;
-
-        process_initialize_batched_state_merkle_tree(&ctx, bump, borsh::to_vec(&params).unwrap())?;
-
-        process_initialize_cpi_context(
-            bump,
-            ctx.accounts.authority.to_account_info(),
-            ctx.accounts.cpi_context_account.to_account_info(),
-            ctx.accounts.merkle_tree.to_account_info(),
-            ctx.accounts.light_system_program.to_account_info(),
-        )
-    }
-
-    pub fn batch_nullify<'info>(
-        ctx: Context<'info, BatchNullify<'info>>,
-        bump: u8,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        let merkle_tree =
-            BatchedMerkleTreeAccount::state_from_account_info(&ctx.accounts.merkle_tree)
-                .map_err(ProgramError::from)?;
-        check_forester(
-            &merkle_tree.metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.merkle_tree.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            // Reward for performed work is input queue batch size.
-            merkle_tree.queue_batches.batch_size,
-        )?;
-
-        process_batch_nullify(&ctx, bump, data)
-    }
-
-    pub fn batch_append<'info>(
-        ctx: Context<'info, BatchAppend<'info>>,
-        bump: u8,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        let queue_account =
-            BatchedQueueAccount::output_from_account_info(&ctx.accounts.output_queue)
-                .map_err(ProgramError::from)?;
-        let merkle_tree =
-            BatchedMerkleTreeAccount::state_from_account_info(&ctx.accounts.merkle_tree)
-                .map_err(ProgramError::from)?;
-        // Eligibility is checked for the Merkle tree,
-        // so that the same forester is eligible to
-        // batch append and batch nullify of the same tree.
-        check_forester(
-            &merkle_tree.metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.merkle_tree.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            // Reward for performed work is output queue batch size.
-            queue_account.batch_metadata.batch_size,
-        )?;
-        process_batch_append(&ctx, bump, data)
-    }
-
-    pub fn initialize_batched_address_merkle_tree(
-        ctx: Context<InitializeBatchedAddressTree>,
-        bump: u8,
-        params: Vec<u8>,
-    ) -> Result<()> {
-        let params = InitAddressTreeAccountsInstructionData::try_from_slice(&params)?;
-        // Program owned trees are disabled
-        if params.program_owner.is_some() {
-            msg!("Program owner must not be defined.");
-            return err!(RegistryError::ProgramOwnerDefined);
-        }
-        if let Some(network_fee) = params.network_fee {
-            if network_fee != ctx.accounts.protocol_config_pda.config.address_network_fee {
-                msg!(
-                    "ctx.accounts.protocol_config_pda.config.address_network_fee {:?}",
-                    ctx.accounts.protocol_config_pda.config.address_network_fee
-                );
-                msg!("network_fee {:?}", network_fee);
-                return err!(RegistryError::InvalidNetworkFee);
-            }
-            if params.forester.is_some() {
-                msg!("Forester pubkey must not be defined for trees serviced by light foresters.");
-                return err!(RegistryError::ForesterDefined);
-            }
-        } else {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        if ctx.accounts.authority.key() != ctx.accounts.protocol_config_pda.authority {
-            return err!(RegistryError::InvalidSigner);
-        }
-        process_initialize_batched_address_merkle_tree(&ctx, bump, borsh::to_vec(&params)?)
-    }
-
-    pub fn batch_update_address_tree<'info>(
-        ctx: Context<'info, BatchUpdateAddressTree<'info>>,
-        bump: u8,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        let account =
-            BatchedMerkleTreeAccount::address_from_account_info(&ctx.accounts.merkle_tree)
-                .map_err(ProgramError::from)?;
-        check_forester(
-            &account.metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.merkle_tree.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            account.queue_batches.batch_size,
-        )?;
-
-        process_batch_update_address_tree(&ctx, bump, data)
-    }
-
-    pub fn rollover_batched_address_merkle_tree<'info>(
-        ctx: Context<'info, RolloverBatchedAddressMerkleTree<'info>>,
-        bump: u8,
-    ) -> Result<()> {
-        let account = BatchedMerkleTreeAccount::address_from_account_info(
-            &ctx.accounts.old_address_merkle_tree,
-        )
-        .map_err(ProgramError::from)?;
-        check_forester(
-            &account.metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.old_address_merkle_tree.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-        process_rollover_batched_address_merkle_tree(&ctx, bump)
-    }
-
-    pub fn rollover_batched_state_merkle_tree<'info>(
-        ctx: Context<'info, RolloverBatchedStateMerkleTree<'info>>,
-        bump: u8,
-    ) -> Result<()> {
-        let account =
-            BatchedMerkleTreeAccount::state_from_account_info(&ctx.accounts.old_state_merkle_tree)
-                .map_err(ProgramError::from)?;
-        check_forester(
-            &account.metadata,
-            ctx.accounts.authority.key(),
-            ctx.accounts.old_state_merkle_tree.key(),
-            &mut ctx.accounts.registered_forester_pda,
-            DEFAULT_WORK_V1,
-        )?;
-        check_cpi_context(
-            ctx.accounts.cpi_context_account.to_account_info(),
-            &ctx.accounts.protocol_config_pda.config,
-        )?;
-
-        process_rollover_batched_state_merkle_tree(&ctx, bump)?;
-
-        process_initialize_cpi_context(
-            bump,
-            ctx.accounts.authority.to_account_info(),
-            ctx.accounts.cpi_context_account.to_account_info(),
-            ctx.accounts.new_state_merkle_tree.to_account_info(),
-            ctx.accounts.light_system_program.to_account_info(),
-        )
-    }
-
-    pub fn migrate_state<'info>(
-        ctx: Context<'info, MigrateState<'info>>,
-        bump: u8,
-        inputs: MigrateLeafParams,
-    ) -> Result<()> {
-        let metadata = ctx.accounts.merkle_tree.load()?.metadata;
-        ForesterEpochPda::check_forester_in_program(
-            &mut ctx.accounts.registered_forester_pda,
-            &ctx.accounts.authority.key(),
-            &ctx.accounts.merkle_tree.key(),
-            DEFAULT_WORK_V1,
-        )?;
-        if metadata.rollover_metadata.network_fee == 0 {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        process_migrate_state(&ctx, bump, inputs)
-    }
-
-    /// Creates the config counter PDA
-    pub fn create_config_counter(ctx: Context<CreateConfigCounter>) -> Result<()> {
-        ctx.accounts.config_counter.counter += 1;
-        Ok(())
-    }
-
-    /// Creates a new compressible config
-    pub fn create_compressible_config(
-        ctx: Context<CreateCompressibleConfig>,
-        params: CreateCompressibleConfigData,
-    ) -> Result<()> {
-        ctx.accounts
-            .compressible_config
-            .set_inner(CompressibleConfig::new_light_token(
-                ctx.accounts.config_counter.counter,
-                params.active,
-                params.update_authority,
-                params.withdrawal_authority,
-                params.rent_config,
-            ));
-        ctx.accounts.config_counter.counter += 1;
-        Ok(())
-    }
-
-    /// Updates an existing compressible config
-    pub fn update_compressible_config(ctx: Context<UpdateCompressibleConfig>) -> Result<()> {
-        // Update the update_authority if provided
-        if let Some(authority) = ctx.accounts.new_update_authority.as_ref() {
-            ctx.accounts.compressible_config.update_authority = authority.key();
-        }
-
-        // Update the withdrawal_authority if provided
-        if let Some(authority) = ctx.accounts.new_withdrawal_authority.as_ref() {
-            ctx.accounts.compressible_config.withdrawal_authority = authority.key();
-        }
-
-        Ok(())
-    }
-
-    /// Pauses the compressible config
-    /// Ctoken accounts created with this config remain operational.
-    /// Prevents:
-    /// 1. ctoken account creation (with this config)
-    /// 2. claiming from rent sponsor
-    /// 3. witdrawal from rent sponsor
-    pub fn pause_compressible_config(ctx: Context<UpdateCompressibleConfig>) -> Result<()> {
-        // Cannot pause a deprecated config
-        require!(
-            ctx.accounts.compressible_config.state != CompressibleConfigState::Deprecated as u8,
-            RegistryError::InvalidConfigState
-        );
-        ctx.accounts.compressible_config.state = CompressibleConfigState::Inactive as u8;
-        Ok(())
-    }
-
-    /// Unpauses the compressible config.
-    /// Only paused configs (state=0) can be unpaused.
-    pub fn unpause_compressible_config(ctx: Context<UpdateCompressibleConfig>) -> Result<()> {
-        require!(
-            ctx.accounts.compressible_config.state == CompressibleConfigState::Inactive as u8,
-            RegistryError::InvalidConfigState
-        );
-        ctx.accounts.compressible_config.state = CompressibleConfigState::Active as u8;
-        Ok(())
-    }
-
-    /// Deprecate the compressible config
-    /// Deprecate means no new ctoken accounts can be created with this config.
-    /// Other operations are functional.
-    pub fn deprecate_compressible_config(ctx: Context<UpdateCompressibleConfig>) -> Result<()> {
-        ctx.accounts.compressible_config.state = CompressibleConfigState::Deprecated as u8;
-        Ok(())
-    }
-
-    /// Withdraws funds from compressed token pool
-    pub fn withdraw_funding_pool(ctx: Context<WithdrawFundingPool>, amount: u64) -> Result<()> {
-        process_withdraw_funding_pool(&ctx, amount)
-    }
-
-    /// Claims rent from compressible token accounts
-    pub fn claim<'info>(ctx: Context<'info, ClaimContext<'info>>) -> Result<()> {
-        // Check forester and track work
-        // Using [0u8; 32] as the queue pubkey since claim doesn't have a specific queue
-        ForesterEpochPda::check_forester_in_program(
-            &mut ctx.accounts.registered_forester_pda,
-            &ctx.accounts.authority.key(),
-            &Pubkey::default(),
-            0,
-        )?;
-
-        // Process the claim CPI
-        process_claim(&ctx)
-    }
-
-    /// Compress and close token accounts via transfer2
-    pub fn compress_and_close<'c: 'info, 'info>(
-        ctx: Context<'info, CompressAndCloseContext<'info>>,
-        authority_index: u8,
-        destination_index: u8,
-        indices: Vec<CompressAndCloseIndices>,
-    ) -> Result<()> {
-        // Check forester and track work
-        // Using [0u8; 32] as the queue pubkey since compress_and_close doesn't have a specific queue
-        ForesterEpochPda::check_forester_in_program(
-            &mut ctx.accounts.registered_forester_pda,
-            &ctx.accounts.authority.key(),
-            &Pubkey::default(),
-            0,
-        )?;
-        process_compress_and_close(&ctx, authority_index, destination_index, indices)
-    }
-}
-
-/// if registered_forester_pda is not None check forester eligibility and network_fee is not 0
-/// if metadata.forester == authority can forest
-/// else throw error
-pub fn check_forester(
-    metadata: &MerkleTreeMetadata,
-    authority: Pubkey,
-    queue: Pubkey,
-    registered_forester_pda: &mut Option<Account<'_, ForesterEpochPda>>,
-    num_work_items: u64,
-) -> Result<()> {
-    if let Some(forester_pda) = registered_forester_pda.as_mut() {
-        // Checks forester:
-        // - signer
-        // - eligibility
-        // - increments work counter
-        ForesterEpochPda::check_forester_in_program(
-            forester_pda,
-            &authority,
-            &queue,
-            num_work_items,
-        )?;
-        if metadata.rollover_metadata.network_fee == 0 {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        Ok(())
-    } else if metadata.access_metadata.forester == authority {
-        if metadata.rollover_metadata.network_fee != 0 {
-            return err!(RegistryError::InvalidNetworkFee);
-        }
-        Ok(())
-    } else {
-        err!(RegistryError::InvalidSigner)
     }
 }

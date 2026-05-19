@@ -1,45 +1,18 @@
 [workspace]
 members = [
     "forester",
-    "forester-utils",
     "program-libs/interface",
-    "program-tests/create-address-test-program",
-    "program-tests/registry",
     "program-tests/shielded-pool",
-    "program-tests/utils",
     "programs/account-compression",
-    "programs/compressed-token/anchor",
-    "programs/compressed-token/program",
     "programs/registry",
     "programs/shielded-pool",
-    "anchor-programs/system",
     "prover/client",
-    "sdk-libs/account",
-    "sdk-libs/account-pinocchio",
     "sdk-libs/cli",
-    "sdk-libs/client",
-    "sdk-libs/compressed-token-sdk",
-    "sdk-libs/event",
-    "sdk-libs/instruction-decoder",
-    "sdk-libs/instruction-decoder-derive",
-    "sdk-libs/macros",
-    "sdk-tests/csdk-anchor-full-derived-test",
-    "sdk-libs/photon-api",
-    "sdk-libs/program-test",
-    "sdk-libs/sdk",
-    "sdk-libs/sdk-pinocchio",
-    "sdk-libs/sdk-types",
-    "sdk-libs/token-client",
-    "sdk-libs/token-pinocchio",
-    "sdk-libs/token-sdk",
-    "sdk-libs/token-types",
     "xtask",
 ]
 default-members = [
     "forester",
-    "forester-utils",
     "prover/client",
-    "sdk-libs/photon-api",
     "program-libs/interface",
     "programs/shielded-pool",
 ]
@@ -54,28 +27,12 @@ edition = "2021"
 # newer time-core releases.
 time = ">=0.3, <0.3.46"
 
-# Local workspace crates kept in this reduced monorepo.
+# Local workspace crates.
 account-compression = { path = "programs/account-compression", version = "2.0.0", features = ["cpi"] }
-anchor-compressed-token = { path = "programs/compressed-token/anchor", version = "2.0.0", default-features = false, features = ["cpi", "custom-heap"] }
-create-address-test-program = { path = "program-tests/create-address-test-program", version = "1.0.0", features = ["cpi"] }
-csdk-anchor-full-derived-test = { path = "sdk-tests/csdk-anchor-full-derived-test", version = "0.1.0", features = ["no-entrypoint"] }
-forester-utils = { path = "forester-utils", version = "2.0.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
-light-compressed-token = { path = "programs/compressed-token/program", version = "2.1.0", features = ["cpi"] }
-light-compressed-token-sdk = { path = "sdk-libs/compressed-token-sdk", version = "0.23.0" }
-light-client = { path = "sdk-libs/client", version = "0.23.0" }
-light-account = { path = "sdk-libs/account", version = "0.23.0", default-features = false }
-light-account-pinocchio = { path = "sdk-libs/account-pinocchio", version = "0.23.0", default-features = false }
-light-test-utils = { path = "program-tests/utils", version = "1.2.1" }
-light-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 light-prover-client = { path = "prover/client", version = "8.0.0" }
 light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
-light-system-program-anchor = { path = "anchor-programs/system", version = "2.0.0", features = ["cpi"] }
-light-token = { path = "sdk-libs/token-sdk", version = "0.23.0" }
-light-token-client = { path = "sdk-libs/token-client", version = "0.23.0" }
-light-token-pinocchio = { path = "sdk-libs/token-pinocchio", version = "0.23.0" }
-photon-api = { path = "sdk-libs/photon-api", version = "0.56.0" }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"
@@ -92,22 +49,13 @@ light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", br
 light-heap = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.0.0" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
 light-indexed-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0" }
-light-instruction-decoder = { path = "sdk-libs/instruction-decoder", version = "0.23.0" }
-light-instruction-decoder-derive = { path = "sdk-libs/instruction-decoder-derive", version = "0.4.0" }
-light-event = { path = "sdk-libs/event", version = "0.23.1" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.2.0" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "4.0.0" }
 light-poseidon = "0.4.0"
 light-program-profiler = "0.1.1"
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "10.0.0" }
-light-sdk = { path = "sdk-libs/sdk", version = "0.23.0" }
-light-sdk-pinocchio = { path = "sdk-libs/sdk-pinocchio", version = "0.23.0" }
-light-sdk-macros = { path = "sdk-libs/macros", version = "0.23.0" }
-light-sdk-types = { path = "sdk-libs/sdk-types", version = "0.23.0", default-features = false }
 light-sparse-merkle-tree = "0.3.0"
-light-token-interface = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.5.0" }
-light-token-types = { path = "sdk-libs/token-types", version = "0.23.0" }
 light-zero-copy = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0", default-features = false }
 
 # Solana and SPL.
@@ -209,10 +157,6 @@ ark-std = "0.5"
 [patch.crates-io]
 groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "4e6cacff2f4ff53744fda0509f5e62545fd99aa6" }
 account-compression = { path = "programs/account-compression" }
-light-compressed-token = { path = "programs/compressed-token/program" }
-light-compressed-token-sdk = { path = "sdk-libs/compressed-token-sdk" }
-light-account = { path = "sdk-libs/account" }
-light-account-pinocchio = { path = "sdk-libs/account-pinocchio" }
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
@@ -224,28 +168,13 @@ light-hash-set = { git = "https://github.com/helius-labs/privacy-program-libs", 
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-indexed-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-instruction-decoder = { path = "sdk-libs/instruction-decoder" }
-light-instruction-decoder-derive = { path = "sdk-libs/instruction-decoder-derive" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-token-interface = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-zero-copy = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-client = { path = "sdk-libs/client" }
-light-event = { path = "sdk-libs/event" }
 light-heap = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-program-test = { path = "sdk-libs/program-test" }
-light-sdk = { path = "sdk-libs/sdk" }
-light-sdk-pinocchio = { path = "sdk-libs/sdk-pinocchio" }
-light-sdk-macros = { path = "sdk-libs/macros" }
-light-sdk-types = { path = "sdk-libs/sdk-types" }
 light-registry = { path = "programs/registry" }
-light-system-program-anchor = { path = "anchor-programs/system" }
-light-token = { path = "sdk-libs/token-sdk" }
-light-token-client = { path = "sdk-libs/token-client" }
-light-token-pinocchio = { path = "sdk-libs/token-pinocchio" }
-light-token-types = { path = "sdk-libs/token-types" }
 
 [profile.dev]
 opt-level = 0
