@@ -10,7 +10,6 @@ use crate::{
 pub fn batch_update_address_tree(
     authority: Pubkey,
     tree: Pubkey,
-    queue: Pubkey,
     data: BatchUpdateAddressTreeData,
 ) -> Instruction {
     let mut instruction_data = vec![tag::BATCH_UPDATE_ADDRESS_TREE];
@@ -22,7 +21,6 @@ pub fn batch_update_address_tree(
         accounts: vec![
             AccountMeta::new_readonly(authority, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(queue, false),
         ],
         data: instruction_data,
     }

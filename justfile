@@ -171,7 +171,7 @@ install-photon:
 build-light-programs: fetch-fixtures
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
     mkdir -p target/deploy
     tag=$(tr -d '[:space:]' < .fixtures-version)
