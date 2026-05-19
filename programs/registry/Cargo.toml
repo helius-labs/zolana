@@ -29,11 +29,7 @@ sdk = []
 [dependencies]
 aligned-sized = { workspace = true }
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
-light-account-checks = { workspace = true, features = ["solana", "std", "msg"] }
-light-program-profiler = { workspace = true }
-bitvec = { workspace = true }
 borsh = { workspace = true }
-solana-pubkey = { workspace = true }
 solana-security-txt = "1.1.0"
 solana-program = { workspace = true }
 [target.'cfg(not(target_os = "solana"))'.dependencies]
