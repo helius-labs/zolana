@@ -1791,7 +1791,6 @@ dependencies = [
  "light-bounded-vec",
  "light-hasher",
  "memoffset",
- "pinocchio",
  "solana-program-error",
  "thiserror 2.0.18",
 ]
@@ -2882,8 +2881,8 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "light-batched-merkle-tree",
- "light-concurrent-merkle-tree",
  "light-hasher",
+ "light-sparse-merkle-tree",
  "pinocchio",
  "thiserror 2.0.18",
  "zolana-interface",

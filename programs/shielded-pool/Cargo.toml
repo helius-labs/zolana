@@ -17,8 +17,8 @@ test-sbf = []
 [dependencies]
 borsh = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
-light-concurrent-merkle-tree = { workspace = true, features = ["pinocchio"] }
-light-hasher = { workspace = true, features = ["pinocchio", "poseidon"] }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-sparse-merkle-tree = { workspace = true }
 pinocchio = "0.10"
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }

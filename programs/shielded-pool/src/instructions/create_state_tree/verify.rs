@@ -10,10 +10,9 @@ pub fn verify<'a>(
     accounts: &'a [AccountView],
     data: &CreateStateTreeData,
 ) -> Result<MutableStateTreeAccounts<'a>, ProgramError> {
-    if data.height == 0
-        || (data.height as usize) != HEIGHT
-        || (data.canopy_depth as usize) > HEIGHT
-    {
+    // SparseMerkleTree has no canopy concept; we accept any canopy_depth in
+    // the request but only the pinned HEIGHT is supported for now.
+    if data.height == 0 || (data.height as usize) != HEIGHT {
         return Err(ShieldedPoolError::InvalidStateTreeConfig.into());
     }
     crate::instructions::loader::load_mutable_state_tree_accounts(accounts)
