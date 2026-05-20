@@ -64,7 +64,7 @@ digraph G {
             </TR>
             <TR>
                 <TD COLSPAN="4" BORDER="0"></TD>
-                <TD PORT="vault" HEIGHT="32" WIDTH="140" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">SPL interface vaults</FONT></TD>
+                <TD PORT="vault" HEIGHT="32" WIDTH="140" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">SPL interface</FONT></TD>
             </TR>
             <TR>
                 <TD COLSPAN="4" BORDER="0"></TD>
