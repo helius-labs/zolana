@@ -35,7 +35,9 @@ fn create_pool_tree_succeeds() {
     let Some(mut rig) = rig() else {
         return;
     };
-    let tree = rig.create_pool_tree(TREE_ACCOUNT_SIZE).expect("create_pool_tree");
+    let tree = rig
+        .create_pool_tree(TREE_ACCOUNT_SIZE)
+        .expect("create_pool_tree");
 
     // The on-chain program allocated the account and wrote the combined
     // discriminator (1) into the first 8 bytes.
@@ -51,19 +53,17 @@ fn append_state_leaves_grows_root() {
     let Some(mut rig) = rig() else {
         return;
     };
-    let tree = rig.create_pool_tree(TREE_ACCOUNT_SIZE).expect("create_pool_tree");
+    let tree = rig
+        .create_pool_tree(TREE_ACCOUNT_SIZE)
+        .expect("create_pool_tree");
 
     // Empty-tree zero root.
-    let data_before = rig
-        .account_data(&tree.pubkey())
-        .expect("account data");
+    let data_before = rig.account_data(&tree.pubkey()).expect("account data");
 
     rig.append_state_leaves(&tree, vec![[7u8; 32]])
         .expect("append_state_leaves");
 
-    let data_after = rig
-        .account_data(&tree.pubkey())
-        .expect("account data");
+    let data_after = rig.account_data(&tree.pubkey()).expect("account data");
 
     assert_eq!(data_before.len(), data_after.len(), "size unchanged");
     assert_ne!(
@@ -77,7 +77,9 @@ fn insert_addresses_advances_queue() {
     let Some(mut rig) = rig() else {
         return;
     };
-    let tree = rig.create_pool_tree(TREE_ACCOUNT_SIZE).expect("create_pool_tree");
+    let tree = rig
+        .create_pool_tree(TREE_ACCOUNT_SIZE)
+        .expect("create_pool_tree");
 
     rig.insert_addresses(&tree, vec![[3u8; 32], [4u8; 32]])
         .expect("insert_addresses");
@@ -90,7 +92,9 @@ fn batch_update_address_tree_rejects_non_registry_signer() {
     let Some(mut rig) = rig() else {
         return;
     };
-    let tree = rig.create_pool_tree(TREE_ACCOUNT_SIZE).expect("create_pool_tree");
+    let tree = rig
+        .create_pool_tree(TREE_ACCOUNT_SIZE)
+        .expect("create_pool_tree");
 
     // Payer is just a random keypair, not the registry's CPI authority PDA.
     // Shielded-pool's verify() must reject this — UnauthorizedCaller.

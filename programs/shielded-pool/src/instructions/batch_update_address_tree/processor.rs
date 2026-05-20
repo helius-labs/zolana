@@ -8,8 +8,7 @@ use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
 use super::verify::verify;
 use crate::{
-    error::ShieldedPoolError,
-    events::emit_address_tree_batch_updated,
+    error::ShieldedPoolError, events::emit_address_tree_batch_updated,
     instructions::create_pool_tree::init::address_sub_tree_slice_mut,
 };
 

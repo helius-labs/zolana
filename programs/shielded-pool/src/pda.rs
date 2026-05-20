@@ -31,10 +31,22 @@ pub fn derive_pda(seed: &[u8], bump: u8, program_id: &[u8; 32]) -> Address {
         }
         let bump_arr = [bump];
         let parts: [Slice; 4] = [
-            Slice { ptr: seed.as_ptr(), len: seed.len() as u64 },
-            Slice { ptr: bump_arr.as_ptr(), len: 1 },
-            Slice { ptr: program_id.as_ptr(), len: 32 },
-            Slice { ptr: PDA_MARKER.as_ptr(), len: PDA_MARKER.len() as u64 },
+            Slice {
+                ptr: seed.as_ptr(),
+                len: seed.len() as u64,
+            },
+            Slice {
+                ptr: bump_arr.as_ptr(),
+                len: 1,
+            },
+            Slice {
+                ptr: program_id.as_ptr(),
+                len: 32,
+            },
+            Slice {
+                ptr: PDA_MARKER.as_ptr(),
+                len: PDA_MARKER.len() as u64,
+            },
         ];
         unsafe {
             sol_sha256(parts.as_ptr() as *const u8, 4, out.as_mut_ptr());

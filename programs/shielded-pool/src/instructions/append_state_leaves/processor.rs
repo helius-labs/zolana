@@ -21,8 +21,8 @@ pub fn process_append_state_leaves(
     // by the caller and not aliased with any other borrowed account.
     let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
     let start_index = read_state_next_index(bytes) as u64;
-    let new_root =
-        append_to_pool(bytes, &data.leaves).map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
+    let new_root = append_to_pool(bytes, &data.leaves)
+        .map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
     emit_state_leaves_appended(&tree_pubkey, start_index, new_root, &data.leaves);
     Ok(())
 }

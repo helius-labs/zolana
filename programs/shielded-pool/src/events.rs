@@ -26,10 +26,7 @@ fn log_data(bytes: &[u8]) {
 
     #[cfg(target_os = "solana")]
     unsafe {
-        pinocchio::syscalls::sol_log_data(
-            parts.as_ptr() as *const u8,
-            parts.len() as u64,
-        );
+        pinocchio::syscalls::sol_log_data(parts.as_ptr() as *const u8, parts.len() as u64);
     }
 
     #[cfg(not(target_os = "solana"))]

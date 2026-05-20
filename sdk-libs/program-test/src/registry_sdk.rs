@@ -18,13 +18,10 @@ pub const FORESTER_EPOCH_SEED: &[u8] = b"forester_epoch";
 pub const PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"authority";
 pub const CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 
-pub const INITIALIZE_PROTOCOL_CONFIG_DISCRIMINATOR: [u8; 8] =
-    [28, 50, 43, 233, 244, 98, 123, 118];
+pub const INITIALIZE_PROTOCOL_CONFIG_DISCRIMINATOR: [u8; 8] = [28, 50, 43, 233, 244, 98, 123, 118];
 pub const REGISTER_FORESTER_DISCRIMINATOR: [u8; 8] = [62, 47, 240, 103, 84, 200, 226, 73];
-pub const REGISTER_FORESTER_EPOCH_DISCRIMINATOR: [u8; 8] =
-    [43, 120, 253, 194, 109, 192, 101, 188];
-pub const FINALIZE_REGISTRATION_DISCRIMINATOR: [u8; 8] =
-    [230, 188, 172, 96, 204, 247, 98, 227];
+pub const REGISTER_FORESTER_EPOCH_DISCRIMINATOR: [u8; 8] = [43, 120, 253, 194, 109, 192, 101, 188];
+pub const FINALIZE_REGISTRATION_DISCRIMINATOR: [u8; 8] = [230, 188, 172, 96, 204, 247, 98, 227];
 pub const FOREST_ADDRESS_TREE_DISCRIMINATOR: [u8; 8] = [52, 37, 252, 219, 173, 182, 190, 8];
 
 pub fn registry_program_id() -> Pubkey {
@@ -40,10 +37,7 @@ pub fn protocol_config_pda() -> (Pubkey, u8) {
 }
 
 pub fn forester_pda(authority: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[FORESTER_SEED, authority.as_ref()],
-        &registry_program_id(),
-    )
+    Pubkey::find_program_address(&[FORESTER_SEED, authority.as_ref()], &registry_program_id())
 }
 
 pub fn forester_epoch_pda(forester_pda_key: &Pubkey, epoch: u64) -> (Pubkey, u8) {
