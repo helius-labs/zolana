@@ -30,8 +30,11 @@ use zolana_interface::{
         tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
         InsertAddressesData,
     },
-    SHIELDED_POOL_PROGRAM_ID,
+    LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
 };
+
+pub mod registry_sdk;
+pub use registry_sdk::{ForesterConfig, ProtocolConfig};
 
 #[derive(Debug, Error)]
 pub enum RigError {
@@ -47,6 +50,22 @@ pub struct PoolTestRig {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
+}
+
+/// Default location of `light_registry.so`: `<workspace>/target/deploy/`.
+/// Overridable via `LIGHT_REGISTRY_PROGRAM_PATH` env var, mirroring the
+/// shielded-pool path resolution above.
+fn default_registry_program_path() -> PathBuf {
+    if let Ok(p) = std::env::var("LIGHT_REGISTRY_PROGRAM_PATH") {
+        return PathBuf::from(p);
+    }
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("deploy")
+        .join("light_registry.so")
 }
 
 impl PoolTestRig {
@@ -70,7 +89,9 @@ impl PoolTestRig {
             .map_err(|e| RigError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        svm.airdrop(&payer.pubkey(), 1_000_000_000)
+        // ~20 SOL — the combined pool-tree account is ~1.16 MB which costs
+        // ~8 SOL rent-exempt, so a 1 SOL airdrop is too small.
+        svm.airdrop(&payer.pubkey(), 20_000_000_000)
             .map_err(|e| RigError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {
@@ -80,16 +101,18 @@ impl PoolTestRig {
         })
     }
 
-    /// Allocate a fresh pool-tree account at the right size, transfer rent,
-    /// assign ownership to the shielded-pool program, then call
-    /// `create_pool_tree`. Returns the tree account keypair.
+    /// Allocate a fresh pool-tree account at the right size, fund it for
+    /// rent-exemption, assign ownership to the shielded-pool program, then
+    /// call `create_pool_tree`. Allocation is a top-level system_program
+    /// instruction (NOT a CPI from inside shielded-pool) because Solana caps
+    /// CPI reallocs at 10 KB and our combined account is ~1.16 MB.
     pub fn create_pool_tree(&mut self, account_size: u64) -> Result<Keypair, RigError> {
         let tree = Keypair::new();
         let rent = self
             .svm
             .minimum_balance_for_rent_exemption(account_size as usize);
 
-        // 1. Create + assign via system_program (discriminator 0).
+        // 1. Top-level system_program::CreateAccount (discriminator 0).
         let mut create_data = vec![0u8; 4 + 8 + 8 + 32];
         create_data[4..12].copy_from_slice(&rent.to_le_bytes());
         create_data[12..20].copy_from_slice(&account_size.to_le_bytes());
@@ -164,6 +187,110 @@ impl PoolTestRig {
         self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
+    /// Load `light_registry.so` into this rig in addition to shielded-pool.
+    /// Required before calling the registry-setup or `forest_address_tree`
+    /// helpers.
+    pub fn load_registry(&mut self) -> Result<(), RigError> {
+        self.load_registry_from(&default_registry_program_path())
+    }
+
+    pub fn load_registry_from(&mut self, path: &Path) -> Result<(), RigError> {
+        if !path.exists() {
+            return Err(RigError::MissingProgram(path.to_path_buf()));
+        }
+        let bytes = std::fs::read(path)?;
+        let id = Pubkey::new_from_array(LIGHT_REGISTRY_PROGRAM_ID);
+        self.svm
+            .add_program(id, &bytes)
+            .map_err(|e| RigError::Litesvm(format!("add_registry: {e:?}")))?;
+        Ok(())
+    }
+
+    pub fn initialize_protocol_config(
+        &mut self,
+        authority: &Keypair,
+        config: registry_sdk::ProtocolConfig,
+    ) -> Result<(), RigError> {
+        let ix = registry_sdk::build_initialize_protocol_config_ix(
+            &self.payer.pubkey(),
+            &authority.pubkey(),
+            config,
+        );
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn register_forester(
+        &mut self,
+        governance_authority: &Keypair,
+        forester_authority: &Pubkey,
+        config: registry_sdk::ForesterConfig,
+        weight: Option<u64>,
+    ) -> Result<(), RigError> {
+        let ix = registry_sdk::build_register_forester_ix(
+            &self.payer.pubkey(),
+            &governance_authority.pubkey(),
+            forester_authority,
+            config,
+            weight,
+        );
+        self.send(&[ix], &[&self.payer.insecure_clone(), governance_authority])
+    }
+
+    pub fn register_forester_epoch(
+        &mut self,
+        forester: &Keypair,
+        epoch: u64,
+    ) -> Result<(), RigError> {
+        let ix = registry_sdk::build_register_forester_epoch_ix(&forester.pubkey(), epoch);
+        let payer = forester.pubkey();
+        self.send_with_payer(&[ix], &[forester], &payer)
+    }
+
+    pub fn finalize_registration(
+        &mut self,
+        forester: &Keypair,
+        epoch: u64,
+    ) -> Result<(), RigError> {
+        let ix = registry_sdk::build_finalize_registration_ix(&forester.pubkey(), epoch);
+        let payer = forester.pubkey();
+        self.send_with_payer(&[ix], &[forester], &payer)
+    }
+
+    /// Submit `forest_address_tree` against the registry; the registry CPIs
+    /// into shielded-pool's `batch_update_address_tree` with its CPI
+    /// authority PDA as signer.
+    pub fn forest_address_tree(
+        &mut self,
+        forester: &Keypair,
+        pool_tree: &Pubkey,
+        epoch: u64,
+        mut data: BatchUpdateAddressTreeData,
+    ) -> Result<(), RigError> {
+        let (_, bump) = registry_sdk::cpi_authority_pda();
+        data.cpi_authority_bump = bump;
+        let ix = registry_sdk::build_forest_address_tree_ix(
+            &forester.pubkey(),
+            pool_tree,
+            epoch,
+            data,
+        );
+        let payer = forester.pubkey();
+        self.send_with_payer(&[ix], &[forester], &payer)
+    }
+
+    pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), RigError> {
+        self.svm
+            .warp_to_slot(slot);
+        Ok(())
+    }
+
+    pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), RigError> {
+        self.svm
+            .airdrop(pubkey, lamports)
+            .map_err(|e| RigError::Litesvm(format!("airdrop: {e:?}")))?;
+        Ok(())
+    }
+
     pub fn batch_update_address_tree(
         &mut self,
         tree: &Keypair,
@@ -188,8 +315,18 @@ impl PoolTestRig {
     }
 
     fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<(), RigError> {
+        let payer = self.payer.pubkey();
+        self.send_with_payer(ixs, signers, &payer)
+    }
+
+    fn send_with_payer(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        payer: &Pubkey,
+    ) -> Result<(), RigError> {
         let blockhash = self.svm.latest_blockhash();
-        let msg = Message::new(ixs, Some(&self.payer.pubkey()));
+        let msg = Message::new(ixs, Some(payer));
         let tx = Transaction::new(signers, msg, blockhash);
         self.svm
             .send_transaction(tx)

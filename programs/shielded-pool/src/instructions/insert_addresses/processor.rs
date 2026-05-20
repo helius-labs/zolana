@@ -7,7 +7,8 @@ use zolana_interface::instruction::InsertAddressesData;
 
 use super::verify::verify;
 use crate::{
-    error::ShieldedPoolError, instructions::create_pool_tree::init::address_sub_tree_slice_mut,
+    error::ShieldedPoolError, events::emit_address_queued,
+    instructions::create_pool_tree::init::address_sub_tree_slice_mut,
 };
 
 pub fn process_insert_addresses(
@@ -30,6 +31,8 @@ pub fn process_insert_addresses(
     for address in &data.addresses {
         tree.insert_address_into_queue(address, &current_slot)
             .map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
+        let queue_next_index = tree.get_metadata().queue_batches.next_index;
+        emit_address_queued(&tree_pubkey, *address, current_slot, queue_next_index);
     }
     Ok(())
 }

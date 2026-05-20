@@ -8,6 +8,7 @@ mod tests {
         let data = encode_instruction(
             tag::BATCH_UPDATE_ADDRESS_TREE,
             &BatchUpdateAddressTreeData {
+                cpi_authority_bump: 255,
                 new_root: [7u8; 32],
                 compressed_proof_a: [1u8; 32],
                 compressed_proof_b: [2u8; 64],

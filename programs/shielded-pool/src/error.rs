@@ -15,6 +15,8 @@ pub enum ShieldedPoolError {
     EmptyBatchUpdateRoot,
     #[error("pool tree mutation failed")]
     PoolTreeMutationFailed,
+    #[error("caller is not the registry's CPI authority")]
+    UnauthorizedCaller,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

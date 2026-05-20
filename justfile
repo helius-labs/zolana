@@ -53,8 +53,15 @@ test-scaffold:
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
 
+# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
+# `.so`s under `target/deploy/`; run `just build-programs` first.
+test-litesvm:
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo test -p light-program-test
+
 # Aggregate of all CI-runnable rust tests.
-test-all: test-scaffold
+test-all: test-scaffold test-litesvm
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test

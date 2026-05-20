@@ -211,9 +211,8 @@ pub mod light_registry {
     /// as signer and bumps the forester's work counter for the epoch.
     pub fn forest_address_tree<'info>(
         ctx: Context<'info, ForestAddressTree<'info>>,
-        bump: u8,
         data: zolana_interface::instruction::BatchUpdateAddressTreeData,
     ) -> Result<()> {
-        forester::forest_address_tree::process_forest_address_tree(ctx, bump, data)
+        forester::forest_address_tree::process_forest_address_tree(ctx, data)
     }
 }
