@@ -70,12 +70,13 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 2. Photon Indexer — indexes trees + encrypted UTXOs; default-pocket users fetch ciphertexts here.
 3. Pocket RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-pocket users.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
-5. Relayer — fee-payer; submits transactions to SPP (default pocket) or to a Policy program (policy pocket).
-6. Forester — drains the nullifier queue into the nullifier tree.
+5. Relayer — fee-payer; submits transactions to SPP (default pocket), to the ZK Swap program, or to a Policy program (policy pocket).
+6. Forester — processes the nullifier queue into the nullifier tree.
 7. SPP (Shielded Pool Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
-8. Policy Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
-9. SPL interface vaults — per-mint SPL / Token-22 vaults holding all shielded tokens.
-10. Tree accounts — co-located UTXO tree, nullifier tree, and nullifier queue.
+8. ZK Swap Program — composes a swap by CPI'ing into a Policy program or directly into SPP.
+9. Policy Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
+10. SPL interface vaults — per-mint SPL / Token-22 vaults holding all shielded tokens.
+11. Tree accounts — co-located UTXO tree, nullifier tree, and nullifier queue.
 
 Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
@@ -216,106 +217,6 @@ struct PaymentRequest {
     memo: String,
 }
 ```
-
-## Client SDK
-
-Higher-level methods built on top of [Wallet](#wallet) and [RPC](#rpc). The SDK does not touch the network; it assembles artifacts the caller submits via the RPC layer.
-
-### create_payment_request
-
-Recipient-side helper. Wraps [Wallet.request_transfer](#request_transfer) to produce a `PaymentRequest` for the recipient to share out of band with a prospective sender.
-
-**Inputs**
-
-```rust
-fn create_payment_request(
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// In units of `asset_mint`.
-    amount: u64,
-    /// `None` = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-    /// Request validity deadline.
-    expiry_unix_ts: u64,
-    /// Application-defined; UTF-8, max 1024 bytes.
-    memo: Option<String>,
-    /// Caller's wallet (see Wallet).
-    wallet: &mut Wallet,
-) -> PaymentRequest
-```
-
-**Algorithm**
-
-1. `request := wallet.request_transfer(asset_mint, amount, pocket_program_id.unwrap_or(zero32), expiry_unix_ts, memo.unwrap_or(""))`
-2. `return request`
-
-**Output**
-
-`PaymentRequest` — canonical 148 + `memo_len` byte layout (see [request_transfer](#request_transfer)).
-
-**Notes**
-
-1. Thin wrapper for API symmetry with [send_transaction](#send_transaction). The heavy lifting (nonce derivation, `TxCount` advance, byte layout) lives in [Wallet.request_transfer](#request_transfer).
-2. The caller serializes the returned `PaymentRequest` to its canonical bytes and ships it OOB (QR, deeplink, NFC, messaging). Suggested base64-url encoding.
-3. `wallet.TxCount` is advanced even if the request is never delivered or paid.
-
-### send_transaction
-
-Builds the SPP `transact` instruction data and the `encrypted_utxos` blob for a transfer. Encryption happens client-side; the wallet's `get_ephemeral_keypair` stays private to the SDK.
-
-**Inputs**
-
-```rust
-fn send_transaction(
-    /// Addressing info (see Recipient below).
-    recipient: Recipient,
-    /// In units of `recipient.asset_mint`.
-    amount: u64,
-    /// Caller's wallet (see Wallet).
-    wallet: &mut Wallet,
-) -> (Instruction, Vec<u8>)
-
-struct Recipient {
-    /// Recipient's P256 SEC1-compressed or Solana pubkey.
-    pubkey: [u8; 33],
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// Recipient-supplied view tag from a payment request; `None` triggers
-    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
-    recipient_request_view_tag: Option<[u8; 32]>,
-    /// `None` = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-}
-```
-
-**Algorithm**
-0. check wallet is synced.
-1. `asset_id := AssetRegistry[recipient.asset_mint]` (via SPP [Asset registry](#accounts)).
-2. `tx_count := wallet.TxCount`; `wallet.TxCount += 1`.
-3. `sender_view_tag := wallet.get_sender_view_tag(tx_count)`.
-4. Select sender input UTXOs covering `amount` + fees from wallet state; compute `change_amount`.
-5. Compute `first_nullifier` from the first selected input UTXO (lexicographic input position 0).
-6. `(ephemeral_sk, ephemeral_pubkey) := wallet.get_ephemeral_keypair(first_nullifier)` (private).
-7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
-8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
-9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
-10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.known_recipients` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
-11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
-12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
-13. `signature := sign_p256(private_tx_hash)`
-14. Fetch the ZK proof (via the prover RPC or client-side prover).
-15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `private_tx_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
-16. `return (instruction, encrypted_utxos)`.
-
-**Output**
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `instruction` | `Instruction` | Solana Instruction that can be sent to a relayer |
-| `encrypted_utxos` | `Vec<u8>` | the ciphertext blob (also embedded in `message`; returned separately for callers that index or preview ciphertexts) |
-
-**Notes**
-1. `wallet.TxCount` is advanced once per call regardless of whether the caller ultimately submits. How do eth wallets do it?
 
 ## Default Pocket
 
@@ -1212,6 +1113,106 @@ Assumptions:
 | 10 000 | 1 000 | 2 | 2 | 4 | ~1 s | ~1.4 s | ~500 ms |
 | 100 000 | 10 000 | 11 | 2 | 13 | ~10 s | ~11 s | ~1.5 s |
 | 1 000 000 | 100 000 | 101 | 2 | 103 | ~100 s | ~110 s | ~12 s |
+
+## Client SDK
+
+Higher-level methods built on top of [Wallet](#wallet) and [RPC](#rpc). The SDK does not touch the network; it assembles artifacts the caller submits via the RPC layer.
+
+### create_payment_request
+
+Recipient-side helper. Wraps [Wallet.request_transfer](#request_transfer) to produce a `PaymentRequest` for the recipient to share out of band with a prospective sender.
+
+**Inputs**
+
+```rust
+fn create_payment_request(
+    /// Solana SPL / Token-22 mint pubkey.
+    asset_mint: [u8; 32],
+    /// In units of `asset_mint`.
+    amount: u64,
+    /// `None` = default pocket.
+    pocket_program_id: Option<[u8; 32]>,
+    /// Request validity deadline.
+    expiry_unix_ts: u64,
+    /// Application-defined; UTF-8, max 1024 bytes.
+    memo: Option<String>,
+    /// Caller's wallet (see Wallet).
+    wallet: &mut Wallet,
+) -> PaymentRequest
+```
+
+**Algorithm**
+
+1. `request := wallet.request_transfer(asset_mint, amount, pocket_program_id.unwrap_or(zero32), expiry_unix_ts, memo.unwrap_or(""))`
+2. `return request`
+
+**Output**
+
+`PaymentRequest` — canonical 148 + `memo_len` byte layout (see [request_transfer](#request_transfer)).
+
+**Notes**
+
+1. Thin wrapper for API symmetry with [send_transaction](#send_transaction). The heavy lifting (nonce derivation, `TxCount` advance, byte layout) lives in [Wallet.request_transfer](#request_transfer).
+2. The caller serializes the returned `PaymentRequest` to its canonical bytes and ships it OOB (QR, deeplink, NFC, messaging). Suggested base64-url encoding.
+3. `wallet.TxCount` is advanced even if the request is never delivered or paid.
+
+### send_transaction
+
+Builds the SPP `transact` instruction data and the `encrypted_utxos` blob for a transfer. Encryption happens client-side; the wallet's `get_ephemeral_keypair` stays private to the SDK.
+
+**Inputs**
+
+```rust
+fn send_transaction(
+    /// Addressing info (see Recipient below).
+    recipient: Recipient,
+    /// In units of `recipient.asset_mint`.
+    amount: u64,
+    /// Caller's wallet (see Wallet).
+    wallet: &mut Wallet,
+) -> (Instruction, Vec<u8>)
+
+struct Recipient {
+    /// Recipient's P256 SEC1-compressed or Solana pubkey.
+    pubkey: [u8; 33],
+    /// Solana SPL / Token-22 mint pubkey.
+    asset_mint: [u8; 32],
+    /// Recipient-supplied view tag from a payment request; `None` triggers
+    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
+    recipient_request_view_tag: Option<[u8; 32]>,
+    /// `None` = default pocket.
+    pocket_program_id: Option<[u8; 32]>,
+}
+```
+
+**Algorithm**
+0. check wallet is synced.
+1. `asset_id := AssetRegistry[recipient.asset_mint]` (via SPP [Asset registry](#accounts)).
+2. `tx_count := wallet.TxCount`; `wallet.TxCount += 1`.
+3. `sender_view_tag := wallet.get_sender_view_tag(tx_count)`.
+4. Select sender input UTXOs covering `amount` + fees from wallet state; compute `change_amount`.
+5. Compute `first_nullifier` from the first selected input UTXO (lexicographic input position 0).
+6. `(ephemeral_sk, ephemeral_pubkey) := wallet.get_ephemeral_keypair(first_nullifier)` (private).
+7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
+8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
+9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
+10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.known_recipients` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
+11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
+12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
+13. `signature := sign_p256(private_tx_hash)`
+14. Fetch the ZK proof (via the prover RPC or client-side prover).
+15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `private_tx_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
+16. `return (instruction, encrypted_utxos)`.
+
+**Output**
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `instruction` | `Instruction` | Solana Instruction that can be sent to a relayer |
+| `encrypted_utxos` | `Vec<u8>` | the ciphertext blob (also embedded in `message`; returned separately for callers that index or preview ciphertexts) |
+
+**Notes**
+1. `wallet.TxCount` is advanced once per call regardless of whether the caller ultimately submits. How do eth wallets do it?
 
 
 # TODO:

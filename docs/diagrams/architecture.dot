@@ -41,29 +41,33 @@ digraph G {
     // cell on the right; the accounts span both columns below SPP.
     Solana [shape=plaintext, label=<
         <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#FFFFFF" COLOR="#CBD5E1" STYLE="ROUNDED">
-            <TR><TD COLSPAN="3" HEIGHT="18"><FONT COLOR="#0F172A" POINT-SIZE="12">Solana</FONT></TD></TR>
+            <TR><TD COLSPAN="5" HEIGHT="18"><FONT COLOR="#0F172A" POINT-SIZE="12">Solana</FONT></TD></TR>
             <TR>
-                <TD PORT="passthru" COLSPAN="2" HEIGHT="32" WIDTH="130" BORDER="0"></TD>
+                <TD PORT="passthru" COLSPAN="4" HEIGHT="32" WIDTH="290" BORDER="0"></TD>
                 <TD ROWSPAN="4" PORT="spp" WIDTH="140" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">SPP<BR/>Shielded Pool Program</FONT></TD>
             </TR>
             <TR>
+                <TD PORT="zkswap" HEIGHT="32" WIDTH="110" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">ZK Swap Program</FONT></TD>
+                <TD COLSPAN="3" HEIGHT="32" WIDTH="270"><FONT COLOR="#475569" POINT-SIZE="10">&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500; CPI &#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x25B6;</FONT></TD>
+            </TR>
+            <TR>
+                <TD HEIGHT="32" WIDTH="110" BORDER="0"></TD>
+                <TD HEIGHT="32" WIDTH="50"><FONT COLOR="#475569" POINT-SIZE="28">&#x2198;</FONT><FONT COLOR="#475569" POINT-SIZE="10"> CPI</FONT></TD>
                 <TD PORT="policy1" HEIGHT="32" WIDTH="110" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Policy Program 1</FONT></TD>
                 <TD HEIGHT="32" WIDTH="50"><FONT COLOR="#475569" POINT-SIZE="10">CPI &#x2192;</FONT></TD>
             </TR>
             <TR>
-                <TD PORT="policy2" HEIGHT="32" WIDTH="110" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Policy Program 2</FONT></TD>
-                <TD HEIGHT="32" WIDTH="50"><FONT COLOR="#475569" POINT-SIZE="10">CPI &#x2192;</FONT></TD>
-            </TR>
-            <TR>
+                <TD HEIGHT="32" WIDTH="110" BORDER="0"></TD>
+                <TD HEIGHT="32" WIDTH="50" BORDER="0"></TD>
                 <TD PORT="policyN" HEIGHT="32" WIDTH="110" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Policy Program N</FONT></TD>
                 <TD HEIGHT="32" WIDTH="50"><FONT COLOR="#475569" POINT-SIZE="10">CPI &#x2192;</FONT></TD>
             </TR>
             <TR>
-                <TD COLSPAN="2" BORDER="0"></TD>
+                <TD COLSPAN="4" BORDER="0"></TD>
                 <TD PORT="vault" HEIGHT="32" WIDTH="140" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">SPL interface vaults</FONT></TD>
             </TR>
             <TR>
-                <TD COLSPAN="2" BORDER="0"></TD>
+                <TD COLSPAN="4" BORDER="0"></TD>
                 <TD PORT="tree" HEIGHT="56" WIDTH="140" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Tree accounts<BR/>UTXO tree<BR/>nullifier tree<BR/>nullifier queue</FONT></TD>
             </TR>
         </TABLE>
@@ -76,11 +80,13 @@ digraph G {
     Client:r:e -> RPC:r:w [dir=both, style=dashed, label="fetch proofs"];
     Client:x:e -> RPC:x:w [label="send transaction"];
 
-    // Relayer can submit a tx directly to SPP (default pocket) or via one
-    // of the Policy programs (policy pocket). The direct-to-SPP arrow enters
-    // through the empty first-row cell so it doesn't cross any Policy box.
+    // Relayer can submit a tx directly to SPP (default pocket), via the
+    // ZK Swap program, or via Policy Program N (policy pockets). The
+    // direct-to-SPP arrow enters through the empty first-row cell so it
+    // doesn't cross any Policy box.
     RPC:x:ne -> Solana:spp:nw   [label="submit tx"];
-    RPC:x:e -> Solana:policy1:w;
+    RPC:x:e  -> Solana:zkswap:w;
+    RPC:x:se -> Solana:policyN:w;
 
     // Forester processes the nullifier queue
     Forester -> Solana:tree:w [label="process nullifier queue"];
