@@ -35,3 +35,10 @@ Options for Fetch Performance:
   3. users should request transfers and include an address in the request; unsolicited transfers are not supported by this option
 2. Encrypt the pubkeys to an RPC
 3. Encrypt the whole cipher text to an RPC
+
+### Language
+
+never use the expression the wire when writing docs
+written by is also misleading for blockchains you send transactions
+and we have transaction or instruction data
+dont use the term wall time
