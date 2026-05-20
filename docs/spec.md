@@ -123,22 +123,10 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
 3. decrypt
 4. encrypt_poseidon
 5. decrypt_poseidon
-6. `get_sender_view_tag(tx_count) = HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="zolana/sender_view_tag/" || u64_be(tx_count), L=32)`
-7. `get_recipient_request_view_tag(tx_count) = HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="zolana/recipient_request_view_tag/" || u64_be(tx_count), L=32)`
-8. `send_pair_view_tag(counterparty_pubkey, i)`:
-    1. `shared := ECDH(self.owner_sk, counterparty_pubkey)`
-    2. `domain := HKDF-SHA256(salt=∅, IKM=shared, info="zolana/pair-domain/" || counterparty_pubkey, L=32)`
-    3. `return HKDF-SHA256(salt=∅, IKM=domain, info="zolana/pair-hint/" || u64_be(i), L=32)`
-
-    Used when sending to `counterparty_pubkey`. The direction label `counterparty_pubkey` in the inner HKDF binds the tag to "this direction has counterparty as recipient."
-9. `receive_pair_view_tag(counterparty_pubkey, i)`:
-    1. `shared := ECDH(self.owner_sk, counterparty_pubkey)`
-    2. `domain := HKDF-SHA256(salt=∅, IKM=shared, info="zolana/pair-domain/" || self.owner_pubkey, L=32)`
-    3. `return HKDF-SHA256(salt=∅, IKM=domain, info="zolana/pair-hint/" || u64_be(i), L=32)`
-
-    Used when scanning for incoming from `counterparty_pubkey`. The direction label `self.owner_pubkey` binds the tag to "this direction has self as recipient."
-
-    ECDH symmetry yields `send_pair_view_tag(B, i)` from Alice's wallet byte-equal to `receive_pair_view_tag(A, i)` from Bob's wallet — both compute `HKDF(HKDF(shared_AB, "...||B_pubkey"), "...||i")`. The reverse direction uses `"...||A_pubkey"` and produces a disjoint tag.
+6. `get_sender_view_tag(tx_count)` — see [View Tags § Derivations](#view-tags).
+7. `get_recipient_request_view_tag(tx_count)` — see [View Tags § Derivations](#view-tags).
+8. `send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag` derivation; see [View Tags § Derivations](#view-tags).
+9. `receive_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag` derivation; see [View Tags § Derivations](#view-tags).
 10. request_transfer(`asset_mint`, `amount`, `pocket_program_id`, `expiry_unix_ts`, `memo`)
 11. `get_ephemeral_keypair(first_nullifier)`:
     1. `seed64 := HKDF-SHA256(salt=first_nullifier, IKM=ephemeral_secret, info="zolana/ephemeral", L=64)`
@@ -155,7 +143,7 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
 1. Utxos(optional)
 2. TxCount (including requested payments)
 3. last synced
-4. `counterparties: map<their_pubkey → CounterpartyState>` where `CounterpartyState { sent_counter: u64, received_counter: u64 }`. Populated lazily: a new entry is created the first time the wallet sends to or receives from a counterparty. View-tag domains are re-derived on demand via `send_pair_view_tag` / `receive_pair_view_tag` (see [Wallet methods](#wallet)).
+4. `counterparties: map<their_pubkey → CounterpartyState>` where `CounterpartyState { sent_counter: u64, received_counter: u64 }`. Populated lazily: a new entry is created the first time the wallet sends to or receives from a counterparty. Shared view tags are re-derived on demand via `send_shared_view_tag` / `receive_shared_view_tag` (see [Wallet methods](#wallet)).
 
 ### request_transfer
 
@@ -189,7 +177,7 @@ fn request_transfer(
 
 **Output: `PaymentRequest`**
 
-Canonical big-endian byte layout used on the wire. Packed, no length prefixes (`memo_len` precedes the variable-length `memo` tail).
+Canonical big-endian byte layout. Packed, no length prefixes (`memo_len` precedes the variable-length `memo` tail).
 
 ```rust
 /// 148 + memo.len() bytes total. Multi-byte integers are big-endian.
@@ -276,7 +264,7 @@ struct Recipient {
     /// Solana SPL / Token-22 mint pubkey.
     asset_mint: [u8; 32],
     /// Recipient-supplied view tag from a payment request; `None` triggers
-    /// the unsolicited path (bootstrap or pair domain — see View Tags).
+    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
     recipient_request_view_tag: Option<[u8; 32]>,
     /// `None` = default pocket.
     pocket_program_id: Option<[u8; 32]>,
@@ -294,7 +282,7 @@ struct Recipient {
 7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
 8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
 9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
-10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is computed per [View Tags § Sender prefix selection](#view-tags); side effects on `wallet.counterparties` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
+10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.counterparties` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
 11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
 12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
 13. `signature := sign_p256(private_tx_hash)`
@@ -642,102 +630,95 @@ Nullifier hash: `H(utxo_hash, randomized_nullifier_key)`
 
 # View Tags
 
-A view tag is a 32-byte value prefixed to an encrypted slot so a wallet can locate its own ciphertexts on the indexer by byte-filter instead of trial-decrypting every slot. Recipients filter the indexer's `view_tag` column; the sender filters the same column to recover its own change. Monero introduced 1-byte probabilistic view tags in 2022; Zolana uses 32 bytes for deterministic exact match.
+A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
 
-**Cases**
+For transfers, view tags need to be shared between the sender and recipient. A wallet cannot pre-derive shared tags for every possible sender. The wallet needs to know which senders to derive view tags for. The first transfer's tag bootstraps the relationship: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = Sha256BE(recipient_pubkey)` (publicly linkable, no coordination). On decryption the recipient learns the sender's pubkey and derives the shared ECDH key; subsequent transfers from this sender use `recipient_shared_view_tag` and are found via `scan_view_tags`. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-| # | Role | Pair state | View tag value |
-| --- | --- | --- | --- |
-| 1 | sender | — | `sender_view_tag` (own change) |
-| 2.1.1 | recipient | first transfer, request issued | `recipient_request_view_tag` |
-| 2.1.2 | recipient | first transfer, no request | `recipient_bootstrap_view_tag` |
-| 2.2 | recipient | bootstrapped | `recipient_pair_view_tag` |
+### Sender View Tag
 
-**Derivations**
+1. **`sender_view_tag`**
+  - Derived by: the sender, to index her change utxos.
+  - Tx sent by: the sender
+  - Indexed by: the sender
 
-| View tag | Derivation |
-| --- | --- |
-| `sender_view_tag` | `get_sender_view_tag(tx_count)` over `sender_view_tag_secret` |
-| `recipient_request_view_tag` | `get_recipient_request_view_tag(tx_count)` over `recipient_view_tag_secret` |
-| `recipient_pair_view_tag` | sender writes `send_pair_view_tag(counterparty_pubkey, i)`; recipient scans `receive_pair_view_tag(counterparty_pubkey, i)`. ECDH symmetry makes the two byte-equal across the pair. |
-| `recipient_bootstrap_view_tag` | `Sha256BE(recipient_pubkey)` — SHA-256 of recipient's SEC1-compressed P256 pubkey |
+### Recipient view tag
 
-Both helpers compute two chained HKDFs (see [Wallet](#wallet)):
+2. **`recipient_shared_view_tag`**
+    - Derived by: the sender and recipient independently. Sender via `send_shared_view_tag` to send the tx, the recipient via `receive_shared_view_tag` to index the tx.
+    - Tx sent by: the sender.
+    - Indexed by: the recipient.
+3. **`recipient_request_view_tag`**
+    - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
+    - Tx sent by: the sender.
+    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
+4. **`recipient_bootstrap_view_tag`**
+    - Derived by: anyone — `Sha256BE(recipient_pubkey)`.
+    - Tx sent by: the sender.
+    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
 
-```
-HKDF(IKM=HKDF(IKM=ECDH(self.owner_sk, counterparty_pubkey),
-              info="zolana/pair-domain/" || R_pubkey),
-     info="zolana/pair-hint/" || u64_be(i))
-```
 
-`R_pubkey` is the recipient of the direction — `counterparty_pubkey` on the sender side (`send_pair_view_tag`), `self.owner_pubkey` on the recipient side (`receive_pair_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
-
-**Sender prefix selection**
-
-```
-prefix(recipient) :=
-    if recipient.recipient_request_view_tag is Some:            # case 2.1.1
-        ensure_counterparty(recipient.pubkey)
-        return recipient.recipient_request_view_tag
-    elif wallet.counterparties[recipient.pubkey] exists:        # case 2.2
-        cp := wallet.counterparties[recipient.pubkey]
-        tag := send_pair_view_tag(recipient.pubkey, cp.sent_counter)
-        cp.sent_counter += 1
-        return tag
-    else:                                                       # case 2.1.2 — bootstrap
-        ensure_counterparty(recipient.pubkey)
-        return Sha256BE(recipient.pubkey)   # recipient_bootstrap_view_tag
-
-ensure_counterparty(their_pubkey) :=
-    if wallet.counterparties[their_pubkey] is None:
-        wallet.counterparties[their_pubkey] := CounterpartyState(
-            sent_counter = 0, received_counter = 0,
-        )
+```mermaid
+flowchart TD
+    Start([prefix recipient]) --> Q1{prior transfer with recipient?}
+    Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
+    Q1 -->|No| Q2{request view tag from recipient?}
+    Q2 -->|Yes| Case211[3. recipient_request_view_tag]
+    Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
 ```
 
-Both bootstrap paths (2.1.1 and 2.1.2) create a sender-side counterparty entry. Subsequent transfers to the same recipient in either case fall into case 2.2. On the recipient side, the entry is created once they decrypt the first incoming bundle and read `sender_pubkey`. The first transfer in either direction bootstraps the pair.
+### Derivations
 
-**Recipient sync lookup**
-
-```
-# Case 2.1.1: outstanding payment requests
-filter view_tag IN {recipient_request_view_tag_i for i in outstanding_requests}
-
-# Case 2.1.2: any unsolicited bootstrap incoming
-filter view_tag == Sha256BE(self.recipient_pubkey)    # recipient_bootstrap_view_tag
-
-# Case 2.2: per-counterparty gap-limit walk
-for cp in wallet.counterparties:
-    gap_limit_walk(
-        receive_pair_view_tag(cp.pubkey, j)
-        for j in cp.received_counter ..,
-        gap = 10_000,
-    )
-```
-
-**Sender change recovery (case 1)**
+`get_sender_view_tag(tx_count)`:
 
 ```
-gap_limit_walk(
-    get_sender_view_tag(tx_count)
-    for tx_count in wallet.TxCount ..,
-    gap = 10_000,
+HKDF-SHA256(
+    salt = ∅,
+    IKM  = sender_view_tag_secret,
+    info = "zolana/sender_view_tag/" || u64_be(tx_count),
+    L    = 32,
 )
-# each recovered change carries nullifier_data for the spent inputs
 ```
 
-SPP enforces single-use of `sender_view_tag` by inserting it into the nullifier tree alongside the input nullifiers (see [transact](#transact) check 7).
+`get_recipient_request_view_tag(tx_count)`:
 
-**Properties**
+```
+HKDF-SHA256(
+    salt = ∅,
+    IKM  = recipient_view_tag_secret,
+    info = "zolana/recipient_request_view_tag/" || u64_be(tx_count),
+    L    = 32,
+)
+```
 
-1. `recipient_bootstrap_view_tag` is a public function of `recipient_pubkey`, so all bootstrap transfers (case 2.1.2) to the same recipient are publicly linkable. Cases 2.1.1 and 2.2 are unlinkable to outside observers.
-2. Direction-separated: `sender → recipient` and `recipient → sender` share the same ECDH secret but produce disjoint view tags, because the recipient-pubkey term in the inner HKDF info string flips with direction.
-3. Gap limit `10 000` matches the convention from [First Time Sync Wallet](#first-time-sync-wallet). A counterparty silent for 10 000 or more consecutive transfers stops being tracked until the next bootstrap.
-4. Disclosure of either party's `owner_sk` reveals the shared `domain` and the full pair-hint history in both directions. Same scope as owner-key disclosure.
+`recipient_shared_view_tag(counterparty_pubkey, i)` — two chained HKDFs over the ECDH shared secret. Sender computes it as `send_shared_view_tag`; recipient computes the same byte value as `receive_shared_view_tag`:
+
+```
+shared := ECDH(self.owner_sk, counterparty_pubkey)
+domain := HKDF-SHA256(salt = ∅, IKM = shared,
+                     info = "zolana/pair-domain/" || R_pubkey, L = 32)
+return    HKDF-SHA256(salt = ∅, IKM = domain,
+                     info = "zolana/pair-hint/"   || u64_be(i), L = 32)
+```
+
+`R_pubkey` is the recipient of the direction:
+
+- Sender side (`send_shared_view_tag`): `R_pubkey = counterparty_pubkey`.
+- Recipient side (`receive_shared_view_tag`): `R_pubkey = self.owner_pubkey`.
+
+ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+
+`recipient_bootstrap_view_tag(recipient_pubkey)`:
+
+```
+Sha256BE(recipient_pubkey)
+```
+
+SHA-256 of the recipient's SEC1-compressed P256 pubkey (1-byte prefix + 32 B X).
+
 
 # Output UTXO Serialization
 
-Defines the layout of the `encrypted_utxos` blob carried by `transact`. SPP treats the blob as opaque; serialization is a default-pocket convention. Policy pockets define their own.
+Defines the layout of the `encrypted_utxos` blob carried by shielded transactions. SPP treats the blob as opaque; serialization is a default-pocket convention. Policy pockets define their own.
 
 Both schemes apply AES-GCM encryption; keys are derived per recipient via `ECDH(ephemeral_sk, owner.pubkey)`. One `ephemeral_pubkey` is shared across all recipients in a transaction. The sender derives `(ephemeral_sk, ephemeral_pubkey)` from `get_ephemeral_keypair(first_nullifier)` (see [Wallet](#wallet)). Nullifier uniqueness on-chain implies a unique ephemeral keypair per transaction. Encryption is always sender-side. Slot prefixes (`view_tag`) are view tag values; see [View Tags](#view-tags).
 
@@ -750,7 +731,7 @@ Two schemes:
 
 Confidential value transfer. One AES-GCM ciphertext per owner: one for the sender's change, `R` for the recipients. Variables used below: `R` = recipient count, `N` = spent-input count.
 
-The recipient ciphertext additionally carries `sender_pubkey` so the recipient can bootstrap the [View Tags](#view-tags) pair domain. The sender change ciphertext additionally carries `nullifier_data` so that the optional senders indexer service can link the spent inputs.
+The recipient ciphertext additionally carries `sender_pubkey` so the recipient can bootstrap the [View Tags](#view-tags) pair key exchange. The sender change ciphertext additionally carries `nullifier_data` so that the optional senders indexer service can link the spent inputs.
 
 ### Plaintext Layout
 
@@ -763,7 +744,7 @@ Fields packed in declaration order with no length prefixes (the variable-length 
 struct TransferRecipientPlaintext {
     /// Recipient pubkey (1-byte prefix + P256 SEC1-compressed).
     owner_pubkey: [u8; 34],
-    /// Sender's owner pubkey; bootstraps the View Tags pair domain.
+    /// Sender's owner pubkey; bootstraps the View Tags pair key exchange.
     sender_pubkey: [u8; 33],
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
     asset_id: u64,
@@ -807,7 +788,7 @@ struct TransferSenderPlaintext {
 The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order with no length prefixes.
 
 ```rust
-/// Total on-wire size: 36 + (105 + 32*N) + 162*R bytes.
+/// Total size: 36 + (105 + 32*N) + 162*R bytes.
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
@@ -1193,7 +1174,7 @@ def first_time_sync(wallet, indexer, known_pockets):
 
     # 4. Discover counterparties from incoming ciphertexts (each incoming
     #    recipient bundle carries sender_pubkey; see Encryption Schemes § Transfer)
-    #    and walk their pair-domain view tags. Repeat until convergence.
+    #    and walk their shared view tags. Repeat until convergence.
     counterparties = {}                                     # their_pubkey -> CounterpartyState
     pending = {utxo.sender_pubkey for utxo in utxos.values() if utxo.role == "incoming"}
     while pending:
@@ -1201,7 +1182,7 @@ def first_time_sync(wallet, indexer, known_pockets):
         for cp in pending:
             cursor = 0
             while True:
-                tags = [wallet.receive_pair_view_tag(cp, i) for i in range(cursor, cursor + 10_000)]
+                tags = [wallet.receive_shared_view_tag(cp, i) for i in range(cursor, cursor + 10_000)]
                 hits = indexer.get_encrypted_utxos(view_tag_in=tags)
                 if not hits: break
                 for ct in parallel_decrypt(hits):
@@ -1258,18 +1239,21 @@ Assumptions:
 1. Indexer request size: `10 000` view tags per `view_tag IN (...)` query.
 2. Indexer RTT: 100 ms.
 3. ECDH P-256 per ciphertext: 100 μs.
-4. Decrypt and request in parallel.
+4. Phase 1 scans (`sender_view_tag`, `recipient_request_view_tag`, confidential bootstrap) run concurrently.
+5. Phase 2 per-counterparty scans run concurrently.
+6. Phase 2 starts after Phase 1 decryption (depends on `sender_pubkey` revealed by Phase 1 decryption).
+7. Each counterparty has < 10 000 transfers (Phase 2 fits in one batch + one confirm).
 
-| Tx history size | Windows / axis | Concurrent RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
-| --- | --- | --- | --- | --- | --- |
-| 10 | 1 hit + 1 confirm | 2 | < 1 ms | ~200 ms | ~200 ms |
-| 1 000 | 1 + 1 | 2 | ~100 ms | ~200 ms | ~200 ms |
-| 10 000 | 1 + 1 | 2 | ~1 s | ~1.2 s | ~250 ms |
-| 100 000 | 10 + 1 | 11 | ~10 s | ~10 s | ~1.2 s |
-| 1 000 000 | 100 + 1 | 101 | ~100 s | ~100 s | ~10–12 s |
+| Tx history | Counterparties | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | 1 | 2 | 2 | 4 | < 1 ms | ~400 ms | ~400 ms |
+| 1 000 | 100 | 2 | 2 | 4 | ~100 ms | ~500 ms | ~400 ms |
+| 10 000 | 1 000 | 2 | 2 | 4 | ~1 s | ~1.4 s | ~500 ms |
+| 100 000 | 10 000 | 11 | 2 | 13 | ~10 s | ~11 s | ~1.5 s |
+| 1 000 000 | 100 000 | 101 | 2 | 103 | ~100 s | ~110 s | ~12 s |
 
 
 # TODO:
 1. keep wallet synced user flow (answer is polling for the next X view_tags, and other decryption hints)
-2. remove simplified signature
-3. add merge delegate to utxo hash, merge circuit, merge user flow.
+2. add merge delegate to utxo hash, merge circuit, merge user flow.
+3. Add PSP to architecture diagram
