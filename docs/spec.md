@@ -218,6 +218,54 @@ struct PaymentRequest {
 }
 ```
 
+### send_transaction
+
+Builds the SPP `transact` instruction data and the `encrypted_utxos` blob for a transfer. Encryption happens client-side; the wallet's `get_ephemeral_keypair` stays private to the SDK.
+
+**Inputs**
+
+```rust
+fn send_transaction(
+    /// Addressing info (see Recipient below).
+    recipient: Recipient,
+    /// In units of `recipient.asset_mint`.
+    amount: u64,
+    /// Caller's wallet (see Wallet).
+    wallet: &mut Wallet,
+) -> (Instruction, Vec<u8>)
+
+struct Recipient {
+    /// Recipient's P256 SEC1-compressed or Solana pubkey.
+    pubkey: [u8; 33],
+    /// Solana SPL / Token-22 mint pubkey.
+    asset_mint: [u8; 32],
+    /// Recipient-supplied view tag from a payment request; `None` triggers
+    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
+    recipient_request_view_tag: Option<[u8; 32]>,
+    /// `None` = default pocket.
+    pocket_program_id: Option<[u8; 32]>,
+}
+```
+
+**Algorithm**
+0. check wallet is synced.
+1. `asset_id := AssetRegistry[recipient.asset_mint]` (via SPP [Asset registry](#accounts)).
+2. `tx_count := wallet.TxCount`; `wallet.TxCount += 1`.
+3. `sender_view_tag := wallet.get_sender_view_tag(tx_count)`.
+4. Select sender input UTXOs covering `amount` + fees from wallet state; compute `change_amount`.
+5. Compute `first_nullifier` from the first selected input UTXO (lexicographic input position 0).
+6. `(ephemeral_sk, ephemeral_pubkey) := wallet.get_ephemeral_keypair(first_nullifier)` (private).
+7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
+8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
+9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
+10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.known_recipients` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
+11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
+12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
+13. `signature := sign_p256(private_tx_hash)`
+14. Fetch the ZK proof (via the prover RPC or client-side prover).
+15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `private_tx_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
+16. `return (instruction, encrypted_utxos)`.
+
 ## Default Pocket
 
 The default pocket is similar to zcash and has no policy.
@@ -1011,6 +1059,8 @@ batches MAY be rejected with a documented limit.
 ## Merge Service
 
 The shielded pool program has merge service registry accounts. Users can whitelist one or more merge service accounts (opt-in).
+- separate merge service address tree
+- merge service proof needs to do two proofs in the merge service address tree, inclusion of the user whitelist and non inclusion of the user revoke commitment. + domain separation for multiple back and forth. publishes encrypted to the merge service that it is whitelisted. Registry also publishes that the merge service is whitelisted so that senders can set the merge service correctly. If senders set a non whitelisted service that service cannot do anything.
 
 **Enable merge service,** a user creates a nullifier H(user_pubkey, merge_service_pda) in a dedicated merge service tree.
 
@@ -1114,110 +1164,66 @@ Assumptions:
 | 100 000 | 10 000 | 11 | 2 | 13 | ~10 s | ~11 s | ~1.5 s |
 | 1 000 000 | 100 000 | 101 | 2 | 103 | ~100 s | ~110 s | ~12 s |
 
-## Client SDK
+# Wallet Transfer User Flows
 
-Higher-level methods built on top of [Wallet](#wallet) and [RPC](#rpc). The SDK does not touch the network; it assembles artifacts the caller submits via the RPC layer.
+Scenario X from the single and advanced flows maps to the respective scenario in the privacy guarantee matrix.
 
-### create_payment_request
+**Terminology:**
 
-Recipient-side helper. Wraps [Wallet.request_transfer](#request_transfer) to produce a `PaymentRequest` for the recipient to share out of band with a prospective sender.
+**Single player** cover user flows that are backwards compatible with any Solana wallets.
+**Advanced** cover ideal user flows between private wallets.
+**Registry** maps Solana public keys to a shielded pubkey.
+**ShieldedPubkey**(signing P256 Pubkey, encryption P256 Pubkey) the signing key and the encryption key can be the same key, for example for a cypherpunk user. A user who has a shared key with an auditor would use different keys, a user owned signing key and a shared encryption key.
 
-**Inputs**
+**Single Player flows:**
 
-```rust
-fn create_payment_request(
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// In units of `asset_mint`.
-    amount: u64,
-    /// `None` = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-    /// Request validity deadline.
-    expiry_unix_ts: u64,
-    /// Application-defined; UTF-8, max 1024 bytes.
-    memo: Option<String>,
-    /// Caller's wallet (see Wallet).
-    wallet: &mut Wallet,
-) -> PaymentRequest
-```
+1. **Recipient:**
+    1. shares Solana Pubkey
+2. **Sender:**
+    1. wallet doesn’t support shielded transfers
+        1. SPL transfer **(Scenario 1)**
+    2. wallet supports shielded transfers
+        1. lookup recipient ShieldedPubkey from registry
+        2. lookup success:
+            1. Sender has shielded funds
+                1. is the first transfer to recipient: confidential shielded transfer
+                (pubkey public, amount & asset private) **(Scenario 2)**
+                2. is not the first transfer to recipient: anonymous shielded transfer **(Scenario 3)**
+            2. Sender doesn’t have shielded funds
+                1. proofless shield to recipient **(Scenario 4)**
+        3. lookup negative:
+            1. Sender has shielded funds:
+                1. unshield **(Scenario 5)**
+            2. Sender doesn’t have shielded funds
+                1. SPL transfer **(Scenario 6)**
 
-**Algorithm**
+**Advanced flows:**
 
-1. `request := wallet.request_transfer(asset_mint, amount, pocket_program_id.unwrap_or(zero32), expiry_unix_ts, memo.unwrap_or(""))`
-2. `return request`
+Sender and recipient wallets both support shielded transfers.
 
-**Output**
+1. **Recipient:**
+    1. shares ShieldedPubkey + handshake decryption hint
+2. **Sender:**
+    1. Sender has shielded funds
+        1. anonymous shielded transfer **(Scenario 7)**
+    2. Sender doesn’t have shielded funds
+        1. shield to recipient (with proof) **(Scenario 8)**
 
-`PaymentRequest` — canonical 148 + `memo_len` byte layout (see [request_transfer](#request_transfer)).
+### Privacy Guarantee Matrix
 
-**Notes**
-
-1. Thin wrapper for API symmetry with [send_transaction](#send_transaction). The heavy lifting (nonce derivation, `TxCount` advance, byte layout) lives in [Wallet.request_transfer](#request_transfer).
-2. The caller serializes the returned `PaymentRequest` to its canonical bytes and ships it OOB (QR, deeplink, NFC, messaging). Suggested base64-url encoding.
-3. `wallet.TxCount` is advanced even if the request is never delivered or paid.
-
-### send_transaction
-
-Builds the SPP `transact` instruction data and the `encrypted_utxos` blob for a transfer. Encryption happens client-side; the wallet's `get_ephemeral_keypair` stays private to the SDK.
-
-**Inputs**
-
-```rust
-fn send_transaction(
-    /// Addressing info (see Recipient below).
-    recipient: Recipient,
-    /// In units of `recipient.asset_mint`.
-    amount: u64,
-    /// Caller's wallet (see Wallet).
-    wallet: &mut Wallet,
-) -> (Instruction, Vec<u8>)
-
-struct Recipient {
-    /// Recipient's P256 SEC1-compressed or Solana pubkey.
-    pubkey: [u8; 33],
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// Recipient-supplied view tag from a payment request; `None` triggers
-    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
-    recipient_request_view_tag: Option<[u8; 32]>,
-    /// `None` = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-}
-```
-
-**Algorithm**
-0. check wallet is synced.
-1. `asset_id := AssetRegistry[recipient.asset_mint]` (via SPP [Asset registry](#accounts)).
-2. `tx_count := wallet.TxCount`; `wallet.TxCount += 1`.
-3. `sender_view_tag := wallet.get_sender_view_tag(tx_count)`.
-4. Select sender input UTXOs covering `amount` + fees from wallet state; compute `change_amount`.
-5. Compute `first_nullifier` from the first selected input UTXO (lexicographic input position 0).
-6. `(ephemeral_sk, ephemeral_pubkey) := wallet.get_ephemeral_keypair(first_nullifier)` (private).
-7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
-8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
-9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
-10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.known_recipients` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
-11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
-12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
-13. `signature := sign_p256(private_tx_hash)`
-14. Fetch the ZK proof (via the prover RPC or client-side prover).
-15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `private_tx_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
-16. `return (instruction, encrypted_utxos)`.
-
-**Output**
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `instruction` | `Instruction` | Solana Instruction that can be sent to a relayer |
-| `encrypted_utxos` | `Vec<u8>` | the ciphertext blob (also embedded in `message`; returned separately for callers that index or preview ciphertexts) |
-
-**Notes**
-1. `wallet.TxCount` is advanced once per call regardless of whether the caller ultimately submits. How do eth wallets do it?
-
+| # | Scenario | Resulting transfer | Sender identity | Recipient identity | Amount | Asset | Sender ↔ recipient linkable? |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | **Single player** · sender wallet doesn't support shielded | SPL transfer | Public | Public | Public | Public | Yes |
+| 2 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · first transfer to recipient | Confidential shielded transfer | Private | Public | Private | Private | No |
+| 3 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · not first transfer | Anonymous shielded transfer | Private | Private | Private | Private | No |
+| 4 | **Single player** · sender supports shielded · registry hit · sender has no shielded funds | Proofless shield to recipient | Public | Public | Public | Public | Yes |
+| 5 | **Single player** · sender supports shielded · registry miss · sender has shielded funds | Unshield to recipient | Private | Public | Public | Public | Partial — recipient visible exiting pool |
+| 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
+| 7 | **Advanced** · both wallets shielded · sender has shielded funds | Anonymous shielded transfer | Private | Private | Private | Private | No |
+| 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Shield to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
 
 # TODO:
 2. add merge delegate to utxo hash, merge circuit, merge user flow.
-3. Add PSP to architecture diagram
 4. add swap user flow (unshield, swap, shield)
 5. add private zk swap user flow
 6. add registry docs, registry pda should include a hint whether whats the latest tx count. Updating the pda will leak some information though you can correlate activity. The wallet should store this so that we can fetch backwards.
