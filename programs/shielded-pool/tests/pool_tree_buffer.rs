@@ -1,6 +1,6 @@
-//! Buffer-level coverage of the combined-account pool-tree init + state append
-//! + address-tree queue paths, against an in-memory account buffer (no Solana
-//! runtime needed).
+//! Buffer-level coverage of the combined-account pool-tree init, state-append,
+//! and address-tree queue paths against an in-memory account buffer — no
+//! Solana runtime needed.
 
 use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};

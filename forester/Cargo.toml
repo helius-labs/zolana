@@ -19,7 +19,6 @@ dotenvy = "0.15"
 
 # Solana client + transaction building.
 solana-commitment-config = { workspace = true }
-solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }

@@ -20,7 +20,6 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
-solana-hash = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
