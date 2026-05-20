@@ -5,3 +5,5 @@
 /forester/logs/
 .DS_Store
 .claude
+docs/api/
+docs/api1

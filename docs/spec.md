@@ -103,8 +103,7 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 Signs transactions (P256 signature verified inside the SPP proof) and decrypts UTXOs encrypted to the user's pubkey.
 
-Sender nonces are used to prevent replay of signed transactions with server prover and efficient fetching from the indexer.
-Recipient nonces are used to index requested utxos from requested transfers efficiently.
+Sender view tags index the sender's own change ciphertexts for sync and are inserted into the nullifier tree to guarantee single-use per `tx_count` slot. Recipient request view tags index incoming ciphertexts from payment requests and are not guaranteed single use.
 
 **Seed secret derivations:**
 
@@ -119,7 +118,7 @@ Recipient nonces are used to index requested utxos from requested transfers effi
 `get_sender_view_tag(tx_count)` and `get_recipient_request_view_tag(tx_count)` are indexed by the per-wallet `TxCount` counter (advanced on every outgoing transaction and on every `request_transfer`). `get_ephemeral_keypair(first_nullifier)` is *not* counter-indexed; it is bound to the first nullifier of the transaction's spent inputs, so the keypair is deterministic given the input UTXO set and unique per on-chain transaction (nullifier uniqueness implies keypair uniqueness).
 
 ### Methods:
-1. sign_p256(msg)
+1. `sign_p256(msg)` — P256 ECDSA signature over `msg` with `self.owner_sk`; SHA-256 message digest per the ECDSA-P256 standard.
 2. encrypt
 3. decrypt
 4. encrypt_poseidon
@@ -199,12 +198,12 @@ struct PaymentRequest {
     /// Currently `0`.
     version: u8,
     /// P256 SEC1-compressed (1-byte prefix + 32 B X).
-    recipient_pubkey: [u8; 33],
+    recipient_pubkey: Address,
     recipient_request_view_tag: [u8; 32],
     /// All-zero = default pocket.
-    pocket_program_id: [u8; 32],
+    pocket_program_id: Option<[u8; 32]>,
     /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
+    mint: Address,
     /// In units of `asset_mint`.
     amount: u64,
     expiry_unix_ts: u64,
@@ -297,10 +296,10 @@ struct Recipient {
 9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
 10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is computed per [View Tags § Sender prefix selection](#view-tags); side effects on `wallet.counterparties` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
 11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
-12. compute zk proof tx hash
-13. sign tx hash
+12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
+13. `signature := sign_p256(private_tx_hash)`
 14. Fetch the ZK proof (via the prover RPC or client-side prover).
-15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `tx_hash`, `msg_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
+15. Assemble the SPP `transact` instruction (see [transact](#transact)): `expiry_unix_ts`, `sender_view_tag`, `proof`, `relayer_fee`, `output_utxo_hashes`, `nullifier_root_index`, `private_tx_hash`, `public_sol_amount`, `public_spl_amount`, `encrypted_utxos`.
 16. `return (instruction, encrypted_utxos)`.
 
 **Output**
@@ -584,7 +583,7 @@ sequenceDiagram
 | nullifiers | derived in-circuit from spent input UTXOs |
 | output_utxo_hashes | instruction data |
 | nullifier_root | resolved from `nullifier_root_index` against on-chain root cache |
-| tx_hash | instruction data |
+| private_tx_hash | instruction data |
 | public_sol_amount | instruction data |
 | public_spl_amount | instruction data |
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
@@ -623,14 +622,13 @@ Nullifier hash: `H(utxo_hash, randomized_nullifier_key)`
 | Nullifiers | Public nullifiers MUST be well formed from the spent input UTXOs. |
 | Output UTXOs | Output UTXOs MUST be well formed and match the public output commitments. |
 | Balance Conservation | For each active asset, inputs plus public deposits MUST equal outputs plus public withdrawals and fees. |
-| Transaction hash | Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts).<br>Binds SPP, policy, and third-party proofs to the same transaction data, so all circuits prove statements about the same state transition. |
+| Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`.<br>The owner signs this value (see [UTXO Ownership Check](#utxo-ownership-check)). Binds SPP, policy, and third-party proofs to the same transaction data, so all circuits prove statements about the same state transition. |
 | Program ownership | UTXOs owned by a policy program MUST be authorized by a PDA signer of that program. Policy proofs are checked by the policy program before CPI into SPP. |
 | Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, nullifier non-inclusion, output, and balance checks are skipped for dummy UTXOs. |
 
 **Utxo Ownership Check:**
-1. EDDSA signer checked by SPP. User must sign the Solana transaction. 
-2. P256 signature over recipient and recipient amount. The prover server can select UTXOs. UTXOs cannot have program data.
-3. P256 signature over tx hash (Signs the full transaction.) UTXOs can have program data.
+1. Ed25519 Solana signer checked by SPP. Used when the input UTXO's owner is the Solana payer (shield path).
+2. P256 signature over `private_tx_hash` verified in the SPP proof. Binds every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
 
 **Circuit Combinations**
 
@@ -973,12 +971,10 @@ struct TransactIxData {
     output_utxo_hashes: Vec<[u8; 32]>,
     /// Ref into nullifier-tree root cache. Length N.
     nullifier_root_index: Vec<u16>,
-    tx_hash: Option<[u8; 32]>,
-    /// Required for P256 sig verification. Program hashes Sha256(msg_hash)
-    /// because that's expensive in the zk proof. We sign either msg_hash
-    /// or tx_hash. If msg_hash is Some, it is used as the public input
-    /// regardless of whether tx_hash is set.
-    msg_hash: Option<[u8; 32]>,
+    /// Poseidon(input utxo hash chain, output utxo hash chain,
+    /// external data hash, expiry_unix_ts). Public input to the SPP proof;
+    /// the owner's P256 signature over this value is verified in-circuit.
+    private_tx_hash: [u8; 32],
     /// `Some` for shield/unshield SOL, `None` for shielded transfer.
     public_sol_amount: Option<u64>,
     /// `Some` for shield/unshield SPL, `None` for shielded transfer.
@@ -993,13 +989,13 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 | Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 in 1 out | 1 | 1 | 51 | 206 | 643 | — |
-| 1 in 2 out | 1 | 2 | 335 | 206 | 959 | 877 |
-| 3 in 3 out | 3 | 3 | 399 | 206 | 1059 | 977 |
-| 5 in 3 out | 5 | 3 | 463 | 206 | 1127 | 1045 |
-| 1 in 8 out | 1 | 8 | 133 | 206 | 949 | 867 |
+| 1 in 1 out | 1 | 1 | 51 | 206 | 641 | — |
+| 1 in 2 out | 1 | 2 | 335 | 206 | 957 | 875 |
+| 3 in 3 out | 3 | 3 | 399 | 206 | 1057 | 975 |
+| 5 in 3 out | 5 | 3 | 463 | 206 | 1125 | 1043 |
+| 1 in 8 out | 1 | 8 | 133 | 206 | 947 | 865 |
 
-\* assumes `msg_hash = Some` (33 B; sender signs over the recipient binding) and `tx_hash = None` (1 B). Transfer ciphertext sizes assume `R = 1` recipient, per the [Output UTXO Serialization § Transfer](#transfer-2) layout. Add 162 B per extra recipient.
+\* `private_tx_hash` is 32 B. Transfer ciphertext sizes assume `R = 1` recipient, per the [Output UTXO Serialization § Transfer](#transfer-2) layout. Add 162 B per extra recipient.
 \*\* assumes ALT for `tree_account`, `payer` and `program_id` inline; overhead = 64 (signature) + 3 (message header) + 65 (inline account keys: compact-u16 count + 2 × 32-byte pubkeys for `payer` and `program_id`) + 32 (recent blockhash) + 36 (ALT section: compact-u16 count + 32-byte ALT pubkey + writable count + writable index + readonly count) + 6 (instruction body: program_id_index + account_indices + data_len_varint). Shield/unshield totals add 66 B (`+64` for inline `user_spl_token_account` and `vault_spl_token_account` pubkeys, `+2` for their indices in the instruction body) because these accounts vary per transaction and cannot be served from the ALT.
 
 **Checks**
@@ -1054,17 +1050,8 @@ The rpc or pocket rpc have two purposes providing balance information and sendin
 1. get_encrypted_utxos
 2. get_proof
 3. send_transaction
-    
-    Modes:
-    
-    1. server built proof inputs
-        1. msg_hash(recipient + amount)
-        The user does not care which utxos are used.
-        Self-custody is guaranteed by the zkp.
-    2. client built proof inputs
-        1. msg_hash(TX_HASH)
-        TX_HASH includes all in and out utxos public amounts etc
-        The user sets all proof parameters and which UTXOs are used.
+
+    The client selects input UTXOs, computes `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`, signs it, and either builds the proof locally or ships the witness to a stateless prover. Self-custody is guaranteed by the ZK proof binding `private_tx_hash` to every input, every output, the external-data hash, and `expiry_unix_ts`.
 
 **Storage: `shielded_utxos`**
 
