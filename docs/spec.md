@@ -9,6 +9,8 @@
     - [Protocol](#protocol)
   - [Concurrency](#concurrency)
   - [Wallet](#wallet)
+    - [Methods](#methods)
+    - [State](#state)
     - [request_transfer](#request_transfer)
   - [Client SDK](#client-sdk)
     - [create_payment_request](#create_payment_request)
@@ -26,11 +28,16 @@
     - [Enter and Exit Pocket](#enter-and-exit-pocket)
 - [SPP Proof - Shielded Pool ZK Proof](#spp-proof---shielded-pool-zk-proof)
 - [View Tags](#view-tags)
+  - [Sender View Tag](#sender-view-tag)
+  - [Recipient view tag](#recipient-view-tag)
+  - [Derivations](#derivations)
 - [Output UTXO Serialization](#output-utxo-serialization)
   - [Transfer](#transfer-2)
     - [Plaintext Layout](#plaintext-layout)
     - [Instruction Data Layout](#instruction-data-layout)
   - [UTXO Split](#utxo-split)
+    - [Plaintext Layout](#plaintext-layout-1)
+    - [Instruction Data Layout](#instruction-data-layout-1)
 - [Transaction Viewing Key](#transaction-viewing-key)
 - [SPP - Shielded Pool Program](#spp---shielded-pool-program)
   - [Accounts](#accounts)
@@ -42,8 +49,9 @@
   - [Pocket RPC](#pocket-rpc)
   - [Merge Service](#merge-service)
 - [Notes](#notes)
-- [Request Payment Flow Default Pocket](#request-payment-flow-default-pocket)
-- [First Time Sync Wallet](#first-time-sync-wallet)
+- [User Flows](#user-flows)
+  - [Request Payment Flow Default Pocket](#request-payment-flow-default-pocket)
+  - [First Time Sync Wallet](#first-time-sync-wallet)
 
 ## Abstract
 
@@ -103,7 +111,7 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 Signs transactions (P256 signature verified inside the SPP proof) and decrypts UTXOs encrypted to the user's pubkey.
 
-Sender view tags index the sender's own change ciphertexts for sync and are inserted into the nullifier tree to guarantee single-use per `tx_count` slot. Recipient request view tags index incoming ciphertexts from payment requests and are not guaranteed single use.
+Sender view tags index the sender's own change ciphertexts for sync and are inserted into the nullifier tree to guarantee single-use per `TxCount` slot. Recipient request view tags index incoming ciphertexts from payment requests and are not guaranteed single use.
 
 **Seed secret derivations:**
 
@@ -115,7 +123,14 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
 4. Recipient View Tag Secret: `HKDF-SHA256(salt=∅, IKM=wallet_seed, info="zolana/recipient_view_tag", L=32)`
 5. Ephemeral Secret: `HKDF-SHA256(salt=∅, IKM=wallet_seed, info="zolana/ephemeral", L=32)`
 
-`get_sender_view_tag(tx_count)` and `get_recipient_request_view_tag(tx_count)` are indexed by the per-wallet `TxCount` counter (advanced on every outgoing transaction and on every `request_transfer`). `get_ephemeral_keypair(first_nullifier)` is *not* counter-indexed; it is bound to the first nullifier of the transaction's spent inputs, so the keypair is deterministic given the input UTXO set and unique per on-chain transaction (nullifier uniqueness implies keypair uniqueness).
+Counter sources for view-tag derivations:
+
+- `get_sender_view_tag(tx_count)` — `TxCount`, advanced on every outgoing transaction.
+- `get_recipient_request_view_tag(request_count)` — `RequestCount`, advanced on every `request_transfer`.
+- `send_shared_view_tag(recipient_pubkey, i)` — `known_recipients[recipient_pubkey]`, advanced on every send to that recipient that uses this tag.
+- `derive_shared_view_tag(sender_pubkey, i)` — `known_senders[sender_pubkey]`, advanced as the wallet's incoming scan for that sender consumes successive `i` values.
+
+`get_ephemeral_keypair(first_nullifier)` is *not* counter-indexed; it is bound to the first nullifier of the transaction's spent inputs, so the keypair is deterministic given the input UTXO set and unique per on-chain transaction (nullifier uniqueness implies keypair uniqueness).
 
 ### Methods:
 1. `sign_p256(msg)` — P256 ECDSA signature over `msg` with `self.owner_sk`; SHA-256 message digest per the ECDSA-P256 standard.
@@ -126,7 +141,7 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
 6. `get_sender_view_tag(tx_count)` — see [View Tags § Derivations](#view-tags).
 7. `get_recipient_request_view_tag(tx_count)` — see [View Tags § Derivations](#view-tags).
 8. `send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag` derivation; see [View Tags § Derivations](#view-tags).
-9. `receive_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag` derivation; see [View Tags § Derivations](#view-tags).
+9. `derive_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag` derivation; see [View Tags § Derivations](#view-tags).
 10. request_transfer(`asset_mint`, `amount`, `pocket_program_id`, `expiry_unix_ts`, `memo`)
 11. `get_ephemeral_keypair(first_nullifier)`:
     1. `seed64 := HKDF-SHA256(salt=first_nullifier, IKM=ephemeral_secret, info="zolana/ephemeral", L=64)`
@@ -140,10 +155,12 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
   2. sync policy pockets loop: for every pocket request balance
 
 ### State:
-1. Utxos(optional)
-2. TxCount (including requested payments)
-3. last synced
-4. `counterparties: map<their_pubkey → CounterpartyState>` where `CounterpartyState { sent_counter: u64, received_counter: u64 }`. Populated lazily: a new entry is created the first time the wallet sends to or receives from a counterparty. Shared view tags are re-derived on demand via `send_shared_view_tag` / `receive_shared_view_tag` (see [Wallet methods](#wallet)).
+1. `Utxos: Vec<Utxo>` (optional cache; can be rebuilt from sync).
+2. `TxCount: u64` — outgoing transaction counter; indexes `get_sender_view_tag`.
+3. `RequestCount: u64` — `request_transfer` counter; indexes `get_recipient_request_view_tag`.
+4. `last_synced: Timestamp`
+5. `known_senders: map<sender_pubkey → received_counter: u64>` — next index to scan in `derive_shared_view_tag(sender_pubkey, i)`. Populated lazily on first receipt from a new sender.
+6. `known_recipients: map<recipient_pubkey → sent_counter: u64>` — next index to use in `send_shared_view_tag(recipient_pubkey, i)`. Populated lazily on first send to a new recipient.
 
 ### request_transfer
 
@@ -282,7 +299,7 @@ struct Recipient {
 7. Pick random 31-byte `change_blinding_seed` and `recipient_blinding`.
 8. Build the recipient output: `(owner=recipient.pubkey, asset_id, amount, blinding_seed=recipient_blinding_seed)`.
 9. Build the sender change output: `(owner=sender_pubkey, asset_id, amount=change_amount, blinding_seed=change_blinding_seed, nullifier_data)`.
-10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.counterparties` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
+10. Encrypt each ciphertext with `AES-GCM(key = KDF(ECDH(ephemeral_sk, owner_pubkey)), plaintext)`. The sender ciphertext's `view_tag` is `sender_view_tag` (carried in `transact` ix data, not repeated in the blob). Each recipient ciphertext's `view_tag` is selected per [View Tags § Recipient view tag selection](#view-tags); side effects on `wallet.known_recipients` are applied as specified there. Concatenate per the [Transfer](#transfer-1) layout into `encrypted_utxos`.
 11. `recipient_binding := sign_p256(Sha256BE(recipient.nonce || recipient.pubkey || amount || recipient_blinding_seed))` — consumed by the SPP proof.
 12. compute `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`
 13. `signature := sign_p256(private_tx_hash)`
@@ -644,7 +661,7 @@ For transfers, view tags need to be shared between the sender and recipient. A w
 ### Recipient view tag
 
 2. **`recipient_shared_view_tag`**
-    - Derived by: the sender and recipient independently. Sender via `send_shared_view_tag` to send the tx, the recipient via `receive_shared_view_tag` to index the tx.
+    - Derived by: the sender and recipient independently. Sender via `send_shared_view_tag` to send the tx, the recipient via `derive_shared_view_tag` to index the tx.
     - Tx sent by: the sender.
     - Indexed by: the recipient.
 3. **`recipient_request_view_tag`**
@@ -665,6 +682,14 @@ flowchart TD
     Q2 -->|Yes| Case211[3. recipient_request_view_tag]
     Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
 ```
+
+"Prior transfer with recipient?" is decided by `recipient_pubkey ∈ wallet.known_recipients`.
+
+**Sender-side side effects on `wallet.known_recipients[recipient_pubkey]`:**
+
+- Case 2 (`recipient_shared_view_tag`): use `i = known_recipients[recipient_pubkey]`, then `known_recipients[recipient_pubkey] += 1`.
+- Case 3 (`recipient_request_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
+- Case 4 (`recipient_bootstrap_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
 
 ### Derivations
 
@@ -690,7 +715,7 @@ HKDF-SHA256(
 )
 ```
 
-`recipient_shared_view_tag(counterparty_pubkey, i)` — two chained HKDFs over the ECDH shared secret. Sender computes it as `send_shared_view_tag`; recipient computes the same byte value as `receive_shared_view_tag`:
+`recipient_shared_view_tag(counterparty_pubkey, i)` — two chained HKDFs over the ECDH shared secret. Sender computes it as `send_shared_view_tag`; recipient computes the same byte value as `derive_shared_view_tag`:
 
 ```
 shared := ECDH(self.owner_sk, counterparty_pubkey)
@@ -703,7 +728,7 @@ return    HKDF-SHA256(salt = ∅, IKM = domain,
 `R_pubkey` is the recipient of the direction:
 
 - Sender side (`send_shared_view_tag`): `R_pubkey = counterparty_pubkey`.
-- Recipient side (`receive_shared_view_tag`): `R_pubkey = self.owner_pubkey`.
+- Recipient side (`derive_shared_view_tag`): `R_pubkey = self.owner_pubkey`.
 
 ECDH symmetry plus the matched direction label produces the same byte value across the pair.
 
@@ -731,7 +756,7 @@ Two schemes:
 
 Confidential value transfer. One AES-GCM ciphertext per owner: one for the sender's change, `R` for the recipients. Variables used below: `R` = recipient count, `N` = spent-input count.
 
-The recipient ciphertext additionally carries `sender_pubkey` so the recipient can bootstrap the [View Tags](#view-tags) pair key exchange. The sender change ciphertext additionally carries `nullifier_data` so that the optional senders indexer service can link the spent inputs.
+The recipient ciphertext additionally carries `sender_pubkey` so the recipient can bootstrap the [View Tags](#view-tags) pair key exchange. The sender change ciphertext carries `nullifier_data`: one `randomized_nullifier_key` per spent input. The wallet re-derives the same value for each owned utxo and intersects to mark spent utxos during sync; the optional senders indexer uses the field to link spends.
 
 ### Plaintext Layout
 
@@ -778,7 +803,7 @@ struct TransferSenderPlaintext {
     sol_amount: u64,
     /// Seed for the two per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// One full nullifier per spent input;
+    /// `randomized_nullifier_key` per spent input.
     nullifier_data: Vec<[u8; 32]>,
 }
 ```
@@ -1029,8 +1054,9 @@ The rpc or pocket rpc have two purposes providing balance information and sendin
 **Methods:**
 
 1. get_encrypted_utxos
-2. get_proof
-3. send_transaction
+2. get_transaction_ciphertexts
+3. get_proof
+4. send_transaction
 
     The client selects input UTXOs, computes `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`, signs it, and either builds the proof locally or ships the witness to a stateless prover. Self-custody is guaranteed by the ZK proof binding `private_tx_hash` to every input, every output, the external-data hash, and `expiry_unix_ts`.
 
@@ -1041,7 +1067,7 @@ One row per ciphertext, sourced from either:
 - the `encrypted_utxos` blob of a `transact` / `pocket_transact` instruction (one row per recipient slot, plus one for the sender change), or
 - the `proofless_shield` instruction (one row per deposited output; `view_tag = NULL`, `ciphertext = NULL`, owner and amount are read from instruction data with `blinding = 0` inferred).
 
-Spend state is intentionally absent: UTXOs are private and the indexer cannot link nullifier insertions back to UTXOs. Users derive their own spent set client-side after decrypting (sender change ciphertexts carry `nullifier_data: [u8;32] × N`).
+Spend state is intentionally absent: UTXOs are private and the indexer cannot link nullifier insertions back to UTXOs. Users derive their own spent set client-side after decrypting (sender change ciphertexts carry the `randomized_nullifier_key` of each spent input in `nullifier_data: [u8;32] × N`).
 
 UTXO tree leaves and Merkle witnesses live in the existing `state_trees` table
 and are joined back from `shielded_utxos.leaf_indices`.
@@ -1070,6 +1096,8 @@ listed values (SQL `IN`). Multiple filters on **different** columns are
 intersected (AND). Filters on unindexed offsets MAY be rejected. Servers MUST
 accept at least 10 000 values per filter on `view_tag`; larger
 batches MAY be rejected with a documented limit.
+
+`get_transaction_ciphertexts(tags: Vec<[u8; 32]>)` returns, for every transaction with at least one ciphertext whose `view_tag` matches one of `tags`, all `shielded_utxos` rows of that transaction ordered by `(tx_signature, ciphertext_index)`. Servers MUST accept at least 10 000 tags per call. Sync uses this in place of `get_encrypted_utxos` so a single round trip returns both the matched ciphertext and its sibling recipient slots — letting the wallet derive `ephemeral_sk` from the spent inputs and decrypt the siblings to discover the recipients of its own outgoing transactions, without a second fetch.
 
 ## Pocket RPC
 
@@ -1105,7 +1133,9 @@ The shielded pool program has merge service registry accounts. Users can whiteli
 3. **We need to expose nullifier data with the encrypted utxos so that the RPC knows which utxos were spent based on decrypted outputs**
 4. By publishing the cleartext output utxo data we would essentially do compressed token transfers.
 
-# Request Payment Flow Default Pocket
+# User Flows
+
+## Request Payment Flow Default Pocket
 
 Recipient-pull flow. The recipient supplies a one-time `view_tag` that the sender stamps onto the recipient's ciphertext, so the recipient can pull the payment by exact byte-match instead of grinding every transfer.
 
@@ -1138,99 +1168,31 @@ Notes:
 1. The payment request is transferred out of band (QR code, deeplink, message). Zolana does not standardize this channel.
 2. The sender's `view_tag` is independent from the recipient's — they come from different per-wallet view-tag secrets.
 3. Without a payment request, the recipient has no `view_tag` to filter on and would have to fetch every transfer ciphertext since their cursor. Unsolicited transfers in this scheme are unsupported.
-4. Payment requests advance the tx counter without sending a tx which could result in a conflict, maybe we should add separate domains for user tx and requested tx.
 
 
-# First Time Sync Wallet
+## First Time Sync Wallet
 
-Restores `Utxos`, `TxCount`, and `last_synced` from a BIP-39 mnemonic. Fetches from known Pocket RPCs and the Photon Indexer in parallel, decrypting UTXO ciphertexts as they arrive.
+Restores `Utxos`, `TxCount`, `RequestCount`, `known_senders`, `known_recipients`, and `last_synced` from a BIP-39 mnemonic.
 
-```text
-def first_time_sync(wallet, indexer, known_pockets):
-    # 1. Derive seed secrets from mnemonic.
-    wallet.derive_seeds()       # P256, nullifier_secret, sender_view_tag_secret,
-                                # recipient_view_tag_secret, ephemeral_secret
+1. **Derive secrets** from the mnemonic: `owner_sk`, `nullifier_secret`, `sender_view_tag_secret`, `recipient_view_tag_secret`, `ephemeral_secret`.
 
-    # 2. Launch all fetches concurrently.
-    pocket_futures = {
-        pid: spawn(connect_pocket_rpc(pid).get_decrypted_utxos_and_balance())
-        for pid in known_pockets
-    }
-    confidential_future = spawn(indexer.get_encrypted_utxos(
-        view_tag_in=[Sha256BE(wallet.recipient_pubkey)]
-    ))
-    indexer_stream = spawn(gap_limit_scan(wallet, indexer, request_size=10_000))
+2. **Phase 1 — scan own view tags (concurrent).**
+   1. **Fetch loop** concurrently, in batches of 10 000 until first empty batch.
+    1. `get_transaction_ciphertexts([sender_view_tag(i), recipient_request_view_tag(i)])` — returns the matched ciphertexts plus their sibling recipient slots in one call.
+    2. fetch ciphertexts tagged with `recipient_bootstrap_view_tag`.
+    3. fetch ciphertexts or decrypted UTXOs from every known policy-pocket RPC.
+    4. fetch proofless shields cleartext UTXOs.
+  2. **Decrypt and store.** For each ciphertext, decrypt with tx's ephemeral keypair, store the UTXOs and their `nullifier_data`.
 
-    # 3. Decrypt indexer ciphertexts as they stream in (parallel workers).
-    utxos = {}
-    spent_nullifiers = []
-    for ct in parallel_decrypt(chain(indexer_stream, [confidential_future.await()])):
-        key       = KDF(ECDH(wallet.owner_sk, ct.ephemeral_pubkey))
-        plaintext = AES_GCM_decrypt(key, ct.body)
-        utxo      = parse_utxo(plaintext, ct.scheme)
-        utxos[utxo.hash] = utxo
-        if ct.is_sender_change:
-            spent_nullifiers += plaintext.nullifier_data    # [u8;32] × N
+3. **Phase 2 — scan known_senders and known_recipients view tags (concurrent).**
+   1. **Fetch loop** concurrently, in batches of 10 000 until first empty batch.
+    1. for each known sender `s`, fetch ciphertexts tagged with `derive_shared_view_tag(s, i)`.
+    2. for each known recipient `r`, fetch ciphertexts tagged with `send_shared_view_tag(r, i)`.
+   2. **Decrypt and store.** Decrypt and store UTXOs, and repeat 3.1.1 for any newly discovered senders.
 
-    # 4. Discover counterparties from incoming ciphertexts (each incoming
-    #    recipient bundle carries sender_pubkey; see Encryption Schemes § Transfer)
-    #    and walk their shared view tags. Repeat until convergence.
-    counterparties = {}                                     # their_pubkey -> CounterpartyState
-    pending = {utxo.sender_pubkey for utxo in utxos.values() if utxo.role == "incoming"}
-    while pending:
-        next_pending = set()
-        for cp in pending:
-            cursor = 0
-            while True:
-                tags = [wallet.receive_shared_view_tag(cp, i) for i in range(cursor, cursor + 10_000)]
-                hits = indexer.get_encrypted_utxos(view_tag_in=tags)
-                if not hits: break
-                for ct in parallel_decrypt(hits):
-                    plaintext = AES_GCM_decrypt(KDF(ECDH(wallet.owner_sk, ct.ephemeral_pubkey)), ct.body)
-                    utxo = parse_utxo(plaintext, ct.scheme)
-                    utxos[utxo.hash] = utxo
-                    if utxo.sender_pubkey not in counterparties:
-                        next_pending.add(utxo.sender_pubkey)
-                cursor += 10_000
-            counterparties[cp] = CounterpartyState(
-                sent_counter=0, received_counter=cursor,
-            )
-        pending = next_pending - counterparties.keys()
+4. **Mark spent utxos.** Mark each UTXO whose `randomized_nullifier_key` appears in any stored `nullifier_data` as spent.
 
-    # 5. Reconstruct historical spent set locally.
-    for nf in spent_nullifiers:
-        if nf in utxos:
-            utxos[nf].spent = True
-
-    # 6. Join policy-pocket fetches.
-    pocket_state = {pid: f.await() for pid, f in pocket_futures.items()}
-
-    # 7. Persist.
-    wallet.Utxos          = utxos
-    wallet.counterparties = counterparties
-    wallet.TxCount        = max_observed_tx_count(utxos) + 1
-    wallet.last_synced    = current_slot()
-    return wallet, pocket_state
-
-
-def gap_limit_scan(wallet, indexer, request_size):
-    # Two-axis gap-limit walk; yields ciphertexts as they arrive.
-    cursor = 0
-    sender_done, recipient_done = False, False
-    while not (sender_done and recipient_done):
-        queries = {}
-        if not sender_done:
-            tags = [wallet.get_sender_view_tag(i) for i in range(cursor, cursor + request_size)]
-            queries["sender"] = indexer.get_encrypted_utxos(view_tag_in=tags)
-        if not recipient_done:
-            tags = [wallet.get_recipient_request_view_tag(i) for i in range(cursor, cursor + request_size)]
-            queries["recipient"] = indexer.get_encrypted_utxos(view_tag_in=tags)
-        results = await_parallel(queries)
-        sender_done    = sender_done    or len(results.get("sender", []))    == 0
-        recipient_done = recipient_done or len(results.get("recipient", [])) == 0
-        yield from sum(results.values(), [])
-        cursor += request_size
-```
+5. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, `TxCount = max(observed sender_view_tag index) + 1`, `RequestCount = max(observed recipient_request_view_tag index) + 1`, `last_synced = current_timestamp()`.
 
 **Sync Time Estimates**
 
@@ -1239,12 +1201,11 @@ Assumptions:
 1. Indexer request size: `10 000` view tags per `view_tag IN (...)` query.
 2. Indexer RTT: 100 ms.
 3. ECDH P-256 per ciphertext: 100 μs.
-4. Phase 1 scans (`sender_view_tag`, `recipient_request_view_tag`, confidential bootstrap) run concurrently.
-5. Phase 2 per-counterparty scans run concurrently.
-6. Phase 2 starts after Phase 1 decryption (depends on `sender_pubkey` revealed by Phase 1 decryption).
-7. Each counterparty has < 10 000 transfers (Phase 2 fits in one batch + one confirm).
+4. Phase 1 scans (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) run concurrently.
+5. Phase 2.1 per-sender scans and Phase 2.2 per-recipient scans run concurrently.
+6. Each known sender has < 10 000 incoming transfers (2.1 fits in one batch + one confirm); each known recipient has < 10 000 outgoing transfers (2.2 same).
 
-| Tx history | Counterparties | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
+| Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 10 | 1 | 2 | 2 | 4 | < 1 ms | ~400 ms | ~400 ms |
 | 1 000 | 100 | 2 | 2 | 4 | ~100 ms | ~500 ms | ~400 ms |
@@ -1254,6 +1215,8 @@ Assumptions:
 
 
 # TODO:
-1. keep wallet synced user flow (answer is polling for the next X view_tags, and other decryption hints)
 2. add merge delegate to utxo hash, merge circuit, merge user flow.
 3. Add PSP to architecture diagram
+4. add swap user flow (unshield, swap, shield)
+5. add private zk swap user flow
+6. add registry docs, registry pda should include a hint whether whats the latest tx count. Updating the pda will leak some information though you can correlate activity. The wallet should store this so that we can fetch backwards.
