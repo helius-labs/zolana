@@ -99,7 +99,6 @@ fn batch_update_address_tree_rejects_non_registry_signer() {
     // Payer is just a random keypair, not the registry's CPI authority PDA.
     // Shielded-pool's verify() must reject this — UnauthorizedCaller.
     let data = BatchUpdateAddressTreeData {
-        cpi_authority_bump: 255,
         new_root: [9u8; 32],
         compressed_proof_a: [0u8; 32],
         compressed_proof_b: [0u8; 64],
@@ -110,7 +109,7 @@ fn batch_update_address_tree_rejects_non_registry_signer() {
         .expect_err("non-registry signer must be rejected");
     let msg = format!("{err}");
     assert!(
-        msg.contains("Custom(6)") || msg.contains("UnauthorizedCaller"),
-        "expected UnauthorizedCaller, got: {msg}"
+        msg.contains("Custom(5)") || msg.contains("UnauthorizedCaller"),
+        "expected UnauthorizedCaller (Custom(5)), got: {msg}"
     );
 }

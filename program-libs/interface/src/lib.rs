@@ -17,5 +17,17 @@ pub const LIGHT_REGISTRY_PROGRAM_ID: [u8; 32] = [
 ];
 
 /// Seed for the registry's CPI authority PDA (matches
-/// `light_registry::constants::CPI_AUTHORITY_PDA_SEED`).
+/// `light_registry::constants::CPI_AUTHORITY_PDA_SEED`). Kept for the
+/// pinning test that asserts `LIGHT_REGISTRY_CPI_AUTHORITY` matches
+/// `Pubkey::find_program_address(&[CPI_AUTHORITY_PDA_SEED], &LIGHT_REGISTRY_PROGRAM_ID)`.
 pub const CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
+
+/// Canonical registry CPI authority PDA — `find_program_address(&[b"cpi_authority"], LIGHT_REGISTRY_PROGRAM_ID)`.
+/// Hardcoded so shielded-pool can do a single equality check on the signer
+/// without re-deriving on every call. A pin test against
+/// `Pubkey::find_program_address` lives in shielded-pool's
+/// `instruction_validation` so a rename of the seed or program id is loud.
+pub const LIGHT_REGISTRY_CPI_AUTHORITY: [u8; 32] = [
+    16, 166, 94, 125, 214, 57, 4, 248, 56, 58, 208, 60, 222, 224, 120, 185, 20, 216, 115, 24, 128,
+    59, 21, 53, 128, 112, 215, 146, 224, 92, 253, 231,
+];

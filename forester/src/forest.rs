@@ -41,7 +41,7 @@ pub struct ForestParams<'a> {
     pub registry_program: Pubkey,
 }
 
-pub fn forest_address_tree_once(mut params: ForestParams<'_>) -> Result<Signature, ForestError> {
+pub fn forest_address_tree_once(params: ForestParams<'_>) -> Result<Signature, ForestError> {
     let registry_program = params.registry_program;
     let forester_pubkey = params.forester.pubkey();
 
@@ -58,15 +58,11 @@ pub fn forest_address_tree_once(mut params: ForestParams<'_>) -> Result<Signatur
         ],
         &registry_program,
     );
-    let (cpi_authority, cpi_bump) =
+    let (cpi_authority, _) =
         Pubkey::find_program_address(&[CPI_AUTHORITY_PDA_SEED], &registry_program);
 
-    // The bump is embedded in the instruction data so shielded-pool can
-    // re-derive the CPI authority PDA and verify the signer.
-    params.batch_update.cpi_authority_bump = cpi_bump;
-
     // Build instruction data: 8-byte anchor sighash + borsh-serialized args.
-    let mut data = Vec::with_capacity(8 + 1 + 32 + 32 + 64 + 32);
+    let mut data = Vec::with_capacity(8 + 32 + 32 + 64 + 32);
     data.extend_from_slice(&FOREST_ADDRESS_TREE_DISCRIMINATOR);
     params
         .batch_update

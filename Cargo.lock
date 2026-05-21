@@ -2497,7 +2497,7 @@ name = "light-account-checks"
 version = "0.8.0"
 source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
- "pinocchio",
+ "pinocchio 0.10.2",
  "pinocchio-system",
  "solana-account-info",
  "solana-address 2.6.0",
@@ -2526,7 +2526,7 @@ dependencies = [
  "light-merkle-tree-metadata",
  "light-verifier",
  "light-zero-copy-vec",
- "pinocchio",
+ "pinocchio 0.10.2",
  "solana-account-info",
  "solana-address 2.6.0",
  "solana-msg",
@@ -2544,7 +2544,7 @@ source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ee
 dependencies = [
  "bitvec",
  "num-bigint 0.4.6",
- "pinocchio",
+ "pinocchio 0.10.2",
  "solana-nostd-keccak",
  "solana-program-error",
  "thiserror 2.0.18",
@@ -2560,7 +2560,7 @@ dependencies = [
  "light-macros",
  "light-program-profiler",
  "light-zero-copy",
- "pinocchio",
+ "pinocchio 0.10.2",
  "solana-msg",
  "solana-program-error",
  "solana-pubkey 4.2.0",
@@ -2586,7 +2586,7 @@ dependencies = [
  "borsh",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
- "pinocchio",
+ "pinocchio 0.10.2",
  "sha2 0.10.9",
  "sha3",
  "solana-program-error",
@@ -2624,7 +2624,7 @@ source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ee
 dependencies = [
  "borsh",
  "bytemuck",
- "pinocchio",
+ "pinocchio 0.10.2",
  "solana-address 2.6.0",
  "solana-msg",
  "solana-program-error",
@@ -3237,10 +3237,23 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c06810dac15a4ef83d3dabdb4f2f22fb39c9adff669cd2781da4f716510a647c"
 dependencies = [
- "solana-account-view",
+ "solana-account-view 1.0.0",
  "solana-address 2.6.0",
  "solana-define-syscall 4.0.1",
- "solana-instruction-view",
+ "solana-instruction-view 1.0.0",
+ "solana-program-error",
+]
+
+[[package]]
+name = "pinocchio"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d707cea2843c1a2fd8ec49e4116ce3fdaedcd552a3ee168b03ce60e627fc0f62"
+dependencies = [
+ "solana-account-view 2.0.0",
+ "solana-address 2.6.0",
+ "solana-define-syscall 5.1.0",
+ "solana-instruction-view 2.1.0",
  "solana-program-error",
 ]
 
@@ -3250,7 +3263,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24044a0815753862b558e179e78f03f7344cb755de48617a09d7d23b50883b6c"
 dependencies = [
- "pinocchio",
+ "pinocchio 0.10.2",
  "solana-address 2.6.0",
 ]
 
@@ -4090,12 +4103,9 @@ dependencies = [
  "borsh",
  "light-batched-merkle-tree",
  "light-compressed-account",
- "light-event",
  "light-hasher",
- "light-merkle-tree-metadata",
  "light-sparse-merkle-tree",
- "pinocchio",
- "sha2 0.10.9",
+ "pinocchio 0.11.1",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "zolana-interface",
@@ -4105,7 +4115,7 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
- "pinocchio",
+ "pinocchio 0.10.2",
  "shielded-pool-program",
  "zolana-interface",
 ]
@@ -4273,6 +4283,16 @@ name = "solana-account-view"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f37ca34c37f92ee341b73d5ce7c8ef5bb38e9a87955b4bd343c63fa18b149215"
+dependencies = [
+ "solana-address 2.6.0",
+ "solana-program-error",
+]
+
+[[package]]
+name = "solana-account-view"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc141b940560430425ebaadb7645496c45f6a10fad9911d719bd03eab7f4d422"
 dependencies = [
  "solana-address 2.6.0",
  "solana-program-error",
@@ -4833,9 +4853,21 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60147e4d0a4620013df40bf30a86dd299203ff12fcb8b593cd51014fce0875d8"
 dependencies = [
- "solana-account-view",
+ "solana-account-view 1.0.0",
  "solana-address 2.6.0",
  "solana-define-syscall 4.0.1",
+ "solana-program-error",
+]
+
+[[package]]
+name = "solana-instruction-view"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ab7a27d0c4214b9f7389c3dd00b68c93093a67f1dcc5b7893aebe299bbcbb47"
+dependencies = [
+ "solana-account-view 2.0.0",
+ "solana-address 2.6.0",
+ "solana-define-syscall 5.1.0",
  "solana-program-error",
 ]
 

@@ -72,9 +72,6 @@ pub fn process_forest_address_tree<'info>(
     }
 
     // 2. Build the shielded-pool batch_update_address_tree instruction.
-    //    `data.cpi_authority_bump` is read on the shielded-pool side to derive
-    //    the expected signer and reject non-registry callers.
-    let cpi_bump = data.cpi_authority_bump;
     let cpi_data = encode_instruction(tag::BATCH_UPDATE_ADDRESS_TREE, &data);
     let cpi_ix = Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
@@ -85,7 +82,9 @@ pub fn process_forest_address_tree<'info>(
         data: cpi_data,
     };
 
-    // 3. Invoke with the CPI authority as signer.
+    // 3. Invoke with the CPI authority as signer. The bump comes from anchor's
+    //    seeds-constraint on `cpi_authority` above.
+    let cpi_bump = ctx.bumps.cpi_authority;
     let cpi_seeds: &[&[u8]] = &[CPI_AUTHORITY_PDA_SEED, &[cpi_bump]];
     invoke_signed(
         &cpi_ix,

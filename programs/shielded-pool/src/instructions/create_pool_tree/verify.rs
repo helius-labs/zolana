@@ -5,7 +5,7 @@ use crate::{error::ShieldedPoolError, instructions::loader::MutablePoolTreeAccou
 
 pub fn verify<'a>(
     program_id: &Address,
-    accounts: &'a [AccountView],
+    accounts: &'a mut [AccountView],
     _data: &CreatePoolTreeData,
 ) -> Result<MutablePoolTreeAccounts<'a>, ProgramError> {
     crate::instructions::loader::load_mutable_pool_tree_accounts(program_id, accounts, true)

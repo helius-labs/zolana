@@ -180,7 +180,7 @@ pub fn address_sub_tree_slice_mut(bytes: &mut [u8]) -> Result<&mut [u8], PoolTre
 }
 
 #[inline]
-pub fn read_state_next_index(bytes: &[u8]) -> usize {
+fn read_state_next_index(bytes: &[u8]) -> usize {
     let offset = state_next_index_offset();
     let mut buf = [0u8; 8];
     buf.copy_from_slice(&bytes[offset..offset + 8]);

@@ -16,7 +16,7 @@ use crate::{
 
 pub fn process_instruction(
     program_id: &Address,
-    accounts: &[AccountView],
+    accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
     let (ix_tag, payload) = instruction_data

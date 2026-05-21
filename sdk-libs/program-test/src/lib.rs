@@ -264,10 +264,8 @@ impl PoolTestRig {
         forester: &Keypair,
         pool_tree: &Pubkey,
         epoch: u64,
-        mut data: BatchUpdateAddressTreeData,
+        data: BatchUpdateAddressTreeData,
     ) -> Result<(), RigError> {
-        let (_, bump) = registry_sdk::cpi_authority_pda();
-        data.cpi_authority_bump = bump;
         let ix =
             registry_sdk::build_forest_address_tree_ix(&forester.pubkey(), pool_tree, epoch, data);
         let payer = forester.pubkey();

@@ -7,13 +7,13 @@ use zolana_interface::instruction::InsertAddressesData;
 
 use super::verify::verify;
 use crate::{
-    error::ShieldedPoolError, events::emit_address_queued,
-    instructions::create_pool_tree::init::address_sub_tree_slice_mut,
+    error::ShieldedPoolError, instructions::create_pool_tree::init::address_sub_tree_slice_mut,
+    log::log,
 };
 
 pub fn process_insert_addresses(
     program_id: &Address,
-    accounts: &[AccountView],
+    accounts: &mut [AccountView],
     data: InsertAddressesData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
@@ -29,10 +29,13 @@ pub fn process_insert_addresses(
         .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
 
     for address in &data.addresses {
-        tree.insert_address_into_queue(address, &current_slot)
-            .map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
-        let queue_next_index = tree.get_metadata().queue_batches.next_index;
-        emit_address_queued(&tree_pubkey, *address, current_slot, queue_next_index);
+        if tree
+            .insert_address_into_queue(address, &current_slot)
+            .is_err()
+        {
+            log("insert_addresses: queue/bloom-filter insert failed");
+            return Err(ShieldedPoolError::AddressQueueInsertFailed.into());
+        }
     }
     Ok(())
 }

@@ -53,7 +53,6 @@ fn append_state_leaves_roundtrip() {
 #[test]
 fn batch_update_address_tree_roundtrip() {
     let payload = BatchUpdateAddressTreeData {
-        cpi_authority_bump: 254,
         new_root: [3u8; 32],
         compressed_proof_a: [4u8; 32],
         compressed_proof_b: [5u8; 64],

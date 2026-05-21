@@ -110,15 +110,14 @@ fn registry_cpi_authority_passes_shielded_pool_auth_check() {
     // 3. Call forest_address_tree. The registry will CPI into shielded-pool;
     //    the CPI authority PDA's signer survives shielded-pool's auth check,
     //    so the call must fail somewhere OTHER than `UnauthorizedCaller`
-    //    (which is `Custom(6)`). Proof verification will fail, surfacing as
-    //    `PoolTreeMutationFailed` = `Custom(5)`.
+    //    (which is `Custom(5)`). Proof verification will fail, surfacing as
+    //    `BatchProofVerificationFailed` = `Custom(8)`.
     let err = rig
         .forest_address_tree(
             &forester,
             &tree.pubkey(),
             0,
             BatchUpdateAddressTreeData {
-                cpi_authority_bump: 0, // overridden by the helper
                 new_root: [9u8; 32],
                 compressed_proof_a: [0u8; 32],
                 compressed_proof_b: [0u8; 64],
@@ -128,12 +127,12 @@ fn registry_cpi_authority_passes_shielded_pool_auth_check() {
         .expect_err("missing-proof must fail");
     let msg = format!("{err}");
     assert!(
-        !msg.contains("Custom(6)"),
+        !msg.contains("Custom(5)"),
         "CPI authority was rejected as UnauthorizedCaller: {msg}"
     );
     assert!(
-        msg.contains("Custom(5)") || msg.contains("PoolTreeMutationFailed"),
-        "expected proof-related PoolTreeMutationFailed, got: {msg}"
+        msg.contains("Custom(8)") || msg.contains("BatchProofVerificationFailed"),
+        "expected proof-related BatchProofVerificationFailed, got: {msg}"
     );
 }
 

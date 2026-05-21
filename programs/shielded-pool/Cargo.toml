@@ -18,16 +18,11 @@ test-sbf = []
 borsh = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
 light-compressed-account = { workspace = true }
-light-event = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }
-light-merkle-tree-metadata = { workspace = true }
 light-sparse-merkle-tree = { workspace = true }
-pinocchio = "0.10"
+pinocchio = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
-
-[target.'cfg(not(target_os = "solana"))'.dependencies]
-sha2 = { workspace = true }
 
 [dev-dependencies]
 solana-pubkey = { workspace = true }
