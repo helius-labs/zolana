@@ -13,7 +13,7 @@
 3. protocol program structure: many policy programs that are not security relevant beyond the pocket they enforce the policy for, one minimal shielded pool program
 4. Shielded pool program is utxo serialiyzation agnostic, we will implement different schemas
 5. spl tokens that back utxo balances live in spl interface token accounts owned by the shielded pool program 
-6.
+6. secrets must not leave the wallet we need wallet methods to perform operations over secret values, shared secrets can be shared.
 
 ## Encryption Requirements:
 
@@ -42,3 +42,4 @@ never use the expression the wire when writing docs
 written by is also misleading for blockchains you send transactions
 and we have transaction or instruction data
 dont use the term wall time
+avoid Folded into
