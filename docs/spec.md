@@ -49,6 +49,7 @@
   - [Pocket RPC](#pocket-rpc)
   - [Merge Service](#merge-service)
   - [Registry](#registry)
+  - [Sync Delegate](#sync-delegate)
 - [Notes](#notes)
 - [User Flows](#user-flows)
   - [Request Payment Flow Default Pocket](#request-payment-flow-default-pocket)
@@ -118,7 +119,7 @@ Sender view tags index the sender's own change ciphertexts for sync and are inse
 **ShieldedPubkey.** A wallet identity is a pair `ShieldedPubkey = (signing_pk, encryption_pk)`:
 
 - `(owner_sk, signing_pk)` — P-256 keypair verified in-circuit by the SPP. Owns UTXOs (controls spend), signs transactions. Synonym in older prose: `(owner_sk, owner_pubkey)`.
-- `(encryption_sk, encryption_pk)` — P-256 keypair used for every sender→recipient ECDH: [View Tags](#view-tags) derivation and [Output UTXO Serialization](#output-utxo-serialization) AES-GCM key derivation. The wallet decrypts incoming ciphertexts with `encryption_sk`; senders encrypt to `encryption_pk`. May coincide with `signing_pk` (cypherpunk wallet) or differ (sync-delegated wallet).
+- `(encryption_sk, encryption_pk)` — P-256 keypair used for every sender→recipient ECDH: [View Tags](#view-tags) derivation and [Output UTXO Serialization](#output-utxo-serialization) AES-GCM key derivation. The wallet decrypts incoming ciphertexts with `encryption_sk`; senders encrypt to `encryption_pk`.
 
 The wallet publishes `ShieldedPubkey` via the [Registry](#registry); senders translate a Solana address into `ShieldedPubkey` by registry lookup (see [Wallet Transfer User Flows](#wallet-transfer-user-flows)).
 
@@ -126,23 +127,11 @@ The wallet publishes `ShieldedPubkey` via the [Registry](#registry); senders tra
 
 `wallet_seed` is the BIP-39 mnemonic seed: `PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
 
-Wallet-private (held only by the wallet; derived from `wallet_seed`):
-
 1. Owner P256 Keypair `(owner_sk, signing_pk)` — derived from `wallet_seed` via BIP-32-style hierarchical derivation on the P-256 curve.
 2. Nullifier Secret: `HKDF-SHA256(salt=∅, IKM=owner_sk, info="zolana/nullifier", L=32)`. Used to compute `randomized_nullifier_key` per spent UTXO; lets the wallet mark its own UTXOs as spent during sync.
 3. Ephemeral Secret: `HKDF-SHA256(salt=∅, IKM=wallet_seed, info="zolana/ephemeral", L=32)`. Used by the sender to derive `(ephemeral_sk, ephemeral_pubkey)` on each outgoing transaction.
-
-Shared with sync delegate (derived from `encryption_sk`):
-
-4. Encryption P256 Keypair `(encryption_sk, encryption_pk)`. The `ShieldedPubkey` always carries two slots; standalone just collapses them to the same key.
-    - **Standalone** (no sync delegate registered): `encryption_sk := owner_sk`, `encryption_pk := signing_pk`. The two-slot structure is preserved for layout consistency with the sync-paired case.
-    - **Sync-paired** (sync delegate `sync_pk` registered, see [Registry](#registry)): `encryption_sk := int(HKDF-SHA256(salt=∅, IKM=ECDH(owner_sk, sync_pk), info="zolana/registry/shared", L=64)) mod n`, `encryption_pk := encryption_sk · G`. The sync delegate computes the identical value via `ECDH(sync_sk, signing_pk)`, so both parties hold `encryption_sk` and can decrypt incoming ciphertexts.
-5. View tag secrets — see [View Tags § Derivations](#view-tags). Both `sender_view_tag_secret` and `recipient_view_tag_secret` derive from `encryption_sk`, so the sync delegate inherits view-tag scanning automatically when appointed.
-
-**Sync delegate handover (TBD, optional).** A delegate's `sync_sk` derives `encryption_sk_k` only for `entries` created with its own `sync_pk` (entries from `set_delegate` calls that named it). On appointment of a new delegate, the wallet implementation picks one of two behaviors; the protocol does not enforce either:
-
-- **(a) Hand-over.** The wallet ships the new delegate `[(key_index, encryption_sk_k)]` for prior entries via an out-of-band channel (TLS, e2e-encrypted). The new delegate can scan the full history.
-- **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can always derive `encryption_sk_k` from `owner_sk + entries[k].sync_pk`.
+4. Encryption P256 Keypair `(encryption_sk, encryption_pk)` — `encryption_sk := owner_sk`, `encryption_pk := signing_pk`. The `ShieldedPubkey` carries two slots; for now both collapse to the owner key.
+5. View tag secrets — see [View Tags § Derivations](#view-tags). Both `sender_view_tag_secret` and `recipient_view_tag_secret` derive from `encryption_sk`.
 
 Counter sources for view-tag derivations:
 
@@ -155,23 +144,23 @@ Counter sources for view-tag derivations:
 
 ### Methods:
 
-**Signing (wallet-only):**
+**Signing:**
 
 1. `sign_p256(msg) -> P256Signature` — P256 ECDSA over `msg` with `owner_sk`; SHA-256 digest per ECDSA-P256. All in-circuit-verified signatures sign `private_tx_hash` (binds every input, every output, the external-data hash, and `expiry_unix_ts`); no separate per-field signatures.
 2. `build_transact_witness(inputs, outputs, expiry_unix_ts, sender_view_tag, external_data_hash) -> ProverWitness` — assembles every private value the prover needs (input UTXO openings and blindings, per-input `randomized_nullifier_key`, output commitments, the P256 signature over `private_tx_hash`).
 
-**Encryption (wallet + sync delegate):**
+**Encryption:**
 
-3. `begin_tx(first_nullifier) -> TxHandle` — derives `(ephemeral_sk, ephemeral_pubkey)` from `HKDF(salt=first_nullifier, IKM=ephemeral_secret, info="zolana/ephemeral")` and returns an opaque handle plus the public `ephemeral_pubkey`. The `ephemeral_sk` is held inside the handle and reused across all recipients of the same transaction. Wallet-only (uses `ephemeral_secret`).
-4. `encrypt_to_recipient(handle, recipient_encryption_pk, plaintext) -> Ciphertext` — AES-GCM seal with key `KDF(ECDH(handle.ephemeral_sk, recipient_encryption_pk))`. Wallet-only.
-5. `decrypt(ciphertext, ephemeral_pubkey, key_index) -> Result<Plaintext>` — AES-GCM open with key `KDF(ECDH(encryption_sk_{key_index}, ephemeral_pubkey))`. `key_index` selects the registry entry's encryption key for historic decryption; default = current. Wallet OR sync delegate.
+3. `begin_tx(first_nullifier) -> TxHandle` — derives `(ephemeral_sk, ephemeral_pubkey)` from `HKDF(salt=first_nullifier, IKM=ephemeral_secret, info="zolana/ephemeral")` and returns an opaque handle plus the public `ephemeral_pubkey`. The `ephemeral_sk` is held inside the handle and reused across all recipients of the same transaction.
+4. `encrypt_to_recipient(handle, recipient_encryption_pk, plaintext) -> Ciphertext` — AES-GCM seal with key `KDF(ECDH(handle.ephemeral_sk, recipient_encryption_pk))`.
+5. `decrypt(ciphertext, ephemeral_pubkey, key_index) -> Result<Plaintext>` — AES-GCM open with key `KDF(ECDH(encryption_sk_{key_index}, ephemeral_pubkey))`. `key_index` selects the registry entry's encryption key for historic decryption; default = current.
 
-**Nullifier fingerprinting (wallet-only):**
+**Nullifier fingerprinting:**
 
 6. `randomized_nullifier_key(utxo) -> [u8; 32]` — `Poseidon(utxo_hash, nullifier_secret)`.
 7. `randomized_nullifier_keys(utxos: &[Utxo]) -> Vec<[u8; 32]>` — batch variant for sync.
 
-**View tags (wallet + sync delegate):**
+**View tags:**
 
 Each method takes `key_index` (defaults to the current encryption key) and returns the 32-byte tag value.
 
@@ -1270,6 +1259,15 @@ A recipient restoring from mnemonic decrypts ciphertexts entry by entry:
 
 - Ciphertexts received while the record was standalone decrypt with `encryption_sk = owner_sk`.
 - Ciphertexts received under a delegate entry decrypt with `encryption_sk = KDF(ECDH(owner_sk, entry.sync_pk))`. The cached `entry.encryption_pk` lets the recipient match a ciphertext to its entry without trying every ECDH.
+
+## Sync Delegate
+
+A sync delegate scans view tags and decrypts ciphertexts on the wallet's behalf. Appointment is via [Registry § `set_delegate`](#set_delegate); the delegate's `sync_sk` and the wallet's `owner_sk` jointly derive the shared `encryption_sk` (see [Wallet](#wallet)).
+
+**Handover on appointment (TBD, optional).** A delegate's `sync_sk` derives `encryption_sk_k` only for `entries` created with its own `sync_pk`. On appointment of a new delegate, the wallet implementation picks one of two behaviors; the protocol does not enforce either:
+
+- **(a) Hand-over.** The wallet ships the new delegate `[(key_index, encryption_sk_k)]` for prior entries via an out-of-band channel (TLS, e2e-encrypted). The new delegate can scan the full history.
+- **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can always derive `encryption_sk_k` from `owner_sk + entries[k].sync_pk`.
 
 # Notes
 
