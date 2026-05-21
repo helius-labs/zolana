@@ -960,11 +960,12 @@ Defines the layout of the `encrypted_utxos` blob included in shielded transactio
 
 All schemes apply AES-GCM encryption; keys are derived per recipient via `ECDH(ephemeral_sk, recipient.encryption_pk)`. One `ephemeral_pubkey` is shared across all recipients in a transaction. The producer (sender, splitter, or merge service) derives `(ephemeral_sk, ephemeral_pubkey)` from `get_ephemeral_keypair(first_nullifier)` (see [Wallet](#wallet)) and encrypts. Nullifier uniqueness in the nullifier tree implies a unique ephemeral keypair per transaction. Slot prefixes (`view_tag`) are view tag values; see [View Tags](#view-tags).
 
-Three schemes:
+Four schemes:
 
 1. Transfer — confidential value movement; per-recipient AES-GCM bundles.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — one ciphertext for the single merged output, written by the merge service.
+4. Shield with Merge — one ciphertext for the self-owned combined output of a 1-in-1-out `transact` (shield-with-merge or unshield-with-change).
 
 ## Transfer
 
@@ -1161,6 +1162,42 @@ struct MergeEncryptedUtxo {
 }
 ```
 
+## Shield with Merge
+
+One ciphertext for the single combined output of a 1-in-1-out [transact](#transact): the sender merges their existing balance with a new shield deposit (shield-with-merge), or keeps change after a partial withdrawal (unshield-with-change).
+
+### Plaintext Layout
+
+```rust
+/// 81 B plaintext → 97 B ciphertext (after the 16-byte GCM tag).
+struct ShieldMergePlaintext {
+    /// Output owner (`signing_pk`); 1-byte prefix + P256 SEC1-compressed.
+    owner_pubkey: [u8; 34],
+    /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
+    asset_id: u64,
+    /// Combined output amount (input balance ± public deposit / unshield).
+    amount: u64,
+    /// Random blinding for the output.
+    blinding: [u8; 31],
+}
+```
+
+### Instruction Data Layout
+
+```rust
+/// 132 bytes total. Packed, no length prefixes.
+/// Owner-side view tag is `sender_view_tag` from the transact instruction data
+/// (single self-owned output); not repeated in this blob.
+struct ShieldMergeEncryptedUtxos {
+    /// Discriminator (SHIELD_MERGE).
+    type_prefix: u8,
+    /// Shared P256 pubkey for ECDH key derivation (1-byte prefix + SEC1-compressed).
+    ephemeral_pubkey: [u8; 34],
+    /// 81-byte plaintext + 16-byte GCM tag.
+    ciphertext: [u8; 97],
+}
+```
+
 # Transaction Viewing Key
 
 Every ciphertext in a transaction is encrypted under a single empheral key so that the secret key of the emphemeral key can decrypt both the senders change and recipient utxos of the transaction.
@@ -1256,7 +1293,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 | Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 in 1 out | 1 | 1 | 51 | 206 | 641 | — |
+| 1 in 1 out | 1 | 1 | 132 | 206 | 722 | — |
 | 1 in 2 out | 1 | 2 | 303 | 206 | 925 | 843 |
 | 3 in 3 out | 3 | 3 | 303 | 206 | 961 | 879 |
 | 5 in 3 out | 5 | 3 | 303 | 206 | 965 | 883 |
