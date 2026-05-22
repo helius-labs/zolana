@@ -36,6 +36,7 @@
   - [Merge view tag](#merge-view-tag)
   - [Derivations](#derivations)
 - [Output UTXO Serialization](#output-utxo-serialization)
+  - [Program Data](#program-data)
   - [Transfer](#transfer-2)
     - [Plaintext Layout](#plaintext-layout)
     - [Instruction Data Layout](#instruction-data-layout)
@@ -45,12 +46,14 @@
   - [Merge](#merge)
     - [Plaintext Layout](#plaintext-layout-2)
     - [Instruction Data Layout](#instruction-data-layout-2)
+  - [Shield with Merge](#shield-with-merge)
 - [Transaction Viewing Key](#transaction-viewing-key)
 - [SPP - Shielded Pool Program](#spp---shielded-pool-program)
   - [Accounts](#accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
     - [merge_transact](#merge_transact)
+    - [merge_pocket](#merge_pocket)
     - [enable_merge_authority](#enable_merge_authority)
     - [disable_merge_authority](#disable_merge_authority)
 - [Policy Program Interface](#policy-program-interface)
@@ -707,7 +710,9 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Inclusion | Each input UTXO is a leaf of the UTXO tree at `nullifier_root` (paths checked in-circuit). |
 | Nullifier non-inclusion | Each input nullifier is absent from the nullifier tree at `nullifier_root`. |
 | Nullifiers | Public nullifiers are well-formed from spent inputs (see [SPP Proof § Nullifier Hash](#spp-proof---shielded-pool-zk-proof)). |
-| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_pubkey`, `policy_program_id = 0`, `data_hash = 0`, `policy_data = 0`. |
+| Input cleanliness — `data_hash` | For each non-dummy input UTXO: `data_hash = 0`. UTXOs with application extension data are not mergeable; the application program that set `data_hash` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_pocket`. |
+| Input cleanliness — pocket fields | For `merge_transact` (default-pocket merge service): each non-dummy input UTXO additionally has `policy_program_id = 0` and `policy_data = 0`. For [`merge_pocket`](#merge_pocket) (policy-CPI merge): the non-dummy inputs share a `policy_program_id` that matches the CPI caller; `policy_data` is constrained by the policy program's own logic, not by SPP. |
+| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_pubkey`, `data_hash = 0`. For `merge_transact`: `policy_program_id = 0` and `policy_data = 0`. For `merge_pocket`: `policy_program_id` matches the CPI caller and `policy_data` is the value the policy program sets (constrained by its own proof). |
 | Whitelist inclusion | `Poseidon(ENABLE_TAG, user_pubkey, user_encryption_pk, merge_authority_pubkey, number)` is a leaf of the merge authority tree at `merge_authority_root`. |
 | Revoke non-inclusion | `Poseidon(REVOKE_TAG, user_pubkey, user_encryption_pk, merge_authority_pubkey, number)` is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
 | Merge authority signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` verifies. The hash covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
@@ -967,6 +972,28 @@ Four schemes:
 3. Merge — one ciphertext for the single merged output, written by the merge service.
 4. Shield with Merge — one ciphertext for the self-owned combined output of a 1-in-1-out `transact` (shield-with-merge or unshield-with-change).
 
+## Program Data
+
+Two optional slots appended to each plaintext schema below for program-specific bytes alongside the base UTXO fields. Modeled on the Token-22 type-length-value pattern: each populated slot is `tag: u8 || len: u16_le || bytes: [u8; len]`, omitted when `None` so schemas without extensions add zero bytes. Two slots are reserved:
+
+| Tag | Field | Consumer | UTXO-hash slot |
+| --- | --- | --- | --- |
+| `0x01` | `pocket_data` | the UTXO's `policy_program_id` | `policy_data` |
+| `0x02` | `app_data` | an application program read from the transaction returned by `get_shielded_transactions` (resolved via `tx_signature` against the transaction's instruction set) | `data_hash` |
+
+**Purpose.** The recipient hashes each slot's bytes to recompute the corresponding UTXO-hash slot value (`policy_data` from `pocket_data`, `data_hash` from `app_data`). The hashing function is defined by the consuming program: Sha256, Poseidon, structured field hashing, or whichever scheme the program's circuit committed to when it produced the UTXO. SPP does not constrain the two UTXO-hash slots (see [UTXO Hash](#spp-proof---shielded-pool-zk-proof)); the consuming program checks that the recomputed value matches the value in the UTXO hash.
+
+**Serialization rules.**
+
+- Records appear in ascending tag order (`0x01` before `0x02`).
+- Each tag appears at most once.
+- An omitted slot adds zero bytes to the plaintext; the corresponding UTXO-hash slot value is `0`.
+- The base struct's fixed-size fields end first; the parser walks program-data records from the tail.
+
+**Wallet dispatch.** The wallet routes `pocket_data` to the parser for the UTXO's `policy_program_id`. For `app_data`, the wallet reads the producing program from the transaction returned by `get_shielded_transactions` (resolved via `tx_signature` against Solana or as an indexer-enriched field) and dispatches to that program's client SDK. Wallets without an SDK for that program leave `app_data` unparsed; the base fields are sufficient to spend the UTXO.
+
+**Cross-schema applicability.** Each schema below includes the two `Option<Vec<u8>>` slots, except `MergeBundlePlaintext`: the merge proof constrains its output to `policy_program_id = 0`, `policy_data = 0`, `data_hash = 0`, so the merged output has no extensions. See [Merge Proof](#merge-proof---merge-zk-proof) and [Merge Service](#merge-service) for the input-side rules.
+
 ## Transfer
 
 Confidential value transfer. One AES-GCM ciphertext per owner: one for the sender's change, `R` for the recipients. Variables used below: `R` = recipient count, `N` = spent-input count.
@@ -980,7 +1007,9 @@ Fields packed in declaration order with no length prefixes (the variable-length 
 #### Recipient
 
 ```rust
-/// 114 B plaintext → 130 B ciphertext (after the 16-byte GCM tag).
+/// 114 B plaintext → 130 B ciphertext (after the 16-byte GCM tag), assuming
+/// both program-data slots absent. See [Program Data](#program-data) for the size
+/// when slots are populated.
 struct TransferRecipientPlaintext {
     /// Recipient `signing_pk` (UTXO owner, controls spend);
     /// 1-byte prefix + P256 SEC1-compressed.
@@ -994,6 +1023,12 @@ struct TransferRecipientPlaintext {
     amount: u64,
     /// Random blinding for the single output.
     blinding: [u8; 31],
+    /// Arbitrary data the policy program defines. Consumed by
+    /// `policy_program_id`. See [Program Data](#program-data).
+    pocket_data: Option<Vec<u8>>,
+    /// Arbitrary data the app program defines. The wallet does not parse these
+    /// bytes; the application program's client SDK does.
+    app_data: Option<Vec<u8>>,
 }
 ```
 
@@ -1008,7 +1043,9 @@ blinding_i = Sha256BE(blinding_seed || u8(position_i))
 with `position = 0` for the SPL output and `position = 1` for the SOL output.
 
 ```rust
-/// 89 B plaintext → 105 B ciphertext (after the 16-byte GCM tag).
+/// 89 B plaintext → 105 B ciphertext (after the 16-byte GCM tag), assuming
+/// both program-data slots absent. See [Program Data](#program-data) for the size
+/// when slots are populated.
 struct TransferSenderPlaintext {
     /// Sender's `signing_pk` (UTXO owner for the change outputs);
     /// 1-byte prefix + P256 SEC1-compressed.
@@ -1021,6 +1058,15 @@ struct TransferSenderPlaintext {
     sol_amount: u64,
     /// Seed for the two per-output blindings (formula above).
     blinding_seed: [u8; 31],
+    /// Bytes hashed (via the policy program's defined scheme) to recompute the
+    /// `policy_data` slot of the SPL change UTXO (position 0). The SOL change
+    /// UTXO (position 1) is always bare — `policy_program_id = 0`,
+    /// `policy_data = 0`, `data_hash = 0`, no extensions — regardless of this
+    /// field. See [Program Data](#program-data).
+    pocket_data: Option<Vec<u8>>,
+    /// Bytes hashed (via the app program's defined scheme) to recompute the
+    /// `data_hash` slot of the SPL change UTXO (position 0).
+    app_data: Option<Vec<u8>>,
 }
 ```
 
@@ -1029,7 +1075,9 @@ struct TransferSenderPlaintext {
 The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order with no length prefixes.
 
 ```rust
-/// Total size: 141 + 162*R bytes.
+/// Total size: 141 + 162*R bytes when every plaintext has both program-data slots
+/// absent; each populated slot grows its ciphertext (and thus the blob) by
+/// `3 + len` bytes. See [Program Data](#program-data).
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
@@ -1037,7 +1085,8 @@ struct TransferEncryptedUtxos {
     ephemeral_pubkey: [u8; 34],
     /// Number of recipient_slots that follow ciphertext_sender. Equals R.
     num_recipients: u8,
-    /// Sender change bundle ciphertext: 89 bytes plaintext + 16-byte GCM tag.
+    /// Sender change bundle ciphertext: 89-byte plaintext (when program-data slots are
+    /// absent) + 16-byte GCM tag; grows with populated program-data slots.
     /// View tag for this ciphertext is `sender_view_tag` from the transact
     /// instruction data, not included in this blob.
     ciphertext_sender: Vec<u8>,
@@ -1049,12 +1098,15 @@ struct TransferEncryptedUtxos {
 #### Recipient slot
 
 ```rust
-/// 162 bytes total.
+/// 162 bytes when both program-data slots are absent on the recipient plaintext;
+/// populated slots grow `ciphertext` by `3 + len` bytes each (and thus the
+/// slot total by the same).
 struct RecipientSlot {
     /// View tag value; see View Tags chapter for the four variants and selection rules.
     view_tag: [u8; 32],
-    /// 114-byte recipient plaintext + 16-byte GCM tag.
-    ciphertext: [u8; 130],
+    /// Variable-length: 114-byte recipient plaintext + program-data records
+    /// (each populated slot adds `3 + len` bytes) + 16-byte GCM tag.
+    ciphertext: Vec<u8>,
 }
 ```
 
@@ -1077,6 +1129,8 @@ Blob size by recipient count:
 | 4 | 789 |
 | 8 | 1437 |
 
+Sizes assume `pocket_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
+
 ## UTXO Split
 
 All M outputs share owner, amount, and asset, so a single ciphertext encodes them. Each output UTXO derives a unique blinding from the blinding seed:
@@ -1090,7 +1144,9 @@ for `i = 0 .. M-1`.
 ### Plaintext Layout
 
 ```rust
-/// 82 B plaintext → 98 B ciphertext (after the 16-byte GCM tag).
+/// 82 B plaintext → 98 B ciphertext (after the 16-byte GCM tag), assuming
+/// both program-data slots absent. See [Program Data](#program-data) for the size
+/// when slots are populated.
 struct SplitBundlePlaintext {
     /// Shared owner of all M outputs (1-byte prefix + P256 SEC1-compressed).
     owner_pubkey: [u8; 34],
@@ -1102,13 +1158,22 @@ struct SplitBundlePlaintext {
     asset_amount: u64,
     /// Seed for the M per-output blindings (formula above).
     blinding_seed: [u8; 31],
+    /// Arbitrary data the policy program defines. Applied uniformly to all M
+    /// outputs (they share every other base field). See [Program
+    /// Data](#program-data).
+    pocket_data: Option<Vec<u8>>,
+    /// Arbitrary data the app program defines. Applied uniformly to all M
+    /// outputs.
+    app_data: Option<Vec<u8>>,
 }
 ```
 
 ### Instruction Data Layout
 
 ```rust
-/// 133 bytes total. Packed, no length prefixes.
+/// 133 bytes total when both program-data slots are absent on the plaintext; populated
+/// slots grow the ciphertext by `3 + len` bytes each. Packed, no length
+/// prefixes.
 /// Owner-side view tag is `sender_view_tag` from the transact instruction data
 /// (all M outputs share the sender as owner).
 struct SplitEncryptedUtxos {
@@ -1169,7 +1234,9 @@ One ciphertext for the single combined output of a 1-in-1-out [transact](#transa
 ### Plaintext Layout
 
 ```rust
-/// 81 B plaintext → 97 B ciphertext (after the 16-byte GCM tag).
+/// 81 B plaintext → 97 B ciphertext (after the 16-byte GCM tag), assuming
+/// both program-data slots absent. See [Program Data](#program-data) for the size
+/// when slots are populated.
 struct ShieldMergePlaintext {
     /// Output owner (`signing_pk`); 1-byte prefix + P256 SEC1-compressed.
     owner_pubkey: [u8; 34],
@@ -1179,13 +1246,22 @@ struct ShieldMergePlaintext {
     amount: u64,
     /// Random blinding for the output.
     blinding: [u8; 31],
+    /// Bytes hashed (via the policy program's defined scheme) to recompute the
+    /// `policy_data` slot of the single self-owned output. See [Program
+    /// Data](#program-data).
+    pocket_data: Option<Vec<u8>>,
+    /// Bytes hashed (via the app program's defined scheme) to recompute the
+    /// `data_hash` slot.
+    app_data: Option<Vec<u8>>,
 }
 ```
 
 ### Instruction Data Layout
 
 ```rust
-/// 132 bytes total. Packed, no length prefixes.
+/// 132 bytes total when both program-data slots are absent on the plaintext; populated
+/// slots grow the ciphertext by `3 + len` bytes each. Packed, no length
+/// prefixes.
 /// Owner-side view tag is `sender_view_tag` from the transact instruction data
 /// (single self-owned output); not repeated in this blob.
 struct ShieldMergeEncryptedUtxos {
@@ -1237,10 +1313,11 @@ Every ciphertext in a transaction is encrypted under a single empheral key so th
 | create_pocket_config | Tag 12; creates a new pocket config; fields: owner, pocket_authority_transact_is_enabled |
 | update_pocket_config_owner | Tag 13; transfers ownership of a pocket config; only callable by current owner. TBD: spec out semantics. |
 | update_pocket_config | Tag 14; toggles whether pocket_authority_transact_is_enabled is enabled. If disabled and the config owner is burned, the policy program cannot rug the user (no permanent delegate). |
-| merge_transact | Tag 15; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). |
+| merge_transact | Tag 15; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-pocket; extension slots are zero. |
 | enable_merge_authority | Tag 16; user opts a merge authority in by inserting `enable_commitment` into the merge authority tree. Authorized by an Enable Proof. |
 | disable_merge_authority | Tag 17; user revokes a merge authority by inserting `revoke_commitment` into the merge authority tree. Authorized by a Revoke Proof. |
 | create_merge_authority_tree | Tag 18; admin; initializes a merge authority tree account. |
+| merge_pocket | Tag 19; CPI from a policy program; consolidates N input UTXOs (same owner, same asset, same `policy_program_id`) into one output UTXO that preserves `policy_program_id`. Mirrors `merge_transact` for policy-pocket UTXOs. The policy program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 
 ### `transact`
 
@@ -1368,6 +1445,34 @@ struct MergeTransactIxData {
 6. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 7. Insert each input nullifier into the nullifier queue.
 8. Insert `merge_view_tag` into the nullifier queue. Rejects on duplicate, so each per-service `(merge_authority_pubkey, merge_count)` slot is used at most once. SPP does not parse `encrypted_utxo`; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
+
+### `merge_pocket`
+
+**Discriminator:** 19
+
+**Description.** Policy-pocket analog of [`merge_transact`](#merge_transact), invoked via CPI from a policy program. The relationship to `merge_transact` parallels how [`pocket_authority_transact`](#pocket_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `policy_program_id` (matching the CPI caller) into one output UTXO that preserves `policy_program_id`. The policy program runs its own authorization, including any rules over `policy_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output.
+
+**Accounts**
+
+| # | Name | W | S | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
+| 2 | merge_authority_tree | x |   | merge authority tree (enable/revoke commitments) |
+| 3 | policy_program |   | x | the calling policy program; SPP reads its program id and binds inputs/output `policy_program_id` to it |
+| 4 | payer |   | x | fee payer |
+
+**Instruction data**
+
+Identical to [`MergeTransactIxData`](#merge_transact); the merge proof's circuit branch enforces the policy-pocket variant of the cleanliness and output-well-formed rules.
+
+**Checks**
+
+1. CPI caller is the program named in account #3.
+2. Same checks 1–4 as `merge_transact`.
+3. Proof verifies against public inputs (the policy-pocket variant: inputs share `policy_program_id` = account #3; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
+4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
+5. Insert each input nullifier into the nullifier queue.
+6. Insert `merge_view_tag` into the nullifier queue. Same single-use guard as `merge_transact`.
 
 ### `enable_merge_authority`
 
@@ -1638,6 +1743,10 @@ CREATE INDEX merge_authority_events_view_tag_idx
 Operator service that consolidates a user's fragmented UTXOs into fewer larger ones by submitting [`merge_transact`](#merge_transact) instructions on the user's behalf. The protocol surface — opt-in commitments, the merge proof, the merge authority tree — lives in [SPP](#spp---shielded-pool-program); this section describes the operator's responsibilities.
 
 **Identity.** A merge service is identified by a P256 `merge_authority_pubkey`. The same `merge_authority_pubkey` can be whitelisted by many users; each (user, service) pair is independent.
+
+**Scope.** The merge service consolidates UTXOs in both default and policy pockets; the submission target differs. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = 0`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge entry point, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and decryption channels are the same in both cases.
+
+UTXOs with `app_data` (non-zero `data_hash`) are not mergeable. The application program that set the `data_hash` value consumes them through its own `transact`-style flow.
 
 **Lifecycle.**
 
