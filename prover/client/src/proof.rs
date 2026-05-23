@@ -5,7 +5,7 @@ type G1 = ark_bn254::g1::G1Affine;
 use std::ops::Neg;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
-use light_compressed_account::instruction_data::compressed_proof::CompressedProof;
+use light_verifier::CompressedProof;
 use num_traits::Num;
 use solana_bn254::compression::prelude::{
     alt_bn128_g1_compress_be, alt_bn128_g1_decompress_be, alt_bn128_g2_compress_be,

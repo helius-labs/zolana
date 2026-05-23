@@ -1,7 +1,7 @@
 use light_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataBatchNullifyInputs,
 };
-use light_compressed_account::instruction_data::compressed_proof::CompressedProof;
+use light_verifier::CompressedProof;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
