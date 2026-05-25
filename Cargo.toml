@@ -7,7 +7,6 @@ members = [
     "programs/shielded-pool",
     "prover/client",
     "sdk-libs/cli",
-    "sdk-libs/event",
     "sdk-libs/program-test",
     "xtask",
 ]
@@ -31,7 +30,6 @@ time = ">=0.3, <0.3.46"
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
-light-event = { path = "sdk-libs/event", version = "0.23.1" }
 light-prover-client = { path = "prover/client", version = "8.0.0" }
 light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
 

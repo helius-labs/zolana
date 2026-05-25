@@ -2570,13 +2570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-event"
-version = "0.23.1"
-dependencies = [
- "borsh",
-]
-
-[[package]]
 name = "light-hasher"
 version = "5.0.0"
 source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#eecd83af918f0935875612d716213952a50d7475"
@@ -2713,11 +2706,11 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
- "light-compressed-account",
  "light-hasher",
  "light-indexed-array",
  "light-merkle-tree-reference",
  "light-sparse-merkle-tree",
+ "light-verifier",
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",
@@ -4102,9 +4095,9 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "light-batched-merkle-tree",
- "light-compressed-account",
  "light-hasher",
  "light-sparse-merkle-tree",
+ "light-verifier",
  "pinocchio 0.11.1",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
