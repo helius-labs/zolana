@@ -669,7 +669,8 @@ sequenceDiagram
 | --- | --- |
 | nullifiers | derived in-circuit from spent input UTXOs |
 | output_utxo_hashes | instruction data |
-| nullifier_root | resolved from `nullifier_root_index` against the SPP root cache |
+| utxo_tree_roots (one per input UTXO) | resolved from `utxo_tree_root_index[i]` against the root cache of the input's UTXO tree |
+| nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | public_sol_amount | instruction data |
 | public_spl_amount | instruction data |
@@ -727,8 +728,8 @@ external_data_hash := Sha256BE(
 | Check | Description |
 | --- | --- |
 | UTXO Ownership | Spent input UTXOs MUST be authorized by their owner, either with a P256 signature verified in circuit or a Solana signer checked by SPP. The P256 signature covers `sender_view_tag`, `expiry_unix_ts`, and the input UTXOs, so a prover cannot replay the proof under different public inputs. Pubkeys are encoded as Poseidon(pubkey_low, pubkey_high). |
-| Inclusion | Spent input UTXOs MUST exist in the UTXO tree. |
-| Nullifier non-inclusion | Input nullifiers MUST NOT exist in the nullifier tree before the transaction. |
+| Inclusion | Each spent input UTXO MUST be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
+| Nullifier non-inclusion | Each input nullifier MUST NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Nullifiers | Public nullifiers MUST be well formed from the spent input UTXOs. |
 | Output UTXOs | Output UTXOs MUST be well formed and match the public output commitments. |
 | Balance Conservation | For each active asset, inputs plus public deposits MUST equal outputs plus public withdrawals and fees. |
@@ -1366,8 +1367,10 @@ struct TransactIxData {
     relayer_fee: u16,
     /// One per output; appended to the UTXO tree. Length M.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Ref into nullifier-tree root cache. Length N.
-    nullifier_root_index: Vec<u16>,
+    /// Per input UTXO: index into the root cache of that input's UTXO tree. Length N.
+    utxo_tree_root_index: Vec<u16>,
+    /// Per input UTXO: index into the root cache of that input's nullifier tree. Length N.
+    nullifier_tree_root_index: Vec<u16>,
     /// Poseidon(input utxo hash chain, output utxo hash chain,
     /// external data hash, expiry_unix_ts). Public input to the SPP proof;
     /// the owner's P256 signature over this value is verified in-circuit.
@@ -1398,7 +1401,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`)
-2. Each `nullifier_root_index` references a non-stale root.
+2. Each `utxo_tree_root_index[i]` and each `nullifier_tree_root_index[i]` references a non-stale root.
 3. `tree_account` is not paused.
 4. Proof verifies against public inputs.
 5. Append each `output_utxo_hashes[i]` to the UTXO sparse Merkle tree.
