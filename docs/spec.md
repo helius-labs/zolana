@@ -1764,24 +1764,17 @@ Operator service that consolidates a user's fragmented UTXOs into fewer larger o
 
 **Identity.** A merge service is identified by a P256 `merge_authority_pubkey`. The same `merge_authority_pubkey` can be whitelisted by many users; each (user, service) pair is independent.
 
-**Scope.** The merge service consolidates UTXOs in both default and policy pockets; the submission target differs. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = 0`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge instruction, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and decryption channels are the same in both cases.
+**Scope.** The merge service consolidates UTXOs in both default and policy pockets. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = 0`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge instruction, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and witness-supply paths are the same in both cases.
 
 UTXOs with `app_data` (non-zero `data_hash`) are not mergeable. The application program that set the `data_hash` value consumes them through its own `transact`-style flow.
 
 **Lifecycle.**
 
 1. User calls [`enable_merge_authority`](#enable_merge_authority) with `merge_authority_pubkey` and a fresh `number` (next slot for this pair). The user records `number` in `wallet.merge_services`.
-2. User starts handing plaintext UTXOs and pre-derived `merge_view_tag(merge_authority_pubkey, merge_count)` values to the service (see Decryption channel below). The service builds and submits [`merge_transact`](#merge_transact) up to once per `merge_count` for this service.
+2. User starts handing plaintext UTXOs and pre-derived `merge_view_tag(merge_authority_pubkey, merge_count)` values to the service (see Merging UTXOs below). The service builds and submits [`merge_transact`](#merge_transact) up to once per `merge_count` for this service.
 3. User calls [`disable_merge_authority`](#disable_merge_authority) to revoke `(merge_authority_pubkey, number)`. To later re-enable the same service, the user enables `number + 1`.
 
-**Decryption channel.** The service needs plaintext for the UTXOs it consolidates and the per-tx `merge_view_tag`. Either party can supply both; the user picks one channel at opt-in time:
-
-| Channel | Mechanism |
-| --- | --- |
-| (a) Wallet push | The wallet decrypts its own UTXOs, derives `merge_view_tag` via `wallet.get_merge_view_tag(...)`, computes per-input `pre_nullifier` via `wallet.pre_nullifiers(...)`, and pushes `(plaintext_inputs, pre_nullifiers, merge_view_tag, merge_count)` to the service over an authenticated transport (e.g., TLS). The service uses the supplied `pre_nullifier` values in the Merge Proof witness, signs `private_tx_hash` with its `merge_authority_sk`, and submits `merge_transact`. `nullifier_secret` never reaches the service. |
-| (b) Sync delegate | The service is also appointed as the wallet's [sync delegate](#sync-delegate) via [`set_delegate`](#set_delegate). It receives `root_viewing_sk` (via ECDH) and `nullifier_secret` (via the delegate handover, see [Sync Delegate § Handover](#sync-delegate)). With both, it decrypts incoming UTXOs and constructs nullifiers locally for any UTXO whose `blinding` it has — no per-batch wallet push needed. |
-
-Both channels produce the same effect at SPP; SPP does not observe the choice. Forward secrecy across delegate rotation is preserved by [migrating the UTXO set](#sync-delegate) on rotation — fresh blindings with the new shared key are unknown to the revoked delegate.
+**Merging UTXOs.** An enabled merge service needs plaintext for the input UTXOs and the per-tx `merge_view_tag`. A merge can be triggered by anyone holding the user's `nullifier_secret` and access to plaintext UTXOs — typically the user's wallet or the sync delegate.
 
 **Sync.** After each `merge_transact`, the merged ciphertext is indexed by `merge_view_tag`. The wallet finds it via `get_view_tag_range(merge, ...)` (see [First Time Sync](#first-time-sync-wallet) — Phase 1 fetches the merge stream alongside `sender_view_tag`).
 
@@ -2015,7 +2008,7 @@ Figures below are **per root viewing key**. With `E` keys (1 standalone + delega
 
 ## Merge Flow
 
-The merge service consolidates the owner's fragmented UTXOs. The opt-in is a single on-chain instruction with no separate API handshake — the merge service discovers the enable by polling the Photon indexer. The diagram below uses the wallet-push decryption channel for the merge loop; the sync-delegate path produces the same effect at SPP.
+The merge service consolidates the owner's fragmented UTXOs. The opt-in is a single on-chain instruction with no separate API handshake — the merge service discovers the enable by polling the Photon indexer. The diagram below shows the wallet supplying plaintext + `pre_nullifiers` to the service; a sync delegate that holds `nullifier_secret` produces the same effect at SPP.
 
 ```mermaid
 sequenceDiagram
