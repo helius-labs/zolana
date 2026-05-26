@@ -47,7 +47,6 @@
   - [Merge](#merge)
     - [Plaintext Layout](#plaintext-layout-2)
     - [Instruction Data Layout](#instruction-data-layout-2)
-  - [Shield with Merge](#shield-with-merge)
 - [Transaction Viewing Key](#transaction-viewing-key)
 - [SPP - Shielded Pool Program](#spp---shielded-pool-program)
   - [Accounts](#accounts)
@@ -689,8 +688,8 @@ sequenceDiagram
 | 3 | asset_id | Sha256BE |
 | 4 | asset_amount |  |
 | 5 | blinding | 31 random bytes. Two roles: (i) hide the UTXO hash's preimage so `(owner, asset_id, asset_amount)` tuples aren't enumerable from public hashes; (ii) act as the per-UTXO entropy source for `pre_nullifier = Poseidon(blinding, nullifier_secret)`. A party who knows `nullifier_secret` still cannot compute a UTXO's `pre_nullifier` (and therefore its nullifier) without also having decrypted the ciphertext that contains its `blinding`. |
-| 6 | data_hash | Application data hash unconstrained in SPP proof. |
-| 7 | policy_data | Policy data hash unconstrained in SPP proof. |
+| 6 | data_hash | Application data hash; unconstrained by SPP. The application program that produced the UTXO defines the hashing scheme. |
+| 7 | policy_data | Policy data hash; unconstrained by SPP. The UTXO's `policy_program_id` defines the hashing scheme. |
 | 8 | policy_program_id |  |
 
 **Nullifier Hash**
@@ -1047,44 +1046,27 @@ The recipient's `root_viewing_pk` is SEC1-compressed (1-byte sign prefix + 32 B 
 
 # Output UTXO Serialization
 
-Defines the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-pocket convention. Policy pockets define their own.
-
-All schemes apply AES-GCM encryption; keys are derived per recipient via `ECDH(tx_viewing_sk, recipient.root_viewing_pk)`. One `tx_viewing_pk` is shared across all recipients in a transaction. The producer (sender, splitter, or merge service) derives `(tx_viewing_sk, tx_viewing_pk)` from `HKDF(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")` inside [`sign_and_encrypt_private_transaction`](#wallet-state-and-methods) (see [Wallet](#wallet)) and encrypts. Nullifier uniqueness in the nullifier tree implies a unique tx viewing keypair per transaction. Slot prefixes (`view_tag`) are view tag values; see [View Tags](#view-tags).
+Defines the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-pocket convention. Policy pockets can define their own.
+UTXOs are encrypted with ECDH AES-GCM. One `tx_viewing_pk` is shared across all ciphertexts in a transaction. Ciphertexts are prefixed with (`view_tags`); see [View Tags](#view-tags).
 
 Schemes:
 
-1. Transfer — confidential value movement; per-recipient AES-GCM bundles.
+1. Transfer — one sender and `0<=` recipient ciphertexts.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
-3. Merge — one ciphertext for the single merged output, written by the merge service.
-4. Shield with Merge — one ciphertext for the self-owned combined output of a 1-in-1-out `transact` (shield-with-merge or unshield-with-change).
+3. Merge — one ciphertext for the single merged output.
 
 ## Program Data
 
-Two optional slots appended to each plaintext schema below for program-specific bytes alongside the base UTXO fields. Modeled on the Token-22 type-length-value pattern: each populated slot is `tag: u8 || len: u16_le || bytes: [u8; len]`, omitted when `None` so schemas without extensions add zero bytes. Two slots are reserved:
+Program-specific bytes can optionally be appended to the base UTXO fields as type-length-value (TLV) prefixed with `tag: u8 || len: u16_le || bytes: [u8; len]`. TLV is omitted if not set.
 
-| Tag | Field | Consumer | UTXO-hash slot |
+| Tag | Field |  UTXO-hash slot | Description |
 | --- | --- | --- | --- |
-| `0x01` | `pocket_data` | the UTXO's `policy_program_id` | `policy_data` |
-| `0x02` | `app_data` | an application program read from the transaction returned by `get_shielded_transactions` (resolved via `tx_signature` against the transaction's instruction set) | `data_hash` |
-
-**Purpose.** The recipient hashes each slot's bytes to recompute the corresponding UTXO-hash slot value (`policy_data` from `pocket_data`, `data_hash` from `app_data`). The hashing function is defined by the consuming program: Sha256, Poseidon, structured field hashing, or whichever scheme the program's circuit committed to when it produced the UTXO. SPP does not constrain the two UTXO-hash slots (see [UTXO Hash](#spp-proof---shielded-pool-zk-proof)); the consuming program checks that the recomputed value matches the value in the UTXO hash.
-
-**Serialization rules.**
-
-- Records appear in ascending tag order (`0x01` before `0x02`).
-- Each tag appears at most once.
-- An omitted slot adds zero bytes to the plaintext; the corresponding UTXO-hash slot value is `0`.
-- The base struct's fixed-size fields end first; the parser walks program-data records from the tail.
-
-**Wallet dispatch.** The wallet routes `pocket_data` to the parser for the UTXO's `policy_program_id`. For `app_data`, the wallet reads the producing program from the transaction returned by `get_shielded_transactions` (resolved via `tx_signature` against Solana or as an indexer-enriched field) and dispatches to that program's client SDK. Wallets without an SDK for that program leave `app_data` unparsed; the base fields are sufficient to spend the UTXO.
-
-**Cross-schema applicability.** Each schema below includes the two `Option<Vec<u8>>` slots, except `MergeBundlePlaintext`: the merge proof constrains its output to `policy_program_id = 0`, `policy_data = 0`, `data_hash = 0`, so the merged output has no extensions. See [Merge Proof](#merge-proof---merge-zk-proof) and [Merge Service](#merge-service) for the input-side rules.
+| `0x01` | `pocket_data` |  `policy_data` | store policy utxo data |
+| `0x02` | `app_data` | `data_hash` | store application utxo data |
 
 ## Transfer
 
-Confidential value transfer. One AES-GCM ciphertext per owner: one for the sender's change, `R` for the recipients. Variables used below: `R` = recipient count, `N` = spent-input count.
-
-The recipient ciphertext includes `sender_pubkey` so the recipient learns the sender's pubkey on first contact and can derive the shared ECDH key used for `recipient_shared_view_tag` on subsequent transfers (see [View Tags](#view-tags)). The wallet (or its sync delegate) computes nullifiers locally for each owned UTXO via `pre_nullifier = Poseidon(blinding, nullifier_secret)`, `nullifier = Poseidon(utxo_hash, pre_nullifier)` and matches them against the on-chain nullifiers exposed by the indexer per transaction.
+One ciphertext for the sender's SOL and SPL change UTXOs, and one ciphertext for each recipient UTXO. Variables used below: `R ≥ 0` = recipient UTXO count, `N` = input UTXO count.
 
 ### Plaintext Layout
 
@@ -1109,11 +1091,10 @@ struct TransferRecipientPlaintext {
     amount: u64,
     /// Random blinding for the single output.
     blinding: [u8; 31],
-    /// Arbitrary data the policy program defines. Consumed by
-    /// `policy_program_id`. See [Program Data](#program-data).
+    /// Arbitrary data the policy program defines. Parsed if the wallet supports the pocket.
     pocket_data: Option<Vec<u8>>,
-    /// Arbitrary data the app program defines. The wallet does not parse these
     /// bytes; the application program's client SDK does.
+    /// Arbitrary data the app program defines. The wallet does not parse these
     app_data: Option<Vec<u8>>,
 }
 ```
@@ -1274,11 +1255,7 @@ struct SplitEncryptedUtxos {
 
 ## Merge
 
-One ciphertext for the single merged output. The merge service encrypts to the owner's `user_root_viewing_pk` (the one committed in the active `enable_commitment`) so the owner can decrypt during sync. The [merge proof](#merge-proof---merge-zk-proof) checks the full encryption — DHKEM(P-256) + Poseidon KDF + AES-256-GCM with `aad = output_utxo_hash` — so a passing `merge_transact` means the owner can decrypt.
-
-The merge service derives `(tx_viewing_sk, tx_viewing_pk)` from `HKDF(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")` inside its own `sign_and_encrypt_private_transaction` invocation, as a sender would in the transfer flow. `first_nullifier` is the nullifier of the first input UTXO at lexicographic position 0; the merge service derives the keypair from the same input it nullifies, so the owner re-derives it deterministically on sync.
-
-See the [Merge Proof](#merge-proof---merge-zk-proof) section for the exact Poseidon key schedule.
+One ciphertext for the single merged output.
 
 ### Plaintext Layout
 
@@ -1313,53 +1290,6 @@ struct MergeEncryptedUtxo {
 }
 ```
 
-## Shield with Merge
-
-One ciphertext for the single combined output of a 1-in-1-out [transact](#transact): the sender merges their existing balance with a new shield deposit (shield-with-merge), or keeps change after a partial withdrawal (unshield-with-change).
-
-### Plaintext Layout
-
-```rust
-/// 81 B plaintext → 97 B ciphertext (after the 16-byte GCM tag), assuming
-/// both program-data slots absent. See [Program Data](#program-data) for the size
-/// when slots are populated.
-struct ShieldMergePlaintext {
-    /// Output owner (`signing_pk`); 1-byte prefix + P256 SEC1-compressed.
-    owner_pubkey: [u8; 34],
-    /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
-    asset_id: u64,
-    /// Combined output amount (input balance ± public deposit / unshield).
-    amount: u64,
-    /// Random blinding for the output.
-    blinding: [u8; 31],
-    /// Bytes hashed (via the policy program's defined scheme) to recompute the
-    /// `policy_data` slot of the single self-owned output. See [Program
-    /// Data](#program-data).
-    pocket_data: Option<Vec<u8>>,
-    /// Bytes hashed (via the app program's defined scheme) to recompute the
-    /// `data_hash` slot.
-    app_data: Option<Vec<u8>>,
-}
-```
-
-### Instruction Data Layout
-
-```rust
-/// 132 bytes total when both program-data slots are absent on the plaintext; populated
-/// slots grow the ciphertext by `3 + len` bytes each. Packed, no length
-/// prefixes.
-/// Owner-side view tag is `sender_view_tag` from the transact instruction data
-/// (single self-owned output); not repeated in this blob.
-struct ShieldMergeEncryptedUtxos {
-    /// Discriminator (SHIELD_MERGE).
-    type_prefix: u8,
-    /// Shared P256 pubkey for ECDH key derivation (1-byte prefix + SEC1-compressed).
-    tx_viewing_pk: [u8; 34],
-    /// 81-byte plaintext + 16-byte GCM tag.
-    ciphertext: [u8; 97],
-}
-```
-
 # Transaction Viewing Key
 
 Every ciphertext in a transaction is encrypted under a single empheral key so that the secret key of the emphemeral key can decrypt both the senders change and recipient utxos of the transaction.
@@ -1368,7 +1298,7 @@ Every ciphertext in a transaction is encrypted under a single empheral key so th
 
 - **Scope**: one transaction.
 - **Read-only**: viewing keys grant decryption only.
-- **Derivable on demand**: viewing keys are derived on demand from the shielded transaction via `HKDF(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")`.
+- **Derivable on demand**: viewing keys are derived on demand from the shielded transaction; see [`sign_and_encrypt_private_transaction`](#wallet-state-and-methods) internal sequence step 2.
 
 # SPP - Shielded Pool Program
 
@@ -1698,6 +1628,10 @@ A policy program is free to implement the following instructions and more. Tags 
 | create_pocket_config | Tag 4; admin: creates account for a pocket; the config is public, sets auditor P256 key, pocket authority, freeze authority, permanent authority, co-signer |
 | update_pocket_config | Tag 5; admin: pocket authority updates the pocket config |
 
+**Policy data.**
+
+UTXOs can carry a `policy_data` UTXO-hash slot interpreted by the policy program (see the [UTXO Hash](#spp-proof---shielded-pool-zk-proof) table). The policy program defines the schema and the hashing scheme.
+
 **Notes:**
 
 1. If the recipient does not have a config account the output UTXO is encrypted to the recipient.
@@ -1830,7 +1764,7 @@ Operator service that consolidates a user's fragmented UTXOs into fewer larger o
 
 **Identity.** A merge service is identified by a P256 `merge_authority_pubkey`. The same `merge_authority_pubkey` can be whitelisted by many users; each (user, service) pair is independent.
 
-**Scope.** The merge service consolidates UTXOs in both default and policy pockets; the submission target differs. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = 0`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge entry point, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and decryption channels are the same in both cases.
+**Scope.** The merge service consolidates UTXOs in both default and policy pockets; the submission target differs. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = 0`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge instruction, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and decryption channels are the same in both cases.
 
 UTXOs with `app_data` (non-zero `data_hash`) are not mergeable. The application program that set the `data_hash` value consumes them through its own `transact`-style flow.
 
@@ -1972,15 +1906,6 @@ Authorized signer: `owner`.
 ```rust
 struct CloseRequest {}
 ```
-
-### Lookup and decryption
-
-A sender translating a Solana address to a `ShieldedPubkey` reads the record and uses its current `ShieldedPubkey`. An absent record is a registry miss; the sender falls back to no-registry behaviour ([Wallet Transfer User Flows](#wallet-transfer-user-flows), Scenarios 5–6).
-
-A recipient restoring from mnemonic decrypts ciphertexts entry by entry:
-
-- Ciphertexts received while the record was standalone decrypt with `root_viewing_sk = signing_sk`.
-- Ciphertexts received under a delegate entry decrypt with `root_viewing_sk = KDF(ECDH(signing_sk, entry.sync_pk))`. The cached `entry.root_viewing_pk` lets the recipient match a ciphertext to its entry without trying every ECDH.
 
 ## Sync Delegate
 
