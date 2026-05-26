@@ -275,6 +275,11 @@ fn batch_update_address_tree_rejects_zero_root_before_auth() {
     assert_err_contains(rig.batch_update_address_tree(&tree, data), "Custom(4)");
 }
 
+// TODO: Add a successful `batch_update_address_tree` root-transition test once
+// the test harness can produce or load a valid Groth16 batch-address proof.
+// Current coverage checks zero-root rejection, non-registry signer rejection,
+// and registry CPI authority wiring, but not a successful address-tree update.
+
 #[test]
 fn runtime_rejects_malformed_payloads_and_unknown_tags() {
     let Some(mut rig) = rig() else {
