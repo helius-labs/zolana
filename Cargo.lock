@@ -2687,8 +2687,13 @@ name = "light-program-test"
 version = "0.23.0"
 dependencies = [
  "borsh",
+ "light-batched-merkle-tree",
+ "light-hasher",
+ "light-sparse-merkle-tree",
  "litesvm",
+ "pinocchio 0.11.1",
  "serial_test",
+ "shielded-pool-program",
  "solana-instruction",
  "solana-keypair",
  "solana-message",

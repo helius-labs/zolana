@@ -26,6 +26,7 @@ env:
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
+  SOLANA_CLI_VERSION: "v2.3.9"
 
 jobs:
   fmt:
@@ -92,3 +93,19 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-scaffold
+
+  test-litesvm:
+    name: tests / litesvm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_CLI_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/share/solana/install/active_release/bin/solana" --version
+          "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" --version
+      - run: just test-litesvm
