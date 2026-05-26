@@ -39,7 +39,6 @@ light-array-map = "0.2.0"
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.8.0", default-features = false }
 light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
-light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0", default-features = false }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.2.0" }
@@ -151,7 +150,6 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
