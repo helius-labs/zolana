@@ -24,4 +24,9 @@ thiserror = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-sparse-merkle-tree = { workspace = true }
+pinocchio = { workspace = true }
 serial_test = { workspace = true }
+shielded-pool-program = { workspace = true }
