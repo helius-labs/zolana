@@ -1,18 +1,19 @@
 use light_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataBatchNullifyInputs,
 };
-use light_compressed_account::instruction_data::compressed_proof::CompressedProof;
+use light_verifier::CompressedProof;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
 use super::verify::verify;
 use crate::{
     error::ShieldedPoolError, instructions::create_pool_tree::init::address_sub_tree_slice_mut,
+    log::log,
 };
 
 pub fn process_batch_update_address_tree(
     program_id: &Address,
-    accounts: &[AccountView],
+    accounts: &mut [AccountView],
     data: BatchUpdateAddressTreeData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
@@ -35,7 +36,9 @@ pub fn process_batch_update_address_tree(
         },
     };
 
-    tree.update_tree_from_address_queue(instruction)
-        .map_err(|_| ShieldedPoolError::PoolTreeMutationFailed)?;
+    if tree.update_tree_from_address_queue(instruction).is_err() {
+        log("batch_update_address_tree: Groth16 / batch update verification failed");
+        return Err(ShieldedPoolError::BatchProofVerificationFailed.into());
+    }
     Ok(())
 }

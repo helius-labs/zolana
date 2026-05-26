@@ -16,6 +16,6 @@ mod tests {
         );
         let program_id = pinocchio::Address::new_from_array([0u8; 32]);
 
-        assert!(process_instruction(&program_id, &[], &data).is_err());
+        assert!(process_instruction(&program_id, &mut [], &data).is_err());
     }
 }

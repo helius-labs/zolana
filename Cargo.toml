@@ -7,7 +7,6 @@ members = [
     "programs/shielded-pool",
     "prover/client",
     "sdk-libs/cli",
-    "sdk-libs/event",
     "sdk-libs/program-test",
     "xtask",
 ]
@@ -40,10 +39,8 @@ light-array-map = "0.2.0"
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.8.0", default-features = false }
 light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
-light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0", default-features = false }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
-light-indexed-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.2.0" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "4.0.0" }
@@ -51,7 +48,6 @@ light-poseidon = "0.4.0"
 light-program-profiler = "0.1.1"
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "10.0.0" }
 light-sparse-merkle-tree = "0.3.0"
-light-zero-copy = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0", default-features = false }
 
 # Solana and SPL.
 anchor-lang = "1.0.2"
@@ -98,9 +94,9 @@ spl-token = "9.0"
 spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
 spl-token-2022-interface = "2.0"
 spl-pod = "0.7"
-pinocchio = "0.10"
+pinocchio = "0.11"
 pinocchio-pubkey = "0.3.0"
-pinocchio-system = "0.5.0"
+pinocchio-system = "0.6.0"
 pinocchio-token-program = { git = "https://github.com/Lightprotocol/token", rev = "f7bee9bbc8039c224a88ea76e9ae2edd78e0f9c3" }
 
 # Async, HTTP, logging, and utilities.
@@ -154,14 +150,11 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-compressed-account = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-indexed-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-zero-copy = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-registry = { path = "programs/registry" }
 

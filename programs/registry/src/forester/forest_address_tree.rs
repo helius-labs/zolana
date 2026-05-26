@@ -64,7 +64,6 @@ pub struct ForestAddressTree<'info> {
 
 pub fn process_forest_address_tree<'info>(
     ctx: Context<'info, ForestAddressTree<'info>>,
-    bump: u8,
     data: BatchUpdateAddressTreeData,
 ) -> Result<()> {
     // 1. Validate the forester matches the epoch record.
@@ -83,8 +82,10 @@ pub fn process_forest_address_tree<'info>(
         data: cpi_data,
     };
 
-    // 3. Invoke with the CPI authority as signer.
-    let cpi_seeds: &[&[u8]] = &[CPI_AUTHORITY_PDA_SEED, &[bump]];
+    // 3. Invoke with the CPI authority as signer. The bump comes from anchor's
+    //    seeds-constraint on `cpi_authority` above.
+    let cpi_bump = ctx.bumps.cpi_authority;
+    let cpi_seeds: &[&[u8]] = &[CPI_AUTHORITY_PDA_SEED, &[cpi_bump]];
     invoke_signed(
         &cpi_ix,
         &[

@@ -1,9 +1,0 @@
-[package]
-name = "light-event"
-version = "0.23.1"
-description = "Event types emitted by the shielded-pool program."
-license = "Apache-2.0"
-edition.workspace = true
-
-[dependencies]
-borsh = { workspace = true }

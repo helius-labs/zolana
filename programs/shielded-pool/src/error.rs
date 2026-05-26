@@ -13,8 +13,14 @@ pub enum ShieldedPoolError {
     EmptyStateLeafBatch,
     #[error("batch update root cannot be zero")]
     EmptyBatchUpdateRoot,
-    #[error("pool tree mutation failed")]
-    PoolTreeMutationFailed,
+    #[error("caller is not the registry's CPI authority")]
+    UnauthorizedCaller,
+    #[error("state sub-tree append failed")]
+    StateAppendFailed,
+    #[error("address queue insert failed")]
+    AddressQueueInsertFailed,
+    #[error("batch address-tree proof verification failed")]
+    BatchProofVerificationFailed,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

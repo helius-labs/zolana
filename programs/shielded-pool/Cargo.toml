@@ -17,12 +17,15 @@ test-sbf = []
 [dependencies]
 borsh = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
-light-compressed-account = { workspace = true }
+light-verifier = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }
 light-sparse-merkle-tree = { workspace = true }
-pinocchio = "0.10"
+pinocchio = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
+
+[dev-dependencies]
+solana-pubkey = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

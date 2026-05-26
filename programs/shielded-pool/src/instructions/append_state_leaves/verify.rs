@@ -5,7 +5,7 @@ use crate::{error::ShieldedPoolError, instructions::loader::MutablePoolTreeAccou
 
 pub fn verify<'a>(
     program_id: &Address,
-    accounts: &'a [AccountView],
+    accounts: &'a mut [AccountView],
     data: &AppendStateLeavesData,
 ) -> Result<MutablePoolTreeAccounts<'a>, ProgramError> {
     if data.leaves.is_empty() {

@@ -1,5 +1,6 @@
 pub mod error;
 pub mod instructions;
+pub mod log;
 pub mod processor;
 
 pub use processor::process_instruction;

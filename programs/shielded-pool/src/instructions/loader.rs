@@ -4,7 +4,7 @@ use crate::error::ShieldedPoolError;
 
 pub struct MutablePoolTreeAccounts<'a> {
     pub signer: &'a AccountView,
-    pub tree: &'a AccountView,
+    pub tree: &'a mut AccountView,
 }
 
 /// Load + validate the (signer, tree) accounts for any pool-tree instruction.
@@ -15,14 +15,17 @@ pub struct MutablePoolTreeAccounts<'a> {
 ///   means this also holds before our `create_pool_tree` runs.
 pub fn load_mutable_pool_tree_accounts<'a>(
     program_id: &Address,
-    accounts: &'a [AccountView],
+    accounts: &'a mut [AccountView],
     expect_owned: bool,
 ) -> Result<MutablePoolTreeAccounts<'a>, ProgramError> {
     if accounts.len() < 2 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
-    let signer = &accounts[0];
-    let tree = &accounts[1];
+    // Split so we can hand the caller a `&AccountView` and a `&mut
+    // AccountView` simultaneously without aliasing.
+    let (head, tail) = accounts.split_at_mut(1);
+    let signer = &head[0];
+    let tree = &mut tail[0];
 
     if !signer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);

@@ -6,7 +6,7 @@ use crate::error::ShieldedPoolError;
 
 pub fn process_create_pool_tree(
     program_id: &Address,
-    accounts: &[AccountView],
+    accounts: &mut [AccountView],
     data: CreatePoolTreeData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
