@@ -14,6 +14,7 @@
 4. Shielded pool program is utxo serialiyzation agnostic, we will implement different schemas
 5. spl tokens that back utxo balances live in spl interface token accounts owned by the shielded pool program 
 6. secrets must not leave the wallet we need wallet methods to perform operations over secret values, shared secrets can be shared.
+7. dont restate derivation paths in spec.md link instead
 
 ## Encryption Requirements:
 
