@@ -7,15 +7,9 @@
   - [Operations](#operations)
     - [User](#user)
     - [Protocol](#protocol)
-  - [Concurrency](#concurrency)
-  - [Wallet](#wallet)
-    - [SigningKey](#signingkey)
-    - [ViewingKey](#viewingkey)
-    - [Wallet state and methods](#wallet-state-and-methods)
-    - [request_transfer](#request_transfer)
-  - [Client SDK](#client-sdk)
-    - [create_payment_request](#create_payment_request)
-    - [send_transaction](#send_transaction)
+    - [Pocket Creator](#pocket-creator)
+    - [Merge Service](#merge-service)
+  - [Concurrency & Balance Fragmentation](#concurrency--balance-fragmentation)
   - [Default Pocket](#default-pocket)
     - [Shield with Proof](#shield-with-proof)
     - [Shield without Proof](#shield-without-proof)
@@ -27,15 +21,24 @@
     - [Transfer](#transfer-1)
     - [Unshield](#unshield-1)
     - [Enter and Exit Pocket](#enter-and-exit-pocket)
+- [Shielded Public Key](#shielded-public-key)
+- [SigningKey](#signingkey)
+- [ViewingKey](#viewingkey)
+  - [Derived secrets](#derived-secrets)
+  - [View Tags](#view-tags)
+    - [Sender View Tag](#sender-view-tag)
+    - [Recipient view tag](#recipient-view-tag)
+    - [Merge view tag](#merge-view-tag)
+  - [Methods](#methods)
+  - [Transaction Viewing Key](#transaction-viewing-key)
+- [Wallet](#wallet)
+  - [Wallet state and methods](#wallet-state-and-methods)
+  - [request_transfer](#request_transfer)
+  - [send_transaction](#send_transaction)
 - [SPP Proof - Shielded Pool ZK Proof](#spp-proof---shielded-pool-zk-proof)
 - [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
 - [Enable Proof - Merge Authority Opt-in Proof](#enable-proof---merge-authority-opt-in-proof)
 - [Revoke Proof - Merge Authority Opt-out Proof](#revoke-proof---merge-authority-opt-out-proof)
-- [View Tags](#view-tags)
-  - [Sender View Tag](#sender-view-tag)
-  - [Recipient view tag](#recipient-view-tag)
-  - [Merge view tag](#merge-view-tag)
-  - [Derivations](#derivations)
 - [Output UTXO Serialization](#output-utxo-serialization)
   - [Program Data](#program-data)
   - [Transfer](#transfer-2)
@@ -47,9 +50,9 @@
   - [Merge](#merge)
     - [Plaintext Layout](#plaintext-layout-2)
     - [Instruction Data Layout](#instruction-data-layout-2)
-- [Transaction Viewing Key](#transaction-viewing-key)
 - [SPP - Shielded Pool Program](#spp---shielded-pool-program)
   - [Accounts](#accounts)
+    - [Pocket Accounts](#pocket-accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
     - [merge_transact](#merge_transact)
@@ -58,16 +61,23 @@
     - [disable_merge_authority](#disable_merge_authority)
 - [Policy Program Interface](#policy-program-interface)
 - [RPC](#rpc)
-  - [Photon Indexer](#photon-indexer)
+  - [Indexer](#indexer)
+    - [get_encrypted_utxos_by_tags](#get_encrypted_utxos_by_tags)
+    - [get_shielded_transactions_by_tags](#get_shielded_transactions_by_tags)
+    - [get_merge_authority_events](#get_merge_authority_events)
+    - [subscribe_to_shielded_transactions_by_tags](#subscribe_to_shielded_transactions_by_tags)
+    - [get_merkle_proofs](#get_merkle_proofs)
+    - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
   - [Pocket RPC](#pocket-rpc)
-  - [Merge Service](#merge-service)
+  - [Merge Service](#merge-service-1)
   - [Registry](#registry)
   - [Sync Delegate](#sync-delegate)
-- [Notes](#notes)
 - [User Flows](#user-flows)
   - [Request Payment Flow Default Pocket](#request-payment-flow-default-pocket)
   - [First Time Sync Wallet](#first-time-sync-wallet)
   - [Merge Flow](#merge-flow)
+  - [Wallet Transfer User Flows](#wallet-transfer-user-flows)
+    - [Privacy Guarantee Matrix](#privacy-guarantee-matrix)
 
 ## Abstract
 
@@ -75,6 +85,7 @@ A Solana program for shielded transfers. Users retain custody and can disclose
 per-transaction viewing keys on request. UTXOs can enter pockets; each pocket has
 auditors, authorities, and a config (freeze authority, co-signer, permanent
 delegate). Third party zk programs can own, escrow, write state into UTXOs, and execute custom private state transitions in combination with shielded token transfers. Efficient sync of encrypted state with view tags.
+Optional features: configurable merge authority that keeps the users balance spendable without user wallet signatures, optional sync delegate to enable light weight integration into wallets. 
 
 # Architecture
 
@@ -101,13 +112,16 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 ### User
 
+Operations 1-4 run against the default pocket via [`transact`](#transact) (or `proofless_shield`), or against a policy pocket via the policy program's CPI into `pocket_transact`.
+
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
 | 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient hidden |
 | 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | fully public |
 | 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender hidden (relayer); recipient + amount visible |
 | 4 | shielded transfer | Transfer value between shielded balances. | fully shielded (sender, recipient, amount) |
-TODO: complete, how do we add the merge service here?
+| 5 | enable_merge_authority | Opt a merge service in by inserting `enable_commitment` into the merge authority tree. | fully shielded (commitment hides user, service, and slot) |
+| 6 | disable_merge_authority | Revoke a previously opted-in merge service by inserting `revoke_commitment`. | fully shielded (commitment hides user, service, and slot) |
 
 ### Protocol
 
@@ -118,284 +132,37 @@ TODO: complete, how do we add the merge service here?
 | 3 | create_protocol_config | Initialize protocol config (pause authority) |
 | 4 | update_protocol_config | Rotate protocol config authority |
 | 5 | pause_tree | Freeze writes to a Tree account |
+| 6 | create_merge_authority_tree | Initialize a merge authority tree account (holds `enable_commitment` and `revoke_commitment` leaves) |
+
+### Pocket Creator
+
+Operations performed by the owner of a policy pocket's config.
+
+| # | Name | Description |
+| --- | --- | --- |
+| 1 | create_pocket_config | Create a new pocket config PDA; sets `owner` and `pocket_authority_transact_is_enabled` |
+| 2 | update_pocket_config | Toggle `pocket_authority_transact_is_enabled`. When disabled and the config owner is burned, the policy program cannot perform pocket-authority state transitions |
+| 3 | update_pocket_config_owner | Transfer pocket config ownership |
+| 4 | pocket_authority_transact | Prove correctness of a state transition by a pocket authority (freeze, thaw, permanent-delegate transfer) |
+
+### Merge Service
+
+Operations performed by a whitelisted merge service that holds a P-256 `merge_authority_pubkey`. See [Merge Service](#merge-service-1) for the operator's responsibilities.
+
+| # | Name | Description |
+| --- | --- | --- |
+| 1 | merge_transact | Consolidate N input UTXOs of the same owner and asset into one default-pocket output UTXO |
+| 2 | merge_pocket | Policy-pocket analog of `merge_transact`; called via CPI from a policy program. Inputs and output share `policy_program_id` |
 
 
-## Concurrency
+## Concurrency & Balance Fragmentation
+
+UTXOs are inherently concurrent. Every transaction to a user will fragment the users balance since the transaction amount is a new UTXO.
 
 1. The balance of a keypair can be used concurrently when it is split up between a number of utxos.
 2. To keep the balance spendable in one transaction we split it in up to X utxos.
 3. Optionally, fragmented balances can be reconsolidated without user interaction by a whitelisted trust minimized [merge service](#merge_transact).
 
-## Wallet
-
-The wallet manages two key types — a `SigningKey` (stable, root identity) and one or more `ViewingKey`s (rotatable, history retained for decryption) — plus the counter/state needed to derive view tags and orchestrate transactions. `ShieldedPubkey = (signing_pk, root_viewing_pk)` is the published projection.
-
-### SigningKey
-
-`(signing_sk, signing_pk)` — P-256 Keypair.
-
-**Coin type.** `ZOLANA_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.zolana.v1")[0..4] as u32 & 0x7FFF_FFFF`.
-
-**Derivation path.** `m / 44' / ZOLANA_COIN_TYPE' / account' / 0' / 0'`
-
-**Constructors:**
-
-- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/ZOLANA_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`. SLIP-0010 retries the child derivation on an invalid P-256 scalar (≈2⁻³² per step).
-- `SigningKey::from_sk(signing_sk)` — direct injection.
-
-**Derived secrets** (used by methods below; produced from `signing_sk`):
-
-- `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk, info="zolana/nullifier", L=32)`. Optionally shared with a sync delegate (see [Sync Delegate § Handover](#sync-delegate)).
-- `tx_viewing_secret := HKDF-SHA256(salt=∅, IKM=signing_sk, info="zolana/tx_viewing", L=32)`.
-
-**Methods:**
-
-1. `sign_p256(msg) -> P256Signature` — P-256 ECDSA primitive.
-2. `pre_nullifier(utxo) -> [u8; 32]` — `Poseidon(utxo.blinding, nullifier_secret)`. The per-UTXO value the wallet shares with provers; `nullifier_secret` itself never appears as a proof witness, which scopes each prover to specific UTXOs.
-3. `pre_nullifiers(utxos: &[Utxo]) -> Vec<[u8; 32]>` — batch variant.
-4. `nullifier(utxo) -> [u8; 32]` — `Poseidon(utxo.hash, pre_nullifier(utxo))`. Used in sync to match against on-chain nullifiers.
-
-Transaction signing and per-recipient encryption are handled by the wallet method [`sign_and_encrypt_private_transaction`](#wallet-state-and-methods), which uses `signing_sk`, `nullifier_secret`, and `tx_viewing_secret` internally. None of these secrets leave the `SigningKey`.
-
-### ViewingKey
-
-`(root_viewing_sk, root_viewing_pk)` — P-256 Keypair. Used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. Viewing for one signing key can rotate.
-
-**Constructors:**
-
-- `ViewingKey::from_signing_key(signing_key)` — standalone wallet: aliases `(root_viewing_sk, root_viewing_pk) := (signing_key.sk, signing_key.pk)`.
-- `ViewingKey::from_sk(root_viewing_sk)` — shared or independent wallet.
-
-**Derived secrets** (produced from `root_viewing_sk` and consumed by the view-tag methods below):
-
-- [`sender_view_tag_secret`](#derivations)
-- [`recipient_view_tag_secret`](#derivations)
-- [`merge_view_tag_secret`](#derivations)
-
-**Methods:**
-
-1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-GCM open with key `KDF(ECDH(root_viewing_sk, tx_viewing_pk))`.
-2. `get_sender_view_tag(tx_count) -> [u8; 32]` — see [View Tags § Derivations](#view-tags).
-3. `get_recipient_request_view_tag(request_count) -> [u8; 32]` — see [View Tags § Derivations](#view-tags).
-4. `get_send_shared_view_tag(counterparty_pubkey, i) -> [u8; 32]` — sender-side `recipient_shared_view_tag`.
-5. `get_shared_view_tag(counterparty_pubkey, i) -> [u8; 32]` — recipient-side `recipient_shared_view_tag`.
-6. `get_merge_view_tag(merge_authority_pubkey, merge_count) -> [u8; 32]` — owner-side `merge_view_tag`; per-service stream so concurrent merge services do not share a counter namespace.
-7. `get_view_tag_range(kind, range, counterparty_pubkey: Option<P256Pubkey>) -> Vec<[u8; 32]>` — batch variant for sync queries; `kind` selects the underlying method above.
-
-### Wallet state and methods
-
-Every viewing key maintains counters and per-counterparty maps in `ViewingKeyEntry`s. The viewing_entry is used for transactions. viewing_history is used to sync transactions that are not encrypted to the current viewing key.
-
-```
-ViewingKeyEntry {
-    key:                ViewingKey,
-    TxCount:            u64,
-    RequestCount:       u64,
-    known_senders:      map<sender_pubkey    → u64>,
-    known_recipients:   map<recipient_pubkey → u64>,
-    merge_services:     map<merge_authority_pubkey → (user_root_viewing_pk, number, merge_count)>,
-}
-
-Wallet {
-    signing_key:        SigningKey,
-    viewing_entry:      ViewingKeyEntry,        // current
-    viewing_history:    Vec<ViewingKeyEntry>,   // prior, chronological (oldest first)
-    Utxos:              Vec<Utxo>,              // optional cache, rebuildable from sync
-    last_synced:        Timestamp,
-}
-```
-
-**ViewingKeyEntry fields:**
-
-1. `key: ViewingKey` — the viewing key this entry's counters and maps are scoped to.
-2. `TxCount: u64` — outgoing transaction counter under `key`; indexes `get_sender_view_tag`. Starts at 0 when the entry is created; [First Time Sync](#first-time-sync-wallet) rebuilds this from on-chain history.
-3. `RequestCount: u64` — `request_transfer` counter under `key`; indexes `get_recipient_request_view_tag`. Starts at 0.
-4. `known_senders: map<sender_pubkey → u64>` — next index to scan in `get_shared_view_tag(sender_pubkey, i)` under `key`. Populated lazily on first receipt from a new sender.
-5. `known_recipients: map<recipient_pubkey → u64>` — next index to use in `get_send_shared_view_tag(recipient_pubkey, i)` under `key`. Populated lazily on first send to a new recipient.
-6. `merge_services: map<merge_authority_pubkey → (user_root_viewing_pk, number, merge_count)>` — enabled merge services authorized under `key`. `number` is the active enable slot for this service; `merge_count` is the per-service counter that indexes `get_merge_view_tag(merge_authority_pubkey, ...)`. `merge_count` is set to `max(observed) + 1` during sync per service. The enable slot is rebuildable from the merge authority tree (probe `enable_commitment(n)` for `n = 0, 1, ...` and check absence of the matching `revoke_commitment(n)`).
-
-**Wallet fields:**
-
-1. `signing_key: SigningKey` — stable across the wallet's lifetime.
-2. `viewing_entry: ViewingKeyEntry` — current entry; used for produce-direction operations and tried first on decryption.
-3. `viewing_history: Vec<ViewingKeyEntry>` — prior entries in chronological order (oldest first). On rotation the previous `viewing_entry` is pushed onto the end so its counters and maps survive. The wallet walks this list on decrypt-direction operations to recover ciphertexts received under any past viewing key. Each entry's `ViewingKey` is rebuildable from the [Registry](#registry) record for a registered wallet: each `entries[k]` gives `sync_pk`, and the wallet rederives `root_viewing_sk_k := ECDH(signing_sk, entries[k].sync_pk)` (the standalone key, if it ever existed, is `signing_sk` itself).
-4. `Utxos: Vec<Utxo>` — optional cache; can be rebuilt from sync. Wallet-global (a UTXO from any era is spendable regardless of viewing key).
-5. `last_synced: Timestamp`.
-
-**Shorthand convention.** Within wallet flow descriptions elsewhere in this spec, `wallet.TxCount`, `wallet.known_recipients`, etc. refer implicitly to the current entry's fields — i.e., `wallet.viewing_entry.TxCount`, `wallet.viewing_entry.known_recipients`. Historic entries are addressed explicitly as `wallet.viewing_history[i].TxCount`.
-
-**Constructors:**
-
-- `Wallet::from_seed(wallet_seed, path)` — `signing_key := SigningKey::from_seed(wallet_seed, path)`, `viewing_entry := ViewingKeyEntry { key: ViewingKey::from_signing_key(signing_key), TxCount: 0, RequestCount: 0, known_senders: ∅, known_recipients: ∅, merge_services: ∅ }`, `viewing_history := []`. Standalone wallet; viewing key aliases the signing key.
-- `Wallet::from_keys(signing_sk, root_viewing_sk)` — direct injection. Passing two distinct keys produces a different `ShieldedPubkey` than `from_seed` would.
-
-**Passthrough.** The wallet exposes every `SigningKey` method and every `ViewingKey` method. Produce-direction `ViewingKey` methods dispatch to `viewing_entry.key`; decrypt-direction methods try `viewing_entry.key` first and fall back to `viewing_history` in reverse-chronological order.
-
-**`shielded_pubkey() -> ShieldedPubkey`** — `(signing_key.pk, viewing_entry.key.pk)`. Published via the [Registry](#registry); senders translate a Solana address into `ShieldedPubkey` by registry lookup (see [Wallet Transfer User Flows](#wallet-transfer-user-flows)).
-
-**Wallet-only methods:**
-
-1. `rotate_viewing_key(new_viewing_key)` — pushes the current `viewing_entry` onto `viewing_history` (preserving its counters and maps), and replaces it with a fresh `ViewingKeyEntry` wrapping `new_viewing_key` (counters at 0, maps empty). Invoked on `set_delegate`, `rotate_delegate_key`, and `revoke` (see [Registry](#registry)).
-2. `request_transfer(asset_mint, amount, pocket_program_id, expiry_unix_ts, memo) -> PaymentRequest` — see [request_transfer](#request_transfer); increments `RequestCount`.
-3. `sync(start_timestamp)`:
-    1. sync default pocket loop: derive sender view tags, request encrypted utxos based on tags, repeat until no matches.
-    2. sync policy pockets loop: for every pocket request balance.
-    3. sync merge outputs: for each known service in `merge_services`, derive `get_merge_view_tag(merge_authority_pubkey, ...)` for the range `[merge_count, ...)` and pull matching ciphertexts; advance the per-service `merge_count` past the highest observed value.
-4. `build_enable_merge_authority(merge_authority_pubkey, number) -> Instruction` — assembles an [`enable_merge_authority`](#enable_merge_authority) instruction. Builds the [Enable Proof](#enable-proof---merge-authority-opt-in-proof) (signature pre-image `Sha256BE(ENABLE_TAG || user_root_viewing_pk || merge_authority_pubkey || u64_be(number))`) and the AES-256-GCM ciphertext addressed to `merge_authority_pubkey`.
-5. `build_disable_merge_authority(merge_authority_pubkey, number) -> Instruction` — assembles a [`disable_merge_authority`](#disable_merge_authority) instruction. Builds the [Revoke Proof](#revoke-proof---merge-authority-opt-out-proof) (signature pre-image `Sha256BE(REVOKE_TAG || user_root_viewing_pk || merge_authority_pubkey || u64_be(number))`) and the AES-256-GCM ciphertext addressed to `merge_authority_pubkey`.
-6. `sign_and_encrypt_private_transaction(private_transaction: PrivateTransfer) -> SignedPrivateTransfer` — builds the signed, encrypted payload for a `transact` instruction; see internal sequence below. `tx_viewing_sk` never leaves the method. Side effects: `viewing_entry.TxCount += 1` if `outputs` contains a `SenderChange` entry; `viewing_entry.known_recipients[pubkey]` updated per recipient per the rules in [View Tags § Recipient view tag selection](#view-tags).
-
-```rust
-struct PrivateTransfer {
-    inputs:                  Vec<Utxo>,                // with blindings, hashes
-    outputs:                 Vec<Output>,              // each carries its recipient + kind
-    relayer_fee:             u16,
-    public_sol_amount:       Option<u64>,
-    public_spl_amount:       Option<u64>,
-    user_sol_account:        Option<Address>,
-    user_spl_token_account:  Option<Address>,
-    spl_token_interface:     Option<Address>,
-    expiry_unix_ts:          u64,
-}
-
-struct Output {
-    recipient:  ShieldedPubkey,   // signing_pk owns the UTXO; root_viewing_pk receives the ECDH-derived ciphertext
-    asset_id:   u64,
-    amount:     u64,
-    blinding:   [u8; 31],         // caller-supplied fresh random
-    kind:       OutputKind,
-}
-
-enum OutputKind {
-    SenderChange,                              // tag = sender_view_tag; encrypted to wallet's own root_viewing_pk
-    Counterparty {
-        provided_view_tag: Option<[u8; 32]>,   // Some = fulfilling a payment request; None = derive shared/bootstrap per View Tags chapter
-    },
-}
-
-struct SignedPrivateTransfer {
-    tx_viewing_pk:       P256Pubkey,
-    ciphertexts:         Vec<Ciphertext>,       // 1:1 with outputs
-    view_tags:           Vec<[u8; 32]>,         // 1:1 with outputs
-    output_utxo_hashes:  Vec<[u8; 32]>,         // 1:1 with outputs
-    pre_nullifiers:      Vec<[u8; 32]>,         // 1:1 with inputs (prover witness input)
-    external_data_hash:  [u8; 32],
-    private_tx_hash:     [u8; 32],
-    signature:           P256Signature,         // P-256 ECDSA over private_tx_hash
-}
-```
-
-Internal sequence:
-
-1. `first_nullifier := Poseidon(inputs[0].hash, pre_nullifier(inputs[0]))`.
-2. `(tx_viewing_sk, tx_viewing_pk) := HKDF(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")`.
-3. For each input: `pre_nullifiers[i] := pre_nullifier(inputs[i])`.
-4. For each output:
-    - Pick `view_tag` per `kind` (sender_view_tag for `SenderChange` using current `TxCount`; provided / shared / bootstrap for `Counterparty` per the View Tags chapter); update wallet state accordingly.
-    - `ciphertexts[i] := AES-GCM(KDF(ECDH(tx_viewing_sk, recipient.root_viewing_pk)), plaintext_of(outputs[i]))`.
-    - `output_utxo_hashes[i] := Poseidon(outputs[i].signing-side fields)`.
-5. Compose `encrypted_utxos` blob per [Output UTXO Serialization](#output-utxo-serialization).
-6. `external_data_hash := Sha256BE(sender_view_tag || ... || encrypted_utxos)` (see [external_data_hash](#external_data_hash)).
-7. `private_tx_hash := Poseidon(input_hash_chain, output_hash_chain, external_data_hash, expiry_unix_ts)`.
-8. `signature := sign_p256(private_tx_hash)`.
-
-The keypair is bound to `first_nullifier`, so nullifier uniqueness in the nullifier tree implies a unique `tx_viewing_keypair` per Solana transaction. A shared-account variant MAY substitute a shared secret for `tx_viewing_secret`; `first_nullifier` is unchanged.
-
-### request_transfer
-
-Builds a payment request that a recipient transmits to a sender out of band. The sender writes `recipient_request_view_tag` into the recipient's ciphertext slot so the recipient can pull the payment by exact byte match from the indexer (see [Request Payment Flow](#request-payment-flow)).
-
-**Inputs**
-
-```rust
-fn request_transfer(
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// In units of `asset_mint`.
-    amount: u64,
-    /// All-zero = default pocket.
-    pocket_program_id: [u8; 32],
-    /// Unix seconds after which the recipient considers the request expired.
-    expiry_unix_ts: u64,
-    /// Application-defined; not parsed by SPP; UTF-8, max 1024 bytes.
-    memo: String,
-) -> PaymentRequest
-```
-
-**Algorithm**
-
-1. `request_count := state.RequestCount`
-2. `recipient_request_view_tag := get_recipient_request_view_tag(request_count)`
-3. `state.RequestCount += 1`
-4. `return PaymentRequest { version=0, recipient_pubkey, recipient_request_view_tag, pocket_program_id, asset_mint, amount, expiry_unix_ts, memo }`
-
-`RequestCount` is incremented unconditionally — even if the sender never pays. Reusing a nonce across two outstanding requests would let the indexer link them.
-
-**Output: `PaymentRequest`**
-
-Canonical big-endian byte layout. Packed, no length prefixes (`memo_len` precedes the variable-length `memo` tail).
-
-```rust
-/// 148 + memo.len() bytes total. Multi-byte integers are big-endian.
-/// Wire format prefixes `memo` with its u16 BE byte length (0 if absent, max 1024).
-struct PaymentRequest {
-    /// Currently `0`.
-    version: u8,
-    /// P256 SEC1-compressed (1-byte prefix + 32 B X).
-    recipient_pubkey: Address,
-    recipient_request_view_tag: [u8; 32],
-    /// All-zero = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-    /// Solana SPL / Token-22 mint pubkey.
-    mint: Address,
-    /// In units of `asset_mint`.
-    amount: u64,
-    expiry_unix_ts: u64,
-    /// UTF-8; max 1024 bytes.
-    memo: String,
-}
-```
-
-### send_transaction
-
-Builds the SPP `transact` instruction data and the `encrypted_utxos` blob for a transfer. Encryption happens client-side via `wallet.sign_and_encrypt_private_transaction`; `tx_viewing_sk` never leaves the wallet.
-
-**Inputs**
-
-```rust
-fn send_transaction(
-    /// Addressing info (see Recipient below).
-    recipient: Recipient,
-    /// In units of `recipient.asset_mint`.
-    amount: u64,
-    /// Caller's wallet (see Wallet).
-    wallet: &mut Wallet,
-) -> (Instruction, Vec<u8>)
-
-struct Recipient {
-    /// Recipient's P256 SEC1-compressed or Solana pubkey.
-    pubkey: [u8; 33],
-    /// Solana SPL / Token-22 mint pubkey.
-    asset_mint: [u8; 32],
-    /// Recipient-supplied view tag from a payment request; `None` triggers
-    /// the unsolicited path (bootstrap or shared view tag — see View Tags).
-    recipient_request_view_tag: Option<[u8; 32]>,
-    /// `None` = default pocket.
-    pocket_program_id: Option<[u8; 32]>,
-}
-```
-
-**Algorithm**
-0. check wallet is synced.
-1. `asset_id := AssetRegistry[recipient.asset_mint]` (via SPP [Asset registry](#accounts)).
-2. Select sender input UTXOs covering `amount` + fees from wallet state; compute `change_amount`.
-3. Pick random 31-byte `change_blinding` and `recipient_blinding`.
-4. Build the `Output` for the recipient (`recipient = recipient.shielded_pubkey`, `kind = Counterparty { provided_view_tag = recipient_request_view_tag if fulfilling a request else None }`) and the `Output` for the sender change (`recipient = wallet.shielded_pubkey()`, `kind = SenderChange`).
-5. Assemble `PrivateTransfer { inputs, outputs, relayer_fee, public_sol_amount=None, public_spl_amount=None, user_sol_account=None, user_spl_token_account=None, spl_token_interface=None, expiry_unix_ts }`.
-6. `signed := wallet.sign_and_encrypt_private_transaction(private_transaction)`. Internally this derives `tx_viewing_keypair`, encrypts each output, picks per-output view tags, updates wallet state, and signs `private_tx_hash`.
-7. Assemble the prover witness: input UTXO hashes (owner, asset_id, amount, blinding), `signed.pre_nullifiers`, `signed.output_utxo_hashes`, and `signed.signature`. Either run the prover locally on the witness, or ship it (no secrets) to a prover RPC and receive a `proof` in return.
-8. Assemble the SPP `transact` instruction (see [transact](#transact)) from `signed` + `proof` + the public-side parameters from `private_transaction`.
-9. `return (instruction, encrypted_utxos)` where `encrypted_utxos` is derived from `signed.ciphertexts` + `signed.view_tags` per the [Transfer](#transfer-1) layout.
 
 ## Default Pocket
 
@@ -524,12 +291,7 @@ A logical grouping of UTXOs whose state transitions are checked by a policy prog
 | 2 | Extended UTXO schema | Includes state + extension fields (pocket address, ...); extensions is any data that is not part of the standard UTXO schema |
 | 3 | Enter Pocket | A pocket can be entered by shield from an SPL token account, the standard shielded pool, or another pocket in a shielded transfer |
 | 4 | Exit Pocket | A pocket can be exited by unshield to an SPL token account, the standard shielded pool, or another pocket in a shielded transfer |
-| 5 | Merge Service | Opt-in backend service that merges a user's UTXOs into fewer larger UTXOs (see [Merge Service](#merge-service) section below). |
-
-**Notes:**
-
-1. The pocket config is a compressed account so it can be used inside the `pocket_transact` UTXO proof without revealing which pocket the user is in. As a PDA it would require an extra public account, making the pocket visible.
-    1. by extending the attestation program and adding a verifyingkey upload we can make a generalized policy program.
+| 5 | Merge Service | Opt-in backend service that merges a user's UTXOs into fewer larger UTXOs (see [Merge Service](#merge-service-1) section below). |
 
 ### Shield with Proof
 
@@ -659,6 +421,153 @@ sequenceDiagram
 1. Enter, shield or transfer from default pocket
 2. Exit, unshield or transfer from policy pocket
 
+
+# Shielded Public Key
+
+`ShieldedPubkey = (signing_pk, viewing_pk)`
+The signing key is static, the viewing key can rotate.
+
+# SigningKey
+
+`(signing_sk, signing_pk)` — P-256 Keypair.
+
+**Coin type.** `ZOLANA_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.zolana.v1")[0..4] as u32 & 0x7FFF_FFFF`.
+
+**Derivation path.** `m / 44' / ZOLANA_COIN_TYPE' / account' / 0' / 0'`
+
+**Constructors:**
+
+- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/ZOLANA_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
+- `SigningKey::from_sk(signing_sk)` — direct injection.
+
+**Derived secrets**:
+
+- `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk, info="zolana/nullifier", L=32)`.
+  - Purpose: secret to derive nullifiers, so that nullifiers cannot be computed from the encrypted UTXO data alone.
+
+**Methods:**
+
+1. `sign_p256(msg) -> P256Signature`
+2. `pre_nullifiers(utxos: &[Utxo]) -> Vec<[u8; 32]>` — `Poseidon(utxo.blinding, nullifier_secret)`. The per-UTXO value the wallet shares with provers so that `nullifier_secret` never leaves the wallet.
+3. `nullifier(utxo) -> [u8; 32]` — `Poseidon(utxo.hash, pre_nullifier(utxo))`.
+
+# ViewingKey
+
+`(viewing_sk, viewing_pk)` — P-256 Keypair. Used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. Viewing keys for one signing key can rotate.
+
+**Constructors:**
+
+- `ViewingKey::from_signing_key(signing_key)` — standalone wallet: aliases `(viewing_sk, viewing_pk) := (signing_key.sk, signing_key.pk)`.
+- `ViewingKey::from_sk(viewing_sk)` — shared or independent P256 secret key.
+
+## Derived secrets
+
+- `sender_view_tag_secret    := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/sender_view_tag",    L=32)`
+- `recipient_view_tag_secret := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/recipient_view_tag", L=32)`
+- `merge_view_tag_secret     := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/merge_view_tag",     L=32)`
+- `tx_viewing_secret         := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/tx_viewing",         L=32)`
+  - Purpose: seed to derive transaction viewing keys.
+
+## Transaction Viewing Key
+
+Every ciphertext in a transaction is encrypted under a single empheral key so that the secret key of the emphemeral key can decrypt both the senders change and recipient utxos of the transaction.
+TODO: adapt derivation so that the viewing key can never repeat.
+
+**Properties**
+
+- **Scope**: one transaction.
+- **Read-only**: viewing keys grant decryption only.
+- **Derivable on demand**:
+  ```
+  first_nullifier := Poseidon(inputs[0].hash, pre_nullifier(inputs[0]))
+  (tx_viewing_sk, tx_viewing_pk) := HKDF-SHA256(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")
+  ```
+  `tx_viewing_secret` is defined in [Derived secrets](#derived-secrets). Binding the HKDF salt to `first_nullifier` makes the keypair unique per Solana transaction (nullifier tree uniqueness implies `tx_viewing_pk` uniqueness).
+
+## View Tags
+
+A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
+
+For transfers, view tags need to be shared between the sender and recipient. A wallet cannot pre-derive shared tags for every possible sender, and the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair therefore uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (publicly linkable, no coordination). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use `recipient_shared_view_tag` and are found via `scan_view_tags`. `sender → recipient` and `recipient → sender` produce disjoint tags.
+
+**Uniqueness.** View tags are not globally unique across transactions. Only `sender_view_tag` and `merge_view_tag` are enforced single-use by SPP — they are inserted into the nullifier tree on `transact` and `merge_transact` respectively, and duplicates are rejected. The other variants may collide; the indexer returns all ciphertexts matching a tag value, and the recipient decrypts each.
+
+
+### Sender View Tag
+
+1. **`sender_view_tag`**
+  - Derived by: the sender, to index her change utxos.
+  - Tx sent by: the sender
+  - Indexed by: the sender
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="zolana/sender_view_tag/" || u64_be(tx_count), L=32)`.
+
+### Recipient view tag
+
+2. **`recipient_shared_view_tag`**
+    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_shared_view_tag` to index the tx.
+    - Tx sent by: the sender.
+    - Indexed by: the recipient.
+    - Derivation: two chained HKDFs over the ECDH shared secret.
+
+      ```
+      shared := ECDH(self.viewing_sk, counterparty_pubkey)
+      domain := HKDF-SHA256(salt = ∅, IKM = shared,
+                           info = "zolana/pair-domain/" || R_pubkey, L = 32)
+      return    HKDF-SHA256(salt = ∅, IKM = domain,
+                           info = "zolana/pair-hint/"   || u64_be(i), L = 32)
+      ```
+
+      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+3. **`recipient_request_view_tag`**
+    - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
+    - Tx sent by: the sender.
+    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="zolana/recipient_request_view_tag/" || u64_be(request_count), L=32)`.
+4. **`recipient_bootstrap_view_tag`**
+    - Derived by: anyone — `recipient.viewing_pk` 32-byte X-coordinate of the SEC1-compressed encoding (the 33-byte form with its 1-byte sign prefix dropped).
+    - Tx sent by: the sender.
+    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
+
+
+### Merge view tag
+
+5. **`merge_view_tag`**
+    - Derived by: the owner (wallet) and the whitelisted merge service, independently — both derive from `viewing_sk` (the service has it as the sync delegate or receives plaintext over a separate channel; see [Merge Service](#merge-service-1)).
+    - Tx sent by: the merge service.
+    - Indexed by: the owner.
+    - Counter: per-service `merge_count` keyed by `merge_authority_pubkey` (`wallet.merge_services[merge_authority_pubkey].merge_count`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
+    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_transact`, same as `sender_view_tag`.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="zolana/merge_view_tag/" || merge_authority_pubkey || u64_be(merge_count), L=32)`. Including `merge_authority_pubkey` in the info gives each whitelisted service its own counter namespace.
+
+The owner finds merge outputs during sync by scanning each known service's stream: `wallet.get_view_tag_range(merge, key_index, range, Some(merge_authority_pubkey))`. The merge service uses sequential `merge_count` values; the wallet treats the highest observed value per service as the current count.
+
+```mermaid
+flowchart TD
+    Start([prefix recipient]) --> Q1{prior transfer with recipient?}
+    Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
+    Q1 -->|No| Q2{request view tag from recipient?}
+    Q2 -->|Yes| Case211[3. recipient_request_view_tag]
+    Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
+```
+
+"Prior transfer with recipient?" is decided by `recipient_pubkey ∈ wallet.known_recipients`.
+
+**Sender-side updates to `wallet.known_recipients[recipient_pubkey]`:**
+
+- Case 2 (`recipient_shared_view_tag`): use `i = known_recipients[recipient_pubkey]`, then `known_recipients[recipient_pubkey] += 1`.
+- Case 3 (`recipient_request_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
+- Case 4 (`recipient_bootstrap_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
+
+## Methods
+
+1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-GCM decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
+2. `get_sender_view_tag(tx_count)` — used on every outgoing transaction to tag the sender's own change UTXOs.
+3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
+4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
+5. `get_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+6. `get_merge_view_tag(merge_authority_pubkey, merge_count)` — used by the merge service when submitting `merge_transact` and by the owner during sync to find merged outputs.
+7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
+
 # SPP Proof - Shielded Pool ZK Proof
 
 **Requirement.** The circuit MUST NOT take any wallet secret as a witness input.
@@ -771,14 +680,14 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 **Private Inputs**
 
-| Input | Notes |
+| Input | Description |
 | --- | --- |
 | input UTXO hashes | owner, asset_id, amount, blinding for each input |
 | pre_nullifier (per input) | `Poseidon(blinding, nullifier_secret)`. Computed and supplied by the wallet (channel a) or derived locally by the sync delegate from `nullifier_secret` + decrypted blinding (channel b). The proof computes `nullifier = Poseidon(utxo_hash, pre_nullifier)` in-circuit. |
 | user_pubkey | shared owner of all inputs and the output (P256 signing pk) |
-| user_root_viewing_pk | owner's P256 root viewing pubkey, bound at enable time via `enable_commitment` |
+| user_viewing_pk | owner's P256 viewing pubkey, bound at enable time via `enable_commitment` |
 | merge_authority_pubkey | merge authority P256 signing pk |
-| number | slot index for the active `(user_pubkey, user_root_viewing_pk, merge_authority_pubkey)` whitelist; private to keep the count of revocation cycles unobservable |
+| number | slot index for the active `(user_pubkey, user_viewing_pk, merge_authority_pubkey)` whitelist; private to keep the count of revocation cycles unobservable |
 | merge_authority_signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` |
 | enable_inclusion_path | Merkle path proving `enable_commitment ∈ merge_authority_tree` at `merge_authority_root` |
 | revoke_non_inclusion_path | Merkle path proving `revoke_commitment ∉ merge_authority_tree` at `merge_authority_root` |
@@ -799,26 +708,26 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Input cleanliness — `data_hash` | For each non-dummy input UTXO: `data_hash = 0`. UTXOs with application extension data are not mergeable; the application program that set `data_hash` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_pocket`. |
 | Input cleanliness — pocket fields | For `merge_transact` (default-pocket merge service): each non-dummy input UTXO additionally has `policy_program_id = 0` and `policy_data = 0`. For [`merge_pocket`](#merge_pocket) (policy-CPI merge): the non-dummy inputs share a `policy_program_id` that matches the CPI caller; `policy_data` is constrained by the policy program's own logic, not by SPP. |
 | Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_pubkey`, `data_hash = 0`. For `merge_transact`: `policy_program_id = 0` and `policy_data = 0`. For `merge_pocket`: `policy_program_id` matches the CPI caller and `policy_data` is the value the policy program sets (constrained by its own proof). |
-| Whitelist inclusion | `Poseidon(ENABLE_TAG, user_pubkey, user_root_viewing_pk, merge_authority_pubkey, number)` is a leaf of the merge authority tree at `merge_authority_root`. |
-| Revoke non-inclusion | `Poseidon(REVOKE_TAG, user_pubkey, user_root_viewing_pk, merge_authority_pubkey, number)` is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
+| Whitelist inclusion | `Poseidon(ENABLE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` is a leaf of the merge authority tree at `merge_authority_root`. |
+| Revoke non-inclusion | `Poseidon(REVOKE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
 | Merge authority signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` verifies. The hash covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash, external data hash, expiry_unix_ts)`. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
-| Verifiable encryption | The public `ciphertext` equals `AES-256-GCM(aes_key, nonce, plaintext, AAD = output_utxo_hash)` where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_root_viewing_pk`. |
+| Verifiable encryption | The public `ciphertext` equals `AES-256-GCM(aes_key, nonce, plaintext, AAD = output_utxo_hash)` where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. |
 
 **Verifiable encryption: DHKEM(P-256) + Poseidon KDF + AES-256-GCM.** All steps are checked by the merge proof.
 
 ```
 // 1. Raw ECDH (P-256)
-dh = tx_viewing_sk · user_root_viewing_pk          // 32 B (x-coordinate)
+dh = tx_viewing_sk · user_viewing_pk          // 32 B (x-coordinate)
 
 // 2. KEM shared secret, binding both pubkeys (HPKE kem_context pattern)
 shared_secret = Poseidon(
     DOM_SEP_SHARED_SECRET,
     dh.lo,                 dh.hi,
     tx_viewing_pk.lo,   tx_viewing_pk.hi,
-    user_root_viewing_pk.lo, user_root_viewing_pk.hi,
+    user_viewing_pk.lo, user_viewing_pk.hi,
 )
 
 // 3. Info siloing
@@ -850,7 +759,7 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 
 # Enable Proof - Merge Authority Opt-in Proof
 
-ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides `user_pubkey`, `user_root_viewing_pk`, `merge_authority_pubkey`, and `number`; only `enable_commitment` is public, so an external observer cannot link an enable instruction to a user or to a service.
+ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides `user_pubkey`, `user_viewing_pk`, `merge_authority_pubkey`, and `number`; only `enable_commitment` is public, so an external observer cannot link an enable instruction to a user or to a service.
 
 **Public Inputs**
 
@@ -860,19 +769,19 @@ ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides `user_pu
 
 **Private Inputs**
 
-| Input | Notes |
+| Input | Description |
 | --- | --- |
 | user_pubkey | owner's P256 signing pk |
-| user_root_viewing_pk | owner's P256 root viewing pk |
+| user_viewing_pk | owner's P256 viewing pk |
 | merge_authority_pubkey | merge authority P256 signing pk |
 | number | user-chosen slot index |
-| user_signature | P256 signature by `user_pubkey` over `Sha256BE(ENABLE_TAG \|\| user_root_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
+| user_signature | P256 signature by `user_pubkey` over `Sha256BE(ENABLE_TAG \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
 
 **Checks**
 
 | Check | Description |
 | --- | --- |
-| Commitment | `enable_commitment == Poseidon(ENABLE_TAG, user_pubkey, user_root_viewing_pk, merge_authority_pubkey, number)` (pubkeys Poseidon-encoded). |
+| Commitment | `enable_commitment == Poseidon(ENABLE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` (pubkeys Poseidon-encoded). |
 | User signature | P256 signature by `user_pubkey` over the canonical pre-image verifies. Without this check anyone could insert commitments for an arbitrary `user_pubkey`. |
 
 The proof reveals nothing beyond `enable_commitment`. Tree insertion of a duplicate commitment fails at SPP level (uniqueness check on the merge authority tree).
@@ -889,161 +798,22 @@ ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to
 
 **Private Inputs**
 
-| Input | Notes |
+| Input | Description |
 | --- | --- |
 | user_pubkey | owner's P256 signing pk |
-| user_root_viewing_pk | matches the root viewing pk of the enable being revoked |
+| user_viewing_pk | matches the viewing pk of the enable being revoked |
 | merge_authority_pubkey | merge authority P256 signing pk |
 | number | matches the `number` of the enable being revoked |
-| user_signature | P256 signature by `user_pubkey` over `Sha256BE(REVOKE_TAG \|\| user_root_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
+| user_signature | P256 signature by `user_pubkey` over `Sha256BE(REVOKE_TAG \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
 
 **Checks**
 
 | Check | Description |
 | --- | --- |
-| Commitment | `revoke_commitment == Poseidon(REVOKE_TAG, user_pubkey, user_root_viewing_pk, merge_authority_pubkey, number)`. |
+| Commitment | `revoke_commitment == Poseidon(REVOKE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)`. |
 | User signature | P256 signature verifies, same rationale as the Enable Proof. |
 
 Each of the three merge proofs (Merge, Enable, Revoke) has its own Groth16 verifying key.
-
-# View Tags
-
-A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
-
-Throughout this section, `counterparty_pubkey` / `recipient_pubkey` / `sender_pubkey` refer to the counterparty's `root_viewing_pk` from their [ShieldedPubkey](#wallet); shared view tags and AES-GCM keys are derived from ECDH over the root viewing keypair.
-
-**Uniqueness.** View tags are not globally unique across transactions. Only `sender_view_tag` and `merge_view_tag` are enforced single-use by SPP — they are inserted into the nullifier tree on `transact` and `merge_transact` respectively, and duplicates are rejected. The other variants may collide; the indexer returns all ciphertexts matching a tag value, and the recipient decrypts each.
-
-**Stream separation.** Tags are grouped into independent streams. Each stream has its own counter and its own derivation purpose; streams do not share counters. The motivation:
-
-1. *No cross-actor coordination.* The owner, the merge service, and a counterparty bootstrapping a new pair may submit transactions concurrently. Independent counters mean no actor reserves or persists counter state on another's behalf, and a crash in one stream cannot collide with another.
-2. *Independent sync paths.* Each stream is queried independently during sync; the wallet attributes matches to the correct source and advances each counter independently.
-3. *Independent lifecycle.* A stream can be active, paused, or rotated without affecting the others (e.g., rotating the root viewing key resets every stream's counter).
-
-The streams: `sender_view_tag` (owner's own transactions, counter `TxCount`), `merge_view_tag` (per-service stream for each whitelisted merge service, counter `merge_count` keyed by `merge_authority_pubkey`), `recipient_request_view_tag` (one-time tags the owner mints to bootstrap a sender→owner pair, counter `RequestCount`), and `recipient_shared_view_tag` (steady-state shared tags between a sender-recipient pair, counter `i` per counterparty in `known_senders` / `known_recipients`). `recipient_request_view_tag` and `recipient_shared_view_tag` are separated for the same reason `sender_view_tag` and `merge_view_tag` streams are: distinct lifecycles, and a shared counter would require coordination across the boundary. The same principle separates each merge service's stream from every other's, so multiple services can merge concurrently without colliding.
-
-For transfers, view tags need to be shared between the sender and recipient. A wallet cannot pre-derive shared tags for every possible sender, and the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair therefore uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient_pubkey.X` (publicly linkable, no coordination). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use `recipient_shared_view_tag` and are found via `scan_view_tags`. `sender → recipient` and `recipient → sender` produce disjoint tags.
-
-### Sender View Tag
-
-1. **`sender_view_tag`**
-  - Derived by: the sender, to index her change utxos.
-  - Tx sent by: the sender
-  - Indexed by: the sender
-
-### Recipient view tag
-
-2. **`recipient_shared_view_tag`**
-    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_shared_view_tag` to index the tx.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient.
-3. **`recipient_request_view_tag`**
-    - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-4. **`recipient_bootstrap_view_tag`**
-    - Derived by: anyone — `recipient_pubkey.X` (the 32-byte X-coordinate of the recipient's `root_viewing_pk`).
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-
-### Merge view tag
-
-5. **`merge_view_tag`**
-    - Derived by: the owner (wallet) and the whitelisted merge service, independently — both derive from `root_viewing_sk` (the service has it as the sync delegate or receives plaintext over a separate channel; see [Merge Service](#merge-service)).
-    - Tx sent by: the merge service.
-    - Indexed by: the owner.
-    - Counter: per-service `merge_count` keyed by `merge_authority_pubkey` (`wallet.merge_services[merge_authority_pubkey].merge_count`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
-    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_transact`, same as `sender_view_tag`.
-
-The owner finds merge outputs during sync by scanning each known service's stream: `wallet.get_view_tag_range(merge, key_index, range, Some(merge_authority_pubkey))`. The merge service uses sequential `merge_count` values; the wallet treats the highest observed value per service as the current count.
-
-```mermaid
-flowchart TD
-    Start([prefix recipient]) --> Q1{prior transfer with recipient?}
-    Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
-    Q1 -->|No| Q2{request view tag from recipient?}
-    Q2 -->|Yes| Case211[3. recipient_request_view_tag]
-    Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
-```
-
-"Prior transfer with recipient?" is decided by `recipient_pubkey ∈ wallet.known_recipients`.
-
-**Sender-side updates to `wallet.known_recipients[recipient_pubkey]`:**
-
-- Case 2 (`recipient_shared_view_tag`): use `i = known_recipients[recipient_pubkey]`, then `known_recipients[recipient_pubkey] += 1`.
-- Case 3 (`recipient_request_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
-- Case 4 (`recipient_bootstrap_view_tag`): if absent, insert `known_recipients[recipient_pubkey] = 0`. No increment.
-
-### Derivations
-
-Tag secrets are derived from `root_viewing_sk` to enable root viewing key rotation:
-
-```
-sender_view_tag_secret    := HKDF-SHA256(salt=∅, IKM=root_viewing_sk, info="zolana/sender_view_tag",    L=32)
-recipient_view_tag_secret := HKDF-SHA256(salt=∅, IKM=root_viewing_sk, info="zolana/recipient_view_tag", L=32)
-merge_view_tag_secret     := HKDF-SHA256(salt=∅, IKM=root_viewing_sk, info="zolana/merge_view_tag",     L=32)
-```
-
-`get_sender_view_tag(tx_count)`:
-
-```
-HKDF-SHA256(
-    salt = ∅,
-    IKM  = sender_view_tag_secret,
-    info = "zolana/sender_view_tag/" || u64_be(tx_count),
-    L    = 32,
-)
-```
-
-`get_recipient_request_view_tag(request_count)`:
-
-```
-HKDF-SHA256(
-    salt = ∅,
-    IKM  = recipient_view_tag_secret,
-    info = "zolana/recipient_request_view_tag/" || u64_be(request_count),
-    L    = 32,
-)
-```
-
-`get_merge_view_tag(merge_authority_pubkey, merge_count)` — per-service stream:
-
-```
-HKDF-SHA256(
-    salt = ∅,
-    IKM  = merge_view_tag_secret,
-    info = "zolana/merge_view_tag/" || merge_authority_pubkey || u64_be(merge_count),
-    L    = 32,
-)
-```
-
-Including `merge_authority_pubkey` in the HKDF info gives each whitelisted service its own counter namespace. Two services merging for the same owner produce unlinkable tags; the wallet tracks `merge_count` per service in `merge_services`.
-
-`recipient_shared_view_tag(counterparty_pubkey, i)` — two chained HKDFs over the ECDH shared secret. Sender computes it as `get_send_shared_view_tag`; recipient computes the same byte value as `get_shared_view_tag`:
-
-```
-shared := ECDH(self.root_viewing_sk, counterparty_pubkey)
-domain := HKDF-SHA256(salt = ∅, IKM = shared,
-                     info = "zolana/pair-domain/" || R_pubkey, L = 32)
-return    HKDF-SHA256(salt = ∅, IKM = domain,
-                     info = "zolana/pair-hint/"   || u64_be(i), L = 32)
-```
-
-`counterparty_pubkey` is the counterparty's `root_viewing_pk`. `R_pubkey` is the recipient of the direction:
-
-- Sender side (`get_send_shared_view_tag`): `R_pubkey = counterparty_pubkey`.
-- Recipient side (`get_shared_view_tag`): `R_pubkey = self.root_viewing_pk`.
-
-ECDH symmetry plus the matched direction label produces the same byte value across the pair.
-
-`recipient_bootstrap_view_tag(recipient_pubkey)`:
-
-```
-recipient_pubkey.X    // 32-byte X-coordinate of the recipient's root_viewing_pk
-```
-
-The recipient's `root_viewing_pk` is SEC1-compressed (1-byte sign prefix + 32 B X); the bootstrap tag drops the sign byte. Two recipients sharing the same X (≈ 2⁻²⁵⁶ collision probability) both observe each other's ciphertexts at the indexer; only the intended recipient can decrypt.
-
 
 # Output UTXO Serialization
 
@@ -1055,6 +825,8 @@ Schemes:
 1. Transfer — one sender and `0<=` recipient ciphertexts.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — one ciphertext for the single merged output.
+
+TODO: specify how we can get a 100% non repeating deterministically derived nonce even with all.
 
 ## Program Data
 
@@ -1083,7 +855,7 @@ struct TransferRecipientPlaintext {
     /// Recipient `signing_pk` (UTXO owner, controls spend);
     /// 1-byte prefix + P256 SEC1-compressed.
     owner_pubkey: [u8; 34],
-    /// Sender's `root_viewing_pk`; lets the recipient derive the shared ECDH key
+    /// Sender's `viewing_pk`; lets the recipient derive the shared ECDH key
     /// used for `recipient_shared_view_tag` on later transfers from this sender.
     sender_pubkey: [u8; 33],
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
@@ -1111,8 +883,9 @@ blinding_i = Sha256BE(blinding_seed || u8(position_i))
 with `position = 0` for the SPL output and `position = 1` for the SOL output.
 
 ```rust
-/// 89 B plaintext → 105 B ciphertext (after the 16-byte GCM tag), assuming
-/// both program-data slots absent. See [Program Data](#program-data) for the size
+/// `89 + 33·R` B plaintext → `105 + 33·R` B ciphertext (after the 16-byte GCM
+/// tag), where `R = num_recipients` from the outer envelope. Assumes both
+/// program-data slots absent. See [Program Data](#program-data) for the size
 /// when slots are populated.
 struct TransferSenderPlaintext {
     /// Sender's `signing_pk` (UTXO owner for the change outputs);
@@ -1126,6 +899,11 @@ struct TransferSenderPlaintext {
     sol_amount: u64,
     /// Seed for the two per-output blindings (formula above).
     blinding_seed: [u8; 31],
+    /// Recipient `viewing_pk`s for the R recipient slots that follow this
+    /// bundle, in slot order. Lets the sender re-derive each slot's AES key on
+    /// restore (`ECDH(tx_viewing_sk, recipient.viewing_pk)`) to rebuild
+    /// `known_recipients`. Length = `num_recipients` from the outer envelope.
+    recipient_viewing_pks: [[u8; 33]; R],
     /// Bytes hashed (via the policy program's defined scheme) to recompute the
     /// `policy_data` slot of the SPL change UTXO (position 0). The SOL change
     /// UTXO (position 1) is always bare — `policy_program_id = 0`,
@@ -1143,9 +921,10 @@ struct TransferSenderPlaintext {
 The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order with no length prefixes.
 
 ```rust
-/// Total size: 141 + 162*R bytes when every plaintext has both program-data slots
-/// absent; each populated slot grows its ciphertext (and thus the blob) by
-/// `3 + len` bytes. See [Program Data](#program-data).
+/// Total size: 141 + 195*R bytes when every plaintext has both program-data slots
+/// absent (sender grows by `33·R` from `recipient_viewing_pks`; each recipient slot
+/// is 162 B). Each populated program-data slot grows its ciphertext (and thus the
+/// blob) by `3 + len` bytes. See [Program Data](#program-data).
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
@@ -1153,10 +932,10 @@ struct TransferEncryptedUtxos {
     tx_viewing_pk: [u8; 34],
     /// Number of recipient_slots that follow ciphertext_sender. Equals R.
     num_recipients: u8,
-    /// Sender change bundle ciphertext: 89-byte plaintext (when program-data slots are
-    /// absent) + 16-byte GCM tag; grows with populated program-data slots.
-    /// View tag for this ciphertext is `sender_view_tag` from the transact
-    /// instruction data, not included in this blob.
+    /// Sender change bundle ciphertext: `89 + 33·R`-byte plaintext (when
+    /// program-data slots are absent) + 16-byte GCM tag; grows with populated
+    /// program-data slots. View tag for this ciphertext is `sender_view_tag` from
+    /// the transact instruction data, not included in this blob.
     ciphertext_sender: Vec<u8>,
     /// R recipient slots packed back-to-back.
     recipient_slots: Vec<RecipientSlot>,
@@ -1186,16 +965,16 @@ The sender ciphertext sits inline at offset 36 with no slot wrapper. Its view ta
 
 `R` = number of recipients.
 
-Total: `141 + 162·R` bytes. Standard single-recipient transfer: `R = 1`, total `303`.
+Total: `141 + 195·R` bytes. Standard single-recipient transfer: `R = 1`, total `336`.
 
 Blob size by recipient count:
 
 | R | Bytes |
 | --- | --- |
-| 1 | 303 |
-| 2 | 465 |
-| 4 | 789 |
-| 8 | 1437 |
+| 1 | 336 |
+| 2 | 531 |
+| 4 | 921 |
+| 8 | 1701 |
 
 Sizes assume `pocket_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
 
@@ -1291,16 +1070,6 @@ struct MergeEncryptedUtxo {
 }
 ```
 
-# Transaction Viewing Key
-
-Every ciphertext in a transaction is encrypted under a single empheral key so that the secret key of the emphemeral key can decrypt both the senders change and recipient utxos of the transaction.
-
-**Properties**
-
-- **Scope**: one transaction.
-- **Read-only**: viewing keys grant decryption only.
-- **Derivable on demand**: viewing keys are derived on demand from the shielded transaction; see [`sign_and_encrypt_private_transaction`](#wallet-state-and-methods) internal sequence step 2.
-
 # SPP - Shielded Pool Program
 
 ## Accounts
@@ -1313,13 +1082,45 @@ Every ciphertext in a transaction is encrypted under a single empheral key so th
 | Asset counter | Singleton account holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
 | Protocol config | Singleton account; pause authority and protocol-wide settings. |
 | Merge authority tree | `light-batched-merkle-tree` (H=40) plus insertion queue (with bloom filter). Holds `enable_commitment` leaves from [`enable_merge_authority`](#enable_merge_authority) and `revoke_commitment` leaves from [`disable_merge_authority`](#disable_merge_authority). The [merge proof](#merge-proof---merge-zk-proof) proves whitelist inclusion and revoke non-inclusion against this tree; the queue's bloom filter rejects fresh duplicate inserts and catches the revoke race window, exactly as the nullifier queue does for double-spend. |
+| `spp_pocket_config` | SPP-owned PDA, one per policy program. Seeds `[b"spp_pocket_config", policy_program_id]`. Gates `pocket_authority_transact`. See [Pocket Accounts](#pocket-accounts). |
+| `pocket_auth` | Signer PDA derived under the calling policy program. Seeds `[b"pocket_auth"]`. Passed as a signer on every SPP pocket instruction; SPP re-derives the address from `policy_program_id` + `bump` (both in instruction data) and matches against the signer. One pocket per policy program. See [Pocket Accounts](#pocket-accounts). |
+
+### Pocket Accounts
+
+A policy program hosts exactly one pocket. Two accounts tie SPP to that program:
+
+**`pocket_auth`** — Signer PDA the policy program signs for. Seeds `[b"pocket_auth"]` derived under the policy program. On every SPP pocket instruction (`pocket_transact`, `pocket_authority_transact`, `merge_pocket`), the policy program CPIs into SPP with `pocket_auth` as a signer; SPP recomputes `Pubkey::create_program_address([b"pocket_auth", &[bump]], policy_program_id)` from the `policy_program_id` and `bump` in instruction data and rejects unless it matches the supplied signer. Security relies on the policy program being the signer, so any bump is acceptable.
+
+**`spp_pocket_config`** — SPP-owned PDA. Seeds `[b"spp_pocket_config", policy_program_id]`.
+
+```rust
+struct SppPocketConfig {
+    /// Permitted to call `update_pocket_config` and `update_pocket_config_owner`.
+    /// Set to `Pubkey::default()` to burn the authority.
+    authority: Pubkey,
+    /// When false, SPP rejects `pocket_authority_transact` for this pocket.
+    pocket_authority_transact_is_enabled: bool,
+    bump: u8,
+}
+```
+
+Usage by instruction:
+
+| Instruction | Behavior |
+| --- | --- |
+| `pocket_transact`, `merge_pocket` | `spp_pocket_config` is not read. Only `pocket_auth` is checked. |
+| `pocket_authority_transact` | `spp_pocket_config` is required; must be initialized; `pocket_authority_transact_is_enabled` must be `true`. |
+| `create_pocket_config` | `pocket_auth` for `policy_program_id` must sign. Initializes `authority` and `pocket_authority_transact_is_enabled` from instruction data. |
+| `update_pocket_config`, `update_pocket_config_owner` | Signer must equal the config's `authority` field (not `pocket_auth`). |
+
+Burning the authority (set `authority := Pubkey::default()`) while `pocket_authority_transact_is_enabled = false` makes the disabled state permanent: no future `update_pocket_config` can re-enable `pocket_authority_transact`.
 
 ## Instructions
 
 | Instruction | Description |
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
-| proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree |
+| proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree. Indexed under the recipient's bootstrap tag. |
 | pocket_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the pocket auditor key and the recipient keys named in the policy proof |
 | pocket_authority_transact | Tag 3; proves correctness of a state transition by a pocket authority (freeze, thaw, transaction with permanent delegate, ...) |
 | create_spl_interface | Tag 6; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
@@ -1327,9 +1128,9 @@ Every ciphertext in a transaction is encrypted under a single empheral key so th
 | create_protocol_config | Tag 9; admin |
 | update_protocol_config | Tag 10; admin |
 | pause_tree | Tag 11; admin can pause and unpause trees |
-| create_pocket_config | Tag 12; creates a new pocket config; fields: owner, pocket_authority_transact_is_enabled |
-| update_pocket_config_owner | Tag 13; transfers ownership of a pocket config; only callable by current owner. TBD: spec out semantics. |
-| update_pocket_config | Tag 14; toggles whether pocket_authority_transact_is_enabled is enabled. If disabled and the config owner is burned, the policy program cannot rug the user (no permanent delegate). |
+| create_pocket_config | Tag 12; creates the `spp_pocket_config` PDA for a given `policy_program_id`. Requires `pocket_auth` for that program as signer. See [Pocket Accounts](#pocket-accounts). |
+| update_pocket_config_owner | Tag 13; rotates `spp_pocket_config.authority`. Signer must equal current `authority`. |
+| update_pocket_config | Tag 14; toggles `spp_pocket_config.pocket_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `pocket_authority_transact` off permanently. |
 | merge_transact | Tag 15; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-pocket; extension slots are zero. |
 | enable_merge_authority | Tag 16; user opts a merge authority in by inserting `enable_commitment` into the merge authority tree. Authorized by an Enable Proof. |
 | disable_merge_authority | Tag 17; user revokes a merge authority by inserting `revoke_commitment` into the merge authority tree. Authorized by a Revoke Proof. |
@@ -1344,7 +1145,7 @@ Every ciphertext in a transaction is encrypted under a single empheral key so th
 
 **Accounts**
 
-| # | Name | W | S | Notes |
+| # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | payer |   | x | relayer (transfer/unshield) or user (shield) |
@@ -1390,12 +1191,12 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 | Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 in 1 out | 1 | 1 | 132 | 206 | 722 | — |
-| 1 in 2 out | 1 | 2 | 303 | 206 | 925 | 843 |
-| 3 in 3 out | 3 | 3 | 303 | 206 | 961 | 879 |
-| 5 in 3 out | 5 | 3 | 303 | 206 | 965 | 883 |
+| 1 in 2 out | 1 | 2 | 336 | 206 | 958 | 876 |
+| 3 in 3 out | 3 | 3 | 336 | 206 | 994 | 912 |
+| 5 in 3 out | 5 | 3 | 336 | 206 | 998 | 916 |
 | 1 in 8 out | 1 | 8 | 133 | 206 | 947 | 865 |
 
-\* `private_tx_hash` is 32 B. Transfer ciphertext sizes assume `R = 1` recipient, per the [Output UTXO Serialization § Transfer](#transfer-2) layout. Add 162 B per extra recipient.
+\* `private_tx_hash` is 32 B. Transfer ciphertext sizes assume `R = 1` recipient, per the [Output UTXO Serialization § Transfer](#transfer-2) layout. Add 195 B per extra recipient (162 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
 \*\* assumes ALT for `tree_account`, `payer` and `program_id` inline; overhead = 64 (signature) + 3 (message header) + 65 (inline account keys: compact-u16 count + 2 × 32-byte pubkeys for `payer` and `program_id`) + 32 (recent blockhash) + 36 (ALT section: compact-u16 count + 32-byte ALT pubkey + writable count + writable index + readonly count) + 6 (instruction body: program_id_index + account_indices + data_len_varint). Shield/unshield totals add 66 B (`+64` for inline `user_spl_token_account` and `spl_token_interface` pubkeys, `+2` for their indices in the instruction body) because these accounts vary per transaction and cannot be served from the ALT.
 
 **Checks**
@@ -1418,7 +1219,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 **Accounts**
 
-| # | Name | W | S | Notes |
+| # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | merge_authority_tree | x |   | merge authority tree (enable/revoke commitments) |
@@ -1473,7 +1274,7 @@ struct MergeTransactIxData {
 
 **Accounts**
 
-| # | Name | W | S | Notes |
+| # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | merge_authority_tree | x |   | merge authority tree (enable/revoke commitments) |
@@ -1497,11 +1298,11 @@ Identical to [`MergeTransactIxData`](#merge_transact); the merge proof's circuit
 
 **Discriminator:** 16
 
-**Description.** Inserts `enable_commitment` into the merge authority tree, opting `merge_authority_pubkey` in to merge the user's UTXOs at slot `number`. The commitment covers `user_root_viewing_pk`, so the merge proof's verifiable-encryption check is fixed to the root viewing key the user authorized. Authorized by an [Enable Proof](#enable-proof---merge-authority-opt-in-proof); on-chain instruction data reveals only the commitment value and an encrypted notification payload for the merge service.
+**Description.** Inserts `enable_commitment` into the merge authority tree, opting `merge_authority_pubkey` in to merge the user's UTXOs at slot `number`. The commitment covers `user_viewing_pk`, so the merge proof's verifiable-encryption check is fixed to the viewing key the user authorized. Authorized by an [Enable Proof](#enable-proof---merge-authority-opt-in-proof); on-chain instruction data reveals only the commitment value and an encrypted notification payload for the merge service.
 
 **Accounts**
 
-| # | Name | W | S | Notes |
+| # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | merge_authority_tree | x |   | target tree |
 | 2 | payer |   | x | fee payer (any Solana account; not authoritative) |
@@ -1518,7 +1319,7 @@ struct EnableMergeAuthorityIxData {
     /// Per-transaction viewing P256 pubkey for ECDH (1-byte prefix + SEC1-compressed),
     /// shared between the two ciphertext slots.
     tx_viewing_pk: [u8; 34],
-    /// Service-discovery view tag; by convention `merge_authority_pubkey.X`.
+    /// Service-discovery view tag; by convention `merge_authority_pubkey`.
     /// SPP does not verify. A wrong value is a self-DoS for the user.
     view_tag_authority: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
@@ -1526,22 +1327,21 @@ struct EnableMergeAuthorityIxData {
     /// [Merge Proof](#merge-proof---merge-zk-proof) with
     /// `info = "zolana/merge_authority_notify"`. 74 B plaintext + 16 B GCM tag.
     ciphertext_authority: [u8; 90],
-    /// Self-discovery view tag; by convention `user_root_viewing_pk.X` (the
-    /// recipient_bootstrap_view_tag for the wallet itself). Lets the wallet
-    /// rediscover its own enables on restore-from-mnemonic by scanning the
-    /// same bootstrap stream it already scans for incoming transfers.
-    view_tag_self: [u8; 32],
+    /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
+    /// Lets the wallet rediscover its own enables on restore-from-mnemonic
+    /// by scanning the same bootstrap stream it scans for incoming transfers.
+    recipient_bootstrap_view_tag: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
-    /// to `user_root_viewing_pk` using the shared `tx_viewing_pk` and
-    /// `info = "zolana/merge_authority_notify_self"`. Same plaintext layout
+    /// to `user_viewing_pk` using the shared `tx_viewing_pk` and
+    /// `info = "zolana/merge_authority_notify_bootstrap"`. Same plaintext layout
     /// as `ciphertext_authority`. 74 B plaintext + 16 B GCM tag.
-    ciphertext_self: [u8; 90],
+    ciphertext_bootstrap: [u8; 90],
 }
 
 /// Payload the service decrypts to learn which (user, slot) just enabled it.
 struct MergeAuthorityNotification {
     user_pubkey: P256Pubkey,
-    user_root_viewing_pk: P256Pubkey,
+    user_viewing_pk: P256Pubkey,
     number: u64,
 }
 ```
@@ -1556,17 +1356,17 @@ struct MergeAuthorityNotification {
 
 The ciphertext is not verified by the proof. A malformed ciphertext is a self-DoS for the user (the service can't learn of the enable, so no merges happen), not an attack on the protocol.
 
-Rotating `user_root_viewing_pk` (e.g., on sync-delegate appointment) requires a new enable cycle: the wallet revokes the current `number` and enables `number + 1` with the new root viewing key.
+Rotating `user_viewing_pk` (e.g., on sync-delegate appointment) requires a new enable cycle: the wallet revokes the current `number` and enables `number + 1` with the new viewing key.
 
 ### `disable_merge_authority`
 
 **Discriminator:** 17
 
-**Description.** Inserts `revoke_commitment` into the merge authority tree, revoking the user's opt-in for the `(user_root_viewing_pk, merge_authority_pubkey, number)` tuple committed in the corresponding `enable_commitment`. Authorized by a [Revoke Proof](#revoke-proof---merge-authority-opt-out-proof); on-chain instruction data reveals only the commitment value and an encrypted notification payload for the merge service. To re-enable the same service after revocation the user issues a new [`enable_merge_authority`](#enable_merge_authority) with `number := number + 1`.
+**Description.** Inserts `revoke_commitment` into the merge authority tree, revoking the user's opt-in for the `(user_viewing_pk, merge_authority_pubkey, number)` tuple committed in the corresponding `enable_commitment`. Authorized by a [Revoke Proof](#revoke-proof---merge-authority-opt-out-proof); on-chain instruction data reveals only the commitment value and an encrypted notification payload for the merge service. To re-enable the same service after revocation the user issues a new [`enable_merge_authority`](#enable_merge_authority) with `number := number + 1`.
 
 **Accounts**
 
-| # | Name | W | S | Notes |
+| # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | merge_authority_tree | x |   | target tree |
 | 2 | payer |   | x | fee payer (any Solana account; not authoritative) |
@@ -1582,7 +1382,7 @@ struct DisableMergeAuthorityIxData {
     proof: [u8; 192],
     /// Per-transaction viewing P256 pubkey for ECDH, shared across both ciphertext slots.
     tx_viewing_pk: [u8; 34],
-    /// Service-discovery view tag; by convention `merge_authority_pubkey.X`.
+    /// Service-discovery view tag; by convention `merge_authority_pubkey`.
     /// SPP does not verify. A wrong value is a self-DoS.
     view_tag_authority: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`
@@ -1590,13 +1390,13 @@ struct DisableMergeAuthorityIxData {
     /// `merge_authority_pubkey` with `info = "zolana/merge_authority_notify"`.
     /// 74 B plaintext + 16 B GCM tag.
     ciphertext_authority: [u8; 90],
-    /// Self-discovery view tag; by convention `user_root_viewing_pk.X`.
+    /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
     /// Lets the wallet rediscover its own revokes on restore.
-    view_tag_self: [u8; 32],
+    recipient_bootstrap_view_tag: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
-    /// to `user_root_viewing_pk` with `info = "zolana/merge_authority_notify_self"`.
+    /// to `user_viewing_pk` with `info = "zolana/merge_authority_notify_bootstrap"`.
     /// 74 B plaintext + 16 B GCM tag.
-    ciphertext_self: [u8; 90],
+    ciphertext_bootstrap: [u8; 90],
 }
 ```
 
@@ -1617,7 +1417,7 @@ Accounts can be Solana or compressed accounts.
 | # | Name | Description |
 | --- | --- | --- |
 | 1 | Pocket config | Configures authorities and features of a pocket |
-| 2 | User config | Configures a shared root viewing key |
+| 2 | User config | Configures a shared viewing key |
 
 **Instructions**
 
@@ -1635,130 +1435,176 @@ A policy program is free to implement the following instructions and more. Tags 
 
 UTXOs can carry a `policy_data` UTXO-hash slot interpreted by the policy program (see the [UTXO Hash](#spp-proof---shielded-pool-zk-proof) table). The policy program defines the schema and the hashing scheme.
 
-**Notes:**
-
-1. If the recipient does not have a config account the output UTXO is encrypted to the recipient.
 
 # RPC
 
 All RPC services can be run independently. RPC providers can offer the endpoints of the services in a bundled API.
 
-## Photon Indexer
+## Indexer
 
-The rpc or pocket rpc have two purposes providing balance information and sending transactions.
+### `get_encrypted_utxos_by_tags`
 
-**Methods:**
-
-1. get_encrypted_utxos
-2. get_shielded_transactions
-3. get_proof
-4. send_transaction
-5. get_merge_authority_events
-
-    The client selects input UTXOs, computes `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`, signs it, and either builds the proof locally or ships the witness to a stateless prover. Self-custody is guaranteed by the ZK proof binding `private_tx_hash` to every input, every output, the external-data hash, and `expiry_unix_ts`.
-
-**Storage: `shielded_utxos`**
-
-One row per ciphertext, sourced from either:
-
-- the `encrypted_utxos` blob of a `transact` / `pocket_transact` instruction (one row per recipient slot, plus one for the sender change), or
-- the `proofless_shield` instruction (one row per deposited output; `view_tag = NULL`, `ciphertext = NULL`, owner and amount are read from instruction data with `blinding = 0` inferred).
-
-The Photon indexer does not track spend state.
-
-UTXO tree leaves and Merkle witnesses live in the existing `state_trees` table
-and are joined back from `shielded_utxos.leaf_indices`.
-
-```sql
-CREATE TABLE shielded_utxos (
-    id                BIGSERIAL PRIMARY KEY,
-    slot              BIGINT      NOT NULL,                 -- from Blocks
-    tx_signature      BYTEA(64)   NOT NULL,
-    tx_index          INT         NOT NULL,                 -- within slot
-    ciphertext_index  SMALLINT    NOT NULL,                 -- 0 = sender bundle for transfers
-    scheme            SMALLINT    NOT NULL,                 -- 0=transfer, 1=split, 2=proofless_shield, 3=merge
-    tree              BYTEA(32)   NOT NULL,                 -- Tree account pubkey
-    pocket_program_id BYTEA(32),                            -- NULL = default pocket
-    leaf_indices      BIGINT[]    NOT NULL,                 -- UTXO tree leaves this ciphertext describes
-    tx_viewing_pk  BYTEA(34),                            -- schemes 0, 1, 3 only
-    view_tag          BYTEA(32),                            -- see View Tags chapter
-    ciphertext        BYTEA,                                -- NULL for proofless_shield
-    nullifiers        BYTEA(32)[]                           -- public nullifiers of the transaction; NULL for proofless_shield
-);
-```
-
-`get_encrypted_utxos(filters: [(offset, values: Vec<bytes>)], cursor, limit)`
-maps each byte filter to an indexed column above based on `(scheme, offset)`.
-`values` is a non-empty list — the column matches if it equals **any** of the
-listed values (SQL `IN`). Multiple filters on **different** columns are
-intersected (AND). Filters on unindexed offsets MAY be rejected. Servers MUST
-accept at least 10 000 values per filter on `view_tag`; larger
-batches MAY be rejected with a documented limit.
-
-`get_shielded_transactions(tags: Vec<[u8; 32]>) -> GetShieldedTransactionsResponse` returns, for every transaction with at least one ciphertext whose `view_tag` matches one of `tags`, the transaction's ciphertext rows and its on-chain nullifier set. Servers MUST accept at least 10 000 tags per call.
+Returns encrypted UTXO ciphertexts whose view tag matches any of the given values. Lightweight variant of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags): no sibling slots, no nullifiers.
 
 ```rust
-struct GetShieldedTransactionsResponse {
+struct GetEncryptedUtxosByTagsRequest {
+    tags: Vec<[u8; 32]>,
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
+
+struct GetEncryptedUtxosByTagsResponse {
+    matches: Vec<EncryptedUtxoMatch>,
+    next_cursor: Option<Vec<u8>>,
+}
+
+struct EncryptedUtxoMatch {
+    slot: u64,
+    tx_signature: [u8; 64],
+    view_tag: [u8; 32],
+    tx_viewing_pk: [u8; 34],
+    ciphertext: Vec<u8>,
+}
+```
+
+### `get_shielded_transactions_by_tags`
+
+Returns full shielded transactions where any output's view tag matches. Includes all sibling output slots and the transaction's nullifier set.
+
+```rust
+struct GetShieldedTransactionsByTagsRequest {
+    tags: Vec<[u8; 32]>,
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
+
+struct GetShieldedTransactionsByTagsResponse {
     transactions: Vec<ShieldedTransaction>,
+    next_cursor: Option<Vec<u8>>,
 }
 
 struct ShieldedTransaction {
-    /// Solana transaction signature.
-    tx_signature: [u8; 64],
-    /// Slot the transaction landed in.
     slot: u64,
-    /// Public nullifiers of this transaction's transact / merge_transact /
-    /// pocket_transact proof. Empty for proofless_shield.
+    tx_signature: [u8; 64],
+    tx_viewing_pk: [u8; 34],
+    /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
+    /// each slot's `payload` is a cleartext UTXO body.
+    output_slots: Vec<OutputSlot>,
+    /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
-    /// One row per ciphertext in this transaction, ordered by ciphertext_index.
-    rows: Vec<ShieldedUtxoRow>,
+    proofless: bool,
 }
 
-struct ShieldedUtxoRow {
-    ciphertext_index: u16,            // 0 = sender bundle for transfers
-    scheme: u8,                       // 0=transfer, 1=split, 2=proofless_shield, 3=merge
-    tree: [u8; 32],
-    pocket_program_id: Option<[u8; 32]>,
-    leaf_indices: Vec<u64>,
-    tx_viewing_pk: Option<[u8; 34]>,
-    view_tag: Option<[u8; 32]>,
-    ciphertext: Option<Vec<u8>>,
+struct OutputSlot {
+    view_tag: [u8; 32],
+    payload: Vec<u8>,
 }
 ```
 
-Sync uses this in place of `get_encrypted_utxos` so a single round trip returns the matched ciphertext, every sibling recipient slot of the transaction, and the transaction's nullifier set. The wallet derives `tx_viewing_sk` from spent inputs to decrypt siblings, and intersects `transactions[i].nullifiers` against its locally-computed owned-UTXO nullifier hashmap to determine spent state.
+### `get_merge_authority_events`
 
-**Storage: `merge_authority_events`**
+Returns merge authority enable/revoke events matching a single view tag (either `view_tag_authority = merge_authority_pubkey` or `recipient_bootstrap_view_tag = user_viewing_pk`).
 
-One row per `enable_merge_authority` / `disable_merge_authority` instruction. Sourced from the instruction data of those two SPP instructions. The view tag is the value supplied in instruction data — by convention `merge_authority_pubkey.X`, but SPP does not enforce this. The indexer just stores whatever was provided; the merge service scans for its own X-coordinate and ignores anything else (a mismatched commitment after decryption is discarded).
+```rust
+struct GetMergeAuthorityEventsRequest {
+    view_tag: [u8; 32],
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
 
-```sql
-CREATE TABLE merge_authority_events (
-    id                BIGSERIAL PRIMARY KEY,
-    slot              BIGINT     NOT NULL,
-    tx_signature      BYTEA(64)  NOT NULL,
-    tx_index          INT        NOT NULL,                  -- within slot
-    event_type        SMALLINT   NOT NULL,                  -- 0 = enable, 1 = revoke
-    tree              BYTEA(32)  NOT NULL,                  -- merge_authority_tree pubkey
-    leaf_index        BIGINT     NOT NULL,                  -- position in the merge authority tree
-    commitment        BYTEA(32)  NOT NULL,                  -- enable_commitment or revoke_commitment
-    view_tag          BYTEA(32)  NOT NULL,                  -- merge_authority_pubkey.X
-    tx_viewing_pk  BYTEA(34)  NOT NULL,                  -- for service to derive ECDH shared secret
-    ciphertext        BYTEA(90)  NOT NULL                   -- MergeAuthorityNotification, AES-256-GCM
-);
+struct GetMergeAuthorityEventsResponse {
+    events: Vec<MergeAuthorityEvent>,
+    next_cursor: Option<Vec<u8>>,
+}
 
-CREATE INDEX merge_authority_events_view_tag_idx
-    ON merge_authority_events (view_tag, slot);
+struct MergeAuthorityEvent {
+    slot: u64,
+    tx_signature: [u8; 64],
+    event_type: u8,                       // 0 = enable, 1 = revoke
+    commitment: [u8; 32],
+    leaf_index: u64,
+    view_tag_authority: [u8; 32],
+    recipient_bootstrap_view_tag: [u8; 32],
+    tx_viewing_pk: [u8; 34],
+    ciphertext_authority: [u8; 90],
+    ciphertext_bootstrap: [u8; 90],
+}
 ```
 
-`get_merge_authority_events(view_tag: [u8; 32], cursor, limit)` returns events with the matching `view_tag` ordered by `(slot, tx_signature, tx_index)`. The merge service polls with `view_tag = merge_authority_pubkey.X`, decrypts each `ciphertext` to recover `(user_pubkey, user_root_viewing_pk, number)`, recomputes the expected commitment, and confirms it matches the indexed `commitment`. The `event_type` tells the service whether to add the `(user, number)` to or remove it from its active-user set.
+### `subscribe_to_shielded_transactions_by_tags`
+
+Streaming subscription. Pushes new matches whose view tag is in the subscribed set as transactions land. Long-lived connection (WebSocket / gRPC stream).
+
+```rust
+struct SubscribeToTagsRequest {
+    tags: Vec<[u8; 32]>,
+}
+
+/// Yields one [`ShieldedTransaction`](#get_shielded_transactions_by_tags) per
+/// matching transaction (same shape as `get_shielded_transactions_by_tags`).
+```
+
+### `get_merkle_proofs`
+
+Returns inclusion proofs for leaves against `tree_account` (UTXO tree, merge authority tree, etc.), plus the root + root_index needed by the consuming instruction.
+
+```rust
+struct GetMerkleProofsRequest {
+    tree_account: Address,
+    leaves: Vec<[u8; 32]>,
+}
+
+struct GetMerkleProofsResponse {
+    proofs: Vec<MerkleProof>,
+}
+
+struct MerkleProof {
+    leaf: [u8; 32],
+    tree_account: Address,
+    /// Sibling hashes; length matches the tree's height.
+    path: Vec<[u8; 32]>,
+    leaf_index: u64,
+    root: [u8; 32],
+    /// Matches the corresponding `*_root_index` field on the consuming instruction.
+    root_index: u16,
+}
+```
+
+### `get_non_inclusion_proofs`
+
+Returns non-inclusion proofs for leaves against `tree_account` (nullifier tree, merge authority tree, etc.), plus root + root_index for the consuming instruction.
+
+```rust
+struct GetNonInclusionProofsRequest {
+    tree_account: Address,
+    leaves: Vec<[u8; 32]>,
+}
+
+struct GetNonInclusionProofsResponse {
+    proofs: Vec<NonInclusionProof>,
+}
+
+struct NonInclusionProof {
+    leaf: [u8; 32],
+    tree_account: Address,
+    /// Sibling hashes; length matches the tree's height.
+    path: Vec<[u8; 32]>,
+    /// Indexed-Merkle-tree adjacency witness: the existing leaf whose value
+    /// is the largest less than `leaf`.
+    low_element: [u8; 32],
+    low_element_index: u64,
+    root: [u8; 32],
+    /// Matches the corresponding `*_root_index` field on the consuming instruction.
+    root_index: u16,
+}
+```
 
 ## Pocket RPC
 
 **Methods:**
 
-1. get_decrypted_utxos
-2. get_balance
+1. get_decrypted_utxos()
+2. get_balance()
 3. get_instruction (for shield the user must sign directly)
 
 ## Merge Service
@@ -1793,7 +1639,7 @@ Out-of-protocol service. For each user's Solana pubkey, the registry publishes t
 struct Record {
     /// The user's Solana pubkey.
     owner: Address,
-    /// Static. Used as the signing key, and as the root viewing key while no
+    /// Static. Used as the signing key, and as the viewing key while no
     /// delegate is set.
     owner_p256: P256Pubkey,
     /// Solana pubkey of the current sync delegate, or none.
@@ -1805,9 +1651,9 @@ struct Record {
 struct Entry {
     /// Delegate's P-256 ECDH pubkey.
     sync_pk: P256Pubkey,
-    /// Shared root viewing pubkey published to senders for this entry:
+    /// Shared viewing pubkey published to senders for this entry:
     /// `KDF(ECDH(signing_sk, sync_pk)) · G`.
-    root_viewing_pk: P256Pubkey,
+    viewing_pk: P256Pubkey,
     /// Unix seconds; set at the moment the entry is appended.
     created_at: i64,
 }
@@ -1820,7 +1666,7 @@ Invariants:
 
 The current `ShieldedPubkey` projects from the record:
 
-- (owner P-256, latest entry's root viewing pubkey) while a delegate is set.
+- (owner P-256, latest entry's viewing pubkey) while a delegate is set.
 - (owner P-256, owner P-256) while standalone.
 
 ### Operations
@@ -1857,7 +1703,7 @@ struct RegisterRequest {
 
 #### `set_delegate`
 
-Appoints or replaces the current delegate. Appends a new entry. The appointment rotates `root_viewing_sk`; the wallet resets `TxCount`, `RequestCount`, `known_senders`, and `known_recipients`.
+Appoints or replaces the current delegate. Appends a new entry. The appointment rotates `viewing_sk`; the wallet resets `TxCount`, `RequestCount`, `known_senders`, and `known_recipients`.
 
 Authorized signer: `owner`.
 
@@ -1865,13 +1711,13 @@ Authorized signer: `owner`.
 struct SetDelegateRequest {
     delegate: Address,
     sync_pk: P256Pubkey,
-    root_viewing_pk: P256Pubkey,
+    viewing_pk: P256Pubkey,
 }
 ```
 
 #### `rotate_delegate_key`
 
-Appends a new entry under the same delegate. The record's `delegate` field is unchanged. Like `set_delegate`, this rotates `root_viewing_sk` and resets the wallet's per-key counters and `known_*` maps.
+Appends a new entry under the same delegate. The record's `delegate` field is unchanged. Like `set_delegate`, this rotates `viewing_sk` and resets the wallet's per-key counters and `known_*` maps.
 
 
 Authorized signer: current delegate.
@@ -1879,13 +1725,13 @@ Authorized signer: current delegate.
 ```rust
 struct RotateDelegateKeyRequest {
     sync_pk: P256Pubkey,
-    root_viewing_pk: P256Pubkey,
+    viewing_pk: P256Pubkey,
 }
 ```
 
 #### `revoke`
 
-Removes the current delegate. `entries` is not modified. `root_viewing_sk` reverts to `signing_sk` (standalone); the wallet resets per-key counters and `known_*` maps for the new standalone key.
+Removes the current delegate. `entries` is not modified. `viewing_sk` reverts to `signing_sk` (standalone); the wallet resets per-key counters and `known_*` maps for the new standalone key.
 
 Authorized signer: `owner` or current delegate.
 
@@ -1905,89 +1751,82 @@ struct CloseRequest {}
 
 ## Sync Delegate
 
-A sync delegate holds a [`ViewingKey`](#viewingkey) (its own, derived from ECDH or supplied directly) plus optionally the wallet's `nullifier_secret`. With those it scans view tags, decrypts ciphertexts, and (when given `nullifier_secret`) constructs nullifiers for any UTXO it has decrypted. Appointment is via [Registry § `set_delegate`](#set_delegate); the delegate's `sync_sk` and the wallet's `signing_sk` jointly derive the shared `root_viewing_sk` (see [Wallet](#wallet)).
+A sync delegate holds a [`ViewingKey`](#viewingkey) (its own, derived from ECDH or supplied directly) plus optionally the wallet's `nullifier_secret`. With those it scans view tags, decrypts ciphertexts, and (when given `nullifier_secret`) constructs nullifiers for any UTXO it has decrypted. Appointment is via [Registry § `set_delegate`](#set_delegate); the delegate's `sync_sk` and the wallet's `signing_sk` jointly derive the shared `viewing_sk` (see [Wallet](#wallet)).
 
 **Handover on appointment.** The wallet ships the delegate two secrets out-of-band (TLS, e2e-encrypted), from which the delegate constructs a `ViewingKey` and holds `nullifier_secret` alongside it:
 
-1. `root_viewing_sk` for the current entry — derived jointly via `ECDH(signing_sk, delegate.sync_pk)`; the delegate instantiates its current `ViewingKey` via `ViewingKey::from_sk(root_viewing_sk)`. For prior entries, the wallet MAY additionally ship `[(key_index, root_viewing_sk_k)]` so the delegate can scan history:
-    - **(a) Hand-over.** Ship all prior `root_viewing_sk_k`. The new delegate can scan the full history.
-    - **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can always derive `root_viewing_sk_k` from `signing_sk + entries[k].sync_pk`.
+1. `viewing_sk` for the current entry — derived jointly via `ECDH(signing_sk, delegate.sync_pk)`; the delegate instantiates its current `ViewingKey` via `ViewingKey::from_sk(viewing_sk)`. For prior entries, the wallet MAY additionally ship `[(key_index, viewing_sk_k)]` so the delegate can scan history:
+    - **(a) Hand-over.** Ship all prior `viewing_sk_k`. The new delegate can scan the full history.
+    - **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can always derive `viewing_sk_k` from `signing_sk + entries[k].sync_pk`.
 2. `nullifier_secret` — the single 32-byte secret feeding `pre_nullifier = Poseidon(blinding, nullifier_secret)`. Optional: ship it to let the delegate construct nullifiers locally for any UTXO it has decrypted (required to build merge proofs autonomously); omit to restrict the delegate to decrypt-only. The delegate cannot construct `pre_nullifier` for UTXOs it has not decrypted, since it lacks their `blinding`.
 
-**Rotation: recommended UTXO migration.** On `set_delegate` (replacing a delegate), `rotate_delegate_key`, or `revoke`, the wallet SHOULD migrate its outstanding UTXO set to the new shared root viewing key: spend each UTXO via normal `transact` and create a fresh-blinded successor encrypted to the new key. Pre-migration UTXOs remain predictable by the old delegate (it has `nullifier_secret` and the old blindings); post-migration UTXOs use blindings the old delegate never saw, so its nullifier-prediction power expires for new activity. The protocol does not enforce migration; the timing is a wallet decision.
+**Rotation: recommended UTXO migration.** On `set_delegate` (replacing a delegate), `rotate_delegate_key`, or `revoke`, the wallet SHOULD migrate its outstanding UTXO set to the new shared viewing key: spend each UTXO via normal `transact` and create a fresh-blinded successor encrypted to the new key. Pre-migration UTXOs remain predictable by the old delegate (it has `nullifier_secret` and the old blindings); post-migration UTXOs use blindings the old delegate never saw, so its nullifier-prediction power expires for new activity. The protocol does not enforce migration; the timing is a wallet decision.
 
-# Notes
-
-1. policy pockets can only be entered and exited from and to the default pocket
-2. by default every pocket that is deployed creates a new program, later we can deploy a standard pocket program that has a set of extensions.
-3. By publishing the cleartext output utxo data we would essentially do compressed token transfers.
 
 # User Flows
-
-## Request Payment Flow Default Pocket
-
-Recipient-pull flow. The recipient supplies a one-time `view_tag` that the sender writes onto the recipient's ciphertext slot, so the recipient can pull the payment by exact byte-match instead of scanning every transfer.
-
-```mermaid
-sequenceDiagram
-    participant Recipient as Recipient Client
-    participant Sender as Sender Client
-    participant RPC as RPC<br/>(Photon Indexer / Relayer)
-
-    Note over Recipient: send payment request<br> (out of band)
-    Recipient->>Sender: 
-
-    Note over Sender: (message, encrypted_utxos) =<br/>sdk.send_transaction(recipient, amount, wallet)
-    Sender->>RPC: send_transaction
-    RPC-->>Sender: signature
-
-    Note over Recipient: Poll for payment tx
-    Recipient->>RPC: get_encrypted_utxos<br/>filter: view_tag == recipient_request_view_tag
-    RPC-->>Recipient: ciphertext
-    Note over Recipient: Decrypt<br/>recover output UTXO
-
-    Note over Sender: Poll for payment tx
-    Sender->>RPC: get_encrypted_utxos<br/>filter: view_tag == sender_view_tag
-    RPC-->>Sender: ciphertext
-    Note over Sender: Decrypt<br/>recover change UTXO + spent nullifiers
-```
-
-Notes:
-
-1. The payment request is transferred out of band (QR code, deeplink, message). Zolana does not standardize this channel.
-2. The sender's `view_tag` is independent from the recipient's — they come from different per-wallet view-tag secrets.
-3. Without a payment request, the recipient has no `view_tag` to filter on and would have to fetch every transfer ciphertext since their cursor. Unsolicited transfers in this scheme are unsupported.
-
 
 ## First Time Sync Wallet
 
 Restores a fresh wallet including fetching and decrypting all user UTXOs from a BIP-39 mnemonic.
+The flow can be executed by the users wallet or the sync delegate.
 
-1. **Initialize the wallet** from the mnemonic (derives `signing_sk`, `nullifier_secret`, `tx_viewing_secret` in-process). Read the [Registry](#registry) record for the wallet's Solana pubkey to enumerate root viewing keys: the standalone key (active while `entries` is empty or before the first entry) plus each delegate entry.
+**Wallet State**
+```
+ViewingKeyEntry {
+    key:                ViewingKey,
+    created_at:         i64,                    // mirrors registry Entry.created_at; standalone uses 0
+    TxCount:            u64,
+    RequestCount:       u64,
+    known_senders:      map<sender_pubkey    → u64>,
+    known_recipients:   map<recipient_pubkey → u64>,
+    merge_services:     map<merge_authority_pubkey → (user_viewing_pk, number, merge_count)>,
+}
 
-2. **For each root viewing key `k` in parallel:**
-    1. **Phase 1 — scan own view tags (concurrent within `k`).** All derivations run through wallet methods; secrets stay in the wallet.
-        1. **Fetch loop** in batches of 10 000 until first empty batch, scoped to `k`'s `[created_at, next.created_at)` window:
-            1. `tags := wallet.get_view_tag_range(sender, k, i..i+10_000) ∪ wallet.get_view_tag_range(recipient_request, k, i..i+10_000) ∪ ⋃_s wallet.get_view_tag_range(merge, k, i..i+10_000, Some(s))` (union over every known `merge_authority_pubkey` `s` in `merge_services`). `indexer.get_shielded_transactions(tags)`.
-            2. fetch ciphertexts tagged with `recipient_bootstrap_view_tag` (`root_viewing_pk_k.X`, public — no wallet call needed).
-            3. fetch ciphertexts or decrypted UTXOs from every known policy-pocket RPC.
-            4. fetch proofless shields cleartext UTXOs.
-        2. **Decrypt and store.** For each ciphertext, `plaintext := wallet.decrypt(ciphertext, tx_viewing_pk, k)`. Store the UTXOs along with the transaction's `nullifiers` array from the `ShieldedTransaction` response.
-    2. **Phase 2 — scan known_senders and known_recipients view tags (concurrent within `k`).**
-        1. **Fetch loop** in batches of 10 000 until first empty batch:
-            1. for each known sender `s`, `tags := wallet.get_view_tag_range(shared_derive, k, i..i+10_000, Some(s))`; fetch matching ciphertexts.
-            2. for each known recipient `r`, `tags := wallet.get_view_tag_range(shared_send, k, i..i+10_000, Some(r))`; fetch matching ciphertexts.
-        2. **Decrypt and store.** Decrypt via `wallet.decrypt(...)` and store UTXOs; repeat the fetch loop for any newly discovered senders.
+Wallet {
+    signing_key:        SigningKey,
+    viewing_history:    Vec<ViewingKeyEntry>,   // append-only, chronological (oldest first); the tail is the current entry
+    known_pockets:      map<policy_program_id → pocket_rpc_url>,
+    Utxos:              Vec<Utxo>,
+    last_synced:        Timestamp,
+}
+```
 
-3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across root viewing keys.
+`viewing_entry` denotes `viewing_history.last()` throughout this section.
 
-4. **Mark spent utxos.** For each owned UTXO, compute `pre_nullifier = Poseidon(blinding, nullifier_secret)` then `nullifier = Poseidon(utxo_hash, pre_nullifier)` and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent.
+1. **Initialize the wallet.**
+    1. Obtain a `SigningKey`.
+    2. Call `registry.get_record(solana_pubkey)`.
+    3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
+    4. If `entries` is empty, append a single standalone `ViewingKeyEntry` whose `ViewingKey` aliases the signing key.
 
-5. **Rebuild `merge_services`.** Scan the wallet's self-addressed enable/revoke notifications via `view_tag_self` on the `merge_authority_events` stream (see [`enable_merge_authority`](#enable_merge_authority)). For each decrypted enable, confirm `enable_commitment` is present in the merge authority tree and `revoke_commitment` is not — this yields the active set of `(merge_authority_pubkey, number)` pairs.
+2. **Main sync and merge sync run as independent parallel branches.**
 
-   For each active service, recover its `merge_count` by mapping observed merge view tags back to their indices: scan the indexer for `view_tag` values matching `wallet.get_merge_view_tag(merge_authority_pubkey, n)` for `n = 0, 1, 2, …` until the first empty range. The wallet sets the service's `merge_count` to the highest matched `n` + 1.
+    1. **Main sync — for each viewing key `k` in parallel:**
+        1. **Phase 1 — scan own view tags (concurrent within `k`).**
+            1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.get_shielded_transactions_by_tags(tags)` in batches of 10 000 tags until its first empty batch:
+                - `wallet.get_sender_view_tag(n)` under `k` for `n in [i, i+10_000)`,
+                - `wallet.get_recipient_request_view_tag(n)` under `k` for `n in [i, i+10_000)`,
+                - the single `recipient_bootstrap_view_tag` for `k` (one call, not a range).
+            2. For each `policy_program_id` in `known_pockets`, fetch ciphertexts or decrypted UTXOs from that pocket's RPC.
+            3. **Decrypt and store.** Decrypt each ciphertext via the `k`-th viewing key. Store the UTXOs along with the transaction's `nullifiers` array. Track `max(observed index)` per stream.
+        2. **Phase 2 — scan `known_senders` and `known_recipients` view tags.** Depends on Phase 1 (the maps are populated from decrypted ciphertexts there).
+            1. **Fetch loop** in batches of 10 000 until first empty batch:
+                1. for each known sender `s`, derive `wallet.get_shared_view_tag(s, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
+                2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
+            2. **Decrypt and store.** Decrypt and store UTXOs.
 
-6. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, per-key counters `TxCount`, `RequestCount` (the current key's `max(observed index) + 1`), `merge_services` (from step 5), `last_synced = current_timestamp()`.
+    2. **Merge sync — for each viewing key `k` in parallel.**
+        1. Call `indexer.get_merge_authority_events(recipient_bootstrap_view_tag)` with `k`'s bootstrap tag.
+        2. For each enable event: `merge_authority_pubkey := event.view_tag_authority`; decrypt `event.ciphertext_bootstrap` with `k` to recover `number`.
+        3. Confirm `event.commitment` is present in the merge authority tree and the matching `revoke_commitment = Poseidon(REVOKE_TAG, user_pubkey, k.viewing_pk, merge_authority_pubkey, number)` is not, via `indexer.get_merkle_proofs` and `indexer.get_non_inclusion_proofs` against the merge authority tree.
+        4. For each active service `s`, fetch loop in batches of 10 000 until first empty batch: derive `wallet.get_merge_view_tag(s, n)` for `n in [i, i+10_000)`; call `indexer.get_shielded_transactions_by_tags(tags)`.
+        5. **Decrypt and store.** Decrypt merged-output ciphertexts with `k`; store UTXOs along with the transaction's `nullifiers`. Track `max(observed n)` per service; the per-service `merge_count` is `max(observed n) + 1`.
+
+3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
+
+4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = wallet.nullifier(utxo)` and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent.
+
+5. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, per-key counters `TxCount`, `RequestCount` (= `max(observed index) + 1`), `merge_services` with each `merge_count` (= `max(observed n) + 1`) from step 2, `last_synced = current_timestamp()`.
 
 **Sync Time Estimates**
 
@@ -1999,7 +1838,7 @@ Assumptions:
 4. Per-key scans run concurrently. Within a key, Phase 1 (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) runs concurrently, and Phase 2 per-sender / per-recipient scans run concurrently.
 5. Each known sender has < 10 000 incoming transfers per key; each known recipient has < 10 000 outgoing transfers per key.
 
-Figures below are **per root viewing key**. With `E` keys (1 standalone + delegate entries), sequential totals multiply by `E`; parallel totals add ECDH cost only since RTTs overlap.
+Figures below are **per viewing key**. With `E` keys (1 standalone + delegate entries), sequential totals multiply by `E`; parallel totals add ECDH cost only since RTTs overlap.
 
 | Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -2025,22 +1864,22 @@ sequenceDiagram
     Merge-->>Wallet: publish merge_authority_pubkey<br/>(website / link / QR)
 
     Note over Wallet,Indexer: Opt-in (single on-chain instruction)
-    Wallet->>Wallet: pick next number for this service<br/>build Enable Proof (private: user_pubkey, user_root_viewing_pk,<br/>merge_authority_pubkey, number, user P256 sig)<br/>encrypt MergeAuthorityNotification twice with the shared tx_viewing_pk:<br/>once to merge_authority_pubkey (view_tag_authority),<br/>once to user_root_viewing_pk (view_tag_self for restore-from-mnemonic)
-    Wallet->>SPP: enable_merge_authority(enable_commitment, proof,<br/>tx_viewing_pk, view_tag_authority, ciphertext_authority,<br/>view_tag_self, ciphertext_self)
+    Wallet->>Wallet: pick next number for this service<br/>build Enable Proof (private: user_pubkey, user_viewing_pk,<br/>merge_authority_pubkey, number, user P256 sig)<br/>encrypt MergeAuthorityNotification twice with the shared tx_viewing_pk:<br/>once to merge_authority_pubkey (view_tag_authority),<br/>once to user_viewing_pk (recipient_bootstrap_view_tag for restore-from-mnemonic)
+    Wallet->>SPP: enable_merge_authority(enable_commitment, proof,<br/>tx_viewing_pk, view_tag_authority, ciphertext_authority,<br/>recipient_bootstrap_view_tag, ciphertext_bootstrap)
     SPP->>Trees: verify Enable Proof, insert enable_commitment
-    SPP-->>Indexer: index event in merge_authority_events under view_tag_authority<br/>(and the self-addressed slot is indexed under view_tag_self for wallet recovery)
+    SPP-->>Indexer: index event in merge_authority_events under view_tag_authority<br/>(and the self-addressed slot is indexed under recipient_bootstrap_view_tag for wallet recovery)
 
     Note over Merge,Indexer: Discovery
-    Merge->>Indexer: get_merge_authority_events(view_tag = merge_authority_pubkey.X)
+    Merge->>Indexer: get_merge_authority_events(view_tag = merge_authority_pubkey)
     Indexer-->>Merge: enable event (tx_viewing_pk, ciphertext_authority)
-    Merge->>Merge: decrypt → (user_pubkey, user_root_viewing_pk, number)<br/>recompute enable_commitment and verify match<br/>add (user, number) to active set
+    Merge->>Merge: decrypt → (user_pubkey, user_viewing_pk, number)<br/>recompute enable_commitment and verify match<br/>add (user, number) to active set
 
     Note over Wallet,Merge: Per-batch handover (channel a)
     Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)<br/>compute per-input pre_nullifier = Poseidon(blinding, nullifier_secret)<br/>derive merge_view_tag = get_merge_view_tag(merge_authority_pubkey, merge_count)<br/>advance per-service merge_count
     Wallet->>Merge: (plaintext inputs, pre_nullifiers, merge_view_tag, merge_count)<br/>nullifier_secret never leaves the wallet
 
     Note over Merge: Build witness + proof
-    Merge->>Merge: build merge proof (uses pre_nullifiers as witness, not nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- enable_commitment inclusion + revoke non-inclusion<br/>- merge authority P256 signature over private_tx_hash<br/>- verifiable encryption to user_root_viewing_pk
+    Merge->>Merge: build merge proof (uses pre_nullifiers as witness, not nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- enable_commitment inclusion + revoke non-inclusion<br/>- merge authority P256 signature over private_tx_hash<br/>- verifiable encryption to user_viewing_pk
     Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)
 
     Note over SPP: Verify and apply
@@ -2067,7 +1906,7 @@ Scenario X from the single and advanced flows maps to the respective scenario in
 **Single player** cover user flows that are backwards compatible with any Solana wallets.
 **Advanced** cover ideal user flows between private wallets.
 **Registry** maps Solana public keys to a shielded pubkey.
-**ShieldedPubkey**(signing P256 Pubkey, root viewing P256 Pubkey) the signing key and the root viewing key can be the same key, for example for a cypherpunk user. A user who has a shared key with an auditor would use different keys, a user owned signing key and a shared root viewing key.
+**ShieldedPubkey**(signing P256 Pubkey, viewing P256 Pubkey) the signing key and the viewing key can be the same key, for example for a cypherpunk user. A user who has a shared key with an auditor would use different keys, a user owned signing key and a shared viewing key.
 
 **Single Player flows:**
 
@@ -2115,9 +1954,3 @@ Sender and recipient wallets both support shielded transfers.
 | 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
 | 7 | **Advanced** · both wallets shielded · sender has shielded funds | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Shield to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
-
-# TODO:
-4. add swap user flow (unshield, swap, shield)
-5. add private zk swap user flow (in particular syncing and decrypting user program state)
-6. add keep wallet sync user flow, and add that view tags should only proceeds in trusted execution environments in the indexer rpc as a very brief note.
-7. benchmarks of wallet sync flow.
