@@ -35,3 +35,9 @@
         4. here is how you can integrate
     6. add PSP seeds hash
     7. what if we define blinding Poseidon(rnd, current slot) to add an additional safeguard that every utxo is different
+
+# Notes
+
+1. policy pockets can only be entered and exited from and to the default pocket
+2. by default every pocket that is deployed creates a new program, later we can deploy a standard pocket program that has a set of extensions.
+3. By publishing the cleartext output utxo data we would essentially do compressed token transfers.

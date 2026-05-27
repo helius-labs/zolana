@@ -421,3 +421,7 @@ The shielded pool program has merge service registry accounts. Users can whiteli
 **Merge UTXOs,** a merge service proves that a nullifier exists and that the user utxos are merged and encrypted correctly.
 
 **Disable merge service**, user removes nullifier from merge service tree.
+
+**Notes:**
+
+1. If the recipient does not have a config account the output UTXO is encrypted to the recipient.
