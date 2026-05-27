@@ -23,6 +23,7 @@
     - [Enter and Exit Pocket](#enter-and-exit-pocket)
 - [Shielded Public Key](#shielded-public-key)
 - [SigningKey](#signingkey)
+- [NullifierKey](#nullifierkey)
 - [ViewingKey](#viewingkey)
   - [Derived secrets](#derived-secrets)
   - [Transaction Viewing Key](#transaction-viewing-key)
@@ -422,12 +423,25 @@ sequenceDiagram
 
 # Shielded Public Key
 
-`ShieldedPubkey = (signing_pk, viewing_pk)`
-The signing key is static, the viewing key can rotate.
+A shielded address is a compressed commitment to two authorizing keys plus a separate pubkey for ECDH encryption:
+
+```
+owner_hash = Poseidon(signing_pk_a, signing_pk_b, nullifier_pk.x, nullifier_pk.y)
+```
+
+- `signing_pk` — spend authority. P256 by default; Ed25519 when the owner is a Solana account that does not run a shielded wallet. Encoded as two field elements:
+  - P256: `(x, y)` of the SEC1 affine point.
+  - Ed25519: `(low, high)` split of the 256-bit packed pubkey, since it exceeds BN254's ~254-bit scalar field.
+- `nullifier_pk` — Baby Jubjub point `nullifier_sk · G_bjj`. Anchors the DLEQ binding that pins each UTXO's nullifier to its recipient (see [Nullifier](#nullifier)).
+- `viewing_pk` — P256 pubkey for ECDH AES-GCM encryption and view-tag derivation. Can rotate independently; see [Sync Delegate](#sync-delegate).
+
+`ShieldedPubkey = (owner_hash, viewing_pk)` is the sender-facing form. The recipient retains the unhashed `(signing_pk, nullifier_pk)` locally.
+
+Senders, SPP, and indexers only see `owner_hash`. Which signing scheme produced `(signing_pk_a, signing_pk_b)` is not recoverable from the hash. The wallet keeps the components locally and supplies them as proof witnesses at spend time.
 
 # SigningKey
 
-`(signing_sk, signing_pk)` — P-256 Keypair.
+`(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
 
 **Coin type.** `ZOLANA_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.zolana.v1")[0..4] as u32 & 0x7FFF_FFFF`.
 
@@ -438,16 +452,28 @@ The signing key is static, the viewing key can rotate.
 - `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/ZOLANA_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
 - `SigningKey::from_sk(signing_sk)` — direct injection.
 
-**Derived secrets**:
+**Methods:**
 
-- `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk, info="zolana/nullifier", L=32)`.
-  - Purpose: secret to derive nullifiers, so that nullifiers cannot be computed from the encrypted UTXO data alone.
+- `sign(msg) -> Signature` — P256 signature for shielded wallets; Ed25519 signature delegated to the host Solana wallet for Solana-only owners. Used to authorize `private_tx_hash` in the SPP proof (P256: verified in circuit; Ed25519: verified by SPP).
+
+# NullifierKey
+
+`(nullifier_sk, nullifier_pk)` — Baby Jubjub keypair. Anchors the DLEQ binding that pins each UTXO's nullifier to its recipient (see [Nullifier](#nullifier)). Wallet-derived; can be shipped to a sync delegate without enabling the delegate to spend.
+
+`nullifier_pk = nullifier_sk · G_bjj`, reduced into the prime-order subgroup of Baby Jubjub (cofactor 8 cleared).
+
+**Constructors:**
+
+- `NullifierKey::from_signing_key(signing_key)` — `nullifier_sk := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="zolana/nullifier", L=48) mod r_bjj`, where `r_bjj` is the order of the Baby Jubjub prime-order subgroup and `signing_sk_bytes` is the canonical 32-byte serialization of `signing_sk` (P256 scalar, or Ed25519 seed for Solana-only owners). `L=48` keeps the modular-reduction bias negligible (RFC 9380 § 5.2).
+- `NullifierKey::from_sk(nullifier_sk)` — direct injection.
 
 **Methods:**
 
-1. `sign_p256(msg) -> P256Signature`
-2. `pre_nullifiers(utxos: &[Utxo]) -> Vec<[u8; 32]>` — `Poseidon(utxo.blinding, nullifier_secret)`. The per-UTXO value the wallet shares with provers so that `nullifier_secret` never leaves the wallet.
-3. `nullifier(utxo) -> [u8; 32]` — `Poseidon(utxo.hash, pre_nullifier(utxo))`.
+- `pre_nullifier_point(utxo_hash) -> BabyJubjubPoint` — `nullifier_sk · H_to_BJJ(utxo_hash)`. Wallet-computed; shipped to provers as a witness value without revealing `nullifier_sk`.
+- `prove_dleq(utxo_hash) -> (c, s)` — Chaum-Pedersen proof that `log_{G_bjj}(nullifier_pk) == log_{H_to_BJJ(utxo_hash)}(pre_nullifier_point)`. Two scalars in the Baby Jubjub prime-order subgroup.
+- `nullifier(utxo_hash) -> [u8; 32]` — `Poseidon(utxo_hash, pre_nullifier_point.x, pre_nullifier_point.y)`.
+
+**Capability split.** Sharing `nullifier_sk` with a sync delegate lets the delegate compute nullifiers for UTXOs it has decrypted. The delegate cannot spend: `signing_sk` stays in the primary wallet. Sync delegates without `nullifier_sk` are limited to decryption.
 
 # ViewingKey
 
@@ -477,7 +503,7 @@ TODO: adapt derivation so that the viewing key can never repeat.
 - **Read-only**: viewing keys grant decryption only.
 - **Derivable on demand**:
   ```
-  first_nullifier := Poseidon(inputs[0].hash, pre_nullifier(inputs[0]))
+  first_nullifier := nullifier_key.nullifier(inputs[0].hash)        // see [Nullifier](#nullifier)
   (tx_viewing_sk, tx_viewing_pk) := HKDF-SHA256(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")
   ```
   `tx_viewing_secret` is defined in [Derived secrets](#derived-secrets). Binding the HKDF salt to `first_nullifier` makes the keypair unique per Solana transaction (nullifier tree uniqueness implies `tx_viewing_pk` uniqueness).
@@ -591,64 +617,65 @@ flowchart LR
 ```
 
 ```rust
-/// A UTXO owner. Determines which spend-authorization path SPP uses
-/// (see [UTXO Ownership Check](#utxo-ownership-check)).
-enum Owner {
-    /// P256 signing key, verified in circuit.
-    P256(P256Pubkey),
-    /// Solana account, verified by SPP as an Ed25519 signer.
-    Solana(Address),
-}
-
 struct Utxo {
     /// Constant separating UTXOs from other Poseidon-hashed records.
     domain: u16,
-    /// Spend authority for this UTXO.
-    owner: Owner,
+    /// Recipient's `owner_hash` from their [Shielded Pubkey](#shielded-public-key):
+    /// a Poseidon commitment over `(signing_pk, nullifier_pk)`. Senders write
+    /// this 32-byte value directly; the spender supplies the preimage
+    /// components as proof witness.
+    owner: [u8; 32],
     /// Asset mint. SOL is encoded as a fixed pseudo-address.
     asset: Address,
     /// Amount in the smallest unit of `asset`.
     amount: u64,
-    /// Random bytes that ensure that for equal
-    /// `(owner, asset, amount)` the UTXO hash is different.
+    /// Random bytes ensuring distinct UTXO hashes for equal
+    /// `(owner, asset, amount)` triples.
     blinding: [u8; 31],
     /// Arbitrary program data.
     program_data: Option<Vec<u8>>,
     /// Arbitrary policy data.
     policy_data: Option<Vec<u8>>,
-    /// The policy program that must authorize spends of this UTXO.
+    /// The policy program that authorizes spends of this UTXO.
     policy_program_id: Option<Address>,
 }
 ```
 
+**Output side (creating a UTXO).** Senders write `owner` as the recipient's pre-computed `owner_hash`, fetched from the recipient's published address. The sender does not handle `signing_pk` or `nullifier_pk` directly.
+
+**Input side (spending a UTXO).** The spender witnesses the components `(signing_pk_a, signing_pk_b, nullifier_pk.x, nullifier_pk.y)`. The proof recomputes `owner = Poseidon(...)`, matches it against the input UTXO, and verifies the signature check (P256 path or Ed25519 path). The P256-vs-Ed25519 choice appears in the witness; `owner` itself does not reveal which.
+
 ## UTXO Hash
 
 ```
-utxo_hash = Poseidon(domain, owner, asset, amount, blinding, program_data_hash, policy_data_hash, policy_program_id)
+utxo_hash = Poseidon(domain, owner, asset, amount, blinding,
+                     program_data_hash, policy_data_hash,
+                     policy_program_id)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. Pubkeys (`owner`, `policy_program_id`) are Poseidon-encoded as `Poseidon(pubkey_low, pubkey_high)` before hashing.
-; unconstrained by SPP. The UTXO's `policy_program_id`
-    /// defines the hashing scheme. See [Program Data](#program-data).
-    unconstrained by SPP. The application program
-    /// that produced the UTXO defines the hashing scheme.
-    /// See [Program Data](#program-data).
+The SPP proof commits to `utxo_hash` for every input and output. `owner` is the commitment defined in [Shielded Public Key](#shielded-public-key). `policy_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+
 ## Nullifier
 
-A nullifier derives deterministically from a UTXO, inserting a nullifier must only succeed once.  
+A nullifier deterministically derives from a UTXO and the recipient's `nullifier_sk`. Insertion into the nullifier tree must succeed only once.
 
 ```
-pre_nullifier = Poseidon(blinding, nullifier_secret)
-nullifier     = Poseidon(utxo_hash, pre_nullifier)
+H := H_to_BJJ(utxo_hash)                                        // deterministic Baby Jubjub point
+pre_nullifier_point := nullifier_sk · H                          // wallet computes off-circuit
+nullifier := Poseidon(utxo_hash, pre_nullifier_point.x, pre_nullifier_point.y)
 ```
 
-`nullifier_secret` is wallet-derived; `blinding` is from the spent UTXO.
+The wallet additionally produces a Chaum-Pedersen DLEQ proof `(c, s)` attesting
 
-**Purpose of the two-step construction.** A prover server (a merge service, or any future third-party prover) needs the nullifier in its witness to construct the proof. The two-step construction lets the wallet hand the prover the `pre_nullifier` for each specific UTXO it should consume. `nullifier_secret` stays in the wallet or its appointed sync delegate and never appears in a proof witness.
+```
+log_{G_bjj}(nullifier_pk) == log_H(pre_nullifier_point)
+```
 
-`pre_nullifier` is per-UTXO scoped: it depends on that UTXO's `blinding` (a 31-byte random value unique to that UTXO), so a `pre_nullifier` for UTXO `i` reveals nothing about the nullifier of any other UTXO. The prover can compute the nullifier for the one UTXO it was authorized to merge. Poseidon's one-wayness prevents the prover from extracting `nullifier_secret` from one or many `pre_nullifier` values.
+The SPP and merge circuits verify this DLEQ against the `nullifier_pk` committed inside the UTXO's `owner_hash` (see [Shielded Public Key](#shielded-public-key)). Because `H` is a deterministic function of public `utxo_hash` and `nullifier_pk` is fixed by `owner_hash`, exactly one `pre_nullifier_point` satisfies the DLEQ — the nullifier is uniquely determined per UTXO.
 
-TODO: commit to `nullifier_secret` in the UTXO hash; in the current design `nullifier_secret` is unconstrained, which is insecure.
+**Prover delegation.** The wallet ships `(pre_nullifier_point, c, s)` to whichever prover constructs the proof (merge service, sync delegate, or the wallet itself). These are derived values; `nullifier_sk` stays in the wallet.
+
+See [NullifierKey](#nullifierkey) for the methods that build these values.
 
 # Output UTXO Serialization
 
@@ -926,8 +953,28 @@ struct MergeEncryptedUtxo {
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
 | data_hash | instruction data |
 | policy_data | instruction data |
+| ed25519_owner_flags (one per input UTXO) | bit per input: `1` if the input's owner uses the Ed25519 signing scheme, `0` for P256. SPP cross-checks each `1` against the transaction's Solana signer set. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
+
+**Private Inputs (per input UTXO)**
+
+| Input | Description |
+| --- | --- |
+| `(signing_pk_a, signing_pk_b)` | components of the owner's signing pk in the [Shielded Public Key](#shielded-public-key) encoding (P256: `(x, y)`; Ed25519: `(low, high)`) |
+| `(nullifier_pk.x, nullifier_pk.y)` | owner's Baby Jubjub nullifier pubkey |
+| `(pre_nullifier_point.x, pre_nullifier_point.y)` | `nullifier_sk · H_to_BJJ(utxo_hash)`; wallet-computed |
+| `dleq_c`, `dleq_s` | Chaum-Pedersen DLEQ proof scalars in the Baby Jubjub prime-order subgroup |
+| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `policy_program_id` | UTXO body fields used to recompute `utxo_hash` |
+| `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
+| `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519) |
+
+**Private Inputs (per output UTXO)**
+
+| Input | Description |
+| --- | --- |
+| `owner` | recipient's `owner_hash`; the proof folds it into `output_utxo_hashes[i]` without unpacking the components |
+| `asset`, `amount`, `blinding`, `program_data_hash`, `policy_data_hash`, `policy_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
 
@@ -950,19 +997,22 @@ external_data_hash := Sha256BE(
 
 | Check | Description |
 | --- | --- |
-| UTXO Ownership | Spent input UTXOs MUST be authorized by their owner, either with a P256 signature verified in circuit or a Solana signer checked by SPP. The P256 signature covers `sender_view_tag`, `expiry_unix_ts`, and the input UTXOs, so a prover cannot replay the proof under different public inputs. Pubkeys are encoded as Poseidon(pubkey_low, pubkey_high). |
+| Owner hash binding (per input) | `owner == Poseidon(signing_pk_a, signing_pk_b, nullifier_pk.x, nullifier_pk.y)` recomputed from witness; matched against the `owner` field used to recompute `utxo_hash`. |
+| UTXO Ownership | Spent input UTXOs MUST be authorized by their owner. P256 owners: P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof. Ed25519 owners: the proof skips the signature check and the public `ed25519_owner_flags[i]` bit instructs SPP to verify the corresponding Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO MUST be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
+| DLEQ binding (per input) | Chaum-Pedersen verify: `H := H_to_BJJ(utxo_hash)`; check `(dleq_c, dleq_s)` against `(G_bjj, nullifier_pk, H, pre_nullifier_point)`. Together with the owner hash binding, this pins `pre_nullifier_point` uniquely per `(nullifier_sk, utxo_hash)`. |
+| Subgroup membership (per input) | `nullifier_pk` and `pre_nullifier_point` lie in Baby Jubjub's prime-order subgroup. |
+| Nullifiers | Public nullifier per input equals `Poseidon(utxo_hash, pre_nullifier_point.x, pre_nullifier_point.y)`. |
 | Nullifier non-inclusion | Each input nullifier MUST NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
-| Nullifiers | Public nullifiers MUST be well formed from the spent input UTXOs. |
-| Output UTXOs | Output UTXOs MUST be well formed and match the public output commitments. |
+| Output UTXOs | Output UTXO hashes MUST be well formed and match `output_utxo_hashes[i]`. The proof folds output `owner` into `output_utxo_hashes[i]` without unpacking it. |
 | Balance Conservation | For each active asset, inputs plus public deposits MUST equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`.<br>The owner signs this value (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | Program ownership | UTXOs owned by a policy program MUST be authorized by a PDA signer of that program. Policy proofs are checked by the policy program before CPI into SPP. |
-| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, nullifier non-inclusion, output, and balance checks are skipped for dummy UTXOs. |
+| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, DLEQ, nullifier, and balance checks are skipped for dummy UTXOs. |
 
 **Utxo Ownership Check:**
-1. Ed25519 Solana signer checked by SPP. Used when the input UTXO's owner is the Solana payer (shield path).
-2. P256 signature over `private_tx_hash` verified in the SPP proof. The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
+1. P256 signature over `private_tx_hash` verified in the SPP proof. The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
+2. Ed25519 Solana signer checked by SPP. Used when the input UTXO's owner is encoded as Ed25519 (signaled via `ed25519_owner_flags[i] = 1`). SPP verifies the corresponding 32-byte Solana account derived from `(signing_pk_a, signing_pk_b)` is a signer of the transaction. The DLEQ binding is still checked by the proof for these inputs.
 
 **Circuit Combinations**
 
@@ -996,34 +1046,39 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Input | Description |
 | --- | --- |
-| input UTXO hashes | owner, asset_id, amount, blinding for each input |
-| pre_nullifier (per input) | `Poseidon(blinding, nullifier_secret)`. Computed and supplied by the wallet (channel a) or derived locally by the sync delegate from `nullifier_secret` + decrypted blinding (channel b). The proof computes `nullifier = Poseidon(utxo_hash, pre_nullifier)` in-circuit. |
-| user_pubkey | shared owner of all inputs and the output (P256 signing pk) |
+| input UTXO hashes | each input's hash, recomputed by the proof from witnessed body fields |
+| `(user_signing_pk_a, user_signing_pk_b)` | components of the shared owner's P256 signing pk in the [Shielded Public Key](#shielded-public-key) encoding (P256 only — Solana / Ed25519 owners are out of scope for merge services) |
+| `(user_nullifier_pk.x, user_nullifier_pk.y)` | shared owner's Baby Jubjub nullifier pubkey |
+| `pre_nullifier_point` (per input) | `nullifier_sk · H_to_BJJ(utxo_hash)`; the wallet computes and ships to the merge service (channel a) or the sync delegate derives locally from `nullifier_sk` (channel b). `nullifier_sk` stays in the wallet. |
+| `dleq_c`, `dleq_s` (per input) | Chaum-Pedersen DLEQ proof scalars |
 | user_viewing_pk | owner's P256 viewing pubkey, bound at enable time via `enable_commitment` |
 | merge_authority_pubkey | merge authority P256 signing pk |
-| number | slot index for the active `(user_pubkey, user_viewing_pk, merge_authority_pubkey)` whitelist; private to keep the count of revocation cycles unobservable |
+| number | slot index for the active `(owner_hash, user_viewing_pk, merge_authority_pubkey)` whitelist; private to keep the count of revocation cycles unobservable |
 | merge_authority_signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` |
 | enable_inclusion_path | Merkle path proving `enable_commitment ∈ merge_authority_tree` at `merge_authority_root` |
 | revoke_non_inclusion_path | Merkle path proving `revoke_commitment ∉ merge_authority_tree` at `merge_authority_root` |
-| output UTXO hash | shared owner = `user_pubkey`, asset_id, amount, blinding for the merged output |
+| output UTXO hash | shared `owner = user_owner_hash`, asset, amount, blinding for the merged output |
 | tx_viewing_sk | P256 scalar used in ECDH; `tx_viewing_pk == tx_viewing_sk · G_P256` |
-| plaintext | the merge bundle (`owner_pubkey`, `asset_id`, `amount`, `blinding`); `Poseidon(plaintext) == output_utxo_hash` |
+| plaintext | the merge bundle (`owner`, `asset`, `amount`, `blinding`); `Poseidon(plaintext) == output_utxo_hash` |
 
 **Checks**
 
 | Check | Description |
 | --- | --- |
-| Ownership uniformity | Every input UTXO's `owner` equals `user_pubkey`. |
-| Asset uniformity | Every input UTXO's `asset_id` equals the output's `asset_id`. |
+| Owner hash binding | `user_owner_hash := Poseidon(user_signing_pk_a, user_signing_pk_b, user_nullifier_pk.x, user_nullifier_pk.y)`, recomputed by the proof from witness. |
+| Ownership uniformity | Every input UTXO's `owner` equals `user_owner_hash`. |
+| Asset uniformity | Every input UTXO's `asset` equals the output's `asset`. |
 | Value conservation | `sum(inputs.amount) == output.amount`. |
 | Inclusion | Each input UTXO is a leaf of the UTXO tree at `nullifier_root` (paths checked in-circuit). |
+| DLEQ binding (per input) | Chaum-Pedersen verify: `H := H_to_BJJ(utxo_hash)`; check `(dleq_c, dleq_s)` against `(G_bjj, user_nullifier_pk, H, pre_nullifier_point)`. Pins `pre_nullifier_point` uniquely per `(nullifier_sk, utxo_hash)`. |
+| Subgroup membership (per input) | `user_nullifier_pk` and each `pre_nullifier_point` lie in Baby Jubjub's prime-order subgroup. |
 | Nullifier non-inclusion | Each input nullifier is absent from the nullifier tree at `nullifier_root`. |
-| Nullifiers | Public nullifiers are well-formed from spent inputs (see [Nullifier](#nullifier)). |
+| Nullifiers | Public nullifier per input equals `Poseidon(utxo_hash, pre_nullifier_point.x, pre_nullifier_point.y)`. |
 | Input cleanliness — `data_hash` | For each non-dummy input UTXO: `data_hash = 0`. UTXOs with application extension data are not mergeable; the application program that set `data_hash` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_pocket`. |
 | Input cleanliness — pocket fields | For `merge_transact` (default-pocket merge service): each non-dummy input UTXO additionally has `policy_program_id = 0` and `policy_data = 0`. For [`merge_pocket`](#merge_pocket) (policy-CPI merge): the non-dummy inputs share a `policy_program_id` that matches the CPI caller; `policy_data` is constrained by the policy program's own logic, not by SPP. |
-| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_pubkey`, `data_hash = 0`. For `merge_transact`: `policy_program_id = 0` and `policy_data = 0`. For `merge_pocket`: `policy_program_id` matches the CPI caller and `policy_data` is the value the policy program sets (constrained by its own proof). |
-| Whitelist inclusion | `Poseidon(ENABLE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` is a leaf of the merge authority tree at `merge_authority_root`. |
-| Revoke non-inclusion | `Poseidon(REVOKE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
+| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `data_hash = 0`. For `merge_transact`: `policy_program_id = 0` and `policy_data = 0`. For `merge_pocket`: `policy_program_id` matches the CPI caller and `policy_data` is the value the policy program sets (constrained by its own proof). |
+| Whitelist inclusion | `Poseidon(ENABLE_TAG, user_owner_hash, user_viewing_pk, merge_authority_pubkey, number)` is a leaf of the merge authority tree at `merge_authority_root`. |
+| Revoke non-inclusion | `Poseidon(REVOKE_TAG, user_owner_hash, user_viewing_pk, merge_authority_pubkey, number)` is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
 | Merge authority signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` verifies. The hash covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash, external data hash, expiry_unix_ts)`. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
@@ -1073,7 +1128,9 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 
 # Enable Proof - Merge Authority Opt-in Proof
 
-ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides `user_pubkey`, `user_viewing_pk`, `merge_authority_pubkey`, and `number`; only `enable_commitment` is public, so an external observer cannot link an enable instruction to a user or to a service.
+ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides the owner's `(signing_pk, nullifier_pk)` components, `user_viewing_pk`, `merge_authority_pubkey`, and `number`; only `enable_commitment` is public, so an external observer cannot link an enable instruction to a user or to a service.
+
+**Scope.** P256 owners only. Solana / Ed25519 owners cannot generate this proof since the cheap signature check inside the proof is P256-only.
 
 **Public Inputs**
 
@@ -1085,24 +1142,26 @@ ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides `user_pu
 
 | Input | Description |
 | --- | --- |
-| user_pubkey | owner's P256 signing pk |
+| `(user_signing_pk_a, user_signing_pk_b)` | components of owner's P256 signing pk in the [Shielded Public Key](#shielded-public-key) encoding |
+| `(user_nullifier_pk.x, user_nullifier_pk.y)` | owner's Baby Jubjub nullifier pubkey |
 | user_viewing_pk | owner's P256 viewing pk |
 | merge_authority_pubkey | merge authority P256 signing pk |
 | number | user-chosen slot index |
-| user_signature | P256 signature by `user_pubkey` over `Sha256BE(ENABLE_TAG \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
+| user_signature | P256 signature by `user_signing_pk` over `Sha256BE(ENABLE_TAG \|\| owner_hash \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
 
 **Checks**
 
 | Check | Description |
 | --- | --- |
-| Commitment | `enable_commitment == Poseidon(ENABLE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)` (pubkeys Poseidon-encoded). |
-| User signature | P256 signature by `user_pubkey` over the canonical pre-image verifies. Without this check anyone could insert commitments for an arbitrary `user_pubkey`. |
+| Owner hash binding | `owner_hash == Poseidon(user_signing_pk_a, user_signing_pk_b, user_nullifier_pk.x, user_nullifier_pk.y)`. |
+| Commitment | `enable_commitment == Poseidon(ENABLE_TAG, owner_hash, user_viewing_pk, merge_authority_pubkey, number)`. |
+| User signature | P256 signature by `user_signing_pk` over the canonical pre-image verifies. Without this check anyone could insert commitments for an arbitrary owner. |
 
 The proof reveals nothing beyond `enable_commitment`. Tree insertion of a duplicate commitment fails at SPP level (uniqueness check on the merge authority tree).
 
 # Revoke Proof - Merge Authority Opt-out Proof
 
-ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to the Enable Proof; uses `REVOKE_TAG` instead of `ENABLE_TAG`.
+ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to the Enable Proof; uses `REVOKE_TAG` instead of `ENABLE_TAG`. P256 owners only.
 
 **Public Inputs**
 
@@ -1114,17 +1173,19 @@ ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to
 
 | Input | Description |
 | --- | --- |
-| user_pubkey | owner's P256 signing pk |
+| `(user_signing_pk_a, user_signing_pk_b)` | components of owner's P256 signing pk |
+| `(user_nullifier_pk.x, user_nullifier_pk.y)` | owner's Baby Jubjub nullifier pubkey |
 | user_viewing_pk | matches the viewing pk of the enable being revoked |
 | merge_authority_pubkey | merge authority P256 signing pk |
 | number | matches the `number` of the enable being revoked |
-| user_signature | P256 signature by `user_pubkey` over `Sha256BE(REVOKE_TAG \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
+| user_signature | P256 signature by `user_signing_pk` over `Sha256BE(REVOKE_TAG \|\| owner_hash \|\| user_viewing_pk \|\| merge_authority_pubkey \|\| u64_be(number))` |
 
 **Checks**
 
 | Check | Description |
 | --- | --- |
-| Commitment | `revoke_commitment == Poseidon(REVOKE_TAG, user_pubkey, user_viewing_pk, merge_authority_pubkey, number)`. |
+| Owner hash binding | `owner_hash == Poseidon(user_signing_pk_a, user_signing_pk_b, user_nullifier_pk.x, user_nullifier_pk.y)`. |
+| Commitment | `revoke_commitment == Poseidon(REVOKE_TAG, owner_hash, user_viewing_pk, merge_authority_pubkey, number)`. |
 | User signature | P256 signature verifies, same rationale as the Enable Proof. |
 
 Each of the three merge proofs (Merge, Enable, Revoke) has its own Groth16 verifying key.
@@ -1398,8 +1459,13 @@ struct EnableMergeAuthorityIxData {
 }
 
 /// Payload the service decrypts to learn which (user, slot) just enabled it.
+/// Carries the components of the user's [Shielded Pubkey](#shielded-public-key)
+/// so the merge service can recompute `owner_hash` for the merge proof witness.
 struct MergeAuthorityNotification {
-    user_pubkey: P256Pubkey,
+    user_signing_pk_a: [u8; 32],
+    user_signing_pk_b: [u8; 32],
+    user_nullifier_pk_x: [u8; 32],
+    user_nullifier_pk_y: [u8; 32],
     user_viewing_pk: P256Pubkey,
     number: u64,
 }
@@ -1678,7 +1744,7 @@ UTXOs with `app_data` (non-zero `data_hash`) are not mergeable. The application 
 2. User starts handing plaintext UTXOs and pre-derived `merge_view_tag(merge_authority_pubkey, merge_count)` values to the service (see Merging UTXOs below). The service builds and submits [`merge_transact`](#merge_transact) up to once per `merge_count` for this service.
 3. User calls [`disable_merge_authority`](#disable_merge_authority) to revoke `(merge_authority_pubkey, number)`. To later re-enable the same service, the user enables `number + 1`.
 
-**Merging UTXOs.** An enabled merge service needs plaintext for the input UTXOs and the per-tx `merge_view_tag`. A merge can be triggered by anyone holding the user's `nullifier_secret` and access to plaintext UTXOs — typically the user's wallet or the sync delegate.
+**Merging UTXOs.** An enabled merge service needs plaintext for the input UTXOs, the per-tx `merge_view_tag`, and per-input `(pre_nullifier_point, dleq_c, dleq_s)` produced by whoever holds `nullifier_sk` — typically the user's wallet or the sync delegate. The merge service uses these as witness values when building the merge proof; `nullifier_sk` stays with the wallet or delegate.
 
 **Sync.** After each `merge_transact`, the merged ciphertext is indexed by `merge_view_tag`. The wallet finds it via `get_view_tag_range(merge, ...)` (see [First Time Sync](#first-time-sync-wallet) — Phase 1 fetches the merge stream alongside `sender_view_tag`).
 
@@ -1694,9 +1760,13 @@ Out-of-protocol service. For each user's Solana pubkey, the registry publishes t
 struct Record {
     /// The user's Solana pubkey.
     owner: Address,
-    /// Static. Used as the signing key, and as the viewing key while no
-    /// delegate is set.
-    owner_p256: P256Pubkey,
+    /// Static. The P256 signing pk for shielded users.
+    /// `None` for Solana-only users whose signing key is the Ed25519 key
+    /// encoded by `owner`.
+    owner_p256: Option<P256Pubkey>,
+    /// Static. Baby Jubjub nullifier pubkey; anchors the DLEQ binding
+    /// (see [Nullifier](#nullifier)). Does not rotate.
+    nullifier_pk: BabyJubjubPoint,
     /// Solana pubkey of the current sync delegate, or none.
     delegate: Option<Address>,
     /// Append-only list of delegate entries.
@@ -1718,11 +1788,20 @@ Invariants:
 
 - The current delegate is set if and only if `entries` is non-empty.
 - `entries` is append-only: never modified or removed.
+- `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
 
-The current `ShieldedPubkey` projects from the record:
+Senders construct `owner_hash` themselves by hashing the raw components from the Record (and the appropriate signing pubkey: `owner_p256` for shielded users, or `owner` for Solana-only users):
 
-- (owner P-256, latest entry's viewing pubkey) while a delegate is set.
-- (owner P-256, owner P-256) while standalone.
+```
+signing_pk_a, signing_pk_b := P256 (x, y) of owner_p256
+                            | Ed25519 (low, high) of owner   // when owner_p256 = None
+owner_hash := Poseidon(signing_pk_a, signing_pk_b, nullifier_pk.x, nullifier_pk.y)
+```
+
+The sender-facing `ShieldedPubkey = (owner_hash, viewing_pk)` projects from the record:
+
+- (`owner_hash`, latest entry's `viewing_pk`) while a delegate is set.
+- (`owner_hash`, `owner_p256`) while standalone with a P256 signing key.
 
 ### Operations
 
@@ -1746,13 +1825,16 @@ struct GetRecordResponse {
 
 #### `register`
 
-Creates a record with the given owner P-256 pubkey, no delegate, and no entries. Fails if a record for `owner` already exists.
+Creates a record with the given owner P-256 pubkey (optional) and nullifier pubkey, no delegate, and no entries. Fails if a record for `owner` already exists. Registry verifies `nullifier_pk` is on Baby Jubjub and in the prime-order subgroup.
 
 Authorized signer: `owner`.
 
 ```rust
 struct RegisterRequest {
-    owner_p256: P256Pubkey,
+    /// Omit for Solana-only users whose signing key is the Ed25519 key
+    /// encoded by `owner`.
+    owner_p256: Option<P256Pubkey>,
+    nullifier_pk: BabyJubjubPoint,
 }
 ```
 
@@ -1806,16 +1888,16 @@ struct CloseRequest {}
 
 ## Sync Delegate
 
-A sync delegate holds a [`ViewingKey`](#viewingkey) (its own, derived from ECDH or supplied directly) plus optionally the wallet's `nullifier_secret`. With those it scans view tags, decrypts ciphertexts, and (when given `nullifier_secret`) constructs nullifiers for any UTXO it has decrypted. Appointment is via [Registry § `set_delegate`](#set_delegate); the delegate's `sync_sk` and the wallet's `signing_sk` jointly derive the shared `viewing_sk` (see [Wallet](#wallet)).
+A sync delegate holds a [`ViewingKey`](#viewingkey) (its own, derived from ECDH or supplied directly) plus optionally the wallet's `nullifier_sk`. With those it scans view tags, decrypts ciphertexts, and (when given `nullifier_sk`) constructs `(pre_nullifier_point, dleq_c, dleq_s)` and the nullifier itself for any UTXO it has decrypted. Appointment is via [Registry § `set_delegate`](#set_delegate); the delegate's `sync_sk` and the wallet's `signing_sk` jointly derive the shared `viewing_sk` (see [Wallet](#wallet)).
 
-**Handover on appointment.** The wallet ships the delegate two secrets out-of-band (TLS, e2e-encrypted), from which the delegate constructs a `ViewingKey` and holds `nullifier_secret` alongside it:
+**Handover on appointment.** The wallet ships the delegate two secrets out-of-band (TLS, e2e-encrypted):
 
 1. `viewing_sk` for the current entry — derived jointly via `ECDH(signing_sk, delegate.sync_pk)`; the delegate instantiates its current `ViewingKey` via `ViewingKey::from_sk(viewing_sk)`. For prior entries, the wallet MAY additionally ship `[(key_index, viewing_sk_k)]` so the delegate can scan history:
     - **(a) Hand-over.** Ship all prior `viewing_sk_k`. The new delegate can scan the full history.
     - **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can always derive `viewing_sk_k` from `signing_sk + entries[k].sync_pk`.
-2. `nullifier_secret` — the single 32-byte secret feeding `pre_nullifier = Poseidon(blinding, nullifier_secret)`. Optional: ship it to let the delegate construct nullifiers locally for any UTXO it has decrypted (required to build merge proofs autonomously); omit to restrict the delegate to decrypt-only. The delegate cannot construct `pre_nullifier` for UTXOs it has not decrypted, since it lacks their `blinding`.
+2. `nullifier_sk` — the wallet's Baby Jubjub nullifier scalar (see [NullifierKey](#nullifierkey)). Optional: ship it to let the delegate compute `pre_nullifier_point`, the DLEQ proof, and the nullifier locally for any UTXO it has decrypted (required to build merge proofs autonomously); omit to restrict the delegate to decrypt-only.
 
-**Rotation: recommended UTXO migration.** On `set_delegate` (replacing a delegate), `rotate_delegate_key`, or `revoke`, the wallet SHOULD migrate its outstanding UTXO set to the new shared viewing key: spend each UTXO via normal `transact` and create a fresh-blinded successor encrypted to the new key. Pre-migration UTXOs remain predictable by the old delegate (it has `nullifier_secret` and the old blindings); post-migration UTXOs use blindings the old delegate never saw, so its nullifier-prediction power expires for new activity. The protocol does not enforce migration; the timing is a wallet decision.
+**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A delegate that ever received `nullifier_sk` retains it after `set_delegate` / `rotate_delegate_key` / `revoke`. Since `pre_nullifier_point` requires only `utxo_hash` (public) and `nullifier_sk`, a former delegate can compute speculative nullifiers for any leaf in the UTXO tree and match them against the nullifier tree to detect when the user spends those UTXOs — even without continued decryption access. Migrating to fresh `viewing_sk` blocks the delegate from identifying new owned UTXOs by decryption but does not stop a tree-wide scan. Users who want full revocability of a delegate that held `nullifier_sk` must create a new Record with a fresh `nullifier_pk`.
 
 
 # User Flows
@@ -1873,13 +1955,13 @@ Wallet {
     2. **Merge sync — for each viewing key `k` in parallel.**
         1. Call `indexer.get_merge_authority_events(recipient_bootstrap_view_tag)` with `k`'s bootstrap tag.
         2. For each enable event: `merge_authority_pubkey := event.view_tag_authority`; decrypt `event.ciphertext_bootstrap` with `k` to recover `number`.
-        3. Confirm `event.commitment` is present in the merge authority tree and the matching `revoke_commitment = Poseidon(REVOKE_TAG, user_pubkey, k.viewing_pk, merge_authority_pubkey, number)` is not, via `indexer.get_merkle_proofs` and `indexer.get_non_inclusion_proofs` against the merge authority tree.
+        3. Confirm `event.commitment` is present in the merge authority tree and the matching `revoke_commitment = Poseidon(REVOKE_TAG, owner_hash, k.viewing_pk, merge_authority_pubkey, number)` is not, via `indexer.get_merkle_proofs` and `indexer.get_non_inclusion_proofs` against the merge authority tree.
         4. For each active service `s`, fetch loop in batches of 10 000 until first empty batch: derive `wallet.get_merge_view_tag(s, n)` for `n in [i, i+10_000)`; call `indexer.get_shielded_transactions_by_tags(tags)`.
         5. **Decrypt and store.** Decrypt merged-output ciphertexts with `k`; store UTXOs along with the transaction's `nullifiers`. Track `max(observed n)` per service; the per-service `merge_count` is `max(observed n) + 1`.
 
 3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
 
-4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = wallet.nullifier(utxo)` and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent.
+4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = nullifier_key.nullifier(utxo.hash)` using the wallet-wide [NullifierKey](#nullifierkey), and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent. One sweep across all decrypted UTXOs; `nullifier_pk` does not rotate with delegate appointments.
 
 5. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, per-key counters `TxCount`, `RequestCount` (= `max(observed index) + 1`), `merge_services` with each `merge_count` (= `max(observed n) + 1`) from step 2, `last_synced = current_timestamp()`.
 
@@ -1905,7 +1987,7 @@ Figures below are **per viewing key**. With `E` keys (1 standalone + delegate en
 
 ## Merge Flow
 
-The merge service consolidates the owner's fragmented UTXOs. The opt-in is a single on-chain instruction with no separate API handshake — the merge service discovers the enable by polling the Photon indexer. The diagram below shows the wallet supplying plaintext + `pre_nullifiers` to the service; a sync delegate that holds `nullifier_secret` produces the same effect at SPP.
+The merge service consolidates the owner's fragmented UTXOs. The opt-in is a single instruction with no separate API handshake — the merge service discovers the enable by polling the Photon indexer. The diagram below shows the wallet supplying plaintext inputs and per-input `(pre_nullifier_point, dleq_c, dleq_s)` to the service; a sync delegate that holds `nullifier_sk` produces the same handover.
 
 ```mermaid
 sequenceDiagram
@@ -1919,7 +2001,7 @@ sequenceDiagram
     Merge-->>Wallet: publish merge_authority_pubkey<br/>(website / link / QR)
 
     Note over Wallet,Indexer: Opt-in (single on-chain instruction)
-    Wallet->>Wallet: pick next number for this service<br/>build Enable Proof (private: user_pubkey, user_viewing_pk,<br/>merge_authority_pubkey, number, user P256 sig)<br/>encrypt MergeAuthorityNotification twice with the shared tx_viewing_pk:<br/>once to merge_authority_pubkey (view_tag_authority),<br/>once to user_viewing_pk (recipient_bootstrap_view_tag for restore-from-mnemonic)
+    Wallet->>Wallet: pick next number for this service<br/>build Enable Proof (private: user_signing_pk, user_nullifier_pk,<br/>user_viewing_pk, merge_authority_pubkey, number, user P256 sig)<br/>encrypt MergeAuthorityNotification twice with the shared tx_viewing_pk:<br/>once to merge_authority_pubkey (view_tag_authority),<br/>once to user_viewing_pk (recipient_bootstrap_view_tag for restore-from-mnemonic)
     Wallet->>SPP: enable_merge_authority(enable_commitment, proof,<br/>tx_viewing_pk, view_tag_authority, ciphertext_authority,<br/>recipient_bootstrap_view_tag, ciphertext_bootstrap)
     SPP->>Trees: verify Enable Proof, insert enable_commitment
     SPP-->>Indexer: index event in merge_authority_events under view_tag_authority<br/>(and the self-addressed slot is indexed under recipient_bootstrap_view_tag for wallet recovery)
@@ -1927,14 +2009,14 @@ sequenceDiagram
     Note over Merge,Indexer: Discovery
     Merge->>Indexer: get_merge_authority_events(view_tag = merge_authority_pubkey)
     Indexer-->>Merge: enable event (tx_viewing_pk, ciphertext_authority)
-    Merge->>Merge: decrypt → (user_pubkey, user_viewing_pk, number)<br/>recompute enable_commitment and verify match<br/>add (user, number) to active set
+    Merge->>Merge: decrypt → (user_signing_pk, user_nullifier_pk, user_viewing_pk, number)<br/>recompute owner_hash and enable_commitment, verify match<br/>add (owner_hash, number) to active set
 
     Note over Wallet,Merge: Per-batch handover (channel a)
-    Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)<br/>compute per-input pre_nullifier = Poseidon(blinding, nullifier_secret)<br/>derive merge_view_tag = get_merge_view_tag(merge_authority_pubkey, merge_count)<br/>advance per-service merge_count
-    Wallet->>Merge: (plaintext inputs, pre_nullifiers, merge_view_tag, merge_count)<br/>nullifier_secret never leaves the wallet
+    Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)<br/>compute per-input pre_nullifier_point = nullifier_sk · H_to_BJJ(utxo_hash)<br/>and DLEQ proof (dleq_c, dleq_s)<br/>derive merge_view_tag = get_merge_view_tag(merge_authority_pubkey, merge_count)<br/>advance per-service merge_count
+    Wallet->>Merge: (plaintext inputs, per-input pre_nullifier_point + dleq_c + dleq_s,<br/>merge_view_tag, merge_count)<br/>nullifier_sk stays in the wallet
 
     Note over Merge: Build witness + proof
-    Merge->>Merge: build merge proof (uses pre_nullifiers as witness, not nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- enable_commitment inclusion + revoke non-inclusion<br/>- merge authority P256 signature over private_tx_hash<br/>- verifiable encryption to user_viewing_pk
+    Merge->>Merge: build merge proof (witness: pre_nullifier_point + DLEQ per input; nullifier_sk not in witness):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + DLEQ binding per input<br/>- enable_commitment inclusion + revoke non-inclusion<br/>- merge authority P256 signature over private_tx_hash<br/>- verifiable encryption to user_viewing_pk
     Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)
 
     Note over SPP: Verify and apply
