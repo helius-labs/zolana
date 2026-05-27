@@ -7,3 +7,7 @@
 .claude
 docs/api/
 docs/docs.md
+docs/wallet_integration_guide.md
+docs/wallet_spec.md
+docs/photon.md
+experiments
