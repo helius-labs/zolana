@@ -1,7 +1,8 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData, InsertAddressesData,
+    tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
+    CreateSplInterfaceData, InsertAddressesData, TransactData,
 };
 
 use crate::{
@@ -10,7 +11,9 @@ use crate::{
         append_state_leaves::processor::process_append_state_leaves,
         batch_update_address_tree::processor::process_batch_update_address_tree,
         create_pool_tree::processor::process_create_pool_tree,
+        create_spl_interface::processor::process_create_spl_interface,
         insert_addresses::processor::process_insert_addresses,
+        transact::processor::process_transact,
     },
 };
 
@@ -43,6 +46,16 @@ pub fn process_instruction(
             let data = AppendStateLeavesData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
             process_append_state_leaves(program_id, accounts, data)
+        }
+        tag::TRANSACT => {
+            let data = TransactData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+            process_transact(program_id, accounts, data)
+        }
+        tag::CREATE_SPL_INTERFACE => {
+            let data = CreateSplInterfaceData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+            process_create_spl_interface(program_id, accounts, data)
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }

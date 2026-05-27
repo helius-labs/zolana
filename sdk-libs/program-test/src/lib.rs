@@ -28,7 +28,7 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        InsertAddressesData,
+        InsertAddressesData, TransactData,
     },
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -78,6 +78,15 @@ impl PoolTestRig {
     }
 
     pub fn with_program_path(path: &Path) -> Result<Self, RigError> {
+        Self::with_program_path_and_payer(path, Keypair::new())
+    }
+
+    pub fn new_with_payer(payer: Keypair) -> Result<Self, RigError> {
+        let program_path = default_program_path();
+        Self::with_program_path_and_payer(&program_path, payer)
+    }
+
+    pub fn with_program_path_and_payer(path: &Path, payer: Keypair) -> Result<Self, RigError> {
         if !path.exists() {
             return Err(RigError::MissingProgram(path.to_path_buf()));
         }
@@ -88,7 +97,6 @@ impl PoolTestRig {
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| RigError::Litesvm(format!("add_program: {e:?}")))?;
 
-        let payer = Keypair::new();
         // ~20 SOL — the combined pool-tree account is ~1.16 MB which costs
         // ~8 SOL rent-exempt, so a 1 SOL airdrop is too small.
         svm.airdrop(&payer.pubkey(), 20_000_000_000)
@@ -403,6 +411,31 @@ impl PoolTestRig {
                 AccountMeta::new_readonly(self.payer.pubkey(), true),
                 AccountMeta::new(tree.pubkey(), false),
             ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone()])
+    }
+
+    pub fn transact(&mut self, tree: &Keypair, data: TransactData) -> Result<(), RigError> {
+        self.transact_with_extra_accounts(tree, data, Vec::new())
+    }
+
+    pub fn transact_with_extra_accounts(
+        &mut self,
+        tree: &Keypair,
+        data: TransactData,
+        extra_accounts: Vec<AccountMeta>,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::TRANSACT];
+        data.serialize(&mut payload).expect("infallible");
+        let mut accounts = vec![
+            AccountMeta::new_readonly(self.payer.pubkey(), true),
+            AccountMeta::new(tree.pubkey(), false),
+        ];
+        accounts.extend(extra_accounts);
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts,
             data: payload,
         };
         self.send(&[ix], &[&self.payer.insecure_clone()])

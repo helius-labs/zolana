@@ -51,11 +51,18 @@ pub enum PoolTreeError {
 
 pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
     InitAddressTreeAccountsInstructionData {
-        rollover_threshold: None,
-        network_fee: None,
-        forester: None,
+        index: 0,
         program_owner: None,
-        ..Default::default()
+        forester: None,
+        bloom_filter_num_iters: 3,
+        input_queue_batch_size: 10,
+        input_queue_zkp_batch_size: 10,
+        height: 40,
+        root_history_capacity: 200,
+        bloom_filter_capacity: 20_000 * 8,
+        network_fee: None,
+        rollover_threshold: None,
+        close_threshold: None,
     }
 }
 
@@ -169,6 +176,18 @@ pub fn append_state_leaves(
     write_state_subtrees(bytes, &smt.get_subtrees());
 
     Ok(new_root)
+}
+
+pub fn current_state_root(bytes: &[u8]) -> Result<[u8; 32], PoolTreeError> {
+    if bytes.len() < pool_tree_account_size() {
+        return Err(PoolTreeError::BufferTooSmall);
+    }
+    check_discriminator(bytes)?;
+
+    let root_offset = state_root_offset();
+    let mut root = [0u8; 32];
+    root.copy_from_slice(&bytes[root_offset..root_offset + 32]);
+    Ok(root)
 }
 
 pub fn address_sub_tree_slice_mut(bytes: &mut [u8]) -> Result<&mut [u8], PoolTreeError> {

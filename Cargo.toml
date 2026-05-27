@@ -37,7 +37,7 @@ light-registry = { path = "programs/registry", version = "2.1.0", features = ["c
 aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.8.0", default-features = false }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0", default-features = false }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
@@ -48,6 +48,7 @@ light-poseidon = "0.4.0"
 light-program-profiler = "0.1.1"
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "10.0.0" }
 light-sparse-merkle-tree = "0.3.0"
+groth16-solana = { version = "0.2.0" }
 
 # Solana and SPL.
 anchor-lang = "1.0.2"

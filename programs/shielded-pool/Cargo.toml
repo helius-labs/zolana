@@ -16,16 +16,18 @@ test-sbf = []
 
 [dependencies]
 borsh = { workspace = true }
-light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-batched-merkle-tree = { workspace = true, default-features = false, features = ["pinocchio", "solana-msg"] }
 light-verifier = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon"] }
+light-hasher = { workspace = true, features = ["keccak", "poseidon"] }
 light-sparse-merkle-tree = { workspace = true }
+groth16-solana = { workspace = true }
 pinocchio = { workspace = true }
+pinocchio-system = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 
 [dev-dependencies]
-solana-pubkey = { workspace = true }
+solana-pubkey = { workspace = true, features = ["curve25519"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

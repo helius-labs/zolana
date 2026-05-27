@@ -1965,6 +1965,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2498,15 +2504,8 @@ version = "0.8.0"
 source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "pinocchio 0.10.2",
- "pinocchio-system",
- "solana-account-info",
- "solana-address 2.6.0",
- "solana-cpi",
- "solana-instruction",
- "solana-msg",
+ "pinocchio-system 0.5.0",
  "solana-program-error",
- "solana-system-interface 3.2.0",
- "solana-sysvar 4.0.0",
  "thiserror 2.0.18",
 ]
 
@@ -2527,11 +2526,8 @@ dependencies = [
  "light-verifier",
  "light-zero-copy-vec",
  "pinocchio 0.10.2",
- "solana-account-info",
  "solana-address 2.6.0",
  "solana-msg",
- "solana-program-error",
- "solana-sysvar 4.0.0",
  "thiserror 2.0.18",
  "wincode",
  "zerocopy",
@@ -2546,7 +2542,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "pinocchio 0.10.2",
  "solana-nostd-keccak",
- "solana-program-error",
  "thiserror 2.0.18",
 ]
 
@@ -2561,9 +2556,6 @@ dependencies = [
  "light-program-profiler",
  "light-zero-copy",
  "pinocchio 0.10.2",
- "solana-msg",
- "solana-program-error",
- "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "tinyvec",
  "zerocopy",
@@ -2582,7 +2574,6 @@ dependencies = [
  "pinocchio 0.10.2",
  "sha2 0.10.9",
  "sha3",
- "solana-program-error",
  "thiserror 2.0.18",
  "tinyvec",
 ]
@@ -2619,9 +2610,6 @@ dependencies = [
  "bytemuck",
  "pinocchio 0.10.2",
  "solana-address 2.6.0",
- "solana-msg",
- "solana-program-error",
- "solana-sysvar 4.0.0",
  "thiserror 2.0.18",
  "zerocopy",
 ]
@@ -3262,6 +3250,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24044a0815753862b558e179e78f03f7344cb755de48617a09d7d23b50883b6c"
 dependencies = [
  "pinocchio 0.10.2",
+ "solana-address 2.6.0",
+]
+
+[[package]]
+name = "pinocchio-system"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3ae2ee67b42e2ac797dd88312da473c895660e270d8093e0ba2749b885b5778"
+dependencies = [
+ "pinocchio 0.11.1",
  "solana-address 2.6.0",
 ]
 
@@ -4099,11 +4097,13 @@ name = "shielded-pool-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "groth16-solana",
  "light-batched-merkle-tree",
  "light-hasher",
  "light-sparse-merkle-tree",
  "light-verifier",
  "pinocchio 0.11.1",
+ "pinocchio-system 0.6.1",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "zolana-interface",
@@ -4113,8 +4113,25 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
- "pinocchio 0.10.2",
+ "hex",
+ "light-batched-merkle-tree",
+ "light-hasher",
+ "light-program-test",
+ "light-prover-client",
+ "light-sparse-merkle-tree",
+ "light-verifier",
+ "pinocchio 0.11.1",
+ "serde",
+ "serde_json",
  "shielded-pool-program",
+ "solana-account",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-program-pack",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-system-interface 3.2.0",
+ "spl-token",
  "zolana-interface",
 ]
 
@@ -6335,6 +6352,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "spl-token"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "878b0183d51fcd8a53e1604f4c13321894cf53227e6773c529b0d03d499a8dfd"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "num-derive",
+ "num-traits",
+ "num_enum",
+ "solana-account-info",
+ "solana-cpi",
+ "solana-instruction",
+ "solana-msg",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-program-memory",
+ "solana-program-option",
+ "solana-program-pack",
+ "solana-pubkey 3.0.0",
+ "solana-rent 3.1.0",
+ "solana-sdk-ids",
+ "solana-sysvar 3.1.1",
+ "spl-token-interface",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "spl-token-2022-interface"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7568,6 +7613,8 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "groth16-solana",
+ "quote",
  "sha2 0.10.9",
 ]
 
@@ -7699,7 +7746,24 @@ name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
+ "light-prover-client",
+ "serde",
  "serde_json",
+ "shielded-pool-program",
+ "solana-commitment-config",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-program-pack",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-signature",
+ "solana-signer",
+ "solana-system-interface 3.2.0",
+ "solana-transaction",
+ "spl-token",
+ "zolana-interface",
 ]
 
 [[package]]
