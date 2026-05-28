@@ -21,6 +21,7 @@
     - [Transfer](#transfer-1)
     - [Unshield](#unshield-1)
     - [Enter and Exit Pocket](#enter-and-exit-pocket)
+- [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
 - [Signing Key](#signing-key)
 - [Nullifier Key](#nullifier-key)
@@ -72,6 +73,10 @@
   - [Prover](#prover)
   - [Relayer](#relayer)
   - [Pocket RPC](#pocket-rpc)
+    - [get_decrypted_utxos_by_owner](#get_decrypted_utxos_by_owner)
+    - [get_decrypted_transactions_by_owner](#get_decrypted_transactions_by_owner)
+    - [get_decrypted_merge_authority_events_by_owner](#get_decrypted_merge_authority_events_by_owner)
+    - [subscribe_to_decrypted_transactions_by_owner](#subscribe_to_decrypted_transactions_by_owner)
   - [Merge Service](#merge-service-1)
   - [Registry](#registry)
     - [Record](#record)
@@ -437,6 +442,25 @@ sequenceDiagram
 2. Exit, unshield or transfer from policy pocket
 
 
+# Glossary
+
+Type aliases used in the `struct` definitions throughout this spec. Each is defined once here and referenced by name elsewhere.
+
+| Type | Definition | Description |
+| --- | --- | --- |
+| `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body: a P256 SEC1-compressed point, or an Ed25519 public key. The protocol's scheme-tagged key, used wherever a key may be either curve — UTXO owners (`signing_pk` / `owner_pubkey`), per-transaction viewing keys (`tx_viewing_pk`), and `merge_authority_pubkey`. |
+| `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction (viewing / ECDH keys). |
+| `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
+| `Signature` | `Vec<u8>` | Scheme-tagged signature (P256 or Ed25519); variable length. |
+
+`Address` and `Pubkey` are the Solana SDK account-address type and are used as-is.
+
+Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
+
+- `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, or a view tag.
+- `[u8; 31]` — a blinding factor (held below the BN254 field modulus).
+- `[u8; 64]` — a Solana transaction signature (`tx_signature`).
+
 # Shielded Address
 
 A shielded address consists of the signing public key, signs to spend UTXOs, the nullifier public key, ties the nullifier to a spent UTXO, and the viewing public key, encrypts the UTXO.
@@ -452,13 +476,13 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
 
-**Coin type.** `ZOLANA_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.zolana.v1")[0..4] as u32 & 0x7FFF_FFFF`.
+**Coin type.** `TSPP_COIN_TYPE = 1445561917'` (placeholder), derived as `SHA-256("luminous.TSPP.v1")[0..4] as u32 & 0x7FFF_FFFF`.
 
-**Derivation path.** `m / 44' / ZOLANA_COIN_TYPE' / account' / 0' / 0'`
+**Derivation path.** `m / 44' / TSPP_COIN_TYPE' / account' / 0' / 0'`
 
 **Constructors:**
 
-- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/ZOLANA_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
+- `SigningKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/0'/0')` on the BIP-39 seed `wallet_seed := PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" || passphrase, c=2048, dkLen=64)`.
 - `SigningKey::from_sk(signing_sk)` — direct injection.
 
 **Methods:**
@@ -469,7 +493,7 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 Symmetric key to derive nullifiers.
 
-`nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="zolana/nullifier", L=31)`
+`nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="TSPP/nullifier", L=31)`
 
 `nullifier_pk := Poseidon(nullifier_secret)`
 
@@ -484,10 +508,10 @@ Symmetric key to derive nullifiers.
 
 ## Derived secrets
 
-- `sender_view_tag_secret    := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/sender_view_tag",    L=32)`
-- `recipient_view_tag_secret := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/recipient_view_tag", L=32)`
-- `merge_view_tag_secret     := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/merge_view_tag",     L=32)`
-- `tx_viewing_secret         := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="zolana/tx_viewing",         L=32)`
+- `sender_view_tag_secret    := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/sender_view_tag",    L=32)`
+- `recipient_view_tag_secret := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/recipient_view_tag", L=32)`
+- `merge_view_tag_secret     := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/merge_view_tag",     L=32)`
+- `tx_viewing_secret         := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/tx_viewing",         L=32)`
   - Purpose: seed to derive transaction viewing keys.
 
 ## Transaction Viewing Key
@@ -502,7 +526,7 @@ TODO: evaluate to adapt derivation so that the viewing key can never repeat even
 - **Derivable on demand**:
   ```
   first_nullifier := nullifier_key.nullifier(inputs[0])              // see [Nullifier](#nullifier)
-  (tx_viewing_sk, tx_viewing_pk) := HKDF-SHA256(salt=first_nullifier, IKM=tx_viewing_secret, info="zolana/tx_viewing")
+  (tx_viewing_sk, tx_viewing_pk) := HKDF-SHA256(salt=first_nullifier, IKM=tx_viewing_secret, info="TSPP/tx_viewing")
   ```
   `tx_viewing_secret` is defined in [Derived secrets](#derived-secrets). Binding the HKDF salt to `first_nullifier` makes the keypair unique per Solana transaction (nullifier tree uniqueness implies `tx_viewing_pk` uniqueness).
 
@@ -520,7 +544,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
   - Derived by: the sender, to index her change utxos.
   - Tx sent by: the sender
   - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="zolana/sender_view_tag/" || u64_be(tx_count), L=32)`.
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=32)`.
 
 ### Recipient view tag
 
@@ -533,9 +557,9 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
       ```
       shared := ECDH(self.viewing_sk, counterparty_pubkey)
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
-                           info = "zolana/pair-domain/" || R_pubkey, L = 32)
+                           info = "TSPP/pair-domain/" || R_pubkey, L = 32)
       return    HKDF-SHA256(salt = ∅, IKM = domain,
-                           info = "zolana/pair-hint/"   || u64_be(i), L = 32)
+                           info = "TSPP/pair-hint/"   || u64_be(i), L = 32)
       ```
 
       `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
@@ -543,7 +567,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
     - Tx sent by: the sender.
     - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="zolana/recipient_request_view_tag/" || u64_be(request_count), L=32)`.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="TSPP/recipient_request_view_tag/" || u64_be(request_count), L=32)`.
 4. **`recipient_bootstrap_view_tag`**
     - Derived by: anyone — `recipient.viewing_pk` 32-byte X-coordinate of the SEC1-compressed encoding (the 33-byte form with its 1-byte sign prefix dropped).
     - Tx sent by: the sender.
@@ -558,7 +582,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Indexed by: the owner.
     - Counter: per-service `merge_count` keyed by `merge_authority_pubkey` (`wallet.merge_services[merge_authority_pubkey].merge_count`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
     - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_transact`, same as `sender_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="zolana/merge_view_tag/" || merge_authority_pubkey || u64_be(merge_count), L=32)`. Including `merge_authority_pubkey` in the info gives each whitelisted service its own counter namespace.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority_pubkey || u64_be(merge_count), L=32)`. Including `merge_authority_pubkey` in the info gives each whitelisted service its own counter namespace.
 
 ### View Tag Selection
 
@@ -1097,7 +1121,7 @@ shared_secret = Poseidon(
 
 // 3. Info siloing
 siloed = Poseidon(DOM_SEP_SILO, shared_secret, info.lo, info.hi)
-         where info = "zolana/merge"
+         where info = "TSPP/merge"
 
 // 4. AES-256 key (two Poseidon calls, low 16 bytes from each high half)
 key_lo  = Poseidon(DOM_SEP_KEY,     siloed)
@@ -1450,7 +1474,7 @@ struct EnableMergeAuthorityIxData {
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
     /// to `merge_authority_pubkey` via the Poseidon KDF schedule from the
     /// [Merge Proof](#merge-proof---merge-zk-proof) with
-    /// `info = "zolana/merge_authority_notify"`. 74 B plaintext + 16 B GCM tag.
+    /// `info = "TSPP/merge_authority_notify"`. 74 B plaintext + 16 B GCM tag.
     ciphertext_authority: [u8; 90],
     /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
     /// Lets the wallet rediscover its own enables on restore-from-mnemonic
@@ -1458,7 +1482,7 @@ struct EnableMergeAuthorityIxData {
     recipient_bootstrap_view_tag: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
     /// to `user_viewing_pk` using the shared `tx_viewing_pk` and
-    /// `info = "zolana/merge_authority_notify_bootstrap"`. Same plaintext layout
+    /// `info = "TSPP/merge_authority_notify_bootstrap"`. Same plaintext layout
     /// as `ciphertext_authority`. 74 B plaintext + 16 B GCM tag.
     ciphertext_bootstrap: [u8; 90],
 }
@@ -1516,14 +1540,14 @@ struct DisableMergeAuthorityIxData {
     view_tag_authority: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`
     /// (see [`enable_merge_authority`](#enable_merge_authority)), encrypted to
-    /// `merge_authority_pubkey` with `info = "zolana/merge_authority_notify"`.
+    /// `merge_authority_pubkey` with `info = "TSPP/merge_authority_notify"`.
     /// 74 B plaintext + 16 B GCM tag.
     ciphertext_authority: [u8; 90],
     /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
     /// Lets the wallet rediscover its own revokes on restore.
     recipient_bootstrap_view_tag: [u8; 32],
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
-    /// to `user_viewing_pk` with `info = "zolana/merge_authority_notify_bootstrap"`.
+    /// to `user_viewing_pk` with `info = "TSPP/merge_authority_notify_bootstrap"`.
     /// 74 B plaintext + 16 B GCM tag.
     ciphertext_bootstrap: [u8; 90],
 }
@@ -1819,7 +1843,108 @@ struct SubmitTransactionResponse {
 
 ## Pocket RPC
 
-TBD
+A Pocket RPC holds the pocket's auditor key and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
+
+**Authentication.** Every request carries `signing_pk` and a `signature` by that key over the serialized request body. `bound_slot` pins the signature to a slot; the RPC rejects requests where `current_slot > bound_slot + 150`.
+
+### `get_decrypted_utxos_by_owner`
+
+Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags). Filters spent UTXOs unless `include_spent`.
+
+```rust
+struct GetDecryptedUtxosByOwnerRequest {
+    /// 1-byte prefix + 33-byte P256 SEC1-compressed, or Ed25519 pubkey.
+    signing_pk: [u8; 34],
+    bound_slot: u64,
+    signature: Vec<u8>,
+    include_spent: bool,
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
+
+struct GetDecryptedUtxosByOwnerResponse {
+    context: Context,
+    utxos: Vec<DecryptedUtxoEntry>,
+    next_cursor: Option<Vec<u8>>,
+}
+
+struct DecryptedUtxoEntry {
+    slot: u64,
+    tx_signature: [u8; 64],
+    utxo: Utxo,
+    /// Nullifier observed in the nullifier tree.
+    spent: bool,
+}
+```
+
+### `get_decrypted_transactions_by_owner`
+
+Decrypted analogue of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags).
+
+```rust
+struct GetDecryptedTransactionsByOwnerRequest {
+    signing_pk: [u8; 34],
+    bound_slot: u64,
+    signature: Vec<u8>,
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
+
+struct GetDecryptedTransactionsByOwnerResponse {
+    context: Context,
+    transactions: Vec<DecryptedTransaction>,
+    next_cursor: Option<Vec<u8>>,
+}
+
+struct DecryptedTransaction {
+    slot: u64,
+    tx_signature: [u8; 64],
+    output_utxos: Vec<Utxo>,
+    nullifiers: Vec<[u8; 32]>,
+}
+```
+
+### `get_decrypted_merge_authority_events_by_owner`
+
+Decrypted analogue of [`get_merge_authority_events`](#get_merge_authority_events).
+
+```rust
+struct GetDecryptedMergeAuthorityEventsByOwnerRequest {
+    signing_pk: [u8; 34],
+    bound_slot: u64,
+    signature: Vec<u8>,
+    cursor: Option<Vec<u8>>,
+    limit: Option<u32>,
+}
+
+struct GetDecryptedMergeAuthorityEventsByOwnerResponse {
+    context: Context,
+    events: Vec<DecryptedMergeAuthorityEvent>,
+    next_cursor: Option<Vec<u8>>,
+}
+
+struct DecryptedMergeAuthorityEvent {
+    slot: u64,
+    tx_signature: [u8; 64],
+    event_type: u8,                       // 0 = enable, 1 = revoke
+    merge_authority_pubkey: [u8; 34],
+    number: u64,
+}
+```
+
+### `subscribe_to_decrypted_transactions_by_owner`
+
+Streaming analogue of [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags). The RPC closes the stream when `current_slot > bound_slot + 150`; the client re-subscribes with a fresh signature.
+
+```rust
+struct SubscribeToDecryptedTransactionsByOwnerRequest {
+    signing_pk: [u8; 34],
+    bound_slot: u64,
+    signature: Vec<u8>,
+}
+
+/// Yields one [`DecryptedTransaction`](#get_decrypted_transactions_by_owner) per matching transaction.
+```
 
 ## Merge Service
 
@@ -2183,3 +2308,7 @@ Sender and recipient wallets both support shielded transfers.
 | 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
 | 7 | **Advanced** · both wallets shielded · sender has shielded funds | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Shield to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
+
+
+TODO:
+- derive a separate encryption keypair for standalone wallets
