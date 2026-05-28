@@ -250,7 +250,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
-| `MergeAuthorityCiphertext` | `[u8; 122]` | AES-256-GCM ciphertext over `MergeAuthorityNotification` (106 B plaintext + 16 B GCM tag). |
+| `MergeAuthorityCiphertext` | `[u8; 89]` | AES-256-GCM ciphertext over `MergeAuthorityNotification` (73 B plaintext + 16 B GCM tag). |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -266,34 +266,20 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
 
-All Poseidon inputs are canonical BN254 field elements (`< Fr`). Raw public keys are split into two 128-bit big-endian halves and absorbed by nested 2-input Poseidons (t=3), matching Light's Poseidon gadget set.
-
-For P256 owners (SEC1-compressed: parity bit + `x`):
+Raw public keys are encoded as 128-bit limbs and absorbed with 2-input Poseidon.
 
 ```
-compressed_signing_pk = SEC1 compressed P256 key: prefix || x_be32
-y_is_odd              = prefix & 1
-x_low                 = u128_be(x_be32[0..16])
-x_high                = u128_be(x_be32[16..32])
-x_hash                = Poseidon(x_low, x_high)
-parity_x_hash         = Poseidon(y_is_odd, x_hash)
-owner_hash            = Poseidon(parity_x_hash, nullifier_pk)
-```
+P256:
+x_hash        = Poseidon(x_low_128, x_high_128)
+parity_x_hash = Poseidon(y_is_odd, x_hash)
+owner_hash    = Poseidon(parity_x_hash, nullifier_pk)
 
-The proof witnesses the full P256 point `(x, y)`, checks it is canonical and on curve, verifies the signature, derives `y_is_odd`, and recomputes `owner_hash`.
-
-For Solana / Ed25519 owners:
-
-```
-pk_low     = u128_be(solana_pubkey[0..16])
-pk_high    = u128_be(solana_pubkey[16..32])
-pk_hash    = Poseidon(pk_low, pk_high)
+Solana / Ed25519:
+pk_hash    = Poseidon(pk_low_128, pk_high_128)
 owner_hash = Poseidon(pk_hash, nullifier_pk)
 ```
 
-SPP derives `(pk_low, pk_high)` from the signer account; the proof receives `pk_hash` as a public input bound into `owner_hash`.
-
-Scheme separation: a P256 owner's chain folds in an extra `parity_x_hash` layer that Solana's chain does not, so the two encodings cannot collide except via a Poseidon preimage collision (~2⁻²⁵⁴). No explicit scheme tag is needed.
+SPP recomputes the P256 path from the witnessed point and the Solana path from the signer account.
 
 # Signing Key
 
@@ -320,7 +306,7 @@ Symmetric key to derive nullifiers.
 
 `nullifier_pk := Poseidon(nullifier_secret)`
 
-`nullifier_secret` is a 31-byte big-endian integer and is therefore always `< Fr` (since 2²⁴⁸ < Fr). Serialized `nullifier_pk` MUST decode to a canonical BN254 field element (`< Fr`); checking only the top bits is insufficient.
+`nullifier_secret` is a 31-byte big-endian field element. Serialized `nullifier_pk` MUST be canonical BN254 (`< Fr`).
 
 **Methods:**
 
@@ -1302,12 +1288,10 @@ struct EnableMergeAuthorityIxData {
 }
 
 /// Payload the service decrypts to learn which (user, slot) just enabled it.
-/// Carries the components of the user's [Shielded Address](#shielded-address)
-/// so the merge service can recompute `owner_hash` for the merge proof witness.
+/// Carries the owner components not already visible in the event.
 struct MergeAuthorityNotification {
     user_signing_pk: P256Pubkey,
     user_nullifier_pk: [u8; 32],
-    user_viewing_pk: P256Pubkey,
     number: u64,
 }
 ```
@@ -2018,7 +2002,7 @@ sequenceDiagram
     Note over Merge,Indexer: Discovery
     Merge->>Indexer: get_merge_authority_events(view_tag = merge_authority_pubkey)
     Indexer-->>Merge: enable event (tx_viewing_pk, ciphertext_authority)
-    Merge->>Merge: decrypt → (user_signing_pk, user_nullifier_pk, user_viewing_pk, number)<br/>recompute owner_hash and enable_commitment, verify match<br/>add (owner_hash, number) to active set
+    Merge->>Merge: decrypt → (user_signing_pk, user_nullifier_pk, number)<br/>read user_viewing_pk from recipient_bootstrap_view_tag<br/>recompute owner_hash and enable_commitment, verify match<br/>add (owner_hash, number) to active set
 
     Note over Wallet,Merge: Per-batch handover
     Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)<br/>derive merge_view_tag = get_merge_view_tag(merge_authority_pubkey, merge_count)<br/>advance per-service merge_count
