@@ -9,6 +9,7 @@ const (
 	BatchAppendCircuitType        CircuitType = "append"
 	BatchUpdateCircuitType        CircuitType = "update"
 	BatchAddressAppendCircuitType CircuitType = "address-append"
+	SppNullifierUpdateCircuitType CircuitType = "spp-nullifier-update"
 )
 
 // JSON input structures (these are not in circuit_utils.go)
