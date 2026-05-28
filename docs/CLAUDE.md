@@ -18,6 +18,7 @@
 8. for every piece of encrypted data published it must be tagged so that it can be fetched efficiently
 9. no CAPs
 10. no duplicate definitions define types and derivations once then link to that definition
+11. no overdescriptive comments: when a type, the glossary, or a linked definition already states an encoding, size, or derivation, do not restate it in a field comment. rely on the type or link to the definition. comments add purpose/role, they do not duplicate facts available elsewhere
 
 ## Encryption Requirements:
 
