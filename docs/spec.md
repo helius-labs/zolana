@@ -502,7 +502,9 @@ Symmetric key to derive nullifiers.
 
 # ViewingKey
 
-`(viewing_sk, viewing_pk)` — P-256 Keypair. Used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. Viewing keys for one signing key can be the signer key, a shared P256 key, and rotate.
+`(viewing_sk, viewing_pk)` — P-256 keypair, used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. It is independent of the [Signing Key](#signing-key) so view access can be shared without exposing spend authority. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
+
+**Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/1'/0')` on the same BIP-39 `wallet_seed` as the [Signing Key](#signing-key); a sibling of the signing path under change index `1'`, recoverable from the mnemonic.
 
 ## Derived secrets
 
@@ -586,9 +588,9 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ```mermaid
 flowchart TD
-    Start([prefix recipient]) --> Q1{wallet has a prior transfer with the recipient? (recipient_pubkey ∈ wallet.known_recipients)}
+    Start([prefix recipient]) --> Q1{"wallet has a prior transfer with the recipient? (recipient_pubkey ∈ wallet.known_recipients)"}
     Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
-    Q1 -->|No| Q2{request view tag from recipient?}
+    Q1 -->|No| Q2{"request view tag from recipient?"}
     Q2 -->|Yes| Case211[3. recipient_request_view_tag]
     Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
 ```
@@ -1970,6 +1972,9 @@ struct Record {
     /// Static. Poseidon commitment to the wallet's `nullifier_secret`
     /// (see [NullifierKey](#nullifierkey)). Does not rotate.
     nullifier_pk: [u8; 32],
+    /// Static. The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)),
+    /// published to senders while no delegate is set.
+    viewing_pk: P256Pubkey,
     /// Solana pubkey of the current sync delegate, or none.
     delegate: Option<Address>,
     /// Append-only list of delegate entries.
@@ -2005,7 +2010,7 @@ then `owner_hash` per [Shielded Address](#shielded-address).
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the record:
 
 - (`owner_hash`, latest entry's `viewing_pk`) while a delegate is set.
-- (`owner_hash`, `owner_p256`) while standalone with a P256 signing key.
+- (`owner_hash`, `viewing_pk`) while no delegate is set.
 
 ### Operations
 
@@ -2027,7 +2032,7 @@ struct GetRecordResponse {
 
 #### `register`
 
-Creates a record with the given owner P-256 pubkey (optional) and nullifier pubkey, no delegate, and no entries. Fails if a record for `owner` already exists. Registry rejects `nullifier_pk` whose top two bits are non-zero.
+Creates a record with the given owner P-256 pubkey (optional), nullifier pubkey, and viewing pubkey, no delegate, and no entries. Fails if a record for `owner` already exists. Registry rejects `nullifier_pk` whose top two bits are non-zero.
 
 Authorized signer: `owner`.
 
@@ -2037,6 +2042,7 @@ struct RegisterRequest {
     /// encoded by `owner`.
     owner_p256: Option<P256Pubkey>,
     nullifier_pk: [u8; 32],
+    viewing_pk: P256Pubkey,
 }
 ```
 
@@ -2070,7 +2076,7 @@ struct RotateDelegateKeyRequest {
 
 #### `revoke`
 
-Removes the current delegate. `entries` is not modified. `viewing_sk` becomes `signing_sk` (standalone); the wallet resets per-key counters and `known_*` maps for the new standalone key.
+Removes the current delegate. `entries` is not modified. `viewing_sk` becomes the wallet's own viewing key (see [ViewingKey](#viewingkey)); the wallet resets per-key counters and `known_*` maps for that key.
 
 Authorized signer: `owner` or current delegate.
 
@@ -2112,7 +2118,7 @@ The flow can be executed by the users wallet or the sync delegate.
 ```
 ViewingKeyEntry {
     key:                ViewingKey,
-    created_at:         i64,                    // mirrors registry Entry.created_at; standalone uses 0
+    created_at:         i64,                    // mirrors registry Entry.created_at; the no-delegate entry uses 0
     tx_count:           u64,
     request_count:      u64,
     known_senders:      map<sender_pubkey    → u64>,
@@ -2135,7 +2141,7 @@ Wallet {
     1. Obtain a `SigningKey`.
     2. Call `registry.get_record(solana_pubkey)`.
     3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
-    4. If `entries` is empty, append a single standalone `ViewingKeyEntry` whose `ViewingKey` aliases the signing key.
+    4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)).
 
 2. **Main sync and merge sync run as independent parallel branches.**
 
@@ -2176,7 +2182,7 @@ Assumptions:
 4. Per-key scans run concurrently. Within a key, Phase 1 (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) runs concurrently, and Phase 2 per-sender / per-recipient scans run concurrently.
 5. Each known sender has < 10 000 incoming transfers per key; each known recipient has < 10 000 outgoing transfers per key.
 
-Figures below are **per viewing key**. With `E` keys (1 standalone + delegate entries), sequential totals multiply by `E`; parallel totals add ECDH cost only since RTTs overlap.
+Figures below are **per viewing key**. With `E` keys (the wallet's own key plus delegate entries), sequential totals multiply by `E`; parallel totals add ECDH cost only since RTTs overlap.
 
 | Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
