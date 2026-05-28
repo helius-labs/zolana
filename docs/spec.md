@@ -60,6 +60,7 @@
     - [enable_merge_authority](#enable_merge_authority)
     - [disable_merge_authority](#disable_merge_authority)
 - [Policy Program Interface](#policy-program-interface)
+- [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
   - [Indexer](#indexer)
     - [get_encrypted_utxos_by_tags](#get_encrypted_utxos_by_tags)
@@ -90,13 +91,15 @@
 
 ## Abstract
 
-Zolana is a protocol for programmable, UTXO-based anonymous transfers that executes directly on Solana. Programmability supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and view tags enable wallet sync at Solana speed.
+The solana privacy protocol (TSPP) enables programmable, UTXO-based anonymous transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and view tags enable wallet sync at Solana speed.
 
-Anonymous transfers are performed by a minimal shielded pool program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP); additional logic lives in third-party and policy programs. To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement pockets, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
+Anonymous transfers are performed by a minimal shielded pool program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement pockets with custom policy programs, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
 
-For wallet sync at Solana RPC speed, view tags prefix every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption. For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
+For wallet sync at Solana RPC speed, view tags prefix every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption.
 
-Two opt-in services improve UX. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches view tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
+For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
+
+Two opt-in services improve user experience. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches view tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
 
 The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the policy program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / pocket RPC / merge service / registry interfaces, and user flows.
 
@@ -115,7 +118,7 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 7. SPP (Shielded Pool Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
 8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Policy program or directly into SPP.
 9. Policy Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
-10. SPL interface vaults — per-mint SPL / Token-22 vaults holding all shielded tokens.
+10. SPL interface — per-mint SPL / Token-22 holding all shielded tokens.
 11. Tree accounts — co-located UTXO tree, nullifier tree, and nullifier queue.
 
 Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
@@ -980,15 +983,15 @@ external_data_hash := Sha256BE(
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | `owner == Poseidon(signing_pk_a, signing_pk_b, nullifier_pk)`. The recomputed `owner` is the value folded into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs MUST be authorized by their owner. The per-input `solana_owner_pubkeys` public input selects the path: `(0, 0)` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and instead binds `(low, high) == (signing_pk_a, signing_pk_b)`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
-| Inclusion | Each spent input UTXO MUST be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The per-input `solana_owner_pubkeys` public input selects the path: `(0, 0)` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and instead binds `(low, high) == (signing_pk_a, signing_pk_b)`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
+| Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | `Poseidon(nullifier_secret) == nullifier_pk` against each input's `nullifier_pk` witness. Implication: all non-dummy inputs share `nullifier_pk`, and therefore the same owner. |
 | Nullifiers | Public nullifier per input equals `Poseidon(utxo_hash, blinding, nullifier_secret)`. |
-| Nullifier non-inclusion | Each input nullifier MUST NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
-| Output UTXOs | Output UTXO hashes MUST be well formed and match `output_utxo_hashes[i]`. The proof folds output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Balance Conservation | For each active asset, inputs plus public deposits MUST equal outputs plus public withdrawals and fees. |
+| Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
+| Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof folds output `owner` into `output_utxo_hashes[i]` without unpacking it. |
+| Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`.<br>The owner signs this value (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
-| Program ownership | UTXOs owned by a policy program MUST be authorized by a PDA signer of that program. Policy proofs are checked by the policy program before CPI into SPP. |
+| Program ownership | UTXOs owned by a policy program must be authorized by a PDA signer of that program. Policy proofs are checked by the policy program before CPI into SPP. |
 | Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. |
 
 <a id="utxo-ownership-check"></a>
@@ -1010,7 +1013,7 @@ external_data_hash := Sha256BE(
 
 ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Authorized by a whitelisted merge authority signature.
 
-**Requirement.** The circuit MUST NOT take any wallet secret as a witness input.
+**Requirement.** The circuit must NOT take any wallet secret as a witness input.
 
 **Public Inputs**
 
@@ -1063,9 +1066,9 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Ownership uniformity | Every input UTXO's `owner` equals `user_owner_hash`. |
 | Asset uniformity | Every input UTXO's `asset` equals the output's `asset`. |
 | Value conservation | `sum(inputs.amount) == output.amount`. |
-| Inclusion | Each input UTXO MUST be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
+| Inclusion | Each input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding | `Poseidon(nullifier_secret) == user_nullifier_pk`. Together with the Owner hash binding, this pins `nullifier_secret` per UTXO. |
-| Nullifier non-inclusion | Each input nullifier MUST NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
+| Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Nullifiers | Public nullifier per input equals `Poseidon(utxo_hash, blinding, nullifier_secret)`. |
 | Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_pocket`. |
 | Input cleanliness — pocket fields | For `merge_transact` (default-pocket merge service): each non-dummy input UTXO additionally has `policy_program_id = 0` and `policy_data_hash = 0`. For [`merge_pocket`](#merge_pocket) (policy-CPI merge): the non-dummy inputs share a `policy_program_id` that matches the CPI caller; `policy_data` is constrained by the policy program's own logic, not by SPP. |
@@ -1329,6 +1332,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 7. Insert `sender_view_tag` into the nullifier queue. Rejects on duplicate, so each sender `tx_count` slot is used at most once in the nullifier tree. SPP does not check the contents of `encrypted_utxos`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt).
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
+10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
 
 ### `merge_transact`
 
@@ -1560,8 +1564,9 @@ A policy program is free to implement the following instructions and more. Tags 
 
 UTXOs can carry a `policy_data` field interpreted by the policy program, hashed into the `policy_data_hash` slot of [UTXO Hash](#utxo-hash). The policy program defines the schema and the hashing scheme.
 
-# Zk Program Interface
+# ZK Program Interface
 
+A ZK program is a third-party Solana program that runs a custom ZK circuit over UTXOs it owns and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof binds to the SPP transaction via `private_tx_hash` and that program-owned UTXOs are claimed by a PDA signer.
 
 # RPC
 
@@ -1895,9 +1900,7 @@ The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the
 
 ### Operations
 
-Writes MUST be authenticated by the named signer. Reads are unauthenticated.
-
-A malformed entry only harms the registrant — senders following it produce ciphertexts no one can decrypt. Wallets MAY warn when their record's published keys disagree with what they expect.
+Writes must be authenticated by the named signer. Reads are unauthenticated.
 
 #### `get_record`
 
