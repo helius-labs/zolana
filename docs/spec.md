@@ -502,7 +502,7 @@ Symmetric key to derive nullifiers.
 
 # ViewingKey
 
-`(viewing_sk, viewing_pk)` — P-256 keypair, used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. It is independent of the [Signing Key](#signing-key) so view access can be shared without exposing spend authority. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
+`(viewing_sk, viewing_pk)` — P-256 keypair, used for HPKE encryption and to derive view-tag secrets. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
 
 **Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `SLIP-0010-P256(wallet_seed, m/44'/TSPP_COIN_TYPE'/account'/1'/0')` on the same BIP-39 `wallet_seed` as the [Signing Key](#signing-key); a sibling of the signing path under change index `1'`, recoverable from the mnemonic.
 
@@ -516,7 +516,10 @@ Symmetric key to derive nullifiers.
 
 ## Transaction Viewing Key
 
-Every ciphertext in a transaction is encrypted with a single ephemeral key so that the secret key of the ephemeral key can decrypt both the sender's change and recipient UTXOs of the transaction.
+The transaction viewing key is a single use keypair (ephemeral key) that is deterministically derived for every private transaction.
+Every ciphertext in a transaction is encrypted with HPKE between the transaction viewing key and the ciphertext owner's viewing key.
+This way the transaction viewing key can decrypt both the sender's change and recipient UTXOs of the transaction.
+
 TODO: evaluate to adapt derivation so that the viewing key can never repeat even in edge cases.
 
 **Properties**
