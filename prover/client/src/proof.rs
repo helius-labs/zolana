@@ -59,6 +59,8 @@ pub struct GnarkProofJson {
     pub ar: Vec<String>,
     pub bs: Vec<Vec<String>>,
     pub krs: Vec<String>,
+    pub proof_commitment: Option<Vec<String>>,
+    pub proof_commitment_pok: Option<Vec<String>>,
 }
 
 pub fn deserialize_gnark_proof_json(json_data: &str) -> serde_json::Result<GnarkProofJson> {
@@ -108,6 +110,46 @@ pub fn proof_from_json_struct(json: GnarkProofJson) -> ([u8; 64], [u8; 128], [u8
     let proof_c_y = deserialize_hex_string_to_be_bytes(&json.krs[1]);
     let proof_c: [u8; 64] = [proof_c_x, proof_c_y].concat().try_into().unwrap();
     (proof_a, proof_b, proof_c)
+}
+
+pub fn bsb22_proof_bytes_from_json_struct(
+    json: GnarkProofJson,
+) -> Result<[u8; 192], ProverClientError> {
+    let commitment = parse_g1_pair(json.proof_commitment.as_deref(), "proof_commitment")?;
+    let commitment_pok =
+        parse_g1_pair(json.proof_commitment_pok.as_deref(), "proof_commitment_pok")?;
+    let (proof_a, proof_b, proof_c) = proof_from_json_struct(json);
+    let (proof_a, proof_b, proof_c) = compress_proof(&proof_a, &proof_b, &proof_c);
+    let proof_commitment = alt_bn128_g1_compress_be(&commitment)?;
+    let proof_commitment_pok = alt_bn128_g1_compress_be(&commitment_pok)?;
+
+    if proof_commitment == [0u8; 32] || proof_commitment_pok == [0u8; 32] {
+        return Err(ProverClientError::InvalidProofData(
+            "BSB22 commitment fields must be non-zero".to_string(),
+        ));
+    }
+
+    let mut out = [0u8; 192];
+    out[..32].copy_from_slice(&proof_a);
+    out[32..96].copy_from_slice(&proof_b);
+    out[96..128].copy_from_slice(&proof_c);
+    out[128..160].copy_from_slice(&proof_commitment);
+    out[160..192].copy_from_slice(&proof_commitment_pok);
+    Ok(out)
+}
+
+fn parse_g1_pair(value: Option<&[String]>, name: &str) -> Result<[u8; 64], ProverClientError> {
+    let value = value.ok_or_else(|| {
+        ProverClientError::InvalidProofData(format!("{name} is required for BSB22 proof"))
+    })?;
+    if value.len() != 2 {
+        return Err(ProverClientError::InvalidProofData(format!(
+            "{name} must contain exactly two coordinates"
+        )));
+    }
+    let x = deserialize_hex_string_to_be_bytes(&value[0]);
+    let y = deserialize_hex_string_to_be_bytes(&value[1]);
+    Ok([x, y].concat().try_into().unwrap())
 }
 
 pub fn negate_g1(g1_be: &[u8; 64]) -> [u8; 64] {

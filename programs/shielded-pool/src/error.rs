@@ -21,6 +21,30 @@ pub enum ShieldedPoolError {
     AddressQueueInsertFailed,
     #[error("batch address-tree proof verification failed")]
     BatchProofVerificationFailed,
+    #[error("transaction has expired")]
+    ExpiredTransaction,
+    #[error("transact instruction shape is invalid")]
+    InvalidTransactShape,
+    #[error("transact proof encoding is invalid")]
+    InvalidTransactProofEncoding,
+    #[error("transact proof verification failed")]
+    TransactProofVerificationFailed,
+    #[error("transact settlement accounts are invalid")]
+    InvalidSettlementAccounts,
+    #[error("transact public settlement failed")]
+    PublicSettlementFailed,
+    #[error("SPL asset registry account is invalid")]
+    InvalidSplAssetRegistry,
+    #[error("protocol config account is invalid")]
+    InvalidProtocolConfig,
+    #[error("pool tree is paused")]
+    PoolTreePaused,
+    #[error("pocket config account is invalid")]
+    InvalidPocketConfig,
+    #[error("nullifier batch update is invalid")]
+    InvalidNullifierBatchUpdate,
+    #[error("nullifier batch proof verification failed")]
+    NullifierBatchProofVerificationFailed,
 }
 
 impl From<ShieldedPoolError> for ProgramError {

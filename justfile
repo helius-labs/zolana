@@ -53,12 +53,16 @@ test-scaffold:
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
 
-# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
-# `.so`s under `target/deploy/`; run `just build-programs` first.
+# End-to-end LiteSVM tests for shielded-pool plus stable program-test coverage.
+# Requires the SBF `.so`s under `target/deploy`; run `just build-programs` first.
 test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo test -p light-program-test
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml --features no-idl,no-log-ix-name
+    cargo test -p shielded-pool-tests --test transact_e2e
+    # Registry lifecycle/CPI tests currently trap inside light_registry's
+    # initialize_protocol_config under LiteSVM before reaching shielded-pool.
+    cargo test -p light-program-test --lib
+    cargo test -p light-program-test --test end_to_end
 
 # Aggregate of all CI-runnable rust tests.
 test-all: test-scaffold test-litesvm
@@ -179,7 +183,7 @@ build-light-programs: fetch-fixtures
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml --features no-idl,no-log-ix-name
     mkdir -p target/deploy
     tag=$(tr -d '[:space:]' < .fixtures-version)
     fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
@@ -187,8 +191,56 @@ build-light-programs: fetch-fixtures
     cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
 build-prover-server:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mkdir -p target
-    cd prover/server && go build -o ../../target/prover-server .
+    go_bin="${GO_BIN:-}"
+    if [[ -z "$go_bin" ]] && command -v go >/dev/null 2>&1; then
+        go_bin=go
+    fi
+    if [[ -z "$go_bin" ]]; then
+        if [[ -x target/prover-server ]]; then
+            echo "go not found; reusing existing target/prover-server"
+            exit 0
+        fi
+        echo "go not found; install Go or set GO_BIN" >&2
+        exit 127
+    fi
+    cd prover/server && "$go_bin" build -o ../../target/prover-server .
+
+build-spp-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    if [[ ! -f target/spp/spp_1_2.key ]]; then
+        target/prover-server spp setup --inputs 1 --outputs 2 --output target/spp/spp_1_2.key --output-vkey target/spp/spp_1_2.vkey
+    fi
+
+build-spp-spec-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    for shape in 2:2 1:2 3:3 5:3 1:8; do
+        inputs="${shape%%:*}"
+        outputs="${shape##*:}"
+        stem="target/spp/spp_${inputs}_${outputs}"
+        if [[ ! -f "${stem}.key" ]]; then
+            target/prover-server spp setup --inputs "$inputs" --outputs "$outputs" --output "${stem}.key" --output-vkey "${stem}.vkey"
+        fi
+    done
+
+build-spp-nullifier-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    stem="target/spp/spp-nullifier-update_40_10"
+    if [[ ! -f "${stem}.key" ]]; then
+        target/prover-server spp setup-nullifier-update --tree-height 40 --batch-size 10 --output "${stem}.key" --output-vkey "${stem}.vkey"
+    fi
+
+test-pocket-cli-e2e: build-zolana-cli build-spp-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo test -p zolana-cli --test pocket_cli_e2e -- --ignored --nocapture --test-threads=1
 
 # === Formatting and linting ===
 

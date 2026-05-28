@@ -3,9 +3,11 @@ use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, AppendStateLeavesData, BatchUpdateAddressTreeData,
-        CreatePoolTreeData, InsertAddressesData,
+        CreatePoolTreeData, InsertAddressesData, TransactData, PUBLIC_AMOUNT_NONE,
     },
     CPI_AUTHORITY_PDA_SEED, LIGHT_REGISTRY_CPI_AUTHORITY, LIGHT_REGISTRY_PROGRAM_ID,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
+    SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 
 fn program_id() -> pinocchio::Address {
@@ -74,6 +76,15 @@ fn non_empty_append_state_leaves_without_accounts_does_not_succeed() {
 fn encodes_first_byte_tags() {
     let data = encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData);
     assert_eq!(data[0], tag::CREATE_POOL_TREE);
+
+    let data = encode_instruction(tag::TRANSACT, &sample_transact_data());
+    assert_eq!(data[0], tag::TRANSACT);
+}
+
+#[test]
+fn transact_without_accounts_does_not_succeed() {
+    let data = encode_instruction(tag::TRANSACT, &sample_transact_data());
+    assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 
 #[test]
@@ -102,10 +113,39 @@ fn cpi_authority_constant_matches_find_program_address() {
 }
 
 #[test]
+fn shielded_pool_cpi_authority_constant_matches_find_program_address() {
+    let program = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let (expected, bump) =
+        Pubkey::find_program_address(&[SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED], &program);
+    assert_eq!(expected.to_bytes(), SHIELDED_POOL_CPI_AUTHORITY);
+    assert_eq!(bump, SHIELDED_POOL_CPI_AUTHORITY_BUMP);
+}
+
+#[test]
 fn light_registry_program_id_matches_declared_id() {
     // Sanity check that LIGHT_REGISTRY_PROGRAM_ID is the right base58 program
     // id — a renamed `declare_id!` in `light-registry` should be loud.
     use std::str::FromStr;
     let parsed = Pubkey::from_str("Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX").unwrap();
     assert_eq!(parsed.to_bytes(), LIGHT_REGISTRY_PROGRAM_ID);
+}
+
+fn sample_transact_data() -> TransactData {
+    TransactData {
+        expiry_unix_ts: u64::MAX,
+        sender_view_tag: [1u8; 32],
+        proof: [0u8; 192],
+        relayer_fee: 0,
+        public_amount_mode: PUBLIC_AMOUNT_NONE,
+        nullifiers: vec![],
+        output_utxo_hashes: vec![[1u8; 32]],
+        utxo_tree_root_index: vec![],
+        nullifier_tree_root_index: vec![],
+        private_tx_hash: [2u8; 32],
+        public_sol_amount: None,
+        public_spl_amount: None,
+        cpi_signer: None,
+        in_utxo_signer_indices: None,
+        encrypted_utxos: vec![],
+    }
 }

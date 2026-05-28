@@ -1,23 +1,60 @@
 use std::{
+    collections::BTreeMap,
     env,
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Write},
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    str::FromStr,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use hmac::{Hmac, Mac};
+use light_prover_client::proof::{bsb22_proof_bytes_from_json_struct, GnarkProofJson};
+use p256::{
+    ecdsa::{
+        signature::hazmat::PrehashSigner, Signature as P256Signature, SigningKey as P256SigningKey,
+    },
+    SecretKey as P256SecretKey,
+};
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Sha256;
+use shielded_pool_program::instructions::create_pool_tree::init::pool_tree_account_size;
+use solana_commitment_config::CommitmentConfig;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::{read_keypair_file, write_keypair_file, Keypair};
+use solana_message::Message;
+use solana_program_pack::Pack;
+use solana_pubkey::Pubkey;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_signer::Signer;
+use solana_system_interface::instruction as system_instruction;
+use solana_transaction::Transaction;
+use spl_token::state::Account as TokenAccount;
+use zolana_interface::{
+    instruction::{
+        encode_instruction, tag, InputUtxoSignerIndex, TransactData, PUBLIC_AMOUNT_DEPOSIT,
+        PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
+    },
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+};
 
+const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_RPC_PORT: u16 = 8899;
 const DEFAULT_INDEXER_PORT: u16 = 8784;
 const DEFAULT_PROVER_PORT: u16 = 3001;
 const DEFAULT_LIMIT_LEDGER_SIZE: u64 = 10_000;
 const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
+const POCKET_SOL_ASSET_ID: u64 = 1;
+const POCKET_UTXO_ROOT_HISTORY_CAPACITY: u16 = 200;
+const POCKET_NULLIFIER_HKDF_INFO: &[u8] = b"zolana/nullifier";
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 const LIGHT_REGISTRY_ID: &str = "Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX";
@@ -111,8 +148,14 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let argv0 = env::args().next().unwrap_or_default();
     let args = env::args().skip(1).collect::<Vec<_>>();
+    if Path::new(&argv0).file_stem().and_then(|name| name.to_str()) == Some("pocket") {
+        return run_pocket(&args);
+    }
+
     match args.first().map(String::as_str) {
+        Some("pocket") => run_pocket(&args[1..]),
         Some("test-validator")
             if args
                 .get(1)
@@ -924,10 +967,1937 @@ fn path_string_with_trailing_separator(path: &Path) -> Result<String> {
     Ok(value)
 }
 
+#[derive(Debug, Default)]
+struct PocketCreateWalletOptions {
+    output: PathBuf,
+    force: bool,
+    rpc_url: String,
+    airdrop_lamports: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct PocketCreateShieldedWalletOptions {
+    output: PathBuf,
+    force: bool,
+}
+
+#[derive(Debug, Default)]
+struct PocketBalanceOptions {
+    rpc_url: String,
+    wallet: Option<PathBuf>,
+    pubkey: Option<Pubkey>,
+    token_account: Option<Pubkey>,
+    state: Option<PathBuf>,
+    asset_id: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct PocketInitPoolTreeOptions {
+    rpc_url: String,
+    payer: PathBuf,
+    output: PathBuf,
+    force: bool,
+    pubkey_only: bool,
+}
+
+#[derive(Debug, Default)]
+struct PocketSubmitOptions {
+    rpc_url: String,
+    payer: PathBuf,
+    tree: Pubkey,
+    bundle: Option<PathBuf>,
+    tx_name: String,
+    state: Option<PathBuf>,
+    owner_p256_wallet: Option<PathBuf>,
+    recipient_wallet: Option<PathBuf>,
+    recipient_p256_wallet: Option<PathBuf>,
+    recipient_state: Option<PathBuf>,
+    amount: Option<u64>,
+    change_amount: Option<u64>,
+    relayer_fee: u16,
+    asset_id: Option<u64>,
+    keys_file: Option<PathBuf>,
+    prover_bin: Option<PathBuf>,
+    output_proof_bundle: Option<PathBuf>,
+    user_sol_account: Option<Pubkey>,
+    user_spl_token: Option<Pubkey>,
+    spl_vault: Option<Pubkey>,
+    spl_asset_registry: Option<Pubkey>,
+    token_program: Pubkey,
+}
+
+impl PocketSubmitOptions {
+    fn has_spl_settlement(&self) -> bool {
+        self.user_spl_token.is_some()
+            || self.spl_vault.is_some()
+            || self.spl_asset_registry.is_some()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketProofBundle {
+    solana_signer_pubkey: String,
+    #[serde(default, alias = "fixtures")]
+    transactions: Vec<PocketProofTx>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketProofTx {
+    name: String,
+    expiry_unix_ts: u64,
+    sender_view_tag: String,
+    proof: serde_json::Value,
+    relayer_fee: u16,
+    nullifiers: Vec<String>,
+    output_utxo_hashes: Vec<String>,
+    utxo_tree_root_index: Vec<u16>,
+    nullifier_tree_root_index: Vec<u16>,
+    private_tx_hash: String,
+    public_amount_mode: u8,
+    public_sol_amount: Option<u64>,
+    public_spl_amount: Option<u64>,
+    encrypted_utxos: String,
+    #[serde(default)]
+    output_utxos: Vec<PocketProofOutputUtxo>,
+    #[serde(default)]
+    user_sol_account: String,
+    user_spl_token_account: String,
+    spl_token_interface: String,
+    #[serde(default)]
+    solana_owner_input_indices: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketProofOutputUtxo {
+    utxo: PocketUtxo,
+    hash: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct PocketState {
+    #[serde(default)]
+    utxo_root_index: u16,
+    #[serde(default)]
+    next_leaf_index: u64,
+    #[serde(default)]
+    known_leaves: Vec<PocketKnownLeaf>,
+    #[serde(default)]
+    notes: Vec<PocketNote>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PocketKnownLeaf {
+    index: u64,
+    hash: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PocketNote {
+    id: String,
+    owner_pubkey: String,
+    leaf_index: u64,
+    utxo: PocketUtxo,
+    nullifier_secret: String,
+    hash: String,
+    #[serde(default)]
+    spent: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PocketUtxo {
+    domain: String,
+    owner: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    owner_solana_pubkey: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    owner_p256_pubkey: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    owner_nullifier_secret: String,
+    asset_id: String,
+    asset_amount: String,
+    blinding: String,
+    data_hash: String,
+    policy_data: String,
+    policy_program_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PocketProofRequest {
+    solana_signer_pubkey: String,
+    transactions: Vec<PocketProofRequestTx>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PocketProofRequestTx {
+    name: String,
+    instruction_discriminator: u8,
+    expiry_unix_ts: u64,
+    sender_view_tag: String,
+    relayer_fee: u16,
+    public_amount_mode: u8,
+    public_sol_amount: Option<u64>,
+    public_spl_amount: Option<u64>,
+    public_spl_asset_id: u64,
+    encrypted_utxos: String,
+    user_sol_account: String,
+    user_spl_token_account: String,
+    spl_token_interface: String,
+    state_entries: Vec<PocketStateEntry>,
+    inputs: Vec<PocketProofInput>,
+    outputs: Vec<PocketUtxo>,
+    utxo_tree_root_index: Vec<u16>,
+    nullifier_tree_root_index: Vec<u16>,
+    program_id_hashchain: String,
+    data_hash: String,
+    policy_data: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    p256_owner_pubkey: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    p256_signature_r: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    p256_signature_s: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketSigningPayloadBundle {
+    transactions: Vec<PocketSigningPayloadTx>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketSigningPayloadTx {
+    name: String,
+    private_tx_hash: String,
+    requires_p256_signature: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PocketP256Wallet {
+    version: u8,
+    scheme: String,
+    p256_secret_key: String,
+    p256_public_key: String,
+    nullifier_secret: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PocketStateEntry {
+    index: u64,
+    hash: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PocketProofInput {
+    utxo: PocketUtxo,
+    leaf_index: u64,
+    nullifier_secret: String,
+}
+
+#[derive(Debug)]
+struct PocketDirectProof {
+    bundle_path: PathBuf,
+    tx_name: String,
+    state_updates: PocketStateUpdates,
+}
+
+#[derive(Debug, Default)]
+struct PocketStateUpdates {
+    sender_state_path: Option<PathBuf>,
+    sender_state: PocketState,
+    recipient_state_path: Option<PathBuf>,
+    recipient_state: Option<PocketState>,
+}
+
+fn run_pocket(args: &[String]) -> Result<()> {
+    match args.first().map(String::as_str) {
+        Some("create-wallet") => pocket_create_wallet(parse_pocket_create_wallet_args(&args[1..])?),
+        Some("create-shielded-wallet") => {
+            pocket_create_shielded_wallet(parse_pocket_create_shielded_wallet_args(&args[1..])?)
+        }
+        Some("balance") => pocket_balance(parse_pocket_balance_args(&args[1..])?),
+        Some("init-pool-tree") => {
+            pocket_init_pool_tree(parse_pocket_init_pool_tree_args(&args[1..])?)
+        }
+        Some("shield") => pocket_submit("shield", parse_pocket_submit_args("shield", &args[1..])?),
+        Some("transfer") => pocket_submit(
+            "transfer",
+            parse_pocket_submit_args("transfer", &args[1..])?,
+        ),
+        Some("unshield") => pocket_submit(
+            "unshield",
+            parse_pocket_submit_args("unshield", &args[1..])?,
+        ),
+        Some("--help") | Some("-h") | None => {
+            print_pocket_help();
+            Ok(())
+        }
+        Some(command) => bail!("unknown pocket command: {command}"),
+    }
+}
+
+fn parse_pocket_create_shielded_wallet_args(
+    args: &[String],
+) -> Result<PocketCreateShieldedWalletOptions> {
+    let mut opts = PocketCreateShieldedWalletOptions::default();
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--output" | "-o" => opts.output = PathBuf::from(take_next(args, &mut index, arg)?),
+            "--force" => opts.force = true,
+            _ if arg.starts_with("--output=") => {
+                opts.output = PathBuf::from(&arg["--output=".len()..]);
+            }
+            other => bail!("unknown create-shielded-wallet argument: {other}"),
+        }
+        index += 1;
+    }
+    if opts.output.as_os_str().is_empty() {
+        bail!("create-shielded-wallet requires --output");
+    }
+    Ok(opts)
+}
+
+fn parse_pocket_create_wallet_args(args: &[String]) -> Result<PocketCreateWalletOptions> {
+    let mut opts = PocketCreateWalletOptions {
+        rpc_url: DEFAULT_RPC_URL.to_string(),
+        ..PocketCreateWalletOptions::default()
+    };
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--output" | "-o" => opts.output = PathBuf::from(take_next(args, &mut index, arg)?),
+            "--force" => opts.force = true,
+            "--rpc-url" => opts.rpc_url = take_next(args, &mut index, arg)?,
+            "--airdrop-lamports" => {
+                opts.airdrop_lamports = Some(parse_next(args, &mut index, arg)?)
+            }
+            _ if arg.starts_with("--output=") => {
+                opts.output = PathBuf::from(&arg["--output=".len()..]);
+            }
+            _ if arg.starts_with("--rpc-url=") => {
+                opts.rpc_url = arg["--rpc-url=".len()..].to_string();
+            }
+            _ if arg.starts_with("--airdrop-lamports=") => {
+                opts.airdrop_lamports =
+                    Some(parse_value(&arg["--airdrop-lamports=".len()..], arg)?);
+            }
+            other => bail!("unknown create-wallet argument: {other}"),
+        }
+        index += 1;
+    }
+    if opts.output.as_os_str().is_empty() {
+        bail!("create-wallet requires --output");
+    }
+    Ok(opts)
+}
+
+fn parse_pocket_balance_args(args: &[String]) -> Result<PocketBalanceOptions> {
+    let mut opts = PocketBalanceOptions {
+        rpc_url: DEFAULT_RPC_URL.to_string(),
+        ..PocketBalanceOptions::default()
+    };
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--rpc-url" => opts.rpc_url = take_next(args, &mut index, arg)?,
+            "--wallet" => opts.wallet = Some(PathBuf::from(take_next(args, &mut index, arg)?)),
+            "--pubkey" => opts.pubkey = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?),
+            "--token-account" => {
+                opts.token_account = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
+            "--state" => opts.state = Some(PathBuf::from(take_next(args, &mut index, arg)?)),
+            "--asset-id" => opts.asset_id = Some(parse_next(args, &mut index, arg)?),
+            _ if arg.starts_with("--rpc-url=") => {
+                opts.rpc_url = arg["--rpc-url=".len()..].to_string();
+            }
+            _ if arg.starts_with("--wallet=") => {
+                opts.wallet = Some(PathBuf::from(&arg["--wallet=".len()..]));
+            }
+            _ if arg.starts_with("--pubkey=") => {
+                opts.pubkey = Some(parse_pubkey(&arg["--pubkey=".len()..])?);
+            }
+            _ if arg.starts_with("--token-account=") => {
+                opts.token_account = Some(parse_pubkey(&arg["--token-account=".len()..])?);
+            }
+            _ if arg.starts_with("--state=") => {
+                opts.state = Some(PathBuf::from(&arg["--state=".len()..]));
+            }
+            _ if arg.starts_with("--asset-id=") => {
+                opts.asset_id = Some(parse_value(&arg["--asset-id=".len()..], arg)?);
+            }
+            other => bail!("unknown balance argument: {other}"),
+        }
+        index += 1;
+    }
+    if opts.wallet.is_none()
+        && opts.pubkey.is_none()
+        && opts.token_account.is_none()
+        && opts.state.is_none()
+    {
+        bail!("balance requires --wallet, --pubkey, --token-account, or --state");
+    }
+    Ok(opts)
+}
+
+fn parse_pocket_init_pool_tree_args(args: &[String]) -> Result<PocketInitPoolTreeOptions> {
+    let mut opts = PocketInitPoolTreeOptions {
+        rpc_url: DEFAULT_RPC_URL.to_string(),
+        ..PocketInitPoolTreeOptions::default()
+    };
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--rpc-url" => opts.rpc_url = take_next(args, &mut index, arg)?,
+            "--payer" => opts.payer = PathBuf::from(take_next(args, &mut index, arg)?),
+            "--output" | "-o" => opts.output = PathBuf::from(take_next(args, &mut index, arg)?),
+            "--force" => opts.force = true,
+            "--pubkey-only" => opts.pubkey_only = true,
+            _ if arg.starts_with("--rpc-url=") => {
+                opts.rpc_url = arg["--rpc-url=".len()..].to_string();
+            }
+            _ if arg.starts_with("--payer=") => {
+                opts.payer = PathBuf::from(&arg["--payer=".len()..]);
+            }
+            _ if arg.starts_with("--output=") => {
+                opts.output = PathBuf::from(&arg["--output=".len()..]);
+            }
+            other => bail!("unknown init-pool-tree argument: {other}"),
+        }
+        index += 1;
+    }
+    if opts.payer.as_os_str().is_empty() {
+        bail!("init-pool-tree requires --payer");
+    }
+    if opts.output.as_os_str().is_empty() {
+        bail!("init-pool-tree requires --output");
+    }
+    Ok(opts)
+}
+
+fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
+    let mut opts = PocketSubmitOptions {
+        rpc_url: DEFAULT_RPC_URL.to_string(),
+        tx_name: default_tx_name.to_string(),
+        token_program: spl_token::id(),
+        ..PocketSubmitOptions::default()
+    };
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--rpc-url" => opts.rpc_url = take_next(args, &mut index, arg)?,
+            "--payer" => opts.payer = PathBuf::from(take_next(args, &mut index, arg)?),
+            "--tree" => opts.tree = parse_pubkey(&take_next(args, &mut index, arg)?)?,
+            "--proof-bundle" | "--bundle" => {
+                opts.bundle = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--tx" => opts.tx_name = take_next(args, &mut index, arg)?,
+            "--state" => opts.state = Some(PathBuf::from(take_next(args, &mut index, arg)?)),
+            "--owner-p256-wallet" => {
+                opts.owner_p256_wallet = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--recipient-wallet" => {
+                opts.recipient_wallet = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--recipient-p256-wallet" => {
+                opts.recipient_p256_wallet = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--recipient-state" => {
+                opts.recipient_state = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--amount" => opts.amount = Some(parse_next(args, &mut index, arg)?),
+            "--change-amount" => opts.change_amount = Some(parse_next(args, &mut index, arg)?),
+            "--relayer-fee" => opts.relayer_fee = parse_next(args, &mut index, arg)?,
+            "--asset-id" => opts.asset_id = Some(parse_next(args, &mut index, arg)?),
+            "--keys-file" => {
+                opts.keys_file = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--prover-bin" => {
+                opts.prover_bin = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--output-proof-bundle" => {
+                opts.output_proof_bundle = Some(PathBuf::from(take_next(args, &mut index, arg)?))
+            }
+            "--user-sol-account" => {
+                opts.user_sol_account = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
+            "--user-spl-token" => {
+                opts.user_spl_token = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
+            "--spl-vault" => {
+                opts.spl_vault = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
+            "--spl-asset-registry" => {
+                opts.spl_asset_registry = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
+            "--token-program" => {
+                opts.token_program = parse_pubkey(&take_next(args, &mut index, arg)?)?
+            }
+            _ if arg.starts_with("--rpc-url=") => {
+                opts.rpc_url = arg["--rpc-url=".len()..].to_string();
+            }
+            _ if arg.starts_with("--payer=") => {
+                opts.payer = PathBuf::from(&arg["--payer=".len()..]);
+            }
+            _ if arg.starts_with("--tree=") => {
+                opts.tree = parse_pubkey(&arg["--tree=".len()..])?;
+            }
+            _ if arg.starts_with("--proof-bundle=") => {
+                opts.bundle = Some(PathBuf::from(&arg["--proof-bundle=".len()..]));
+            }
+            _ if arg.starts_with("--bundle=") => {
+                opts.bundle = Some(PathBuf::from(&arg["--bundle=".len()..]));
+            }
+            _ if arg.starts_with("--tx=") => {
+                opts.tx_name = arg["--tx=".len()..].to_string();
+            }
+            _ if arg.starts_with("--state=") => {
+                opts.state = Some(PathBuf::from(&arg["--state=".len()..]));
+            }
+            _ if arg.starts_with("--owner-p256-wallet=") => {
+                opts.owner_p256_wallet = Some(PathBuf::from(&arg["--owner-p256-wallet=".len()..]));
+            }
+            _ if arg.starts_with("--recipient-wallet=") => {
+                opts.recipient_wallet = Some(PathBuf::from(&arg["--recipient-wallet=".len()..]));
+            }
+            _ if arg.starts_with("--recipient-p256-wallet=") => {
+                opts.recipient_p256_wallet =
+                    Some(PathBuf::from(&arg["--recipient-p256-wallet=".len()..]));
+            }
+            _ if arg.starts_with("--recipient-state=") => {
+                opts.recipient_state = Some(PathBuf::from(&arg["--recipient-state=".len()..]));
+            }
+            _ if arg.starts_with("--amount=") => {
+                opts.amount = Some(parse_value(&arg["--amount=".len()..], arg)?);
+            }
+            _ if arg.starts_with("--change-amount=") => {
+                opts.change_amount = Some(parse_value(&arg["--change-amount=".len()..], arg)?);
+            }
+            _ if arg.starts_with("--relayer-fee=") => {
+                opts.relayer_fee = parse_value(&arg["--relayer-fee=".len()..], arg)?;
+            }
+            _ if arg.starts_with("--asset-id=") => {
+                opts.asset_id = Some(parse_value(&arg["--asset-id=".len()..], arg)?);
+            }
+            _ if arg.starts_with("--keys-file=") => {
+                opts.keys_file = Some(PathBuf::from(&arg["--keys-file=".len()..]));
+            }
+            _ if arg.starts_with("--prover-bin=") => {
+                opts.prover_bin = Some(PathBuf::from(&arg["--prover-bin=".len()..]));
+            }
+            _ if arg.starts_with("--output-proof-bundle=") => {
+                opts.output_proof_bundle =
+                    Some(PathBuf::from(&arg["--output-proof-bundle=".len()..]));
+            }
+            _ if arg.starts_with("--user-sol-account=") => {
+                opts.user_sol_account = Some(parse_pubkey(&arg["--user-sol-account=".len()..])?);
+            }
+            _ if arg.starts_with("--user-spl-token=") => {
+                opts.user_spl_token = Some(parse_pubkey(&arg["--user-spl-token=".len()..])?);
+            }
+            _ if arg.starts_with("--spl-vault=") => {
+                opts.spl_vault = Some(parse_pubkey(&arg["--spl-vault=".len()..])?);
+            }
+            _ if arg.starts_with("--spl-asset-registry=") => {
+                opts.spl_asset_registry =
+                    Some(parse_pubkey(&arg["--spl-asset-registry=".len()..])?);
+            }
+            _ if arg.starts_with("--token-program=") => {
+                opts.token_program = parse_pubkey(&arg["--token-program=".len()..])?;
+            }
+            other => bail!("unknown {default_tx_name} argument: {other}"),
+        }
+        index += 1;
+    }
+    if opts.payer.as_os_str().is_empty() {
+        bail!("{default_tx_name} requires --payer");
+    }
+    if opts.tree == Pubkey::default() {
+        bail!("{default_tx_name} requires --tree");
+    }
+    if opts.bundle.is_none() {
+        if opts.state.is_none() {
+            bail!("{default_tx_name} direct proving requires --state");
+        }
+        if opts.keys_file.is_none() {
+            bail!("{default_tx_name} direct proving requires --keys-file");
+        }
+        if opts.prover_bin.is_none() {
+            bail!("{default_tx_name} direct proving requires --prover-bin");
+        }
+        if opts.amount.is_none() {
+            bail!("{default_tx_name} direct proving requires --amount");
+        }
+        if default_tx_name != "transfer" && opts.asset_id.is_none() && opts.has_spl_settlement() {
+            bail!("{default_tx_name} direct proving requires --asset-id");
+        }
+        if default_tx_name == "transfer" {
+            if opts.recipient_state.is_none()
+                || (opts.recipient_wallet.is_none() && opts.recipient_p256_wallet.is_none())
+            {
+                bail!("transfer direct proving requires --recipient-state and one of --recipient-wallet or --recipient-p256-wallet");
+            }
+            if opts.recipient_wallet.is_some() && opts.recipient_p256_wallet.is_some() {
+                bail!("transfer direct proving accepts only one of --recipient-wallet or --recipient-p256-wallet");
+            }
+        }
+    }
+    Ok(opts)
+}
+
+fn pocket_create_wallet(opts: PocketCreateWalletOptions) -> Result<()> {
+    if opts.output.exists() && !opts.force {
+        bail!(
+            "{} already exists; pass --force to overwrite",
+            opts.output.display()
+        );
+    }
+    if let Some(parent) = opts
+        .output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let keypair = Keypair::new();
+    write_keypair_file(&keypair, &opts.output)
+        .map_err(|error| anyhow!("write keypair {}: {error}", opts.output.display()))?;
+
+    let mut out = json!({
+        "pubkey": keypair.pubkey().to_string(),
+        "keypair": opts.output,
+    });
+    if let Some(lamports) = opts.airdrop_lamports {
+        let client = pocket_rpc_client(&opts.rpc_url);
+        let signature = client
+            .request_airdrop(&keypair.pubkey(), lamports)
+            .context("request airdrop")?;
+        let confirmed = client
+            .confirm_transaction(&signature)
+            .context("confirm airdrop")?;
+        out["airdrop_signature"] = json!(signature.to_string());
+        out["airdrop_confirmed"] = json!(confirmed);
+    }
+    println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+fn pocket_create_shielded_wallet(opts: PocketCreateShieldedWalletOptions) -> Result<()> {
+    if opts.output.exists() && !opts.force {
+        bail!(
+            "{} already exists; pass --force to overwrite",
+            opts.output.display()
+        );
+    }
+    let signing_key = random_p256_signing_key()?;
+    let public_key = signing_key.verifying_key().to_encoded_point(true);
+    let nullifier_secret = p256_nullifier_secret_hex(&signing_key)?;
+    let wallet = PocketP256Wallet {
+        version: 1,
+        scheme: "p256".to_string(),
+        p256_secret_key: hex::encode(signing_key.to_bytes()),
+        p256_public_key: hex::encode(public_key.as_bytes()),
+        nullifier_secret,
+    };
+    write_json_file(&opts.output, &wallet)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "wallet": opts.output,
+            "scheme": wallet.scheme,
+            "p256_public_key": wallet.p256_public_key,
+        }))?
+    );
+    Ok(())
+}
+
+fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
+    if let Some(state_path) = opts.state {
+        let state = read_pocket_state(&state_path)?;
+        let mut private_amount = 0u64;
+        let mut note_count = 0usize;
+        for note in state.notes.iter().filter(|note| !note.spent) {
+            let note_asset_id = pocket_note_asset_id(note)?;
+            if opts
+                .asset_id
+                .is_some_and(|asset_id| asset_id != note_asset_id)
+            {
+                continue;
+            }
+            private_amount = private_amount
+                .checked_add(pocket_note_amount(note)?)
+                .ok_or_else(|| anyhow!("private balance overflow"))?;
+            note_count += 1;
+        }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "state": state_path,
+                "asset_id": opts.asset_id,
+                "private_amount": private_amount,
+                "unspent_notes": note_count,
+            }))?
+        );
+        return Ok(());
+    }
+
+    let client = pocket_rpc_client(&opts.rpc_url);
+    if let Some(token_account) = opts.token_account {
+        let account = client
+            .get_account(&token_account)
+            .with_context(|| format!("fetch token account {token_account}"))?;
+        let token = TokenAccount::unpack(&account.data).context("decode SPL token account")?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "token_account": token_account.to_string(),
+                "mint": token.mint.to_string(),
+                "owner": token.owner.to_string(),
+                "amount": token.amount,
+            }))?
+        );
+        return Ok(());
+    }
+
+    let pubkey = if let Some(pubkey) = opts.pubkey {
+        pubkey
+    } else {
+        read_keypair_file(opts.wallet.expect("checked above"))
+            .map_err(|error| anyhow!("read wallet keypair: {error}"))?
+            .pubkey()
+    };
+    let account = client
+        .get_account(&pubkey)
+        .with_context(|| format!("fetch account {pubkey}"))?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "pubkey": pubkey.to_string(),
+            "lamports": account.lamports,
+        }))?
+    );
+    Ok(())
+}
+
+fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
+    if opts.output.exists() && !opts.force {
+        bail!(
+            "{} already exists; pass --force to overwrite",
+            opts.output.display()
+        );
+    }
+    if let Some(parent) = opts
+        .output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let payer = read_keypair_file(&opts.payer)
+        .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
+    let tree = Keypair::new();
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let client = pocket_rpc_client(&opts.rpc_url);
+    let account_size = pool_tree_account_size();
+    let lamports = client
+        .get_minimum_balance_for_rent_exemption(account_size)
+        .context("get pool-tree rent exemption")?;
+    let create_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &tree.pubkey(),
+        lamports,
+        account_size as u64,
+        &program_id,
+    );
+    let init_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new_readonly(payer.pubkey(), true),
+            AccountMeta::new(tree.pubkey(), false),
+        ],
+        data: encode_instruction(
+            tag::CREATE_POOL_TREE,
+            &zolana_interface::instruction::CreatePoolTreeData,
+        ),
+    };
+    let signature = send_pocket_instructions_with_extra_signers(
+        &client,
+        &payer,
+        &[create_ix, init_ix],
+        &[&tree],
+    )?;
+    write_keypair_file(&tree, &opts.output)
+        .map_err(|error| anyhow!("write tree keypair {}: {error}", opts.output.display()))?;
+    if opts.pubkey_only {
+        println!("{}", tree.pubkey());
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "tree": tree.pubkey().to_string(),
+                "keypair": opts.output,
+                "signature": signature.to_string(),
+                "account_size": account_size,
+            }))?
+        );
+    }
+    Ok(())
+}
+
+fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
+    let payer = read_keypair_file(&opts.payer)
+        .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
+    let direct = if opts.bundle.is_none() {
+        Some(pocket_build_direct_proof(command, &opts, &payer)?)
+    } else {
+        None
+    };
+    let bundle_path = opts
+        .bundle
+        .as_ref()
+        .cloned()
+        .or_else(|| direct.as_ref().map(|direct| direct.bundle_path.clone()))
+        .expect("checked above");
+    let tx_name = direct
+        .as_ref()
+        .map(|direct| direct.tx_name.as_str())
+        .unwrap_or(&opts.tx_name);
+    let bundle = read_pocket_proof_bundle(&bundle_path)?;
+    let tx = bundle
+        .transactions
+        .iter()
+        .find(|fixture| fixture.name == tx_name)
+        .cloned()
+        .ok_or_else(|| anyhow!("proof bundle does not contain tx {tx_name}"))?;
+
+    let payer_hex = hex::encode(payer.pubkey().to_bytes());
+    if bundle.solana_signer_pubkey != payer_hex {
+        bail!(
+            "proof bundle signer {} does not match payer {}",
+            bundle.solana_signer_pubkey,
+            payer.pubkey()
+        );
+    }
+
+    let data = pocket_transact_data(&tx)?;
+    let signer_receives_relayer_fee =
+        data.public_amount_mode == PUBLIC_AMOUNT_WITHDRAW && data.relayer_fee != 0;
+    let mut accounts = vec![
+        AccountMeta::new(opts.tree, false),
+        if signer_receives_relayer_fee {
+            AccountMeta::new(payer.pubkey(), true)
+        } else {
+            AccountMeta::new_readonly(payer.pubkey(), true)
+        },
+    ];
+    let needs_sol = data.public_sol_amount.unwrap_or(0) != 0;
+    let needs_spl = data.public_spl_amount.unwrap_or(0) != 0;
+    if needs_sol {
+        let user_sol_account = opts.user_sol_account.unwrap_or_else(|| payer.pubkey());
+        assert_bundle_pubkey("user SOL account", &tx.user_sol_account, &user_sol_account)?;
+        accounts.extend([
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY), false),
+            AccountMeta::new(user_sol_account, false),
+        ]);
+    }
+    if needs_spl {
+        let user_spl_token = required_pubkey(opts.user_spl_token, "--user-spl-token")?;
+        let spl_vault = required_pubkey(opts.spl_vault, "--spl-vault")?;
+        let spl_asset_registry = required_pubkey(opts.spl_asset_registry, "--spl-asset-registry")?;
+        assert_bundle_pubkey(
+            "user SPL token",
+            &tx.user_spl_token_account,
+            &user_spl_token,
+        )?;
+        assert_bundle_pubkey("SPL vault/interface", &tx.spl_token_interface, &spl_vault)?;
+        if !needs_sol {
+            accounts.push(AccountMeta::new_readonly(
+                Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY),
+                false,
+            ));
+        }
+        accounts.extend([
+            AccountMeta::new(user_spl_token, false),
+            AccountMeta::new(spl_vault, false),
+            AccountMeta::new_readonly(spl_asset_registry, false),
+            AccountMeta::new_readonly(opts.token_program, false),
+        ]);
+    }
+
+    let ix = Instruction {
+        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        accounts,
+        data: encode_instruction(tag::TRANSACT, &data),
+    };
+    let client = pocket_rpc_client(&opts.rpc_url);
+    let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let signature = send_pocket_instructions(&client, &payer, &[compute_budget_ix, ix])?;
+    if let Some(direct) = direct {
+        pocket_apply_state_updates(direct.state_updates)?;
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "command": command,
+            "tx": tx.name,
+            "proof_bundle": bundle_path,
+            "signature": signature.to_string(),
+        }))?
+    );
+    Ok(())
+}
+
+fn pocket_build_direct_proof(
+    command: &str,
+    opts: &PocketSubmitOptions,
+    payer: &Keypair,
+) -> Result<PocketDirectProof> {
+    let state_path = opts
+        .state
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| anyhow!("{command} requires --state"))?;
+    let keys_file = opts
+        .keys_file
+        .as_ref()
+        .ok_or_else(|| anyhow!("{command} requires --keys-file"))?;
+    let prover_bin = opts
+        .prover_bin
+        .as_ref()
+        .ok_or_else(|| anyhow!("{command} requires --prover-bin"))?;
+    let amount = opts
+        .amount
+        .ok_or_else(|| anyhow!("{command} requires --amount"))?;
+    if opts.relayer_fee != 0 && command != "unshield" {
+        bail!("--relayer-fee is only supported for SOL unshield");
+    }
+    let mut sender_state = read_pocket_state(&state_path)?;
+    normalize_pocket_state(&mut sender_state);
+
+    let signer_hex = pubkey_hex(&payer.pubkey());
+    let owner_p256_wallet = opts
+        .owner_p256_wallet
+        .as_ref()
+        .map(|path| read_pocket_p256_wallet(path))
+        .transpose()?;
+    let sender_output_owner = owner_p256_wallet
+        .clone()
+        .map(PocketOwner::P256)
+        .unwrap_or_else(|| PocketOwner::Solana(payer.pubkey()));
+    let mut recipient_state_path = None;
+    let mut recipient_state = None;
+    let mut output_targets = Vec::<PocketOutputTarget>::new();
+    let mut spent_note_id = None;
+    let sender_next_leaf_index = sender_state.next_leaf_index;
+
+    let mut request_tx = match command {
+        "shield" => {
+            let is_spl = opts.has_spl_settlement();
+            let asset_id = if is_spl {
+                opts.asset_id
+                    .ok_or_else(|| anyhow!("shield requires --asset-id for SPL settlement"))?
+            } else {
+                validate_sol_asset_id(opts.asset_id, "shield")?;
+                POCKET_SOL_ASSET_ID
+            };
+            let (utxo, nullifier_secret) =
+                pocket_new_utxo_for_owner(&sender_output_owner, asset_id, amount);
+            output_targets.push(PocketOutputTarget {
+                recipient: PocketOutputRecipient::Sender,
+                nullifier_secret,
+                owner: sender_output_owner.clone(),
+            });
+            pocket_request_tx(PocketRequestTxParams {
+                name: opts.tx_name.clone(),
+                state: &sender_state,
+                inputs: Vec::new(),
+                outputs: vec![utxo],
+                public_amount_mode: PUBLIC_AMOUNT_DEPOSIT,
+                public_sol_amount: if is_spl { None } else { Some(amount) },
+                public_spl_amount: if is_spl { Some(amount) } else { None },
+                public_spl_asset_id: if is_spl { asset_id } else { 0 },
+                relayer_fee: 0,
+                user_sol_account: if is_spl { None } else { Some(payer.pubkey()) },
+                user_spl_token_account: if is_spl {
+                    Some(required_pubkey(opts.user_spl_token, "--user-spl-token")?)
+                } else {
+                    None
+                },
+                spl_token_interface: if is_spl {
+                    Some(required_pubkey(opts.spl_vault, "--spl-vault")?)
+                } else {
+                    None
+                },
+            })
+        }
+        "transfer" => {
+            let recipient_owner = if let Some(path) = opts.recipient_p256_wallet.as_ref() {
+                PocketOwner::P256(read_pocket_p256_wallet(path)?)
+            } else {
+                let recipient_wallet = opts
+                    .recipient_wallet
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("transfer requires --recipient-wallet"))?;
+                let recipient_keypair = read_keypair_file(recipient_wallet).map_err(|error| {
+                    anyhow!(
+                        "read recipient keypair {}: {error}",
+                        recipient_wallet.display()
+                    )
+                })?;
+                PocketOwner::Solana(recipient_keypair.pubkey())
+            };
+            let recipient_state_file = opts
+                .recipient_state
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| anyhow!("transfer requires --recipient-state"))?;
+            let mut loaded_recipient_state = read_pocket_state(&recipient_state_file)?;
+            normalize_pocket_state(&mut loaded_recipient_state);
+            merge_known_leaves(&mut loaded_recipient_state, &sender_state);
+            recipient_state_path = Some(recipient_state_file);
+
+            let selected = select_pocket_note(&sender_state, opts.asset_id, amount)?;
+            validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
+            let input_amount = pocket_note_amount(&selected.note)?;
+            let change_amount = opts.change_amount.unwrap_or(input_amount - amount);
+            if amount
+                .checked_add(change_amount)
+                .ok_or_else(|| anyhow!("transfer amount plus change overflow"))?
+                != input_amount
+            {
+                bail!(
+                    "transfer amount plus change ({amount} + {change_amount}) must equal input note amount {input_amount}"
+                );
+            }
+            let asset_id = pocket_note_asset_id(&selected.note)?;
+            let (recipient_utxo, recipient_nullifier_secret) =
+                pocket_new_utxo_for_owner(&recipient_owner, asset_id, amount);
+            let mut outputs = vec![recipient_utxo];
+            output_targets.push(PocketOutputTarget {
+                recipient: PocketOutputRecipient::Recipient,
+                nullifier_secret: recipient_nullifier_secret,
+                owner: recipient_owner,
+            });
+            if change_amount > 0 {
+                let (change_utxo, change_nullifier_secret) =
+                    pocket_new_utxo_for_owner(&sender_output_owner, asset_id, change_amount);
+                outputs.push(change_utxo);
+                output_targets.push(PocketOutputTarget {
+                    recipient: PocketOutputRecipient::Sender,
+                    nullifier_secret: change_nullifier_secret,
+                    owner: sender_output_owner.clone(),
+                });
+            }
+            spent_note_id = Some(selected.note.id.clone());
+            recipient_state = Some(loaded_recipient_state);
+            pocket_request_tx(PocketRequestTxParams {
+                name: opts.tx_name.clone(),
+                state: &sender_state,
+                inputs: vec![PocketProofInput {
+                    utxo: selected.note.utxo.clone(),
+                    leaf_index: selected.note.leaf_index,
+                    nullifier_secret: selected.note.nullifier_secret.clone(),
+                }],
+                outputs,
+                public_amount_mode: PUBLIC_AMOUNT_NONE,
+                public_sol_amount: None,
+                public_spl_amount: None,
+                public_spl_asset_id: 0,
+                relayer_fee: 0,
+                user_sol_account: None,
+                user_spl_token_account: None,
+                spl_token_interface: None,
+            })
+        }
+        "unshield" => {
+            let is_spl = opts.has_spl_settlement();
+            let asset_id = if is_spl {
+                opts.asset_id
+                    .ok_or_else(|| anyhow!("unshield requires --asset-id for SPL settlement"))?
+            } else {
+                validate_sol_asset_id(opts.asset_id, "unshield")?;
+                POCKET_SOL_ASSET_ID
+            };
+            if is_spl && opts.relayer_fee != 0 {
+                bail!("--relayer-fee is only supported for SOL unshield");
+            }
+            let total_private_amount = amount
+                .checked_add(opts.relayer_fee as u64)
+                .ok_or_else(|| anyhow!("unshield amount plus relayer fee overflow"))?;
+            let selected = select_pocket_note(&sender_state, Some(asset_id), total_private_amount)?;
+            validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
+            let input_amount = pocket_note_amount(&selected.note)?;
+            if input_amount != total_private_amount {
+                bail!(
+                    "unshield currently requires an exact note amount including relayer fee: selected {input_amount}, requested {amount} plus fee {}",
+                    opts.relayer_fee
+                );
+            }
+            spent_note_id = Some(selected.note.id.clone());
+            pocket_request_tx(PocketRequestTxParams {
+                name: opts.tx_name.clone(),
+                state: &sender_state,
+                inputs: vec![PocketProofInput {
+                    utxo: selected.note.utxo.clone(),
+                    leaf_index: selected.note.leaf_index,
+                    nullifier_secret: selected.note.nullifier_secret.clone(),
+                }],
+                outputs: Vec::new(),
+                public_amount_mode: PUBLIC_AMOUNT_WITHDRAW,
+                public_sol_amount: if is_spl { None } else { Some(amount) },
+                public_spl_amount: if is_spl { Some(amount) } else { None },
+                public_spl_asset_id: if is_spl { asset_id } else { 0 },
+                relayer_fee: if is_spl { 0 } else { opts.relayer_fee },
+                user_sol_account: if is_spl {
+                    None
+                } else {
+                    Some(opts.user_sol_account.unwrap_or_else(|| payer.pubkey()))
+                },
+                user_spl_token_account: if is_spl {
+                    Some(required_pubkey(opts.user_spl_token, "--user-spl-token")?)
+                } else {
+                    None
+                },
+                spl_token_interface: if is_spl {
+                    Some(required_pubkey(opts.spl_vault, "--spl-vault")?)
+                } else {
+                    None
+                },
+            })
+        }
+        other => bail!("unsupported pocket command for direct proving: {other}"),
+    }?;
+
+    let bundle_path = opts
+        .output_proof_bundle
+        .clone()
+        .unwrap_or_else(|| default_pocket_bundle_path(&state_path, command));
+    let request_path = bundle_path.with_extension("request.json");
+    if pocket_request_has_p256_inputs(&request_tx) {
+        let wallet = owner_p256_wallet.as_ref().ok_or_else(|| {
+            anyhow!("{command} spends a P256-owned note and requires --owner-p256-wallet")
+        })?;
+        let unsigned_request = PocketProofRequest {
+            solana_signer_pubkey: signer_hex.clone(),
+            transactions: vec![request_tx.clone()],
+        };
+        write_json_file(&request_path, &unsigned_request)?;
+        let signing_payload_path = bundle_path.with_extension("signing-payload.json");
+        invoke_spp_signing_payload(prover_bin, keys_file, &request_path, &signing_payload_path)?;
+        let payload = read_pocket_signing_payload(&signing_payload_path)?;
+        let tx_payload = payload
+            .transactions
+            .iter()
+            .find(|tx| tx.name == opts.tx_name)
+            .ok_or_else(|| anyhow!("signing payload does not contain tx {}", opts.tx_name))?;
+        if !tx_payload.requires_p256_signature {
+            bail!("signing payload did not request a P256 signature for a P256-owned input");
+        }
+        let (signature_r, signature_s) =
+            sign_p256_private_tx_hash(wallet, &tx_payload.private_tx_hash)?;
+        request_tx.p256_owner_pubkey = wallet.p256_public_key.clone();
+        request_tx.p256_signature_r = signature_r;
+        request_tx.p256_signature_s = signature_s;
+    }
+    let request = PocketProofRequest {
+        solana_signer_pubkey: signer_hex,
+        transactions: vec![request_tx],
+    };
+    write_json_file(&request_path, &request)?;
+    invoke_spp_prover(prover_bin, keys_file, &request_path, &bundle_path)?;
+
+    let bundle = read_pocket_proof_bundle(&bundle_path)?;
+    let tx = bundle
+        .transactions
+        .iter()
+        .find(|tx| tx.name == opts.tx_name)
+        .ok_or_else(|| anyhow!("prover output does not contain tx {}", opts.tx_name))?;
+    if tx.output_utxos.len() != output_targets.len() {
+        bail!(
+            "prover output has {} output UTXOs, expected {}",
+            tx.output_utxos.len(),
+            output_targets.len()
+        );
+    }
+
+    if let Some(id) = spent_note_id {
+        mark_pocket_note_spent(&mut sender_state, &id)?;
+    }
+    let mut next_root_index = sender_state.utxo_root_index;
+    if !tx.output_utxos.is_empty() {
+        next_root_index = (next_root_index + 1) % POCKET_UTXO_ROOT_HISTORY_CAPACITY;
+    }
+    for (offset, (proved, target)) in tx.output_utxos.iter().zip(output_targets).enumerate() {
+        let PocketOutputTarget {
+            recipient,
+            nullifier_secret,
+            owner,
+        } = target;
+        let leaf_index = sender_next_leaf_index + offset as u64;
+        let note = PocketNote {
+            id: format!("{}:{leaf_index}", opts.tree),
+            owner_pubkey: owner.label(),
+            leaf_index,
+            utxo: proved.utxo.clone(),
+            nullifier_secret,
+            hash: proved.hash.clone(),
+            spent: false,
+        };
+        insert_known_leaf(&mut sender_state, leaf_index, proved.hash.clone());
+        match recipient {
+            PocketOutputRecipient::Sender => sender_state.notes.push(note),
+            PocketOutputRecipient::Recipient => {
+                let recipient = recipient_state
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("missing recipient state for transfer output"))?;
+                insert_known_leaf(recipient, leaf_index, proved.hash.clone());
+                recipient.notes.push(note);
+            }
+        }
+    }
+    let new_next = sender_next_leaf_index + tx.output_utxos.len() as u64;
+    sender_state.next_leaf_index = sender_state.next_leaf_index.max(new_next);
+    sender_state.utxo_root_index = next_root_index;
+    if let Some(recipient) = recipient_state.as_mut() {
+        merge_known_leaves(recipient, &sender_state);
+        recipient.next_leaf_index = recipient.next_leaf_index.max(sender_state.next_leaf_index);
+        recipient.utxo_root_index = sender_state.utxo_root_index;
+    }
+
+    Ok(PocketDirectProof {
+        bundle_path,
+        tx_name: opts.tx_name.clone(),
+        state_updates: PocketStateUpdates {
+            sender_state_path: Some(state_path),
+            sender_state,
+            recipient_state_path,
+            recipient_state,
+        },
+    })
+}
+
+fn pocket_apply_state_updates(updates: PocketStateUpdates) -> Result<()> {
+    if let Some(path) = updates.sender_state_path {
+        write_json_file(&path, &updates.sender_state)?;
+    }
+    if let (Some(path), Some(state)) = (updates.recipient_state_path, updates.recipient_state) {
+        write_json_file(&path, &state)?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct PocketRequestTxParams<'a> {
+    name: String,
+    state: &'a PocketState,
+    inputs: Vec<PocketProofInput>,
+    outputs: Vec<PocketUtxo>,
+    public_amount_mode: u8,
+    public_sol_amount: Option<u64>,
+    public_spl_amount: Option<u64>,
+    public_spl_asset_id: u64,
+    relayer_fee: u16,
+    user_sol_account: Option<Pubkey>,
+    user_spl_token_account: Option<Pubkey>,
+    spl_token_interface: Option<Pubkey>,
+}
+
+#[derive(Clone, Debug)]
+struct PocketOutputTarget {
+    recipient: PocketOutputRecipient,
+    nullifier_secret: String,
+    owner: PocketOwner,
+}
+
+#[derive(Clone, Debug)]
+enum PocketOutputRecipient {
+    Sender,
+    Recipient,
+}
+
+#[derive(Clone, Debug)]
+enum PocketOwner {
+    Solana(Pubkey),
+    P256(PocketP256Wallet),
+}
+
+impl PocketOwner {
+    fn label(&self) -> String {
+        match self {
+            PocketOwner::Solana(pubkey) => pubkey.to_string(),
+            PocketOwner::P256(wallet) => format!("p256:{}", wallet.p256_public_key),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SelectedPocketNote {
+    note: PocketNote,
+}
+
+fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofRequestTx> {
+    let input_count = params.inputs.len();
+    Ok(PocketProofRequestTx {
+        name: params.name,
+        instruction_discriminator: tag::TRANSACT,
+        expiry_unix_ts: pocket_expiry_unix_ts()?,
+        sender_view_tag: random_field_hex(),
+        relayer_fee: params.relayer_fee,
+        public_amount_mode: params.public_amount_mode,
+        public_sol_amount: params.public_sol_amount,
+        public_spl_amount: params.public_spl_amount,
+        public_spl_asset_id: params.public_spl_asset_id,
+        encrypted_utxos: random_hex_bytes(64),
+        user_sol_account: params
+            .user_sol_account
+            .map(|pubkey| pubkey_hex(&pubkey))
+            .unwrap_or_default(),
+        user_spl_token_account: params
+            .user_spl_token_account
+            .map(|pubkey| pubkey_hex(&pubkey))
+            .unwrap_or_default(),
+        spl_token_interface: params
+            .spl_token_interface
+            .map(|pubkey| pubkey_hex(&pubkey))
+            .unwrap_or_default(),
+        state_entries: pocket_state_entries(params.state),
+        inputs: params.inputs,
+        outputs: params.outputs,
+        utxo_tree_root_index: vec![params.state.utxo_root_index; input_count],
+        nullifier_tree_root_index: vec![0; input_count],
+        program_id_hashchain: zero_field_hex(),
+        data_hash: zero_field_hex(),
+        policy_data: zero_field_hex(),
+        p256_owner_pubkey: String::new(),
+        p256_signature_r: String::new(),
+        p256_signature_s: String::new(),
+    })
+}
+
+fn pocket_new_utxo(owner: &Pubkey, asset_id: u64, asset_amount: u64) -> (PocketUtxo, String) {
+    let nullifier_secret = random_field_hex();
+    (
+        PocketUtxo {
+            domain: random_field_hex(),
+            owner: String::new(),
+            owner_solana_pubkey: pubkey_hex(owner),
+            owner_p256_pubkey: String::new(),
+            owner_nullifier_secret: nullifier_secret.clone(),
+            asset_id: asset_id.to_string(),
+            asset_amount: asset_amount.to_string(),
+            blinding: random_field_hex(),
+            data_hash: zero_field_hex(),
+            policy_data: zero_field_hex(),
+            policy_program_id: zero_field_hex(),
+        },
+        nullifier_secret,
+    )
+}
+
+fn pocket_new_p256_utxo(
+    wallet: &PocketP256Wallet,
+    asset_id: u64,
+    asset_amount: u64,
+) -> (PocketUtxo, String) {
+    (
+        PocketUtxo {
+            domain: random_field_hex(),
+            owner: String::new(),
+            owner_solana_pubkey: String::new(),
+            owner_p256_pubkey: wallet.p256_public_key.clone(),
+            owner_nullifier_secret: wallet.nullifier_secret.clone(),
+            asset_id: asset_id.to_string(),
+            asset_amount: asset_amount.to_string(),
+            blinding: random_field_hex(),
+            data_hash: zero_field_hex(),
+            policy_data: zero_field_hex(),
+            policy_program_id: zero_field_hex(),
+        },
+        wallet.nullifier_secret.clone(),
+    )
+}
+
+fn pocket_new_utxo_for_owner(
+    owner: &PocketOwner,
+    asset_id: u64,
+    asset_amount: u64,
+) -> (PocketUtxo, String) {
+    match owner {
+        PocketOwner::Solana(pubkey) => pocket_new_utxo(pubkey, asset_id, asset_amount),
+        PocketOwner::P256(wallet) => pocket_new_p256_utxo(wallet, asset_id, asset_amount),
+    }
+}
+
+fn random_p256_signing_key() -> Result<P256SigningKey> {
+    let mut rng = rand::thread_rng();
+    loop {
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        if let Ok(secret) = P256SecretKey::from_slice(&bytes) {
+            return Ok(P256SigningKey::from(secret));
+        }
+    }
+}
+
+fn read_pocket_p256_wallet(path: &Path) -> Result<PocketP256Wallet> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let wallet: PocketP256Wallet =
+        serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))?;
+    if wallet.version != 1 {
+        bail!(
+            "{} has unsupported shielded wallet version {}",
+            path.display(),
+            wallet.version
+        );
+    }
+    if wallet.scheme != "p256" {
+        bail!("{} is not a p256 shielded wallet", path.display());
+    }
+    let signing_key = p256_signing_key(&wallet)?;
+    let derived_public = hex::encode(
+        signing_key
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes(),
+    );
+    if derived_public != wallet.p256_public_key {
+        bail!(
+            "{} p256_public_key does not match p256_secret_key",
+            path.display()
+        );
+    }
+    let actual_nullifier_secret = p256_nullifier_secret_bytes(&wallet.nullifier_secret)
+        .with_context(|| format!("{} nullifier_secret", path.display()))?;
+    let expected_nullifier_secret = p256_nullifier_secret_bytes_from_key(&signing_key)?;
+    if actual_nullifier_secret != expected_nullifier_secret {
+        bail!(
+            "{} nullifier_secret is not derived from p256_secret_key",
+            path.display()
+        );
+    }
+    let public_key = hex_bytes(&wallet.p256_public_key)
+        .with_context(|| format!("{} p256_public_key", path.display()))?;
+    if public_key.len() != 33 {
+        bail!(
+            "{} p256_public_key must be a 33-byte compressed SEC1 key",
+            path.display()
+        );
+    }
+    Ok(wallet)
+}
+
+fn p256_signing_key(wallet: &PocketP256Wallet) -> Result<P256SigningKey> {
+    let secret = hex_bytes(&wallet.p256_secret_key)?;
+    if secret.len() != 32 {
+        bail!("p256_secret_key must be 32 bytes, got {}", secret.len());
+    }
+    let secret = P256SecretKey::from_slice(&secret)
+        .map_err(|error| anyhow!("invalid p256_secret_key: {error}"))?;
+    Ok(P256SigningKey::from(secret))
+}
+
+fn p256_nullifier_secret_hex(signing_key: &P256SigningKey) -> Result<String> {
+    Ok(hex::encode(p256_nullifier_secret_bytes_from_key(
+        signing_key,
+    )?))
+}
+
+fn p256_nullifier_secret_bytes_from_key(signing_key: &P256SigningKey) -> Result<[u8; 31]> {
+    let signing_key_bytes = signing_key.to_bytes();
+    let mut extract =
+        Hmac::<Sha256>::new_from_slice(&[0u8; 32]).context("initialize HKDF extract")?;
+    extract.update(signing_key_bytes.as_slice());
+    let prk = extract.finalize().into_bytes();
+
+    let mut expand = Hmac::<Sha256>::new_from_slice(&prk).context("initialize HKDF expand")?;
+    expand.update(POCKET_NULLIFIER_HKDF_INFO);
+    expand.update(&[1]);
+    let okm = expand.finalize().into_bytes();
+    let mut out = [0u8; 31];
+    out.copy_from_slice(&okm[..31]);
+    Ok(out)
+}
+
+fn p256_nullifier_secret_bytes(value: &str) -> Result<[u8; 31]> {
+    let bytes = hex_bytes(value)?;
+    if bytes.len() != 31 {
+        bail!(
+            "p256 nullifier_secret must be a 31-byte big-endian field element, got {} bytes",
+            bytes.len()
+        );
+    }
+    let mut out = [0u8; 31];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn sign_p256_private_tx_hash(
+    wallet: &PocketP256Wallet,
+    private_tx_hash: &str,
+) -> Result<(String, String)> {
+    let message = hex_field(private_tx_hash)?;
+    let signing_key = p256_signing_key(wallet)?;
+    let signature: P256Signature = signing_key
+        .sign_prehash(&message)
+        .map_err(|error| anyhow!("sign P256 private_tx_hash: {error}"))?;
+    let signature_bytes = signature.to_bytes();
+    Ok((
+        hex::encode(&signature_bytes[..32]),
+        hex::encode(&signature_bytes[32..]),
+    ))
+}
+
+fn validate_p256_input_owner(note: &PocketNote, wallet: Option<&PocketP256Wallet>) -> Result<()> {
+    if note.utxo.owner_p256_pubkey.is_empty() {
+        return Ok(());
+    }
+    let wallet = wallet.ok_or_else(|| {
+        anyhow!(
+            "note {} is P256-owned and requires --owner-p256-wallet to spend",
+            note.id
+        )
+    })?;
+    if note.utxo.owner_p256_pubkey != wallet.p256_public_key {
+        bail!(
+            "note {} is owned by P256 key {}, not {}",
+            note.id,
+            note.utxo.owner_p256_pubkey,
+            wallet.p256_public_key
+        );
+    }
+    if note.nullifier_secret != wallet.nullifier_secret {
+        bail!(
+            "note {} nullifier secret does not match --owner-p256-wallet",
+            note.id
+        );
+    }
+    Ok(())
+}
+
+fn pocket_request_has_p256_inputs(tx: &PocketProofRequestTx) -> bool {
+    tx.inputs
+        .iter()
+        .any(|input| !input.utxo.owner_p256_pubkey.is_empty())
+}
+
+fn read_pocket_state(path: &Path) -> Result<PocketState> {
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("decode pocket state {}", path.display())),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(PocketState::default()),
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
+    }
+}
+
+fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    fs::write(path, bytes).with_context(|| format!("write {}", path.display()))
+}
+
+fn normalize_pocket_state(state: &mut PocketState) {
+    let mut leaves = BTreeMap::<u64, String>::new();
+    for leaf in state.known_leaves.drain(..) {
+        leaves.insert(leaf.index, leaf.hash);
+    }
+    state.known_leaves = leaves
+        .iter()
+        .map(|(index, hash)| PocketKnownLeaf {
+            index: *index,
+            hash: hash.clone(),
+        })
+        .collect();
+    if let Some(max_index) = leaves.keys().next_back() {
+        state.next_leaf_index = state.next_leaf_index.max(max_index + 1);
+    }
+}
+
+fn merge_known_leaves(dst: &mut PocketState, src: &PocketState) {
+    let mut leaves = dst
+        .known_leaves
+        .iter()
+        .map(|leaf| (leaf.index, leaf.hash.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for leaf in &src.known_leaves {
+        leaves.insert(leaf.index, leaf.hash.clone());
+    }
+    dst.known_leaves = leaves
+        .into_iter()
+        .map(|(index, hash)| PocketKnownLeaf { index, hash })
+        .collect();
+    dst.next_leaf_index = dst.next_leaf_index.max(src.next_leaf_index);
+    dst.utxo_root_index = dst.utxo_root_index.max(src.utxo_root_index);
+}
+
+fn insert_known_leaf(state: &mut PocketState, index: u64, hash: String) {
+    if let Some(existing) = state
+        .known_leaves
+        .iter_mut()
+        .find(|leaf| leaf.index == index)
+    {
+        existing.hash = hash;
+    } else {
+        state.known_leaves.push(PocketKnownLeaf { index, hash });
+        state.known_leaves.sort_by_key(|leaf| leaf.index);
+    }
+    state.next_leaf_index = state.next_leaf_index.max(index + 1);
+}
+
+fn pocket_state_entries(state: &PocketState) -> Vec<PocketStateEntry> {
+    state
+        .known_leaves
+        .iter()
+        .map(|leaf| PocketStateEntry {
+            index: leaf.index,
+            hash: leaf.hash.clone(),
+        })
+        .collect()
+}
+
+fn select_pocket_note(
+    state: &PocketState,
+    asset_id: Option<u64>,
+    min_amount: u64,
+) -> Result<SelectedPocketNote> {
+    for note in &state.notes {
+        if note.spent {
+            continue;
+        }
+        let note_asset_id = pocket_note_asset_id(note)?;
+        if asset_id.is_some_and(|asset_id| asset_id != note_asset_id) {
+            continue;
+        }
+        if pocket_note_amount(note)? >= min_amount {
+            return Ok(SelectedPocketNote { note: note.clone() });
+        }
+    }
+    bail!(
+        "no unspent pocket note found for asset {:?} with at least {} units",
+        asset_id,
+        min_amount
+    )
+}
+
+fn validate_sol_asset_id(asset_id: Option<u64>, command: &str) -> Result<()> {
+    if let Some(asset_id) = asset_id {
+        if asset_id != POCKET_SOL_ASSET_ID {
+            bail!(
+                "{command} SOL settlement uses reserved asset id {POCKET_SOL_ASSET_ID}, got {asset_id}"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn mark_pocket_note_spent(state: &mut PocketState, id: &str) -> Result<()> {
+    let note = state
+        .notes
+        .iter_mut()
+        .find(|note| note.id == id)
+        .ok_or_else(|| anyhow!("spent note {id} not found in state"))?;
+    note.spent = true;
+    Ok(())
+}
+
+fn pocket_note_amount(note: &PocketNote) -> Result<u64> {
+    parse_pocket_u64_field(&note.utxo.asset_amount)
+        .with_context(|| format!("note {} asset_amount", note.id))
+}
+
+fn pocket_note_asset_id(note: &PocketNote) -> Result<u64> {
+    parse_pocket_u64_field(&note.utxo.asset_id)
+        .with_context(|| format!("note {} asset_id", note.id))
+}
+
+fn parse_pocket_u64_field(value: &str) -> Result<u64> {
+    let trimmed = value.trim().trim_start_matches("0x");
+    if trimmed.is_empty() {
+        bail!("empty numeric field");
+    }
+    let base = if trimmed.len() > 20
+        || trimmed
+            .chars()
+            .any(|c| c.is_ascii_hexdigit() && !c.is_ascii_digit())
+    {
+        16
+    } else {
+        10
+    };
+    u64::from_str_radix(trimmed, base)
+        .map_err(|error| anyhow!("invalid u64 field {value}: {error}"))
+}
+
+fn invoke_spp_prover(
+    prover_bin: &Path,
+    keys_file: &Path,
+    request_path: &Path,
+    bundle_path: &Path,
+) -> Result<()> {
+    let output = Command::new(prover_bin)
+        .args(["spp", "prove-bundle", "--keys-file"])
+        .arg(keys_file)
+        .arg("--input")
+        .arg(request_path)
+        .arg("--output")
+        .arg(bundle_path)
+        .output()
+        .with_context(|| format!("run prover {}", prover_bin.display()))?;
+    if !output.status.success() {
+        bail!(
+            "prover failed with status {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn invoke_spp_signing_payload(
+    prover_bin: &Path,
+    keys_file: &Path,
+    request_path: &Path,
+    payload_path: &Path,
+) -> Result<()> {
+    let output = Command::new(prover_bin)
+        .args(["spp", "signing-payload", "--keys-file"])
+        .arg(keys_file)
+        .arg("--input")
+        .arg(request_path)
+        .arg("--output")
+        .arg(payload_path)
+        .output()
+        .with_context(|| format!("run prover {}", prover_bin.display()))?;
+    if !output.status.success() {
+        bail!(
+            "prover signing-payload failed with status {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn default_pocket_bundle_path(state_path: &Path, command: &str) -> PathBuf {
+    let parent = state_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = state_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("pocket");
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    parent.join(format!("{stem}.{command}.{millis}.proof.json"))
+}
+
+fn pocket_expiry_unix_ts() -> Result<u64> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time is before unix epoch")?
+        .as_secs();
+    Ok(now + 24 * 60 * 60)
+}
+
+fn random_field_hex() -> String {
+    let keypair = Keypair::new();
+    let mut bytes = keypair.to_bytes();
+    bytes[0] = 0;
+    hex::encode(&bytes[..32])
+}
+
+fn random_hex_bytes(len: usize) -> String {
+    let mut out = Vec::with_capacity(len);
+    while out.len() < len {
+        out.extend_from_slice(&Keypair::new().to_bytes());
+    }
+    out.truncate(len);
+    hex::encode(out)
+}
+
+fn zero_field_hex() -> String {
+    "0000000000000000000000000000000000000000000000000000000000000000".to_string()
+}
+
+fn pubkey_hex(pubkey: &Pubkey) -> String {
+    hex::encode(pubkey.to_bytes())
+}
+
+fn read_pocket_proof_bundle(path: &Path) -> Result<PocketProofBundle> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
+}
+
+fn read_pocket_signing_payload(path: &Path) -> Result<PocketSigningPayloadBundle> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
+}
+
+fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
+    Ok(TransactData {
+        expiry_unix_ts: tx.expiry_unix_ts,
+        sender_view_tag: hex_field(&tx.sender_view_tag)?,
+        proof: pocket_proof_bytes(&tx.proof)?,
+        relayer_fee: tx.relayer_fee,
+        public_amount_mode: tx.public_amount_mode,
+        nullifiers: tx
+            .nullifiers
+            .iter()
+            .map(|value| hex_field(value))
+            .collect::<Result<Vec<_>>>()?,
+        output_utxo_hashes: tx
+            .output_utxo_hashes
+            .iter()
+            .map(|value| hex_field(value))
+            .collect::<Result<Vec<_>>>()?,
+        utxo_tree_root_index: tx.utxo_tree_root_index.clone(),
+        nullifier_tree_root_index: tx.nullifier_tree_root_index.clone(),
+        private_tx_hash: hex_field(&tx.private_tx_hash)?,
+        public_sol_amount: tx.public_sol_amount,
+        public_spl_amount: tx.public_spl_amount,
+        cpi_signer: None,
+        in_utxo_signer_indices: pocket_input_signer_indices(
+            tx.nullifiers.len(),
+            tx.solana_owner_input_indices.as_deref(),
+        ),
+        encrypted_utxos: hex_bytes(&tx.encrypted_utxos)?,
+    })
+}
+
+fn pocket_input_signer_indices(
+    input_count: usize,
+    solana_indices: Option<&[u8]>,
+) -> Option<Vec<InputUtxoSignerIndex>> {
+    let input_indices = solana_indices
+        .map(|indices| indices.to_vec())
+        .unwrap_or_else(|| {
+            (0..input_count)
+                .map(|input_index| input_index as u8)
+                .collect()
+        });
+    if input_indices.is_empty() {
+        return None;
+    }
+    Some(
+        input_indices
+            .into_iter()
+            .map(|input_index| InputUtxoSignerIndex {
+                account_index: 1,
+                input_index,
+            })
+            .collect(),
+    )
+}
+
+fn pocket_proof_bytes(value: &serde_json::Value) -> Result<[u8; 192]> {
+    let proof: GnarkProofJson =
+        serde_json::from_value(value.clone()).context("decode gnark proof")?;
+    bsb22_proof_bytes_from_json_struct(proof).context("encode BSB22 proof")
+}
+
+fn send_pocket_instructions(
+    client: &RpcClient,
+    payer: &Keypair,
+    instructions: &[Instruction],
+) -> Result<solana_signature::Signature> {
+    send_pocket_instructions_with_extra_signers(client, payer, instructions, &[])
+}
+
+fn send_pocket_instructions_with_extra_signers(
+    client: &RpcClient,
+    payer: &Keypair,
+    instructions: &[Instruction],
+    extra_signers: &[&Keypair],
+) -> Result<solana_signature::Signature> {
+    let blockhash = client
+        .get_latest_blockhash()
+        .context("get latest blockhash")?;
+    let message = Message::new(instructions, Some(&payer.pubkey()));
+    let mut transaction = Transaction::new_unsigned(message);
+    let mut signers = Vec::with_capacity(extra_signers.len() + 1);
+    signers.push(payer);
+    signers.extend_from_slice(extra_signers);
+    transaction
+        .try_sign(&signers, blockhash)
+        .context("sign transaction")?;
+    client
+        .send_and_confirm_transaction(&transaction)
+        .context("send and confirm transaction")
+}
+
+fn pocket_rpc_client(rpc_url: &str) -> RpcClient {
+    RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed())
+}
+
+fn parse_pubkey(value: &str) -> Result<Pubkey> {
+    Pubkey::from_str(value).map_err(|error| anyhow!("invalid pubkey {value}: {error}"))
+}
+
+fn required_pubkey(value: Option<Pubkey>, flag: &str) -> Result<Pubkey> {
+    value.ok_or_else(|| anyhow!("missing {flag}"))
+}
+
+fn assert_bundle_pubkey(label: &str, hex_value: &str, pubkey: &Pubkey) -> Result<()> {
+    let expected = hex::encode(pubkey.to_bytes());
+    if hex_value != expected {
+        bail!("proof bundle {label} {hex_value} does not match provided pubkey {pubkey}");
+    }
+    Ok(())
+}
+
+fn hex_field(value: &str) -> Result<[u8; 32]> {
+    let bytes = hex_bytes(value)?;
+    if bytes.len() != 32 {
+        bail!("expected 32-byte field, got {} bytes", bytes.len());
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn hex_bytes(value: &str) -> Result<Vec<u8>> {
+    hex::decode(value.trim_start_matches("0x")).map_err(|error| anyhow!("invalid hex: {error}"))
+}
+
+fn print_pocket_help() {
+    println!("pocket <command>");
+    println!();
+    println!("Commands:");
+    println!("  create-wallet             Create a Solana wallet keypair");
+    println!("  create-shielded-wallet    Create a P256 shielded wallet");
+    println!("  init-pool-tree            Create and initialize a shielded-pool tree account");
+    println!("  shield                    Submit a shield proof bundle transaction");
+    println!("  transfer                  Submit a shielded transfer proof bundle transaction");
+    println!("  unshield                  Submit an unshield proof bundle transaction");
+    println!("  balance                   Query SOL or SPL-token account balance");
+}
+
 fn print_help() {
     println!("zolana <command>");
     println!();
     println!("Commands:");
+    println!("  pocket            Run pocket wallet and shielded-pool commands");
     println!("  test-validator    Start the local Light Protocol test validator");
     println!("  start-prover      Start the local prover server");
 }

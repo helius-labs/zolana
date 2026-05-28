@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/consensys/gnark/constraint"
+	gnarkio "github.com/consensys/gnark/io"
 	gnarkLogger "github.com/consensys/gnark/logger"
 	"github.com/urfave/cli/v2"
 )
@@ -33,6 +34,7 @@ func runCli() {
 	app := cli.App{
 		EnableBashCompletion: true,
 		Commands: []*cli.Command{
+			sppCommand(),
 			{
 				Name: "setup",
 				Flags: []cli.Flag{
@@ -425,7 +427,7 @@ func runCli() {
 					}
 
 					var buf bytes.Buffer
-					_, err = vk.(io.WriterTo).WriteTo(&buf)
+					_, err = vk.(gnarkio.WriterRawTo).WriteRawTo(&buf)
 					if err != nil {
 						return fmt.Errorf("failed to serialize verification key: %v", err)
 					}
@@ -435,16 +437,31 @@ func runCli() {
 						return fmt.Errorf("failed to create output directory: %v", err)
 					}
 
-					var dataToWrite = buf.Bytes()
-
-					err = os.WriteFile(outputFile, dataToWrite, 0644)
+					file, err := os.Create(outputFile)
 					if err != nil {
-						return fmt.Errorf("failed to write verification key to file: %v", err)
+						return fmt.Errorf("failed to create verification key file: %v", err)
+					}
+					defer file.Close()
+					if _, err := file.WriteString("["); err != nil {
+						return fmt.Errorf("failed to write verification key file: %v", err)
+					}
+					for i, b := range buf.Bytes() {
+						if i > 0 {
+							if _, err := file.WriteString(" "); err != nil {
+								return fmt.Errorf("failed to write verification key file: %v", err)
+							}
+						}
+						if _, err := fmt.Fprintf(file, "%d", b); err != nil {
+							return fmt.Errorf("failed to write verification key file: %v", err)
+						}
+					}
+					if _, err := file.WriteString("]"); err != nil {
+						return fmt.Errorf("failed to write verification key file: %v", err)
 					}
 
 					logging.Logger().Info().
 						Str("file", outputFile).
-						Int("bytes", len(dataToWrite)).
+						Int("bytes", buf.Len()).
 						Msg("Verification key exported successfully")
 
 					return nil

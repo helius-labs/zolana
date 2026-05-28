@@ -109,3 +109,23 @@ jobs:
           "$HOME/.local/share/solana/install/active_release/bin/solana" --version
           "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" --version
       - run: just test-litesvm
+
+  test-pocket-cli-e2e:
+    name: tests / pocket cli e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_CLI_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/share/solana/install/active_release/bin/solana" --version
+          "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" --version
+      - run: just test-pocket-cli-e2e
