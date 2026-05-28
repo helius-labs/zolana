@@ -9,12 +9,8 @@ import (
 	"light/light-prover/prover/poseidon"
 )
 
-// Utxo is the field-element view of the SPP UTXO hash preimage.
-//
-// Field order matches ../docs/spec.md:
-//
-//	domain, owner, asset_id, asset_amount, blinding,
-//	data_hash, policy_data, policy_program_id
+// Utxo is the field-element view of the SPP UTXO hash preimage. Field order is
+// significant: it defines the Poseidon hash preimage.
 type Utxo struct {
 	Domain          *big.Int
 	Owner           *big.Int
@@ -65,8 +61,8 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 
 func SolanaPkHash(pubkey [32]byte) (*big.Int, error) {
 	h, err := poseidon.HashWithT(3, []*big.Int{
-		fieldFromU128BE(pubkey[:16]),
 		fieldFromU128BE(pubkey[16:]),
+		fieldFromU128BE(pubkey[:16]),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: solana pk hash: %w", err)
@@ -88,8 +84,8 @@ func P256OwnerKeyHash(compressed []byte) (*big.Int, error) {
 	var xBytes [32]byte
 	x.FillBytes(xBytes[:])
 	xHash, err := poseidon.HashWithT(3, []*big.Int{
-		fieldFromU128BE(xBytes[:16]),
 		fieldFromU128BE(xBytes[16:]),
+		fieldFromU128BE(xBytes[:16]),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: P256 x hash: %w", err)

@@ -43,7 +43,7 @@ func TestLogicalPublicInputsMatchSpecSet(t *testing.T) {
 		"external_data_hash",
 		"public_sol_amount",
 		"public_spl_amount",
-		"public_spl_asset_id",
+		"public_spl_asset_pubkey",
 		"ProgramIDHashchain",
 		"SolanaPubkeyHash",
 		"data_hash",

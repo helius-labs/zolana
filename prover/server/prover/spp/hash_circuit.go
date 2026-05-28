@@ -49,10 +49,10 @@ func OwnerHashCircuit(
 func P256OwnerKeyHashCircuit(
 	api frontend.API,
 	yIsOdd frontend.Variable,
-	xLow frontend.Variable,
-	xHigh frontend.Variable,
+	xLow128 frontend.Variable,
+	xHigh128 frontend.Variable,
 ) frontend.Variable {
-	xHash := poseidon.HashCircuitWithT(api, 3, []frontend.Variable{xLow, xHigh})
+	xHash := poseidon.HashCircuitWithT(api, 3, []frontend.Variable{xLow128, xHigh128})
 	return poseidon.HashCircuitWithT(api, 3, []frontend.Variable{yIsOdd, xHash})
 }
 
@@ -78,9 +78,9 @@ func P256OwnerKeyHashFromPubkeyCircuit(
 	y := fp.ReduceStrict(&point.Y)
 	yBits := fp.ToBits(y)
 	xBits := fp.ToBits(x)
-	xHigh := gnarkbits.FromBinary(api, xBits[:128])
-	xLow := gnarkbits.FromBinary(api, xBits[128:256])
-	return P256OwnerKeyHashCircuit(api, yBits[0], xLow, xHigh)
+	xLow128 := gnarkbits.FromBinary(api, xBits[:128])
+	xHigh128 := gnarkbits.FromBinary(api, xBits[128:256])
+	return P256OwnerKeyHashCircuit(api, yBits[0], xLow128, xHigh128)
 }
 
 func privateTxHashToP256Fr(api frontend.API, privateTxHash frontend.Variable) *emulated.Element[emulated.P256Fr] {

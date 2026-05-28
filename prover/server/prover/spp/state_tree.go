@@ -36,17 +36,6 @@ func StatePathFold(leaf *big.Int, siblings []*big.Int, directions []int) *big.In
 	return h
 }
 
-func directionsFromLeafIndex(index uint64, height int) []int {
-	if height < 64 && (index>>uint(height)) != 0 {
-		panic(fmt.Sprintf("spp.directionsFromLeafIndex: index %d exceeds 2^%d", index, height))
-	}
-	out := make([]int, height)
-	for j := 0; j < height; j++ {
-		out[j] = int((index >> uint(j)) & 1)
-	}
-	return out
-}
-
 func emptyStateNodes(height int) []*big.Int {
 	out := make([]*big.Int, height+1)
 	out[0] = new(big.Int)
@@ -66,10 +55,6 @@ type StateTreeWitness struct {
 // BuildSparseStateTree builds a test/witness sparse binary state tree.
 func BuildSparseStateTree(entries map[uint64]*big.Int) (*big.Int, map[uint64]StateTreeWitness) {
 	return buildSparseBinaryStateTree(entries, StateTreeHeight)
-}
-
-func RootBinding(stateRoot, nullifierRoot *big.Int) (*big.Int, error) {
-	return HashChain([]*big.Int{stateRoot, nullifierRoot})
 }
 
 func buildSparseBinaryStateTree(entries map[uint64]*big.Int, height int) (*big.Int, map[uint64]StateTreeWitness) {

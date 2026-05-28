@@ -203,67 +203,52 @@ func (c *Circuit) validateShape() error {
 	if err := c.Shape.Validate(); err != nil {
 		return err
 	}
-	if len(c.InputUtxos) != c.Shape.NInputs {
-		return fmt.Errorf("spp: input UTXO count mismatch: got %d want %d", len(c.InputUtxos), c.Shape.NInputs)
+
+	in, out := c.Shape.NInputs, c.Shape.NOutputs
+	counts := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"input UTXO", len(c.InputUtxos), in},
+		{"input nullifier pk", len(c.InputNullifierPk), in},
+		{"dummy input flag", len(c.IsDummyInput), in},
+		{"state path", len(c.StatePath), in},
+		{"state path direction", len(c.StatePathDirs), in},
+		{"nullifier low value", len(c.NfLowValue), in},
+		{"nullifier next value", len(c.NfNextValue), in},
+		{"nullifier low path", len(c.NfLowPath), in},
+		{"nullifier low path direction", len(c.NfLowPathDirs), in},
+		{"UTXO tree root", len(c.UtxoTreeRoots), in},
+		{"nullifier tree root", len(c.NullifierRoots), in},
+		{"nullifier", len(c.Nullifiers), in},
+		{"solana pk hash", len(c.SolanaPkHashes), in},
+		{"output UTXO", len(c.OutputUtxos), out},
+		{"dummy output flag", len(c.IsDummyOutput), out},
+		{"output UTXO hash", len(c.OutputUtxoHashes), out},
 	}
-	if len(c.InputNullifierPk) != c.Shape.NInputs {
-		return fmt.Errorf("spp: input nullifier pk count mismatch: got %d want %d", len(c.InputNullifierPk), c.Shape.NInputs)
-	}
-	if len(c.IsDummyInput) != c.Shape.NInputs {
-		return fmt.Errorf("spp: dummy input flag count mismatch: got %d want %d", len(c.IsDummyInput), c.Shape.NInputs)
-	}
-	if len(c.StatePath) != c.Shape.NInputs {
-		return fmt.Errorf("spp: state path count mismatch: got %d want %d", len(c.StatePath), c.Shape.NInputs)
-	}
-	if len(c.StatePathDirs) != c.Shape.NInputs {
-		return fmt.Errorf("spp: state path direction count mismatch: got %d want %d", len(c.StatePathDirs), c.Shape.NInputs)
-	}
-	if len(c.NfLowValue) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier low value count mismatch: got %d want %d", len(c.NfLowValue), c.Shape.NInputs)
-	}
-	if len(c.NfNextValue) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier next value count mismatch: got %d want %d", len(c.NfNextValue), c.Shape.NInputs)
-	}
-	if len(c.NfLowPath) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier low path count mismatch: got %d want %d", len(c.NfLowPath), c.Shape.NInputs)
-	}
-	if len(c.NfLowPathDirs) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier low path direction count mismatch: got %d want %d", len(c.NfLowPathDirs), c.Shape.NInputs)
-	}
-	if len(c.UtxoTreeRoots) != c.Shape.NInputs {
-		return fmt.Errorf("spp: UTXO tree root count mismatch: got %d want %d", len(c.UtxoTreeRoots), c.Shape.NInputs)
-	}
-	if len(c.NullifierRoots) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier tree root count mismatch: got %d want %d", len(c.NullifierRoots), c.Shape.NInputs)
-	}
-	for i := 0; i < c.Shape.NInputs; i++ {
-		if len(c.StatePath[i]) != StateTreeHeight {
-			return fmt.Errorf("spp: state path %d height mismatch: got %d want %d", i, len(c.StatePath[i]), StateTreeHeight)
-		}
-		if len(c.StatePathDirs[i]) != StateTreeHeight {
-			return fmt.Errorf("spp: state path direction %d height mismatch: got %d want %d", i, len(c.StatePathDirs[i]), StateTreeHeight)
-		}
-		if len(c.NfLowPath[i]) != NullifierTreeHeight {
-			return fmt.Errorf("spp: nullifier low path %d height mismatch: got %d want %d", i, len(c.NfLowPath[i]), NullifierTreeHeight)
-		}
-		if len(c.NfLowPathDirs[i]) != NullifierTreeHeight {
-			return fmt.Errorf("spp: nullifier low path direction %d height mismatch: got %d want %d", i, len(c.NfLowPathDirs[i]), NullifierTreeHeight)
+	for _, chk := range counts {
+		if chk.got != chk.want {
+			return fmt.Errorf("spp: %s count mismatch: got %d want %d", chk.name, chk.got, chk.want)
 		}
 	}
-	if len(c.OutputUtxos) != c.Shape.NOutputs {
-		return fmt.Errorf("spp: output UTXO count mismatch: got %d want %d", len(c.OutputUtxos), c.Shape.NOutputs)
-	}
-	if len(c.IsDummyOutput) != c.Shape.NOutputs {
-		return fmt.Errorf("spp: dummy output flag count mismatch: got %d want %d", len(c.IsDummyOutput), c.Shape.NOutputs)
-	}
-	if len(c.Nullifiers) != c.Shape.NInputs {
-		return fmt.Errorf("spp: nullifier count mismatch: got %d want %d", len(c.Nullifiers), c.Shape.NInputs)
-	}
-	if len(c.OutputUtxoHashes) != c.Shape.NOutputs {
-		return fmt.Errorf("spp: output UTXO hash count mismatch: got %d want %d", len(c.OutputUtxoHashes), c.Shape.NOutputs)
-	}
-	if len(c.SolanaPkHashes) != c.Shape.NInputs {
-		return fmt.Errorf("spp: solana pk hash count mismatch: got %d want %d", len(c.SolanaPkHashes), c.Shape.NInputs)
+
+	for i := 0; i < in; i++ {
+		heights := []struct {
+			name string
+			got  int
+			want int
+		}{
+			{"state path", len(c.StatePath[i]), StateTreeHeight},
+			{"state path direction", len(c.StatePathDirs[i]), StateTreeHeight},
+			{"nullifier low path", len(c.NfLowPath[i]), NullifierTreeHeight},
+			{"nullifier low path direction", len(c.NfLowPathDirs[i]), NullifierTreeHeight},
+		}
+		for _, h := range heights {
+			if h.got != h.want {
+				return fmt.Errorf("spp: %s %d height mismatch: got %d want %d", h.name, i, h.got, h.want)
+			}
+		}
 	}
 	return nil
 }

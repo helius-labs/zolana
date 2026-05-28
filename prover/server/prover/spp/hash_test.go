@@ -142,8 +142,8 @@ func TestSolanaPkHashMatchesSpecFormula(t *testing.T) {
 	}
 	got := mustSolanaPkHash(t, pubkey)
 	want := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(pubkey[:16]),
 		new(big.Int).SetBytes(pubkey[16:]),
+		new(big.Int).SetBytes(pubkey[:16]),
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("solana pk hash mismatch: got %s want %s", got, want)
@@ -163,8 +163,8 @@ func TestP256OwnerKeyHashMatchesSpecFormula(t *testing.T) {
 	var xBytes [32]byte
 	priv.PublicKey.X.FillBytes(xBytes[:])
 	xHash := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(xBytes[:16]),
 		new(big.Int).SetBytes(xBytes[16:]),
+		new(big.Int).SetBytes(xBytes[:16]),
 	})
 	want := mustPoseidon(t, 3, []*big.Int{
 		new(big.Int).SetUint64(uint64(compressed[0] & 1)),

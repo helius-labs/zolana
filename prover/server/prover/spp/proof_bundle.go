@@ -34,7 +34,7 @@ type ProofTransactionRequest struct {
 	PublicAmountMode         uint8               `json:"public_amount_mode"`
 	PublicSolAmount          *uint64             `json:"public_sol_amount"`
 	PublicSplAmount          *uint64             `json:"public_spl_amount"`
-	PublicSplAssetID         uint64              `json:"public_spl_asset_id"`
+	PublicSplAssetPubkey     string              `json:"public_spl_asset_pubkey"`
 	EncryptedUtxos           string              `json:"encrypted_utxos"`
 	UserSolAccount           string              `json:"user_sol_account"`
 	UserSplTokenAccount      string              `json:"user_spl_token_account"`
@@ -98,7 +98,7 @@ type ProofTransaction struct {
 	PublicAmountMode        uint8               `json:"public_amount_mode"`
 	PublicSolAmount         *uint64             `json:"public_sol_amount"`
 	PublicSplAmount         *uint64             `json:"public_spl_amount"`
-	PublicSplAssetID        uint64              `json:"public_spl_asset_id"`
+	PublicSplAssetPubkey    string              `json:"public_spl_asset_pubkey"`
 	EncryptedUtxos          string              `json:"encrypted_utxos"`
 	PublicInputHash         string              `json:"public_input_hash"`
 	ExternalDataHash        string              `json:"external_data_hash"`
@@ -300,7 +300,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		PublicAmountMode:        tx.PublicAmountMode,
 		PublicSolAmount:         tx.PublicSolAmount,
 		PublicSplAmount:         tx.PublicSplAmount,
-		PublicSplAssetID:        tx.PublicSplAssetID,
+		PublicSplAssetPubkey:    strings.TrimPrefix(tx.PublicSplAssetPubkey, "0x"),
 		EncryptedUtxos:          strings.TrimPrefix(tx.EncryptedUtxos, "0x"),
 		PublicInputHash:         proofFieldHex(publicInputHash),
 		ExternalDataHash:        proofFieldHex(publicInputs.ExternalDataHash),
@@ -469,20 +469,20 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 			outputHashVars[i] = big.NewInt(0)
 			continue
 		}
-		utxo, normalized, _, _, _, err := parseProofUtxo(tx.Outputs[i], nil)
+		parsed, err := parseProofUtxo(tx.Outputs[i], nil)
 		if err != nil {
 			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("output %d: %w", i, err)
 		}
-		outputHash, err := UtxoHash(utxo)
+		outputHash, err := UtxoHash(parsed.utxo)
 		if err != nil {
 			return nil, PublicInputs{}, nil, proofDebug{}, err
 		}
-		outputUtxos[i] = toProofCircuitFields(utxo)
+		outputUtxos[i] = toProofCircuitFields(parsed.utxo)
 		isDummyOutput[i] = frontend.Variable(0)
 		outputHashes[i] = outputHash
 		outputHashVars[i] = outputHash
 		outputResponses = append(outputResponses, ProofUtxoResponse{
-			Utxo: normalized,
+			Utxo: parsed.normalized,
 			Hash: proofFieldHex(outputHash),
 		})
 	}
@@ -531,7 +531,14 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	publicSplAmount := signedSplAmount(tx.PublicAmountMode, optionalU64(tx.PublicSplAmount))
 	publicSplAsset := big.NewInt(0)
 	if optionalU64(tx.PublicSplAmount) != 0 {
-		publicSplAsset = new(big.Int).SetUint64(tx.PublicSplAssetID)
+		publicSplMint, err := parseHex32(tx.PublicSplAssetPubkey)
+		if err != nil {
+			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+		}
+		publicSplAsset, err = SolanaPkHash(publicSplMint)
+		if err != nil {
+			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+		}
 	}
 	programIDHashchain, err := optionalField(tx.ProgramIDHashchain)
 	if err != nil {
@@ -619,60 +626,67 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 	if err != nil {
 		return proofInput{}, fmt.Errorf("nullifier_secret: %w", err)
 	}
-	utxo, normalized, ownerKeyHash, nullifierPk, isP256, err := parseProofUtxo(input.Utxo, nullifierSecret)
+	parsed, err := parseProofUtxo(input.Utxo, nullifierSecret)
 	if err != nil {
 		return proofInput{}, err
 	}
 	return proofInput{
-		utxo:            utxo,
-		utxoRequest:     normalized,
+		utxo:            parsed.utxo,
+		utxoRequest:     parsed.normalized,
 		leafIndex:       input.LeafIndex,
 		nullifierSecret: nullifierSecret,
-		ownerKeyHash:    ownerKeyHash,
-		nullifierPk:     nullifierPk,
-		isP256:          isP256,
+		ownerKeyHash:    parsed.ownerKeyHash,
+		nullifierPk:     parsed.nullifierPk,
+		isP256:          parsed.isP256,
 	}, nil
 }
 
-func parseProofUtxo(
-	input ProofUtxoRequest,
-	inputNullifierSecret *big.Int,
-) (Utxo, ProofUtxoRequest, *big.Int, *big.Int, bool, error) {
+// parsedUtxo holds a ProofUtxoRequest decoded into its circuit fields plus the
+// owner material derived alongside it.
+type parsedUtxo struct {
+	utxo         Utxo
+	normalized   ProofUtxoRequest
+	ownerKeyHash *big.Int
+	nullifierPk  *big.Int
+	isP256       bool
+}
+
+func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (parsedUtxo, error) {
 	domain, err := parseField(input.Domain)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("domain: %w", err)
+		return parsedUtxo{}, fmt.Errorf("domain: %w", err)
 	}
-	owner, ownerKeyHash, nullifierPk, isP256, err := parseOwner(input, inputNullifierSecret)
+	own, err := parseOwner(input, inputNullifierSecret)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, err
+		return parsedUtxo{}, err
 	}
 	assetID, err := parseField(input.AssetID)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("asset_id: %w", err)
+		return parsedUtxo{}, fmt.Errorf("asset_id: %w", err)
 	}
 	assetAmount, err := parseField(input.AssetAmount)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("asset_amount: %w", err)
+		return parsedUtxo{}, fmt.Errorf("asset_amount: %w", err)
 	}
 	blinding, err := parseField(input.Blinding)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("blinding: %w", err)
+		return parsedUtxo{}, fmt.Errorf("blinding: %w", err)
 	}
 	dataHash, err := optionalField(input.DataHash)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("data_hash: %w", err)
+		return parsedUtxo{}, fmt.Errorf("data_hash: %w", err)
 	}
 	policyData, err := optionalField(input.PolicyData)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("policy_data: %w", err)
+		return parsedUtxo{}, fmt.Errorf("policy_data: %w", err)
 	}
 	policyProgramID, err := optionalField(input.PolicyProgramID)
 	if err != nil {
-		return Utxo{}, ProofUtxoRequest{}, nil, nil, false, fmt.Errorf("policy_program_id: %w", err)
+		return parsedUtxo{}, fmt.Errorf("policy_program_id: %w", err)
 	}
 	utxo := Utxo{
 		Domain:          domain,
-		Owner:           owner,
+		Owner:           own.owner,
 		AssetID:         assetID,
 		AssetAmount:     assetAmount,
 		Blinding:        blinding,
@@ -682,7 +696,7 @@ func parseProofUtxo(
 	}
 	normalized := ProofUtxoRequest{
 		Domain:            proofFieldHex(domain),
-		Owner:             proofFieldHex(owner),
+		Owner:             proofFieldHex(own.owner),
 		OwnerSolanaPubkey: strings.TrimPrefix(input.OwnerSolanaPubkey, "0x"),
 		OwnerP256Pubkey:   strings.TrimPrefix(input.OwnerP256Pubkey, "0x"),
 		AssetID:           proofFieldHex(assetID),
@@ -692,87 +706,100 @@ func parseProofUtxo(
 		PolicyData:        proofFieldHex(policyData),
 		PolicyProgramID:   proofFieldHex(policyProgramID),
 	}
-	return utxo, normalized, ownerKeyHash, nullifierPk, isP256, nil
+	return parsedUtxo{
+		utxo:         utxo,
+		normalized:   normalized,
+		ownerKeyHash: own.keyHash,
+		nullifierPk:  own.nullifierPk,
+		isP256:       own.isP256,
+	}, nil
 }
 
-func parseOwner(
-	input ProofUtxoRequest,
-	inputNullifierSecret *big.Int,
-) (*big.Int, *big.Int, *big.Int, bool, error) {
+// ownerKey is the key material derived from a UTXO owner's Solana or P256 pubkey.
+type ownerKey struct {
+	keyHash     *big.Int
+	nullifierPk *big.Int
+	isP256      bool
+}
+
+// ownerFields is a fully resolved UTXO owner: the owner hash plus its key material.
+type ownerFields struct {
+	owner *big.Int
+	ownerKey
+}
+
+func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFields, error) {
 	if input.Owner != "" {
 		owner, err := parseField(input.Owner)
 		if err != nil {
-			return nil, nil, nil, false, fmt.Errorf("owner: %w", err)
+			return ownerFields{}, fmt.Errorf("owner: %w", err)
 		}
 		if input.OwnerSolanaPubkey == "" && input.OwnerP256Pubkey == "" {
-			return owner, big.NewInt(0), big.NewInt(0), false, nil
+			return ownerFields{owner: owner, ownerKey: ownerKey{keyHash: big.NewInt(0), nullifierPk: big.NewInt(0)}}, nil
 		}
-		ownerKeyHash, nullifierPk, isP256, err := ownerComponents(input, inputNullifierSecret)
+		key, err := ownerComponents(input, inputNullifierSecret)
 		if err != nil {
-			return nil, nil, nil, false, err
+			return ownerFields{}, err
 		}
-		return owner, ownerKeyHash, nullifierPk, isP256, nil
+		return ownerFields{owner: owner, ownerKey: key}, nil
 	}
-	ownerKeyHash, nullifierPk, isP256, err := ownerComponents(input, inputNullifierSecret)
+	key, err := ownerComponents(input, inputNullifierSecret)
 	if err != nil {
-		return nil, nil, nil, false, err
+		return ownerFields{}, err
 	}
-	owner, err := OwnerHash(ownerKeyHash, nullifierPk)
+	owner, err := OwnerHash(key.keyHash, key.nullifierPk)
 	if err != nil {
-		return nil, nil, nil, false, err
+		return ownerFields{}, err
 	}
-	return owner, ownerKeyHash, nullifierPk, isP256, nil
+	return ownerFields{owner: owner, ownerKey: key}, nil
 }
 
-func ownerComponents(
-	input ProofUtxoRequest,
-	inputNullifierSecret *big.Int,
-) (*big.Int, *big.Int, bool, error) {
+func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerKey, error) {
 	hasSolana := strings.TrimSpace(input.OwnerSolanaPubkey) != ""
 	hasP256 := strings.TrimSpace(input.OwnerP256Pubkey) != ""
 	if hasSolana == hasP256 {
-		return nil, nil, false, fmt.Errorf("exactly one owner_solana_pubkey or owner_p256_pubkey is required when owner components are needed")
+		return ownerKey{}, fmt.Errorf("exactly one owner_solana_pubkey or owner_p256_pubkey is required when owner components are needed")
 	}
-	var ownerKeyHash *big.Int
+	var keyHash *big.Int
 	var err error
 	isP256 := false
 	if hasSolana {
 		var pubkey [32]byte
 		pubkey, err = parseHex32(input.OwnerSolanaPubkey)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("owner_solana_pubkey: %w", err)
+			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
 		}
-		ownerKeyHash, err = SolanaPkHash(pubkey)
+		keyHash, err = SolanaPkHash(pubkey)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("owner_solana_pubkey: %w", err)
+			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
 		}
 	} else {
 		var pubkey []byte
 		pubkey, err = parseHexBytes(input.OwnerP256Pubkey)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("owner_p256_pubkey: %w", err)
+			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
 		}
-		ownerKeyHash, err = P256OwnerKeyHash(pubkey)
+		keyHash, err = P256OwnerKeyHash(pubkey)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("owner_p256_pubkey: %w", err)
+			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
 		}
 		isP256 = true
 	}
 	nullifierSecret := inputNullifierSecret
 	if nullifierSecret == nil {
 		if input.OwnerNullifierSecret == "" {
-			return nil, nil, false, fmt.Errorf("owner_nullifier_secret is required when owner is omitted")
+			return ownerKey{}, fmt.Errorf("owner_nullifier_secret is required when owner is omitted")
 		}
 		nullifierSecret, err = parseField(input.OwnerNullifierSecret)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("owner_nullifier_secret: %w", err)
+			return ownerKey{}, fmt.Errorf("owner_nullifier_secret: %w", err)
 		}
 	}
 	nullifierPk, err := NullifierPk(nullifierSecret)
 	if err != nil {
-		return nil, nil, false, err
+		return ownerKey{}, err
 	}
-	return ownerKeyHash, nullifierPk, isP256, nil
+	return ownerKey{keyHash: keyHash, nullifierPk: nullifierPk, isP256: isP256}, nil
 }
 
 func p256WitnessForTransaction(
@@ -1050,8 +1077,7 @@ func proofVariablesToBigInts(values []frontend.Variable) []*big.Int {
 		case int64:
 			out[i] = big.NewInt(v)
 		default:
-			out[i] = new(big.Int).SetInt64(0)
-			fmt.Sscan(fmt.Sprint(v), out[i])
+			panic(fmt.Sprintf("spp: unexpected witness variable type %T", value))
 		}
 	}
 	return out

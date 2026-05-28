@@ -35,14 +35,8 @@ func assertBalanceConservation(
 	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
 
 	// Spec rule: for each active asset, inputs plus public deposits equal
-	// outputs plus public withdrawals and fees. Native SOL is asset_id = 1.
-	//
-	// TODO(spec): the spec public set exposes public_spl_asset_pubkey, while
-	// the account/ciphertext sections still define compact registry asset_id
-	// values inside UTXOs. Until that mapping is made explicit, the v1 circuit
-	// keeps using the compact asset id that SPP reads from the mint-bound
-	// registry. Replacing this with a mint hash without changing UTXO asset
-	// encoding would break balance conservation for SPL public movements.
+	// outputs plus public withdrawals and fees. Native SOL is asset_id = 1;
+	// SPL assets use the canonical mint-derived public_spl_asset_pubkey field.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
 		api.ToBinary(input.AssetAmount, 64)

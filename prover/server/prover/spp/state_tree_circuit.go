@@ -30,7 +30,3 @@ func StatePathFoldCircuit(
 func IndexedLeafHashCircuit(api frontend.API, value, nextValue frontend.Variable) frontend.Variable {
 	return poseidon.HashCircuitWithT(api, 3, []frontend.Variable{value, nextValue})
 }
-
-func RootBindingCircuit(api frontend.API, stateRoot, nullifierRoot frontend.Variable) frontend.Variable {
-	return HashChainCircuit(api, []frontend.Variable{stateRoot, nullifierRoot})
-}

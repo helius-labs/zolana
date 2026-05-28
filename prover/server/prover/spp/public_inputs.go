@@ -1,8 +1,8 @@
 package spp
 
-// LogicalPublicInputNames is the SPP public-input set from ../z2/docs/spec.md.
-// Non-public implementation variables such as expiry, amount mode, and relayer
-// fee are bound through private_tx_hash or external_data_hash in v1.
+// LogicalPublicInputNames is the SPP public-input set. Non-public implementation
+// variables such as expiry, amount mode, and relayer fee are bound through
+// private_tx_hash or external_data_hash in v1.
 var LogicalPublicInputNames = []string{
 	"nullifiers",
 	"output_utxo_hashes",
@@ -12,7 +12,7 @@ var LogicalPublicInputNames = []string{
 	"external_data_hash",
 	"public_sol_amount",
 	"public_spl_amount",
-	"public_spl_asset_id",
+	"public_spl_asset_pubkey",
 	"ProgramIDHashchain",
 	"SolanaPubkeyHash",
 	"data_hash",
