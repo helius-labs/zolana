@@ -16,6 +16,7 @@
 6. secrets must not leave the wallet we need wallet methods to perform operations over secret values, shared secrets can be shared.
 7. dont restate derivation paths in spec.md link instead
 8. for every piece of encrypted data published it must be tagged so that it can be fetched efficiently
+9. no CAPs
 
 ## Encryption Requirements:
 
