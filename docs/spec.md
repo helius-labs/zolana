@@ -436,7 +436,9 @@ A shielded address consists of the signing public key, signs to spend UTXOs, the
 In compressed form the signing and nullifier public keys are compressed in an owner poseidon hash.
 
 `ShieldedAddress = (signing_pk, nullifier_pk, viewing_pk)`
+
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
+
 `owner_hash = Poseidon(signing_pk_a, signing_pk_b, nullifier_pk)`
 
 # Signing Key
@@ -461,6 +463,7 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 Symmetric key to derive nullifiers.
 
 `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="zolana/nullifier", L=31)`
+
 `nullifier_pk := Poseidon(nullifier_secret)`
 
 **Methods:**
@@ -470,12 +473,7 @@ Symmetric key to derive nullifiers.
 
 # ViewingKey
 
-`(viewing_sk, viewing_pk)` — P-256 Keypair. Used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. Viewing keys for one signing key can rotate.
-
-**Constructors:**
-
-- `ViewingKey::from_signing_key(signing_key)` — standalone wallet: aliases `(viewing_sk, viewing_pk) := (signing_key.sk, signing_key.pk)`.
-- `ViewingKey::from_sk(viewing_sk)` — shared or independent P256 secret key.
+`(viewing_sk, viewing_pk)` — P-256 Keypair. Used for ECDH-based AES-GCM key derivation and as the input to all view-tag secrets. Viewing keys for one signing key can be the signer key, a shared P256 key, and rotate.
 
 ## Derived secrets
 
@@ -505,10 +503,9 @@ TODO: evaluate to adapt derivation so that the viewing key can never repeat even
 
 A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
 
-For transfers, view tags need to be shared between the sender and recipient. A wallet cannot pre-derive shared tags for every possible sender, and the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair therefore uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (publicly linkable, no coordination). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use `recipient_shared_view_tag` and are found via `scan_view_tags`. `sender → recipient` and `recipient → sender` produce disjoint tags.
+A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-**Uniqueness.** View tags are not globally unique across transactions. Only `sender_view_tag` and `merge_view_tag` are enforced single-use by SPP — they are inserted into the nullifier tree on `transact` and `merge_transact` respectively, and duplicates are rejected. The other variants may collide; the indexer returns all ciphertexts matching a tag value, and the recipient decrypts each.
-
+**Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
 ### Sender View Tag
 
@@ -611,7 +608,7 @@ struct Utxo {
     /// this 32-byte value directly; the spender supplies the preimage
     /// components as proof witness.
     owner: [u8; 32],
-    /// Asset mint. SOL is encoded as a fixed pseudo-address.
+    /// Asset mint. SOL is Address::default().
     asset: Address,
     /// Amount in the smallest unit of `asset`.
     amount: u64,
@@ -663,7 +660,6 @@ Schemes:
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — one ciphertext for the single merged output.
 
-TODO: specify how we can get a 100% non repeating deterministically derived nonce even with all.
 TODO: add nonce derivation
 
 ## Program Data
@@ -912,8 +908,6 @@ struct MergeEncryptedUtxo {
 
 # SPP Proof - Shielded Pool ZK Proof
 
-**Requirement.** The circuit MUST NOT take any wallet secret as a witness input.
-
 **Public Inputs**
 
 | Input | Source |
@@ -930,7 +924,7 @@ struct MergeEncryptedUtxo {
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
 | program_data_hash | instruction data |
 | policy_data_hash | instruction data |
-| ed25519_owner_flags (one per input UTXO) | bit per input: `1` if the input's owner uses the Ed25519 signing scheme, `0` for P256. SPP cross-checks each `1` against the transaction's Solana signer set. |
+| solana_owner_pubkeys (one per input UTXO) | `(low, high)` split of the Ed25519 Solana signer pubkey for Ed25519 inputs (SPP looks up the signer via `in_utxo_signer_indices` and confirms it signed the transaction); `(0, 0)` for P256 inputs. The non-zero / zero split serves as the Ed25519 vs P256 selector inside the circuit: P256 entries enable the P256 signature check; Ed25519 entries skip it and instead check `(low, high) == (signing_pk_a, signing_pk_b)` against the corresponding input UTXO — binding the input's owner to a Solana account SPP has verified as a signer. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -982,7 +976,7 @@ external_data_hash := Sha256BE(
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | `owner == Poseidon(signing_pk_a, signing_pk_b, nullifier_pk)`. The recomputed `owner` is the value folded into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs MUST be authorized by their owner. P256 owners: P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof. Ed25519 owners: the proof skips the signature check and the public `ed25519_owner_flags[i]` bit instructs SPP to verify the corresponding Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Spent input UTXOs MUST be authorized by their owner. The per-input `solana_owner_pubkeys` public input selects the path: `(0, 0)` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and instead binds `(low, high) == (signing_pk_a, signing_pk_b)`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO MUST be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | `Poseidon(nullifier_secret) == nullifier_pk` against each input's `nullifier_pk` witness. Implication: all non-dummy inputs share `nullifier_pk`, and therefore the same owner. |
 | Nullifiers | Public nullifier per input equals `Poseidon(utxo_hash, blinding, nullifier_secret)`. |
@@ -996,7 +990,7 @@ external_data_hash := Sha256BE(
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
 1. P256 signature over `private_tx_hash` verified in the SPP proof. The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
-2. Ed25519 Solana signer checked by SPP. Used when the input UTXO's owner is encoded as Ed25519 (signaled via `ed25519_owner_flags[i] = 1`). SPP verifies the corresponding 32-byte Solana account derived from `(signing_pk_a, signing_pk_b)` is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
+2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_owner_pubkeys` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the named pubkey; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
 
 **Circuit Combinations**
 
@@ -1568,6 +1562,8 @@ UTXOs can carry a `policy_data` field interpreted by the policy program, hashed 
 All RPC services can be run independently. RPC providers can offer the endpoints of the services in a bundled API.
 
 ## Indexer
+
+**Privacy.** Endpoints that take view tags as input — [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`get_merge_authority_events`](#get_merge_authority_events), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags) — can run inside a TEE (Trusted Execution Environment). A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
 
 Every response is wrapped in a `Context` envelope so the client knows the slot the response was assembled at.
 
