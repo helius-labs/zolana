@@ -90,11 +90,15 @@
 
 ## Abstract
 
-A Solana program for shielded transfers. Users retain custody and can disclose
-per-transaction viewing keys on request. UTXOs can enter pockets; each pocket has
-auditors, authorities, and a config (freeze authority, co-signer, permanent
-delegate). Third party zk programs can own, escrow, write state into UTXOs, and execute custom private state transitions in combination with shielded token transfers. Efficient sync of encrypted state with view tags.
-Optional features: configurable merge authority that keeps the users balance spendable without user wallet signatures, optional sync delegate to enable light weight integration into wallets. 
+Zolana is a protocol for programmable, UTXO-based anonymous transfers that executes directly on Solana. Programmability supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and view tags enable wallet sync at Solana speed.
+
+Anonymous transfers are performed by a minimal shielded pool program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP); additional logic lives in third-party and policy programs. To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement pockets, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
+
+For wallet sync at Solana RPC speed, view tags prefix every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption. For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
+
+Two opt-in services improve UX. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches view tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
+
+The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the policy program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / pocket RPC / merge service / registry interfaces, and user flows.
 
 # Architecture
 
@@ -1555,6 +1559,8 @@ A policy program is free to implement the following instructions and more. Tags 
 **Policy data.**
 
 UTXOs can carry a `policy_data` field interpreted by the policy program, hashed into the `policy_data_hash` slot of [UTXO Hash](#utxo-hash). The policy program defines the schema and the hashing scheme.
+
+# Zk Program Interface
 
 
 # RPC
