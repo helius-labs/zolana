@@ -17,6 +17,7 @@
 7. dont restate derivation paths in spec.md link instead
 8. for every piece of encrypted data published it must be tagged so that it can be fetched efficiently
 9. no CAPs
+10. no duplicate definitions define types and derivations once then link to that definition
 
 ## Encryption Requirements:
 
