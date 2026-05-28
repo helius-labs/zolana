@@ -488,7 +488,7 @@ Symmetric key to derive nullifiers.
 ## Transaction Viewing Key
 
 Every ciphertext in a transaction is encrypted under a single empheral key so that the secret key of the emphemeral key can decrypt both the senders change and recipient utxos of the transaction.
-TODO: evaluate to adapt derivation so that the viewing key can never repeat.
+TODO: evaluate to adapt derivation so that the viewing key can never repeat even in edge cases.
 
 **Properties**
 
@@ -959,10 +959,11 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 **external_data_hash**
 
-Hash over the public fields of the `transact` instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction.
+Hash over the public fields of the invoking SPP instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and binds the proof to the specific SPP instruction being invoked (`transact`, `pocket_transact`, `pocket_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
+    u8(spp_instruction_discriminator)                ||
     sender_view_tag                                  ||
     u16_be(relayer_fee)                              ||
     u64_be(public_sol_amount.unwrap_or(0))           ||
@@ -973,6 +974,8 @@ external_data_hash := Sha256BE(
     encrypted_utxos
 )
 ```
+
+`spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
 **Checks**
 
@@ -1566,6 +1569,22 @@ All RPC services can be run independently. RPC providers can offer the endpoints
 
 ## Indexer
 
+Every response is wrapped in a `Context` envelope so the client knows the slot the response was assembled at.
+
+```rust
+struct Context {
+    /// Solana slot at which the indexer assembled this response.
+    slot: u64,
+}
+
+struct MerkleContext {
+    /// Tree kind: UTXO tree, nullifier tree, merge authority tree, etc.
+    tree_type: u16,
+    /// On-chain tree account.
+    tree: Address,
+}
+```
+
 ### `get_encrypted_utxos_by_tags`
 
 Returns encrypted UTXO ciphertexts whose view tag matches any of the given values. Lightweight variant of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags): no sibling slots, no nullifiers.
@@ -1578,6 +1597,7 @@ struct GetEncryptedUtxosByTagsRequest {
 }
 
 struct GetEncryptedUtxosByTagsResponse {
+    context: Context,
     matches: Vec<EncryptedUtxoMatch>,
     next_cursor: Option<Vec<u8>>,
 }
@@ -1603,6 +1623,7 @@ struct GetShieldedTransactionsByTagsRequest {
 }
 
 struct GetShieldedTransactionsByTagsResponse {
+    context: Context,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Vec<u8>>,
 }
@@ -1637,6 +1658,7 @@ struct GetMergeAuthorityEventsRequest {
 }
 
 struct GetMergeAuthorityEventsResponse {
+    context: Context,
     events: Vec<MergeAuthorityEvent>,
     next_cursor: Option<Vec<u8>>,
 }
@@ -1670,7 +1692,7 @@ struct SubscribeToTagsRequest {
 
 ### `get_merkle_proofs`
 
-Returns inclusion proofs for leaves against `tree_account` (UTXO tree, merge authority tree, etc.), plus the root + root_index needed by the consuming instruction.
+Returns inclusion proofs for leaves against the given tree (UTXO tree, merge authority tree, etc.), plus the root + `root_seq` needed by the consuming instruction.
 
 ```rust
 struct GetMerkleProofsRequest {
@@ -1679,24 +1701,30 @@ struct GetMerkleProofsRequest {
 }
 
 struct GetMerkleProofsResponse {
+    context: Context,
     proofs: Vec<MerkleProof>,
 }
 
 struct MerkleProof {
     leaf: [u8; 32],
-    tree_account: Address,
+    merkle_context: MerkleContext,
     /// Sibling hashes; length matches the tree's height.
     path: Vec<[u8; 32]>,
     leaf_index: u64,
     root: [u8; 32],
-    /// Matches the corresponding `*_root_index` field on the consuming instruction.
+    /// Monotonic sequence number of the root. API-only — exposed so the client
+    /// can reason about freshness and ordering across requests.
+    root_seq: u64,
+    /// Position of the root in the on-chain circular root cache. Copy this
+    /// directly into the corresponding `*_root_index` field on the consuming
+    /// instruction.
     root_index: u16,
 }
 ```
 
 ### `get_non_inclusion_proofs`
 
-Returns non-inclusion proofs for leaves against `tree_account` (nullifier tree, merge authority tree, etc.), plus root + root_index for the consuming instruction.
+Returns non-inclusion proofs for leaves against the given tree (nullifier tree, merge authority tree, etc.), plus the root + `root_seq` for the consuming instruction.
 
 ```rust
 struct GetNonInclusionProofsRequest {
@@ -1705,37 +1733,82 @@ struct GetNonInclusionProofsRequest {
 }
 
 struct GetNonInclusionProofsResponse {
+    context: Context,
     proofs: Vec<NonInclusionProof>,
 }
 
 struct NonInclusionProof {
     leaf: [u8; 32],
-    tree_account: Address,
+    merkle_context: MerkleContext,
     /// Sibling hashes; length matches the tree's height.
     path: Vec<[u8; 32]>,
     /// Indexed-Merkle-tree adjacency witness: the existing leaf whose value
     /// is the largest less than `leaf`.
     low_element: [u8; 32],
     low_element_index: u64,
+    /// Upper bound of the exclusion range (`low_element.next_value`), so the
+    /// client can verify non-inclusion without rederiving it.
+    high_element: [u8; 32],
+    high_element_index: u64,
     root: [u8; 32],
-    /// Matches the corresponding `*_root_index` field on the consuming instruction.
+    /// Monotonic sequence number of the root. API-only — exposed so the client
+    /// can reason about freshness and ordering across requests.
+    root_seq: u64,
+    /// Position of the root in the on-chain circular root cache. Copy this
+    /// directly into the corresponding `*_root_index` field on the consuming
+    /// instruction.
     root_index: u16,
 }
 ```
 
 ## Prover
 
-Generates SPP and merge proofs server-side for clients that opt into server-side proving instead of building proofs locally.
+Generates SPP proofs server-side for clients that opt into server-side proving instead of building proofs locally.
 
-The Prover takes the same witness inputs the client would assemble locally — UTXO body fields, Merkle paths, signatures, view tags — and returns the compressed Groth16 proof. The Prover does not require any wallet secret: P256 signatures over `private_tx_hash` are produced by the client and supplied as witness, and `nullifier_secret` is held by the sync delegate (which the Prover may or may not be).
+### `generate_spp_proof`
 
-A Prover that is also a [sync delegate](#sync-delegate) can fold proof generation into its existing capabilities. A Prover that is not a sync delegate is limited to the witness the client ships and learns only what the client reveals.
+Builds an [SPP proof](#spp-proof---shielded-pool-zk-proof) from a client-supplied witness; returns the compressed Groth16 proof for inclusion in [`transact`](#transact).
+
+```rust
+struct GenerateSppProofRequest {
+    proof_inputs: SppProofInputs,
+}
+
+struct GenerateSppProofResponse {
+    /// Compressed Groth16 proof.
+    proof: [u8; 192],
+    public_inputs: Vec<[u8; 32]>,
+    circuit_id: u16,
+}
+```
 
 ## Relayer
 
-Submits a user-signed Solana transaction to the cluster, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field carried inside the shielded instruction (see [`transact`](#transact)). The relayer never sees plaintext UTXOs and never signs over shielded state; it only signs as Solana payer.
+Signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field carried inside the shielded instruction (see [`transact`](#transact)). The relayer cannot change the users shielded transactions the SPP proof commits to all transaction parameters, and never sees plaintext UTXOs it only signs as Solana payer.
 
-The relayer fee is enforced by SPP: on `transact` the program transfers `relayer_fee` lamports from the pool to the relayer's account as part of instruction execution, conditional on the proof verifying. A relayer that submits a transaction whose proof fails recovers nothing — same incentive shape as standard Solana fee payment.
+The relayer fee is enforced by SPP: on `transact` the program transfers `relayer_fee` lamports from the pool to the relayer's account as part of instruction execution, conditional on the proof verifying.
+
+### `submit_transaction`
+
+Submits a client-built instruction. The relayer assembles it into a Solana transaction (recent blockhash, fee payer slot), signs as Solana payer, forwards it to the cluster, and returns the transaction signature so the client can poll for confirmation via standard Solana RPC.
+
+```rust
+struct SubmitTransactionRequest {
+    /// The instruction the relayer should wrap into a transaction and submit.
+    /// Carries `program_id`, account metas, and serialized instruction data
+    /// (e.g. a built `transact` or `merge_transact`).
+    instruction: Instruction,
+    /// Optional address lookup tables to attach to the transaction.
+    address_lookup_tables: Vec<Address>,
+}
+
+struct SubmitTransactionResponse {
+    context: Context,
+    /// Solana transaction signature; the client polls a Solana RPC node with
+    /// this value to observe confirmation status.
+    tx_signature: [u8; 64],
+}
+```
 
 ## Pocket RPC
 
