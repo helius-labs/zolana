@@ -14,10 +14,25 @@ inputs:
     description: Install the `just` task runner via taiki-e/install-action.
     required: false
     default: "true"
+  private-libs-token:
+    description: |
+      GitHub token with read access to helius-labs/privacy-program-libs (and any
+      other private repos referenced as cargo git deps). The workflow-issued
+      GITHUB_TOKEN only scopes to the current repo, so private cross-repo
+      dependencies need a PAT or fine-grained token passed in via secrets.
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
+    - if: inputs.private-libs-token != ''
+      name: Configure git auth for private cargo git deps
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.private-libs-token }}
+      run: |
+        git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: ${{ inputs.components }}

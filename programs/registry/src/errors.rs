@@ -20,6 +20,7 @@ pub enum RegistryError {
     FinalizeCounterExceeded,
     CpiContextAccountMissing,
     ArithmeticUnderflow,
+    ArithmeticOverflow,
     RegistrationNotFinalized,
     CpiContextAccountInvalidDataLen,
     InvalidConfigUpdate,

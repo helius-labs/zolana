@@ -1,62 +1,27 @@
 [package]
 name = "light-program-test"
 version = "0.23.0"
-description = "A fast local test environment for Solana programs using compressed accounts and tokens."
-license = "MIT"
-edition = "2021"
+description = "Litesvm-based test rig for the shielded-pool + registry programs."
+license = "Apache-2.0"
+edition.workspace = true
 
 [features]
-default = ["v2"]
-v2 = []
-devenv = ["v2", "light-client/devenv", "light-prover-client/devenv", "dep:account-compression", "dep:light-registry", "dep:light-batched-merkle-tree"]
+default = []
+# Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or
+# absolute path passed at construction time). The default search path is
+# `<workspace>/target/deploy/shielded_pool_program.so`.
 
 [dependencies]
-light-sdk = { workspace = true, features = ["anchor"] }
-light-account = { workspace = true }
-light-account-checks = { workspace = true }
-light-indexed-merkle-tree = { workspace = true, features = ["solana"] }
-light-indexed-array = { workspace = true }
-light-merkle-tree-reference = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon", "sha256", "keccak", "std"] }
-light-token-interface = { workspace = true }
-light-compressible = { workspace = true }
-light-token = { workspace = true }
-light-compressed-token-sdk = { workspace = true }
-light-compressed-account = { workspace = true, features = ["anchor", "poseidon"] }
-light-batched-merkle-tree = { workspace = true, features = ["test-only"], optional = true }
-light-event = { workspace = true }
-# unreleased
-light-client = { workspace = true, features = ["program-test", "anchor"] }
-light-prover-client = { workspace = true }
-light-zero-copy = { workspace = true }
-litesvm = { workspace = true }
-
-
-light-registry = { workspace = true, features = ["cpi"], optional = true }
-account-compression = { workspace = true, features = ["cpi"], optional = true }
-
-log = { workspace = true }
 borsh = { workspace = true }
-tokio = { workspace = true }
-async-trait = { workspace = true }
-num-bigint = { workspace = true }
-num-traits = { workspace = true }
-reqwest = { workspace = true }
-anchor-lang = { workspace = true }
-
-solana-transaction-status-client-types = { workspace = true }
-solana-rpc-client-api = { workspace = true }
-solana-sdk = { workspace = true }
-solana-banks-client = { workspace = true }
-solana-pubkey = { workspace = true }
+litesvm = { workspace = true }
 solana-instruction = { workspace = true }
-light-instruction-decoder = { workspace = true }
-solana-account = { workspace = true }
-solana-compute-budget = { workspace = true }
-rand = { workspace = true }
-bytemuck = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-bs58 = { workspace = true }
-chrono = { workspace = true }
-base64 = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+thiserror = { workspace = true }
+zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+serial_test = { workspace = true }

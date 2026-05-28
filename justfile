@@ -38,61 +38,33 @@ build-release:
 check:
     cargo check
 
-# Check the workspace plus forester test targets. SBF fixture crates are checked
-# as libraries in the same no-entrypoint shape used by forester tests.
+# Check the entire workspace.
 check-all:
-    cargo check --workspace --exclude csdk-anchor-full-derived-test --exclude create-address-test-program
-    cargo check -p forester --all-targets
-    cargo check -p csdk-anchor-full-derived-test --lib --features no-entrypoint
-    cargo check -p create-address-test-program --lib --features no-entrypoint
+    cargo check --workspace --all-targets
 
-# Compile all forester test binaries without running the integration suite.
-test-forester-compile:
-    cargo test -p forester --no-run
-
-test-forester-smoke:
-    cargo test -p forester --test metrics_contract_test
-    cargo test -p forester --test test_nullify_state_v1_multi_tx_size
-    cargo test -p forester --test priority_fee_test
-
-# Default test target keeps CI cheap while preserving forester test compilation.
-test: test-forester-compile test-forester-smoke
+# Default test target. Tests for the surviving slice (interface, registry,
+# shielded-pool program). Forester e2e tests will be reintroduced when the
+# foresting logic is rebuilt against the new combined tree type.
+test: test-scaffold
 
 # Cheap tests for the initial shielded-pool/interface/registry scaffold.
 test-scaffold:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
-    cargo test -p registry-tests
 
-# Unit tests for foundational program libraries.
-test-program-libs:
-    cargo test -p light-batched-merkle-tree
-    cargo test -p light-heap
+# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
+# `.so`s under `target/deploy/`; run `just build-programs` first.
+test-litesvm:
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo test -p light-program-test
 
-# Unit and integration tests for the compressed-token program (lib + tests dir).
-test-compressed-token:
-    cargo test -p light-compressed-token --lib --tests
-
-# Tests for the reference Merkle tree implementation used by program-tests/utils.
-test-merkle-tree:
-    cargo test -p light-merkle-tree-reference
-
-# SDK library tests that do not require a running validator or prover.
-test-sdk-libs:
-    cargo test -p light-event
-    cargo test -p light-token
-    cargo test -p light-compressed-token-sdk
-
-# Aggregate of all CI-runnable rust tests except the forester e2e suite.
-test-all: test-scaffold test-program-libs test-compressed-token test-merkle-tree test-sdk-libs test-forester-smoke
-
-# Check photon-api's OpenAPI regeneration path against external/photon.
-check-photon-generate:
-    cargo check -p photon-api --features generate
+# Aggregate of all CI-runnable rust tests.
+test-all: test-scaffold test-litesvm
 
 # Rust-only verification for machines without Go installed.
-verify-rust: check test check-photon-generate
+verify-rust: check test
 
 # Full verification for the reduced workspace.
 verify: verify-rust prover-server-test
@@ -126,8 +98,32 @@ check-light-cli:
 build-zolana-cli:
     cargo build -p zolana-cli
 
-verify-light-fixtures:
-    cd sdk-libs/cli/bin && shasum -a 256 -c SHA256SUMS
+# Download and verify the Light test-validator fixtures pinned in
+# .fixtures-version into ${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/<tag>.
+# Idempotent: no-op when the cache already has a verified bundle.
+fetch-fixtures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=$(tr -d '[:space:]' < .fixtures-version)
+    cache_root="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}"
+    dest="${cache_root}/fixtures/${tag}"
+    if [[ -f "${dest}/SHA256SUMS" ]] && (cd "$dest" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); then
+        echo "fixtures ${tag} already cached at ${dest}"
+        exit 0
+    fi
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    url="https://github.com/helius-labs/zolana/releases/download/${tag}/light-fixtures.tar.gz"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    echo "fetching ${url}"
+    curl -sSfL "$url" -o "$tmp/light-fixtures.tar.gz"
+    tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
+    cd "$dest" && shasum -a 256 -c SHA256SUMS
+    echo "fixtures ${tag} ready at ${dest}"
+
+# Back-compat alias; build-light-programs and CI used to invoke this.
+verify-light-fixtures: fetch-fixtures
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -179,43 +175,20 @@ install-photon:
         rm -rf external/photon/target
     fi
 
-build-light-programs: verify-light-fixtures
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/account-compression/Cargo.toml
+build-light-programs: fetch-fixtures
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/compressed-token/program/Cargo.toml
     mkdir -p target/deploy
-    cp sdk-libs/cli/bin/spl_noop.so target/deploy/spl_noop.so
-    cp sdk-libs/cli/bin/light_system_program_pinocchio.so target/deploy/light_system_program_pinocchio.so
-
-build-forester-test-deps: build-light-programs
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/create-address-test-program/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path sdk-tests/csdk-anchor-full-derived-test/Cargo.toml
+    tag=$(tr -d '[:space:]' < .fixtures-version)
+    fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
+    cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
+    cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
-
-# Run the forester PDA integration test that deploys the local csdk SBF fixture.
-test-forester-pda: check-light-cli build-forester-test-deps
-    cargo test -p forester --test test_compressible_pda -- --nocapture
-
-# Run a bounded local forester e2e smoke. The zolana local validator launcher
-# advances slots quickly and preloads V2 trees with 500/250 element ZKP batches,
-# so this validates deterministic V1 state and compressible-account behavior.
-test-forester-e2e: check-light-cli build-light-programs
-    TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::test
-
-# Run the bounded local forester e2e smoke without rebuilding SBF dependencies.
-test-forester-e2e-local: check-light-cli
-    TEST_V1_ADDRESS=false TEST_V2_STATE=false TEST_V2_ADDRESS=false FORESTER_E2E_ITERATIONS=20 FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS=2 FORESTER_E2E_TIMEOUT_SECONDS=300 just forester::local
-
-# Run the full forester e2e surface with all tree families enabled.
-test-forester-e2e-full: check-light-cli build-light-programs
-    just forester::test-full
-
-# Run the full forester e2e surface without rebuilding SBF dependencies.
-test-forester-e2e-full-local: check-light-cli
-    just forester::local-full
 
 # === Formatting and linting ===
 
@@ -226,9 +199,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --exclude csdk-anchor-full-derived-test --exclude create-address-test-program -- -D warnings
-    cargo clippy -p csdk-anchor-full-derived-test --lib --features no-entrypoint -- -D warnings
-    cargo clippy -p create-address-test-program --lib --features no-entrypoint -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # === Prover server ===
 

@@ -1,8 +1,11 @@
 use aligned_sized::aligned_sized;
 use anchor_lang::prelude::*;
-use light_batched_merkle_tree::constants::DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2;
 
 use crate::errors::RegistryError;
+
+/// Inlined from light-batched-merkle-tree::constants while the privacy-libs
+/// dependency is being retired from this crate.
+const DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2: u64 = 14020;
 
 #[aligned_sized(anchor)]
 #[derive(Debug)]

@@ -1,14 +1,26 @@
-use pinocchio::{error::ProgramError, AccountView};
-use zolana_interface::instruction::BatchUpdateAddressTreeData;
+use pinocchio::{error::ProgramError, AccountView, Address};
+use zolana_interface::{instruction::BatchUpdateAddressTreeData, LIGHT_REGISTRY_CPI_AUTHORITY};
 
-use crate::{error::ShieldedPoolError, instructions::loader::MutableAddressTreeAccounts};
+use crate::{error::ShieldedPoolError, instructions::loader::MutablePoolTreeAccounts};
 
 pub fn verify<'a>(
-    accounts: &'a [AccountView],
+    program_id: &Address,
+    accounts: &'a mut [AccountView],
     data: &BatchUpdateAddressTreeData,
-) -> Result<MutableAddressTreeAccounts<'a>, ProgramError> {
+) -> Result<MutablePoolTreeAccounts<'a>, ProgramError> {
     if data.new_root == [0u8; 32] {
         return Err(ShieldedPoolError::EmptyBatchUpdateRoot.into());
     }
-    crate::instructions::loader::load_mutable_address_tree_accounts(accounts)
+    let loaded =
+        crate::instructions::loader::load_mutable_pool_tree_accounts(program_id, accounts, true)?;
+
+    // Single equality check against the hardcoded registry CPI authority PDA
+    // — no on-chain re-derivation needed. The constant is pinned to
+    // `find_program_address(b"cpi_authority", LIGHT_REGISTRY_PROGRAM_ID)` by
+    // a test in `shielded-pool/tests/instruction_validation.rs`.
+    if *loaded.signer.address() != Address::from(LIGHT_REGISTRY_CPI_AUTHORITY) {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+
+    Ok(loaded)
 }

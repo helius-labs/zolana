@@ -10,3 +10,6 @@ pub const PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"authority";
 
 #[constant]
 pub const DEFAULT_WORK_V1: u64 = 1;
+
+#[constant]
+pub const CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";

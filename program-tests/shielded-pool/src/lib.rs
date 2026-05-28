@@ -8,13 +8,14 @@ mod tests {
         let data = encode_instruction(
             tag::BATCH_UPDATE_ADDRESS_TREE,
             &BatchUpdateAddressTreeData {
-                start_index: 0,
                 new_root: [7u8; 32],
-                proof_hash: [9u8; 32],
+                compressed_proof_a: [1u8; 32],
+                compressed_proof_b: [2u8; 64],
+                compressed_proof_c: [3u8; 32],
             },
         );
-        let program_id = pinocchio::Address::from([0u8; 32]);
+        let program_id = pinocchio::Address::new_from_array([0u8; 32]);
 
-        assert!(process_instruction(&program_id, &[], &data).is_err());
+        assert!(process_instruction(&program_id, &mut [], &data).is_err());
     }
 }

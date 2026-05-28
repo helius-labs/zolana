@@ -6,7 +6,6 @@ use light_hasher::{
     hash_chain::{create_hash_chain_from_array, create_two_inputs_hash_chain},
     Hasher, Poseidon,
 };
-use light_indexed_merkle_tree::{array::IndexedArray, reference::IndexedMerkleTree};
 use light_merkle_tree_reference::MerkleTree;
 use light_prover_client::{
     constants::{DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, DEFAULT_BATCH_STATE_TREE_HEIGHT},
@@ -94,38 +93,13 @@ fn internal_inclusion_merkle_tree_inputs(height: usize) -> InclusionMerkleProofI
     }
 }
 
+/// V1 non-inclusion proof inputs. Now delegates to the same indexed-tree
+/// helper as v2 (`opt_non_inclusion_merkle_tree_inputs`) since
+/// `light-indexed-merkle-tree` was retired upstream (privacy-program-libs
+/// PR #4); `light-merkle-tree-reference::indexed::IndexedMerkleTree` covers
+/// both code paths.
 pub fn non_inclusion_merkle_tree_inputs(height: usize) -> NonInclusionMerkleProofInputs {
-    const CANOPY: usize = 0;
-    let mut indexed_tree = IndexedMerkleTree::<Poseidon, usize>::new(height, CANOPY).unwrap();
-    let mut indexing_array = IndexedArray::<Poseidon, usize>::default();
-    indexed_tree.init().unwrap();
-    indexing_array.init().unwrap();
-
-    let value = 1_u32.to_biguint().unwrap();
-
-    let non_inclusion_proof = indexed_tree
-        .get_non_inclusion_proof(&value, &indexing_array)
-        .unwrap();
-
-    NonInclusionMerkleProofInputs {
-        root: BigInt::from_bytes_be(Sign::Plus, non_inclusion_proof.root.as_slice()),
-        value: BigInt::from_bytes_be(Sign::Plus, &non_inclusion_proof.value),
-        leaf_lower_range_value: BigInt::from_bytes_be(
-            Sign::Plus,
-            &non_inclusion_proof.leaf_lower_range_value,
-        ),
-        leaf_higher_range_value: BigInt::from_bytes_be(
-            Sign::Plus,
-            &non_inclusion_proof.leaf_higher_range_value,
-        ),
-        next_index: BigInt::from(non_inclusion_proof.next_index),
-        merkle_proof_hashed_indexed_element_leaf: non_inclusion_proof
-            .merkle_proof
-            .iter()
-            .map(|x| BigInt::from_bytes_be(Sign::Plus, x))
-            .collect(),
-        index_hashed_indexed_element_leaf: BigInt::from(non_inclusion_proof.leaf_index),
-    }
+    opt_non_inclusion_merkle_tree_inputs(height)
 }
 
 pub fn opt_non_inclusion_merkle_tree_inputs(height: usize) -> NonInclusionMerkleProofInputs {
