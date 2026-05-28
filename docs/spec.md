@@ -68,6 +68,8 @@
     - [subscribe_to_shielded_transactions_by_tags](#subscribe_to_shielded_transactions_by_tags)
     - [get_merkle_proofs](#get_merkle_proofs)
     - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
+  - [Prover](#prover)
+  - [Relayer](#relayer)
   - [Pocket RPC](#pocket-rpc)
   - [Merge Service](#merge-service-1)
   - [Registry](#registry)
@@ -1720,6 +1722,20 @@ struct NonInclusionProof {
     root_index: u16,
 }
 ```
+
+## Prover
+
+Generates SPP and merge proofs server-side for clients that opt into server-side proving instead of building proofs locally.
+
+The Prover takes the same witness inputs the client would assemble locally — UTXO body fields, Merkle paths, signatures, view tags — and returns the compressed Groth16 proof. The Prover does not require any wallet secret: P256 signatures over `private_tx_hash` are produced by the client and supplied as witness, and `nullifier_secret` is held by the sync delegate (which the Prover may or may not be).
+
+A Prover that is also a [sync delegate](#sync-delegate) can fold proof generation into its existing capabilities. A Prover that is not a sync delegate is limited to the witness the client ships and learns only what the client reveals.
+
+## Relayer
+
+Submits a user-signed Solana transaction to the cluster, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field carried inside the shielded instruction (see [`transact`](#transact)). The relayer never sees plaintext UTXOs and never signs over shielded state; it only signs as Solana payer.
+
+The relayer fee is enforced by SPP: on `transact` the program transfers `relayer_fee` lamports from the pool to the relayer's account as part of instruction execution, conditional on the proof verifying. A relayer that submits a transaction whose proof fails recovers nothing — same incentive shape as standard Solana fee payment.
 
 ## Pocket RPC
 
