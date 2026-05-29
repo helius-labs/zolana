@@ -257,6 +257,10 @@ Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 - `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, or a view tag.
 - `[u8; 31]` — a blinding factor (held below the BN254 field modulus).
 
+Hashing conventions:
+
+- `Sha256BE` — SHA-256 over the byte preimage, then `digest[0] = 0`, interpreted as a BN254 field element. Zeroing the most-significant byte holds the result below the BN254 field modulus.
+
 # Shielded Address
 
 A shielded address consists of the signing public key, signs to spend UTXOs, the nullifier public key, ties the nullifier to a spent UTXO, and the viewing public key, encrypts the UTXO.
@@ -813,8 +817,6 @@ external_data_hash := Sha256BE(
     encrypted_utxos
 )
 ```
-
-`Sha256BE` in field context means SHA-256 over the byte preimage, then `digest[0] = 0`, interpreted as a BN254 field element.
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
