@@ -250,7 +250,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
-| `MergeAuthorityCiphertext` | `[u8; 89]` | AES-256-GCM ciphertext over `MergeAuthorityNotification` (73 B plaintext + 16 B GCM tag). |
+| `MergeAuthorityCiphertext` | `[u8; 122]` | AES-256-GCM ciphertext over `MergeAuthorityNotification` (106 B plaintext + 16 B GCM tag). |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -281,6 +281,8 @@ owner_hash = Poseidon(pk_hash, nullifier_pk)
 
 SPP recomputes the P256 path from the witnessed point and the Solana path from the signer account.
 
+Wherever a P256 pubkey (e.g. `user_viewing_pk`, `merge_authority_pubkey`) appears as an input to a Poseidon hash elsewhere in this spec, it is absorbed via the same chain: `Poseidon(y_is_odd, Poseidon(x_low_128, x_high_128))`.
+
 # Signing Key
 
 `(signing_sk, signing_pk)` — the spend-authorizing keypair. P256 for shielded users; Ed25519 for Solana-only owners whose ownership rails through SPP's Ed25519 signer check (see [UTXO Ownership Check](#utxo-ownership-check)).
@@ -306,7 +308,7 @@ Symmetric key to derive nullifiers.
 
 `nullifier_pk := Poseidon(nullifier_secret)`
 
-`nullifier_secret` is a 31-byte big-endian field element. Serialized `nullifier_pk` MUST be canonical BN254 (`< Fr`).
+`nullifier_secret` is a 31-byte big-endian field element. Serialized `nullifier_pk` must be canonical BN254 (`< Fr`).
 
 **Methods:**
 
@@ -1288,10 +1290,15 @@ struct EnableMergeAuthorityIxData {
 }
 
 /// Payload the service decrypts to learn which (user, slot) just enabled it.
-/// Carries the owner components not already visible in the event.
+/// Carries the owner components needed to recompute `owner_hash` and
+/// `enable_commitment`. `user_viewing_pk` is included because
+/// `recipient_bootstrap_view_tag` carries only the 32-byte x-coordinate
+/// (parity dropped), and the service needs the full compressed pubkey to
+/// perform verifiable encryption back to the user during merges.
 struct MergeAuthorityNotification {
     user_signing_pk: P256Pubkey,
     user_nullifier_pk: [u8; 32],
+    user_viewing_pk: P256Pubkey,
     number: u64,
 }
 ```
@@ -2002,7 +2009,7 @@ sequenceDiagram
     Note over Merge,Indexer: Discovery
     Merge->>Indexer: get_merge_authority_events(view_tag = merge_authority_pubkey)
     Indexer-->>Merge: enable event (tx_viewing_pk, ciphertext_authority)
-    Merge->>Merge: decrypt → (user_signing_pk, user_nullifier_pk, number)<br/>read user_viewing_pk from recipient_bootstrap_view_tag<br/>recompute owner_hash and enable_commitment, verify match<br/>add (owner_hash, number) to active set
+    Merge->>Merge: decrypt → (user_signing_pk, user_nullifier_pk, user_viewing_pk, number)<br/>recompute owner_hash and enable_commitment, verify match<br/>add (owner_hash, number) to active set
 
     Note over Wallet,Merge: Per-batch handover
     Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)<br/>derive merge_view_tag = get_merge_view_tag(merge_authority_pubkey, merge_count)<br/>advance per-service merge_count
