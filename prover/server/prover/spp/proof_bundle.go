@@ -930,25 +930,24 @@ func proofExternalDataFieldHash(data proofExternalData) *big.Int {
 	return new(big.Int).SetBytes(sum)
 }
 
-// signedSolAmount produces the CANONICAL `public_sol_amount` public-input value.
-//
-// IMPORTANT (audit N-2): the circuit's `public_sol_amount` / `public_spl_amount`
-// public inputs are NOT the raw instruction u64s. They are signed BN254 field
-// representatives: deposits map to +amount, withdrawals (mode == 2) map to the
-// field representative of -(amount), and for SOL the relayer_fee is folded in so
-// the value is -(amount + relayer_fee). Any on-chain `transact` verifier MUST
-// reconstruct the public input with this exact transform before recomputing the
-// public-input hash; folding the raw instruction u64 will make every withdrawal
-// and fee-bearing transfer proof fail to verify (deposits coincidentally match).
+// signedSolAmount produces the signed `public_sol_amount` field value, the
+// tornado-nova convention: ext - relayer_fee, where ext is +amount to shield,
+// -amount to unshield, 0 to transfer. The relayer fee is always subtracted, so
+// a plain transfer pays it (-fee) without being encoded as an unshield. SPP
+// builds the same value on-chain from the u64 amount and the shield/unshield
+// marker. mode: 0 = transfer, 1 = shield, 2 = unshield.
 func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
+	ext := new(big.Int).SetUint64(amount)
 	switch mode {
-	case 2:
-		// Add in big.Int space; amount + relayerFee can exceed uint64 (audit #23).
-		total := new(big.Int).Add(new(big.Int).SetUint64(amount), new(big.Int).SetUint64(uint64(relayerFee)))
-		return SignedToFe(total.Neg(total))
-	default:
-		return new(big.Int).SetUint64(amount)
+	case 2: // unshield
+		ext.Neg(ext)
+	case 1: // shield
+		// +amount
+	default: // transfer: no public SOL movement
+		ext.SetInt64(0)
 	}
+	ext.Sub(ext, new(big.Int).SetUint64(uint64(relayerFee)))
+	return SignedToFe(ext)
 }
 
 func signedSplAmount(mode uint8, amount uint64) *big.Int {
