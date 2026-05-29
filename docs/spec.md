@@ -1132,9 +1132,9 @@ struct TransactIxData {
     /// [SPP Proof](#spp-proof---solana-privacy-zk-proof). The proof verifies the
     /// owner's P256 signature over this value.
     private_tx_hash: [u8; 32],
-    /// Unsigned amount for shield/unshield SOL; `None` for transfer.
+    /// `Some` for shield/unshield SOL, `None` for shielded transfer.
     public_sol_amount: Option<u64>,
-    /// Unsigned amount for shield/unshield SPL; `None` for transfer.
+    /// `Some` for shield/unshield SPL, `None` for shielded transfer.
     public_spl_amount: Option<u64>,
     /// 0 = transfer, 1 = shield, 2 = unshield. SPP uses it to build the signed
     /// public amounts. Not a proof public input.
