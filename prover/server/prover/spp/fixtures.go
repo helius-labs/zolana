@@ -41,11 +41,11 @@ type E2EFixtureSet struct {
 }
 
 type E2EFixtureOptions struct {
-	SolanaSignerPubkey [32]byte
-	PublicSplAssetID   uint64
-	UserSolAccount     [32]byte
-	UserSplToken       [32]byte
-	SplTokenInterface  [32]byte
+	SolanaSignerPubkey   [32]byte
+	PublicSplAssetPubkey [32]byte
+	UserSolAccount       [32]byte
+	UserSplToken         [32]byte
+	SplTokenInterface    [32]byte
 }
 
 type E2EFixture struct {
@@ -62,7 +62,7 @@ type E2EFixture struct {
 	PublicAmountMode        uint8         `json:"public_amount_mode"`
 	PublicSolAmount         *uint64       `json:"public_sol_amount"`
 	PublicSplAmount         *uint64       `json:"public_spl_amount"`
-	PublicSplAssetID        uint64        `json:"public_spl_asset_id"`
+	PublicSplAssetPubkey    string        `json:"public_spl_asset_pubkey"`
 	EncryptedUtxos          string        `json:"encrypted_utxos"`
 	ExpectedStateNextIndex  uint64        `json:"expected_state_next_index"`
 	ExpectedQueueNextIndex  uint64        `json:"expected_queue_next_index"`
@@ -120,8 +120,8 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 	if options.SolanaSignerPubkey == [32]byte{} {
 		return nil, fmt.Errorf("spp: e2e fixtures require a Solana signer pubkey")
 	}
-	if options.PublicSplAssetID == 0 {
-		return nil, fmt.Errorf("spp: e2e fixtures require a non-zero public SPL asset id")
+	if options.PublicSplAssetPubkey == [32]byte{} {
+		return nil, fmt.Errorf("spp: e2e fixtures require a non-zero public SPL asset pubkey")
 	}
 	if options.UserSplToken == [32]byte{} {
 		return nil, fmt.Errorf("spp: e2e fixtures require a user SPL token account pubkey")
@@ -130,7 +130,10 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		return nil, fmt.Errorf("spp: e2e fixtures require an SPL vault/interface pubkey")
 	}
 
-	assetID := new(big.Int).SetUint64(options.PublicSplAssetID)
+	assetID, err := SolanaPkHash(options.PublicSplAssetPubkey)
+	if err != nil {
+		return nil, err
+	}
 	nullifierPk, err := NullifierPk(big.NewInt(99))
 	if err != nil {
 		return nil, err
@@ -435,7 +438,7 @@ func buildE2EFixture(ps *ProofSystem, shape Shape, tx fixtureTx, assetID, signer
 		PublicAmountMode:        tx.amountMode,
 		PublicSolAmount:         &publicSolAmount,
 		PublicSplAmount:         &publicSplAmount,
-		PublicSplAssetID:        assetID.Uint64(),
+		PublicSplAssetPubkey:    bytesHex(options.PublicSplAssetPubkey[:]),
 		EncryptedUtxos:          bytesHex(tx.encryptedUtxos),
 		PublicInputHash:         fieldHex(publicInputHash),
 		ExternalDataHash:        fieldHex(publicInputs.ExternalDataHash),
@@ -453,7 +456,7 @@ func buildE2EFixture(ps *ProofSystem, shape Shape, tx fixtureTx, assetID, signer
 	}
 	if tx.publicSplDelta == 0 {
 		fixture.PublicSplAmount = nil
-		fixture.PublicSplAssetID = 0
+		fixture.PublicSplAssetPubkey = ""
 	}
 	return fixture, nil
 }
@@ -612,7 +615,7 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 	publicSplAmount := SignedToFe(big.NewInt(tx.publicSplDelta))
 	publicSplAsset := big.NewInt(0)
 	if tx.publicSplDelta != 0 {
-		publicSplAsset = assetID
+		publicSplAsset = new(big.Int).Set(assetID)
 	}
 	publicInputs := PublicInputs{
 		Nullifiers:           toFixtureBigInts(nullifiers),

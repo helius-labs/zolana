@@ -6,7 +6,7 @@ use zolana_interface::instruction::{
     tag, TransactData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
 };
 
-use super::settlement::{spl_asset_id, SettlementAccounts};
+use super::settlement::{spl_asset_pubkey, SettlementAccounts};
 use super::verifying_keys;
 use crate::{
     error::ShieldedPoolError,
@@ -205,7 +205,10 @@ fn public_spl_asset(
     if data.public_spl_amount.unwrap_or(0) == 0 {
         return Ok(EMPTY_FIELD);
     }
-    Ok(field_from_u64(spl_asset_id(settlement)?))
+    let asset_pubkey = spl_asset_pubkey(settlement)?;
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(asset_pubkey.as_ref());
+    solana_pk_hash(&bytes)
 }
 
 fn input_roots<const N: usize>(
@@ -275,8 +278,8 @@ fn solana_pk_hashes<const N: usize>(
 }
 
 fn solana_pk_hash(pubkey: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    let pk_low = field_from_u128_be(&pubkey[..16]);
-    let pk_high = field_from_u128_be(&pubkey[16..]);
+    let pk_low = field_from_u128_be(&pubkey[16..]);
+    let pk_high = field_from_u128_be(&pubkey[..16]);
     Poseidon::hashv(&[pk_low.as_slice(), pk_high.as_slice()])
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }

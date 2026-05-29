@@ -13,7 +13,10 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use hmac::{Hmac, Mac};
+use light_hasher::{Hasher, Poseidon};
 use light_prover_client::proof::{bsb22_proof_bytes_from_json_struct, GnarkProofJson};
+use num_bigint::BigUint;
+use num_traits::ToPrimitive;
 use p256::{
     ecdsa::{
         signature::hazmat::PrehashSigner, Signature as P256Signature, SigningKey as P256SigningKey,
@@ -988,7 +991,7 @@ struct PocketBalanceOptions {
     pubkey: Option<Pubkey>,
     token_account: Option<Pubkey>,
     state: Option<PathBuf>,
-    asset_id: Option<u64>,
+    asset_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -1015,7 +1018,8 @@ struct PocketSubmitOptions {
     amount: Option<u64>,
     change_amount: Option<u64>,
     relayer_fee: u16,
-    asset_id: Option<u64>,
+    asset_id: Option<String>,
+    spl_asset_pubkey: Option<Pubkey>,
     keys_file: Option<PathBuf>,
     prover_bin: Option<PathBuf>,
     output_proof_bundle: Option<PathBuf>,
@@ -1056,6 +1060,8 @@ struct PocketProofTx {
     public_amount_mode: u8,
     public_sol_amount: Option<u64>,
     public_spl_amount: Option<u64>,
+    #[serde(default)]
+    public_spl_asset_pubkey: String,
     encrypted_utxos: String,
     #[serde(default)]
     output_utxos: Vec<PocketProofOutputUtxo>,
@@ -1137,7 +1143,7 @@ struct PocketProofRequestTx {
     public_amount_mode: u8,
     public_sol_amount: Option<u64>,
     public_spl_amount: Option<u64>,
-    public_spl_asset_id: u64,
+    public_spl_asset_pubkey: String,
     encrypted_utxos: String,
     user_sol_account: String,
     user_spl_token_account: String,
@@ -1311,7 +1317,7 @@ fn parse_pocket_balance_args(args: &[String]) -> Result<PocketBalanceOptions> {
                 opts.token_account = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
             }
             "--state" => opts.state = Some(PathBuf::from(take_next(args, &mut index, arg)?)),
-            "--asset-id" => opts.asset_id = Some(parse_next(args, &mut index, arg)?),
+            "--asset-id" => opts.asset_id = Some(take_next(args, &mut index, arg)?),
             _ if arg.starts_with("--rpc-url=") => {
                 opts.rpc_url = arg["--rpc-url=".len()..].to_string();
             }
@@ -1328,7 +1334,7 @@ fn parse_pocket_balance_args(args: &[String]) -> Result<PocketBalanceOptions> {
                 opts.state = Some(PathBuf::from(&arg["--state=".len()..]));
             }
             _ if arg.starts_with("--asset-id=") => {
-                opts.asset_id = Some(parse_value(&arg["--asset-id=".len()..], arg)?);
+                opts.asset_id = Some(arg["--asset-id=".len()..].to_string());
             }
             other => bail!("unknown balance argument: {other}"),
         }
@@ -1416,7 +1422,10 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
             "--amount" => opts.amount = Some(parse_next(args, &mut index, arg)?),
             "--change-amount" => opts.change_amount = Some(parse_next(args, &mut index, arg)?),
             "--relayer-fee" => opts.relayer_fee = parse_next(args, &mut index, arg)?,
-            "--asset-id" => opts.asset_id = Some(parse_next(args, &mut index, arg)?),
+            "--asset-id" => opts.asset_id = Some(take_next(args, &mut index, arg)?),
+            "--asset-pubkey" | "--spl-mint" | "--public-spl-asset-pubkey" => {
+                opts.spl_asset_pubkey = Some(parse_pubkey(&take_next(args, &mut index, arg)?)?)
+            }
             "--keys-file" => {
                 opts.keys_file = Some(PathBuf::from(take_next(args, &mut index, arg)?))
             }
@@ -1485,7 +1494,17 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
                 opts.relayer_fee = parse_value(&arg["--relayer-fee=".len()..], arg)?;
             }
             _ if arg.starts_with("--asset-id=") => {
-                opts.asset_id = Some(parse_value(&arg["--asset-id=".len()..], arg)?);
+                opts.asset_id = Some(arg["--asset-id=".len()..].to_string());
+            }
+            _ if arg.starts_with("--asset-pubkey=") => {
+                opts.spl_asset_pubkey = Some(parse_pubkey(&arg["--asset-pubkey=".len()..])?);
+            }
+            _ if arg.starts_with("--spl-mint=") => {
+                opts.spl_asset_pubkey = Some(parse_pubkey(&arg["--spl-mint=".len()..])?);
+            }
+            _ if arg.starts_with("--public-spl-asset-pubkey=") => {
+                opts.spl_asset_pubkey =
+                    Some(parse_pubkey(&arg["--public-spl-asset-pubkey=".len()..])?);
             }
             _ if arg.starts_with("--keys-file=") => {
                 opts.keys_file = Some(PathBuf::from(&arg["--keys-file=".len()..]));
@@ -1536,8 +1555,11 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
         if opts.amount.is_none() {
             bail!("{default_tx_name} direct proving requires --amount");
         }
-        if default_tx_name != "transfer" && opts.asset_id.is_none() && opts.has_spl_settlement() {
-            bail!("{default_tx_name} direct proving requires --asset-id");
+        if default_tx_name != "transfer"
+            && opts.spl_asset_pubkey.is_none()
+            && opts.has_spl_settlement()
+        {
+            bail!("{default_tx_name} direct proving requires --asset-pubkey/--spl-mint for SPL settlement");
         }
         if default_tx_name == "transfer" {
             if opts.recipient_state.is_none()
@@ -1624,12 +1646,17 @@ fn pocket_create_shielded_wallet(opts: PocketCreateShieldedWalletOptions) -> Res
 fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
     if let Some(state_path) = opts.state {
         let state = read_pocket_state(&state_path)?;
+        let asset_id = opts
+            .asset_id
+            .as_deref()
+            .map(normalize_pocket_field)
+            .transpose()?;
         let mut private_amount = 0u64;
         let mut note_count = 0usize;
         for note in state.notes.iter().filter(|note| !note.spent) {
             let note_asset_id = pocket_note_asset_id(note)?;
-            if opts
-                .asset_id
+            if asset_id
+                .as_deref()
                 .is_some_and(|asset_id| asset_id != note_asset_id)
             {
                 continue;
@@ -1643,7 +1670,7 @@ fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
             "{}",
             serde_json::to_string_pretty(&json!({
                 "state": state_path,
-                "asset_id": opts.asset_id,
+                "asset_id": asset_id,
                 "private_amount": private_amount,
                 "unspent_notes": note_count,
             }))?
@@ -1817,6 +1844,13 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
         let user_spl_token = required_pubkey(opts.user_spl_token, "--user-spl-token")?;
         let spl_vault = required_pubkey(opts.spl_vault, "--spl-vault")?;
         let spl_asset_registry = required_pubkey(opts.spl_asset_registry, "--spl-asset-registry")?;
+        if let Some(asset_pubkey) = opts.spl_asset_pubkey {
+            assert_bundle_pubkey(
+                "public SPL asset pubkey",
+                &tx.public_spl_asset_pubkey,
+                &asset_pubkey,
+            )?;
+        }
         assert_bundle_pubkey(
             "user SPL token",
             &tx.user_spl_token_account,
@@ -1906,15 +1940,14 @@ fn pocket_build_direct_proof(
     let mut request_tx = match command {
         "shield" => {
             let is_spl = opts.has_spl_settlement();
-            let asset_id = if is_spl {
-                opts.asset_id
-                    .ok_or_else(|| anyhow!("shield requires --asset-id for SPL settlement"))?
+            let (asset_id, public_spl_asset_pubkey) = if is_spl {
+                pocket_spl_asset_identity(opts, "shield")?
             } else {
-                validate_sol_asset_id(opts.asset_id, "shield")?;
-                POCKET_SOL_ASSET_ID
+                validate_sol_asset_id(opts.asset_id.as_deref(), "shield")?;
+                (pocket_sol_asset_field(), String::new())
             };
             let (utxo, nullifier_secret) =
-                pocket_new_utxo_for_owner(&sender_output_owner, asset_id, amount);
+                pocket_new_utxo_for_owner(&sender_output_owner, &asset_id, amount);
             output_targets.push(PocketOutputTarget {
                 recipient: PocketOutputRecipient::Sender,
                 nullifier_secret,
@@ -1928,7 +1961,7 @@ fn pocket_build_direct_proof(
                 public_amount_mode: PUBLIC_AMOUNT_DEPOSIT,
                 public_sol_amount: if is_spl { None } else { Some(amount) },
                 public_spl_amount: if is_spl { Some(amount) } else { None },
-                public_spl_asset_id: if is_spl { asset_id } else { 0 },
+                public_spl_asset_pubkey,
                 relayer_fee: 0,
                 user_sol_account: if is_spl { None } else { Some(payer.pubkey()) },
                 user_spl_token_account: if is_spl {
@@ -1969,7 +2002,7 @@ fn pocket_build_direct_proof(
             merge_known_leaves(&mut loaded_recipient_state, &sender_state);
             recipient_state_path = Some(recipient_state_file);
 
-            let selected = select_pocket_note(&sender_state, opts.asset_id, amount)?;
+            let selected = select_pocket_note(&sender_state, opts.asset_id.as_deref(), amount)?;
             validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
             let input_amount = pocket_note_amount(&selected.note)?;
             let change_amount = opts.change_amount.unwrap_or(input_amount - amount);
@@ -1984,7 +2017,7 @@ fn pocket_build_direct_proof(
             }
             let asset_id = pocket_note_asset_id(&selected.note)?;
             let (recipient_utxo, recipient_nullifier_secret) =
-                pocket_new_utxo_for_owner(&recipient_owner, asset_id, amount);
+                pocket_new_utxo_for_owner(&recipient_owner, &asset_id, amount);
             let mut outputs = vec![recipient_utxo];
             output_targets.push(PocketOutputTarget {
                 recipient: PocketOutputRecipient::Recipient,
@@ -1993,7 +2026,7 @@ fn pocket_build_direct_proof(
             });
             if change_amount > 0 {
                 let (change_utxo, change_nullifier_secret) =
-                    pocket_new_utxo_for_owner(&sender_output_owner, asset_id, change_amount);
+                    pocket_new_utxo_for_owner(&sender_output_owner, &asset_id, change_amount);
                 outputs.push(change_utxo);
                 output_targets.push(PocketOutputTarget {
                     recipient: PocketOutputRecipient::Sender,
@@ -2015,7 +2048,7 @@ fn pocket_build_direct_proof(
                 public_amount_mode: PUBLIC_AMOUNT_NONE,
                 public_sol_amount: None,
                 public_spl_amount: None,
-                public_spl_asset_id: 0,
+                public_spl_asset_pubkey: String::new(),
                 relayer_fee: 0,
                 user_sol_account: None,
                 user_spl_token_account: None,
@@ -2024,12 +2057,11 @@ fn pocket_build_direct_proof(
         }
         "unshield" => {
             let is_spl = opts.has_spl_settlement();
-            let asset_id = if is_spl {
-                opts.asset_id
-                    .ok_or_else(|| anyhow!("unshield requires --asset-id for SPL settlement"))?
+            let (asset_id, public_spl_asset_pubkey) = if is_spl {
+                pocket_spl_asset_identity(opts, "unshield")?
             } else {
-                validate_sol_asset_id(opts.asset_id, "unshield")?;
-                POCKET_SOL_ASSET_ID
+                validate_sol_asset_id(opts.asset_id.as_deref(), "unshield")?;
+                (pocket_sol_asset_field(), String::new())
             };
             if is_spl && opts.relayer_fee != 0 {
                 bail!("--relayer-fee is only supported for SOL unshield");
@@ -2037,7 +2069,8 @@ fn pocket_build_direct_proof(
             let total_private_amount = amount
                 .checked_add(opts.relayer_fee as u64)
                 .ok_or_else(|| anyhow!("unshield amount plus relayer fee overflow"))?;
-            let selected = select_pocket_note(&sender_state, Some(asset_id), total_private_amount)?;
+            let selected =
+                select_pocket_note(&sender_state, Some(asset_id.as_str()), total_private_amount)?;
             validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
             let input_amount = pocket_note_amount(&selected.note)?;
             if input_amount != total_private_amount {
@@ -2059,7 +2092,7 @@ fn pocket_build_direct_proof(
                 public_amount_mode: PUBLIC_AMOUNT_WITHDRAW,
                 public_sol_amount: if is_spl { None } else { Some(amount) },
                 public_spl_amount: if is_spl { Some(amount) } else { None },
-                public_spl_asset_id: if is_spl { asset_id } else { 0 },
+                public_spl_asset_pubkey,
                 relayer_fee: if is_spl { 0 } else { opts.relayer_fee },
                 user_sol_account: if is_spl {
                     None
@@ -2208,7 +2241,7 @@ struct PocketRequestTxParams<'a> {
     public_amount_mode: u8,
     public_sol_amount: Option<u64>,
     public_spl_amount: Option<u64>,
-    public_spl_asset_id: u64,
+    public_spl_asset_pubkey: String,
     relayer_fee: u16,
     user_sol_account: Option<Pubkey>,
     user_spl_token_account: Option<Pubkey>,
@@ -2259,7 +2292,7 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
         public_amount_mode: params.public_amount_mode,
         public_sol_amount: params.public_sol_amount,
         public_spl_amount: params.public_spl_amount,
-        public_spl_asset_id: params.public_spl_asset_id,
+        public_spl_asset_pubkey: params.public_spl_asset_pubkey,
         encrypted_utxos: random_hex_bytes(64),
         user_sol_account: params
             .user_sol_account
@@ -2287,7 +2320,7 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
     })
 }
 
-fn pocket_new_utxo(owner: &Pubkey, asset_id: u64, asset_amount: u64) -> (PocketUtxo, String) {
+fn pocket_new_utxo(owner: &Pubkey, asset_id: &str, asset_amount: u64) -> (PocketUtxo, String) {
     let nullifier_secret = random_field_hex();
     (
         PocketUtxo {
@@ -2309,7 +2342,7 @@ fn pocket_new_utxo(owner: &Pubkey, asset_id: u64, asset_amount: u64) -> (PocketU
 
 fn pocket_new_p256_utxo(
     wallet: &PocketP256Wallet,
-    asset_id: u64,
+    asset_id: &str,
     asset_amount: u64,
 ) -> (PocketUtxo, String) {
     (
@@ -2332,7 +2365,7 @@ fn pocket_new_p256_utxo(
 
 fn pocket_new_utxo_for_owner(
     owner: &PocketOwner,
-    asset_id: u64,
+    asset_id: &str,
     asset_amount: u64,
 ) -> (PocketUtxo, String) {
     match owner {
@@ -2576,15 +2609,19 @@ fn pocket_state_entries(state: &PocketState) -> Vec<PocketStateEntry> {
 
 fn select_pocket_note(
     state: &PocketState,
-    asset_id: Option<u64>,
+    asset_id: Option<&str>,
     min_amount: u64,
 ) -> Result<SelectedPocketNote> {
+    let asset_id = asset_id.map(normalize_pocket_field).transpose()?;
     for note in &state.notes {
         if note.spent {
             continue;
         }
         let note_asset_id = pocket_note_asset_id(note)?;
-        if asset_id.is_some_and(|asset_id| asset_id != note_asset_id) {
+        if asset_id
+            .as_deref()
+            .is_some_and(|asset_id| asset_id != note_asset_id)
+        {
             continue;
         }
         if pocket_note_amount(note)? >= min_amount {
@@ -2598,15 +2635,53 @@ fn select_pocket_note(
     )
 }
 
-fn validate_sol_asset_id(asset_id: Option<u64>, command: &str) -> Result<()> {
+fn validate_sol_asset_id(asset_id: Option<&str>, command: &str) -> Result<()> {
     if let Some(asset_id) = asset_id {
-        if asset_id != POCKET_SOL_ASSET_ID {
-            bail!(
-                "{command} SOL settlement uses reserved asset id {POCKET_SOL_ASSET_ID}, got {asset_id}"
-            );
+        let asset_id = normalize_pocket_field(asset_id)?;
+        let sol_asset_id = pocket_sol_asset_field();
+        if asset_id != sol_asset_id {
+            bail!("{command} SOL settlement uses reserved asset id {sol_asset_id}, got {asset_id}");
         }
     }
     Ok(())
+}
+
+fn pocket_spl_asset_identity(
+    opts: &PocketSubmitOptions,
+    command: &str,
+) -> Result<(String, String)> {
+    let asset_pubkey = opts.spl_asset_pubkey.ok_or_else(|| {
+        anyhow!("{command} requires --asset-pubkey/--spl-mint for SPL settlement")
+    })?;
+    let asset_id = pocket_canonical_asset_field(&asset_pubkey)?;
+    if let Some(requested) = opts.asset_id.as_deref() {
+        let requested = normalize_pocket_field(requested)?;
+        if requested != asset_id {
+            bail!(
+                "{command} SPL settlement uses canonical mint-derived asset id {asset_id}, got {requested}"
+            );
+        }
+    }
+    Ok((asset_id, pubkey_hex(&asset_pubkey)))
+}
+
+fn pocket_sol_asset_field() -> String {
+    pocket_field_hex_from_u64(POCKET_SOL_ASSET_ID)
+}
+
+fn pocket_canonical_asset_field(pubkey: &Pubkey) -> Result<String> {
+    let pubkey = pubkey.to_bytes();
+    let low = pocket_field_from_u128_be(&pubkey[16..]);
+    let high = pocket_field_from_u128_be(&pubkey[..16]);
+    let hash = Poseidon::hashv(&[low.as_slice(), high.as_slice()])
+        .map_err(|error| anyhow!("hash canonical SPL asset pubkey: {error:?}"))?;
+    Ok(hex::encode(hash))
+}
+
+fn pocket_field_from_u128_be(value: &[u8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[16..32].copy_from_slice(value);
+    out
 }
 
 fn mark_pocket_note_spent(state: &mut PocketState, id: &str) -> Result<()> {
@@ -2624,12 +2699,26 @@ fn pocket_note_amount(note: &PocketNote) -> Result<u64> {
         .with_context(|| format!("note {} asset_amount", note.id))
 }
 
-fn pocket_note_asset_id(note: &PocketNote) -> Result<u64> {
-    parse_pocket_u64_field(&note.utxo.asset_id)
+fn pocket_note_asset_id(note: &PocketNote) -> Result<String> {
+    normalize_pocket_field(&note.utxo.asset_id)
         .with_context(|| format!("note {} asset_id", note.id))
 }
 
 fn parse_pocket_u64_field(value: &str) -> Result<u64> {
+    let out = parse_pocket_biguint(value)?;
+    out.to_u64()
+        .ok_or_else(|| anyhow!("field {value} does not fit into u64"))
+}
+
+fn normalize_pocket_field(value: &str) -> Result<String> {
+    Ok(format!("{:064x}", parse_pocket_biguint(value)?))
+}
+
+fn pocket_field_hex_from_u64(value: u64) -> String {
+    format!("{value:064x}")
+}
+
+fn parse_pocket_biguint(value: &str) -> Result<BigUint> {
     let trimmed = value.trim().trim_start_matches("0x");
     if trimmed.is_empty() {
         bail!("empty numeric field");
@@ -2643,8 +2732,12 @@ fn parse_pocket_u64_field(value: &str) -> Result<u64> {
     } else {
         10
     };
-    u64::from_str_radix(trimmed, base)
-        .map_err(|error| anyhow!("invalid u64 field {value}: {error}"))
+    let out = BigUint::parse_bytes(trimmed.as_bytes(), base)
+        .ok_or_else(|| anyhow!("invalid numeric field {value}"))?;
+    if out.bits() > 254 {
+        bail!("field {value} exceeds BN254 scalar field width");
+    }
+    Ok(out)
 }
 
 fn invoke_spp_prover(

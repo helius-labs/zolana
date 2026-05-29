@@ -28,12 +28,11 @@ use zolana_interface::{
         CreateSplInterfaceData,
     },
     state::PROTOCOL_CONFIG_ACCOUNT_LEN,
-    FIRST_SPL_ASSET_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
 };
 
 const AIRDROP_LAMPORTS: u64 = 25_000_000_000;
-const ASSET_ID: u64 = FIRST_SPL_ASSET_ID;
 const SOL_ASSET_ID: u64 = 1;
 static TEMP_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -196,8 +195,8 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         path_str(&keys_file)?,
         "--amount",
         "100",
-        "--asset-id",
-        &ASSET_ID.to_string(),
+        "--asset-pubkey",
+        &settlement.mint.to_string(),
         "--user-spl-token",
         &settlement.payer_token.to_string(),
         "--spl-vault",
@@ -228,8 +227,6 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         path_str(&keys_file)?,
         "--amount",
         "40",
-        "--asset-id",
-        &ASSET_ID.to_string(),
     ])?;
     assert_eq!(token_amount(&client, &settlement.payer_token)?, 900);
     assert_eq!(token_amount(&client, &settlement.vault)?, 100);
@@ -250,8 +247,8 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         path_str(&keys_file)?,
         "--amount",
         "40",
-        "--asset-id",
-        &ASSET_ID.to_string(),
+        "--asset-pubkey",
+        &settlement.mint.to_string(),
         "--user-spl-token",
         &settlement.recipient_token.to_string(),
         "--spl-vault",
@@ -557,6 +554,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
 
 #[derive(Clone, Copy)]
 struct SplSettlement {
+    mint: Pubkey,
     payer_token: Pubkey,
     recipient_token: Pubkey,
     vault: Pubkey,
@@ -769,6 +767,7 @@ fn setup_spl_settlement(
     )?;
 
     Ok(SplSettlement {
+        mint: mint.pubkey(),
         payer_token: payer_token.pubkey(),
         recipient_token: recipient_token.pubkey(),
         vault,

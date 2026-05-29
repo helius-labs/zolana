@@ -6,8 +6,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
-    instruction::CreateSplInterfaceData, FIRST_SPL_ASSET_ID, SHIELDED_POOL_CPI_AUTHORITY,
-    SPL_ASSET_COUNTER_ACCOUNT_LEN, SPL_ASSET_COUNTER_MAGIC, SPL_ASSET_COUNTER_PDA_SEED,
+    instruction::CreateSplInterfaceData, SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_PDA_SEED,
     SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
@@ -63,7 +62,10 @@ pub fn process_create_spl_interface(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    let (expected_counter, counter_bump) = derive_pda_1(SPL_ASSET_COUNTER_PDA_SEED, program_id)?;
+    // Kept for ABI compatibility with the first SPL interface shape. SPL
+    // identity is now derived canonically from the mint pubkey, so this PDA is
+    // address-gated but no longer initialized or incremented.
+    let (expected_counter, _) = derive_pda_1(SPL_ASSET_COUNTER_PDA_SEED, program_id)?;
     let (expected_registry, registry_bump) = derive_pda_2(
         SPL_ASSET_REGISTRY_PDA_SEED,
         mint.address().as_ref(),
@@ -84,23 +86,13 @@ pub fn process_create_spl_interface(
 
     create_pda_account_if_needed(
         authority,
-        asset_counter,
-        SPL_ASSET_COUNTER_ACCOUNT_LEN as u64,
-        program_id,
-        &[SPL_ASSET_COUNTER_PDA_SEED],
-        counter_bump,
-    )?;
-    let asset_id = read_and_increment_asset_counter(program_id, asset_counter)?;
-
-    create_pda_account_if_needed(
-        authority,
         registry,
         SPL_ASSET_REGISTRY_ACCOUNT_LEN as u64,
         program_id,
         &[SPL_ASSET_REGISTRY_PDA_SEED, mint.address().as_ref()],
         registry_bump,
     )?;
-    write_asset_registry(program_id, registry, mint.address(), asset_id)?;
+    write_asset_registry(program_id, registry, mint.address())?;
 
     create_pda_account_if_needed(
         authority,
@@ -176,45 +168,10 @@ fn derive_pda_2(
         .ok_or(ShieldedPoolError::InvalidSplAssetRegistry.into())
 }
 
-fn read_and_increment_asset_counter(
-    program_id: &Address,
-    counter: &mut AccountView,
-) -> Result<u64, ProgramError> {
-    if !counter.owned_by(program_id) || counter.data_len() < SPL_ASSET_COUNTER_ACCOUNT_LEN {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-
-    // SAFETY: the counter account is writable and uniquely borrowed by the caller.
-    let bytes = unsafe { counter.borrow_unchecked_mut() };
-    if bytes[..SPL_ASSET_COUNTER_ACCOUNT_LEN]
-        .iter()
-        .all(|byte| *byte == 0)
-    {
-        bytes[0..8].copy_from_slice(&SPL_ASSET_COUNTER_MAGIC);
-        bytes[8..16].copy_from_slice(&FIRST_SPL_ASSET_ID.to_le_bytes());
-    }
-    if bytes[0..8] != SPL_ASSET_COUNTER_MAGIC[..] {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-
-    let mut next = [0u8; 8];
-    next.copy_from_slice(&bytes[8..16]);
-    let asset_id = u64::from_le_bytes(next);
-    if asset_id < FIRST_SPL_ASSET_ID {
-        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
-    }
-    let updated = asset_id
-        .checked_add(1)
-        .ok_or(ShieldedPoolError::InvalidSplAssetRegistry)?;
-    bytes[8..16].copy_from_slice(&updated.to_le_bytes());
-    Ok(asset_id)
-}
-
 fn write_asset_registry(
     program_id: &Address,
     registry: &mut AccountView,
     mint: &Address,
-    asset_id: u64,
 ) -> Result<(), ProgramError> {
     if !registry.owned_by(program_id) || registry.data_len() < SPL_ASSET_REGISTRY_ACCOUNT_LEN {
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
@@ -231,7 +188,6 @@ fn write_asset_registry(
     registry_data[..SPL_ASSET_REGISTRY_ACCOUNT_LEN].fill(0);
     registry_data[0..8].copy_from_slice(&SPL_ASSET_REGISTRY_MAGIC);
     registry_data[8..40].copy_from_slice(mint.as_ref());
-    registry_data[40..48].copy_from_slice(&asset_id.to_le_bytes());
     Ok(())
 }
 

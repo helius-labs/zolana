@@ -295,7 +295,6 @@ fn read_token_account(
 #[derive(Clone, Copy)]
 struct AssetRegistryState {
     mint: Address,
-    asset_id: u64,
 }
 
 fn read_asset_registry(account: &AccountView) -> Result<AssetRegistryState, ProgramError> {
@@ -308,17 +307,14 @@ fn read_asset_registry(account: &AccountView) -> Result<AssetRegistryState, Prog
     if data[0..8] != SPL_ASSET_REGISTRY_MAGIC[..] {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    let mut asset_id = [0u8; 8];
-    asset_id.copy_from_slice(&data[40..48]);
     Ok(AssetRegistryState {
         mint: address_from_slice(&data[8..40]),
-        asset_id: u64::from_le_bytes(asset_id),
     })
 }
 
-pub fn spl_asset_id(accounts: &SettlementAccounts<'_>) -> Result<u64, ProgramError> {
+pub fn spl_asset_pubkey(accounts: &SettlementAccounts<'_>) -> Result<Address, ProgramError> {
     let registry = required(accounts.spl_asset_registry)?;
-    Ok(read_asset_registry(registry)?.asset_id)
+    Ok(read_asset_registry(registry)?.mint)
 }
 
 fn address_from_slice(bytes: &[u8]) -> Address {

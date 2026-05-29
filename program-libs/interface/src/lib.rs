@@ -49,12 +49,16 @@ pub const SPL_TOKEN_PROGRAM_ID: [u8; 32] = [
     95, 91, 55, 145, 58, 140, 245, 133, 126, 255, 0, 169,
 ];
 
-/// Canonical testable layout for a shielded-pool SPL asset registry record:
-/// magic (8), mint pubkey (32), asset id u64 LE (8).
+/// Canonical layout for a shielded-pool SPL asset registry record:
+/// magic (8), mint pubkey (32), reserved (8). SPL asset identity is the
+/// Poseidon hash of the mint pubkey, not the reserved bytes.
 pub const SPL_ASSET_REGISTRY_MAGIC: [u8; 8] = *b"SPASSET1";
 pub const SPL_ASSET_REGISTRY_ACCOUNT_LEN: usize = 48;
+/// Deprecated compatibility PDA. SPL identity is mint-derived.
 pub const SPL_ASSET_COUNTER_MAGIC: [u8; 8] = *b"SPCOUNT1";
 pub const SPL_ASSET_COUNTER_ACCOUNT_LEN: usize = 16;
+/// Deprecated compatibility value. Native SOL remains asset id 1; SPL assets
+/// are mint-derived field elements.
 pub const FIRST_SPL_ASSET_ID: u64 = 2;
 
 /// Canonical registry CPI authority PDA — `find_program_address(&[b"cpi_authority"], LIGHT_REGISTRY_PROGRAM_ID)`.

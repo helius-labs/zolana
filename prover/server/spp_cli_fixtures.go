@@ -22,7 +22,7 @@ func sppFixtureCommands() []*cli.Command {
 				&cli.StringFlag{Name: "keys-file", Usage: "SPP proving system file", Required: true},
 				&cli.StringFlag{Name: "output", Usage: "proof-bundle JSON output", Required: true},
 				&cli.StringFlag{Name: "solana-signer-seed-hex", Usage: "32-byte ed25519 seed for the real Solana signer used by the test transaction", Required: true},
-				&cli.Uint64Flag{Name: "public-spl-asset-id", Usage: "public SPL asset id registered on-chain for the test mint", Required: true},
+				&cli.StringFlag{Name: "public-spl-asset-pubkey", Usage: "32-byte public SPL mint pubkey", Required: true},
 				&cli.StringFlag{Name: "user-sol-account-hex", Usage: "32-byte SOL recipient/account pubkey for public SOL settlement"},
 				&cli.StringFlag{Name: "user-spl-token-account-hex", Usage: "32-byte SPL token account pubkey created by the test", Required: true},
 				&cli.StringFlag{Name: "spl-token-interface-hex", Usage: "32-byte SPL vault/interface pubkey created by the test", Required: true},
@@ -54,16 +54,20 @@ func sppFixtureCommands() []*cli.Command {
 				if err != nil {
 					return err
 				}
+				publicSplAssetPubkey, err := requiredHex32(context.String("public-spl-asset-pubkey"), "public SPL asset pubkey")
+				if err != nil {
+					return err
+				}
 
 				if err := os.MkdirAll(filepath.Dir(context.String("output")), 0755); err != nil {
 					return err
 				}
 				options := spp.E2EFixtureOptions{
-					SolanaSignerPubkey: pubkey,
-					PublicSplAssetID:   context.Uint64("public-spl-asset-id"),
-					UserSolAccount:     userSolAccount,
-					UserSplToken:       userSplToken,
-					SplTokenInterface:  splTokenInterface,
+					SolanaSignerPubkey:   pubkey,
+					PublicSplAssetPubkey: publicSplAssetPubkey,
+					UserSolAccount:       userSolAccount,
+					UserSplToken:         userSplToken,
+					SplTokenInterface:    splTokenInterface,
 				}
 				if err := spp.WriteE2EFixtures(system, context.String("output"), options); err != nil {
 					return err

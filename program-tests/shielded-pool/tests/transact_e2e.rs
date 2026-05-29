@@ -22,9 +22,8 @@ use zolana_interface::{
         encode_instruction, tag, CreateProtocolConfigData, CreateSplInterfaceData,
         InputUtxoSignerIndex, PauseTreeData, TransactData, UpdateProtocolConfigData,
     },
-    FIRST_SPL_ASSET_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_PDA_SEED,
-    SPL_ASSET_VAULT_PDA_SEED,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
+    SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
 };
 
 fn rig() -> Option<PoolTestRig> {
@@ -75,7 +74,7 @@ struct Fixture {
     public_amount_mode: u8,
     public_sol_amount: Option<u64>,
     public_spl_amount: Option<u64>,
-    public_spl_asset_id: u64,
+    public_spl_asset_pubkey: String,
     encrypted_utxos: String,
     expected_state_next_index: u64,
     expected_queue_next_index: u64,
@@ -306,7 +305,7 @@ fn setup_sol_settlement(rig: &mut PoolTestRig, user_sol: Pubkey) -> SolSettlemen
     }
 }
 
-fn setup_spl_settlement(rig: &mut PoolTestRig, asset_id: u64) -> SplSettlement {
+fn setup_spl_settlement(rig: &mut PoolTestRig) -> SplSettlement {
     let cpi_authority = set_cpi_authority_account(rig);
 
     let payer = rig.payer.insecure_clone();
@@ -328,8 +327,10 @@ fn setup_spl_settlement(rig: &mut PoolTestRig, asset_id: u64) -> SplSettlement {
         &program_id,
     );
     let shield_fixture = fixture("shield");
-    assert_eq!(shield_fixture.public_spl_asset_id, asset_id);
-    assert_eq!(asset_id, FIRST_SPL_ASSET_ID);
+    assert_eq!(
+        shield_fixture.public_spl_asset_pubkey,
+        hex::encode(mint.pubkey().to_bytes())
+    );
     assert_eq!(
         shield_fixture.user_spl_token_account,
         hex::encode(user_token.pubkey().to_bytes())
@@ -564,7 +565,7 @@ fn create_spl_interface_rejects_initialized_registry() {
     let Some(mut rig) = rig() else {
         return;
     };
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
     let payer = rig.payer.insecure_clone();
     let create_registry_ix = Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
@@ -613,7 +614,7 @@ fn protocol_config_can_pause_and_unpause_tree() {
     rig.pause_tree(&config, &tree, &authority, PauseTreeData { paused: true })
         .expect("pause tree");
     let before = rig.account_data(&tree.pubkey()).expect("tree account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
     let err = submit_fixture(&mut rig, &tree, &fixture("shield"), Some(&settlement))
         .expect_err("paused tree must reject transact");
     assert_error_contains(err, "Custom(17)");
@@ -726,7 +727,7 @@ fn transact_shield_transfer_unshield_updates_state_and_nullifier_queue() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     for name in ["shield", "transfer", "unshield"] {
         let fixture = fixture(name);
@@ -748,7 +749,7 @@ fn transact_supports_two_output_transfer() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -770,7 +771,7 @@ fn transact_accepts_p256_owned_input_without_solana_owner_signer() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("p256_shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("P256 shield transact");
@@ -792,7 +793,7 @@ fn transact_supports_full_unshield_without_change_output() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     for name in ["shield", "transfer"] {
         let fixture = fixture(name);
@@ -818,7 +819,7 @@ fn transact_rejects_tampered_output_hash_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     let mut data = transact_data(&shield);
@@ -843,7 +844,7 @@ fn transact_rejects_tampered_encrypted_utxos_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     let mut data = transact_data(&shield);
@@ -868,7 +869,7 @@ fn transact_rejects_tampered_proof_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     let mut data = transact_data(&shield);
@@ -893,7 +894,7 @@ fn transact_rejects_missing_bsb22_commitment_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     let mut data = transact_data(&shield);
@@ -918,7 +919,7 @@ fn transact_rejects_tampered_bsb22_commitment_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     let mut data = transact_data(&shield);
@@ -927,7 +928,7 @@ fn transact_rejects_tampered_bsb22_commitment_without_mutating() {
     let err = rig
         .transact_with_extra_accounts(&tree, data, settlement.metas())
         .expect_err("tampered BSB22 commitment must fail");
-    assert_error_contains(err, "Custom(12)");
+    assert_error_contains(err, "Custom(11)");
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -942,7 +943,7 @@ fn transact_rejects_duplicate_sender_view_tag_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("initial shield");
@@ -974,7 +975,7 @@ fn transact_rejects_mismatched_root_indices_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -1000,7 +1001,7 @@ fn transact_rejects_stale_root_index_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -1027,7 +1028,7 @@ fn transact_rejects_stale_nullifier_root_index_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -1054,7 +1055,7 @@ fn transact_rejects_invalid_input_signer_indices_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -1121,8 +1122,7 @@ fn transact_rejects_public_spl_mint_substitution_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let asset_id = fixture("shield").public_spl_asset_id;
-    let settlement = setup_spl_settlement(&mut rig, asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
     let before = rig.account_data(&tree.pubkey()).expect("account data");
 
     let fake_registry = Pubkey::new_unique();
@@ -1130,7 +1130,6 @@ fn transact_rejects_public_spl_mint_substitution_without_mutating() {
     let mut registry_data = vec![0u8; SPL_ASSET_REGISTRY_ACCOUNT_LEN];
     registry_data[0..8].copy_from_slice(&zolana_interface::SPL_ASSET_REGISTRY_MAGIC);
     registry_data[8..40].copy_from_slice(fake_mint.as_ref());
-    registry_data[40..48].copy_from_slice(&asset_id.to_le_bytes());
     rig.svm
         .set_account(
             fake_registry,
@@ -1150,7 +1149,7 @@ fn transact_rejects_public_spl_mint_substitution_without_mutating() {
     };
     let err = submit_fixture(&mut rig, &tree, &fixture("shield"), Some(&substituted))
         .expect_err("SPL mint substitution must fail");
-    assert_error_contains(err, "Custom(13)");
+    assert_error_contains(err, "Custom(12)");
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -1167,7 +1166,7 @@ fn transact_rejects_instruction_discriminator_mismatch_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     let shield = fixture("shield");
     submit_fixture(&mut rig, &tree, &shield, Some(&settlement)).expect("shield transact");
@@ -1191,7 +1190,7 @@ fn transact_rejects_spl_withdraw_recipient_substitution_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     for name in ["shield", "transfer"] {
         let fixture = fixture(name);
@@ -1224,7 +1223,7 @@ fn transact_rejects_replayed_nullifier_without_mutating() {
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
 
     submit_fixture(&mut rig, &tree, &fixture("shield"), Some(&settlement))
         .expect("shield transact");
@@ -1251,7 +1250,7 @@ fn transact_rejects_invalid_shape_without_mutating() {
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
     let before = rig.account_data(&tree.pubkey()).expect("account data");
-    let settlement = setup_spl_settlement(&mut rig, fixture("shield").public_spl_asset_id);
+    let settlement = setup_spl_settlement(&mut rig);
     let mut data = transact_data(&fixture("shield"));
     while data.output_utxo_hashes.len() <= 8 {
         data.output_utxo_hashes
