@@ -765,8 +765,8 @@ struct MergeEncryptedUtxo {
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different `encrypted_utxos`, accounts, or fee). |
-| public_sol_amount | instruction data |
-| public_spl_amount | instruction data |
+| public_sol_amount | signed field value: `+amount` to shield, `−amount` to unshield, `0` for a transfer, then `relayer_fee` subtracted in every case (so a transfer is `−relayer_fee`). SPP builds it from the `u64` amount and the shield/unshield marker in instruction data. |
+| public_spl_amount | signed field value: `+amount` to shield, `−amount` to unshield. No fee (fees are paid in SOL). |
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
 | ProgramIDHashchain | instruction data |
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
@@ -1132,10 +1132,13 @@ struct TransactIxData {
     /// [SPP Proof](#spp-proof---solana-privacy-zk-proof). The proof verifies the
     /// owner's P256 signature over this value.
     private_tx_hash: [u8; 32],
-    /// `Some` for shield/unshield SOL, `None` for shielded transfer.
+    /// Unsigned amount for shield/unshield SOL; `None` for transfer.
     public_sol_amount: Option<u64>,
-    /// `Some` for shield/unshield SPL, `None` for shielded transfer.
+    /// Unsigned amount for shield/unshield SPL; `None` for transfer.
     public_spl_amount: Option<u64>,
+    /// 0 = transfer, 1 = shield, 2 = unshield. SPP uses it to build the signed
+    /// public amounts. Not a proof public input.
+    public_amount_mode: u8,
     /// Declares that a program is signer, and checks that the pda derivation matches seed ["auth"] with program id and bump. Passes program as signer into the zk proof verification.
     cpi_signer: Option<(program_id, bump)>,
     /// (account index, input utxo index)
@@ -1169,7 +1172,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 5. Append each `output_utxo_hashes[i]` to the UTXO sparse Merkle tree.
 6. Insert each nullifier into the nullifier queue.
 7. Insert `sender_view_tag` into the nullifier queue. Rejects on duplicate, so each sender `tx_count` slot is used at most once in the nullifier tree. SPP does not check the contents of `encrypted_utxos`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt).
-8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
+8. Move the public SOL: shield sends `amount` payer → pool, unshield sends `amount` pool → recipient. Pay `relayer_fee` from the pool to the relayer in every case (a shield is user-paid, so its fee is `0`). The pool's SOL balance changes by the signed `public_sol_amount`.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
 
