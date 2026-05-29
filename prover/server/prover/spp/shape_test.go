@@ -44,8 +44,6 @@ func TestLogicalPublicInputsMatchSpecSet(t *testing.T) {
 		"public_sol_amount",
 		"public_spl_amount",
 		"public_spl_asset_pubkey",
-		"public_amount_mode",
-		"relayer_fee",
 		"program_id_hashchain",
 		"solana_pubkey_hash",
 		"data_hash",

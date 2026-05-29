@@ -187,38 +187,12 @@ func (c *Circuit) Define(api frontend.API) error {
 		api.AssertIsEqual(api.Mul(c.IsDummyOutput[i], c.OutputUtxoHashes[i]), 0)
 	}
 
-	// Public amount encoding: public_sol_amount / public_spl_amount are raw
-	// unsigned magnitudes and public_amount_mode selects the balance sign — all
-	// bound as public inputs. The signed balance effect is derived here in the
-	// circuit rather than via an off-circuit convention, so the on-chain verifier
-	// only has to pass the raw instruction values through. mode: 0 = transfer,
-	// 1 = deposit, 2 = withdraw; relayer_fee (SOL) applies on withdraw only.
-	api.ToBinary(c.PublicSolAmount, 64)
-	api.ToBinary(c.PublicSplAmount, 64)
-	api.ToBinary(c.RelayerFee, 16)
-	modeIsTransfer := api.IsZero(c.PublicAmountMode)
-	modeIsDeposit := api.IsZero(api.Sub(c.PublicAmountMode, 1))
-	modeIsWithdraw := api.IsZero(api.Sub(c.PublicAmountMode, 2))
-	// Exactly one mode flag set => public_amount_mode ∈ {0, 1, 2}.
-	api.AssertIsEqual(api.Add(modeIsTransfer, modeIsDeposit, modeIsWithdraw), 1)
-	// A transfer has no public deposit/withdrawal — only the relayer fee moves.
-	api.AssertIsEqual(api.Mul(modeIsTransfer, c.PublicSolAmount), 0)
-	api.AssertIsEqual(api.Mul(modeIsTransfer, c.PublicSplAmount), 0)
-
-	// The mode sets the public-amount sign (+deposit, -withdraw, 0 transfer).
-	// The relayer fee (SOL) is an UNCONDITIONAL outflow from the shielded set to
-	// the relayer, independent of the mode — so a fee-bearing transfer is just
-	// mode 0 with relayer_fee > 0 and need not masquerade as a withdrawal.
-	publicSign := api.Sub(modeIsDeposit, modeIsWithdraw)
-	solSigned := api.Sub(api.Mul(publicSign, c.PublicSolAmount), c.RelayerFee)
-	splSigned := api.Mul(publicSign, c.PublicSplAmount)
-
 	assertBalanceConservation(
 		api,
 		c.InputUtxos,
 		c.OutputUtxos,
-		solSigned,
-		splSigned,
+		c.PublicSolAmount,
+		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
 	)
 
@@ -246,8 +220,6 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
-		c.PublicAmountMode,
-		c.RelayerFee,
 		c.ProgramIDHashChain,
 		c.SolanaPubkeyHash,
 		c.DataHash,
@@ -361,8 +333,6 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSolAmount,
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
-		inputs.PublicAmountMode,
-		inputs.RelayerFee,
 		inputs.ProgramIDHashChain,
 		inputs.SolanaPubkeyHash,
 		inputs.DataHash,

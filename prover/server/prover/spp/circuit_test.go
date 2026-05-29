@@ -132,65 +132,6 @@ func TestCircuitSkeletonRejectsNonCanonicalDomain(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Option B: public_amount_mode must be one of {0,1,2}. A valid (transfer)
-// assignment with the mode forced to 3 must be rejected.
-func TestCircuitSkeletonRejectsInvalidPublicAmountMode(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(shape)
-	assignment := buildCircuitAssignment(t, shape)
-	assignment.PublicAmountMode = fe(3)
-	refreshPublicInputHash(t, assignment)
-
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// Option B: a withdrawal charges the relayer fee in SOL — the shielded balance
-// must drop by amount + fee. inSum(100) - (amount 20 + fee 5) == outSum(75).
-func TestCircuitSkeletonAcceptsWithdrawWithRelayerFee(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(shape)
-	solAssetID := fe(SpecSolAssetID)
-	assignment := buildCircuitAssignmentFromUtxos(
-		t,
-		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
-		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(75))),
-		big.NewInt(-20), // withdraw 20 (mode derived from sign)
-		big.NewInt(0),
-		fe(0),
-	)
-	assignment.RelayerFee = fe(5)
-	refreshPublicInputHash(t, assignment)
-
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// Option B (decoupled fee): a plain shielded transfer (mode 0, no public
-// movement) still pays the relayer out of the shielded SOL balance — the fee
-// is an unconditional outflow, so the transfer need not be a withdraw.
-// inSum(100) - fee(5) == outSum(95).
-func TestCircuitSkeletonAcceptsTransferWithRelayerFee(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(shape)
-	solAssetID := fe(SpecSolAssetID)
-	assignment := buildCircuitAssignmentFromUtxos(
-		t,
-		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
-		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(95))),
-		big.NewInt(0), // no public sol -> mode 0 (transfer)
-		big.NewInt(0),
-		fe(0),
-	)
-	assignment.RelayerFee = fe(5)
-	refreshPublicInputHash(t, assignment)
-
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
 func TestCircuitSkeletonRejectsBadNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
@@ -705,7 +646,6 @@ func buildCircuitAssignmentWithDummies(
 	}
 	solanaPubkeyHash := testSolanaSignerHash()
 
-	publicAmountMode, rawSolAmount, rawSplAmount := publicAmountFields(publicSolAmount, publicSplAmount)
 	publicInputs := PublicInputs{
 		Nullifiers:           toBigInts(nullifiers),
 		OutputUtxoHashes:     outputHashes,
@@ -714,9 +654,9 @@ func buildCircuitAssignmentWithDummies(
 		PrivateTxHash:        privateTxHash,
 		ExternalDataHash:     externalDataHash,
 		ExpiryUnixTs:         expiry,
-		PublicAmountMode:     publicAmountMode,
-		PublicSolAmount:      rawSolAmount,
-		PublicSplAmount:      rawSplAmount,
+		PublicAmountMode:     fe(0),
+		PublicSolAmount:      SignedToFe(publicSolAmount),
+		PublicSplAmount:      SignedToFe(publicSplAmount),
 		RelayerFee:           fe(0),
 		PublicSplAssetPubkey: publicSplAssetPubkey,
 		ProgramIDHashChain:   fe(0),
@@ -762,22 +702,6 @@ func buildCircuitAssignmentWithDummies(
 		DataHash:             publicInputs.DataHash,
 		PolicyData:           publicInputs.PolicyData,
 		PublicInputHash:      publicInputHash,
-	}
-}
-
-// publicAmountFields maps the signed test amounts to the option-B public inputs:
-// an explicit mode (0 = transfer, 1 = deposit, 2 = withdraw) plus raw unsigned
-// magnitudes. A negative amount selects withdraw; any positive selects deposit.
-func publicAmountFields(sol, spl *big.Int) (mode, rawSol, rawSpl *big.Int) {
-	rawSol = new(big.Int).Abs(sol)
-	rawSpl = new(big.Int).Abs(spl)
-	switch {
-	case sol.Sign() < 0 || spl.Sign() < 0:
-		return big.NewInt(2), rawSol, rawSpl
-	case sol.Sign() > 0 || spl.Sign() > 0:
-		return big.NewInt(1), rawSol, rawSpl
-	default:
-		return big.NewInt(0), rawSol, rawSpl
 	}
 }
 

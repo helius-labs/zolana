@@ -1,11 +1,22 @@
 package spp
 
 import (
+	"math/big"
+
+	"light/light-prover/prover/poseidon"
+
 	"github.com/consensys/gnark/frontend"
 )
 
 // SpecSolAssetID is the SPP asset_id reserved by the spec for native SOL.
 const SpecSolAssetID = 1
+
+// SignedToFe maps signed public amounts into their canonical BN254 Fr
+// representative. Positive values pass through; negative values become
+// modulus - |value|.
+func SignedToFe(value *big.Int) *big.Int {
+	return new(big.Int).Mod(value, poseidon.Modulus)
+}
 
 func assertBalanceConservation(
 	api frontend.API,
@@ -15,9 +26,8 @@ func assertBalanceConservation(
 	publicSplAmount frontend.Variable,
 	publicSplAssetPubkey frontend.Variable,
 ) {
-	// publicSolAmount / publicSplAmount arrive as signed values already derived
-	// in Circuit.Define from range-checked raw magnitudes, so no further range
-	// check is needed here; their magnitudes stay far below the field modulus.
+	assertSigned64Range(api, publicSolAmount)
+	assertSigned64Range(api, publicSplAmount)
 
 	// SPL public movement must not use the SOL-reserved asset field.
 	splAmountIsZero := api.IsZero(publicSplAmount)
@@ -60,4 +70,9 @@ func assertBalanceConservation(
 		)
 		api.AssertIsEqual(adjustedIn, outSum)
 	}
+}
+
+func assertSigned64Range(api frontend.API, value frontend.Variable) {
+	shift := new(big.Int).Lsh(big.NewInt(1), 64)
+	api.ToBinary(api.Add(value, shift), 65)
 }
