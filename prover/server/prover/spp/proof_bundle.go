@@ -569,21 +569,37 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
 
+	utxoRootVars := proofBigIntsToVariables(utxoRoots)
+	nullifierRootVars := proofBigIntsToVariables(nullifierRoots)
+	inputs := make([]Input, shape.NInputs)
+	for i := range inputs {
+		inputs[i] = Input{
+			Utxo:          inputUtxos[i],
+			IsDummy:       isDummyInput[i],
+			NullifierPk:   inputNullifierPk[i],
+			SolanaPkHash:  solanaPkHashes[i],
+			Nullifier:     nullifiers[i],
+			UtxoTreeRoot:  utxoRootVars[i],
+			NullifierRoot: nullifierRootVars[i],
+			State:         MerkleProof{Siblings: statePath[i], Directions: stateDirs[i]},
+			NfLowValue:    nfLowValue[i],
+			NfNextValue:   nfNextValue[i],
+			NfLow:         MerkleProof{Siblings: nfLowPath[i], Directions: nfLowDirs[i]},
+		}
+	}
+	outputs := make([]Output, shape.NOutputs)
+	for i := range outputs {
+		outputs[i] = Output{
+			Utxo:    outputUtxos[i],
+			IsDummy: isDummyOutput[i],
+			Hash:    outputHashVars[i],
+		}
+	}
+
 	assignment := &Circuit{
 		Shape:                shape,
-		InputUtxos:           inputUtxos,
-		InputNullifierPk:     inputNullifierPk,
-		IsDummyInput:         isDummyInput,
-		StatePath:            statePath,
-		StatePathDirs:        stateDirs,
-		NfLowValue:           nfLowValue,
-		NfNextValue:          nfNextValue,
-		NfLowPath:            nfLowPath,
-		NfLowPathDirs:        nfLowDirs,
-		UtxoTreeRoots:        proofBigIntsToVariables(utxoRoots),
-		NullifierRoots:       proofBigIntsToVariables(nullifierRoots),
-		OutputUtxos:          outputUtxos,
-		IsDummyOutput:        isDummyOutput,
+		Inputs:               inputs,
+		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
 		ExpiryUnixTs:         expiry,
 		PublicAmountMode:     publicInputs.PublicAmountMode,
@@ -591,15 +607,12 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		NullifierSecret:      sharedNullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
-		Nullifiers:           nullifiers,
-		OutputUtxoHashes:     outputHashVars,
 		PrivateTxHash:        privateTxHash,
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
 		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
-		SolanaPkHashes:       solanaPkHashes,
 		PublicInputHash:      publicInputHash,
 	}
 	return assignment, publicInputs, outputResponses, proofDebug{

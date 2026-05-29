@@ -54,7 +54,7 @@ func TestCircuitSkeletonRejectsBadOutputHash(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.OutputUtxoHashes[0] = fe(999)
+	assignment.Outputs[0].Hash = fe(999)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -64,7 +64,7 @@ func TestCircuitSkeletonRejectsBadStatePath(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.StatePath[0][0] = fe(999)
+	assignment.Inputs[0].State.Siblings[0] = fe(999)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -74,10 +74,10 @@ func TestCircuitSkeletonRejectsBadStateDirection(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	if asBigInt(assignment.StatePathDirs[0][0]).Sign() == 0 {
-		assignment.StatePathDirs[0][0] = fe(1)
+	if asBigInt(assignment.Inputs[0].State.Directions[0]).Sign() == 0 {
+		assignment.Inputs[0].State.Directions[0] = fe(1)
 	} else {
-		assignment.StatePathDirs[0][0] = fe(0)
+		assignment.Inputs[0].State.Directions[0] = fe(0)
 	}
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -88,7 +88,7 @@ func TestCircuitSkeletonRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.NfLowPath[0][0] = fe(999)
+	assignment.Inputs[0].NfLow.Siblings[0] = fe(999)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -98,7 +98,7 @@ func TestCircuitSkeletonRejectsBadNullifierRange(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.NfLowValue[0] = assignment.Nullifiers[0]
+	assignment.Inputs[0].NfLowValue = assignment.Inputs[0].Nullifier
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -147,7 +147,7 @@ func TestCircuitSkeletonRejectsSolanaSignerOwnerMismatch(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.SolanaPkHashes[0] = fe(12345)
+	assignment.Inputs[0].SolanaPkHash = fe(12345)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -194,7 +194,7 @@ func TestCircuitSkeletonRejectsOwnerHashPreimageMismatch(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.InputUtxos[0].Owner = fe(12345)
+	assignment.Inputs[0].Utxo.Owner = fe(12345)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -204,7 +204,7 @@ func TestCircuitSkeletonRejectsNullifierPkMismatch(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.InputNullifierPk[0] = fe(12345)
+	assignment.Inputs[0].NullifierPk = fe(12345)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -433,7 +433,7 @@ func TestCircuitSkeletonIgnoresDummyInputStatePath(t *testing.T) {
 		big.NewInt(25),
 		publicSplAssetPubkey,
 	)
-	assignment.StatePath[0][0] = fe(999)
+	assignment.Inputs[0].State.Siblings[0] = fe(999)
 
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -454,7 +454,7 @@ func TestCircuitSkeletonIgnoresDummyInputNullifierPath(t *testing.T) {
 		big.NewInt(25),
 		publicSplAssetPubkey,
 	)
-	assignment.NfLowPath[0][0] = fe(999)
+	assignment.Inputs[0].NfLow.Siblings[0] = fe(999)
 
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
@@ -478,7 +478,7 @@ func TestCircuitSkeletonRejectsDummyOutputWithPublicHash(t *testing.T) {
 		big.NewInt(0),
 		fe(0),
 	)
-	assignment.OutputUtxoHashes[1] = fe(999)
+	assignment.Outputs[1].Hash = fe(999)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -666,21 +666,37 @@ func buildCircuitAssignmentWithDummies(
 	publicInputHashValue, err := PublicInputHash(publicInputs)
 	publicInputHash := mustHash(t, publicInputHashValue, err)
 
+	utxoRootVars := toFrontendVariables(utxoTreeRoots)
+	nullifierRootVars := toFrontendVariables(nullifierRoots)
+	inputs := make([]Input, shape.NInputs)
+	for i := range inputs {
+		inputs[i] = Input{
+			Utxo:          inputCircuitUtxos[i],
+			IsDummy:       dummyInputVars[i],
+			NullifierPk:   inputNullifierPks[i],
+			SolanaPkHash:  solanaPkHashes[i],
+			Nullifier:     nullifiers[i],
+			UtxoTreeRoot:  utxoRootVars[i],
+			NullifierRoot: nullifierRootVars[i],
+			State:         MerkleProof{Siblings: statePathVars[i], Directions: stateDirVars[i]},
+			NfLowValue:    nfLowValueVars[i],
+			NfNextValue:   nfNextValueVars[i],
+			NfLow:         MerkleProof{Siblings: nfLowPathVars[i], Directions: nfLowDirVars[i]},
+		}
+	}
+	outputs := make([]Output, shape.NOutputs)
+	for i := range outputs {
+		outputs[i] = Output{
+			Utxo:    outputCircuitUtxos[i],
+			IsDummy: dummyOutputVars[i],
+			Hash:    outputHashVariables[i],
+		}
+	}
+
 	return &Circuit{
 		Shape:                shape,
-		InputUtxos:           inputCircuitUtxos,
-		InputNullifierPk:     inputNullifierPks,
-		IsDummyInput:         dummyInputVars,
-		StatePath:            statePathVars,
-		StatePathDirs:        stateDirVars,
-		NfLowValue:           nfLowValueVars,
-		NfNextValue:          nfNextValueVars,
-		NfLowPath:            nfLowPathVars,
-		NfLowPathDirs:        nfLowDirVars,
-		UtxoTreeRoots:        toFrontendVariables(utxoTreeRoots),
-		NullifierRoots:       toFrontendVariables(nullifierRoots),
-		OutputUtxos:          outputCircuitUtxos,
-		IsDummyOutput:        dummyOutputVars,
+		Inputs:               inputs,
+		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
 		ExpiryUnixTs:         expiry,
 		PublicAmountMode:     publicInputs.PublicAmountMode,
@@ -688,15 +704,12 @@ func buildCircuitAssignmentWithDummies(
 		NullifierSecret:      nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
-		Nullifiers:           nullifiers,
-		OutputUtxoHashes:     outputHashVariables,
 		PrivateTxHash:        privateTxHash,
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
 		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
-		SolanaPkHashes:       solanaPkHashes,
 		PublicInputHash:      publicInputHash,
 	}
 }
@@ -734,11 +747,25 @@ func fillStateProofVariables(path []frontend.Variable, dirs []frontend.Variable,
 
 func refreshPublicInputHash(t *testing.T, assignment *Circuit) {
 	t.Helper()
+	nullifiers := make([]*big.Int, len(assignment.Inputs))
+	utxoRoots := make([]*big.Int, len(assignment.Inputs))
+	nullifierRoots := make([]*big.Int, len(assignment.Inputs))
+	solanaPkHashes := make([]*big.Int, len(assignment.Inputs))
+	for i := range assignment.Inputs {
+		nullifiers[i] = asBigInt(assignment.Inputs[i].Nullifier)
+		utxoRoots[i] = asBigInt(assignment.Inputs[i].UtxoTreeRoot)
+		nullifierRoots[i] = asBigInt(assignment.Inputs[i].NullifierRoot)
+		solanaPkHashes[i] = asBigInt(assignment.Inputs[i].SolanaPkHash)
+	}
+	outputHashes := make([]*big.Int, len(assignment.Outputs))
+	for i := range assignment.Outputs {
+		outputHashes[i] = asBigInt(assignment.Outputs[i].Hash)
+	}
 	publicInputs := PublicInputs{
-		Nullifiers:           toBigInts(assignment.Nullifiers),
-		OutputUtxoHashes:     toBigInts(assignment.OutputUtxoHashes),
-		UtxoTreeRoots:        toBigInts(assignment.UtxoTreeRoots),
-		NullifierRoots:       toBigInts(assignment.NullifierRoots),
+		Nullifiers:           nullifiers,
+		OutputUtxoHashes:     outputHashes,
+		UtxoTreeRoots:        utxoRoots,
+		NullifierRoots:       nullifierRoots,
 		PrivateTxHash:        asBigInt(assignment.PrivateTxHash),
 		ExternalDataHash:     asBigInt(assignment.ExternalDataHash),
 		ExpiryUnixTs:         asBigInt(assignment.ExpiryUnixTs),
@@ -749,7 +776,7 @@ func refreshPublicInputHash(t *testing.T, assignment *Circuit) {
 		PublicSplAssetPubkey: asBigInt(assignment.PublicSplAssetPubkey),
 		ProgramIDHashChain:   asBigInt(assignment.ProgramIDHashChain),
 		SolanaPubkeyHash:     asBigInt(assignment.SolanaPubkeyHash),
-		SolanaPkHashes:       toBigInts(assignment.SolanaPkHashes),
+		SolanaPkHashes:       solanaPkHashes,
 	}
 	publicInputHashValue, err := PublicInputHash(publicInputs)
 	assignment.PublicInputHash = mustHash(t, publicInputHashValue, err)
@@ -805,8 +832,8 @@ func sampleUtxo(base int) Utxo {
 
 func rewriteSingleInputAsP256(t *testing.T, assignment *Circuit, ownerPriv, signingPriv *ecdsa.PrivateKey) {
 	t.Helper()
-	if len(assignment.InputUtxos) != 1 {
-		t.Fatalf("rewriteSingleInputAsP256 expects one input, got %d", len(assignment.InputUtxos))
+	if len(assignment.Inputs) != 1 {
+		t.Fatalf("rewriteSingleInputAsP256 expects one input, got %d", len(assignment.Inputs))
 	}
 	nullifierSecret := asBigInt(assignment.NullifierSecret)
 	nullifierPk := mustNullifierPk(t, nullifierSecret)
@@ -819,29 +846,32 @@ func rewriteSingleInputAsP256(t *testing.T, assignment *Circuit, ownerPriv, sign
 	if err != nil {
 		t.Fatalf("P256 owner hash: %v", err)
 	}
-	assignment.InputUtxos[0].Owner = owner
-	assignment.InputNullifierPk[0] = nullifierPk
-	assignment.SolanaPkHashes[0] = fe(0)
+	assignment.Inputs[0].Utxo.Owner = owner
+	assignment.Inputs[0].NullifierPk = nullifierPk
+	assignment.Inputs[0].SolanaPkHash = fe(0)
 
-	inputHash := mustUtxoHash(t, circuitFieldsToUtxo(assignment.InputUtxos[0]))
+	inputHash := mustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
 	stateEntries := map[uint64]*big.Int{defaultStateLeafIndex(0): inputHash}
 	stateRoot, stateProofs := BuildSparseStateTree(stateEntries)
-	fillStateProofVariables(assignment.StatePath[0], assignment.StatePathDirs[0], stateProofs[defaultStateLeafIndex(0)])
-	assignment.UtxoTreeRoots[0] = stateRoot
+	fillStateProofVariables(assignment.Inputs[0].State.Siblings, assignment.Inputs[0].State.Directions, stateProofs[defaultStateLeafIndex(0)])
+	assignment.Inputs[0].UtxoTreeRoot = stateRoot
 
-	nullifier := mustNullifierHash(t, inputHash, asBigInt(assignment.InputUtxos[0].Blinding), nullifierSecret)
-	assignment.Nullifiers[0] = nullifier
+	nullifier := mustNullifierHash(t, inputHash, asBigInt(assignment.Inputs[0].Utxo.Blinding), nullifierSecret)
+	assignment.Inputs[0].Nullifier = nullifier
 	nullifierTree := NewIndexedTree()
 	nfWitness := nullifierTree.NonInclusion(nullifier)
-	assignment.NfLowValue[0] = nfWitness.LowValue
-	assignment.NfNextValue[0] = nfWitness.NextValue
-	fillStateProofVariables(assignment.NfLowPath[0], assignment.NfLowPathDirs[0], StateTreeWitness{
+	assignment.Inputs[0].NfLowValue = nfWitness.LowValue
+	assignment.Inputs[0].NfNextValue = nfWitness.NextValue
+	fillStateProofVariables(assignment.Inputs[0].NfLow.Siblings, assignment.Inputs[0].NfLow.Directions, StateTreeWitness{
 		Siblings:   nfWitness.Siblings,
 		Directions: nfWitness.Directions,
 	})
-	assignment.NullifierRoots[0] = nullifierTree.Root
+	assignment.Inputs[0].NullifierRoot = nullifierTree.Root
 
-	outputHashes := toBigInts(assignment.OutputUtxoHashes)
+	outputHashes := make([]*big.Int, len(assignment.Outputs))
+	for i := range assignment.Outputs {
+		outputHashes[i] = asBigInt(assignment.Outputs[i].Hash)
+	}
 	privateTxHash := mustPrivateTxHash(
 		t,
 		[]*big.Int{inputHash},

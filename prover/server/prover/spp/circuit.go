@@ -10,24 +10,65 @@ import (
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
+// MerkleProof is a sibling path and the per-level direction bits for a
+// fixed-height binary Merkle tree.
+type MerkleProof struct {
+	Siblings   []frontend.Variable
+	Directions []frontend.Variable
+}
+
+func newMerkleProof(height int) MerkleProof {
+	return MerkleProof{
+		Siblings:   make([]frontend.Variable, height),
+		Directions: make([]frontend.Variable, height),
+	}
+}
+
+func (p MerkleProof) validate(height int) error {
+	if len(p.Siblings) != height || len(p.Directions) != height {
+		return fmt.Errorf("path length mismatch: siblings=%d directions=%d want=%d",
+			len(p.Siblings), len(p.Directions), height)
+	}
+	return nil
+}
+
+// Input is one spent UTXO together with the witnesses that authorize the spend:
+// the owner material, its inclusion in the state tree, and the non-inclusion of
+// its nullifier in the indexed nullifier tree.
+type Input struct {
+	Utxo         UtxoCircuitFields
+	IsDummy      frontend.Variable
+	NullifierPk  frontend.Variable
+	SolanaPkHash frontend.Variable
+
+	// Folded into PublicInputHash.
+	Nullifier     frontend.Variable
+	UtxoTreeRoot  frontend.Variable
+	NullifierRoot frontend.Variable
+
+	// Inclusion of Utxo in the state tree.
+	State MerkleProof
+
+	// Non-inclusion of Nullifier in the indexed nullifier tree: the adjacent
+	// low leaf (NfLowValue, NfNextValue) and its path to NullifierRoot.
+	NfLowValue  frontend.Variable
+	NfNextValue frontend.Variable
+	NfLow       MerkleProof
+}
+
+// Output is one created UTXO with its dummy flag and committed hash.
+type Output struct {
+	Utxo    UtxoCircuitFields
+	IsDummy frontend.Variable
+	Hash    frontend.Variable // folded into PublicInputHash
+}
+
 // Circuit is the SPP circuit for one fixed (N inputs, M outputs) shape.
 type Circuit struct {
 	Shape Shape `gnark:"-"`
 
-	InputUtxos       []UtxoCircuitFields
-	InputNullifierPk []frontend.Variable
-	IsDummyInput     []frontend.Variable
-	StatePath        [][]frontend.Variable
-	StatePathDirs    [][]frontend.Variable
-	NfLowValue       []frontend.Variable
-	NfNextValue      []frontend.Variable
-	NfLowPath        [][]frontend.Variable
-	NfLowPathDirs    [][]frontend.Variable
-	UtxoTreeRoots    []frontend.Variable
-	NullifierRoots   []frontend.Variable
-
-	OutputUtxos   []UtxoCircuitFields
-	IsDummyOutput []frontend.Variable
+	Inputs  []Input
+	Outputs []Output
 
 	ExternalDataHash frontend.Variable
 	ExpiryUnixTs     frontend.Variable
@@ -37,18 +78,15 @@ type Circuit struct {
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
 
-	// Logical public inputs
-	// They are folded into PublicInputHash so the on-chain verifier can reconstruct one BN254 field element from
-	// instruction data and account state.
-	Nullifiers           []frontend.Variable
-	OutputUtxoHashes     []frontend.Variable
+	// Logical public inputs, folded into PublicInputHash so the on-chain
+	// verifier can reconstruct one BN254 field element from instruction data
+	// and account state.
 	PrivateTxHash        frontend.Variable
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
 	ProgramIDHashChain   frontend.Variable
 	SolanaPubkeyHash     frontend.Variable
-	SolanaPkHashes       []frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -58,29 +96,13 @@ func NewCircuit(shape Shape) (*Circuit, error) {
 		return nil, err
 	}
 	c := &Circuit{
-		Shape:            shape,
-		InputUtxos:       make([]UtxoCircuitFields, shape.NInputs),
-		InputNullifierPk: make([]frontend.Variable, shape.NInputs),
-		IsDummyInput:     make([]frontend.Variable, shape.NInputs),
-		StatePath:        make([][]frontend.Variable, shape.NInputs),
-		StatePathDirs:    make([][]frontend.Variable, shape.NInputs),
-		NfLowValue:       make([]frontend.Variable, shape.NInputs),
-		NfNextValue:      make([]frontend.Variable, shape.NInputs),
-		NfLowPath:        make([][]frontend.Variable, shape.NInputs),
-		NfLowPathDirs:    make([][]frontend.Variable, shape.NInputs),
-		UtxoTreeRoots:    make([]frontend.Variable, shape.NInputs),
-		NullifierRoots:   make([]frontend.Variable, shape.NInputs),
-		OutputUtxos:      make([]UtxoCircuitFields, shape.NOutputs),
-		IsDummyOutput:    make([]frontend.Variable, shape.NOutputs),
-		Nullifiers:       make([]frontend.Variable, shape.NInputs),
-		OutputUtxoHashes: make([]frontend.Variable, shape.NOutputs),
-		SolanaPkHashes:   make([]frontend.Variable, shape.NInputs),
+		Shape:   shape,
+		Inputs:  make([]Input, shape.NInputs),
+		Outputs: make([]Output, shape.NOutputs),
 	}
-	for i := 0; i < shape.NInputs; i++ {
-		c.StatePath[i] = make([]frontend.Variable, StateTreeHeight)
-		c.StatePathDirs[i] = make([]frontend.Variable, StateTreeHeight)
-		c.NfLowPath[i] = make([]frontend.Variable, NullifierTreeHeight)
-		c.NfLowPathDirs[i] = make([]frontend.Variable, NullifierTreeHeight)
+	for i := range c.Inputs {
+		c.Inputs[i].State = newMerkleProof(StateTreeHeight)
+		c.Inputs[i].NfLow = newMerkleProof(NullifierTreeHeight)
 	}
 	return c, nil
 }
@@ -93,6 +115,16 @@ func MustNewCircuit(shape Shape) *Circuit {
 	return circuit
 }
 
+// assertEqualWhen constrains a == b only when cond == 1 (cond must be boolean).
+func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
+	api.AssertIsEqual(api.Mul(cond, api.Sub(a, b)), 0)
+}
+
+// assertZeroWhen constrains v == 0 only when cond == 1 (cond must be boolean).
+func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
+	api.AssertIsEqual(api.Mul(cond, v), 0)
+}
+
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateShape(); err != nil {
 		return err
@@ -100,7 +132,6 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
 	p256OwnerKeyHash := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
-	p256Message := privateTxHashToP256Fr(api, c.PrivateTxHash)
 	// N-3: ECDSA is malleable — (r, s) and (r, n-s) both verify — so low-s is
 	// NOT enforced here. This is safe: the signature only authorizes
 	// private_tx_hash, which binds every input/output/expiry, and
@@ -111,108 +142,140 @@ func (c *Circuit) Define(api frontend.API) error {
 	p256SigValid := c.P256Pub.IsValid(
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
-		p256Message,
+		privateTxHashToP256Fr(api, c.PrivateTxHash),
 		&c.P256Sig,
 	)
-	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
-	for i := 0; i < c.Shape.NInputs; i++ {
-		api.AssertIsBoolean(c.IsDummyInput[i])
-		notDummy := api.Sub(1, c.IsDummyInput[i])
-		api.AssertIsEqual(api.Mul(c.IsDummyInput[i], c.InputUtxos[i].AssetAmount), 0)
 
-		// Pin the domain separator for every real UTXO (audit #2).
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(c.InputUtxos[i].Domain, UtxoDomain)), 0)
+	inputHashes := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		in := c.Inputs[i]
+		api.AssertIsBoolean(in.IsDummy)
+		notDummy := api.Sub(1, in.IsDummy)
 
-		inputHash := UtxoHashCircuit(api, c.InputUtxos[i])
-		inputHashes[i] = api.Select(c.IsDummyInput[i], frontend.Variable(0), inputHash)
-		stateRoot := StatePathFoldCircuit(api, inputHash, c.StatePath[i], c.StatePathDirs[i])
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(stateRoot, c.UtxoTreeRoots[i])), 0)
+		assertZeroWhen(api, in.IsDummy, in.Utxo.AssetAmount)
+		assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
 
-		isP256Input := api.IsZero(c.SolanaPkHashes[i])
-		ownerKeyHash := api.Select(isP256Input, p256OwnerKeyHash, c.SolanaPkHashes[i])
-		ownerHash := OwnerHashCircuit(api, ownerKeyHash, c.InputNullifierPk[i])
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(ownerHash, c.InputUtxos[i].Owner)), 0)
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(nullifierPkFromSecret, c.InputNullifierPk[i])), 0)
-		api.AssertIsEqual(api.Mul(notDummy, isP256Input, api.Sub(1, p256SigValid)), 0)
-		api.AssertIsEqual(api.Mul(c.IsDummyInput[i], c.InputNullifierPk[i]), 0)
-		api.AssertIsEqual(api.Mul(c.IsDummyInput[i], c.SolanaPkHashes[i]), 0)
+		utxoHash := UtxoHashCircuit(api, in.Utxo)
+		inputHashes[i] = api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
 
-		nullifier := NullifierHashCircuit(api, inputHash, c.InputUtxos[i].Blinding, c.NullifierSecret)
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(nullifier, c.Nullifiers[i])), 0)
-		api.AssertIsEqual(api.Mul(c.IsDummyInput[i], c.Nullifiers[i]), 0)
+		// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
+		stateRoot := StatePathFoldCircuit(api, utxoHash, in.State.Siblings, in.State.Directions)
+		assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
 
-		lowLeafHash := IndexedLeafHashCircuit(api, c.NfLowValue[i], c.NfNextValue[i])
-		nfRoot := StatePathFoldCircuit(api, lowLeafHash, c.NfLowPath[i], c.NfLowPathDirs[i])
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(nfRoot, c.NullifierRoots[i])), 0)
+		// Owner binding: P256 inputs (SolanaPkHash == 0) recompute the owner key
+		// hash from the witnessed P256 point; Solana inputs use the public hash.
+		isP256 := api.IsZero(in.SolanaPkHash)
+		ownerKeyHash := api.Select(isP256, p256OwnerKeyHash, in.SolanaPkHash)
+		ownerHash := OwnerHashCircuit(api, ownerKeyHash, in.NullifierPk)
+		assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
+		assertEqualWhen(api, notDummy, nullifierPkFromSecret, in.NullifierPk)
+		// P256 inputs must carry a valid signature; Solana inputs are verified
+		// by SPP out of circuit.
+		api.AssertIsEqual(api.Mul(notDummy, isP256, api.Sub(1, p256SigValid)), 0)
+		assertZeroWhen(api, in.IsDummy, in.NullifierPk)
+		assertZeroWhen(api, in.IsDummy, in.SolanaPkHash)
 
-		lowEff := api.Select(c.IsDummyInput[i], frontend.Variable(0), c.NfLowValue[i])
-		nullifierEff := api.Select(c.IsDummyInput[i], frontend.Variable(1), c.Nullifiers[i])
-		nextEff := api.Select(c.IsDummyInput[i], frontend.Variable(2), c.NfNextValue[i])
-		// Strict ordering low < nullifier < next. Expressed via
-		// AssertIsLessOrEqual + AssertIsDifferent rather than the `+1`
-		// increment form, so the comparison cannot wrap at the field
-		// boundary (e.g. nullifier == p-1 would make nullifier+1 wrap to 0
-		// and silently satisfy the upper bound). Audit findings #4/#5.
-		api.AssertIsLessOrEqual(lowEff, nullifierEff)
-		api.AssertIsDifferent(lowEff, nullifierEff)
-		api.AssertIsLessOrEqual(nullifierEff, nextEff)
-		api.AssertIsDifferent(nullifierEff, nextEff)
+		nullifier := NullifierHashCircuit(api, utxoHash, in.Utxo.Blinding, c.NullifierSecret)
+		assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
+		assertZeroWhen(api, in.IsDummy, in.Nullifier)
+
+		// Non-inclusion: the low leaf is in the nullifier tree and brackets the
+		// nullifier (NfLowValue < Nullifier < NfNextValue).
+		lowLeaf := IndexedLeafHashCircuit(api, in.NfLowValue, in.NfNextValue)
+		nfRoot := StatePathFoldCircuit(api, lowLeaf, in.NfLow.Siblings, in.NfLow.Directions)
+		assertEqualWhen(api, notDummy, nfRoot, in.NullifierRoot)
+
+		// Strict ordering low < nullifier < next, expressed with
+		// AssertIsLessOrEqual + AssertIsDifferent (no `+1`, which could wrap at
+		// the field boundary). Dummy inputs use 0 < 1 < 2. Audit findings #4/#5.
+		low := api.Select(in.IsDummy, frontend.Variable(0), in.NfLowValue)
+		nf := api.Select(in.IsDummy, frontend.Variable(1), in.Nullifier)
+		next := api.Select(in.IsDummy, frontend.Variable(2), in.NfNextValue)
+		api.AssertIsLessOrEqual(low, nf)
+		api.AssertIsDifferent(low, nf)
+		api.AssertIsLessOrEqual(nf, next)
+		api.AssertIsDifferent(nf, next)
 	}
 
-	// Reject re-spending the same input twice in one transaction: every pair
-	// of real inputs must carry distinct nullifiers (audit #1). Dummy inputs
-	// all carry nullifier 0 and are excluded from the check.
-	for i := 0; i < c.Shape.NInputs; i++ {
-		for j := i + 1; j < c.Shape.NInputs; j++ {
-			bothReal := api.Mul(api.Sub(1, c.IsDummyInput[i]), api.Sub(1, c.IsDummyInput[j]))
-			sameNullifier := api.IsZero(api.Sub(c.Nullifiers[i], c.Nullifiers[j]))
+	// Reject re-spending the same input twice in one transaction: every pair of
+	// real inputs must carry distinct nullifiers (audit #1). Dummy inputs all
+	// carry nullifier 0 and are excluded.
+	for i := range c.Inputs {
+		for j := i + 1; j < len(c.Inputs); j++ {
+			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
+			sameNullifier := api.IsZero(api.Sub(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier))
 			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
 		}
 	}
 
-	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
-	for i := 0; i < c.Shape.NOutputs; i++ {
-		api.AssertIsBoolean(c.IsDummyOutput[i])
-		notDummy := api.Sub(1, c.IsDummyOutput[i])
-		api.AssertIsEqual(api.Mul(c.IsDummyOutput[i], c.OutputUtxos[i].AssetAmount), 0)
+	outputHashes := make([]frontend.Variable, len(c.Outputs))
+	for i := range c.Outputs {
+		out := c.Outputs[i]
+		api.AssertIsBoolean(out.IsDummy)
+		notDummy := api.Sub(1, out.IsDummy)
 
-		// Pin the domain separator for every real UTXO (audit #2).
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(c.OutputUtxos[i].Domain, UtxoDomain)), 0)
+		assertZeroWhen(api, out.IsDummy, out.Utxo.AssetAmount)
+		assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
 
-		outputHash := UtxoHashCircuit(api, c.OutputUtxos[i])
-		outputHashes[i] = api.Select(c.IsDummyOutput[i], frontend.Variable(0), outputHash)
-		api.AssertIsEqual(api.Mul(notDummy, api.Sub(outputHash, c.OutputUtxoHashes[i])), 0)
-		api.AssertIsEqual(api.Mul(c.IsDummyOutput[i], c.OutputUtxoHashes[i]), 0)
+		utxoHash := UtxoHashCircuit(api, out.Utxo)
+		outputHashes[i] = api.Select(out.IsDummy, frontend.Variable(0), utxoHash)
+		assertEqualWhen(api, notDummy, utxoHash, out.Hash)
+		assertZeroWhen(api, out.IsDummy, out.Hash)
 	}
 
 	assertBalanceConservation(
 		api,
-		c.InputUtxos,
-		c.OutputUtxos,
+		c.inputUtxos(),
+		c.outputUtxos(),
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
 	)
 
-	privateTxHash := PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		outputHashes,
-		c.ExternalDataHash,
-		c.ExpiryUnixTs,
-	)
+	privateTxHash := PrivateTxHashCircuit(api, inputHashes, outputHashes, c.ExternalDataHash, c.ExpiryUnixTs)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
 
 	api.AssertIsEqual(c.PublicInputHash, c.publicInputHash(api))
 	return nil
 }
 
+func (c *Circuit) inputUtxos() []UtxoCircuitFields {
+	utxos := make([]UtxoCircuitFields, len(c.Inputs))
+	for i := range c.Inputs {
+		utxos[i] = c.Inputs[i].Utxo
+	}
+	return utxos
+}
+
+func (c *Circuit) outputUtxos() []UtxoCircuitFields {
+	utxos := make([]UtxoCircuitFields, len(c.Outputs))
+	for i := range c.Outputs {
+		utxos[i] = c.Outputs[i].Utxo
+	}
+	return utxos
+}
+
 func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
+	nullifiers := make([]frontend.Variable, len(c.Inputs))
+	utxoRoots := make([]frontend.Variable, len(c.Inputs))
+	nullifierRoots := make([]frontend.Variable, len(c.Inputs))
+	solanaPkHashes := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		nullifiers[i] = c.Inputs[i].Nullifier
+		utxoRoots[i] = c.Inputs[i].UtxoTreeRoot
+		nullifierRoots[i] = c.Inputs[i].NullifierRoot
+		solanaPkHashes[i] = c.Inputs[i].SolanaPkHash
+	}
+	outputHashes := make([]frontend.Variable, len(c.Outputs))
+	for i := range c.Outputs {
+		outputHashes[i] = c.Outputs[i].Hash
+	}
+
 	return HashChainCircuit(api, []frontend.Variable{
-		HashChainCircuit(api, c.Nullifiers),
-		HashChainCircuit(api, c.OutputUtxoHashes),
-		HashChainCircuit(api, c.UtxoTreeRoots),
-		HashChainCircuit(api, c.NullifierRoots),
+		HashChainCircuit(api, nullifiers),
+		HashChainCircuit(api, outputHashes),
+		HashChainCircuit(api, utxoRoots),
+		HashChainCircuit(api, nullifierRoots),
 		c.PrivateTxHash,
 		c.ExternalDataHash,
 		c.PublicSolAmount,
@@ -220,7 +283,7 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSplAssetPubkey,
 		c.ProgramIDHashChain,
 		c.SolanaPubkeyHash,
-		HashChainCircuit(api, c.SolanaPkHashes),
+		HashChainCircuit(api, solanaPkHashes),
 	})
 }
 
@@ -228,51 +291,18 @@ func (c *Circuit) validateShape() error {
 	if err := c.Shape.Validate(); err != nil {
 		return err
 	}
-
-	in, out := c.Shape.NInputs, c.Shape.NOutputs
-	counts := []struct {
-		name string
-		got  int
-		want int
-	}{
-		{"input UTXO", len(c.InputUtxos), in},
-		{"input nullifier pk", len(c.InputNullifierPk), in},
-		{"dummy input flag", len(c.IsDummyInput), in},
-		{"state path", len(c.StatePath), in},
-		{"state path direction", len(c.StatePathDirs), in},
-		{"nullifier low value", len(c.NfLowValue), in},
-		{"nullifier next value", len(c.NfNextValue), in},
-		{"nullifier low path", len(c.NfLowPath), in},
-		{"nullifier low path direction", len(c.NfLowPathDirs), in},
-		{"UTXO tree root", len(c.UtxoTreeRoots), in},
-		{"nullifier tree root", len(c.NullifierRoots), in},
-		{"nullifier", len(c.Nullifiers), in},
-		{"solana pk hash", len(c.SolanaPkHashes), in},
-		{"output UTXO", len(c.OutputUtxos), out},
-		{"dummy output flag", len(c.IsDummyOutput), out},
-		{"output UTXO hash", len(c.OutputUtxoHashes), out},
+	if len(c.Inputs) != c.Shape.NInputs {
+		return fmt.Errorf("spp: input count mismatch: got %d want %d", len(c.Inputs), c.Shape.NInputs)
 	}
-	for _, chk := range counts {
-		if chk.got != chk.want {
-			return fmt.Errorf("spp: %s count mismatch: got %d want %d", chk.name, chk.got, chk.want)
-		}
+	if len(c.Outputs) != c.Shape.NOutputs {
+		return fmt.Errorf("spp: output count mismatch: got %d want %d", len(c.Outputs), c.Shape.NOutputs)
 	}
-
-	for i := 0; i < in; i++ {
-		heights := []struct {
-			name string
-			got  int
-			want int
-		}{
-			{"state path", len(c.StatePath[i]), StateTreeHeight},
-			{"state path direction", len(c.StatePathDirs[i]), StateTreeHeight},
-			{"nullifier low path", len(c.NfLowPath[i]), NullifierTreeHeight},
-			{"nullifier low path direction", len(c.NfLowPathDirs[i]), NullifierTreeHeight},
+	for i := range c.Inputs {
+		if err := c.Inputs[i].State.validate(StateTreeHeight); err != nil {
+			return fmt.Errorf("spp: input %d state proof: %w", i, err)
 		}
-		for _, h := range heights {
-			if h.got != h.want {
-				return fmt.Errorf("spp: %s %d height mismatch: got %d want %d", h.name, i, h.got, h.want)
-			}
+		if err := c.Inputs[i].NfLow.validate(NullifierTreeHeight); err != nil {
+			return fmt.Errorf("spp: input %d nullifier proof: %w", i, err)
 		}
 	}
 	return nil
