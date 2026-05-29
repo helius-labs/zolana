@@ -72,8 +72,6 @@ type Circuit struct {
 
 	ExternalDataHash frontend.Variable
 	ExpiryUnixTs     frontend.Variable
-	PublicAmountMode frontend.Variable
-	RelayerFee       frontend.Variable
 	NullifierSecret  frontend.Variable
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
@@ -316,10 +314,8 @@ type PublicInputs struct {
 	PrivateTxHash        *big.Int
 	ExternalDataHash     *big.Int
 	ExpiryUnixTs         *big.Int
-	PublicAmountMode     *big.Int
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
-	RelayerFee           *big.Int
 	PublicSplAssetPubkey *big.Int
 	ProgramIDHashChain   *big.Int
 	SolanaPubkeyHash     *big.Int
