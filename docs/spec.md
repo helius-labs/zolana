@@ -11,16 +11,7 @@
     - [Merge Service](#merge-service)
   - [Concurrency & Balance Fragmentation](#concurrency--balance-fragmentation)
   - [Default Pocket](#default-pocket)
-    - [Shield with Proof](#shield-with-proof)
-    - [Shield without Proof](#shield-without-proof)
-    - [Transfer](#transfer)
-    - [Unshield](#unshield)
   - [Policy Pockets](#policy-pockets)
-    - [Shield with Proof](#shield-with-proof-1)
-    - [Shield without Proof](#shield-without-proof-1)
-    - [Transfer](#transfer-1)
-    - [Unshield](#unshield-1)
-    - [Enter and Exit Pocket](#enter-and-exit-pocket)
 - [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
 - [Signing Key](#signing-key)
@@ -32,14 +23,11 @@
     - [Sender View Tag](#sender-view-tag)
     - [Recipient view tag](#recipient-view-tag)
     - [Merge view tag](#merge-view-tag)
+    - [View Tag Selection](#view-tag-selection)
   - [Methods](#methods)
 - [UTXO](#utxo)
   - [UTXO Hash](#utxo-hash)
   - [Nullifier](#nullifier)
-- [SPP Proof - Shielded Pool ZK Proof](#spp-proof---shielded-pool-zk-proof)
-- [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
-- [Enable Proof - Merge Authority Opt-in Proof](#enable-proof---merge-authority-opt-in-proof)
-- [Revoke Proof - Merge Authority Opt-out Proof](#revoke-proof---merge-authority-opt-out-proof)
 - [Output UTXO Serialization](#output-utxo-serialization)
   - [Program Data](#program-data)
   - [Transfer](#transfer-2)
@@ -51,6 +39,10 @@
   - [Merge](#merge)
     - [Plaintext Layout](#plaintext-layout-2)
     - [Instruction Data Layout](#instruction-data-layout-2)
+- [SPP Proof - Shielded Pool ZK Proof](#spp-proof---shielded-pool-zk-proof)
+- [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
+- [Enable Proof - Merge Authority Opt-in Proof](#enable-proof---merge-authority-opt-in-proof)
+- [Revoke Proof - Merge Authority Opt-out Proof](#revoke-proof---merge-authority-opt-out-proof)
 - [SPP - Shielded Pool Program](#spp---shielded-pool-program)
   - [Accounts](#accounts)
     - [Pocket Accounts](#pocket-accounts)
@@ -189,67 +181,7 @@ UTXOs are inherently concurrent. Every transaction to a user will fragment the u
 
 The default pocket is similar to zcash and has no policy.
 Users invoke the SPP directly.
-The merge service is optional and can be used for performance and improved UX.
-
-### Shield with Proof
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant Policy as Policy Program
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-    Client->>PocketRPC: fetch_encrypted_utxos
-    PocketRPC-->>Client: encrypted UTXOs
-    Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>PocketRPC: fetch_proofs
-    PocketRPC-->>Client: ZKP
-
-    Note over Client: Submit transaction
-    Client->>System: submit tx<br>transact
-
-    Note over System: shield transfers SPL tokens<br>from user token account to SPL interface (PDA-owned)
-    System->>Token: transfer (CPI)
-    Token->>UserToken: debit
-    Token->>SplInterface: credit
-
-    Note over System: merges existing UTXOs + new deposit<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-```
-
-### Shield without Proof
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-
-    Note over Client: Submit transaction
-    Client->>System: submit tx<br>transact
-
-    Note over System: shield transfers SPL tokens<br>from user token account to SPL interface (PDA-owned)
-    System->>Token: transfer (CPI)
-    Token->>UserToken: debit
-    Token->>SplInterface: credit
-
-    Note over System: verifies proofs<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-```
+Optional merge services and sync delegates can be used to improve UX.
 
 ### Transfer
 
@@ -272,112 +204,14 @@ sequenceDiagram
     System-->>PocketRPC: index encrypted UTXOs
 ```
 
-### Unshield
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-    Client->>PocketRPC: fetch_encrypted_utxos
-    PocketRPC-->>Client: encrypted UTXOs
-    Note over Client: 1. decrypt UTXOs <br> 2. Set unshield amount <br> 3. select UTXOs (in) <br> 4. create new UTXOs (out) <br> 5. sign in and out utxos
-
-    Client->>PocketRPC: send transaction <br>(in utxos, out utxos, signature)
-    PocketRPC->>System: submit tx<br>transact
-
-    Note over System: unshield transfers SPL tokens<br>from SPL interface (PDA-owned) to recipient token account
-    System->>Token: transfer (CPI)
-    Token->>SplInterface: debit
-    Token->>UserToken: credit
-
-    Note over System: spends input UTXOs, writes change UTXO<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-```
-
 ## Policy Pockets
 
-A logical grouping of UTXOs whose state transitions are checked by a policy program. Each pocket has its own auditor, authorities, and config.
+**Properties:**
+1. Fully programmable: the pocket creator deploys a policy program that implements custom logic enforcing encryption to auditors, authorities, freeze authority, co-signer, and permanent delegate.
+2. Enter Pocket: a pocket is entered by a shield from an SPL token account, the standard shielded pool, or another pocket via a shielded transfer.
+3. Exit Pocket: a pocket is exited by an unshield to an SPL token account, the standard shielded pool, or another pocket via a shielded transfer.
+4. Transfers: users invoke the policy program, which CPIs into the SPP program.
 
-| # | Name | Description |
-| --- | --- | --- |
-| 1 | Non-Custodial | Pockets are non-custodial. Control remains with user; auditor reads all UTXOs but cannot sign or spend |
-| 2 | Extended UTXO schema | Includes state + extension fields (pocket address, ...); extensions is any data that is not part of the standard UTXO schema |
-| 3 | Enter Pocket | A pocket can be entered by shield from an SPL token account, the standard shielded pool, or another pocket in a shielded transfer |
-| 4 | Exit Pocket | A pocket can be exited by unshield to an SPL token account, the standard shielded pool, or another pocket in a shielded transfer |
-
-### Shield with Proof
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant Policy as Policy Program
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-    Client->>PocketRPC: get_balance
-    PocketRPC-->>Client: balance
-    Note over Client: 1. select UTXOs (in) <br> 2. create new UTXOs (out) <br> 3. sign in and out utxos
-    Client->>PocketRPC: fetch_proofs
-    PocketRPC-->>Client: ZKP
-
-    Note over Client: Submit transaction
-    Client->>Policy: submit tx<br>policy_transact
-    Policy->>System: CPI: transact
-
-    Note over System: shield transfers SPL tokens<br>from user token account to SPL interface (PDA-owned)
-    System->>Token: transfer (CPI)
-    Token->>UserToken: debit
-    Token->>SplInterface: credit
-
-    Note over System: merges existing UTXOs + new deposit<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-    Note over PocketRPC: Decrypt UTXOs
-
-```
-
-### Shield without Proof
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant Policy as Policy Program
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-
-    Note over Client: Submit transaction
-    Client->>Policy: submit tx<br>policy_transact
-    Policy->>System: CPI: transact
-
-    Note over System: shield transfers SPL tokens<br>from user token account to SPL interface (PDA-owned)
-    System->>Token: transfer (CPI)
-    Token->>UserToken: debit
-    Token->>SplInterface: credit
-
-    Note over System: verifies proofs<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-    Note over PocketRPC: Decrypt UTXOs
-```
 
 ### Transfer
 
@@ -403,44 +237,6 @@ sequenceDiagram
     Note over PocketRPC: Decrypt UTXOs
 ```
 
-### Unshield
-
-```mermaid
-sequenceDiagram
-    participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant Policy as Policy Program
-    participant System as System Program<br>(Shielded Pool)
-    participant Trees as Tree accounts
-    participant Token as SPL Token Program
-    participant SplInterface as SPL Interface Accounts<br>(PDA-owned token account)
-    participant UserToken as User Token Account
-
-    Note over Client: Build transaction
-    Client->>PocketRPC: get_balance
-    PocketRPC-->>Client: balance
-    Note over Client: 1. Set unshield amount <br> 2. set Recipient SPL Account (in) <br> 3. create new UTXOs (out) <br> 4. sign recipient SPL account and amount
-
-	  Client->>PocketRPC: send transaction <br>(in utxos, out utxos, signature)
-    PocketRPC-->>Policy: submit tx<br>policy_transact
-    Policy->>System: CPI: transact
-
-    Note over System: unshield transfers SPL tokens<br>from user token account to SPL interface (PDA-owned)
-    System->>Token: transfer (CPI)
-    Token->>UserToken: credit
-    Token->>SplInterface: debit
-
-    Note over System: merges existing UTXOs + new deposit<br>updates trees<br>writes encrypted outputs
-    System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-    Note over PocketRPC: Decrypt UTXOs
-```
-
-### Enter and Exit Pocket
-
-1. Enter, shield or transfer from default pocket
-2. Exit, unshield or transfer from policy pocket
-
 
 # Glossary
 
@@ -451,13 +247,15 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body: a P256 SEC1-compressed point, or an Ed25519 public key. The protocol's scheme-tagged key, used wherever a key may be either curve — UTXO owners (`signing_pk` / `owner_pubkey`) and `merge_authority_pubkey`. |
 | `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction — viewing / ECDH keys (`tx_viewing_pk`, registry `viewing_pk` / `sync_pk`). |
 | `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
-| `Signature` | `Vec<u8>` | Scheme-tagged signature (P256 or Ed25519); variable length. |
+| `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
+| `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
+| `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
+| `MergeAuthorityCiphertext` | `[u8; 90]` | AES-256-GCM ciphertext over `MergeAuthorityNotification` (74 B plaintext + 16 B GCM tag). |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
 - `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, or a view tag.
 - `[u8; 31]` — a blinding factor (held below the BN254 field modulus).
-- `[u8; 64]` — a Solana transaction signature (`tx_signature`).
 
 # Shielded Address
 
@@ -589,6 +387,8 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### View Tag Selection
 
+The merge service always uses merge view tags. Wallets select tags as follows:
+
 ```mermaid
 flowchart TD
     Start([prefix recipient]) --> Q1{"wallet has a prior transfer with the recipient? (recipient_pubkey ∈ wallet.known_recipients)"}
@@ -656,10 +456,6 @@ struct Utxo {
     policy_program_id: Option<Address>,
 }
 ```
-
-**Output side (creating a UTXO).** Senders write `owner` as the recipient's pre-computed `owner_hash`, fetched from the recipient's published address. The sender does not handle `signing_pk` or `nullifier_pk` directly.
-
-**Input side (spending a UTXO).** The spender witnesses the components `(signing_pk_a, signing_pk_b, nullifier_pk)`. The proof recomputes `owner = Poseidon(...)`, matches it against the input UTXO, and verifies the signature check (P256 path or Ed25519 path). The choice of signing scheme is part of the witness, not the public hash.
 
 ## UTXO Hash
 
@@ -1244,7 +1040,7 @@ Usage by instruction:
 
 | Instruction | Behavior |
 | --- | --- |
-| `pocket_transact`, `merge_pocket` | `spp_pocket_config` is not read. Only `pocket_auth` is checked. |
+| `pocket_transact`, `merge_pocket` | `spp_pocket_config` is not read. `pocket_auth` pda must be signer. |
 | `pocket_authority_transact` | `spp_pocket_config` is required; must be initialized; `pocket_authority_transact_is_enabled` must be `true`. |
 | `create_pocket_config` | `pocket_auth` for `policy_program_id` must sign. Initializes `authority` and `pocket_authority_transact_is_enabled` from instruction data. |
 | `update_pocket_config`, `update_pocket_config_owner` | Signer must equal the config's `authority` field (not `pocket_auth`). |
@@ -1256,20 +1052,20 @@ Usage by instruction:
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
 | proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree. Indexed under the recipient's bootstrap tag. |
 | pocket_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the pocket auditor key and the recipient keys named in the policy proof |
-| pocket_authority_transact | Tag 3; proves correctness of a state transition by a pocket authority (freeze, thaw, transaction with permanent delegate, ...) |
-| create_spl_interface | Tag 6; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_tree | Tag 7; admin; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
-| create_protocol_config | Tag 9; admin |
-| update_protocol_config | Tag 10; admin |
-| pause_tree | Tag 11; admin can pause and unpause trees |
-| create_pocket_config | Tag 12; creates the `spp_pocket_config` PDA for a given `policy_program_id`. Requires `pocket_auth` for that program as signer. See [Pocket Accounts](#pocket-accounts). |
-| update_pocket_config_owner | Tag 13; rotates `spp_pocket_config.authority`. Signer must equal current `authority`. |
-| update_pocket_config | Tag 14; toggles `spp_pocket_config.pocket_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `pocket_authority_transact` off permanently. |
-| merge_transact | Tag 15; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-pocket; extension slots are zero. |
-| enable_merge_authority | Tag 16; user opts a merge authority in by inserting `enable_commitment` into the merge authority tree. Authorized by an Enable Proof. |
-| disable_merge_authority | Tag 17; user revokes a merge authority by inserting `revoke_commitment` into the merge authority tree. Authorized by a Revoke Proof. |
-| create_merge_authority_tree | Tag 18; admin; initializes a merge authority tree account. |
-| merge_pocket | Tag 19; CPI from a policy program; consolidates N input UTXOs (same owner, same asset, same `policy_program_id`) into one output UTXO that preserves `policy_program_id`. Mirrors `merge_transact` for policy-pocket UTXOs. The policy program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
+| pocket_authority_transact | Tag 3; checks pocket pda is signer, checks state transition only includes pocket policy program owned UTXOs. UTXO owners don't sign pocket has full control subject to its policy.  |
+| create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
+| create_tree | Tag 5; admin; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
+| create_protocol_config | Tag 6; admin |
+| update_protocol_config | Tag 7; admin |
+| pause_tree | Tag 8; admin can pause and unpause trees |
+| create_pocket_config | Tag 9; creates the `spp_pocket_config` PDA for a given `policy_program_id`. Requires `pocket_auth` for that program as signer. See [Pocket Accounts](#pocket-accounts). |
+| update_pocket_config_owner | Tag 10; rotates `spp_pocket_config.authority`. Signer must equal current `authority`. |
+| update_pocket_config | Tag 11; toggles `spp_pocket_config.pocket_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `pocket_authority_transact` off permanently. |
+| merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-pocket; extension slots are zero. |
+| enable_merge_authority | Tag 13; user opts a merge authority in by inserting `enable_commitment` into the merge authority tree. Authorized by an Enable Proof. |
+| disable_merge_authority | Tag 14; user revokes a merge authority by inserting `revoke_commitment` into the merge authority tree. Authorized by a Revoke Proof. |
+| create_merge_authority_tree | Tag 15; admin; initializes a merge authority tree account. |
+| pocket_merge_transact | Tag 16; CPI from a policy program; consolidates N input UTXOs (same owner, same asset, same `policy_program_id`) into one output UTXO that preserves `policy_program_id`. Mirrors `merge_transact` for policy-pocket UTXOs. The policy program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
 
 ### `transact`
 
@@ -1297,8 +1093,7 @@ struct TransactIxData {
     /// signed alongside the input UTXOs (prover-replay protection) and
     /// inserted into the nullifier tree (reuse protection).
     sender_view_tag: [u8; 32],
-    /// Compressed Groth16 proof.
-    proof: [u8; 192],
+    proof: SPPProof,
     /// Zero on shield (payer = user).
     relayer_fee: u16,
     /// One per output; appended to the UTXO tree. Length M.
@@ -1354,7 +1149,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 ### `merge_transact`
 
-**Discriminator:** 15
+**Discriminator:** 12
 
 **Description.** Consolidates `N` input UTXOs of a single owner and a single asset into one output UTXO of the same owner, asset, and total amount. Authorized by a merge authority the owner has whitelisted; the merge service holds the authority key and supplies the P256 signature over `private_tx_hash` verified by the [merge proof](#merge-proof---merge-zk-proof). SPP nullifies the inputs and appends the output to the UTXO tree. The output ciphertext is in the instruction data; the indexer picks it up.
 
@@ -1377,8 +1172,7 @@ struct MergeTransactIxData {
     /// View tag for the merged output ciphertext (see View Tags § Merge view tag);
     /// inserted into the nullifier tree (reuse protection, same as sender_view_tag).
     merge_view_tag: [u8; 32],
-    /// Compressed Groth16 proof.
-    proof: [u8; 192],
+    proof: SPPProof,
     /// One output UTXO hash; appended to the UTXO tree.
     output_utxo_hash: [u8; 32],
     /// Refs into the UTXO-tree root cache, one per input. Length N.
@@ -1411,7 +1205,7 @@ struct MergeTransactIxData {
 
 ### `merge_pocket`
 
-**Discriminator:** 19
+**Discriminator:** 16
 
 **Description.** Policy-pocket analog of [`merge_transact`](#merge_transact), invoked via CPI from a policy program. The relationship to `merge_transact` parallels how [`pocket_authority_transact`](#pocket_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `policy_program_id` (matching the CPI caller) into one output UTXO that preserves `policy_program_id`. The policy program runs its own authorization, including any rules over `policy_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output.
 
@@ -1439,7 +1233,7 @@ Identical to [`MergeTransactIxData`](#merge_transact); the merge proof's circuit
 
 ### `enable_merge_authority`
 
-**Discriminator:** 16
+**Discriminator:** 13
 
 **Description.** Inserts `enable_commitment` into the merge authority tree, opting `merge_authority_pubkey` in to merge the user's UTXOs at slot `number`. The commitment covers `user_viewing_pk`, so the merge proof's verifiable-encryption check is fixed to the viewing key the user authorized. Authorized by an [Enable Proof](#enable-proof---merge-authority-opt-in-proof); the instruction data reveals only the commitment value and an encrypted notification payload for the merge service.
 
@@ -1457,8 +1251,7 @@ struct EnableMergeAuthorityIxData {
     /// Value to insert into the merge authority tree.
     /// Public input to the Enable Proof.
     enable_commitment: [u8; 32],
-    /// Compressed Groth16 proof against the Enable Proof verifying key.
-    proof: [u8; 192],
+    proof: SPPProof,
     tx_viewing_pk: P256Pubkey,
     /// Service-discovery view tag; by convention `merge_authority_pubkey`.
     /// SPP does not verify. A wrong value is a self-DoS for the user.
@@ -1467,7 +1260,7 @@ struct EnableMergeAuthorityIxData {
     /// to `merge_authority_pubkey` via the Poseidon KDF schedule from the
     /// [Merge Proof](#merge-proof---merge-zk-proof) with
     /// `info = "TSPP/merge_authority_notify"`.
-    ciphertext_authority: [u8; 90],
+    ciphertext_authority: MergeAuthorityCiphertext,
     /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
     /// Lets the wallet rediscover its own enables on restore-from-mnemonic
     /// by scanning the same bootstrap stream it scans for incoming transfers.
@@ -1475,7 +1268,7 @@ struct EnableMergeAuthorityIxData {
     /// AES-256-GCM ciphertext over `MergeAuthorityNotification`, encrypted
     /// to `user_viewing_pk` using the shared `tx_viewing_pk` and
     /// `info = "TSPP/merge_authority_notify_bootstrap"`.
-    ciphertext_bootstrap: [u8; 90],
+    ciphertext_bootstrap: MergeAuthorityCiphertext,
 }
 
 /// Payload the service decrypts to learn which (user, slot) just enabled it.
@@ -1506,7 +1299,7 @@ Rotating `user_viewing_pk` (e.g., on sync-delegate appointment) requires a new e
 
 ### `disable_merge_authority`
 
-**Discriminator:** 17
+**Discriminator:** 14
 
 **Description.** Inserts `revoke_commitment` into the merge authority tree, revoking the user's opt-in for the `(user_viewing_pk, merge_authority_pubkey, number)` tuple committed in the corresponding `enable_commitment`. Authorized by a [Revoke Proof](#revoke-proof---merge-authority-opt-out-proof); the instruction data reveals only the commitment value and an encrypted notification payload for the merge service. To re-enable the same service after revocation the user issues a new [`enable_merge_authority`](#enable_merge_authority) with `number := number + 1`.
 
@@ -1524,21 +1317,20 @@ struct DisableMergeAuthorityIxData {
     /// Value to insert into the merge authority tree.
     /// Public input to the Revoke Proof.
     revoke_commitment: [u8; 32],
-    /// Compressed Groth16 proof against the Revoke Proof verifying key.
-    proof: [u8; 192],
+    proof: SPPProof,
     tx_viewing_pk: P256Pubkey,
     /// Service-discovery view tag; by convention `merge_authority_pubkey`.
     /// SPP does not verify. A wrong value is a self-DoS.
     view_tag_authority: [u8; 32],
     /// Encrypted to `merge_authority_pubkey`, as in
     /// [`enable_merge_authority`](#enable_merge_authority).
-    ciphertext_authority: [u8; 90],
+    ciphertext_authority: MergeAuthorityCiphertext,
     /// Wallet self-discovery: `recipient_bootstrap_view_tag = user_viewing_pk`.
     /// Lets the wallet rediscover its own revokes on restore.
     recipient_bootstrap_view_tag: [u8; 32],
     /// Encrypted to `user_viewing_pk`, as in
     /// [`enable_merge_authority`](#enable_merge_authority).
-    ciphertext_bootstrap: [u8; 90],
+    ciphertext_bootstrap: MergeAuthorityCiphertext,
 }
 ```
 
@@ -1563,12 +1355,13 @@ Accounts can be Solana or compressed accounts.
 
 **Instructions**
 
-A policy program is free to implement the following instructions and more. Tags are local to each policy program.
+A policy program is free to implement the following instructions, a subset or superset. SPP instructions that are not exposed via the policy program are not accessible to pocket users — e.g. if `merge_transact` is not exposed, merge services cannot merge pocket UTXOs. Tags are local to each policy program.
 
 | Instruction | Description |
 | --- | --- |
 | transact | Tag 0; verify policy proof, CPI SPP `pocket_transact` |
 | proofless_shield | Tag 1; public deposit; no encryption; CPI SPP `proofless_shield` |
+| merge_transact | Tag 2; run policy authorization, CPI SPP `pocket_merge_transact` to consolidate the user's pocket UTXOs |
 | authority_transact | Tag 3; proves correctness of a state transition by a pocket authority (freeze, thaw, transaction with permanent delegate, ...). Merge UTXOs on behalf of the user. Pocket authority has full access to all UTXOs owned by the pocket. The access is constrained by the policy program implementation. CPI SPP `pocket_authority_transact` |
 | create_pocket_config | Tag 4; admin: creates account for a pocket; the config is public, sets auditor P256 key, pocket authority, freeze authority, permanent authority, co-signer |
 | update_pocket_config | Tag 5; admin: pocket authority updates the pocket config |
@@ -1587,7 +1380,9 @@ All RPC services can be run independently. RPC providers can offer the endpoints
 
 ## Indexer
 
-**Privacy.** Endpoints that take view tags as input — [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`get_merge_authority_events`](#get_merge_authority_events), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags) — can run inside a TEE (Trusted Execution Environment). A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
+Indexes the SPP program instructions to parse encrypted UTXOs, utxo hashes, nullifiers and private transactions.
+
+**Privacy.** Endpoints that take view tags as input, [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`get_merge_authority_events`](#get_merge_authority_events), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
 
 Every response is wrapped in a `Context` struct so the client knows the slot the response was assembled at.
 
@@ -1607,7 +1402,7 @@ struct MerkleContext {
 
 ### `get_encrypted_utxos_by_tags`
 
-Returns encrypted UTXO ciphertexts whose view tag matches any of the given values. Lightweight variant of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags): no sibling slots, no nullifiers.
+Returns encrypted UTXO ciphertexts whose view tag matches any of the given values.
 
 ```rust
 struct GetEncryptedUtxosByTagsRequest {
@@ -1624,7 +1419,7 @@ struct GetEncryptedUtxosByTagsResponse {
 
 struct EncryptedUtxoMatch {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     view_tag: [u8; 32],
     tx_viewing_pk: P256Pubkey,
     ciphertext: Vec<u8>,
@@ -1650,7 +1445,7 @@ struct GetShieldedTransactionsByTagsResponse {
 
 struct ShieldedTransaction {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     tx_viewing_pk: P256Pubkey,
     /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
     /// each slot's `payload` is a cleartext UTXO body.
@@ -1685,15 +1480,15 @@ struct GetMergeAuthorityEventsResponse {
 
 struct MergeAuthorityEvent {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     event_type: u8,                       // 0 = enable, 1 = revoke
     commitment: [u8; 32],
     leaf_index: u64,
     view_tag_authority: [u8; 32],
     recipient_bootstrap_view_tag: [u8; 32],
     tx_viewing_pk: P256Pubkey,
-    ciphertext_authority: [u8; 90],
-    ciphertext_bootstrap: [u8; 90],
+    ciphertext_authority: MergeAuthorityCiphertext,
+    ciphertext_bootstrap: MergeAuthorityCiphertext,
 }
 ```
 
@@ -1787,7 +1582,7 @@ Generates SPP proofs server-side for clients that opt into server-side proving i
 
 ### `generate_spp_proof`
 
-Builds an [SPP proof](#spp-proof---shielded-pool-zk-proof) from a client-supplied witness; returns the compressed Groth16 proof for inclusion in [`transact`](#transact).
+Builds an [SPP proof](#spp-proof---shielded-pool-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`pocket_transact`](#pocket_transact) instruction.
 
 ```rust
 struct GenerateSppProofRequest {
@@ -1795,8 +1590,7 @@ struct GenerateSppProofRequest {
 }
 
 struct GenerateSppProofResponse {
-    /// Compressed Groth16 proof.
-    proof: [u8; 192],
+    proof: SPPProof,
     public_inputs: Vec<[u8; 32]>,
     circuit_id: u16,
 }
@@ -1804,35 +1598,27 @@ struct GenerateSppProofResponse {
 
 ## Relayer
 
-Signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. It never sees plaintext UTXOs; it only signs as the Solana payer.
-
-The relayer fee is enforced by SPP: on `transact` the program transfers `relayer_fee` lamports from the pool to the relayer's account as part of instruction execution, conditional on the proof verifying.
+Signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. The relayer never sees plaintext UTXOs; it only signs as the Solana payer.
 
 ### `submit_transaction`
 
-Submits a client-built instruction. The relayer assembles it into a Solana transaction (recent blockhash, fee payer slot), signs as Solana payer, forwards it to the cluster, and returns the transaction signature so the client can poll for confirmation via standard Solana RPC.
+Submits a client-built instruction. The relayer assembles it into a Solana transaction (recent blockhash, fee payer slot), signs as Solana payer, sends the transaction, and returns the transaction signature so the client can poll for confirmation via standard Solana RPC.
 
 ```rust
 struct SubmitTransactionRequest {
-    /// The instruction the relayer should wrap into a transaction and submit.
-    /// Carries `program_id`, account metas, and serialized instruction data
-    /// (e.g. a built `transact` or `merge_transact`).
     instruction: Instruction,
-    /// Optional address lookup tables to attach to the transaction.
     address_lookup_tables: Vec<Address>,
 }
 
 struct SubmitTransactionResponse {
     context: Context,
-    /// Solana transaction signature; the client polls a Solana RPC node with
-    /// this value to observe confirmation status.
-    tx_signature: [u8; 64],
+    signature: Signature,
 }
 ```
 
 ## Pocket RPC
 
-A Pocket RPC holds the pocket's auditor key and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
+A Pocket RPC holds the pocket's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
 
 **Authentication.** Every request includes `signing_pk` and a `signature` by that key over the serialized request body. `bound_slot` pins the signature to a slot; the RPC rejects requests where `current_slot > bound_slot + 150`.
 
@@ -1844,7 +1630,7 @@ Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_ta
 struct GetDecryptedUtxosByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: Signature,
+    signature: ECDSASignature,
     include_spent: bool,
     cursor: Option<Vec<u8>>,
     limit: Option<u32>,
@@ -1858,7 +1644,7 @@ struct GetDecryptedUtxosByOwnerResponse {
 
 struct DecryptedUtxoEntry {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     utxo: Utxo,
     /// Nullifier observed in the nullifier tree.
     spent: bool,
@@ -1873,7 +1659,7 @@ Decrypted analogue of [`get_shielded_transactions_by_tags`](#get_shielded_transa
 struct GetDecryptedTransactionsByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: Signature,
+    signature: ECDSASignature,
     cursor: Option<Vec<u8>>,
     limit: Option<u32>,
 }
@@ -1886,7 +1672,7 @@ struct GetDecryptedTransactionsByOwnerResponse {
 
 struct DecryptedTransaction {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     output_utxos: Vec<Utxo>,
     nullifiers: Vec<[u8; 32]>,
 }
@@ -1900,7 +1686,7 @@ Decrypted analogue of [`get_merge_authority_events`](#get_merge_authority_events
 struct GetDecryptedMergeAuthorityEventsByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: Signature,
+    signature: ECDSASignature,
     cursor: Option<Vec<u8>>,
     limit: Option<u32>,
 }
@@ -1913,7 +1699,7 @@ struct GetDecryptedMergeAuthorityEventsByOwnerResponse {
 
 struct DecryptedMergeAuthorityEvent {
     slot: u64,
-    tx_signature: [u8; 64],
+    tx_signature: Signature,
     event_type: u8,                       // 0 = enable, 1 = revoke
     merge_authority_pubkey: PublicKey,
     number: u64,
@@ -1928,7 +1714,7 @@ Streaming analogue of [`subscribe_to_shielded_transactions_by_tags`](#subscribe_
 struct SubscribeToDecryptedTransactionsByOwnerRequest {
     signing_pk: PublicKey,
     bound_slot: u64,
-    signature: Signature,
+    signature: ECDSASignature,
 }
 
 /// Yields one [`DecryptedTransaction`](#get_decrypted_transactions_by_owner) per matching transaction.
@@ -1936,31 +1722,30 @@ struct SubscribeToDecryptedTransactionsByOwnerRequest {
 
 ## Merge Service
 
-Operator service that consolidates a user's fragmented UTXOs into fewer larger ones by submitting [`merge_transact`](#merge_transact) instructions on the user's behalf. The protocol surface — opt-in commitments, the merge proof, the merge authority tree — lives in [SPP](#spp---shielded-pool-program); this section describes the operator's responsibilities.
+A merge service consolidates a user's fragmented UTXOs into fewer larger ones by submitting [`merge_transact`](#merge_transact) instructions on the user's behalf. The user does not sign merge service transactions.
 
-A merge service for a user runs as that user's [sync delegate](#sync-delegate): building the merge proof needs `nullifier_secret` in the witness, and `nullifier_secret` is part of the sync-delegate handover.
 
-**Identity.** A merge service is identified by a P256 `merge_authority_pubkey`. The same `merge_authority_pubkey` can be whitelisted by many users; each (user, service) pair is independent.
 
-**Scope.** The merge service consolidates UTXOs in both default and policy pockets. For default-pocket UTXOs (`policy_program_id = 0`, `policy_data = None`) the service submits [`merge_transact`](#merge_transact) directly to SPP. For policy-pocket UTXOs (`policy_program_id ≠ 0`) the service calls the policy program's merge instruction, which runs its authorization over `policy_data` and then CPIs into SPP's [`merge_pocket`](#merge_pocket). The merge proof, `merge_view_tag` derivation, and witness-supply paths are the same in both cases.
+**Identity.** A merge service is identified by a P256 `merge_authority_pubkey`.
 
-UTXOs with `program_data` set (non-zero `program_data_hash`) are not mergeable. The application program that set the `program_data` value consumes them through its own `transact`-style flow.
+**Scope.** The merge service consolidates UTXOs in both default and policy pockets if the policy program exposes a merge instruction.
+UTXOs with `program_data` set (non-zero `program_data_hash`) cannot be merged since they are subject to program logic.
 
 **Lifecycle.**
 
-1. User calls [`enable_merge_authority`](#enable_merge_authority) with `merge_authority_pubkey` and a fresh `number` (next slot for this pair). The user records `number` in `wallet.merge_services`.
-2. User starts handing plaintext UTXOs and pre-derived `merge_view_tag(merge_authority_pubkey, merge_count)` values to the service (see Merging UTXOs below). The service builds and submits [`merge_transact`](#merge_transact) up to once per `merge_count` for this service.
-3. User calls [`disable_merge_authority`](#disable_merge_authority) to revoke `(merge_authority_pubkey, number)`. To later re-enable the same service, the user enables `number + 1`.
+1. User calls [`enable_merge_authority`](#enable_merge_authority).
+2. User starts handing plaintext UTXOs and pre-derived `merge_view_tag(merge_authority_pubkey, merge_count)` values to the service (see Merging UTXOs below). The service builds and submits [`merge_transact`](#merge_transact).
+3. User calls [`disable_merge_authority`](#disable_merge_authority).
 
-**Merging UTXOs.** An enabled merge service needs plaintext for the input UTXOs and the per-tx `merge_view_tag`. `nullifier_secret` is already held by the merge service as part of the sync-delegate handover and need not be shipped per batch. The merge service uses it as a witness value when building the merge proof.
+**Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore a wallet or [sync delegate](#sync-delegate) must trigger the merge service and supply the merge proof inputs.
 
 **Sync.** After each `merge_transact`, the merged ciphertext is indexed by `merge_view_tag`. The wallet finds it via merge tags (see [First Time Sync Wallet](#first-time-sync-wallet).
 
-**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can only leak private information out-of-protocol or refuse to process a transaction. As a sync delegate it inherits the surveillance capability described in [Sync Delegate § Rotation considerations](#sync-delegate) over the UTXOs it has decrypted.
+**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction.
 
 ## Registry
 
-Out-of-protocol service. For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and current sync delegate.
+Out-of-protocol service. For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and current sync delegate. Can be implemented as a Solana program or server.
 
 ### Record
 
@@ -1968,12 +1753,9 @@ Out-of-protocol service. For each user's Solana pubkey, the registry publishes t
 struct Record {
     /// The user's Solana pubkey.
     owner: Address,
-    /// Static. The P256 signing pk for shielded users.
-    /// `None` for Solana-only users whose signing key is the Ed25519 key
-    /// encoded by `owner`.
+    /// Static. The P256 signing pk.
+    /// `None` for Solana-only signing keys.
     owner_p256: Option<P256Pubkey>,
-    /// Static. Poseidon commitment to the wallet's `nullifier_secret`
-    /// (see [NullifierKey](#nullifierkey)). Does not rotate.
     nullifier_pk: [u8; 32],
     /// Static. The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)),
     /// published to senders while no delegate is set.
@@ -2000,15 +1782,6 @@ Invariants:
 - The current delegate is set if and only if `entries` is non-empty.
 - `entries` is append-only: never modified or removed.
 - `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
-
-Senders construct `owner_hash` themselves from the raw Record components — the signing pubkey (`owner_p256` for shielded users, or `owner` for Solana-only users) and `nullifier_pk`:
-
-```
-signing_pk_a, signing_pk_b := P256 (x, y) of owner_p256
-                            | Ed25519 (low, high) of owner   // when owner_p256 = None
-```
-
-then `owner_hash` per [Shielded Address](#shielded-address).
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the record:
 
@@ -2101,12 +1874,10 @@ struct CloseRequest {}
 
 A sync delegate can optionally be set up by a wallet.The sync delegate holds a shared [`ViewingKey`](#viewingkey) and the wallet's nullifier key. Based on those keys it can scans view tags, decrypts ciphertexts, computes nullifiers, marks spent, and builds merge proofs.
 
-**Setup** Appointment is recorded in the [Registry](#registry) via [`set_delegate`](#set_delegate), which appends an `Entry { sync_pk, viewing_pk, created_at }` and rotates the wallet's current `viewing_sk`. Wallet and delegate then share two values:
+**Setup** Sync delegate appointment is recorded in the [Registry](#registry) via [`set_delegate`](#set_delegate). Wallet and delegate then share two values out-of-band:
 
-1. `viewing_sk` for the current entry — derived independently on both sides via `ECDH(signing_sk, delegate.sync_pk)`. The delegate instantiates its current `ViewingKey` via `ViewingKey::from_sk(viewing_sk)`. For prior entries, the wallet may additionally share `[(key_index, viewing_sk_k)]` out-of-band so the delegate can scan history:
-    - **(a) Hand-over.** Share all prior `viewing_sk_k`. The new delegate can scan the full history.
-    - **(b) Forward-only.** No hand-over. The new delegate scans only entries it originated; prior entries remain decryptable by the wallet, which can derive `viewing_sk_k` from `signing_sk + entries[k].sync_pk`.
-2. [NullifierKey](#nullifierkey) sent to the delegate out-of-band.
+1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**).
+2. The [NullifierKey](#nullifierkey).
 
 **Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_delegate_key` / `revoke` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
 
@@ -2116,6 +1887,7 @@ A sync delegate can optionally be set up by a wallet.The sync delegate holds a s
 
 Restores a fresh wallet including fetching and decrypting all user UTXOs from a BIP-39 mnemonic.
 The flow can be executed by the users wallet or the sync delegate.
+The same flow can be used to resync a wallet or poll.
 
 **Wallet State**
 ```
