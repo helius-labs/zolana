@@ -542,10 +542,8 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		if err != nil {
 			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
-		publicSplAsset, err = SolanaPkHash(publicSplMint)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
-		}
+		// asset_id = Sha256BE(mint), matching SolAssetID = Sha256BE(default).
+		publicSplAsset = HashToFieldSize(publicSplMint[:])
 	}
 	programIDHashChain, err := optionalField(tx.ProgramIDHashChain)
 	if err != nil {

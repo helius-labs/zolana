@@ -247,7 +247,7 @@ func TestCircuitSkeletonRejectsBalanceMismatch(t *testing.T) {
 
 func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
-	solAssetID := fe(SpecSolAssetID)
+	solAssetID := SolAssetID()
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
@@ -322,7 +322,7 @@ func TestCircuitSkeletonRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	solAssetID := fe(SpecSolAssetID)
+	solAssetID := SolAssetID()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
