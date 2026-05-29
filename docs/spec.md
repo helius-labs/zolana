@@ -318,8 +318,6 @@ Symmetric key to derive nullifiers.
 
 `nullifier_pk := Poseidon(nullifier_secret)`
 
-`nullifier_secret` is a 31-byte big-endian value; at 31 bytes it is always `< Fr`, so it is a valid field element by construction. `nullifier_pk`, a 32-byte Poseidon output, must be serialized canonical BN254 (`< Fr`).
-
 **Methods:**
 
 - `nullifier_pk() -> [u8; 32]` — returns `nullifier_pk` (defined above).
