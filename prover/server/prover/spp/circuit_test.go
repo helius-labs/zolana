@@ -103,6 +103,94 @@ func TestCircuitSkeletonRejectsBadNullifierRange(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+// Audit #1: re-spending the same input UTXO twice in one transaction must be
+// rejected. Both slots carry the same UTXO -> same nullifier; before the fix
+// this assignment solved and doubled the input value into the outputs.
+func TestCircuitSkeletonRejectsDuplicateInputNullifier(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	dup := sampleUtxoWithAssetAndAmount(10, fe(7), fe(50))
+	inputs := []Utxo{dup, dup}
+	outputs := paddedOutputs(sampleUtxoWithAssetAndAmount(100, fe(7), fe(100)))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), fe(0))
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Audit #2: a real UTXO carrying a domain separator other than UtxoDomain must
+// be rejected even though its hash is a valid leaf of the state tree.
+func TestCircuitSkeletonRejectsNonCanonicalDomain(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	input := sampleUtxoWithAssetAndAmount(10, fe(7), fe(100))
+	input.Domain = fe(UtxoDomain + 1)
+	outputs := paddedOutputs(sampleUtxoWithAssetAndAmount(100, fe(7), fe(100)))
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, []Utxo{input}, outputs, big.NewInt(0), big.NewInt(0), fe(0))
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Option B: public_amount_mode must be one of {0,1,2}. A valid (transfer)
+// assignment with the mode forced to 3 must be rejected.
+func TestCircuitSkeletonRejectsInvalidPublicAmountMode(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	assignment.PublicAmountMode = fe(3)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Option B: a withdrawal charges the relayer fee in SOL — the shielded balance
+// must drop by amount + fee. inSum(100) - (amount 20 + fee 5) == outSum(75).
+func TestCircuitSkeletonAcceptsWithdrawWithRelayerFee(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	solAssetID := fe(SpecSolAssetID)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
+		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(75))),
+		big.NewInt(-20), // withdraw 20 (mode derived from sign)
+		big.NewInt(0),
+		fe(0),
+	)
+	assignment.RelayerFee = fe(5)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Option B (decoupled fee): a plain shielded transfer (mode 0, no public
+// movement) still pays the relayer out of the shielded SOL balance — the fee
+// is an unconditional outflow, so the transfer need not be a withdraw.
+// inSum(100) - fee(5) == outSum(95).
+func TestCircuitSkeletonAcceptsTransferWithRelayerFee(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	solAssetID := fe(SpecSolAssetID)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
+		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(95))),
+		big.NewInt(0), // no public sol -> mode 0 (transfer)
+		big.NewInt(0),
+		fe(0),
+	)
+	assignment.RelayerFee = fe(5)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 func TestCircuitSkeletonRejectsBadNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
@@ -617,6 +705,7 @@ func buildCircuitAssignmentWithDummies(
 	}
 	solanaPubkeyHash := testSolanaSignerHash()
 
+	publicAmountMode, rawSolAmount, rawSplAmount := publicAmountFields(publicSolAmount, publicSplAmount)
 	publicInputs := PublicInputs{
 		Nullifiers:           toBigInts(nullifiers),
 		OutputUtxoHashes:     outputHashes,
@@ -625,12 +714,12 @@ func buildCircuitAssignmentWithDummies(
 		PrivateTxHash:        privateTxHash,
 		ExternalDataHash:     externalDataHash,
 		ExpiryUnixTs:         expiry,
-		PublicAmountMode:     fe(0),
-		PublicSolAmount:      SignedToFe(publicSolAmount),
-		PublicSplAmount:      SignedToFe(publicSplAmount),
+		PublicAmountMode:     publicAmountMode,
+		PublicSolAmount:      rawSolAmount,
+		PublicSplAmount:      rawSplAmount,
 		RelayerFee:           fe(0),
 		PublicSplAssetPubkey: publicSplAssetPubkey,
-		ProgramIDHashchain:   fe(0),
+		ProgramIDHashChain:   fe(0),
 		SolanaPubkeyHash:     solanaPubkeyHash,
 		SolanaPkHashes:       toBigInts(solanaPkHashes),
 		DataHash:             fe(0),
@@ -667,12 +756,28 @@ func buildCircuitAssignmentWithDummies(
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
+		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		SolanaPkHashes:       solanaPkHashes,
 		DataHash:             publicInputs.DataHash,
 		PolicyData:           publicInputs.PolicyData,
 		PublicInputHash:      publicInputHash,
+	}
+}
+
+// publicAmountFields maps the signed test amounts to the option-B public inputs:
+// an explicit mode (0 = transfer, 1 = deposit, 2 = withdraw) plus raw unsigned
+// magnitudes. A negative amount selects withdraw; any positive selects deposit.
+func publicAmountFields(sol, spl *big.Int) (mode, rawSol, rawSpl *big.Int) {
+	rawSol = new(big.Int).Abs(sol)
+	rawSpl = new(big.Int).Abs(spl)
+	switch {
+	case sol.Sign() < 0 || spl.Sign() < 0:
+		return big.NewInt(2), rawSol, rawSpl
+	case sol.Sign() > 0 || spl.Sign() > 0:
+		return big.NewInt(1), rawSol, rawSpl
+	default:
+		return big.NewInt(0), rawSol, rawSpl
 	}
 }
 
@@ -722,7 +827,7 @@ func refreshPublicInputHash(t *testing.T, assignment *Circuit) {
 		PublicSplAmount:      asBigInt(assignment.PublicSplAmount),
 		RelayerFee:           asBigInt(assignment.RelayerFee),
 		PublicSplAssetPubkey: asBigInt(assignment.PublicSplAssetPubkey),
-		ProgramIDHashchain:   asBigInt(assignment.ProgramIDHashchain),
+		ProgramIDHashChain:   asBigInt(assignment.ProgramIDHashChain),
 		SolanaPubkeyHash:     asBigInt(assignment.SolanaPubkeyHash),
 		SolanaPkHashes:       toBigInts(assignment.SolanaPkHashes),
 		DataHash:             asBigInt(assignment.DataHash),
@@ -769,7 +874,7 @@ func paddedOutputs(output Utxo) []Utxo {
 
 func sampleUtxo(base int) Utxo {
 	return Utxo{
-		Domain:          fe(int64(base + 1)),
+		Domain:          fe(UtxoDomain),
 		Owner:           testOwnerHashForNullifierSecret(fe(99)),
 		AssetID:         fe(int64(base + 3)),
 		AssetAmount:     fe(int64(base + 4)),

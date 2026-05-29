@@ -45,10 +45,10 @@ type ProofTransactionRequest struct {
 	UtxoTreeRootIndex        []uint16            `json:"utxo_tree_root_index"`
 	NullifierTreeRootIndex   []uint16            `json:"nullifier_tree_root_index"`
 	NullifierEntries         []string            `json:"nullifier_entries"`
-	ProgramIDHashchain       string              `json:"program_id_hashchain"`
+	ProgramIDHashChain       string              `json:"program_id_hashchain"`
 	DataHash                 string              `json:"data_hash"`
 	PolicyData               string              `json:"policy_data"`
-	P256OwnerPubkey          string              `json:"p256_owner_pubkey,omitempty"`
+	P256SignerPubkey         string              `json:"p256_signer_pubkey,omitempty"`
 	P256SignatureR           string              `json:"p256_signature_r,omitempty"`
 	P256SignatureS           string              `json:"p256_signature_s,omitempty"`
 }
@@ -59,16 +59,23 @@ type ProofStateEntry struct {
 }
 
 type ProofInputRequest struct {
-	Utxo            ProofUtxoRequest `json:"utxo"`
-	LeafIndex       uint64           `json:"leaf_index"`
-	NullifierSecret string           `json:"nullifier_secret"`
+	Utxo      ProofUtxoRequest `json:"utxo"`
+	LeafIndex uint64           `json:"leaf_index"`
+	// NullifierSecret is the authoritative secret for this input. When set it
+	// takes precedence over Utxo.OwnerNullifierSecret, which is only a fallback
+	// for recomputing owner components when no input-level secret is supplied.
+	// See ownerComponents.
+	NullifierSecret string `json:"nullifier_secret"`
 }
 
 type ProofUtxoRequest struct {
-	Domain               string `json:"domain"`
-	Owner                string `json:"owner"`
-	OwnerSolanaPubkey    string `json:"owner_solana_pubkey"`
-	OwnerP256Pubkey      string `json:"owner_p256_pubkey,omitempty"`
+	Domain            string `json:"domain"`
+	Owner             string `json:"owner"`
+	OwnerSolanaPubkey string `json:"owner_solana_pubkey"`
+	OwnerP256Pubkey   string `json:"owner_p256_pubkey,omitempty"`
+	// OwnerNullifierSecret is a fallback used only when this UTXO has no
+	// enclosing ProofInputRequest.NullifierSecret (e.g. a bare output UTXO whose
+	// owner hash must be recomputed). For inputs, set NullifierSecret instead.
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
 	AssetID              string `json:"asset_id"`
 	AssetAmount          string `json:"asset_amount"`
@@ -105,7 +112,7 @@ type ProofTransaction struct {
 	UserSolAccount          string              `json:"user_sol_account"`
 	UserSplTokenAccount     string              `json:"user_spl_token_account"`
 	SplTokenInterface       string              `json:"spl_token_interface"`
-	SolanaOwnerInputIndices []int               `json:"solana_owner_input_indices"`
+	InUtxoSignerIndices     []int               `json:"in_utxo_signer_indices"`
 	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
 	DebugInputUtxoHashes    []string            `json:"debug_input_utxo_hashes"`
 	DebugOutputUtxoHashes   []string            `json:"debug_output_utxo_hashes"`
@@ -144,7 +151,7 @@ type proofDebug struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int
 	nullifiers               []*big.Int
-	solanaOwnerInputIndices  []int
+	inUtxoSignerIndices      []int
 	requiresP256OwnerWitness bool
 }
 
@@ -307,7 +314,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		UserSolAccount:          proofBytesHex(userSolAccount[:]),
 		UserSplTokenAccount:     proofBytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:       proofBytesHex(splTokenInterface[:]),
-		SolanaOwnerInputIndices: debug.solanaOwnerInputIndices,
+		InUtxoSignerIndices:     debug.inUtxoSignerIndices,
 		OutputUtxos:             outputUtxos,
 		DebugInputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
 		DebugOutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
@@ -387,7 +394,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	nullifierRoots := make([]*big.Int, shape.NInputs)
 	sharedNullifierSecret := big.NewInt(0)
 	requiresP256 := false
-	solanaOwnerInputIndices := make([]int, 0, len(tx.Inputs))
+	inUtxoSignerIndices := make([]int, 0, len(tx.Inputs))
 
 	for i := 0; i < shape.NInputs; i++ {
 		statePath[i] = proofZeroVariableSlice(StateTreeHeight)
@@ -437,7 +444,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 			requiresP256 = true
 		} else {
 			solanaPkHashes[i] = input.ownerKeyHash
-			solanaOwnerInputIndices = append(solanaOwnerInputIndices, i)
+			inUtxoSignerIndices = append(inUtxoSignerIndices, i)
 		}
 		isDummyInput[i] = frontend.Variable(0)
 		nullifiers[i] = nullifier
@@ -527,8 +534,10 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	publicSolAmount := signedSolAmount(tx.PublicAmountMode, optionalU64(tx.PublicSolAmount), tx.RelayerFee)
-	publicSplAmount := signedSplAmount(tx.PublicAmountMode, optionalU64(tx.PublicSplAmount))
+	// Raw unsigned magnitudes; the circuit derives the signed balance effect
+	// from public_amount_mode + relayer_fee (all bound as public inputs).
+	publicSolAmount := new(big.Int).SetUint64(optionalU64(tx.PublicSolAmount))
+	publicSplAmount := new(big.Int).SetUint64(optionalU64(tx.PublicSplAmount))
 	publicSplAsset := big.NewInt(0)
 	if optionalU64(tx.PublicSplAmount) != 0 {
 		publicSplMint, err := parseHex32(tx.PublicSplAssetPubkey)
@@ -540,7 +549,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
 	}
-	programIDHashchain, err := optionalField(tx.ProgramIDHashchain)
+	programIDHashChain, err := optionalField(tx.ProgramIDHashChain)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
 	}
@@ -566,7 +575,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		PublicSplAmount:      publicSplAmount,
 		RelayerFee:           new(big.Int).SetUint64(uint64(tx.RelayerFee)),
 		PublicSplAssetPubkey: publicSplAsset,
-		ProgramIDHashchain:   programIDHashchain,
+		ProgramIDHashChain:   programIDHashChain,
 		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
 		SolanaPkHashes:       proofVariablesToBigInts(solanaPkHashes),
 		DataHash:             dataHash,
@@ -605,7 +614,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
+		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		SolanaPkHashes:       solanaPkHashes,
 		DataHash:             publicInputs.DataHash,
@@ -616,7 +625,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		inputHashes:              inputHashes,
 		outputHashes:             outputHashes,
 		nullifiers:               proofVariablesToBigInts(nullifiers),
-		solanaOwnerInputIndices:  solanaOwnerInputIndices,
+		inUtxoSignerIndices:      inUtxoSignerIndices,
 		requiresP256OwnerWitness: requiresP256,
 	}, nil
 }
@@ -809,15 +818,15 @@ func p256WitnessForTransaction(
 	allowMissingSignature bool,
 ) (gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr], gnarkecdsa.Signature[emulated.P256Fr], error) {
 	msg := proofFieldBytes(privateTxHash)
-	if !requiresP256 && strings.TrimSpace(tx.P256OwnerPubkey) == "" {
+	if !requiresP256 && strings.TrimSpace(tx.P256SignerPubkey) == "" {
 		return dummyP256Witness(msg[:])
 	}
-	if allowMissingSignature && (strings.TrimSpace(tx.P256OwnerPubkey) == "" || tx.P256SignatureR == "" || tx.P256SignatureS == "") {
+	if allowMissingSignature && (strings.TrimSpace(tx.P256SignerPubkey) == "" || tx.P256SignatureR == "" || tx.P256SignatureS == "") {
 		return dummyP256Witness(msg[:])
 	}
-	pub, err := p256PubkeyWitness(tx.P256OwnerPubkey)
+	pub, err := p256PubkeyWitness(tx.P256SignerPubkey)
 	if err != nil {
-		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, fmt.Errorf("p256_owner_pubkey: %w", err)
+		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, fmt.Errorf("p256_signer_pubkey: %w", err)
 	}
 	if tx.P256SignatureR == "" || tx.P256SignatureS == "" {
 		if requiresP256 {
@@ -921,24 +930,6 @@ func proofExternalDataFieldHash(data proofExternalData) *big.Int {
 	sum := hasher.Sum(nil)
 	sum[0] = 0
 	return new(big.Int).SetBytes(sum)
-}
-
-func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
-	switch mode {
-	case 2:
-		return SignedToFe(new(big.Int).Neg(new(big.Int).SetUint64(amount + uint64(relayerFee))))
-	default:
-		return new(big.Int).SetUint64(amount)
-	}
-}
-
-func signedSplAmount(mode uint8, amount uint64) *big.Int {
-	switch mode {
-	case 2:
-		return SignedToFe(new(big.Int).Neg(new(big.Int).SetUint64(amount)))
-	default:
-		return new(big.Int).SetUint64(amount)
-	}
 }
 
 func optionalU64(value *uint64) uint64 {

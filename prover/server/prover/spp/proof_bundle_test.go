@@ -26,7 +26,7 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 		t.Fatal(err)
 	}
 	utxo := Utxo{
-		Domain:          big.NewInt(7),
+		Domain:          big.NewInt(UtxoDomain),
 		Owner:           owner,
 		AssetID:         big.NewInt(1),
 		AssetAmount:     big.NewInt(5),
@@ -67,7 +67,7 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 				LeafIndex:       0,
 				NullifierSecret: proofFieldHex(nullifierSecret),
 			}},
-			ProgramIDHashchain: proofFieldHex(big.NewInt(0)),
+			ProgramIDHashChain: proofFieldHex(big.NewInt(0)),
 			DataHash:           proofFieldHex(big.NewInt(0)),
 			PolicyData:         proofFieldHex(big.NewInt(0)),
 		}},
