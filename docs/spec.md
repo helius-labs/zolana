@@ -769,8 +769,6 @@ struct MergeEncryptedUtxo {
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
 | ProgramIDHashchain | instruction data |
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
-| program_data_hash | instruction data |
-| policy_data_hash | instruction data |
 | solana_pk_hashes (one per input UTXO) | `pk_field(solana_signer)` (see [Shielded Address](#shielded-address)) for Solana / Ed25519 inputs; `0` for P256 inputs. SPP derives this from the signer account. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
