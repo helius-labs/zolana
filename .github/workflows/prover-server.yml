@@ -9,6 +9,7 @@ on:
       - ".github/workflows/prover-server.yml"
       - ".github/actions/setup-rust/**"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "prover/**"
       - "xtask/**"
@@ -28,6 +29,7 @@ jobs:
   go-tests:
     name: prover-server / go test
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # gnark circuit compilation across the full TestCombined / TestInclusion /
     # TestNonInclusion / batch_* CSV fixtures can take ~30-45 min; allow
     # headroom but cap so a runaway test fails fast.
@@ -44,6 +46,7 @@ jobs:
   xtask-verifying-keys:
     name: xtask / verifying-keys smoke
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust

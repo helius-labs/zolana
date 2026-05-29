@@ -13,6 +13,7 @@ on:
       - ".github/workflows/forester.yml"
       - ".github/actions/setup-rust/**"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "forester/**"
       - "programs/**"
@@ -39,6 +40,7 @@ jobs:
   unit:
     name: forester / compile
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
         with:
