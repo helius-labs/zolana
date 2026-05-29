@@ -266,22 +266,28 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
 
-Raw public keys are encoded as 128-bit limbs and absorbed with 2-input Poseidon.
+## Pubkey Field Encoding
+
+A pubkey is encoded into a single BN254 field via nested 2-input Poseidon over 128-bit big-endian limbs. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
 
 ```
-P256:
-x_hash        = Poseidon(x_low_128, x_high_128)
-parity_x_hash = Poseidon(y_is_odd, x_hash)
-owner_hash    = Poseidon(parity_x_hash, nullifier_pk)
+P256 (33 B SEC1: parity || x_be32):
+  x_hash := Poseidon(x_low_128, x_high_128)
+  pk_field(pk) := Poseidon(y_is_odd, x_hash)
 
-Solana / Ed25519:
-pk_hash    = Poseidon(pk_low_128, pk_high_128)
-owner_hash = Poseidon(pk_hash, nullifier_pk)
+Solana / Ed25519 (32 B):
+  pk_field(pk) := Poseidon(pk_low_128, pk_high_128)
 ```
 
-SPP recomputes the P256 path from the witnessed point and the Solana path from the signer account.
+P256's extra `y_is_odd` layer means the two encodings cannot collide except via Poseidon preimage collision (~2⁻²⁵⁴); no explicit scheme tag is needed.
 
-Wherever a P256 pubkey (e.g. `user_viewing_pk`, `merge_authority_pubkey`) appears as an input to a Poseidon hash elsewhere in this spec, it is absorbed via the same chain: `Poseidon(y_is_odd, Poseidon(x_low_128, x_high_128))`.
+## Owner Hash
+
+```
+owner_hash := Poseidon(pk_field(signing_pk), nullifier_pk)
+```
+
+The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
 
 # Signing Key
 
@@ -763,7 +769,7 @@ struct MergeEncryptedUtxo {
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
 | program_data_hash | instruction data |
 | policy_data_hash | instruction data |
-| solana_pk_hashes (one per input UTXO) | `Poseidon(pk_low_128, pk_high_128)` over the verified Solana signer's pubkey for Solana / Ed25519 inputs; `0` for P256 inputs. SPP derives this from the signer account. |
+| solana_pk_hashes (one per input UTXO) | `pk_field(solana_signer)` (see [Shielded Address](#shielded-address)) for Solana / Ed25519 inputs; `0` for P256 inputs. SPP derives this from the signer account. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -771,7 +777,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity. Solana / Ed25519 inputs use the public `solana_pk_hashes[i]`. |
+| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). Solana / Ed25519 inputs use the public `solana_pk_hashes[i]`. |
 | `nullifier_pk` | owner's [Shielded Address](#shielded-address) nullifier commitment, a 32-byte field element |
 | `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `policy_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -816,8 +822,8 @@ external_data_hash := Sha256BE(
 
 | Check | Description |
 | --- | --- |
-| Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. P256 inputs rebuild the nested chain (`x_hash → parity_x_hash → owner_hash`) from the witnessed point; Solana inputs use SPP's signer-derived `pk_hash`. |
-| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The per-input `solana_pk_hashes` public input selects the path: `0` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and binds the input's owner to the signer-derived `pk_hash`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
+| Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The per-input `solana_pk_hashes` public input selects the path: `0` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and binds the input's owner to the signer-derived `pk_field`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | The recomputed `nullifier_pk` (see [Nullifier Key](#nullifier-key)) must equal each input's `nullifier_pk` witness. Implication: all non-dummy inputs share `nullifier_pk`, and therefore the same owner. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
@@ -830,8 +836,8 @@ external_data_hash := Sha256BE(
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
-1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `parity_x_hash`. The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
-2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to `pk_hash = Poseidon(pk_low_128, pk_high_128)` derived from the signer pubkey; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
+1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state.
+2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `pk_field`; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
 
 **Circuit Combinations**
 
@@ -874,7 +880,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Input | Description |
 | --- | --- |
-| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity used to recompute the nested key chain `(x_hash, parity_x_hash)`. |
+| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity, used to recompute `pk_field(user_signing_pk)` (see [Shielded Address](#shielded-address)). |
 | `user_nullifier_pk` | shared owner's nullifier commitment, a 32-byte field element |
 | `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
 | `user_viewing_pk` | owner's P256 viewing pubkey, bound at enable time via `enable_commitment` |
@@ -972,7 +978,7 @@ ZK proof for [`enable_merge_authority`](#enable_merge_authority). Hides the owne
 
 | Input | Description |
 | --- | --- |
-| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity used to recompute the nested key chain `(x_hash, parity_x_hash)`. |
+| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity, used to recompute `pk_field(user_signing_pk)` (see [Shielded Address](#shielded-address)). |
 | `user_nullifier_pk` | owner's nullifier commitment, a 32-byte field element |
 | user_viewing_pk | owner's P256 viewing pk |
 | merge_authority_pubkey | merge authority P256 signing pk |
@@ -1003,7 +1009,7 @@ ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to
 
 | Input | Description |
 | --- | --- |
-| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity used to recompute the nested key chain `(x_hash, parity_x_hash)`. |
+| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity, used to recompute `pk_field(user_signing_pk)` (see [Shielded Address](#shielded-address)). |
 | `user_nullifier_pk` | owner's nullifier commitment, a 32-byte field element |
 | user_viewing_pk | matches the viewing pk of the enable being revoked |
 | merge_authority_pubkey | merge authority P256 signing pk |
