@@ -764,9 +764,12 @@ struct MergeEncryptedUtxo {
 | utxo_tree_roots (one per input UTXO) | resolved from `utxo_tree_root_index[i]` against the root cache of the input's UTXO tree |
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
-| public_sol_amount | instruction data |
-| public_spl_amount | instruction data |
+| external_data_hash | instruction data; SPP recomputes it from the dispatched instruction (see the **external_data_hash** definition below) and checks it equals this public input. It is a standalone public input — not only folded into `private_tx_hash` — because SPP cannot recompute `private_tx_hash` (the input UTXO hashes it commits to are private), so binding the proof to the dispatched instruction requires `external_data_hash` to be exposed directly. |
+| public_sol_amount | instruction data; raw unsigned `u64` magnitude of the public SOL movement. The proof derives the signed balance effect from `public_amount_mode` and `relayer_fee` (deposit adds `+amount`; withdraw subtracts `amount + relayer_fee`), so SPP passes the raw instruction value through unchanged. |
+| public_spl_amount | instruction data; raw unsigned `u64` magnitude of the public SPL movement. Signed in-circuit by `public_amount_mode` (deposit adds; withdraw subtracts `amount`). No fee is folded — relayer fees are paid in SOL. |
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
+| public_amount_mode | instruction data; `0` = transfer, `1` = deposit (shield), `2` = withdraw (unshield). Selects the sign the proof applies to `public_sol_amount` / `public_spl_amount` in balance conservation; constrained in-circuit to `{0, 1, 2}`. |
+| relayer_fee | instruction data (`u16`); SOL paid to the relayer, subtracted from the shielded SOL balance on withdraw only. Also committed in `external_data_hash`. |
 | ProgramIDHashchain | instruction data |
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
 | program_data_hash | instruction data |
@@ -865,6 +868,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | merge_authority_root | resolved from `merge_authority_root_index` against the merge authority tree root cache |
 | private_tx_hash | instruction data |
+| external_data_hash | instruction data; SPP recomputes it from the dispatched `merge_transact` instruction and checks it equals this public input. Standalone public input for the same reason as in the [SPP Proof](#spp-proof---shielded-pool-zk-proof): SPP cannot recompute `private_tx_hash` (its input UTXO hashes are private), so binding the proof to the dispatched instruction requires exposing `external_data_hash` directly. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
 | ciphertext | instruction data (from the merge ciphertext blob) |
 
@@ -1130,10 +1134,16 @@ struct TransactIxData {
     /// [SPP Proof](#spp-proof---shielded-pool-zk-proof). The proof verifies the
     /// owner's P256 signature over this value.
     private_tx_hash: [u8; 32],
-    /// `Some` for shield/unshield SOL, `None` for shielded transfer.
+    /// Raw unsigned magnitude for shield/unshield SOL; `None` for shielded
+    /// transfer. The sign is set by `public_amount_mode`, not by this field.
     public_sol_amount: Option<u64>,
-    /// `Some` for shield/unshield SPL, `None` for shielded transfer.
+    /// Raw unsigned magnitude for shield/unshield SPL; `None` for shielded transfer.
     public_spl_amount: Option<u64>,
+    /// Direction for the public amounts: 0 = transfer, 1 = deposit (shield),
+    /// 2 = withdraw (unshield). A public input of the SPP proof; the proof
+    /// applies the corresponding sign (and folds `relayer_fee` on withdraw) in
+    /// balance conservation.
+    public_amount_mode: u8,
     /// Declares that a program is signer, and checks that the pda derivation matches seed ["auth"] with program id and bump. Passes program as signer into the zk proof verification.
     cpi_signer: Option<(program_id, bump)>,
     /// (account index, input utxo index)
