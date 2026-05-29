@@ -662,8 +662,6 @@ func buildCircuitAssignmentWithDummies(
 		ProgramIDHashChain:   fe(0),
 		SolanaPubkeyHash:     solanaPubkeyHash,
 		SolanaPkHashes:       toBigInts(solanaPkHashes),
-		DataHash:             fe(0),
-		PolicyData:           fe(0),
 	}
 	publicInputHashValue, err := PublicInputHash(publicInputs)
 	publicInputHash := mustHash(t, publicInputHashValue, err)
@@ -699,8 +697,6 @@ func buildCircuitAssignmentWithDummies(
 		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		SolanaPkHashes:       solanaPkHashes,
-		DataHash:             publicInputs.DataHash,
-		PolicyData:           publicInputs.PolicyData,
 		PublicInputHash:      publicInputHash,
 	}
 }
@@ -754,8 +750,6 @@ func refreshPublicInputHash(t *testing.T, assignment *Circuit) {
 		ProgramIDHashChain:   asBigInt(assignment.ProgramIDHashChain),
 		SolanaPubkeyHash:     asBigInt(assignment.SolanaPubkeyHash),
 		SolanaPkHashes:       toBigInts(assignment.SolanaPkHashes),
-		DataHash:             asBigInt(assignment.DataHash),
-		PolicyData:           asBigInt(assignment.PolicyData),
 	}
 	publicInputHashValue, err := PublicInputHash(publicInputs)
 	assignment.PublicInputHash = mustHash(t, publicInputHashValue, err)

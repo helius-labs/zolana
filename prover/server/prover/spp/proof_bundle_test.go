@@ -68,8 +68,6 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 				NullifierSecret: proofFieldHex(nullifierSecret),
 			}},
 			ProgramIDHashChain: proofFieldHex(big.NewInt(0)),
-			DataHash:           proofFieldHex(big.NewInt(0)),
-			PolicyData:         proofFieldHex(big.NewInt(0)),
 		}},
 	}
 

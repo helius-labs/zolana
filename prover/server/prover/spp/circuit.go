@@ -49,8 +49,6 @@ type Circuit struct {
 	ProgramIDHashChain   frontend.Variable
 	SolanaPubkeyHash     frontend.Variable
 	SolanaPkHashes       []frontend.Variable
-	DataHash             frontend.Variable
-	PolicyData           frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -222,8 +220,6 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSplAssetPubkey,
 		c.ProgramIDHashChain,
 		c.SolanaPubkeyHash,
-		c.DataHash,
-		c.PolicyData,
 		HashChainCircuit(api, c.SolanaPkHashes),
 	})
 }
@@ -298,8 +294,6 @@ type PublicInputs struct {
 	ProgramIDHashChain   *big.Int
 	SolanaPubkeyHash     *big.Int
 	SolanaPkHashes       []*big.Int
-	DataHash             *big.Int
-	PolicyData           *big.Int
 }
 
 func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
@@ -335,8 +329,6 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSplAssetPubkey,
 		inputs.ProgramIDHashChain,
 		inputs.SolanaPubkeyHash,
-		inputs.DataHash,
-		inputs.PolicyData,
 		solanaOwnerKeyHashChain,
 	})
 }

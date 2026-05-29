@@ -46,8 +46,6 @@ type ProofTransactionRequest struct {
 	NullifierTreeRootIndex   []uint16            `json:"nullifier_tree_root_index"`
 	NullifierEntries         []string            `json:"nullifier_entries"`
 	ProgramIDHashChain       string              `json:"program_id_hashchain"`
-	DataHash                 string              `json:"data_hash"`
-	PolicyData               string              `json:"policy_data"`
 	P256SignerPubkey         string              `json:"p256_signer_pubkey,omitempty"`
 	P256SignatureR           string              `json:"p256_signature_r,omitempty"`
 	P256SignatureS           string              `json:"p256_signature_s,omitempty"`
@@ -549,15 +547,6 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
 	}
-	dataHash, err := optionalField(tx.DataHash)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("data_hash: %w", err)
-	}
-	policyData, err := optionalField(tx.PolicyData)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("policy_data: %w", err)
-	}
-
 	publicInputs := PublicInputs{
 		Nullifiers:           proofVariablesToBigInts(nullifiers),
 		OutputUtxoHashes:     outputHashes,
@@ -574,8 +563,6 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		ProgramIDHashChain:   programIDHashChain,
 		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
 		SolanaPkHashes:       proofVariablesToBigInts(solanaPkHashes),
-		DataHash:             dataHash,
-		PolicyData:           policyData,
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
 	if err != nil {
@@ -613,8 +600,6 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		SolanaPkHashes:       solanaPkHashes,
-		DataHash:             publicInputs.DataHash,
-		PolicyData:           publicInputs.PolicyData,
 		PublicInputHash:      publicInputHash,
 	}
 	return assignment, publicInputs, outputResponses, proofDebug{

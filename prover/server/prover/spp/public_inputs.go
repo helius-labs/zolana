@@ -15,7 +15,5 @@ var LogicalPublicInputNames = []string{
 	"public_spl_asset_pubkey",
 	"program_id_hashchain",
 	"solana_pubkey_hash",
-	"data_hash",
-	"policy_data",
 	"solana_pk_hashes",
 }
