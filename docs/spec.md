@@ -7,11 +7,11 @@
   - [Operations](#operations)
     - [User](#user)
     - [Protocol](#protocol)
-    - [Pocket Creator](#pocket-creator)
+    - [Zone Creator](#zone-creator)
     - [Merge Service](#merge-service)
   - [Concurrency & Balance Fragmentation](#concurrency--balance-fragmentation)
-  - [Default Pocket](#default-pocket)
-  - [Policy Pockets](#policy-pockets)
+  - [Default Zone](#default-zone)
+  - [Policy Zones](#policy-zones)
 - [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
 - [Signing Key](#signing-key)
@@ -39,20 +39,20 @@
   - [Merge](#merge)
     - [Plaintext Layout](#plaintext-layout-2)
     - [Instruction Data Layout](#instruction-data-layout-2)
-- [SPP Proof - Shielded Pool ZK Proof](#spp-proof---shielded-pool-zk-proof)
+- [SPP Proof - Solana Privacy ZK Proof](#spp-proof---solana-privacy-zk-proof)
 - [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
 - [Enable Proof - Merge Authority Opt-in Proof](#enable-proof---merge-authority-opt-in-proof)
 - [Revoke Proof - Merge Authority Opt-out Proof](#revoke-proof---merge-authority-opt-out-proof)
-- [SPP - Shielded Pool Program](#spp---shielded-pool-program)
+- [SPP - Solana Privacy Program](#spp---solana-privacy-program)
   - [Accounts](#accounts)
-    - [Pocket Accounts](#pocket-accounts)
+    - [Zone Accounts](#zone-accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
     - [merge_transact](#merge_transact)
-    - [merge_pocket](#merge_pocket)
+    - [merge_zone](#merge_zone)
     - [enable_merge_authority](#enable_merge_authority)
     - [disable_merge_authority](#disable_merge_authority)
-- [Policy Program Interface](#policy-program-interface)
+- [Zone Program Interface](#zone-program-interface)
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
   - [Indexer](#indexer)
@@ -64,7 +64,7 @@
     - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
   - [Prover](#prover)
   - [Relayer](#relayer)
-  - [Pocket RPC](#pocket-rpc)
+  - [Zone RPC](#zone-rpc)
     - [get_decrypted_utxos_by_owner](#get_decrypted_utxos_by_owner)
     - [get_decrypted_transactions_by_owner](#get_decrypted_transactions_by_owner)
     - [get_decrypted_merge_authority_events_by_owner](#get_decrypted_merge_authority_events_by_owner)
@@ -90,7 +90,7 @@
 
 The solana privacy protocol (TSPP) enables programmable, UTXO-based anonymous transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and view tags enable wallet sync at Solana speed.
 
-Anonymous transfers are performed by a minimal shielded pool program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement pockets with custom policy programs, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
+Anonymous transfers are performed by a minimal Solana Privacy Program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement zones with custom zone programs, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
 
 For wallet sync at Solana RPC speed, view tags prefix every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption.
 
@@ -98,7 +98,7 @@ For compatibility with Solana addresses, a registry maps Solana addresses to shi
 
 Two opt-in services improve user experience. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches view tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
 
-The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the policy program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / pocket RPC / merge service / registry interfaces, and user flows.
+The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the zone program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / zone RPC / merge service / registry interfaces, and user flows.
 
 # Architecture
 
@@ -107,14 +107,14 @@ The document specifies the key derivation, UTXO layout, SPP accounts and instruc
 Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate with `just render-diagrams`.
 
 1. Users — own wallets, build encrypted transactions, sign with P256.
-2. Photon Indexer — indexes trees + encrypted UTXOs; default-pocket users fetch ciphertexts here.
-3. Pocket RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-pocket users.
+2. Photon Indexer — indexes trees + encrypted UTXOs; default-zone users fetch ciphertexts here.
+3. Zone RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-zone users.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
-5. Relayer — fee-payer; submits transactions to SPP (default pocket), to the ZK Swap program, or to a Policy program (policy pocket).
+5. Relayer — fee-payer; submits transactions to SPP (default zone), to the ZK Swap program, or to a Zone program (policy zone).
 6. Forester — processes the nullifier queue into the nullifier tree.
-7. SPP (Shielded Pool Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
-8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Policy program or directly into SPP.
-9. Policy Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
+7. SPP (Solana Privacy Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
+8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Zone program or directly into SPP.
+9. Zone Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
 10. SPL interface — per-mint SPL / Token-22 holding all shielded tokens.
 11. Tree accounts — co-located UTXO tree, nullifier tree, and nullifier queue.
 
@@ -125,7 +125,7 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 ### User
 
-Operations 1-4 run against the default pocket via [`transact`](#transact) (or `proofless_shield`), or against a policy pocket via the policy program's CPI into `pocket_transact`.
+Operations 1-4 run against the default zone via [`transact`](#transact) (or `proofless_shield`), or against a policy zone via the zone program's CPI into `zone_transact`.
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
@@ -147,16 +147,16 @@ Operations 1-4 run against the default pocket via [`transact`](#transact) (or `p
 | 5 | pause_tree | Freeze writes to a Tree account |
 | 6 | create_merge_authority_tree | Initialize a merge authority tree account (holds `enable_commitment` and `revoke_commitment` leaves) |
 
-### Pocket Creator
+### Zone Creator
 
-Operations performed by the owner of a policy pocket's config.
+Operations performed by the owner of a policy zone's config.
 
 | # | Name | Description |
 | --- | --- | --- |
-| 1 | create_pocket_config | Create a new pocket config PDA; sets `owner` and `pocket_authority_transact_is_enabled` |
-| 2 | update_pocket_config | Toggle `pocket_authority_transact_is_enabled`. When disabled and the config owner is burned, the policy program cannot perform pocket-authority state transitions |
-| 3 | update_pocket_config_owner | Transfer pocket config ownership |
-| 4 | pocket_authority_transact | Prove correctness of a state transition by a pocket authority (freeze, thaw, permanent-delegate transfer) |
+| 1 | create_zone_config | Create a new zone config PDA; sets `owner` and `zone_authority_transact_is_enabled` |
+| 2 | update_zone_config | Toggle `zone_authority_transact_is_enabled`. When disabled and the config owner is burned, the zone program cannot perform zone-authority state transitions |
+| 3 | update_zone_config_owner | Transfer zone config ownership |
+| 4 | zone_authority_transact | Prove correctness of a state transition by a zone authority (freeze, thaw, permanent-delegate transfer) |
 
 ### Merge Service
 
@@ -164,8 +164,8 @@ Operations performed by a whitelisted merge service that holds a P-256 `merge_au
 
 | # | Name | Description |
 | --- | --- | --- |
-| 1 | merge_transact | Consolidate N input UTXOs of the same owner and asset into one default-pocket output UTXO |
-| 2 | merge_pocket | Policy-pocket analog of `merge_transact`; called via CPI from a policy program. Inputs and output share `policy_program_id` |
+| 1 | merge_transact | Consolidate N input UTXOs of the same owner and asset into one default-zone output UTXO |
+| 2 | merge_zone | Policy-zone analog of `merge_transact`; called via CPI from a zone program. Inputs and output share `zone_program_id` |
 
 
 ## Concurrency & Balance Fragmentation
@@ -177,9 +177,9 @@ UTXOs are inherently concurrent. Every transaction to a user will fragment the u
 3. Optionally, fragmented balances can be reconsolidated without user interaction by a whitelisted trust minimized [merge service](#merge_transact).
 
 
-## Default Pocket
+## Default Zone
 
-The default pocket is similar to zcash and has no policy.
+The default zone is similar to zcash and has no policy.
 Users invoke the SPP directly.
 Optional merge services and sync delegates can be used to improve UX.
 
@@ -188,29 +188,29 @@ Optional merge services and sync delegates can be used to improve UX.
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
 
     Note over Client: Build transaction
-    Client->>PocketRPC: fetch_encrypted_utxos
-    PocketRPC-->>Client: encrypted UTXOs
+    Client->>ZoneRPC: fetch_encrypted_utxos
+    ZoneRPC-->>Client: encrypted UTXOs
     Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>PocketRPC: send transaction <br>(in utxos, out utxos, signature)
-    PocketRPC->>System: submit tx<br>transact
+    Client->>ZoneRPC: send transaction <br>(in utxos, out utxos, signature)
+    ZoneRPC->>System: submit tx<br>transact
 
     Note over System: verify ZKP
     System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
+    System-->>ZoneRPC: index encrypted UTXOs
 ```
 
-## Policy Pockets
+## Policy Zones
 
 **Properties:**
-1. Fully programmable: the pocket creator deploys a policy program that implements custom logic enforcing encryption to auditors, authorities, freeze authority, co-signer, and permanent delegate.
-2. Enter Pocket: a pocket is entered by a shield from an SPL token account, the standard shielded pool, or another pocket via a shielded transfer.
-3. Exit Pocket: a pocket is exited by an unshield to an SPL token account, the standard shielded pool, or another pocket via a shielded transfer.
-4. Transfers: users invoke the policy program, which CPIs into the SPP program.
+1. Fully programmable: the zone creator deploys a zone program that implements custom logic enforcing encryption to auditors, authorities, freeze authority, co-signer, and permanent delegate.
+2. Enter Zone: a zone is entered by a shield from an SPL token account, the standard shielded pool, or another zone via a shielded transfer.
+3. Exit Zone: a zone is exited by an unshield to an SPL token account, the standard shielded pool, or another zone via a shielded transfer.
+4. Transfers: users invoke the zone program, which CPIs into the SPP program.
 
 
 ### Transfer
@@ -218,23 +218,23 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant PocketRPC as Pocket RPC<br>(Photon / Prover / Relayer)
-    participant Policy as Policy Program
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
+    participant Zone as Zone Program
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
 
     Note over Client: Build transaction
-    Client->>PocketRPC: get_balance
-    PocketRPC-->>Client: balance
+    Client->>ZoneRPC: get_balance
+    ZoneRPC-->>Client: balance
     Note over Client: 1. Set amount <br> 2. set recipient address (in) <br> 4. sign recipient address and amount
-	  Client->>PocketRPC: send transaction <br>(recipient, amount, signature)
-    PocketRPC-->>Policy: submit tx<br>policy_transact
-    Policy->>System: CPI: transact
+	  Client->>ZoneRPC: send transaction <br>(recipient, amount, signature)
+    ZoneRPC-->>Zone: submit tx<br>zone_transact
+    Zone->>System: CPI: transact
 
     Note over System: verify ZKP
     System-->>Trees: update trees
-    System-->>PocketRPC: index encrypted UTXOs
-    Note over PocketRPC: Decrypt UTXOs
+    System-->>ZoneRPC: index encrypted UTXOs
+    Note over ZoneRPC: Decrypt UTXOs
 ```
 
 
@@ -476,8 +476,8 @@ struct Utxo {
     program_data: Option<Vec<u8>>,
     /// Arbitrary policy data.
     policy_data: Option<Vec<u8>>,
-    /// The policy program that authorizes spends of this UTXO.
-    policy_program_id: Option<Address>,
+    /// The zone program that authorizes spends of this UTXO.
+    zone_program_id: Option<Address>,
 }
 ```
 
@@ -486,10 +486,10 @@ struct Utxo {
 ```
 utxo_hash = Poseidon(domain, owner_hash, asset, amount, blinding,
                      program_data_hash, policy_data_hash,
-                     policy_program_id)
+                     zone_program_id)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. `owner_hash` is defined in [Shielded Address](#shielded-address). `policy_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+The SPP proof commits to `utxo_hash` for every input and output. `owner_hash` is defined in [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
 
 ## Nullifier
 
@@ -504,7 +504,7 @@ utxo_blinding - must be committed as blinding in the utxo_hash.
 
 # Output UTXO Serialization
 
-Output UTXO serialization the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-pocket convention. Policy pockets can define their own.
+Output UTXO serialization the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-zone convention. Policy zones can define their own.
 UTXOs are encrypted with ECDH AES-GCM. One `tx_viewing_pk` is shared across all ciphertexts in a transaction. Ciphertexts are prefixed with (`view_tags`); see [View Tags](#view-tags).
 
 Schemes:
@@ -521,7 +521,7 @@ Program-specific bytes can optionally be appended to the base UTXO fields as typ
 
 | Tag | Field | UTXO field | Description |
 | --- | --- | --- | --- |
-| `0x01` | `pocket_data` | `policy_data` | store policy utxo data |
+| `0x01` | `zone_data` | `policy_data` | store policy utxo data |
 | `0x02` | `app_data` | `program_data` | store program utxo data |
 
 ## Transfer
@@ -550,8 +550,8 @@ struct TransferRecipientPlaintext {
     amount: u64,
     /// Random blinding for the single output.
     blinding: [u8; 31],
-    /// Arbitrary data the policy program defines. Parsed if the wallet supports the pocket.
-    pocket_data: Option<Vec<u8>>,
+    /// Arbitrary data the zone program defines. Parsed if the wallet supports the zone.
+    zone_data: Option<Vec<u8>>,
     /// bytes; the application program's client SDK does.
     /// Arbitrary data the app program defines. The wallet does not parse these
     app_data: Option<Vec<u8>>,
@@ -590,12 +590,12 @@ struct TransferSenderPlaintext {
     /// `known_recipients`. Length = `num_recipients` from the enclosing `TransferEncryptedUtxos`.
     recipient_viewing_pks: [P256Pubkey; R],
     /// Bytes that populate the `policy_data` field of the SPL change UTXO
-    /// (position 0). Hashed via the policy program's scheme into the
+    /// (position 0). Hashed via the zone program's scheme into the
     /// `policy_data_hash` slot of `utxo_hash`. The SOL change UTXO (position 1)
-    /// is always bare — `policy_program_id = 0`, `policy_data = None`,
+    /// is always bare — `zone_program_id = 0`, `policy_data = None`,
     /// `program_data = None`, no extensions — regardless of this field. See
     /// [Program Data](#program-data).
-    pocket_data: Option<Vec<u8>>,
+    zone_data: Option<Vec<u8>>,
     /// Bytes that populate the `program_data` field of the SPL change UTXO
     /// (position 0). Hashed via the app program's scheme into the
     /// `program_data_hash` slot of `utxo_hash`.
@@ -662,7 +662,7 @@ Blob size by recipient count:
 | 4 | 920 |
 | 8 | 1700 |
 
-Sizes assume `pocket_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
+Sizes assume `zone_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
 
 ## UTXO Split
 
@@ -691,10 +691,10 @@ struct SplitBundlePlaintext {
     asset_amount: u64,
     /// Seed for the M per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// Arbitrary data the policy program defines. Applied uniformly to all M
+    /// Arbitrary data the zone program defines. Applied uniformly to all M
     /// outputs (they share every other base field). See [Program
     /// Data](#program-data).
-    pocket_data: Option<Vec<u8>>,
+    zone_data: Option<Vec<u8>>,
     /// Arbitrary data the app program defines. Applied uniformly to all M
     /// outputs.
     app_data: Option<Vec<u8>>,
@@ -753,7 +753,7 @@ struct MergeEncryptedUtxo {
 }
 ```
 
-# SPP Proof - Shielded Pool ZK Proof
+# SPP Proof - Solana Privacy ZK Proof
 
 **Public Inputs**
 
@@ -781,7 +781,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | --- | --- |
 | owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). Solana / Ed25519 inputs use the public `solana_pk_hashes[i]`. |
 | `nullifier_pk` | owner's [Shielded Address](#shielded-address) nullifier commitment, a 32-byte field element |
-| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `policy_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` also feeds the nullifier formula |
+| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
 | `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519) |
 
@@ -796,11 +796,11 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | Input | Description |
 | --- | --- |
 | `owner` | recipient's `owner_hash`; the proof hashes it into `output_utxo_hashes[i]` without unpacking the components |
-| `asset`, `amount`, `blinding`, `program_data_hash`, `policy_data_hash`, `policy_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
+| `asset`, `amount`, `blinding`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `pocket_transact`, `pocket_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the public fields of the invoking SPP instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `zone_transact`, `zone_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
@@ -831,7 +831,7 @@ external_data_hash := Sha256BE(
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash, expiry_unix_ts)`.<br>The owner signs this value (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
-| Program ownership | UTXOs owned by a policy program must be authorized by a PDA signer of that program. Policy proofs are checked by the policy program before CPI into SPP. |
+| Program ownership | UTXOs owned by a zone program must be authorized by a PDA signer of that program. Policy proofs are checked by the zone program before CPI into SPP. |
 | Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. |
 
 <a id="utxo-ownership-check"></a>
@@ -910,13 +910,13 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Nullifier secret binding | The recomputed `nullifier_pk` (see [Nullifier Key](#nullifier-key)) must equal `user_nullifier_pk`. Together with the Owner hash binding, this pins `nullifier_secret` per UTXO. |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
-| Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_pocket`. |
-| Input cleanliness — pocket fields | For `merge_transact` (default-pocket merge service): each non-dummy input UTXO additionally has `policy_program_id = 0` and `policy_data_hash = 0`. For [`merge_pocket`](#merge_pocket) (policy-CPI merge): the non-dummy inputs share a `policy_program_id` that matches the CPI caller; `policy_data` is constrained by the policy program's own logic, not by SPP. |
-| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `policy_program_id = 0` and `policy_data_hash = 0`. For `merge_pocket`: `policy_program_id` matches the CPI caller and `policy_data` is the value the policy program sets (constrained by its own proof). |
+| Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_zone`. |
+| Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `policy_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `policy_data` is constrained by the zone program's own logic, not by SPP. |
+| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `policy_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `policy_data` is the value the zone program sets (constrained by its own proof). |
 | Whitelist inclusion | The `enable_commitment` (see [Enable Proof](#enable-proof---merge-authority-opt-in-proof)) is a leaf of the merge authority tree at `merge_authority_root`. |
 | Revoke non-inclusion | The `revoke_commitment` (see [Revoke Proof](#revoke-proof---merge-authority-opt-out-proof)) is NOT a leaf of the merge authority tree at `merge_authority_root`. Combined with SPP's queue bloom-filter check on `merge_transact`, this catches any revoke that landed after the cached root was taken. |
 | Merge authority signature | P256 signature by `merge_authority_pubkey` over `private_tx_hash` verifies. The hash covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
-| Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---shielded-pool-zk-proof). |
+| Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
 | Verifiable encryption | The public `ciphertext` equals `AES-256-GCM(aes_key, nonce, plaintext, AAD = output_utxo_hash)` where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. |
@@ -1026,7 +1026,7 @@ ZK proof for [`disable_merge_authority`](#disable_merge_authority). Symmetric to
 
 Each of the three merge proofs (Merge, Enable, Revoke) has its own Groth16 verifying key.
 
-# SPP - Shielded Pool Program
+# SPP - Solana Privacy Program
 
 ## Accounts
 
@@ -1038,24 +1038,24 @@ Each of the three merge proofs (Merge, Enable, Revoke) has its own Groth16 verif
 | Asset counter | Singleton account holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
 | Protocol config | Singleton account; pause authority and protocol-wide settings. |
 | Merge authority tree | `light-batched-merkle-tree` (H=40) plus insertion queue (with bloom filter). Holds `enable_commitment` leaves from [`enable_merge_authority`](#enable_merge_authority) and `revoke_commitment` leaves from [`disable_merge_authority`](#disable_merge_authority). The [merge proof](#merge-proof---merge-zk-proof) proves whitelist inclusion and revoke non-inclusion against this tree; the queue's bloom filter rejects fresh duplicate inserts and catches the revoke race window, exactly as the nullifier queue does for double-spend. |
-| `spp_pocket_config` | SPP-owned PDA, one per policy program. Seeds `[b"spp_pocket_config", policy_program_id]`. Gates `pocket_authority_transact`. See [Pocket Accounts](#pocket-accounts). |
-| `pocket_auth` | Signer PDA derived under the calling policy program. Seeds `[b"pocket_auth"]`. Passed as a signer on every SPP pocket instruction; SPP re-derives the address from `policy_program_id` + `bump` (both in instruction data) and matches against the signer. One pocket per policy program. See [Pocket Accounts](#pocket-accounts). |
+| `spp_zone_config` | SPP-owned PDA, one per zone program. Seeds `[b"spp_zone_config", zone_program_id]`. Gates `zone_authority_transact`. See [Zone Accounts](#zone-accounts). |
+| `zone_auth` | Signer PDA derived under the calling zone program. Seeds `[b"zone_auth"]`. Passed as a signer on every SPP zone instruction; SPP re-derives the address from `zone_program_id` + `bump` (both in instruction data) and matches against the signer. One zone per zone program. See [Zone Accounts](#zone-accounts). |
 
-### Pocket Accounts
+### Zone Accounts
 
-A policy program hosts exactly one pocket. Two accounts tie SPP to that program:
+A zone program hosts exactly one zone. Two accounts tie SPP to that program:
 
-**`pocket_auth`** — Signer PDA the policy program signs for. Seeds `[b"pocket_auth"]` derived under the policy program. On every SPP pocket instruction (`pocket_transact`, `pocket_authority_transact`, `merge_pocket`), the policy program CPIs into SPP with `pocket_auth` as a signer; SPP recomputes `Address::create_program_address([b"pocket_auth", &[bump]], policy_program_id)` from the `policy_program_id` and `bump` in instruction data and rejects unless it matches the supplied signer. Security relies on the policy program being the signer, so any bump is acceptable.
+**`zone_auth`** — Signer PDA the zone program signs for. Seeds `[b"zone_auth"]` derived under the zone program. On every SPP zone instruction (`zone_transact`, `zone_authority_transact`, `merge_zone`), the zone program CPIs into SPP with `zone_auth` as a signer; SPP recomputes `Address::create_program_address([b"zone_auth", &[bump]], zone_program_id)` from the `zone_program_id` and `bump` in instruction data and rejects unless it matches the supplied signer. Security relies on the zone program being the signer, so any bump is acceptable.
 
-**`spp_pocket_config`** — SPP-owned PDA. Seeds `[b"spp_pocket_config", policy_program_id]`.
+**`spp_zone_config`** — SPP-owned PDA. Seeds `[b"spp_zone_config", zone_program_id]`.
 
 ```rust
-struct SppPocketConfig {
-    /// Permitted to call `update_pocket_config` and `update_pocket_config_owner`.
+struct SppZoneConfig {
+    /// Permitted to call `update_zone_config` and `update_zone_config_owner`.
     /// Set to `Address::default()` to burn the authority.
     authority: Address,
-    /// When false, SPP rejects `pocket_authority_transact` for this pocket.
-    pocket_authority_transact_is_enabled: bool,
+    /// When false, SPP rejects `zone_authority_transact` for this zone.
+    zone_authority_transact_is_enabled: bool,
     bump: u8,
 }
 ```
@@ -1064,10 +1064,10 @@ Usage by instruction:
 
 | Instruction | Behavior |
 | --- | --- |
-| `pocket_transact`, `merge_pocket` | `spp_pocket_config` is not read. `pocket_auth` pda must be signer. |
-| `pocket_authority_transact` | `spp_pocket_config` is required; must be initialized; `pocket_authority_transact_is_enabled` must be `true`. |
-| `create_pocket_config` | `pocket_auth` for `policy_program_id` must sign. Initializes `authority` and `pocket_authority_transact_is_enabled` from instruction data. |
-| `update_pocket_config`, `update_pocket_config_owner` | Signer must equal the config's `authority` field (not `pocket_auth`). |
+| `zone_transact`, `merge_zone` | `spp_zone_config` is not read. `zone_auth` pda must be signer. |
+| `zone_authority_transact` | `spp_zone_config` is required; must be initialized; `zone_authority_transact_is_enabled` must be `true`. |
+| `create_zone_config` | `zone_auth` for `zone_program_id` must sign. Initializes `authority` and `zone_authority_transact_is_enabled` from instruction data. |
+| `update_zone_config`, `update_zone_config_owner` | Signer must equal the config's `authority` field (not `zone_auth`). |
 
 ## Instructions
 
@@ -1075,21 +1075,21 @@ Usage by instruction:
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
 | proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree. Indexed under the recipient's bootstrap tag. |
-| pocket_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the pocket auditor key and the recipient keys named in the policy proof |
-| pocket_authority_transact | Tag 3; checks pocket pda is signer, checks state transition only includes pocket policy program owned UTXOs. UTXO owners don't sign pocket has full control subject to its policy.  |
+| zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
+| zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; admin; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
 | create_protocol_config | Tag 6; admin |
 | update_protocol_config | Tag 7; admin |
 | pause_tree | Tag 8; admin can pause and unpause trees |
-| create_pocket_config | Tag 9; creates the `spp_pocket_config` PDA for a given `policy_program_id`. Requires `pocket_auth` for that program as signer. See [Pocket Accounts](#pocket-accounts). |
-| update_pocket_config_owner | Tag 10; rotates `spp_pocket_config.authority`. Signer must equal current `authority`. |
-| update_pocket_config | Tag 11; toggles `spp_pocket_config.pocket_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `pocket_authority_transact` off permanently. |
-| merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-pocket; extension slots are zero. |
+| create_zone_config | Tag 9; creates the `spp_zone_config` PDA for a given `zone_program_id`. Requires `zone_auth` for that program as signer. See [Zone Accounts](#zone-accounts). |
+| update_zone_config_owner | Tag 10; rotates `spp_zone_config.authority`. Signer must equal current `authority`. |
+| update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
+| merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted merge authority (P256 sig verified in the merge proof). Input and output UTXOs are default-zone; extension slots are zero. |
 | enable_merge_authority | Tag 13; user opts a merge authority in by inserting `enable_commitment` into the merge authority tree. Authorized by an Enable Proof. |
 | disable_merge_authority | Tag 14; user revokes a merge authority by inserting `revoke_commitment` into the merge authority tree. Authorized by a Revoke Proof. |
 | create_merge_authority_tree | Tag 15; admin; initializes a merge authority tree account. |
-| pocket_merge_transact | Tag 16; CPI from a policy program; consolidates N input UTXOs (same owner, same asset, same `policy_program_id`) into one output UTXO that preserves `policy_program_id`. Mirrors `merge_transact` for policy-pocket UTXOs. The policy program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
+| zone_merge_transact | Tag 16; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
 
 ### `transact`
 
@@ -1127,7 +1127,7 @@ struct TransactIxData {
     /// Per input UTXO: index into the root cache of that input's nullifier tree. Length N.
     nullifier_tree_root_index: Vec<u16>,
     /// Public input to the SPP proof; defined under
-    /// [SPP Proof](#spp-proof---shielded-pool-zk-proof). The proof verifies the
+    /// [SPP Proof](#spp-proof---solana-privacy-zk-proof). The proof verifies the
     /// owner's P256 signature over this value.
     private_tx_hash: [u8; 32],
     /// `Some` for shield/unshield SOL, `None` for shielded transfer.
@@ -1227,11 +1227,11 @@ struct MergeTransactIxData {
 7. Insert each input nullifier into the nullifier queue.
 8. Insert `merge_view_tag` into the nullifier queue. Rejects on duplicate, so each per-service `(merge_authority_pubkey, merge_count)` slot is used at most once. SPP does not parse `encrypted_utxo`; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
 
-### `merge_pocket`
+### `merge_zone`
 
 **Discriminator:** 16
 
-**Description.** Policy-pocket analog of [`merge_transact`](#merge_transact), invoked via CPI from a policy program. The relationship to `merge_transact` parallels how [`pocket_authority_transact`](#pocket_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `policy_program_id` (matching the CPI caller) into one output UTXO that preserves `policy_program_id`. The policy program runs its own authorization, including any rules over `policy_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output.
+**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching the CPI caller) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `policy_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output.
 
 **Accounts**
 
@@ -1239,18 +1239,18 @@ struct MergeTransactIxData {
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 2 | merge_authority_tree | x |   | merge authority tree (enable/revoke commitments) |
-| 3 | policy_program |   | x | the calling policy program; SPP reads its program id and checks inputs/output `policy_program_id` against it |
+| 3 | zone_program |   | x | the calling zone program; SPP reads its program id and checks inputs/output `zone_program_id` against it |
 | 4 | payer |   | x | fee payer |
 
 **Instruction data**
 
-Identical to [`MergeTransactIxData`](#merge_transact); the merge proof's circuit branch enforces the policy-pocket variant of the cleanliness and output-well-formed rules.
+Identical to [`MergeTransactIxData`](#merge_transact); the merge proof's circuit branch enforces the policy-zone variant of the cleanliness and output-well-formed rules.
 
 **Checks**
 
 1. CPI caller is the program named in account #3.
 2. Same checks 1–4 as `merge_transact`.
-3. Proof verifies against public inputs (the policy-pocket variant: inputs share `policy_program_id` = account #3; output preserves it; `program_data_hash = 0` on every non-dummy input and on the output).
+3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = account #3; output preserves it; `program_data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 5. Insert each input nullifier into the nullifier queue.
 6. Insert `merge_view_tag` into the nullifier queue. Same single-use guard as `merge_transact`.
@@ -1366,7 +1366,7 @@ struct DisableMergeAuthorityIxData {
 
 The ciphertext is not verified by the proof. A malformed ciphertext is a self-DoS for the user (the service can't learn of the revoke and may keep trying merges — which fail because the revoke commitment is in the tree, but burn the service's gas), not an attack on the protocol.
 
-# Policy Program Interface
+# Zone Program Interface
 
 **Accounts**
 
@@ -1374,25 +1374,25 @@ Accounts can be Solana or compressed accounts.
 
 | # | Name | Description |
 | --- | --- | --- |
-| 1 | Pocket config | Configures authorities and features of a pocket |
+| 1 | Zone config | Configures authorities and features of a zone |
 | 2 | User config | Configures a shared viewing key |
 
 **Instructions**
 
-A policy program is free to implement the following instructions, a subset or superset. SPP instructions that are not exposed via the policy program are not accessible to pocket users — e.g. if `merge_transact` is not exposed, merge services cannot merge pocket UTXOs. Tags are local to each policy program.
+A zone program is free to implement the following instructions, a subset or superset. SPP instructions that are not exposed via the zone program are not accessible to zone users — e.g. if `merge_transact` is not exposed, merge services cannot merge zone UTXOs. Tags are local to each zone program.
 
 | Instruction | Description |
 | --- | --- |
-| transact | Tag 0; verify policy proof, CPI SPP `pocket_transact` |
+| transact | Tag 0; verify policy proof, CPI SPP `zone_transact` |
 | proofless_shield | Tag 1; public deposit; no encryption; CPI SPP `proofless_shield` |
-| merge_transact | Tag 2; run policy authorization, CPI SPP `pocket_merge_transact` to consolidate the user's pocket UTXOs |
-| authority_transact | Tag 3; proves correctness of a state transition by a pocket authority (freeze, thaw, transaction with permanent delegate, ...). Merge UTXOs on behalf of the user. Pocket authority has full access to all UTXOs owned by the pocket. The access is constrained by the policy program implementation. CPI SPP `pocket_authority_transact` |
-| create_pocket_config | Tag 4; admin: creates account for a pocket; the config is public, sets auditor P256 key, pocket authority, freeze authority, permanent authority, co-signer |
-| update_pocket_config | Tag 5; admin: pocket authority updates the pocket config |
+| merge_transact | Tag 2; run policy authorization, CPI SPP `zone_merge_transact` to consolidate the user's zone UTXOs |
+| authority_transact | Tag 3; proves correctness of a state transition by a zone authority (freeze, thaw, transaction with permanent delegate, ...). Merge UTXOs on behalf of the user. Zone authority has full access to all UTXOs owned by the zone. The access is constrained by the zone program implementation. CPI SPP `zone_authority_transact` |
+| create_zone_config | Tag 4; admin: creates account for a zone; the config is public, sets auditor P256 key, zone authority, freeze authority, permanent authority, co-signer |
+| update_zone_config | Tag 5; admin: zone authority updates the zone config |
 
 **Policy data.**
 
-UTXOs can include a `policy_data` field interpreted by the policy program, hashed into the `policy_data_hash` slot of [UTXO Hash](#utxo-hash). The policy program defines the schema and the hashing scheme.
+UTXOs can include a `policy_data` field interpreted by the zone program, hashed into the `policy_data_hash` slot of [UTXO Hash](#utxo-hash). The zone program defines the schema and the hashing scheme.
 
 # ZK Program Interface
 
@@ -1606,7 +1606,7 @@ Generates SPP proofs server-side for clients that opt into server-side proving i
 
 ### `generate_spp_proof`
 
-Builds an [SPP proof](#spp-proof---shielded-pool-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`pocket_transact`](#pocket_transact) instruction.
+Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`zone_transact`](#zone_transact) instruction.
 
 ```rust
 struct GenerateSppProofRequest {
@@ -1640,9 +1640,9 @@ struct SubmitTransactionResponse {
 }
 ```
 
-## Pocket RPC
+## Zone RPC
 
-A Pocket RPC holds the pocket's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
+A Zone RPC holds the zone's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
 
 **Authentication.** Every request includes `signing_pk` and a `signature` by that key over the serialized request body. `bound_slot` pins the signature to a slot; the RPC rejects requests where `current_slot > bound_slot + 150`.
 
@@ -1752,7 +1752,7 @@ A merge service consolidates a user's fragmented UTXOs into fewer larger ones by
 
 **Identity.** A merge service is identified by a P256 `merge_authority_pubkey`.
 
-**Scope.** The merge service consolidates UTXOs in both default and policy pockets if the policy program exposes a merge instruction.
+**Scope.** The merge service consolidates UTXOs in both default and policy zones if the zone program exposes a merge instruction.
 UTXOs with `program_data` set (non-zero `program_data_hash`) cannot be merged since they are subject to program logic.
 
 **Lifecycle.**
@@ -1928,7 +1928,7 @@ ViewingKeyEntry {
 Wallet {
     signing_key:        SigningKey,
     viewing_history:    Vec<ViewingKeyEntry>,   // append-only, chronological (oldest first); the tail is the current entry
-    known_pockets:      map<policy_program_id → pocket_rpc_url>,
+    known_zones:        map<zone_program_id → zone_rpc_url>,
     Utxos:              Vec<Utxo>,
     last_synced:        Timestamp,
 }
@@ -1950,7 +1950,7 @@ Wallet {
                 - `wallet.get_sender_view_tag(n)` under `k` for `n in [i, i+10_000)`,
                 - `wallet.get_recipient_request_view_tag(n)` under `k` for `n in [i, i+10_000)`,
                 - the single `recipient_bootstrap_view_tag` for `k` (one call, not a range).
-            2. For each `policy_program_id` in `known_pockets`, fetch ciphertexts or decrypted UTXOs from that pocket's RPC.
+            2. For each `zone_program_id` in `known_zones`, fetch ciphertexts or decrypted UTXOs from that zone's RPC.
             3. **Decrypt and store.** Decrypt each ciphertext via the `k`-th viewing key. Store the UTXOs along with the transaction's `nullifiers` array. Track `max(observed index)` per stream.
         2. **Phase 2 — scan `known_senders` and `known_recipients` view tags.** Depends on Phase 1 (the maps are populated from decrypted ciphertexts there).
             1. **Fetch loop** in batches of 10 000 until first empty batch:
@@ -1999,7 +1999,7 @@ The merge service consolidates the owner's fragmented UTXOs. The opt-in is a sin
 sequenceDiagram
     participant Wallet as Owner Wallet
     participant Merge as Merge Service
-    participant SPP as Shielded Pool Program
+    participant SPP as Solana Privacy Program
     participant Trees as Tree accounts<br/>(UTXO + nullifier + merge authority)
     participant Indexer as Photon Indexer
 
