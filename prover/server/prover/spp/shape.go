@@ -6,6 +6,17 @@ const (
 	StateTreeHeight     = 26
 	NullifierTreeHeight = 40
 	CompressedProofSize = 192
+
+	// UtxoDomain is the protocol-fixed `domain` separator that every non-dummy
+	// UTXO carries in its Poseidon hash preimage (spec "UTXO Hash"). Enforcing
+	// it in-circuit prevents a UTXO hash from being reinterpreted as another
+	// Poseidon record type (audit finding #2).
+	//
+	// NOTE: the concrete value is not yet pinned by the spec or the on-chain
+	// program. This constant MUST be ratified to match the value senders write
+	// and that the on-chain program / indexer expect before mainnet; changing
+	// it changes the constraint system and invalidates existing proving keys.
+	UtxoDomain = 1
 )
 
 // Shape identifies one fixed-size SPP circuit. Each supported shape gets one
@@ -16,11 +27,11 @@ type Shape struct {
 }
 
 var SupportedShapes = []Shape{
-	{NInputs: 2, NOutputs: 2},
 	{NInputs: 1, NOutputs: 2},
+	{NInputs: 1, NOutputs: 8},
+	{NInputs: 2, NOutputs: 2},
 	{NInputs: 3, NOutputs: 3},
 	{NInputs: 5, NOutputs: 3},
-	{NInputs: 1, NOutputs: 8},
 }
 
 func NewShape(nInputs, nOutputs int) (Shape, error) {

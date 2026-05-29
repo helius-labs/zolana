@@ -10,9 +10,7 @@ import (
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
-// Circuit is the SPP v1 circuit for one fixed (N inputs, M outputs) shape.
-// TODO(v2): replace per-shape dispatch with one fixed wide circuit if the spec
-// moves to a single proving key.
+// Circuit is the SPP circuit for one fixed (N inputs, M outputs) shape.
 type Circuit struct {
 	Shape Shape `gnark:"-"`
 
@@ -39,8 +37,8 @@ type Circuit struct {
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
 
-	// Logical public inputs from spec v1. They are folded into PublicInputHash
-	// so the on-chain verifier can reconstruct one BN254 field element from
+	// Logical public inputs
+	// They are folded into PublicInputHash so the on-chain verifier can reconstruct one BN254 field element from
 	// instruction data and account state.
 	Nullifiers           []frontend.Variable
 	OutputUtxoHashes     []frontend.Variable
@@ -48,7 +46,7 @@ type Circuit struct {
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
-	ProgramIDHashchain   frontend.Variable
+	ProgramIDHashChain   frontend.Variable
 	SolanaPubkeyHash     frontend.Variable
 	SolanaPkHashes       []frontend.Variable
 	DataHash             frontend.Variable
@@ -105,6 +103,13 @@ func (c *Circuit) Define(api frontend.API) error {
 	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
 	p256OwnerKeyHash := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
 	p256Message := privateTxHashToP256Fr(api, c.PrivateTxHash)
+	// N-3: ECDSA is malleable — (r, s) and (r, n-s) both verify — so low-s is
+	// NOT enforced here. This is safe: the signature only authorizes
+	// private_tx_hash, which binds every input/output/expiry, and
+	// external_data_hash (folded into private_tx_hash) binds the exact
+	// instruction. A malleated signature cannot alter the transaction or be
+	// replayed against a different instruction, so a second valid (r,s) grants
+	// no additional authority.
 	p256SigValid := c.P256Pub.IsValid(
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
@@ -116,6 +121,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		api.AssertIsBoolean(c.IsDummyInput[i])
 		notDummy := api.Sub(1, c.IsDummyInput[i])
 		api.AssertIsEqual(api.Mul(c.IsDummyInput[i], c.InputUtxos[i].AssetAmount), 0)
+
+		// Pin the domain separator for every real UTXO (audit #2).
+		api.AssertIsEqual(api.Mul(notDummy, api.Sub(c.InputUtxos[i].Domain, UtxoDomain)), 0)
 
 		inputHash := UtxoHashCircuit(api, c.InputUtxos[i])
 		inputHashes[i] = api.Select(c.IsDummyInput[i], frontend.Variable(0), inputHash)
@@ -142,8 +150,26 @@ func (c *Circuit) Define(api frontend.API) error {
 		lowEff := api.Select(c.IsDummyInput[i], frontend.Variable(0), c.NfLowValue[i])
 		nullifierEff := api.Select(c.IsDummyInput[i], frontend.Variable(1), c.Nullifiers[i])
 		nextEff := api.Select(c.IsDummyInput[i], frontend.Variable(2), c.NfNextValue[i])
-		api.AssertIsLessOrEqual(api.Add(lowEff, 1), nullifierEff)
-		api.AssertIsLessOrEqual(api.Add(nullifierEff, 1), nextEff)
+		// Strict ordering low < nullifier < next. Expressed via
+		// AssertIsLessOrEqual + AssertIsDifferent rather than the `+1`
+		// increment form, so the comparison cannot wrap at the field
+		// boundary (e.g. nullifier == p-1 would make nullifier+1 wrap to 0
+		// and silently satisfy the upper bound). Audit findings #4/#5.
+		api.AssertIsLessOrEqual(lowEff, nullifierEff)
+		api.AssertIsDifferent(lowEff, nullifierEff)
+		api.AssertIsLessOrEqual(nullifierEff, nextEff)
+		api.AssertIsDifferent(nullifierEff, nextEff)
+	}
+
+	// Reject re-spending the same input twice in one transaction: every pair
+	// of real inputs must carry distinct nullifiers (audit #1). Dummy inputs
+	// all carry nullifier 0 and are excluded from the check.
+	for i := 0; i < c.Shape.NInputs; i++ {
+		for j := i + 1; j < c.Shape.NInputs; j++ {
+			bothReal := api.Mul(api.Sub(1, c.IsDummyInput[i]), api.Sub(1, c.IsDummyInput[j]))
+			sameNullifier := api.IsZero(api.Sub(c.Nullifiers[i], c.Nullifiers[j]))
+			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
+		}
 	}
 
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
@@ -152,18 +178,47 @@ func (c *Circuit) Define(api frontend.API) error {
 		notDummy := api.Sub(1, c.IsDummyOutput[i])
 		api.AssertIsEqual(api.Mul(c.IsDummyOutput[i], c.OutputUtxos[i].AssetAmount), 0)
 
+		// Pin the domain separator for every real UTXO (audit #2).
+		api.AssertIsEqual(api.Mul(notDummy, api.Sub(c.OutputUtxos[i].Domain, UtxoDomain)), 0)
+
 		outputHash := UtxoHashCircuit(api, c.OutputUtxos[i])
 		outputHashes[i] = api.Select(c.IsDummyOutput[i], frontend.Variable(0), outputHash)
 		api.AssertIsEqual(api.Mul(notDummy, api.Sub(outputHash, c.OutputUtxoHashes[i])), 0)
 		api.AssertIsEqual(api.Mul(c.IsDummyOutput[i], c.OutputUtxoHashes[i]), 0)
 	}
 
+	// Public amount encoding: public_sol_amount / public_spl_amount are raw
+	// unsigned magnitudes and public_amount_mode selects the balance sign — all
+	// bound as public inputs. The signed balance effect is derived here in the
+	// circuit rather than via an off-circuit convention, so the on-chain verifier
+	// only has to pass the raw instruction values through. mode: 0 = transfer,
+	// 1 = deposit, 2 = withdraw; relayer_fee (SOL) applies on withdraw only.
+	api.ToBinary(c.PublicSolAmount, 64)
+	api.ToBinary(c.PublicSplAmount, 64)
+	api.ToBinary(c.RelayerFee, 16)
+	modeIsTransfer := api.IsZero(c.PublicAmountMode)
+	modeIsDeposit := api.IsZero(api.Sub(c.PublicAmountMode, 1))
+	modeIsWithdraw := api.IsZero(api.Sub(c.PublicAmountMode, 2))
+	// Exactly one mode flag set => public_amount_mode ∈ {0, 1, 2}.
+	api.AssertIsEqual(api.Add(modeIsTransfer, modeIsDeposit, modeIsWithdraw), 1)
+	// A transfer has no public deposit/withdrawal — only the relayer fee moves.
+	api.AssertIsEqual(api.Mul(modeIsTransfer, c.PublicSolAmount), 0)
+	api.AssertIsEqual(api.Mul(modeIsTransfer, c.PublicSplAmount), 0)
+
+	// The mode sets the public-amount sign (+deposit, -withdraw, 0 transfer).
+	// The relayer fee (SOL) is an UNCONDITIONAL outflow from the shielded set to
+	// the relayer, independent of the mode — so a fee-bearing transfer is just
+	// mode 0 with relayer_fee > 0 and need not masquerade as a withdrawal.
+	publicSign := api.Sub(modeIsDeposit, modeIsWithdraw)
+	solSigned := api.Sub(api.Mul(publicSign, c.PublicSolAmount), c.RelayerFee)
+	splSigned := api.Mul(publicSign, c.PublicSplAmount)
+
 	assertBalanceConservation(
 		api,
 		c.InputUtxos,
 		c.OutputUtxos,
-		c.PublicSolAmount,
-		c.PublicSplAmount,
+		solSigned,
+		splSigned,
 		c.PublicSplAssetPubkey,
 	)
 
@@ -191,7 +246,9 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
-		c.ProgramIDHashchain,
+		c.PublicAmountMode,
+		c.RelayerFee,
+		c.ProgramIDHashChain,
 		c.SolanaPubkeyHash,
 		c.DataHash,
 		c.PolicyData,
@@ -266,7 +323,7 @@ type PublicInputs struct {
 	PublicSplAmount      *big.Int
 	RelayerFee           *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramIDHashchain   *big.Int
+	ProgramIDHashChain   *big.Int
 	SolanaPubkeyHash     *big.Int
 	SolanaPkHashes       []*big.Int
 	DataHash             *big.Int
@@ -304,7 +361,9 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSolAmount,
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
-		inputs.ProgramIDHashchain,
+		inputs.PublicAmountMode,
+		inputs.RelayerFee,
+		inputs.ProgramIDHashChain,
 		inputs.SolanaPubkeyHash,
 		inputs.DataHash,
 		inputs.PolicyData,
