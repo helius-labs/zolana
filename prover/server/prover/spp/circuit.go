@@ -137,13 +137,6 @@ func (c *Circuit) Define(api frontend.API) error {
 	if err != nil {
 		return err
 	}
-	// N-3: ECDSA is malleable — (r, s) and (r, n-s) both verify — so low-s is
-	// NOT enforced here. This is safe: the signature only authorizes
-	// private_tx_hash, which binds every input/output/expiry, and
-	// external_data_hash (folded into private_tx_hash) binds the exact
-	// instruction. A malleated signature cannot alter the transaction or be
-	// replayed against a different instruction, so a second valid (r,s) grants
-	// no additional authority.
 	p256SigValid := c.P256Pub.IsValid(
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
