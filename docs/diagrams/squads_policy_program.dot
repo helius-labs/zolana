@@ -1,0 +1,83 @@
+// Architecture diagram for docs/squads_policy_program.md.
+// Regenerate with `just render-diagrams` or:
+//     dot -Tpng -Gdpi=144 docs/diagrams/squads_policy_program.dot -o docs/diagrams/squads_policy_program.png
+//     dot -Tsvg          docs/diagrams/squads_policy_program.dot -o docs/diagrams/squads_policy_program.svg
+//
+// Smart Accounts and the Pocket RPC are HTML-label tables with matching row
+// heights so the cross arrows between corresponding ports are horizontal.
+// Mirrors the style of docs/diagrams/architecture.dot but specific to the
+// Squads policy zone.
+digraph G {
+    compound=true;
+    rankdir=LR;
+    nodesep=0.3;
+    ranksep=1.0;
+    splines=line;
+    bgcolor="#F8FAFC";
+    node [shape=box, style="rounded,filled", fillcolor="#EEF2FF", color="#6366F1", fontcolor="#1E1B4B", fontname="Helvetica", fontsize=11, penwidth=1.2];
+    edge [color="#475569", fontcolor="#334155", fontname="Helvetica", fontsize=10, penwidth=1.1];
+
+    // Smart-account holders + co-signer. Ports line up with the Pocket RPC rows.
+    Client [shape=plaintext, label=<
+        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED">
+            <TR><TD HEIGHT="18" WIDTH="150"><FONT COLOR="#1E1B4B" POINT-SIZE="12"><B>Smart Accounts</B></FONT></TD></TR>
+            <TR><TD HEIGHT="16" WIDTH="150"></TD></TR>
+            <TR><TD PORT="u" HEIGHT="30" WIDTH="150"></TD></TR>
+            <TR><TD PORT="p" HEIGHT="30" WIDTH="150"></TD></TR>
+        </TABLE>
+    >];
+
+    // The whole backend is the Pocket RPC. The indexer holds the auditor key.
+    RPC [shape=plaintext, label=<
+        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#FFFFFF" COLOR="#CBD5E1" STYLE="ROUNDED">
+            <TR><TD HEIGHT="18" WIDTH="170"><FONT COLOR="#0F172A" POINT-SIZE="12">Squads Backend</FONT></TD></TR>
+            <TR><TD HEIGHT="16" WIDTH="170"></TD></TR>
+            <TR><TD PORT="d" HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Indexer with auditor key</FONT></TD></TR>
+            <TR><TD PORT="r" HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Co-signer &amp; Prover</FONT></TD></TR>
+            <TR><TD PORT="m" HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Merge service</FONT></TD></TR>
+        </TABLE>
+    >];
+
+    // Solana side: the Squads Zone Program, its program-owned accounts, the
+    // CPI into SPP, and the SPP-owned SPL interface and tree accounts.
+    Solana [shape=plaintext, label=<
+        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#FFFFFF" COLOR="#CBD5E1" STYLE="ROUNDED">
+            <TR><TD COLSPAN="3" HEIGHT="18"><FONT COLOR="#0F172A" POINT-SIZE="12">Solana</FONT></TD></TR>
+            <TR>
+                <TD PORT="policy" HEIGHT="40" WIDTH="150" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Squads Zone Program</FONT></TD>
+                <TD HEIGHT="40" WIDTH="56"><FONT COLOR="#475569" POINT-SIZE="10">CPI &#x2192;</FONT></TD>
+                <TD ROWSPAN="4" PORT="spp" WIDTH="150" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Solana Privacy Program<BR/>(SPP)</FONT></TD>
+            </TR>
+            <TR>
+                <TD PORT="cfg" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Zone config</FONT></TD>
+                <TD HEIGHT="30" WIDTH="56" BORDER="0"></TD>
+            </TR>
+            <TR>
+                <TD PORT="cacc" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Viewing key accounts</FONT></TD>
+                <TD HEIGHT="30" WIDTH="56" BORDER="0"></TD>
+            </TR>
+            <TR>
+                <TD PORT="prop" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Proposal buffers</FONT></TD>
+                <TD HEIGHT="30" WIDTH="56" BORDER="0"></TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="2" BORDER="0"></TD>
+                <TD PORT="vault" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">SPL interface</FONT></TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="2" BORDER="0"></TD>
+                <TD PORT="tree" HEIGHT="56" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Tree accounts<BR/>UTXO tree<BR/>nullifier tree<BR/>nullifier queue</FONT></TD>
+            </TR>
+        </TABLE>
+    >];
+
+    // Smart Accounts port -> matching Pocket RPC port. Equal row heights keep
+    // the arrows horizontal.
+    Client:u:e -> RPC:d:w [dir=both, style=dashed, label="get_balance"];
+    Client:p:e -> RPC:r:w [dir=both, label="send tx / proofs"];
+
+    // Co-signer & Prover submits transact / execute_proposal; the merge service
+    // submits merge_transact.
+    RPC:r:e -> Solana:policy:w [label="submit tx"];
+    RPC:m:e -> Solana:policy:w [label="merge_transact"];
+}
