@@ -37,7 +37,7 @@ func TestCircuitSkeletonProvesForSupportedShapes(t *testing.T) {
 			circuit := MustNewCircuit(shape)
 			assignment := buildCircuitAssignment(t, shape)
 
-			assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+			assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 			assert.ProverSucceeded(
 				circuit,
 				assignment,
@@ -56,7 +56,7 @@ func TestCircuitSkeletonRejectsBadOutputHash(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[0].Hash = fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadStatePath(t *testing.T) {
@@ -66,7 +66,7 @@ func TestCircuitSkeletonRejectsBadStatePath(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].State.Siblings[0] = fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadStateDirection(t *testing.T) {
@@ -80,7 +80,7 @@ func TestCircuitSkeletonRejectsBadStateDirection(t *testing.T) {
 		assignment.Inputs[0].State.Directions[0] = fe(0)
 	}
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadNullifierNonInclusionPath(t *testing.T) {
@@ -90,7 +90,7 @@ func TestCircuitSkeletonRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NfLow.Siblings[0] = fe(999)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadNullifierRange(t *testing.T) {
@@ -100,7 +100,7 @@ func TestCircuitSkeletonRejectsBadNullifierRange(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NfLowValue = assignment.Inputs[0].Nullifier
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 // Audit #1: re-spending the same input UTXO twice in one transaction must be
@@ -115,7 +115,7 @@ func TestCircuitSkeletonRejectsDuplicateInputNullifier(t *testing.T) {
 	outputs := paddedOutputs(sampleUtxoWithAssetAndAmount(100, fe(7), fe(100)))
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), fe(0))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 // Audit #2: a real UTXO carrying a domain separator other than UtxoDomain must
@@ -129,7 +129,7 @@ func TestCircuitSkeletonRejectsNonCanonicalDomain(t *testing.T) {
 	outputs := paddedOutputs(sampleUtxoWithAssetAndAmount(100, fe(7), fe(100)))
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, []Utxo{input}, outputs, big.NewInt(0), big.NewInt(0), fe(0))
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadNullifierSecret(t *testing.T) {
@@ -139,7 +139,7 @@ func TestCircuitSkeletonRejectsBadNullifierSecret(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.NullifierSecret = fe(998)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsSolanaSignerOwnerMismatch(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCircuitSkeletonRejectsSolanaSignerOwnerMismatch(t *testing.T) {
 	assignment.Inputs[0].SolanaPkHash = fe(12345)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonAcceptsP256Owner(t *testing.T) {
@@ -161,7 +161,7 @@ func TestCircuitSkeletonAcceptsP256Owner(t *testing.T) {
 	priv := mustFixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBadP256Signature(t *testing.T) {
@@ -173,7 +173,7 @@ func TestCircuitSkeletonRejectsBadP256Signature(t *testing.T) {
 	wrongSigner := mustFixedP256Key(t, 12)
 	rewriteSingleInputAsP256(t, assignment, priv, wrongSigner)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsP256PubkeyOwnerMismatch(t *testing.T) {
@@ -186,7 +186,7 @@ func TestCircuitSkeletonRejectsP256PubkeyOwnerMismatch(t *testing.T) {
 	rewriteSingleInputAsP256(t, assignment, ownerPriv, signingPriv)
 	assignment.P256Pub = p256PubkeyAssignment(signingPriv)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsOwnerHashPreimageMismatch(t *testing.T) {
@@ -196,7 +196,7 @@ func TestCircuitSkeletonRejectsOwnerHashPreimageMismatch(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].Utxo.Owner = fe(12345)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsNullifierPkMismatch(t *testing.T) {
@@ -206,7 +206,7 @@ func TestCircuitSkeletonRejectsNullifierPkMismatch(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NullifierPk = fe(12345)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsExternalDataHashMismatch(t *testing.T) {
@@ -217,7 +217,7 @@ func TestCircuitSkeletonRejectsExternalDataHashMismatch(t *testing.T) {
 	assignment.ExternalDataHash = fe(301)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsBalanceMismatch(t *testing.T) {
@@ -242,7 +242,7 @@ func TestCircuitSkeletonRejectsBalanceMismatch(t *testing.T) {
 		fe(0),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
@@ -262,7 +262,7 @@ func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 			fe(0),
 		)
 
-		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 	})
 
 	t.Run("withdraw", func(t *testing.T) {
@@ -278,7 +278,7 @@ func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 			fe(0),
 		)
 
-		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 	})
 }
 
@@ -297,7 +297,7 @@ func TestCircuitSkeletonAcceptsPublicSplDeposit(t *testing.T) {
 		publicSplAssetPubkey,
 	)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsPublicSplAssetMismatch(t *testing.T) {
@@ -315,7 +315,7 @@ func TestCircuitSkeletonRejectsPublicSplAssetMismatch(t *testing.T) {
 		fe(88),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsPublicSplMovementOnSolAsset(t *testing.T) {
@@ -333,7 +333,7 @@ func TestCircuitSkeletonRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 		solAssetID,
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsPhantomPublicSplMovement(t *testing.T) {
@@ -351,7 +351,7 @@ func TestCircuitSkeletonRejectsPhantomPublicSplMovement(t *testing.T) {
 		fe(88),
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonAcceptsDummyInputForPublicDeposit(t *testing.T) {
@@ -371,7 +371,7 @@ func TestCircuitSkeletonAcceptsDummyInputForPublicDeposit(t *testing.T) {
 		publicSplAssetPubkey,
 	)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonAcceptsDummyOutput(t *testing.T) {
@@ -394,7 +394,7 @@ func TestCircuitSkeletonAcceptsDummyOutput(t *testing.T) {
 		fe(0),
 	)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsDummyInputWithValue(t *testing.T) {
@@ -414,7 +414,7 @@ func TestCircuitSkeletonRejectsDummyInputWithValue(t *testing.T) {
 		publicSplAssetPubkey,
 	)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonIgnoresDummyInputStatePath(t *testing.T) {
@@ -435,7 +435,7 @@ func TestCircuitSkeletonIgnoresDummyInputStatePath(t *testing.T) {
 	)
 	assignment.Inputs[0].State.Siblings[0] = fe(999)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonIgnoresDummyInputNullifierPath(t *testing.T) {
@@ -456,7 +456,7 @@ func TestCircuitSkeletonIgnoresDummyInputNullifierPath(t *testing.T) {
 	)
 	assignment.Inputs[0].NfLow.Siblings[0] = fe(999)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonRejectsDummyOutputWithPublicHash(t *testing.T) {
@@ -481,7 +481,7 @@ func TestCircuitSkeletonRejectsDummyOutputWithPublicHash(t *testing.T) {
 	assignment.Outputs[1].Hash = fe(999)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func buildCircuitAssignment(t *testing.T, shape Shape) *Circuit {
