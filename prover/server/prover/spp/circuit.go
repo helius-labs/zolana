@@ -123,6 +123,102 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	api.AssertIsEqual(api.Mul(cond, v), 0)
 }
 
+// assertStrictlyOrdered constrains lo < mid < hi for a real entry; dummy entries
+// (isDummy == 1) are mapped to 0 < 1 < 2 so the check always holds for them.
+// Expressed with AssertIsLessOrEqual + AssertIsDifferent rather than a `+1`
+// increment, which could wrap at the field boundary (audit #4/#5).
+func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Variable) {
+	lo = api.Select(isDummy, frontend.Variable(0), lo)
+	mid = api.Select(isDummy, frontend.Variable(1), mid)
+	hi = api.Select(isDummy, frontend.Variable(2), hi)
+	api.AssertIsLessOrEqual(lo, mid)
+	api.AssertIsDifferent(lo, mid)
+	api.AssertIsLessOrEqual(mid, hi)
+	api.AssertIsDifferent(mid, hi)
+}
+
+// spendEnv holds the values shared across every input-spend check: they are
+// derived once per proof from the wallet secret and the single P256 signer.
+type spendEnv struct {
+	nullifierPkFromSecret frontend.Variable
+	p256OwnerKeyHash      frontend.Variable
+	p256SigValid          frontend.Variable
+	nullifierSecret       frontend.Variable
+}
+
+// constrainInput verifies one spent input — domain, state-tree inclusion, owner
+// binding, nullifier derivation, and nullifier-tree non-inclusion — and returns
+// its UTXO hash (0 for a dummy) for the transaction-hash chain.
+func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable {
+	api.AssertIsBoolean(in.IsDummy)
+	notDummy := api.Sub(1, in.IsDummy)
+
+	assertZeroWhen(api, in.IsDummy, in.Utxo.AssetAmount)
+	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
+
+	utxoHash := UtxoHashCircuit(api, in.Utxo)
+
+	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
+	stateRoot := StatePathFoldCircuit(api, utxoHash, in.State.Siblings, in.State.Directions)
+	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
+
+	// Owner binding: P256 inputs (SolanaPkHash == 0) recompute the owner key hash
+	// from the witnessed P256 point; Solana inputs use the public hash.
+	isP256 := api.IsZero(in.SolanaPkHash)
+	ownerKeyHash := api.Select(isP256, env.p256OwnerKeyHash, in.SolanaPkHash)
+	ownerHash := OwnerHashCircuit(api, ownerKeyHash, in.NullifierPk)
+	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
+	assertEqualWhen(api, notDummy, env.nullifierPkFromSecret, in.NullifierPk)
+	// Real P256 inputs must carry a valid signature; Solana inputs are verified
+	// by SPP out of circuit.
+	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
+	assertZeroWhen(api, in.IsDummy, in.NullifierPk)
+	assertZeroWhen(api, in.IsDummy, in.SolanaPkHash)
+
+	// Nullifier: derived from the UTXO hash, blinding, and shared secret.
+	nullifier := NullifierHashCircuit(api, utxoHash, in.Utxo.Blinding, env.nullifierSecret)
+	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
+	assertZeroWhen(api, in.IsDummy, in.Nullifier)
+
+	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
+	// nullifier (NfLowValue < Nullifier < NfNextValue).
+	lowLeaf := IndexedLeafHashCircuit(api, in.NfLowValue, in.NfNextValue)
+	nfRoot := StatePathFoldCircuit(api, lowLeaf, in.NfLow.Siblings, in.NfLow.Directions)
+	assertEqualWhen(api, notDummy, nfRoot, in.NullifierRoot)
+	assertStrictlyOrdered(api, in.IsDummy, in.NfLowValue, in.Nullifier, in.NfNextValue)
+
+	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+}
+
+// constrainOutput verifies one created output and returns its UTXO hash (0 for a
+// dummy) for the transaction-hash chain.
+func constrainOutput(api frontend.API, out Output) frontend.Variable {
+	api.AssertIsBoolean(out.IsDummy)
+	notDummy := api.Sub(1, out.IsDummy)
+
+	assertZeroWhen(api, out.IsDummy, out.Utxo.AssetAmount)
+	assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
+
+	utxoHash := UtxoHashCircuit(api, out.Utxo)
+	assertEqualWhen(api, notDummy, utxoHash, out.Hash)
+	assertZeroWhen(api, out.IsDummy, out.Hash)
+
+	return api.Select(out.IsDummy, frontend.Variable(0), utxoHash)
+}
+
+// assertDistinctNullifiers rejects spending the same input twice in one
+// transaction: every pair of real inputs must carry distinct nullifiers (audit
+// #1). Dummy inputs all carry nullifier 0 and are excluded.
+func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
+	for i := range c.Inputs {
+		for j := i + 1; j < len(c.Inputs); j++ {
+			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
+			sameNullifier := api.IsZero(api.Sub(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier))
+			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
+		}
+	}
+}
+
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateShape(); err != nil {
 		return err
@@ -144,87 +240,27 @@ func (c *Circuit) Define(api frontend.API) error {
 		&c.P256Sig,
 	)
 
+	env := spendEnv{
+		nullifierPkFromSecret: nullifierPkFromSecret,
+		p256OwnerKeyHash:      p256OwnerKeyHash,
+		p256SigValid:          p256SigValid,
+		nullifierSecret:       c.NullifierSecret,
+	}
 	inputHashes := make([]frontend.Variable, len(c.Inputs))
 	for i := range c.Inputs {
-		in := c.Inputs[i]
-		api.AssertIsBoolean(in.IsDummy)
-		notDummy := api.Sub(1, in.IsDummy)
-
-		assertZeroWhen(api, in.IsDummy, in.Utxo.AssetAmount)
-		assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
-
-		utxoHash := UtxoHashCircuit(api, in.Utxo)
-		inputHashes[i] = api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
-
-		// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
-		stateRoot := StatePathFoldCircuit(api, utxoHash, in.State.Siblings, in.State.Directions)
-		assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
-
-		// Owner binding: P256 inputs (SolanaPkHash == 0) recompute the owner key
-		// hash from the witnessed P256 point; Solana inputs use the public hash.
-		isP256 := api.IsZero(in.SolanaPkHash)
-		ownerKeyHash := api.Select(isP256, p256OwnerKeyHash, in.SolanaPkHash)
-		ownerHash := OwnerHashCircuit(api, ownerKeyHash, in.NullifierPk)
-		assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
-		assertEqualWhen(api, notDummy, nullifierPkFromSecret, in.NullifierPk)
-		// P256 inputs must carry a valid signature; Solana inputs are verified
-		// by SPP out of circuit.
-		api.AssertIsEqual(api.Mul(notDummy, isP256, api.Sub(1, p256SigValid)), 0)
-		assertZeroWhen(api, in.IsDummy, in.NullifierPk)
-		assertZeroWhen(api, in.IsDummy, in.SolanaPkHash)
-
-		nullifier := NullifierHashCircuit(api, utxoHash, in.Utxo.Blinding, c.NullifierSecret)
-		assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
-		assertZeroWhen(api, in.IsDummy, in.Nullifier)
-
-		// Non-inclusion: the low leaf is in the nullifier tree and brackets the
-		// nullifier (NfLowValue < Nullifier < NfNextValue).
-		lowLeaf := IndexedLeafHashCircuit(api, in.NfLowValue, in.NfNextValue)
-		nfRoot := StatePathFoldCircuit(api, lowLeaf, in.NfLow.Siblings, in.NfLow.Directions)
-		assertEqualWhen(api, notDummy, nfRoot, in.NullifierRoot)
-
-		// Strict ordering low < nullifier < next, expressed with
-		// AssertIsLessOrEqual + AssertIsDifferent (no `+1`, which could wrap at
-		// the field boundary). Dummy inputs use 0 < 1 < 2. Audit findings #4/#5.
-		low := api.Select(in.IsDummy, frontend.Variable(0), in.NfLowValue)
-		nf := api.Select(in.IsDummy, frontend.Variable(1), in.Nullifier)
-		next := api.Select(in.IsDummy, frontend.Variable(2), in.NfNextValue)
-		api.AssertIsLessOrEqual(low, nf)
-		api.AssertIsDifferent(low, nf)
-		api.AssertIsLessOrEqual(nf, next)
-		api.AssertIsDifferent(nf, next)
+		inputHashes[i] = constrainInput(api, c.Inputs[i], env)
 	}
-
-	// Reject re-spending the same input twice in one transaction: every pair of
-	// real inputs must carry distinct nullifiers (audit #1). Dummy inputs all
-	// carry nullifier 0 and are excluded.
-	for i := range c.Inputs {
-		for j := i + 1; j < len(c.Inputs); j++ {
-			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
-			sameNullifier := api.IsZero(api.Sub(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier))
-			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
-		}
-	}
+	c.assertDistinctNullifiers(api)
 
 	outputHashes := make([]frontend.Variable, len(c.Outputs))
 	for i := range c.Outputs {
-		out := c.Outputs[i]
-		api.AssertIsBoolean(out.IsDummy)
-		notDummy := api.Sub(1, out.IsDummy)
-
-		assertZeroWhen(api, out.IsDummy, out.Utxo.AssetAmount)
-		assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
-
-		utxoHash := UtxoHashCircuit(api, out.Utxo)
-		outputHashes[i] = api.Select(out.IsDummy, frontend.Variable(0), utxoHash)
-		assertEqualWhen(api, notDummy, utxoHash, out.Hash)
-		assertZeroWhen(api, out.IsDummy, out.Hash)
+		outputHashes[i] = constrainOutput(api, c.Outputs[i])
 	}
 
 	assertBalanceConservation(
 		api,
-		c.inputUtxos(),
-		c.outputUtxos(),
+		c.Inputs,
+		c.Outputs,
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
@@ -235,22 +271,6 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	api.AssertIsEqual(c.PublicInputHash, c.publicInputHash(api))
 	return nil
-}
-
-func (c *Circuit) inputUtxos() []UtxoCircuitFields {
-	utxos := make([]UtxoCircuitFields, len(c.Inputs))
-	for i := range c.Inputs {
-		utxos[i] = c.Inputs[i].Utxo
-	}
-	return utxos
-}
-
-func (c *Circuit) outputUtxos() []UtxoCircuitFields {
-	utxos := make([]UtxoCircuitFields, len(c.Outputs))
-	for i := range c.Outputs {
-		utxos[i] = c.Outputs[i].Utxo
-	}
-	return utxos
 }
 
 func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {

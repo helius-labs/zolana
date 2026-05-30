@@ -24,8 +24,8 @@ func SignedToFe(value *big.Int) *big.Int {
 
 func assertBalanceConservation(
 	api frontend.API,
-	inputs []UtxoCircuitFields,
-	outputs []UtxoCircuitFields,
+	inputs []Input,
+	outputs []Output,
 	publicSolAmount frontend.Variable,
 	publicSplAmount frontend.Variable,
 	publicSplAssetPubkey frontend.Variable,
@@ -48,26 +48,26 @@ func assertBalanceConservation(
 	// two, so no asset can be minted.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
-		api.ToBinary(input.AssetAmount, 64)
-		keys = append(keys, input.AssetID)
+		api.ToBinary(input.Utxo.AssetAmount, 64)
+		keys = append(keys, input.Utxo.AssetID)
 	}
 	for _, output := range outputs {
-		api.ToBinary(output.AssetAmount, 64)
-		keys = append(keys, output.AssetID)
+		api.ToBinary(output.Utxo.AssetAmount, 64)
+		keys = append(keys, output.Utxo.AssetID)
 	}
 	keys = append(keys, solAssetID, publicSplAssetPubkey)
 
 	for _, key := range keys {
 		inSum := frontend.Variable(0)
 		for _, input := range inputs {
-			match := api.IsZero(api.Sub(key, input.AssetID))
-			inSum = api.Add(inSum, api.Mul(match, input.AssetAmount))
+			match := api.IsZero(api.Sub(key, input.Utxo.AssetID))
+			inSum = api.Add(inSum, api.Mul(match, input.Utxo.AssetAmount))
 		}
 
 		outSum := frontend.Variable(0)
 		for _, output := range outputs {
-			match := api.IsZero(api.Sub(key, output.AssetID))
-			outSum = api.Add(outSum, api.Mul(match, output.AssetAmount))
+			match := api.IsZero(api.Sub(key, output.Utxo.AssetID))
+			outSum = api.Add(outSum, api.Mul(match, output.Utxo.AssetAmount))
 		}
 
 		solMatch := api.IsZero(api.Sub(key, solAssetID))
