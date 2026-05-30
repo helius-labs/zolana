@@ -1,6 +1,8 @@
 package spp
 
 import (
+	"fmt"
+
 	"light/light-prover/prover/poseidon"
 
 	"github.com/consensys/gnark/frontend"
@@ -59,20 +61,20 @@ func P256OwnerKeyHashCircuit(
 func P256OwnerKeyHashFromPubkeyCircuit(
 	api frontend.API,
 	pub gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr],
-) frontend.Variable {
+) (frontend.Variable, error) {
 	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
 	)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("spp: P256 curve: %w", err)
 	}
 	point := sw_emulated.AffinePoint[emulated.P256Fp](pub)
 	curve.AssertIsOnCurve(&point)
 
 	fp, err := emulated.NewField[emulated.P256Fp](api)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("spp: P256 base field: %w", err)
 	}
 	x := fp.ReduceStrict(&point.X)
 	y := fp.ReduceStrict(&point.Y)
@@ -80,10 +82,10 @@ func P256OwnerKeyHashFromPubkeyCircuit(
 	xBits := fp.ToBits(x)
 	xLow128 := gnarkbits.FromBinary(api, xBits[:128])
 	xHigh128 := gnarkbits.FromBinary(api, xBits[128:256])
-	return P256OwnerKeyHashCircuit(api, yBits[0], xLow128, xHigh128)
+	return P256OwnerKeyHashCircuit(api, yBits[0], xLow128, xHigh128), nil
 }
 
-func privateTxHashToP256Fr(api frontend.API, privateTxHash frontend.Variable) *emulated.Element[emulated.P256Fr] {
+func privateTxHashToP256Fr(api frontend.API, privateTxHash frontend.Variable) (*emulated.Element[emulated.P256Fr], error) {
 	bits := api.ToBinary(privateTxHash, 254)
 	padded := make([]frontend.Variable, 256)
 	copy(padded, bits)
@@ -92,9 +94,9 @@ func privateTxHashToP256Fr(api frontend.API, privateTxHash frontend.Variable) *e
 	}
 	fr, err := emulated.NewField[emulated.P256Fr](api)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("spp: P256 scalar field: %w", err)
 	}
-	return fr.FromBits(padded...)
+	return fr.FromBits(padded...), nil
 }
 
 func NullifierHashCircuit(

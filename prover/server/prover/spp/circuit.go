@@ -129,7 +129,14 @@ func (c *Circuit) Define(api frontend.API) error {
 	}
 
 	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
-	p256OwnerKeyHash := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
+	p256OwnerKeyHash, err := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
+	if err != nil {
+		return err
+	}
+	p256Message, err := privateTxHashToP256Fr(api, c.PrivateTxHash)
+	if err != nil {
+		return err
+	}
 	// N-3: ECDSA is malleable — (r, s) and (r, n-s) both verify — so low-s is
 	// NOT enforced here. This is safe: the signature only authorizes
 	// private_tx_hash, which binds every input/output/expiry, and
@@ -140,7 +147,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	p256SigValid := c.P256Pub.IsValid(
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
-		privateTxHashToP256Fr(api, c.PrivateTxHash),
+		p256Message,
 		&c.P256Sig,
 	)
 

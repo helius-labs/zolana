@@ -547,8 +547,16 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
 	}
+	nullifierBigs, err := proofVariablesToBigInts(nullifiers)
+	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
+	}
+	solanaPkHashBigs, err := proofVariablesToBigInts(solanaPkHashes)
+	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
+	}
 	publicInputs := PublicInputs{
-		Nullifiers:           proofVariablesToBigInts(nullifiers),
+		Nullifiers:           nullifierBigs,
 		OutputUtxoHashes:     outputHashes,
 		UtxoTreeRoots:        utxoRoots,
 		NullifierRoots:       nullifierRoots,
@@ -560,7 +568,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		PublicSplAssetPubkey: publicSplAsset,
 		ProgramIDHashChain:   programIDHashChain,
 		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
-		SolanaPkHashes:       proofVariablesToBigInts(solanaPkHashes),
+		SolanaPkHashes:       solanaPkHashBigs,
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
 	if err != nil {
@@ -614,7 +622,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	return assignment, publicInputs, outputResponses, proofDebug{
 		inputHashes:              inputHashes,
 		outputHashes:             outputHashes,
-		nullifiers:               proofVariablesToBigInts(nullifiers),
+		nullifiers:               nullifierBigs,
 		inUtxoSignerIndices:      inUtxoSignerIndices,
 		requiresP256OwnerWitness: requiresP256,
 	}, nil
@@ -1076,7 +1084,7 @@ func proofBigIntsToVariables(values []*big.Int) []frontend.Variable {
 	return out
 }
 
-func proofVariablesToBigInts(values []frontend.Variable) []*big.Int {
+func proofVariablesToBigInts(values []frontend.Variable) ([]*big.Int, error) {
 	out := make([]*big.Int, len(values))
 	for i, value := range values {
 		switch v := value.(type) {
@@ -1087,10 +1095,10 @@ func proofVariablesToBigInts(values []frontend.Variable) []*big.Int {
 		case int64:
 			out[i] = big.NewInt(v)
 		default:
-			panic(fmt.Sprintf("spp: unexpected witness variable type %T", value))
+			return nil, fmt.Errorf("spp: unexpected witness variable type %T", value)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func proofTrimTrailingZeroHexes(values []*big.Int) []string {
