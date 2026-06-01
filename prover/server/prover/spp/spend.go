@@ -31,13 +31,11 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	// from the P256 point in the witness; Solana inputs use the public hash.
 	isP256 := api.IsZero(in.SolanaPkHash)
 	ownerKeyHash := api.Select(isP256, env.p256OwnerKeyHash, in.SolanaPkHash)
-	ownerHash := OwnerHashCircuit(api, ownerKeyHash, in.NullifierPk)
+	ownerHash := OwnerHashCircuit(api, ownerKeyHash, env.nullifierPkFromSecret)
 	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
-	assertEqualWhen(api, notDummy, env.nullifierPkFromSecret, in.NullifierPk)
 	// Real P256 inputs must carry a valid signature; Solana inputs are verified
 	// by SPP out of circuit.
 	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
-	assertZeroWhen(api, in.IsDummy, in.NullifierPk)
 	assertZeroWhen(api, in.IsDummy, in.SolanaPkHash)
 
 	// Nullifier: derived from the UTXO hash, blinding, and shared secret.

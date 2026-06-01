@@ -37,7 +37,6 @@ func (p MerkleProof) validate(height int) error {
 type Input struct {
 	Utxo         UtxoCircuitFields
 	IsDummy      frontend.Variable
-	NullifierPk  frontend.Variable
 	SolanaPkHash frontend.Variable
 
 	// Folded into PublicInputHash.

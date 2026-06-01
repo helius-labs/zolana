@@ -68,8 +68,8 @@ type ProofUtxoRequest struct {
 	AssetAmount          string `json:"asset_amount"`
 	Blinding             string `json:"blinding"`
 	DataHash             string `json:"data_hash"`
-	PolicyData           string `json:"policy_data"`
-	PolicyProgramID      string `json:"policy_program_id"`
+	ZoneDataHash         string `json:"zone_data_hash"`
+	ZoneProgramID        string `json:"zone_program_id"`
 }
 
 type ProofBundle struct {
@@ -136,7 +136,6 @@ type proofInput struct {
 	leafIndex       uint64
 	nullifierSecret *big.Int
 	ownerKeyHash    *big.Int
-	nullifierPk     *big.Int
 	isP256          bool
 }
 

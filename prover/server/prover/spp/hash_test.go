@@ -76,14 +76,14 @@ func mustPrivateTxHash(t *testing.T, inputs, outputs []*big.Int, externalDataHas
 
 func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 	utxo := Utxo{
-		Domain:          fe(1),
-		Owner:           fe(2),
-		Asset:           fe(3),
-		AssetAmount:     fe(4),
-		Blinding:        fe(5),
-		DataHash:        fe(6),
-		PolicyData:      fe(7),
-		PolicyProgramID: fe(8),
+		Domain:        fe(1),
+		Owner:         fe(2),
+		Asset:         fe(3),
+		AssetAmount:   fe(4),
+		Blinding:      fe(5),
+		DataHash:      fe(6),
+		ZoneDataHash:  fe(7),
+		ZoneProgramID: fe(8),
 	}
 
 	got := mustUtxoHash(t, utxo)

@@ -99,27 +99,27 @@ func parseHexBytes(value string) ([]byte, error) {
 
 func proofZeroUtxo() Utxo {
 	return Utxo{
-		Domain:          big.NewInt(0),
-		Owner:           big.NewInt(0),
-		Asset:           big.NewInt(0),
-		AssetAmount:     big.NewInt(0),
-		Blinding:        big.NewInt(0),
-		DataHash:        big.NewInt(0),
-		PolicyData:      big.NewInt(0),
-		PolicyProgramID: big.NewInt(0),
+		Domain:        big.NewInt(0),
+		Owner:         big.NewInt(0),
+		Asset:         big.NewInt(0),
+		AssetAmount:   big.NewInt(0),
+		Blinding:      big.NewInt(0),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
 	}
 }
 
 func toProofCircuitFields(utxo Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
-		Domain:          utxo.Domain,
-		Owner:           utxo.Owner,
-		Asset:           utxo.Asset,
-		AssetAmount:     utxo.AssetAmount,
-		Blinding:        utxo.Blinding,
-		DataHash:        utxo.DataHash,
-		PolicyData:      utxo.PolicyData,
-		PolicyProgramID: utxo.PolicyProgramID,
+		Domain:        utxo.Domain,
+		Owner:         utxo.Owner,
+		Asset:         utxo.Asset,
+		AssetAmount:   utxo.AssetAmount,
+		Blinding:      utxo.Blinding,
+		DataHash:      utxo.DataHash,
+		ZoneDataHash:  utxo.ZoneDataHash,
+		ZoneProgramID: utxo.ZoneProgramID,
 	}
 }
 

@@ -198,7 +198,6 @@ func buildInputs(shape Shape, tx ProofTransactionRequest, trees proofTrees) (bui
 			b.inputs[i] = Input{
 				Utxo:          toProofCircuitFields(proofZeroUtxo()),
 				IsDummy:       frontend.Variable(1),
-				NullifierPk:   big.NewInt(0),
 				SolanaPkHash:  big.NewInt(0),
 				Nullifier:     big.NewInt(0),
 				UtxoTreeRoot:  big.NewInt(0),
@@ -258,7 +257,6 @@ func buildInputs(shape Shape, tx ProofTransactionRequest, trees proofTrees) (bui
 		b.inputs[i] = Input{
 			Utxo:          toProofCircuitFields(input.utxo),
 			IsDummy:       frontend.Variable(0),
-			NullifierPk:   input.nullifierPk,
 			SolanaPkHash:  solanaPkHash,
 			Nullifier:     nullifier,
 			UtxoTreeRoot:  trees.stateRoot,

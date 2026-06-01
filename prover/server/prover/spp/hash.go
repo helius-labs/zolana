@@ -12,14 +12,14 @@ import (
 // Utxo is the field-element view of a UTXO. Field order matters: it is the
 // Poseidon hash preimage.
 type Utxo struct {
-	Domain          *big.Int
-	Owner           *big.Int
-	Asset           *big.Int
-	AssetAmount     *big.Int
-	Blinding        *big.Int
-	DataHash        *big.Int
-	PolicyData      *big.Int
-	PolicyProgramID *big.Int
+	Domain        *big.Int
+	Owner         *big.Int
+	Asset         *big.Int
+	AssetAmount   *big.Int
+	Blinding      *big.Int
+	DataHash      *big.Int
+	ZoneDataHash  *big.Int
+	ZoneProgramID *big.Int
 }
 
 func (u Utxo) Fields() []*big.Int {
@@ -30,8 +30,8 @@ func (u Utxo) Fields() []*big.Int {
 		u.AssetAmount,
 		u.Blinding,
 		u.DataHash,
-		u.PolicyData,
-		u.PolicyProgramID,
+		u.ZoneDataHash,
+		u.ZoneProgramID,
 	}
 }
 
@@ -130,7 +130,7 @@ func HashToFieldSize(data ...[]byte) *big.Int {
 	return new(big.Int).SetBytes(sum)
 }
 
-// HashChain is the canonical SPP v0 Poseidon2 right-fold:
+// HashChain is the canonical SPP right-fold over Poseidon hashes:
 //
 //	h = inputs[N-1]
 //	for i = N-2; i >= 0; i--:

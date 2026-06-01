@@ -13,14 +13,14 @@ import (
 )
 
 type UtxoCircuitFields struct {
-	Domain          frontend.Variable
-	Owner           frontend.Variable
-	Asset           frontend.Variable
-	AssetAmount     frontend.Variable
-	Blinding        frontend.Variable
-	DataHash        frontend.Variable
-	PolicyData      frontend.Variable
-	PolicyProgramID frontend.Variable
+	Domain        frontend.Variable
+	Owner         frontend.Variable
+	Asset         frontend.Variable
+	AssetAmount   frontend.Variable
+	Blinding      frontend.Variable
+	DataHash      frontend.Variable
+	ZoneDataHash  frontend.Variable
+	ZoneProgramID frontend.Variable
 }
 
 func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
@@ -31,8 +31,8 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 		u.AssetAmount,
 		u.Blinding,
 		u.DataHash,
-		u.PolicyData,
-		u.PolicyProgramID,
+		u.ZoneDataHash,
+		u.ZoneProgramID,
 	})
 }
 

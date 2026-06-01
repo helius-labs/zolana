@@ -69,14 +69,14 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	assert := test.NewAssert(t)
 
 	utxo := Utxo{
-		Domain:          fe(1),
-		Owner:           fe(2),
-		Asset:           fe(3),
-		AssetAmount:     fe(4),
-		Blinding:        fe(5),
-		DataHash:        fe(6),
-		PolicyData:      fe(7),
-		PolicyProgramID: fe(8),
+		Domain:        fe(1),
+		Owner:         fe(2),
+		Asset:         fe(3),
+		AssetAmount:   fe(4),
+		Blinding:      fe(5),
+		DataHash:      fe(6),
+		ZoneDataHash:  fe(7),
+		ZoneProgramID: fe(8),
 	}
 	utxoHash := mustUtxoHash(t, utxo)
 	nullifierSecret := fe(99)
@@ -100,14 +100,14 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	}
 	assignment := &hashParityCircuit{
 		Utxo: UtxoCircuitFields{
-			Domain:          utxo.Domain,
-			Owner:           utxo.Owner,
-			Asset:           utxo.Asset,
-			AssetAmount:     utxo.AssetAmount,
-			Blinding:        utxo.Blinding,
-			DataHash:        utxo.DataHash,
-			PolicyData:      utxo.PolicyData,
-			PolicyProgramID: utxo.PolicyProgramID,
+			Domain:        utxo.Domain,
+			Owner:         utxo.Owner,
+			Asset:         utxo.Asset,
+			AssetAmount:   utxo.AssetAmount,
+			Blinding:      utxo.Blinding,
+			DataHash:      utxo.DataHash,
+			ZoneDataHash:  utxo.ZoneDataHash,
+			ZoneProgramID: utxo.ZoneProgramID,
 		},
 		NullifierSecret:     nullifierSecret,
 		NullifierPk:         nullifierPk,

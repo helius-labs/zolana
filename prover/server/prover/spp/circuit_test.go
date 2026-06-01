@@ -199,12 +199,12 @@ func TestCircuitSkeletonRejectsOwnerHashPreimageMismatch(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
-func TestCircuitSkeletonRejectsNullifierPkMismatch(t *testing.T) {
+func TestCircuitSkeletonRejectsNullifierSecretMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.Inputs[0].NullifierPk = fe(12345)
+	assignment.NullifierSecret = fe(12345)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
@@ -592,10 +592,8 @@ func buildCircuitAssignmentWithDummies(
 
 	nullifierSecret := fe(99)
 	inputOwnerKeyHashValue := testSolanaPkHash(t)
-	inputNullifierPkValue := mustNullifierPk(t, nullifierSecret)
 	inputCircuitUtxos := make([]UtxoCircuitFields, shape.NInputs)
 	inputHashes := make([]*big.Int, shape.NInputs)
-	inputNullifierPks := make([]frontend.Variable, shape.NInputs)
 	solanaPkHashes := make([]frontend.Variable, shape.NInputs)
 	nullifiers := make([]frontend.Variable, shape.NInputs)
 	dummyInputVars := make([]frontend.Variable, shape.NInputs)
@@ -608,10 +606,8 @@ func buildCircuitAssignmentWithDummies(
 		inputHash := maybeDummyHash(t, mustUtxoHash(t, utxo), isDummyInput[i])
 		inputHashes[i] = inputHash
 		if isDummyInput[i] {
-			inputNullifierPks[i] = fe(0)
 			solanaPkHashes[i] = fe(0)
 		} else {
-			inputNullifierPks[i] = inputNullifierPkValue
 			solanaPkHashes[i] = inputOwnerKeyHashValue
 		}
 		nullifiers[i] = maybeDummyHash(t, mustNullifierHash(t, inputHash, utxo.Blinding, nullifierSecret), isDummyInput[i])
@@ -712,7 +708,6 @@ func buildCircuitAssignmentWithDummies(
 		inputs[i] = Input{
 			Utxo:          inputCircuitUtxos[i],
 			IsDummy:       dummyInputVars[i],
-			NullifierPk:   inputNullifierPks[i],
 			SolanaPkHash:  solanaPkHashes[i],
 			Nullifier:     nullifiers[i],
 			UtxoTreeRoot:  utxoRootVars[i],
@@ -852,14 +847,14 @@ func paddedOutputs(output Utxo) []Utxo {
 
 func sampleUtxo(base int) Utxo {
 	return Utxo{
-		Domain:          fe(UtxoDomain),
-		Owner:           testOwnerHashForNullifierSecret(fe(99)),
-		Asset:           fe(int64(base + 3)),
-		AssetAmount:     fe(int64(base + 4)),
-		Blinding:        fe(int64(base + 5)),
-		DataHash:        fe(int64(base + 6)),
-		PolicyData:      fe(int64(base + 7)),
-		PolicyProgramID: fe(int64(base + 8)),
+		Domain:        fe(UtxoDomain),
+		Owner:         testOwnerHashForNullifierSecret(fe(99)),
+		Asset:         fe(int64(base + 3)),
+		AssetAmount:   fe(int64(base + 4)),
+		Blinding:      fe(int64(base + 5)),
+		DataHash:      fe(int64(base + 6)),
+		ZoneDataHash:  fe(int64(base + 7)),
+		ZoneProgramID: fe(int64(base + 8)),
 	}
 }
 
@@ -880,7 +875,6 @@ func rewriteSingleInputAsP256(t *testing.T, assignment *Circuit, ownerPriv, sign
 		t.Fatalf("P256 owner hash: %v", err)
 	}
 	assignment.Inputs[0].Utxo.Owner = owner
-	assignment.Inputs[0].NullifierPk = nullifierPk
 	assignment.Inputs[0].SolanaPkHash = fe(0)
 
 	inputHash := mustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
@@ -982,27 +976,27 @@ func testSolanaSignerPubkey() []byte {
 
 func toCircuitFields(utxo Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
-		Domain:          utxo.Domain,
-		Owner:           utxo.Owner,
-		Asset:           utxo.Asset,
-		AssetAmount:     utxo.AssetAmount,
-		Blinding:        utxo.Blinding,
-		DataHash:        utxo.DataHash,
-		PolicyData:      utxo.PolicyData,
-		PolicyProgramID: utxo.PolicyProgramID,
+		Domain:        utxo.Domain,
+		Owner:         utxo.Owner,
+		Asset:         utxo.Asset,
+		AssetAmount:   utxo.AssetAmount,
+		Blinding:      utxo.Blinding,
+		DataHash:      utxo.DataHash,
+		ZoneDataHash:  utxo.ZoneDataHash,
+		ZoneProgramID: utxo.ZoneProgramID,
 	}
 }
 
 func circuitFieldsToUtxo(fields UtxoCircuitFields) Utxo {
 	return Utxo{
-		Domain:          asBigInt(fields.Domain),
-		Owner:           asBigInt(fields.Owner),
-		Asset:           asBigInt(fields.Asset),
-		AssetAmount:     asBigInt(fields.AssetAmount),
-		Blinding:        asBigInt(fields.Blinding),
-		DataHash:        asBigInt(fields.DataHash),
-		PolicyData:      asBigInt(fields.PolicyData),
-		PolicyProgramID: asBigInt(fields.PolicyProgramID),
+		Domain:        asBigInt(fields.Domain),
+		Owner:         asBigInt(fields.Owner),
+		Asset:         asBigInt(fields.Asset),
+		AssetAmount:   asBigInt(fields.AssetAmount),
+		Blinding:      asBigInt(fields.Blinding),
+		DataHash:      asBigInt(fields.DataHash),
+		ZoneDataHash:  asBigInt(fields.ZoneDataHash),
+		ZoneProgramID: asBigInt(fields.ZoneProgramID),
 	}
 }
 

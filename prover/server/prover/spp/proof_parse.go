@@ -27,7 +27,6 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 		leafIndex:       input.LeafIndex,
 		nullifierSecret: nullifierSecret,
 		ownerKeyHash:    parsed.ownerKeyHash,
-		nullifierPk:     parsed.nullifierPk,
 		isP256:          parsed.isP256,
 	}, nil
 }
@@ -41,7 +40,6 @@ type parsedUtxo struct {
 	utxo         Utxo
 	response     ProofUtxoRequest
 	ownerKeyHash *big.Int
-	nullifierPk  *big.Int
 	isP256       bool
 }
 
@@ -70,23 +68,23 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	if err != nil {
 		return parsedUtxo{}, fmt.Errorf("data_hash: %w", err)
 	}
-	policyData, err := optionalField(input.PolicyData)
+	zoneDataHash, err := optionalField(input.ZoneDataHash)
 	if err != nil {
-		return parsedUtxo{}, fmt.Errorf("policy_data: %w", err)
+		return parsedUtxo{}, fmt.Errorf("zone_data_hash: %w", err)
 	}
-	policyProgramID, err := optionalField(input.PolicyProgramID)
+	zoneProgramID, err := optionalField(input.ZoneProgramID)
 	if err != nil {
-		return parsedUtxo{}, fmt.Errorf("policy_program_id: %w", err)
+		return parsedUtxo{}, fmt.Errorf("zone_program_id: %w", err)
 	}
 	utxo := Utxo{
-		Domain:          domain,
-		Owner:           own.owner,
-		Asset:           asset,
-		AssetAmount:     assetAmount,
-		Blinding:        blinding,
-		DataHash:        dataHash,
-		PolicyData:      policyData,
-		PolicyProgramID: policyProgramID,
+		Domain:        domain,
+		Owner:         own.owner,
+		Asset:         asset,
+		AssetAmount:   assetAmount,
+		Blinding:      blinding,
+		DataHash:      dataHash,
+		ZoneDataHash:  zoneDataHash,
+		ZoneProgramID: zoneProgramID,
 	}
 	response := ProofUtxoRequest{
 		Domain:            proofFieldHex(domain),
@@ -97,14 +95,13 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		AssetAmount:       proofFieldHex(assetAmount),
 		Blinding:          proofFieldHex(blinding),
 		DataHash:          proofFieldHex(dataHash),
-		PolicyData:        proofFieldHex(policyData),
-		PolicyProgramID:   proofFieldHex(policyProgramID),
+		ZoneDataHash:      proofFieldHex(zoneDataHash),
+		ZoneProgramID:     proofFieldHex(zoneProgramID),
 	}
 	return parsedUtxo{
 		utxo:         utxo,
 		response:     response,
 		ownerKeyHash: own.keyHash,
-		nullifierPk:  own.nullifierPk,
 		isP256:       own.isP256,
 	}, nil
 }

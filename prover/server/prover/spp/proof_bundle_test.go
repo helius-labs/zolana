@@ -26,14 +26,14 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 		t.Fatal(err)
 	}
 	utxo := Utxo{
-		Domain:          big.NewInt(UtxoDomain),
-		Owner:           owner,
-		Asset:           big.NewInt(1),
-		AssetAmount:     big.NewInt(5),
-		Blinding:        big.NewInt(23),
-		DataHash:        big.NewInt(0),
-		PolicyData:      big.NewInt(0),
-		PolicyProgramID: big.NewInt(0),
+		Domain:        big.NewInt(UtxoDomain),
+		Owner:         owner,
+		Asset:         big.NewInt(1),
+		AssetAmount:   big.NewInt(5),
+		Blinding:      big.NewInt(23),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
 	}
 	utxoHash, err := UtxoHash(utxo)
 	if err != nil {
@@ -61,8 +61,8 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 					AssetAmount:     proofFieldHex(utxo.AssetAmount),
 					Blinding:        proofFieldHex(utxo.Blinding),
 					DataHash:        proofFieldHex(utxo.DataHash),
-					PolicyData:      proofFieldHex(utxo.PolicyData),
-					PolicyProgramID: proofFieldHex(utxo.PolicyProgramID),
+					ZoneDataHash:    proofFieldHex(utxo.ZoneDataHash),
+					ZoneProgramID:   proofFieldHex(utxo.ZoneProgramID),
 				},
 				LeafIndex:       0,
 				NullifierSecret: proofFieldHex(nullifierSecret),
