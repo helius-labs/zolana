@@ -838,6 +838,7 @@ Hash over the public fields of the invoking SPP instruction and the Solana token
 ```
 external_data_hash := Sha256BE(
     u8(spp_instruction_discriminator)                ||
+    u64_be(expiry_unix_ts)                           ||
     sender_view_tag                                  ||
     u16_be(relayer_fee)                              ||
     u64_be(public_sol_amount.unwrap_or(0))           ||
@@ -850,6 +851,8 @@ external_data_hash := Sha256BE(
 ```
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
+
+`expiry_unix_ts` is included here as well as in `private_tx_hash`. The owner's signature commits to it via `private_tx_hash`, but SPP cannot recompute `private_tx_hash` (the input UTXO hashes are private), so binding `expiry_unix_ts` into `external_data_hash` lets SPP confirm the `expiry_unix_ts` it enforces in check 1 (`current_unix_ts <= expiry_unix_ts`) is the one the owner signed.
 
 **Checks**
 
