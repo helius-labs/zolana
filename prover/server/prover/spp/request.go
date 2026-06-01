@@ -48,10 +48,10 @@ type ProofStateEntry struct {
 type ProofInputRequest struct {
 	Utxo      ProofUtxoRequest `json:"utxo"`
 	LeafIndex uint64           `json:"leaf_index"`
-	// NullifierSecret is the authoritative secret for this input. When set it
+	// NullifierSecret is the authoritative secret for this input. When set, it
 	// takes precedence over Utxo.OwnerNullifierSecret, which is only a fallback
-	// for recomputing owner components when no input-level secret is supplied.
-	// See ownerComponents.
+	// for deriving owner components when no input-level secret is given. See
+	// ownerComponents.
 	NullifierSecret string `json:"nullifier_secret"`
 }
 
@@ -60,9 +60,9 @@ type ProofUtxoRequest struct {
 	Owner             string `json:"owner"`
 	OwnerSolanaPubkey string `json:"owner_solana_pubkey"`
 	OwnerP256Pubkey   string `json:"owner_p256_pubkey,omitempty"`
-	// OwnerNullifierSecret is a fallback used only when this UTXO has no
+	// OwnerNullifierSecret is a fallback, used only when this UTXO has no
 	// enclosing ProofInputRequest.NullifierSecret (e.g. a bare output UTXO whose
-	// owner hash must be recomputed). For inputs, set NullifierSecret instead.
+	// owner hash must be rebuilt). For inputs, set NullifierSecret instead.
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
 	Asset                string `json:"asset"`
 	AssetAmount          string `json:"asset_amount"`
@@ -141,8 +141,8 @@ type proofInput struct {
 }
 
 // proofDerivedValues are values computed while building the assignment that the
-// transaction response (and the optional debug block) need: authoritative
-// outputs like nullifiers and signer indices, plus inputs to the debug block.
+// response needs: authoritative outputs (nullifiers, signer indices) and the
+// inputs to the optional debug block.
 type proofDerivedValues struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int

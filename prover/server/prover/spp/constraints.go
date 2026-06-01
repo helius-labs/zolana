@@ -15,10 +15,10 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	api.AssertIsEqual(api.Mul(cond, v), 0)
 }
 
-// assertStrictlyOrdered constrains lo < mid < hi for a real entry; dummy entries
-// (isDummy == 1) are mapped to 0 < 1 < 2 so the check always holds for them.
-// Expressed with AssertIsLessOrEqual + AssertIsDifferent rather than a `+1`
-// increment, which could wrap at the field boundary.
+// assertStrictlyOrdered constrains lo < mid < hi for a real entry. Dummy entries
+// (isDummy == 1) become 0 < 1 < 2, so the check always passes for them. It uses
+// AssertIsLessOrEqual plus AssertIsDifferent instead of a `+1` step, which could
+// wrap around at the field boundary.
 func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Variable) {
 	lo = api.Select(isDummy, frontend.Variable(0), lo)
 	mid = api.Select(isDummy, frontend.Variable(1), mid)

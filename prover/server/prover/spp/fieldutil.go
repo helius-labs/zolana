@@ -34,14 +34,14 @@ func parseField(value string) (*big.Int, error) {
 	return out, nil
 }
 
-// parseBigInt reads a field value with an explicit, auditable rule:
-//   - a "0x" prefix is hexadecimal;
-//   - a bare 64-character string is hexadecimal — the canonical field-element
-//     form emitted by proofFieldHex;
+// parseBigInt reads a field value with one explicit rule:
+//   - a "0x" prefix means hexadecimal;
+//   - a bare 64-character string is hexadecimal (the canonical field-element
+//     form emitted by proofFieldHex);
 //   - anything else is decimal.
 //
-// This avoids the old length/letter heuristic, under which a 21-digit decimal
-// was silently parsed as hex.
+// The fixed rule stops long decimals (e.g. a 21-digit number) from being read
+// as hex by accident.
 func parseBigInt(value string) (*big.Int, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

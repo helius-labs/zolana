@@ -13,9 +13,9 @@ type publicAmounts struct {
 	asset *big.Int
 }
 
-// derivePublicAmounts validates the mode and derives the signed public amounts
-// and SPL asset id in one place. A transfer (mode 0) must carry no public
-// amount; shield/unshield set the sign (with the SOL relayer fee folded in).
+// derivePublicAmounts validates the mode and builds the signed public amounts
+// and the SPL asset id. A transfer (mode 0) must carry no public amount;
+// shield/unshield set the sign (and fold the SOL relayer fee into the SOL side).
 func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 	if err := validatePublicAmountMode(tx.PublicAmountMode); err != nil {
 		return publicAmounts{}, err
@@ -50,12 +50,11 @@ func validatePublicAmountMode(mode uint8) error {
 	return nil
 }
 
-// signedSolAmount produces the signed `public_sol_amount` field value, the
-// tornado-nova convention: ext - relayer_fee, where ext is +amount to shield,
-// -amount to unshield, 0 to transfer. The relayer fee is always subtracted, so
-// a plain transfer pays it (-fee) without being encoded as an unshield. SPP
-// builds the same value on-chain from the u64 amount and the shield/unshield
-// marker. mode: 0 = transfer, 1 = shield, 2 = unshield.
+// signedSolAmount builds the signed public_sol_amount: ext - relayer_fee. ext
+// depends on the mode (0=transfer, 1=shield, 2=unshield): +amount for shield,
+// -amount for unshield, 0 for transfer. The fee is always subtracted, so a plain
+// transfer pays it (-fee) and is not mistaken for an unshield. SPP rebuilds the
+// same value on-chain from the u64 amount and the shield/unshield marker.
 func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
 	ext := new(big.Int).SetUint64(amount)
 	switch mode {
@@ -70,9 +69,9 @@ func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
 	return SignedToFe(ext)
 }
 
-// signedSplAmount mirrors signedSolAmount for SPL (no relayer fee, which is paid
-// in SOL): shield adds +amount, unshield subtracts amount, and a transfer moves
-// nothing. A transfer must NOT be treated as a deposit, or it would mint SPL.
+// signedSplAmount is signedSolAmount for SPL, with no fee (the fee is paid in
+// SOL): +amount for shield, -amount for unshield, 0 for transfer. A transfer
+// must stay 0 — treating it as a deposit would mint SPL.
 func signedSplAmount(mode uint8, amount uint64) *big.Int {
 	switch mode {
 	case 2: // unshield

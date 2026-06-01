@@ -8,17 +8,15 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// SolAsset is the asset identifier for native SOL: Sha256BE of the default
-// (all-zero) Solana address, matching the Sha256BE(mint) identifier used for
-// SPL assets. The identifier is derived from the mint, not a reserved constant,
-// and is distinct from the compact asset_id: u64 the ciphertext layer uses.
+// SolAsset is the asset id for native SOL: Sha256BE of the default (all-zero)
+// Solana address, derived from the mint like SPL assets (Sha256BE(mint)). It is
+// not the compact asset_id: u64 used by the ciphertext layer.
 func SolAsset() *big.Int {
 	return HashToFieldSize(make([]byte, 32))
 }
 
-// SignedToFe maps signed public amounts into their canonical BN254 Fr
-// representative. Positive values pass through; negative values become
-// modulus - |value|.
+// SignedToFe encodes a signed amount as a BN254 field element: positive values
+// stay as-is, negative values become modulus - |value|.
 func SignedToFe(value *big.Int) *big.Int {
 	return new(big.Int).Mod(value, poseidon.Modulus)
 }
@@ -49,12 +47,12 @@ func assertBalanceConservation(
 	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAsset))
 	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
 
-	// For each active asset, inputs plus public deposits equal outputs plus
-	// public withdrawals and fees. Every input/output UTXO may be a distinct
-	// asset (identified by Sha256BE(mint)); the public side touches only the
-	// SOL asset and the single public_spl_asset_pubkey. Checking conservation
-	// for every UTXO's asset id (not just the public two) means no asset can be
-	// minted. Repeated ids only re-check the same equation, which is harmless.
+	// Check balance per asset: inputs + public deposits == outputs + public
+	// withdrawals + fees. Each UTXO may hold a different asset (id =
+	// Sha256BE(mint)); the public side touches only SOL and the one
+	// public_spl_asset_pubkey. Checking every UTXO's asset (not just those two)
+	// is what stops any asset from being minted. A repeated id just re-checks
+	// the same equation, which is safe.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
 		keys = append(keys, input.Utxo.Asset)

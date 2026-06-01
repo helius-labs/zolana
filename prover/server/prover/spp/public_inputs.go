@@ -5,9 +5,9 @@ import (
 	"math/big"
 )
 
-// LogicalPublicInputNames is the SPP public-input set. Non-public implementation
-// variables such as expiry, amount mode, and relayer fee are bound through
-// private_tx_hash or external_data_hash in v1.
+// LogicalPublicInputNames is the SPP public-input set. Other values (expiry,
+// amount mode, relayer fee) are not public inputs; they are bound through
+// private_tx_hash or external_data_hash.
 var LogicalPublicInputNames = []string{
 	"nullifiers",
 	"output_utxo_hashes",
@@ -23,10 +23,10 @@ var LogicalPublicInputNames = []string{
 	"solana_pk_hashes",
 }
 
-// PublicInputs is the off-circuit twin of the values folded into PublicInputHash.
-// Field order matches LogicalPublicInputNames and the in-circuit
-// (*Circuit).publicInputHash so the on-chain verifier can reconstruct the same
-// BN254 field element.
+// PublicInputs is the off-circuit copy of the values folded into
+// PublicInputHash. Field order matches LogicalPublicInputNames and the in-circuit
+// (*Circuit).publicInputHash, so the on-chain verifier rebuilds the same BN254
+// field element.
 type PublicInputs struct {
 	Nullifiers           []*big.Int
 	OutputUtxoHashes     []*big.Int
@@ -44,8 +44,8 @@ type PublicInputs struct {
 
 // PublicInputHash folds the logical public inputs into one field element. The
 // variable-length groups (nullifiers, output hashes, tree roots, solana pk
-// hashes) are each chained first, then folded with the scalar inputs in the same
-// order as (*Circuit).publicInputHash.
+// hashes) are each hashed into one value first, then folded with the scalar
+// inputs in the same order as (*Circuit).publicInputHash.
 func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	nullifierChain, err := HashChain(inputs.Nullifiers)
 	if err != nil {

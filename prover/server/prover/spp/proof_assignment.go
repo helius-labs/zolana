@@ -8,9 +8,9 @@ import (
 )
 
 // proofAssignment is the result of building a circuit assignment for one
-// transaction: the witness to prove, the public inputs it commits to, the
-// normalized output UTXOs to return, and the values derived along the way that
-// the response and optional debug block draw from.
+// transaction: the witness to prove, the public inputs it commits to and their
+// hash, the output UTXOs to return, and other values the response and optional
+// debug block use.
 type proofAssignment struct {
 	circuit         *Circuit
 	publicInputs    PublicInputs
@@ -112,9 +112,9 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	}, nil
 }
 
-// proofTrees holds the sparse state tree and indexed nullifier tree built from a
-// transaction's declared entries, along with the membership proofs the input
-// witnesses draw from.
+// proofTrees holds the sparse state tree and indexed nullifier tree built from
+// the transaction's declared entries, plus the membership proofs the input
+// witnesses use.
 type proofTrees struct {
 	stateEntries  map[uint64]*big.Int
 	stateRoot     *big.Int

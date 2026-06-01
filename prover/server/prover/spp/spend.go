@@ -2,8 +2,8 @@ package spp
 
 import "github.com/consensys/gnark/frontend"
 
-// spendEnv holds the values shared across every input-spend check: they are
-// derived once per proof from the wallet secret and the single P256 signer.
+// spendEnv holds values shared by every input-spend check. They are computed
+// once per proof from the wallet secret and the single P256 signer.
 type spendEnv struct {
 	nullifierPkFromSecret frontend.Variable
 	p256OwnerKeyHash      frontend.Variable
@@ -11,9 +11,9 @@ type spendEnv struct {
 	nullifierSecret       frontend.Variable
 }
 
-// constrainInput verifies one spent input — domain, state-tree inclusion, owner
-// binding, nullifier derivation, and nullifier-tree non-inclusion — and returns
-// its UTXO hash (0 for a dummy) for the transaction-hash chain.
+// constrainInput verifies one spent input: domain, state-tree inclusion, owner
+// binding, nullifier derivation, and nullifier-tree non-inclusion. It returns
+// the input's UTXO hash (0 for a dummy) for the transaction-hash chain.
 func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
@@ -27,8 +27,8 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	stateRoot := StatePathFoldCircuit(api, utxoHash, in.State.Siblings, in.State.Directions)
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
 
-	// Owner binding: P256 inputs (SolanaPkHash == 0) recompute the owner key hash
-	// from the witnessed P256 point; Solana inputs use the public hash.
+	// Owner check: P256 inputs (SolanaPkHash == 0) rebuild the owner key hash
+	// from the P256 point in the witness; Solana inputs use the public hash.
 	isP256 := api.IsZero(in.SolanaPkHash)
 	ownerKeyHash := api.Select(isP256, env.p256OwnerKeyHash, in.SolanaPkHash)
 	ownerHash := OwnerHashCircuit(api, ownerKeyHash, in.NullifierPk)

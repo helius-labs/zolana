@@ -31,9 +31,9 @@ func (p MerkleProof) validate(height int) error {
 	return nil
 }
 
-// Input is one spent UTXO together with the witnesses that authorize the spend:
-// the owner material, its inclusion in the state tree, and the non-inclusion of
-// its nullifier in the indexed nullifier tree.
+// Input is one spent UTXO plus the witnesses that authorize the spend: the
+// owner material, a proof that the UTXO is in the state tree, and a proof that
+// its nullifier is not yet in the nullifier tree.
 type Input struct {
 	Utxo         UtxoCircuitFields
 	IsDummy      frontend.Variable
@@ -75,9 +75,9 @@ type Circuit struct {
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
 
-	// Logical public inputs, folded into PublicInputHash so the on-chain
-	// verifier can reconstruct one BN254 field element from instruction data
-	// and account state.
+	// Logical public inputs. They are folded into PublicInputHash so the
+	// on-chain verifier can rebuild one BN254 field element from instruction
+	// data and account state.
 	PrivateTxHash        frontend.Variable
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
@@ -166,9 +166,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-// publicInputHash folds the logical public inputs in-circuit. The element order
-// must match the off-circuit PublicInputHash (and LogicalPublicInputNames) so
-// the on-chain verifier reconstructs the same value; keep the two in sync.
+// publicInputHash folds the logical public inputs in-circuit. The order must
+// match the off-circuit PublicInputHash (and LogicalPublicInputNames), or the
+// on-chain verifier would compute a different value. Keep the two in sync.
 func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 	nullifiers := make([]frontend.Variable, len(c.Inputs))
 	utxoRoots := make([]frontend.Variable, len(c.Inputs))

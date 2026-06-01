@@ -8,9 +8,9 @@ import (
 
 func parseProofInput(input ProofInputRequest) (proofInput, error) {
 	// An input must carry owner key material: the spend is authorized by
-	// recomputing the owner hash from it. An owner-only UTXO (no pubkey) is
-	// valid for outputs but cannot be spent, so reject it here rather than let
-	// it fail later as an opaque owner-hash mismatch.
+	// rebuilding the owner hash from it. An owner-only UTXO (no pubkey) is fine
+	// for outputs but cannot be spent, so reject it here instead of failing
+	// later with an unclear owner-hash mismatch.
 	if strings.TrimSpace(input.Utxo.OwnerSolanaPubkey) == "" && strings.TrimSpace(input.Utxo.OwnerP256Pubkey) == "" {
 		return proofInput{}, fmt.Errorf("input UTXO requires owner_solana_pubkey or owner_p256_pubkey to authorize the spend")
 	}
@@ -33,10 +33,9 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 }
 
 // parsedUtxo holds a ProofUtxoRequest decoded into its circuit fields plus the
-// owner material derived alongside it. response is the copy echoed back in the
-// transaction response: field elements are canonicalized to 64-char hex, while
-// owner pubkeys are only stripped of any "0x" prefix (they are not field
-// elements, so they are passed through, not canonicalized).
+// owner material derived from it. response is the copy echoed back to the
+// caller: field elements are canonicalized to 64-char hex; owner pubkeys are
+// only stripped of a "0x" prefix (they are not field elements).
 type parsedUtxo struct {
 	utxo         Utxo
 	response     ProofUtxoRequest
@@ -135,9 +134,9 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 		if err != nil {
 			return ownerFields{}, err
 		}
-		// Both an explicit owner and key components were supplied: they must
-		// agree, otherwise the circuit's owner-hash binding would just fail with
-		// an opaque error. Reject the inconsistency here with a clear message.
+		// Both an explicit owner and key components were given: they must match.
+		// Otherwise the circuit's owner-hash check would fail with an unclear
+		// error, so reject the mismatch here with a clear message.
 		derived, err := OwnerHash(key.keyHash, key.nullifierPk)
 		if err != nil {
 			return ownerFields{}, err

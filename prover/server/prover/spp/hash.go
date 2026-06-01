@@ -9,8 +9,8 @@ import (
 	"light/light-prover/prover/poseidon"
 )
 
-// Utxo is the field-element view of the SPP UTXO hash preimage. Field order is
-// significant: it defines the Poseidon hash preimage.
+// Utxo is the field-element view of a UTXO. Field order matters: it is the
+// Poseidon hash preimage.
 type Utxo struct {
 	Domain          *big.Int
 	Owner           *big.Int
