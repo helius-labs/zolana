@@ -141,6 +141,7 @@ type proofDebug struct {
 
 type proofExternalData struct {
 	InstructionDiscriminator uint8
+	ExpiryUnixTs             uint64
 	SenderViewTag            [32]byte
 	RelayerFee               uint16
 	PublicSolAmount          uint64

@@ -364,6 +364,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	}
 	externalDataHash := proofExternalDataFieldHash(proofExternalData{
 		InstructionDiscriminator: tx.InstructionDiscriminator,
+		ExpiryUnixTs:             tx.ExpiryUnixTs,
 		SenderViewTag:            proofFieldBytes(senderViewTag),
 		RelayerFee:               tx.RelayerFee,
 		PublicSolAmount:          optionalU64(tx.PublicSolAmount),
@@ -379,6 +380,9 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	}
 	p256Pub, p256Sig, err := p256WitnessForTransaction(tx, privateTxHash, requiresP256, options.AllowMissingP256Signature)
 	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
+	}
+	if err := validatePublicAmountMode(tx.PublicAmountMode); err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
 	publicSolAmount := signedSolAmount(tx.PublicAmountMode, optionalU64(tx.PublicSolAmount), tx.RelayerFee)
@@ -661,6 +665,9 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 func proofExternalDataFieldHash(data proofExternalData) *big.Int {
 	hasher := sha256.New()
 	hasher.Write([]byte{data.InstructionDiscriminator})
+	var expiry [8]byte
+	binary.BigEndian.PutUint64(expiry[:], data.ExpiryUnixTs)
+	hasher.Write(expiry[:])
 	hasher.Write(data.SenderViewTag[:])
 	var fee [2]byte
 	binary.BigEndian.PutUint16(fee[:], data.RelayerFee)
@@ -699,11 +706,25 @@ func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
 	return SignedToFe(ext)
 }
 
+// validatePublicAmountMode rejects modes outside {0=transfer, 1=shield,
+// 2=unshield}; the sign helpers are only defined for these values.
+func validatePublicAmountMode(mode uint8) error {
+	if mode > 2 {
+		return fmt.Errorf("spp: invalid public_amount_mode %d (want 0=transfer, 1=shield, 2=unshield)", mode)
+	}
+	return nil
+}
+
+// signedSplAmount mirrors signedSolAmount for SPL (no relayer fee, which is paid
+// in SOL): shield adds +amount, unshield subtracts amount, and a transfer moves
+// nothing. A transfer must NOT be treated as a deposit, or it would mint SPL.
 func signedSplAmount(mode uint8, amount uint64) *big.Int {
 	switch mode {
-	case 2:
+	case 2: // unshield
 		return SignedToFe(new(big.Int).Neg(new(big.Int).SetUint64(amount)))
-	default:
+	case 1: // shield
 		return new(big.Int).SetUint64(amount)
+	default: // transfer: no public SPL movement
+		return big.NewInt(0)
 	}
 }

@@ -89,3 +89,54 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 		t.Fatal("unsigned P256 proof bundle unexpectedly succeeded")
 	}
 }
+
+func TestSignedAmountsByMode(t *testing.T) {
+	// Transfer (mode 0) moves no public value: SPL must be zero, not a deposit
+	// (the regression — previously +amount, which minted SPL). SOL is -fee only.
+	if got := signedSplAmount(0, 100); got.Sign() != 0 {
+		t.Fatalf("signedSplAmount(transfer, 100) = %s, want 0", got)
+	}
+	if got := signedSolAmount(0, 100, 0); got.Sign() != 0 {
+		t.Fatalf("signedSolAmount(transfer, 100, fee=0) = %s, want 0", got)
+	}
+	// Shield (mode 1): +amount.
+	if got := signedSplAmount(1, 100); got.Cmp(big.NewInt(100)) != 0 {
+		t.Fatalf("signedSplAmount(shield, 100) = %s, want 100", got)
+	}
+	if got := signedSolAmount(1, 100, 0); got.Cmp(big.NewInt(100)) != 0 {
+		t.Fatalf("signedSolAmount(shield, 100, 0) = %s, want 100", got)
+	}
+	// Unshield (mode 2): -amount for SPL, -(amount+fee) for SOL.
+	if got := signedSplAmount(2, 100); got.Cmp(SignedToFe(big.NewInt(-100))) != 0 {
+		t.Fatalf("signedSplAmount(unshield, 100) = %s, want -100", got)
+	}
+	if got := signedSolAmount(2, 100, 5); got.Cmp(SignedToFe(big.NewInt(-105))) != 0 {
+		t.Fatalf("signedSolAmount(unshield, 100, fee=5) = %s, want -105", got)
+	}
+	// The relayer fee is always subtracted from SOL, including on a transfer.
+	if got := signedSolAmount(0, 0, 7); got.Cmp(SignedToFe(big.NewInt(-7))) != 0 {
+		t.Fatalf("signedSolAmount(transfer, 0, fee=7) = %s, want -7", got)
+	}
+}
+
+func TestValidatePublicAmountMode(t *testing.T) {
+	for _, m := range []uint8{0, 1, 2} {
+		if err := validatePublicAmountMode(m); err != nil {
+			t.Fatalf("mode %d rejected: %v", m, err)
+		}
+	}
+	for _, m := range []uint8{3, 4, 255} {
+		if err := validatePublicAmountMode(m); err == nil {
+			t.Fatalf("mode %d accepted, want error", m)
+		}
+	}
+}
+
+func TestExternalDataHashBindsExpiry(t *testing.T) {
+	base := proofExternalData{InstructionDiscriminator: 1, ExpiryUnixTs: 100}
+	later := base
+	later.ExpiryUnixTs = 200
+	if proofExternalDataFieldHash(base).Cmp(proofExternalDataFieldHash(later)) == 0 {
+		t.Fatal("external_data_hash does not depend on expiry_unix_ts")
+	}
+}
