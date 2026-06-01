@@ -100,7 +100,7 @@ func proofZeroUtxo() Utxo {
 	return Utxo{
 		Domain:          big.NewInt(0),
 		Owner:           big.NewInt(0),
-		AssetID:         big.NewInt(0),
+		Asset:           big.NewInt(0),
 		AssetAmount:     big.NewInt(0),
 		Blinding:        big.NewInt(0),
 		DataHash:        big.NewInt(0),
@@ -113,7 +113,7 @@ func toProofCircuitFields(utxo Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
 		Domain:          utxo.Domain,
 		Owner:           utxo.Owner,
-		AssetID:         utxo.AssetID,
+		Asset:           utxo.Asset,
 		AssetAmount:     utxo.AssetAmount,
 		Blinding:        utxo.Blinding,
 		DataHash:        utxo.DataHash,

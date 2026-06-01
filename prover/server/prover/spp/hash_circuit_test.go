@@ -73,7 +73,7 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	utxo := Utxo{
 		Domain:          fe(1),
 		Owner:           fe(2),
-		AssetID:         fe(3),
+		Asset:           fe(3),
 		AssetAmount:     fe(4),
 		Blinding:        fe(5),
 		DataHash:        fe(6),
@@ -105,7 +105,7 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 		Utxo: UtxoCircuitFields{
 			Domain:          utxo.Domain,
 			Owner:           utxo.Owner,
-			AssetID:         utxo.AssetID,
+			Asset:           utxo.Asset,
 			AssetAmount:     utxo.AssetAmount,
 			Blinding:        utxo.Blinding,
 			DataHash:        utxo.DataHash,

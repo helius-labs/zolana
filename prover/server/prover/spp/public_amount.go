@@ -31,7 +31,7 @@ func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 		if err != nil {
 			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
-		// asset_id = Sha256BE(mint), matching SolAssetID = Sha256BE(default).
+		// asset = Sha256BE(mint), matching SolAsset = Sha256BE(default).
 		asset = HashToFieldSize(mint[:])
 	}
 	return publicAmounts{

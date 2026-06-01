@@ -15,7 +15,7 @@ import (
 type UtxoCircuitFields struct {
 	Domain          frontend.Variable
 	Owner           frontend.Variable
-	AssetID         frontend.Variable
+	Asset           frontend.Variable
 	AssetAmount     frontend.Variable
 	Blinding        frontend.Variable
 	DataHash        frontend.Variable
@@ -27,7 +27,7 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	return poseidon.HashCircuitWithT(api, 9, []frontend.Variable{
 		u.Domain,
 		u.Owner,
-		u.AssetID,
+		u.Asset,
 		u.AssetAmount,
 		u.Blinding,
 		u.DataHash,

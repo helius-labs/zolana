@@ -8,10 +8,11 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// SolAssetID is the asset identifier for native SOL: Sha256BE of the default
+// SolAsset is the asset identifier for native SOL: Sha256BE of the default
 // (all-zero) Solana address, matching the Sha256BE(mint) identifier used for
-// SPL assets. The asset_id is derived from the mint, not a reserved constant.
-func SolAssetID() *big.Int {
+// SPL assets. The identifier is derived from the mint, not a reserved constant,
+// and is distinct from the compact asset_id: u64 the ciphertext layer uses.
+func SolAsset() *big.Int {
 	return HashToFieldSize(make([]byte, 32))
 }
 
@@ -41,11 +42,11 @@ func assertBalanceConservation(
 	assertSigned64Range(api, publicSolAmount)
 	assertSigned64Range(api, publicSplAmount)
 
-	solAssetID := SolAssetID()
+	solAsset := SolAsset()
 
 	// SPL public movement must not use the SOL asset id.
 	splAmountIsZero := api.IsZero(publicSplAmount)
-	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAssetID))
+	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAsset))
 	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
 
 	// For each active asset, inputs plus public deposits equal outputs plus
@@ -56,27 +57,27 @@ func assertBalanceConservation(
 	// minted. Repeated ids only re-check the same equation, which is harmless.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
-		keys = append(keys, input.Utxo.AssetID)
+		keys = append(keys, input.Utxo.Asset)
 	}
 	for _, output := range outputs {
-		keys = append(keys, output.Utxo.AssetID)
+		keys = append(keys, output.Utxo.Asset)
 	}
-	keys = append(keys, solAssetID, publicSplAssetPubkey)
+	keys = append(keys, solAsset, publicSplAssetPubkey)
 
 	for _, key := range keys {
 		inSum := frontend.Variable(0)
 		for _, input := range inputs {
-			match := api.IsZero(api.Sub(key, input.Utxo.AssetID))
+			match := api.IsZero(api.Sub(key, input.Utxo.Asset))
 			inSum = api.Add(inSum, api.Mul(match, input.Utxo.AssetAmount))
 		}
 
 		outSum := frontend.Variable(0)
 		for _, output := range outputs {
-			match := api.IsZero(api.Sub(key, output.Utxo.AssetID))
+			match := api.IsZero(api.Sub(key, output.Utxo.Asset))
 			outSum = api.Add(outSum, api.Mul(match, output.Utxo.AssetAmount))
 		}
 
-		solMatch := api.IsZero(api.Sub(key, solAssetID))
+		solMatch := api.IsZero(api.Sub(key, solAsset))
 		splMatch := api.IsZero(api.Sub(key, publicSplAssetPubkey))
 		adjustedIn := api.Add(
 			inSum,

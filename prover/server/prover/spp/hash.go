@@ -14,7 +14,7 @@ import (
 type Utxo struct {
 	Domain          *big.Int
 	Owner           *big.Int
-	AssetID         *big.Int
+	Asset           *big.Int
 	AssetAmount     *big.Int
 	Blinding        *big.Int
 	DataHash        *big.Int
@@ -26,7 +26,7 @@ func (u Utxo) Fields() []*big.Int {
 	return []*big.Int{
 		u.Domain,
 		u.Owner,
-		u.AssetID,
+		u.Asset,
 		u.AssetAmount,
 		u.Blinding,
 		u.DataHash,

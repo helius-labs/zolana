@@ -28,7 +28,7 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 	utxo := Utxo{
 		Domain:          big.NewInt(UtxoDomain),
 		Owner:           owner,
-		AssetID:         big.NewInt(1),
+		Asset:           big.NewInt(1),
 		AssetAmount:     big.NewInt(5),
 		Blinding:        big.NewInt(23),
 		DataHash:        big.NewInt(0),
@@ -57,7 +57,7 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 				Utxo: ProofUtxoRequest{
 					Domain:          proofFieldHex(utxo.Domain),
 					OwnerP256Pubkey: proofBytesHex(p256Pubkey),
-					AssetID:         proofFieldHex(utxo.AssetID),
+					Asset:           proofFieldHex(utxo.Asset),
 					AssetAmount:     proofFieldHex(utxo.AssetAmount),
 					Blinding:        proofFieldHex(utxo.Blinding),
 					DataHash:        proofFieldHex(utxo.DataHash),

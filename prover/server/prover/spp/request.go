@@ -64,7 +64,7 @@ type ProofUtxoRequest struct {
 	// enclosing ProofInputRequest.NullifierSecret (e.g. a bare output UTXO whose
 	// owner hash must be recomputed). For inputs, set NullifierSecret instead.
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
-	AssetID              string `json:"asset_id"`
+	Asset                string `json:"asset"`
 	AssetAmount          string `json:"asset_amount"`
 	Blinding             string `json:"blinding"`
 	DataHash             string `json:"data_hash"`

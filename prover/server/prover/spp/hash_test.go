@@ -78,7 +78,7 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 	utxo := Utxo{
 		Domain:          fe(1),
 		Owner:           fe(2),
-		AssetID:         fe(3),
+		Asset:           fe(3),
 		AssetAmount:     fe(4),
 		Blinding:        fe(5),
 		DataHash:        fe(6),
@@ -98,7 +98,7 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 		fe(1), fe(2), fe(4), fe(3), fe(5), fe(6), fe(7), fe(8),
 	})
 	if got.Cmp(swapped) == 0 {
-		t.Fatal("utxo hash did not change when asset_id and asset_amount were swapped")
+		t.Fatal("utxo hash did not change when asset and asset_amount were swapped")
 	}
 }
 

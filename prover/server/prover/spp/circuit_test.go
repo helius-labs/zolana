@@ -224,13 +224,13 @@ func TestCircuitSkeletonRejectsBalanceMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := fe(7)
+	asset := fe(7)
 	inputs := []Utxo{
-		sampleUtxoWithAssetAndAmount(10, assetID, fe(100)),
+		sampleUtxoWithAssetAndAmount(10, asset, fe(100)),
 	}
 	outputs := []Utxo{
-		sampleUtxoWithAssetAndAmount(100, assetID, fe(40)),
-		sampleUtxoWithAssetAndAmount(110, assetID, fe(70)),
+		sampleUtxoWithAssetAndAmount(100, asset, fe(40)),
+		sampleUtxoWithAssetAndAmount(110, asset, fe(70)),
 	}
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -247,7 +247,7 @@ func TestCircuitSkeletonRejectsBalanceMismatch(t *testing.T) {
 
 func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 	shape := Shape{NInputs: 1, NOutputs: 2}
-	solAssetID := SolAssetID()
+	solAsset := SolAsset()
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
@@ -255,8 +255,8 @@ func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
-			[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
-			paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(125))),
+			[]Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, fe(100))},
+			paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAsset, fe(125))),
 			big.NewInt(25),
 			big.NewInt(0),
 			fe(0),
@@ -271,8 +271,8 @@ func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
-			[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
-			paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(75))),
+			[]Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, fe(100))},
+			paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAsset, fe(75))),
 			big.NewInt(-25),
 			big.NewInt(0),
 			fe(0),
@@ -347,12 +347,12 @@ func TestCircuitSkeletonRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	privateAssetID := fe(77)
+	privateAsset := fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, privateAssetID, fe(100))},
-		paddedOutputs(sampleUtxoWithAssetAndAmount(100, privateAssetID, fe(125))),
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, fe(100))},
+		paddedOutputs(sampleUtxoWithAssetAndAmount(100, privateAsset, fe(125))),
 		big.NewInt(0),
 		big.NewInt(25),
 		fe(88),
@@ -365,15 +365,15 @@ func TestCircuitSkeletonRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	solAssetID := SolAssetID()
+	solAsset := SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, fe(100))},
-		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAssetID, fe(125))),
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, fe(100))},
+		paddedOutputs(sampleUtxoWithAssetAndAmount(100, solAsset, fe(125))),
 		big.NewInt(0),
 		big.NewInt(25),
-		solAssetID,
+		solAsset,
 	)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
@@ -383,12 +383,12 @@ func TestCircuitSkeletonRejectsPhantomPublicSplMovement(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	privateAssetID := fe(77)
+	privateAsset := fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, privateAssetID, fe(100))},
-		paddedOutputs(sampleUtxoWithAssetAndAmount(100, privateAssetID, fe(100))),
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, fe(100))},
+		paddedOutputs(sampleUtxoWithAssetAndAmount(100, privateAsset, fe(100))),
 		big.NewInt(0),
 		big.NewInt(25),
 		fe(88),
@@ -421,14 +421,14 @@ func TestCircuitSkeletonAcceptsDummyOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := fe(77)
+	asset := fe(77)
 	assignment := buildCircuitAssignmentWithDummies(
 		t,
 		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, assetID, fe(100))},
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, asset, fe(100))},
 		[]Utxo{
-			sampleUtxoWithAssetAndAmount(100, assetID, fe(100)),
-			sampleUtxoWithAssetAndAmount(110, assetID, fe(0)),
+			sampleUtxoWithAssetAndAmount(100, asset, fe(100)),
+			sampleUtxoWithAssetAndAmount(110, asset, fe(0)),
 		},
 		[]bool{false},
 		[]bool{false, true},
@@ -506,14 +506,14 @@ func TestCircuitSkeletonRejectsDummyOutputWithPublicHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := fe(77)
+	asset := fe(77)
 	assignment := buildCircuitAssignmentWithDummies(
 		t,
 		shape,
-		[]Utxo{sampleUtxoWithAssetAndAmount(10, assetID, fe(100))},
+		[]Utxo{sampleUtxoWithAssetAndAmount(10, asset, fe(100))},
 		[]Utxo{
-			sampleUtxoWithAssetAndAmount(100, assetID, fe(100)),
-			sampleUtxoWithAssetAndAmount(110, assetID, fe(0)),
+			sampleUtxoWithAssetAndAmount(100, asset, fe(100)),
+			sampleUtxoWithAssetAndAmount(110, asset, fe(0)),
 		},
 		[]bool{false},
 		[]bool{false, true},
@@ -820,12 +820,12 @@ func refreshPublicInputHash(t *testing.T, assignment *Circuit) {
 func defaultBalancedUtxos(t *testing.T, shape Shape) ([]Utxo, []Utxo) {
 	t.Helper()
 
-	assetID := fe(7)
+	asset := fe(7)
 	inputs := make([]Utxo, shape.NInputs)
 	total := int64(0)
 	for i := 0; i < shape.NInputs; i++ {
 		amount := int64(100 + i*10)
-		inputs[i] = sampleUtxoWithAssetAndAmount(10+i*10, assetID, fe(amount))
+		inputs[i] = sampleUtxoWithAssetAndAmount(10+i*10, asset, fe(amount))
 		total += amount
 	}
 	outputs := make([]Utxo, shape.NOutputs)
@@ -833,14 +833,14 @@ func defaultBalancedUtxos(t *testing.T, shape Shape) ([]Utxo, []Utxo) {
 	for i := 0; i < shape.NOutputs; i++ {
 		amount := remaining / int64(shape.NOutputs-i)
 		remaining -= amount
-		outputs[i] = sampleUtxoWithAssetAndAmount(100+i*10, assetID, fe(amount))
+		outputs[i] = sampleUtxoWithAssetAndAmount(100+i*10, asset, fe(amount))
 	}
 	return inputs, outputs
 }
 
-func sampleUtxoWithAssetAndAmount(base int, assetID, amount *big.Int) Utxo {
+func sampleUtxoWithAssetAndAmount(base int, asset, amount *big.Int) Utxo {
 	utxo := sampleUtxo(base)
-	utxo.AssetID = new(big.Int).Set(assetID)
+	utxo.Asset = new(big.Int).Set(asset)
 	utxo.AssetAmount = new(big.Int).Set(amount)
 	return utxo
 }
@@ -848,7 +848,7 @@ func sampleUtxoWithAssetAndAmount(base int, assetID, amount *big.Int) Utxo {
 func paddedOutputs(output Utxo) []Utxo {
 	return []Utxo{
 		output,
-		sampleUtxoWithAssetAndAmount(110, output.AssetID, fe(0)),
+		sampleUtxoWithAssetAndAmount(110, output.Asset, fe(0)),
 	}
 }
 
@@ -856,7 +856,7 @@ func sampleUtxo(base int) Utxo {
 	return Utxo{
 		Domain:          fe(UtxoDomain),
 		Owner:           testOwnerHashForNullifierSecret(fe(99)),
-		AssetID:         fe(int64(base + 3)),
+		Asset:           fe(int64(base + 3)),
 		AssetAmount:     fe(int64(base + 4)),
 		Blinding:        fe(int64(base + 5)),
 		DataHash:        fe(int64(base + 6)),
@@ -987,7 +987,7 @@ func toCircuitFields(utxo Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
 		Domain:          utxo.Domain,
 		Owner:           utxo.Owner,
-		AssetID:         utxo.AssetID,
+		Asset:           utxo.Asset,
 		AssetAmount:     utxo.AssetAmount,
 		Blinding:        utxo.Blinding,
 		DataHash:        utxo.DataHash,
@@ -1000,7 +1000,7 @@ func circuitFieldsToUtxo(fields UtxoCircuitFields) Utxo {
 	return Utxo{
 		Domain:          asBigInt(fields.Domain),
 		Owner:           asBigInt(fields.Owner),
-		AssetID:         asBigInt(fields.AssetID),
+		Asset:           asBigInt(fields.Asset),
 		AssetAmount:     asBigInt(fields.AssetAmount),
 		Blinding:        asBigInt(fields.Blinding),
 		DataHash:        asBigInt(fields.DataHash),
