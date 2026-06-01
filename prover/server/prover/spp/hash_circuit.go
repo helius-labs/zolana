@@ -129,15 +129,13 @@ func PrivateTxHashCircuit(
 	inputUtxoHashes []frontend.Variable,
 	outputUtxoHashes []frontend.Variable,
 	externalDataHash frontend.Variable,
-	expiryUnixTs frontend.Variable,
 ) frontend.Variable {
 	inputChain := HashChainCircuit(api, inputUtxoHashes)
 	outputChain := HashChainCircuit(api, outputUtxoHashes)
-	return poseidon.HashCircuitWithT(api, 5, []frontend.Variable{
+	return poseidon.HashCircuitWithT(api, 4, []frontend.Variable{
 		inputChain,
 		outputChain,
 		externalDataHash,
-		expiryUnixTs,
 	})
 }
 

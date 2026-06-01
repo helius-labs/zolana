@@ -162,7 +162,6 @@ func PrivateTxHash(
 	inputUtxoHashes []*big.Int,
 	outputUtxoHashes []*big.Int,
 	externalDataHash *big.Int,
-	expiryUnixTs *big.Int,
 ) (*big.Int, error) {
 	inputChain, err := HashChain(inputUtxoHashes)
 	if err != nil {
@@ -173,11 +172,10 @@ func PrivateTxHash(
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
 
-	h, err := poseidon.HashWithT(5, []*big.Int{
+	h, err := poseidon.HashWithT(4, []*big.Int{
 		inputChain,
 		outputChain,
 		externalDataHash,
-		expiryUnixTs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash: %w", err)

@@ -38,13 +38,12 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		return proofAssignment{}, err
 	}
 
-	expiry := new(big.Int).SetUint64(tx.ExpiryUnixTs)
 	external, err := buildExternalData(tx)
 	if err != nil {
 		return proofAssignment{}, err
 	}
 	externalDataHash := external.hash
-	privateTxHash, err := PrivateTxHash(in.hashes, out.hashes, externalDataHash, expiry)
+	privateTxHash, err := PrivateTxHash(in.hashes, out.hashes, externalDataHash)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -84,7 +83,6 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		Inputs:               in.inputs,
 		Outputs:              out.outputs,
 		ExternalDataHash:     externalDataHash,
-		ExpiryUnixTs:         expiry,
 		NullifierSecret:      in.sharedNullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,

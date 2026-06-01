@@ -70,7 +70,6 @@ type Circuit struct {
 	Outputs []Output
 
 	ExternalDataHash frontend.Variable
-	ExpiryUnixTs     frontend.Variable
 	NullifierSecret  frontend.Variable
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
@@ -159,7 +158,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
-	privateTxHash := PrivateTxHashCircuit(api, inputHashes, outputHashes, c.ExternalDataHash, c.ExpiryUnixTs)
+	privateTxHash := PrivateTxHashCircuit(api, inputHashes, outputHashes, c.ExternalDataHash)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
 
 	api.AssertIsEqual(c.PublicInputHash, c.publicInputHash(api))

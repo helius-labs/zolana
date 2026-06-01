@@ -680,8 +680,7 @@ func buildCircuitAssignmentWithDummies(
 	}
 
 	externalDataHash := fe(300)
-	expiry := fe(400)
-	privateTxHash := mustPrivateTxHash(t, inputHashes, outputHashes, externalDataHash, expiry)
+	privateTxHash := mustPrivateTxHash(t, inputHashes, outputHashes, externalDataHash)
 	privateTxHashBytes := proofFieldBytes(privateTxHash)
 	p256Pub, p256Sig, err := dummyP256Witness(privateTxHashBytes[:])
 	if err != nil {
@@ -738,7 +737,6 @@ func buildCircuitAssignmentWithDummies(
 		Inputs:               inputs,
 		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
-		ExpiryUnixTs:         expiry,
 		NullifierSecret:      nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
@@ -912,7 +910,6 @@ func rewriteSingleInputAsP256(t *testing.T, assignment *Circuit, ownerPriv, sign
 		[]*big.Int{inputHash},
 		outputHashes,
 		asBigInt(assignment.ExternalDataHash),
-		asBigInt(assignment.ExpiryUnixTs),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	msg := proofFieldBytes(privateTxHash)
