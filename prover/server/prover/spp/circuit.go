@@ -126,7 +126,7 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 // assertStrictlyOrdered constrains lo < mid < hi for a real entry; dummy entries
 // (isDummy == 1) are mapped to 0 < 1 < 2 so the check always holds for them.
 // Expressed with AssertIsLessOrEqual + AssertIsDifferent rather than a `+1`
-// increment, which could wrap at the field boundary (audit #4/#5).
+// increment, which could wrap at the field boundary.
 func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Variable) {
 	lo = api.Select(isDummy, frontend.Variable(0), lo)
 	mid = api.Select(isDummy, frontend.Variable(1), mid)
@@ -154,7 +154,7 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	notDummy := api.Sub(1, in.IsDummy)
 
 	assertZeroWhen(api, in.IsDummy, in.Utxo.AssetAmount)
-	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
+	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain) // pin domain
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
@@ -197,7 +197,7 @@ func constrainOutput(api frontend.API, out Output) frontend.Variable {
 	notDummy := api.Sub(1, out.IsDummy)
 
 	assertZeroWhen(api, out.IsDummy, out.Utxo.AssetAmount)
-	assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain) // pin domain (audit #2)
+	assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain) // pin domain
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
 	assertEqualWhen(api, notDummy, utxoHash, out.Hash)
@@ -207,8 +207,8 @@ func constrainOutput(api frontend.API, out Output) frontend.Variable {
 }
 
 // assertDistinctNullifiers rejects spending the same input twice in one
-// transaction: every pair of real inputs must carry distinct nullifiers (audit
-// #1). Dummy inputs all carry nullifier 0 and are excluded.
+// transaction: every pair of real inputs must carry distinct nullifiers. Dummy
+// inputs all carry nullifier 0 and are excluded.
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 	for i := range c.Inputs {
 		for j := i + 1; j < len(c.Inputs); j++ {

@@ -91,8 +91,7 @@ func (c *NullifierBatchUpdateCircuit) Define(api frontend.API) error {
 		newLowLeaf := IndexedLeafHashCircuit(api, c.LowElementValues[i], c.NewElementValues[i])
 
 		// Strict ordering low < new < next without a `+1` increment, so the
-		// comparison cannot wrap at the field boundary (audit #21, mirrors the
-		// transaction-circuit fix for #4/#5).
+		// comparison cannot wrap at the field boundary.
 		api.AssertIsLessOrEqual(c.LowElementValues[i], c.NewElementValues[i])
 		api.AssertIsDifferent(c.LowElementValues[i], c.NewElementValues[i])
 		api.AssertIsLessOrEqual(c.NewElementValues[i], c.LowElementNextValues[i])

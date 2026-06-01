@@ -10,7 +10,7 @@ const (
 	// UtxoDomain is the protocol-fixed `domain` separator that every non-dummy
 	// UTXO carries in its Poseidon hash preimage (spec "UTXO Hash"). Enforcing
 	// it in-circuit prevents a UTXO hash from being reinterpreted as another
-	// Poseidon record type (audit finding #2).
+	// Poseidon record type.
 	//
 	// NOTE: the concrete value is not yet pinned by the spec or the on-chain
 	// program. This constant MUST be ratified to match the value senders write

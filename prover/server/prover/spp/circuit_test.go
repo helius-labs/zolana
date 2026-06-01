@@ -103,9 +103,9 @@ func TestCircuitSkeletonRejectsBadNullifierRange(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
-// Audit #1: re-spending the same input UTXO twice in one transaction must be
-// rejected. Both slots carry the same UTXO -> same nullifier; before the fix
-// this assignment solved and doubled the input value into the outputs.
+// Re-spending the same input UTXO twice in one transaction must be rejected:
+// both slots carry the same UTXO -> same nullifier, which would otherwise
+// double the input value into the outputs.
 func TestCircuitSkeletonRejectsDuplicateInputNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 2, NOutputs: 2}
@@ -118,8 +118,8 @@ func TestCircuitSkeletonRejectsDuplicateInputNullifier(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
-// Audit #2: a real UTXO carrying a domain separator other than UtxoDomain must
-// be rejected even though its hash is a valid leaf of the state tree.
+// A real UTXO carrying a domain separator other than UtxoDomain must be
+// rejected even though its hash is a valid leaf of the state tree.
 func TestCircuitSkeletonRejectsNonCanonicalDomain(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := Shape{NInputs: 1, NOutputs: 2}
@@ -280,6 +280,49 @@ func TestCircuitSkeletonAcceptsPublicSolMovement(t *testing.T) {
 
 		assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 	})
+}
+
+// Each input UTXO may be a distinct asset (identified by Sha256BE(mint)); only
+// SOL and one public_spl_asset have public legs. Balance is conserved per-asset
+// independently, so two different private assets settle in one transaction with
+// no public movement.
+func TestCircuitSkeletonAcceptsMultipleAssets(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assetA, assetB := fe(7), fe(11)
+	inputs := []Utxo{
+		sampleUtxoWithAssetAndAmount(10, assetA, fe(100)),
+		sampleUtxoWithAssetAndAmount(20, assetB, fe(50)),
+	}
+	outputs := []Utxo{
+		sampleUtxoWithAssetAndAmount(100, assetA, fe(100)),
+		sampleUtxoWithAssetAndAmount(110, assetB, fe(50)),
+	}
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), fe(0))
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
+}
+
+// Minting is impossible — an output asset with no matching input (and no
+// public deposit) breaks per-asset conservation.
+func TestCircuitSkeletonRejectsCrossAssetImbalance(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assetA, assetB := fe(7), fe(11)
+	inputs := []Utxo{
+		sampleUtxoWithAssetAndAmount(10, assetA, fe(100)),
+		sampleUtxoWithAssetAndAmount(20, assetB, fe(50)),
+	}
+	// Move assetA's amount onto assetB: assetA under-spent, assetB minted.
+	outputs := []Utxo{
+		sampleUtxoWithAssetAndAmount(100, assetB, fe(100)),
+		sampleUtxoWithAssetAndAmount(110, assetB, fe(50)),
+	}
+	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), fe(0))
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254), test.WithBackends(backend.GROTH16))
 }
 
 func TestCircuitSkeletonAcceptsPublicSplDeposit(t *testing.T) {
