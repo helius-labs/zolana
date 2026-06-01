@@ -144,16 +144,3 @@ type proofDebug struct {
 	inUtxoSignerIndices      []int
 	requiresP256OwnerWitness bool
 }
-
-type proofExternalData struct {
-	InstructionDiscriminator uint8
-	ExpiryUnixTs             uint64
-	SenderViewTag            [32]byte
-	RelayerFee               uint16
-	PublicSolAmount          uint64
-	PublicSplAmount          uint64
-	UserSolAccount           [32]byte
-	UserSplToken             [32]byte
-	SplTokenInterface        [32]byte
-	EncryptedUtxos           []byte
-}

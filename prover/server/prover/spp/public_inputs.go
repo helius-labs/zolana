@@ -1,5 +1,10 @@
 package spp
 
+import (
+	"fmt"
+	"math/big"
+)
+
 // LogicalPublicInputNames is the SPP public-input set. Non-public implementation
 // variables such as expiry, amount mode, and relayer fee are bound through
 // private_tx_hash or external_data_hash in v1.
@@ -16,4 +21,64 @@ var LogicalPublicInputNames = []string{
 	"program_id_hashchain",
 	"solana_pubkey_hash",
 	"solana_pk_hashes",
+}
+
+// PublicInputs is the off-circuit twin of the values folded into PublicInputHash.
+// Field order matches LogicalPublicInputNames and the in-circuit
+// (*Circuit).publicInputHash so the on-chain verifier can reconstruct the same
+// BN254 field element.
+type PublicInputs struct {
+	Nullifiers           []*big.Int
+	OutputUtxoHashes     []*big.Int
+	UtxoTreeRoots        []*big.Int
+	NullifierRoots       []*big.Int
+	PrivateTxHash        *big.Int
+	ExternalDataHash     *big.Int
+	PublicSolAmount      *big.Int
+	PublicSplAmount      *big.Int
+	PublicSplAssetPubkey *big.Int
+	ProgramIDHashChain   *big.Int
+	SolanaPubkeyHash     *big.Int
+	SolanaPkHashes       []*big.Int
+}
+
+// PublicInputHash folds the logical public inputs into one field element. The
+// variable-length groups (nullifiers, output hashes, tree roots, solana pk
+// hashes) are each chained first, then folded with the scalar inputs in the same
+// order as (*Circuit).publicInputHash.
+func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
+	nullifierChain, err := HashChain(inputs.Nullifiers)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash nullifier chain: %w", err)
+	}
+	outputChain, err := HashChain(inputs.OutputUtxoHashes)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash output chain: %w", err)
+	}
+	utxoRootChain, err := HashChain(inputs.UtxoTreeRoots)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash UTXO root chain: %w", err)
+	}
+	nullifierRootChain, err := HashChain(inputs.NullifierRoots)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash nullifier root chain: %w", err)
+	}
+	solanaOwnerKeyHashChain, err := HashChain(inputs.SolanaPkHashes)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash solana pk hash chain: %w", err)
+	}
+	return HashChain([]*big.Int{
+		nullifierChain,
+		outputChain,
+		utxoRootChain,
+		nullifierRootChain,
+		inputs.PrivateTxHash,
+		inputs.ExternalDataHash,
+		inputs.PublicSolAmount,
+		inputs.PublicSplAmount,
+		inputs.PublicSplAssetPubkey,
+		inputs.ProgramIDHashChain,
+		inputs.SolanaPubkeyHash,
+		solanaOwnerKeyHashChain,
+	})
 }
