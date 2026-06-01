@@ -30,6 +30,14 @@ func assertBalanceConservation(
 	publicSplAmount frontend.Variable,
 	publicSplAssetPubkey frontend.Variable,
 ) {
+	// UTXO amounts are unsigned 64-bit; the public amounts are signed (a deposit
+	// is positive, a withdrawal negative, mapped through SignedToFe).
+	for _, input := range inputs {
+		assertUnsigned64Range(api, input.Utxo.AssetAmount)
+	}
+	for _, output := range outputs {
+		assertUnsigned64Range(api, output.Utxo.AssetAmount)
+	}
 	assertSigned64Range(api, publicSolAmount)
 	assertSigned64Range(api, publicSplAmount)
 
@@ -43,16 +51,14 @@ func assertBalanceConservation(
 	// For each active asset, inputs plus public deposits equal outputs plus
 	// public withdrawals and fees. Every input/output UTXO may be a distinct
 	// asset (identified by Sha256BE(mint)); the public side touches only the
-	// SOL asset and the single public_spl_asset_pubkey. Iterating over every
-	// UTXO's asset id checks conservation for all assets, not just the public
-	// two, so no asset can be minted.
+	// SOL asset and the single public_spl_asset_pubkey. Checking conservation
+	// for every UTXO's asset id (not just the public two) means no asset can be
+	// minted. Repeated ids only re-check the same equation, which is harmless.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
-		api.ToBinary(input.Utxo.AssetAmount, 64)
 		keys = append(keys, input.Utxo.AssetID)
 	}
 	for _, output := range outputs {
-		api.ToBinary(output.Utxo.AssetAmount, 64)
 		keys = append(keys, output.Utxo.AssetID)
 	}
 	keys = append(keys, solAssetID, publicSplAssetPubkey)
@@ -81,6 +87,15 @@ func assertBalanceConservation(
 	}
 }
 
+// assertUnsigned64Range constrains 0 <= value < 2^64. ToBinary asserts the
+// value fits in the given number of bits, which is the range check.
+func assertUnsigned64Range(api frontend.API, value frontend.Variable) {
+	api.ToBinary(value, 64)
+}
+
+// assertSigned64Range constrains a SignedToFe-encoded amount to
+// (-2^64, 2^64): shifting by 2^64 lands it in [0, 2^65), and the 65-bit
+// decomposition enforces that bound.
 func assertSigned64Range(api frontend.API, value frontend.Variable) {
 	shift := new(big.Int).Lsh(big.NewInt(1), 64)
 	api.ToBinary(api.Add(value, shift), 65)

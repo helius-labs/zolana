@@ -166,6 +166,9 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
+// publicInputHash folds the logical public inputs in-circuit. The element order
+// must match the off-circuit PublicInputHash (and LogicalPublicInputNames) so
+// the on-chain verifier reconstructs the same value; keep the two in sync.
 func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 	nullifiers := make([]frontend.Variable, len(c.Inputs))
 	utxoRoots := make([]frontend.Variable, len(c.Inputs))
