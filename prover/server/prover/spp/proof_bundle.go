@@ -66,7 +66,7 @@ func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle
 		SolanaSignerPubkeyHex: proofBytesHex(signerPubkey[:]),
 	}
 	for _, tx := range request.Transactions {
-		proved, err := buildProofTransaction(ps, tx, signerHash)
+		proved, err := buildProofTransaction(ps, tx, signerHash, request.IncludeDebug)
 		if err != nil {
 			return nil, fmt.Errorf("spp: transaction %q: %w", tx.Name, err)
 		}
@@ -98,7 +98,7 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	return out, nil
 }
 
-func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int) (ProofTransaction, error) {
+func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int, includeDebug bool) (ProofTransaction, error) {
 	assignment, publicInputs, outputUtxos, debug, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
@@ -136,6 +136,16 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		return ProofTransaction{}, fmt.Errorf("spl_token_interface: %w", err)
 	}
 
+	var debugInfo *ProofDebug
+	if includeDebug {
+		debugInfo = &ProofDebug{
+			InputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
+			OutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
+			UtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
+			NullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
+		}
+	}
+
 	return ProofTransaction{
 		Name:                   tx.Name,
 		ExpiryUnixTs:           tx.ExpiryUnixTs,
@@ -159,12 +169,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		SplTokenInterface:      proofBytesHex(splTokenInterface[:]),
 		InUtxoSignerIndices:    debug.inUtxoSignerIndices,
 		OutputUtxos:            outputUtxos,
-		Debug: &ProofDebug{
-			InputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
-			OutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
-			UtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
-			NullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
-		},
+		Debug:                  debugInfo,
 	}, nil
 }
 

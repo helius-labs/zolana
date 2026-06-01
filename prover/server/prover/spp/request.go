@@ -9,6 +9,9 @@ import (
 type ProofBundleRequest struct {
 	SolanaSignerPubkey string                    `json:"solana_signer_pubkey"`
 	Transactions       []ProofTransactionRequest `json:"transactions"`
+	// IncludeDebug populates each transaction's non-authoritative Debug field.
+	// It is off by default, so the normal response omits Debug.
+	IncludeDebug bool `json:"include_debug,omitempty"`
 }
 
 type ProofTransactionRequest struct {
@@ -102,7 +105,8 @@ type ProofTransaction struct {
 }
 
 // ProofDebug carries optional, non-authoritative values useful for debugging a
-// bundle. It is omitted from the normal response.
+// bundle. It is populated only when the request sets IncludeDebug, and omitted
+// from the normal response.
 type ProofDebug struct {
 	InputUtxoHashes    []string `json:"input_utxo_hashes"`
 	OutputUtxoHashes   []string `json:"output_utxo_hashes"`
