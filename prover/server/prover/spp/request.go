@@ -76,32 +76,38 @@ type ProofBundle struct {
 }
 
 type ProofTransaction struct {
-	Name                    string              `json:"name"`
-	ExpiryUnixTs            uint64              `json:"expiry_unix_ts"`
-	SenderViewTag           string              `json:"sender_view_tag"`
-	Proof                   *common.Proof       `json:"proof"`
-	RelayerFee              uint16              `json:"relayer_fee"`
-	Nullifiers              []string            `json:"nullifiers"`
-	OutputUtxoHashes        []string            `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex       []uint16            `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex  []uint16            `json:"nullifier_tree_root_index"`
-	PrivateTxHash           string              `json:"private_tx_hash"`
-	PublicAmountMode        uint8               `json:"public_amount_mode"`
-	PublicSolAmount         *uint64             `json:"public_sol_amount"`
-	PublicSplAmount         *uint64             `json:"public_spl_amount"`
-	PublicSplAssetPubkey    string              `json:"public_spl_asset_pubkey"`
-	EncryptedUtxos          string              `json:"encrypted_utxos"`
-	PublicInputHash         string              `json:"public_input_hash"`
-	ExternalDataHash        string              `json:"external_data_hash"`
-	UserSolAccount          string              `json:"user_sol_account"`
-	UserSplTokenAccount     string              `json:"user_spl_token_account"`
-	SplTokenInterface       string              `json:"spl_token_interface"`
-	InUtxoSignerIndices     []int               `json:"in_utxo_signer_indices"`
-	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
-	DebugInputUtxoHashes    []string            `json:"debug_input_utxo_hashes"`
-	DebugOutputUtxoHashes   []string            `json:"debug_output_utxo_hashes"`
-	DebugUtxoTreeRoots      []string            `json:"debug_utxo_tree_roots"`
-	DebugNullifierTreeRoots []string            `json:"debug_nullifier_tree_roots"`
+	Name                   string              `json:"name"`
+	ExpiryUnixTs           uint64              `json:"expiry_unix_ts"`
+	SenderViewTag          string              `json:"sender_view_tag"`
+	Proof                  *common.Proof       `json:"proof"`
+	RelayerFee             uint16              `json:"relayer_fee"`
+	Nullifiers             []string            `json:"nullifiers"`
+	OutputUtxoHashes       []string            `json:"output_utxo_hashes"`
+	UtxoTreeRootIndex      []uint16            `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex []uint16            `json:"nullifier_tree_root_index"`
+	PrivateTxHash          string              `json:"private_tx_hash"`
+	PublicAmountMode       uint8               `json:"public_amount_mode"`
+	PublicSolAmount        *uint64             `json:"public_sol_amount"`
+	PublicSplAmount        *uint64             `json:"public_spl_amount"`
+	PublicSplAssetPubkey   string              `json:"public_spl_asset_pubkey"`
+	EncryptedUtxos         string              `json:"encrypted_utxos"`
+	PublicInputHash        string              `json:"public_input_hash"`
+	ExternalDataHash       string              `json:"external_data_hash"`
+	UserSolAccount         string              `json:"user_sol_account"`
+	UserSplTokenAccount    string              `json:"user_spl_token_account"`
+	SplTokenInterface      string              `json:"spl_token_interface"`
+	InUtxoSignerIndices    []int               `json:"in_utxo_signer_indices"`
+	OutputUtxos            []ProofUtxoResponse `json:"output_utxos"`
+	Debug                  *ProofDebug         `json:"debug,omitempty"`
+}
+
+// ProofDebug carries optional, non-authoritative values useful for debugging a
+// bundle. It is omitted from the normal response.
+type ProofDebug struct {
+	InputUtxoHashes    []string `json:"input_utxo_hashes"`
+	OutputUtxoHashes   []string `json:"output_utxo_hashes"`
+	UtxoTreeRoots      []string `json:"utxo_tree_roots"`
+	NullifierTreeRoots []string `json:"nullifier_tree_roots"`
 }
 
 type ProofSigningPayloadBundle struct {

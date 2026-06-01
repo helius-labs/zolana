@@ -333,7 +333,6 @@ type PublicInputs struct {
 	NullifierRoots       []*big.Int
 	PrivateTxHash        *big.Int
 	ExternalDataHash     *big.Int
-	ExpiryUnixTs         *big.Int
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int

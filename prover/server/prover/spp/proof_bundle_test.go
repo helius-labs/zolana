@@ -140,3 +140,24 @@ func TestExternalDataHashBindsExpiry(t *testing.T) {
 		t.Fatal("external_data_hash does not depend on expiry_unix_ts")
 	}
 }
+
+func TestParseBigIntRule(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string // decimal
+	}{
+		{"100", "100"},  // small decimal
+		{"0x64", "100"}, // 0x hex
+		{"123456789012345678901", "123456789012345678901"},                          // 21-digit decimal (was mis-read as hex)
+		{"0000000000000000000000000000000000000000000000000000000000000064", "100"}, // canonical 64-char hex
+	}
+	for _, c := range cases {
+		got, err := parseBigInt(c.in)
+		if err != nil {
+			t.Fatalf("parseBigInt(%q): %v", c.in, err)
+		}
+		if got.String() != c.want {
+			t.Fatalf("parseBigInt(%q) = %s, want %s", c.in, got, c.want)
+		}
+	}
+}

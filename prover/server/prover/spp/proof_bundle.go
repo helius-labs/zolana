@@ -141,32 +141,34 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 	}
 
 	return ProofTransaction{
-		Name:                    tx.Name,
-		ExpiryUnixTs:            tx.ExpiryUnixTs,
-		SenderViewTag:           strings.TrimPrefix(tx.SenderViewTag, "0x"),
-		Proof:                   &common.Proof{Proof: proof},
-		RelayerFee:              tx.RelayerFee,
-		Nullifiers:              proofTrimTrailingZeroHexes(debug.nullifiers),
-		OutputUtxoHashes:        proofTrimTrailingZeroHexes(debug.outputHashes),
-		UtxoTreeRootIndex:       utxoRootIndices,
-		NullifierTreeRootIndex:  nullifierRootIndices,
-		PrivateTxHash:           proofFieldHex(publicInputs.PrivateTxHash),
-		PublicAmountMode:        tx.PublicAmountMode,
-		PublicSolAmount:         tx.PublicSolAmount,
-		PublicSplAmount:         tx.PublicSplAmount,
-		PublicSplAssetPubkey:    strings.TrimPrefix(tx.PublicSplAssetPubkey, "0x"),
-		EncryptedUtxos:          strings.TrimPrefix(tx.EncryptedUtxos, "0x"),
-		PublicInputHash:         proofFieldHex(publicInputHash),
-		ExternalDataHash:        proofFieldHex(publicInputs.ExternalDataHash),
-		UserSolAccount:          proofBytesHex(userSolAccount[:]),
-		UserSplTokenAccount:     proofBytesHex(userSplTokenAccount[:]),
-		SplTokenInterface:       proofBytesHex(splTokenInterface[:]),
-		InUtxoSignerIndices:     debug.inUtxoSignerIndices,
-		OutputUtxos:             outputUtxos,
-		DebugInputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
-		DebugOutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
-		DebugUtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
-		DebugNullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
+		Name:                   tx.Name,
+		ExpiryUnixTs:           tx.ExpiryUnixTs,
+		SenderViewTag:          strings.TrimPrefix(tx.SenderViewTag, "0x"),
+		Proof:                  &common.Proof{Proof: proof},
+		RelayerFee:             tx.RelayerFee,
+		Nullifiers:             proofTrimTrailingZeroHexes(debug.nullifiers),
+		OutputUtxoHashes:       proofTrimTrailingZeroHexes(debug.outputHashes),
+		UtxoTreeRootIndex:      utxoRootIndices,
+		NullifierTreeRootIndex: nullifierRootIndices,
+		PrivateTxHash:          proofFieldHex(publicInputs.PrivateTxHash),
+		PublicAmountMode:       tx.PublicAmountMode,
+		PublicSolAmount:        tx.PublicSolAmount,
+		PublicSplAmount:        tx.PublicSplAmount,
+		PublicSplAssetPubkey:   strings.TrimPrefix(tx.PublicSplAssetPubkey, "0x"),
+		EncryptedUtxos:         strings.TrimPrefix(tx.EncryptedUtxos, "0x"),
+		PublicInputHash:        proofFieldHex(publicInputHash),
+		ExternalDataHash:       proofFieldHex(publicInputs.ExternalDataHash),
+		UserSolAccount:         proofBytesHex(userSolAccount[:]),
+		UserSplTokenAccount:    proofBytesHex(userSplTokenAccount[:]),
+		SplTokenInterface:      proofBytesHex(splTokenInterface[:]),
+		InUtxoSignerIndices:    debug.inUtxoSignerIndices,
+		OutputUtxos:            outputUtxos,
+		Debug: &ProofDebug{
+			InputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
+			OutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
+			UtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
+			NullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
+		},
 	}, nil
 }
 
@@ -415,7 +417,6 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		NullifierRoots:       nullifierRoots,
 		PrivateTxHash:        privateTxHash,
 		ExternalDataHash:     externalDataHash,
-		ExpiryUnixTs:         expiry,
 		PublicSolAmount:      publicSolAmount,
 		PublicSplAmount:      publicSplAmount,
 		PublicSplAssetPubkey: publicSplAsset,
@@ -600,6 +601,16 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 		key, err := ownerComponents(input, inputNullifierSecret)
 		if err != nil {
 			return ownerFields{}, err
+		}
+		// Both an explicit owner and key components were supplied: they must
+		// agree, otherwise the circuit's owner-hash binding would just fail with
+		// an opaque error. Reject the inconsistency here with a clear message.
+		derived, err := OwnerHash(key.keyHash, key.nullifierPk)
+		if err != nil {
+			return ownerFields{}, err
+		}
+		if derived.Cmp(owner) != 0 {
+			return ownerFields{}, fmt.Errorf("owner %s does not match the hash of the supplied owner components", input.Owner)
 		}
 		return ownerFields{owner: owner, ownerKey: key}, nil
 	}

@@ -34,21 +34,32 @@ func parseField(value string) (*big.Int, error) {
 	return out, nil
 }
 
+// parseBigInt reads a field value with an explicit, auditable rule:
+//   - a "0x" prefix is hexadecimal;
+//   - a bare 64-character string is hexadecimal — the canonical field-element
+//     form emitted by proofFieldHex;
+//   - anything else is decimal.
+//
+// This avoids the old length/letter heuristic, under which a 21-digit decimal
+// was silently parsed as hex.
 func parseBigInt(value string) (*big.Int, error) {
 	value = strings.TrimSpace(value)
-	value = strings.TrimPrefix(value, "0x")
 	if value == "" {
 		return nil, fmt.Errorf("empty field")
 	}
-	base := 10
-	if len(value) > 20 || strings.IndexFunc(value, func(r rune) bool {
-		return (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
-	}) >= 0 {
-		base = 16
+	if rest, isHex := strings.CutPrefix(value, "0x"); isHex {
+		return parseInBase(rest, 16, value)
 	}
+	if len(value) == 64 {
+		return parseInBase(value, 16, value)
+	}
+	return parseInBase(value, 10, value)
+}
+
+func parseInBase(value string, base int, original string) (*big.Int, error) {
 	out, ok := new(big.Int).SetString(value, base)
 	if !ok {
-		return nil, fmt.Errorf("invalid field %q", value)
+		return nil, fmt.Errorf("invalid field %q", original)
 	}
 	return out, nil
 }
