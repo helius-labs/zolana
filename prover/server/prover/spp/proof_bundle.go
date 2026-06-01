@@ -384,20 +384,11 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	if err := validatePublicAmountMode(tx.PublicAmountMode); err != nil {
+	amounts, err := derivePublicAmounts(tx)
+	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	publicSolAmount := signedSolAmount(tx.PublicAmountMode, optionalU64(tx.PublicSolAmount), tx.RelayerFee)
-	publicSplAmount := signedSplAmount(tx.PublicAmountMode, optionalU64(tx.PublicSplAmount))
-	publicSplAsset := big.NewInt(0)
-	if optionalU64(tx.PublicSplAmount) != 0 {
-		publicSplMint, err := parseHex32(tx.PublicSplAssetPubkey)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
-		}
-		// asset_id = Sha256BE(mint), matching SolAssetID = Sha256BE(default).
-		publicSplAsset = HashToFieldSize(publicSplMint[:])
-	}
+	publicSolAmount, publicSplAmount, publicSplAsset := amounts.sol, amounts.spl, amounts.asset
 	programIDHashChain, err := optionalField(tx.ProgramIDHashChain)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
@@ -724,6 +715,42 @@ func validatePublicAmountMode(mode uint8) error {
 		return fmt.Errorf("spp: invalid public_amount_mode %d (want 0=transfer, 1=shield, 2=unshield)", mode)
 	}
 	return nil
+}
+
+// publicAmounts are the signed public SOL/SPL field values and the SPL asset id,
+// as fed to the circuit's balance check.
+type publicAmounts struct {
+	sol   *big.Int
+	spl   *big.Int
+	asset *big.Int
+}
+
+// derivePublicAmounts validates the mode and derives the signed public amounts
+// and SPL asset id in one place. A transfer (mode 0) must carry no public
+// amount; shield/unshield set the sign (with the SOL relayer fee folded in).
+func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
+	if err := validatePublicAmountMode(tx.PublicAmountMode); err != nil {
+		return publicAmounts{}, err
+	}
+	sol := optionalU64(tx.PublicSolAmount)
+	spl := optionalU64(tx.PublicSplAmount)
+	if tx.PublicAmountMode == 0 && (sol != 0 || spl != 0) {
+		return publicAmounts{}, fmt.Errorf("spp: transfer mode carries non-zero public amounts (sol=%d, spl=%d)", sol, spl)
+	}
+	asset := big.NewInt(0)
+	if spl != 0 {
+		mint, err := parseHex32(tx.PublicSplAssetPubkey)
+		if err != nil {
+			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+		}
+		// asset_id = Sha256BE(mint), matching SolAssetID = Sha256BE(default).
+		asset = HashToFieldSize(mint[:])
+	}
+	return publicAmounts{
+		sol:   signedSolAmount(tx.PublicAmountMode, sol, tx.RelayerFee),
+		spl:   signedSplAmount(tx.PublicAmountMode, spl),
+		asset: asset,
+	}, nil
 }
 
 // signedSplAmount mirrors signedSolAmount for SPL (no relayer fee, which is paid
