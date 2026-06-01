@@ -127,19 +127,6 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		return ProofTransaction{}, err
 	}
 
-	userSolAccount, err := parseOptionalHex32(tx.UserSolAccount)
-	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("user_sol_account: %w", err)
-	}
-	userSplTokenAccount, err := parseOptionalHex32(tx.UserSplTokenAccount)
-	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("user_spl_token_account: %w", err)
-	}
-	splTokenInterface, err := parseOptionalHex32(tx.SplTokenInterface)
-	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("spl_token_interface: %w", err)
-	}
-
 	var debugInfo *ProofDebug
 	if includeDebug {
 		debugInfo = &ProofDebug{
@@ -168,9 +155,9 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		EncryptedUtxos:         strings.TrimPrefix(tx.EncryptedUtxos, "0x"),
 		PublicInputHash:        proofFieldHex(publicInputHash),
 		ExternalDataHash:       proofFieldHex(publicInputs.ExternalDataHash),
-		UserSolAccount:         proofBytesHex(userSolAccount[:]),
-		UserSplTokenAccount:    proofBytesHex(userSplTokenAccount[:]),
-		SplTokenInterface:      proofBytesHex(splTokenInterface[:]),
+		UserSolAccount:         proofBytesHex(built.external.userSolAccount[:]),
+		UserSplTokenAccount:    proofBytesHex(built.external.userSplToken[:]),
+		SplTokenInterface:      proofBytesHex(built.external.splTokenInterface[:]),
 		InUtxoSignerIndices:    derived.inUtxoSignerIndices,
 		OutputUtxos:            built.outputUtxos,
 		Debug:                  debugInfo,

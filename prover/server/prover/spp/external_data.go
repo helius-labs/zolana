@@ -7,31 +7,41 @@ import (
 	"math/big"
 )
 
-// buildExternalDataHash parses the instruction-bound fields of tx and folds them
-// into external_data_hash, the value the on-chain SPP recomputes from
-// instruction data and account state.
-func buildExternalDataHash(tx ProofTransactionRequest) (*big.Int, error) {
+// externalData is the parsed instruction-bound data: the folded
+// external_data_hash plus the Solana account bytes the transaction response
+// reports, so the accounts are parsed once rather than reparsed downstream.
+type externalData struct {
+	hash              *big.Int
+	userSolAccount    [32]byte
+	userSplToken      [32]byte
+	splTokenInterface [32]byte
+}
+
+// buildExternalData parses the instruction-bound fields of tx, folds them into
+// external_data_hash (the value the on-chain SPP recomputes), and returns the
+// parsed account bytes alongside it.
+func buildExternalData(tx ProofTransactionRequest) (externalData, error) {
 	senderViewTag, err := parseField(tx.SenderViewTag)
 	if err != nil {
-		return nil, fmt.Errorf("sender_view_tag: %w", err)
+		return externalData{}, fmt.Errorf("sender_view_tag: %w", err)
 	}
 	encryptedUtxos, err := parseHexBytes(tx.EncryptedUtxos)
 	if err != nil {
-		return nil, fmt.Errorf("encrypted_utxos: %w", err)
+		return externalData{}, fmt.Errorf("encrypted_utxos: %w", err)
 	}
 	userSolAccount, err := parseOptionalHex32(tx.UserSolAccount)
 	if err != nil {
-		return nil, fmt.Errorf("user_sol_account: %w", err)
+		return externalData{}, fmt.Errorf("user_sol_account: %w", err)
 	}
 	userSplTokenAccount, err := parseOptionalHex32(tx.UserSplTokenAccount)
 	if err != nil {
-		return nil, fmt.Errorf("user_spl_token_account: %w", err)
+		return externalData{}, fmt.Errorf("user_spl_token_account: %w", err)
 	}
 	splTokenInterface, err := parseOptionalHex32(tx.SplTokenInterface)
 	if err != nil {
-		return nil, fmt.Errorf("spl_token_interface: %w", err)
+		return externalData{}, fmt.Errorf("spl_token_interface: %w", err)
 	}
-	return proofExternalDataFieldHash(proofExternalData{
+	hash := proofExternalDataFieldHash(proofExternalData{
 		InstructionDiscriminator: tx.InstructionDiscriminator,
 		ExpiryUnixTs:             tx.ExpiryUnixTs,
 		SenderViewTag:            proofFieldBytes(senderViewTag),
@@ -42,7 +52,13 @@ func buildExternalDataHash(tx ProofTransactionRequest) (*big.Int, error) {
 		UserSplToken:             userSplTokenAccount,
 		SplTokenInterface:        splTokenInterface,
 		EncryptedUtxos:           encryptedUtxos,
-	}), nil
+	})
+	return externalData{
+		hash:              hash,
+		userSolAccount:    userSolAccount,
+		userSplToken:      userSplTokenAccount,
+		splTokenInterface: splTokenInterface,
+	}, nil
 }
 
 // proofExternalData is the instruction-bound data the on-chain SPP recomputes

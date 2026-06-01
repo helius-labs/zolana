@@ -133,7 +133,6 @@ type ProofUtxoResponse struct {
 
 type proofInput struct {
 	utxo            Utxo
-	utxoRequest     ProofUtxoRequest
 	leafIndex       uint64
 	nullifierSecret *big.Int
 	ownerKeyHash    *big.Int

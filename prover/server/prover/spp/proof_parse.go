@@ -7,6 +7,13 @@ import (
 )
 
 func parseProofInput(input ProofInputRequest) (proofInput, error) {
+	// An input must carry owner key material: the spend is authorized by
+	// recomputing the owner hash from it. An owner-only UTXO (no pubkey) is
+	// valid for outputs but cannot be spent, so reject it here rather than let
+	// it fail later as an opaque owner-hash mismatch.
+	if strings.TrimSpace(input.Utxo.OwnerSolanaPubkey) == "" && strings.TrimSpace(input.Utxo.OwnerP256Pubkey) == "" {
+		return proofInput{}, fmt.Errorf("input UTXO requires owner_solana_pubkey or owner_p256_pubkey to authorize the spend")
+	}
 	nullifierSecret, err := parseField(input.NullifierSecret)
 	if err != nil {
 		return proofInput{}, fmt.Errorf("nullifier_secret: %w", err)
@@ -17,7 +24,6 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 	}
 	return proofInput{
 		utxo:            parsed.utxo,
-		utxoRequest:     parsed.normalized,
 		leafIndex:       input.LeafIndex,
 		nullifierSecret: nullifierSecret,
 		ownerKeyHash:    parsed.ownerKeyHash,

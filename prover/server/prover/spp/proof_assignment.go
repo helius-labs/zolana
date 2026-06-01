@@ -15,6 +15,7 @@ type proofAssignment struct {
 	circuit      *Circuit
 	publicInputs PublicInputs
 	outputUtxos  []ProofUtxoResponse
+	external     externalData
 	derived      proofDerivedValues
 }
 
@@ -37,10 +38,11 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	}
 
 	expiry := new(big.Int).SetUint64(tx.ExpiryUnixTs)
-	externalDataHash, err := buildExternalDataHash(tx)
+	external, err := buildExternalData(tx)
 	if err != nil {
 		return proofAssignment{}, err
 	}
+	externalDataHash := external.hash
 	privateTxHash, err := PrivateTxHash(in.hashes, out.hashes, externalDataHash, expiry)
 	if err != nil {
 		return proofAssignment{}, err
@@ -97,6 +99,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		circuit:      circuit,
 		publicInputs: publicInputs,
 		outputUtxos:  out.responses,
+		external:     external,
 		derived: proofDerivedValues{
 			inputHashes:              in.hashes,
 			outputHashes:             out.hashes,
