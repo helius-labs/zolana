@@ -5,9 +5,13 @@ import (
 	"math/big"
 )
 
-// LogicalPublicInputNames is the SPP public-input set. Other values (expiry,
-// amount mode, relayer fee) are not public inputs; they are bound through
-// private_tx_hash or external_data_hash.
+// LogicalPublicInputNames is the SPP public-input set. Expiry and relayer fee
+// are not public inputs but are bound through external_data_hash (expiry also
+// through private_tx_hash). public_amount_mode is not hashed at all: it only
+// picks the sign of public_sol_amount/public_spl_amount, which are bound via
+// PublicInputHash. The sign convention is fixed on-chain by the instruction
+// discriminator (bound in external_data_hash), so a mode that disagrees with it
+// yields signed amounts that fail verification.
 var LogicalPublicInputNames = []string{
 	"nullifiers",
 	"output_utxo_hashes",

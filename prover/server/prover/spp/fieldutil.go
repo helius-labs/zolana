@@ -85,7 +85,8 @@ func parseOptionalHex32(value string) ([32]byte, error) {
 }
 
 func parseHexBytes(value string) ([]byte, error) {
-	value = strings.TrimSpace(strings.TrimPrefix(value, "0x"))
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "0x")
 	if value == "" {
 		return nil, nil
 	}

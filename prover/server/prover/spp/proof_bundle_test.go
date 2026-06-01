@@ -141,6 +141,16 @@ func TestExternalDataHashBindsExpiry(t *testing.T) {
 	}
 }
 
+func TestParseHexBytesTrimsLeadingWhitespace(t *testing.T) {
+	got, err := parseHexBytes("  0x0a0b")
+	if err != nil {
+		t.Fatalf("parseHexBytes: %v", err)
+	}
+	if len(got) != 2 || got[0] != 0x0a || got[1] != 0x0b {
+		t.Fatalf("parseHexBytes = %x, want 0a0b", got)
+	}
+}
+
 func TestBuildProofTreesRejectsBadStateEntries(t *testing.T) {
 	duplicate := ProofTransactionRequest{StateEntries: []ProofStateEntry{
 		{Index: 3, Hash: proofFieldHex(big.NewInt(1))},

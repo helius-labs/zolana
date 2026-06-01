@@ -35,7 +35,8 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 // parsedUtxo holds a ProofUtxoRequest decoded into its circuit fields plus the
 // owner material derived from it. response is the copy echoed back to the
 // caller: field elements are canonicalized to 64-char hex; owner pubkeys are
-// only stripped of a "0x" prefix (they are not field elements).
+// passed through with surrounding whitespace and any "0x" prefix removed (they
+// are not field elements, so not canonicalized to a fixed width).
 type parsedUtxo struct {
 	utxo         Utxo
 	response     ProofUtxoRequest
@@ -90,8 +91,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	response := ProofUtxoRequest{
 		Domain:            proofFieldHex(domain),
 		Owner:             proofFieldHex(own.owner),
-		OwnerSolanaPubkey: strings.TrimPrefix(input.OwnerSolanaPubkey, "0x"),
-		OwnerP256Pubkey:   strings.TrimPrefix(input.OwnerP256Pubkey, "0x"),
+		OwnerSolanaPubkey: strings.TrimPrefix(strings.TrimSpace(input.OwnerSolanaPubkey), "0x"),
+		OwnerP256Pubkey:   strings.TrimPrefix(strings.TrimSpace(input.OwnerP256Pubkey), "0x"),
 		Asset:             proofFieldHex(asset),
 		AssetAmount:       proofFieldHex(assetAmount),
 		Blinding:          proofFieldHex(blinding),
