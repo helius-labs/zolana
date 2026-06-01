@@ -7,72 +7,54 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *big.Int, options proofBuildOptions) (*Circuit, PublicInputs, []ProofUtxoResponse, proofDebug, error) {
+// proofAssignment is the result of building a circuit assignment for one
+// transaction: the witness to prove, the public inputs it commits to, the
+// normalized output UTXOs to return, and non-authoritative debug values.
+type proofAssignment struct {
+	circuit      *Circuit
+	publicInputs PublicInputs
+	outputUtxos  []ProofUtxoResponse
+	debug        proofDebug
+}
+
+func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *big.Int, options proofBuildOptions) (proofAssignment, error) {
 	if len(tx.Inputs) > shape.NInputs || len(tx.Outputs) > shape.NOutputs {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("shape %s cannot carry %d inputs and %d outputs", shape, len(tx.Inputs), len(tx.Outputs))
+		return proofAssignment{}, fmt.Errorf("shape %s cannot carry %d inputs and %d outputs", shape, len(tx.Inputs), len(tx.Outputs))
 	}
 
 	trees, err := buildProofTrees(tx)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 	in, err := buildInputs(shape, tx, trees)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 	out, err := buildOutputs(shape, tx)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 
-	senderViewTag, err := parseField(tx.SenderViewTag)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("sender_view_tag: %w", err)
-	}
 	expiry := new(big.Int).SetUint64(tx.ExpiryUnixTs)
-	encryptedUtxos, err := parseHexBytes(tx.EncryptedUtxos)
+	externalDataHash, err := buildExternalDataHash(tx)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("encrypted_utxos: %w", err)
+		return proofAssignment{}, err
 	}
-	userSolAccount, err := parseOptionalHex32(tx.UserSolAccount)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("user_sol_account: %w", err)
-	}
-	userSplTokenAccount, err := parseOptionalHex32(tx.UserSplTokenAccount)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("user_spl_token_account: %w", err)
-	}
-	splTokenInterface, err := parseOptionalHex32(tx.SplTokenInterface)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("spl_token_interface: %w", err)
-	}
-	externalDataHash := proofExternalDataFieldHash(proofExternalData{
-		InstructionDiscriminator: tx.InstructionDiscriminator,
-		ExpiryUnixTs:             tx.ExpiryUnixTs,
-		SenderViewTag:            proofFieldBytes(senderViewTag),
-		RelayerFee:               tx.RelayerFee,
-		PublicSolAmount:          optionalU64(tx.PublicSolAmount),
-		PublicSplAmount:          optionalU64(tx.PublicSplAmount),
-		UserSolAccount:           userSolAccount,
-		UserSplToken:             userSplTokenAccount,
-		SplTokenInterface:        splTokenInterface,
-		EncryptedUtxos:           encryptedUtxos,
-	})
 	privateTxHash, err := PrivateTxHash(in.hashes, out.hashes, externalDataHash, expiry)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 	p256Pub, p256Sig, err := p256WitnessForTransaction(tx, privateTxHash, in.requiresP256, options.AllowMissingP256Signature)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 	amounts, err := derivePublicAmounts(tx)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 	programIDHashChain, err := optionalField(tx.ProgramIDHashChain)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
+		return proofAssignment{}, fmt.Errorf("program_id_hashchain: %w", err)
 	}
 	publicInputs := PublicInputs{
 		Nullifiers:           in.nullifiers,
@@ -90,10 +72,10 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
 	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
+		return proofAssignment{}, err
 	}
 
-	assignment := &Circuit{
+	circuit := &Circuit{
 		Shape:                shape,
 		Inputs:               in.inputs,
 		Outputs:              out.outputs,
@@ -110,12 +92,17 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		PublicInputHash:      publicInputHash,
 	}
-	return assignment, publicInputs, out.responses, proofDebug{
-		inputHashes:              in.hashes,
-		outputHashes:             out.hashes,
-		nullifiers:               in.nullifiers,
-		inUtxoSignerIndices:      in.signerIndices,
-		requiresP256OwnerWitness: in.requiresP256,
+	return proofAssignment{
+		circuit:      circuit,
+		publicInputs: publicInputs,
+		outputUtxos:  out.responses,
+		debug: proofDebug{
+			inputHashes:              in.hashes,
+			outputHashes:             out.hashes,
+			nullifiers:               in.nullifiers,
+			inUtxoSignerIndices:      in.signerIndices,
+			requiresP256OwnerWitness: in.requiresP256,
+		},
 	}, nil
 }
 

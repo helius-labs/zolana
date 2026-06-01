@@ -99,15 +99,16 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int, includeDebug bool) (ProofTransaction, error) {
-	assignment, publicInputs, outputUtxos, debug, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	proof, err := Prove(ps, assignment)
+	publicInputs, debug := built.publicInputs, built.debug
+	proof, err := Prove(ps, built.circuit)
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	if err := Verify(ps, assignment, proof); err != nil {
+	if err := Verify(ps, built.circuit, proof); err != nil {
 		return ProofTransaction{}, err
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
@@ -168,13 +169,13 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		UserSplTokenAccount:    proofBytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:      proofBytesHex(splTokenInterface[:]),
 		InUtxoSignerIndices:    debug.inUtxoSignerIndices,
-		OutputUtxos:            outputUtxos,
+		OutputUtxos:            built.outputUtxos,
 		Debug:                  debugInfo,
 	}, nil
 }
 
 func buildProofSigningPayloadTransaction(shape Shape, tx ProofTransactionRequest, signerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	_, publicInputs, _, debug, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{
+	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{
 		AllowMissingP256Signature: true,
 	})
 	if err != nil {
@@ -182,8 +183,8 @@ func buildProofSigningPayloadTransaction(shape Shape, tx ProofTransactionRequest
 	}
 	return ProofSigningPayloadTransaction{
 		Name:                  tx.Name,
-		PrivateTxHash:         proofFieldHex(publicInputs.PrivateTxHash),
-		RequiresP256Signature: debug.requiresP256OwnerWitness,
+		PrivateTxHash:         proofFieldHex(built.publicInputs.PrivateTxHash),
+		RequiresP256Signature: built.debug.requiresP256OwnerWitness,
 	}, nil
 }
 
