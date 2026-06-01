@@ -95,7 +95,7 @@ func assertUnsigned64Range(api frontend.API, value frontend.Variable) {
 }
 
 // assertSigned64Range constrains a SignedToFe-encoded amount to
-// (-2^64, 2^64): shifting by 2^64 lands it in [0, 2^65), and the 65-bit
+// [-2^64, 2^64): shifting by 2^64 lands it in [0, 2^65), and the 65-bit
 // decomposition enforces that bound.
 func assertSigned64Range(api frontend.API, value frontend.Variable) {
 	shift := new(big.Int).Lsh(big.NewInt(1), 64)

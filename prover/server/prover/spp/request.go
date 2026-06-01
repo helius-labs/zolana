@@ -141,7 +141,10 @@ type proofInput struct {
 	isP256          bool
 }
 
-type proofDebug struct {
+// proofDerivedValues are values computed while building the assignment that the
+// transaction response (and the optional debug block) need: authoritative
+// outputs like nullifiers and signer indices, plus inputs to the debug block.
+type proofDerivedValues struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int
 	nullifiers               []*big.Int

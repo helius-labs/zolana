@@ -141,6 +141,23 @@ func TestExternalDataHashBindsExpiry(t *testing.T) {
 	}
 }
 
+func TestBuildProofTreesRejectsBadStateEntries(t *testing.T) {
+	duplicate := ProofTransactionRequest{StateEntries: []ProofStateEntry{
+		{Index: 3, Hash: proofFieldHex(big.NewInt(1))},
+		{Index: 3, Hash: proofFieldHex(big.NewInt(2))},
+	}}
+	if _, err := buildProofTrees(duplicate); err == nil {
+		t.Fatal("duplicate state leaf index accepted, want error")
+	}
+
+	outOfRange := ProofTransactionRequest{StateEntries: []ProofStateEntry{
+		{Index: uint64(1) << StateTreeHeight, Hash: proofFieldHex(big.NewInt(1))},
+	}}
+	if _, err := buildProofTrees(outOfRange); err == nil {
+		t.Fatal("out-of-range state leaf index accepted, want error")
+	}
+}
+
 func TestParseBigIntRule(t *testing.T) {
 	cases := []struct {
 		in   string

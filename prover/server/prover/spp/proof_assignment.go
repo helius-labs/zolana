@@ -9,12 +9,13 @@ import (
 
 // proofAssignment is the result of building a circuit assignment for one
 // transaction: the witness to prove, the public inputs it commits to, the
-// normalized output UTXOs to return, and non-authoritative debug values.
+// normalized output UTXOs to return, and the values derived along the way that
+// the response and optional debug block draw from.
 type proofAssignment struct {
 	circuit      *Circuit
 	publicInputs PublicInputs
 	outputUtxos  []ProofUtxoResponse
-	debug        proofDebug
+	derived      proofDerivedValues
 }
 
 func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *big.Int, options proofBuildOptions) (proofAssignment, error) {
@@ -96,7 +97,7 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		circuit:      circuit,
 		publicInputs: publicInputs,
 		outputUtxos:  out.responses,
-		debug: proofDebug{
+		derived: proofDerivedValues{
 			inputHashes:              in.hashes,
 			outputHashes:             out.hashes,
 			nullifiers:               in.nullifiers,
@@ -118,7 +119,14 @@ type proofTrees struct {
 
 func buildProofTrees(tx ProofTransactionRequest) (proofTrees, error) {
 	stateEntries := make(map[uint64]*big.Int, len(tx.StateEntries))
+	maxStateIndex := uint64(1) << StateTreeHeight
 	for _, entry := range tx.StateEntries {
+		if entry.Index >= maxStateIndex {
+			return proofTrees{}, fmt.Errorf("state leaf index %d out of range for tree height %d", entry.Index, StateTreeHeight)
+		}
+		if _, dup := stateEntries[entry.Index]; dup {
+			return proofTrees{}, fmt.Errorf("duplicate state leaf index %d", entry.Index)
+		}
 		hash, err := parseField(entry.Hash)
 		if err != nil {
 			return proofTrees{}, fmt.Errorf("state leaf %d: %w", entry.Index, err)
@@ -145,8 +153,8 @@ func buildProofTrees(tx ProofTransactionRequest) (proofTrees, error) {
 }
 
 // builtInputs is the input half of a circuit assignment: the per-slot Input
-// witnesses plus the derived values the public inputs and debug record draw
-// from. Dummy slots (index >= len(tx.Inputs)) carry zero values.
+// witnesses plus the derived values the public inputs and response draw from.
+// Dummy slots (index >= len(tx.Inputs)) carry zero values.
 type builtInputs struct {
 	inputs                []Input
 	hashes                []*big.Int

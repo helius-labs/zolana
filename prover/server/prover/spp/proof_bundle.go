@@ -99,11 +99,22 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int, includeDebug bool) (ProofTransaction, error) {
+	// Validate request shape before the expensive proof run so a length
+	// mismatch fails fast instead of wasting a full Prove.
+	utxoRootIndices, err := proofRootIndices(tx.UtxoTreeRootIndex, len(tx.Inputs), "utxo_tree_root_index")
+	if err != nil {
+		return ProofTransaction{}, err
+	}
+	nullifierRootIndices, err := proofRootIndices(tx.NullifierTreeRootIndex, len(tx.Inputs), "nullifier_tree_root_index")
+	if err != nil {
+		return ProofTransaction{}, err
+	}
+
 	built, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	publicInputs, debug := built.publicInputs, built.debug
+	publicInputs, derived := built.publicInputs, built.derived
 	proof, err := Prove(ps, built.circuit)
 	if err != nil {
 		return ProofTransaction{}, err
@@ -116,14 +127,6 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		return ProofTransaction{}, err
 	}
 
-	utxoRootIndices, err := proofRootIndices(tx.UtxoTreeRootIndex, len(tx.Inputs), "utxo_tree_root_index")
-	if err != nil {
-		return ProofTransaction{}, err
-	}
-	nullifierRootIndices, err := proofRootIndices(tx.NullifierTreeRootIndex, len(tx.Inputs), "nullifier_tree_root_index")
-	if err != nil {
-		return ProofTransaction{}, err
-	}
 	userSolAccount, err := parseOptionalHex32(tx.UserSolAccount)
 	if err != nil {
 		return ProofTransaction{}, fmt.Errorf("user_sol_account: %w", err)
@@ -140,8 +143,8 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 	var debugInfo *ProofDebug
 	if includeDebug {
 		debugInfo = &ProofDebug{
-			InputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
-			OutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
+			InputUtxoHashes:    proofBigIntHexes(derived.inputHashes),
+			OutputUtxoHashes:   proofBigIntHexes(derived.outputHashes),
 			UtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
 			NullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
 		}
@@ -153,8 +156,8 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		SenderViewTag:          strings.TrimPrefix(tx.SenderViewTag, "0x"),
 		Proof:                  &common.Proof{Proof: proof},
 		RelayerFee:             tx.RelayerFee,
-		Nullifiers:             proofTrimTrailingZeroHexes(debug.nullifiers),
-		OutputUtxoHashes:       proofTrimTrailingZeroHexes(debug.outputHashes),
+		Nullifiers:             proofTrimTrailingZeroHexes(derived.nullifiers),
+		OutputUtxoHashes:       proofTrimTrailingZeroHexes(derived.outputHashes),
 		UtxoTreeRootIndex:      utxoRootIndices,
 		NullifierTreeRootIndex: nullifierRootIndices,
 		PrivateTxHash:          proofFieldHex(publicInputs.PrivateTxHash),
@@ -168,7 +171,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		UserSolAccount:         proofBytesHex(userSolAccount[:]),
 		UserSplTokenAccount:    proofBytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:      proofBytesHex(splTokenInterface[:]),
-		InUtxoSignerIndices:    debug.inUtxoSignerIndices,
+		InUtxoSignerIndices:    derived.inUtxoSignerIndices,
 		OutputUtxos:            built.outputUtxos,
 		Debug:                  debugInfo,
 	}, nil
@@ -184,7 +187,7 @@ func buildProofSigningPayloadTransaction(shape Shape, tx ProofTransactionRequest
 	return ProofSigningPayloadTransaction{
 		Name:                  tx.Name,
 		PrivateTxHash:         proofFieldHex(built.publicInputs.PrivateTxHash),
-		RequiresP256Signature: built.debug.requiresP256OwnerWitness,
+		RequiresP256Signature: built.derived.requiresP256OwnerWitness,
 	}, nil
 }
 
