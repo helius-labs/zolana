@@ -207,140 +207,17 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("shape %s cannot carry %d inputs and %d outputs", shape, len(tx.Inputs), len(tx.Outputs))
 	}
 
-	stateEntries := make(map[uint64]*big.Int, len(tx.StateEntries))
-	for _, entry := range tx.StateEntries {
-		hash, err := parseField(entry.Hash)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("state leaf %d: %w", entry.Index, err)
-		}
-		stateEntries[entry.Index] = hash
+	trees, err := buildProofTrees(tx)
+	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	stateRoot, stateProofs := BuildSparseStateTree(stateEntries)
-	nullifierTree := NewIndexedTree()
-	for i, entry := range tx.NullifierEntries {
-		value, err := parseField(entry)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("nullifier_entries[%d]: %w", i, err)
-		}
-		if err := nullifierTree.InsertChecked(value); err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("nullifier_entries[%d]: %w", i, err)
-		}
+	in, err := buildInputs(shape, tx, trees)
+	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-
-	inputUtxos := make([]UtxoCircuitFields, shape.NInputs)
-	inputNullifierPk := make([]frontend.Variable, shape.NInputs)
-	solanaPkHashes := make([]frontend.Variable, shape.NInputs)
-	isDummyInput := make([]frontend.Variable, shape.NInputs)
-	statePath := make([][]frontend.Variable, shape.NInputs)
-	stateDirs := make([][]frontend.Variable, shape.NInputs)
-	nfLowValue := make([]frontend.Variable, shape.NInputs)
-	nfNextValue := make([]frontend.Variable, shape.NInputs)
-	nfLowPath := make([][]frontend.Variable, shape.NInputs)
-	nfLowDirs := make([][]frontend.Variable, shape.NInputs)
-	nullifiers := make([]frontend.Variable, shape.NInputs)
-	inputHashes := make([]*big.Int, shape.NInputs)
-	utxoRoots := make([]*big.Int, shape.NInputs)
-	nullifierRoots := make([]*big.Int, shape.NInputs)
-	sharedNullifierSecret := big.NewInt(0)
-	requiresP256 := false
-	inUtxoSignerIndices := make([]int, 0, len(tx.Inputs))
-
-	for i := 0; i < shape.NInputs; i++ {
-		statePath[i] = proofZeroVariableSlice(StateTreeHeight)
-		stateDirs[i] = proofZeroVariableSlice(StateTreeHeight)
-		nfLowPath[i] = proofZeroVariableSlice(NullifierTreeHeight)
-		nfLowDirs[i] = proofZeroVariableSlice(NullifierTreeHeight)
-		nfLowValue[i] = big.NewInt(0)
-		nfNextValue[i] = big.NewInt(0)
-		utxoRoots[i] = big.NewInt(0)
-		nullifierRoots[i] = big.NewInt(0)
-
-		if i >= len(tx.Inputs) {
-			inputUtxos[i] = toProofCircuitFields(proofZeroUtxo())
-			inputNullifierPk[i] = big.NewInt(0)
-			solanaPkHashes[i] = big.NewInt(0)
-			isDummyInput[i] = frontend.Variable(1)
-			nullifiers[i] = big.NewInt(0)
-			inputHashes[i] = big.NewInt(0)
-			continue
-		}
-
-		input, err := parseProofInput(tx.Inputs[i])
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("input %d: %w", i, err)
-		}
-		if i == 0 {
-			sharedNullifierSecret = input.nullifierSecret
-		} else if sharedNullifierSecret.Cmp(input.nullifierSecret) != 0 {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("input %d nullifier_secret differs from input 0", i)
-		}
-		inputHash, err := UtxoHash(input.utxo)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, err
-		}
-		if existing, ok := stateEntries[input.leafIndex]; !ok || existing.Cmp(inputHash) != 0 {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("input %d leaf %d is not present in state_entries", i, input.leafIndex)
-		}
-		nullifier, err := NullifierHash(inputHash, input.utxo.Blinding, input.nullifierSecret)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, err
-		}
-		inputUtxos[i] = toProofCircuitFields(input.utxo)
-		inputHashes[i] = inputHash
-		inputNullifierPk[i] = input.nullifierPk
-		if input.isP256 {
-			solanaPkHashes[i] = big.NewInt(0)
-			requiresP256 = true
-		} else {
-			solanaPkHashes[i] = input.ownerKeyHash
-			inUtxoSignerIndices = append(inUtxoSignerIndices, i)
-		}
-		isDummyInput[i] = frontend.Variable(0)
-		nullifiers[i] = nullifier
-		utxoRoots[i] = stateRoot
-		nullifierRoots[i] = nullifierTree.Root
-
-		proof, ok := stateProofs[input.leafIndex]
-		if !ok {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("missing state proof for leaf %d", input.leafIndex)
-		}
-		fillProofPath(statePath[i], stateDirs[i], proof.Siblings, proof.Directions)
-
-		nfWitness := nullifierTree.NonInclusion(nullifier)
-		nfLowValue[i] = nfWitness.LowValue
-		nfNextValue[i] = nfWitness.NextValue
-		fillProofPath(nfLowPath[i], nfLowDirs[i], nfWitness.Siblings, nfWitness.Directions)
-	}
-
-	outputUtxos := make([]UtxoCircuitFields, shape.NOutputs)
-	isDummyOutput := make([]frontend.Variable, shape.NOutputs)
-	outputHashes := make([]*big.Int, shape.NOutputs)
-	outputHashVars := make([]frontend.Variable, shape.NOutputs)
-	outputResponses := make([]ProofUtxoResponse, 0, len(tx.Outputs))
-	for i := 0; i < shape.NOutputs; i++ {
-		if i >= len(tx.Outputs) {
-			outputUtxos[i] = toProofCircuitFields(proofZeroUtxo())
-			isDummyOutput[i] = frontend.Variable(1)
-			outputHashes[i] = big.NewInt(0)
-			outputHashVars[i] = big.NewInt(0)
-			continue
-		}
-		parsed, err := parseProofUtxo(tx.Outputs[i], nil)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("output %d: %w", i, err)
-		}
-		outputHash, err := UtxoHash(parsed.utxo)
-		if err != nil {
-			return nil, PublicInputs{}, nil, proofDebug{}, err
-		}
-		outputUtxos[i] = toProofCircuitFields(parsed.utxo)
-		isDummyOutput[i] = frontend.Variable(0)
-		outputHashes[i] = outputHash
-		outputHashVars[i] = outputHash
-		outputResponses = append(outputResponses, ProofUtxoResponse{
-			Utxo: parsed.normalized,
-			Hash: proofFieldHex(outputHash),
-		})
+	out, err := buildOutputs(shape, tx)
+	if err != nil {
+		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
 
 	senderViewTag, err := parseField(tx.SenderViewTag)
@@ -376,11 +253,11 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		SplTokenInterface:        splTokenInterface,
 		EncryptedUtxos:           encryptedUtxos,
 	})
-	privateTxHash, err := PrivateTxHash(inputHashes, outputHashes, externalDataHash, expiry)
+	privateTxHash, err := PrivateTxHash(in.hashes, out.hashes, externalDataHash, expiry)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	p256Pub, p256Sig, err := p256WitnessForTransaction(tx, privateTxHash, requiresP256, options.AllowMissingP256Signature)
+	p256Pub, p256Sig, err := p256WitnessForTransaction(tx, privateTxHash, in.requiresP256, options.AllowMissingP256Signature)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
@@ -388,72 +265,36 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
-	publicSolAmount, publicSplAmount, publicSplAsset := amounts.sol, amounts.spl, amounts.asset
 	programIDHashChain, err := optionalField(tx.ProgramIDHashChain)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, fmt.Errorf("program_id_hashchain: %w", err)
 	}
-	nullifierBigs, err := proofVariablesToBigInts(nullifiers)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
-	}
-	solanaPkHashBigs, err := proofVariablesToBigInts(solanaPkHashes)
-	if err != nil {
-		return nil, PublicInputs{}, nil, proofDebug{}, err
-	}
 	publicInputs := PublicInputs{
-		Nullifiers:           nullifierBigs,
-		OutputUtxoHashes:     outputHashes,
-		UtxoTreeRoots:        utxoRoots,
-		NullifierRoots:       nullifierRoots,
+		Nullifiers:           in.nullifiers,
+		OutputUtxoHashes:     out.hashes,
+		UtxoTreeRoots:        in.utxoRoots,
+		NullifierRoots:       in.nullifierRoots,
 		PrivateTxHash:        privateTxHash,
 		ExternalDataHash:     externalDataHash,
-		PublicSolAmount:      publicSolAmount,
-		PublicSplAmount:      publicSplAmount,
-		PublicSplAssetPubkey: publicSplAsset,
+		PublicSolAmount:      amounts.sol,
+		PublicSplAmount:      amounts.spl,
+		PublicSplAssetPubkey: amounts.asset,
 		ProgramIDHashChain:   programIDHashChain,
 		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
-		SolanaPkHashes:       solanaPkHashBigs,
+		SolanaPkHashes:       in.solanaPkHashes,
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
 	if err != nil {
 		return nil, PublicInputs{}, nil, proofDebug{}, err
 	}
 
-	utxoRootVars := proofBigIntsToVariables(utxoRoots)
-	nullifierRootVars := proofBigIntsToVariables(nullifierRoots)
-	inputs := make([]Input, shape.NInputs)
-	for i := range inputs {
-		inputs[i] = Input{
-			Utxo:          inputUtxos[i],
-			IsDummy:       isDummyInput[i],
-			NullifierPk:   inputNullifierPk[i],
-			SolanaPkHash:  solanaPkHashes[i],
-			Nullifier:     nullifiers[i],
-			UtxoTreeRoot:  utxoRootVars[i],
-			NullifierRoot: nullifierRootVars[i],
-			State:         MerkleProof{Siblings: statePath[i], Directions: stateDirs[i]},
-			NfLowValue:    nfLowValue[i],
-			NfNextValue:   nfNextValue[i],
-			NfLow:         MerkleProof{Siblings: nfLowPath[i], Directions: nfLowDirs[i]},
-		}
-	}
-	outputs := make([]Output, shape.NOutputs)
-	for i := range outputs {
-		outputs[i] = Output{
-			Utxo:    outputUtxos[i],
-			IsDummy: isDummyOutput[i],
-			Hash:    outputHashVars[i],
-		}
-	}
-
 	assignment := &Circuit{
 		Shape:                shape,
-		Inputs:               inputs,
-		Outputs:              outputs,
+		Inputs:               in.inputs,
+		Outputs:              out.outputs,
 		ExternalDataHash:     externalDataHash,
 		ExpiryUnixTs:         expiry,
-		NullifierSecret:      sharedNullifierSecret,
+		NullifierSecret:      in.sharedNullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
 		PrivateTxHash:        privateTxHash,
@@ -464,13 +305,215 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
 		PublicInputHash:      publicInputHash,
 	}
-	return assignment, publicInputs, outputResponses, proofDebug{
-		inputHashes:              inputHashes,
-		outputHashes:             outputHashes,
-		nullifiers:               nullifierBigs,
-		inUtxoSignerIndices:      inUtxoSignerIndices,
-		requiresP256OwnerWitness: requiresP256,
+	return assignment, publicInputs, out.responses, proofDebug{
+		inputHashes:              in.hashes,
+		outputHashes:             out.hashes,
+		nullifiers:               in.nullifiers,
+		inUtxoSignerIndices:      in.signerIndices,
+		requiresP256OwnerWitness: in.requiresP256,
 	}, nil
+}
+
+// proofTrees holds the sparse state tree and indexed nullifier tree built from a
+// transaction's declared entries, along with the membership proofs the input
+// witnesses draw from.
+type proofTrees struct {
+	stateEntries  map[uint64]*big.Int
+	stateRoot     *big.Int
+	stateProofs   map[uint64]StateTreeWitness
+	nullifierTree *IndexedTree
+}
+
+func buildProofTrees(tx ProofTransactionRequest) (proofTrees, error) {
+	stateEntries := make(map[uint64]*big.Int, len(tx.StateEntries))
+	for _, entry := range tx.StateEntries {
+		hash, err := parseField(entry.Hash)
+		if err != nil {
+			return proofTrees{}, fmt.Errorf("state leaf %d: %w", entry.Index, err)
+		}
+		stateEntries[entry.Index] = hash
+	}
+	stateRoot, stateProofs := BuildSparseStateTree(stateEntries)
+	nullifierTree := NewIndexedTree()
+	for i, entry := range tx.NullifierEntries {
+		value, err := parseField(entry)
+		if err != nil {
+			return proofTrees{}, fmt.Errorf("nullifier_entries[%d]: %w", i, err)
+		}
+		if err := nullifierTree.InsertChecked(value); err != nil {
+			return proofTrees{}, fmt.Errorf("nullifier_entries[%d]: %w", i, err)
+		}
+	}
+	return proofTrees{
+		stateEntries:  stateEntries,
+		stateRoot:     stateRoot,
+		stateProofs:   stateProofs,
+		nullifierTree: nullifierTree,
+	}, nil
+}
+
+// builtInputs is the input half of a circuit assignment: the per-slot Input
+// witnesses plus the derived values the public inputs and debug record draw
+// from. Dummy slots (index >= len(tx.Inputs)) carry zero values.
+type builtInputs struct {
+	inputs                []Input
+	hashes                []*big.Int
+	nullifiers            []*big.Int
+	utxoRoots             []*big.Int
+	nullifierRoots        []*big.Int
+	solanaPkHashes        []*big.Int
+	sharedNullifierSecret *big.Int
+	requiresP256          bool
+	signerIndices         []int
+}
+
+func buildInputs(shape Shape, tx ProofTransactionRequest, trees proofTrees) (builtInputs, error) {
+	b := builtInputs{
+		inputs:                make([]Input, shape.NInputs),
+		hashes:                make([]*big.Int, shape.NInputs),
+		nullifiers:            make([]*big.Int, shape.NInputs),
+		utxoRoots:             make([]*big.Int, shape.NInputs),
+		nullifierRoots:        make([]*big.Int, shape.NInputs),
+		solanaPkHashes:        make([]*big.Int, shape.NInputs),
+		sharedNullifierSecret: big.NewInt(0),
+		signerIndices:         make([]int, 0, len(tx.Inputs)),
+	}
+	for i := 0; i < shape.NInputs; i++ {
+		statePath := proofZeroVariableSlice(StateTreeHeight)
+		stateDirs := proofZeroVariableSlice(StateTreeHeight)
+		nfLowPath := proofZeroVariableSlice(NullifierTreeHeight)
+		nfLowDirs := proofZeroVariableSlice(NullifierTreeHeight)
+		nfLowValue := big.NewInt(0)
+		nfNextValue := big.NewInt(0)
+
+		if i >= len(tx.Inputs) {
+			b.hashes[i] = big.NewInt(0)
+			b.nullifiers[i] = big.NewInt(0)
+			b.utxoRoots[i] = big.NewInt(0)
+			b.nullifierRoots[i] = big.NewInt(0)
+			b.solanaPkHashes[i] = big.NewInt(0)
+			b.inputs[i] = Input{
+				Utxo:          toProofCircuitFields(proofZeroUtxo()),
+				IsDummy:       frontend.Variable(1),
+				NullifierPk:   big.NewInt(0),
+				SolanaPkHash:  big.NewInt(0),
+				Nullifier:     big.NewInt(0),
+				UtxoTreeRoot:  big.NewInt(0),
+				NullifierRoot: big.NewInt(0),
+				State:         MerkleProof{Siblings: statePath, Directions: stateDirs},
+				NfLowValue:    nfLowValue,
+				NfNextValue:   nfNextValue,
+				NfLow:         MerkleProof{Siblings: nfLowPath, Directions: nfLowDirs},
+			}
+			continue
+		}
+
+		input, err := parseProofInput(tx.Inputs[i])
+		if err != nil {
+			return builtInputs{}, fmt.Errorf("input %d: %w", i, err)
+		}
+		if i == 0 {
+			b.sharedNullifierSecret = input.nullifierSecret
+		} else if b.sharedNullifierSecret.Cmp(input.nullifierSecret) != 0 {
+			return builtInputs{}, fmt.Errorf("input %d nullifier_secret differs from input 0", i)
+		}
+		inputHash, err := UtxoHash(input.utxo)
+		if err != nil {
+			return builtInputs{}, err
+		}
+		if existing, ok := trees.stateEntries[input.leafIndex]; !ok || existing.Cmp(inputHash) != 0 {
+			return builtInputs{}, fmt.Errorf("input %d leaf %d is not present in state_entries", i, input.leafIndex)
+		}
+		nullifier, err := NullifierHash(inputHash, input.utxo.Blinding, input.nullifierSecret)
+		if err != nil {
+			return builtInputs{}, err
+		}
+		proof, ok := trees.stateProofs[input.leafIndex]
+		if !ok {
+			return builtInputs{}, fmt.Errorf("missing state proof for leaf %d", input.leafIndex)
+		}
+		fillProofPath(statePath, stateDirs, proof.Siblings, proof.Directions)
+
+		nfWitness := trees.nullifierTree.NonInclusion(nullifier)
+		nfLowValue = nfWitness.LowValue
+		nfNextValue = nfWitness.NextValue
+		fillProofPath(nfLowPath, nfLowDirs, nfWitness.Siblings, nfWitness.Directions)
+
+		solanaPkHash := big.NewInt(0)
+		if input.isP256 {
+			b.requiresP256 = true
+		} else {
+			solanaPkHash = input.ownerKeyHash
+			b.signerIndices = append(b.signerIndices, i)
+		}
+
+		b.hashes[i] = inputHash
+		b.nullifiers[i] = nullifier
+		b.utxoRoots[i] = trees.stateRoot
+		b.nullifierRoots[i] = trees.nullifierTree.Root
+		b.solanaPkHashes[i] = solanaPkHash
+		b.inputs[i] = Input{
+			Utxo:          toProofCircuitFields(input.utxo),
+			IsDummy:       frontend.Variable(0),
+			NullifierPk:   input.nullifierPk,
+			SolanaPkHash:  solanaPkHash,
+			Nullifier:     nullifier,
+			UtxoTreeRoot:  trees.stateRoot,
+			NullifierRoot: trees.nullifierTree.Root,
+			State:         MerkleProof{Siblings: statePath, Directions: stateDirs},
+			NfLowValue:    nfLowValue,
+			NfNextValue:   nfNextValue,
+			NfLow:         MerkleProof{Siblings: nfLowPath, Directions: nfLowDirs},
+		}
+	}
+	return b, nil
+}
+
+// builtOutputs is the output half of a circuit assignment: the per-slot Output
+// witnesses, their hashes (for the private-tx hash and public inputs), and the
+// normalized UTXO responses returned to the caller.
+type builtOutputs struct {
+	outputs   []Output
+	hashes    []*big.Int
+	responses []ProofUtxoResponse
+}
+
+func buildOutputs(shape Shape, tx ProofTransactionRequest) (builtOutputs, error) {
+	b := builtOutputs{
+		outputs:   make([]Output, shape.NOutputs),
+		hashes:    make([]*big.Int, shape.NOutputs),
+		responses: make([]ProofUtxoResponse, 0, len(tx.Outputs)),
+	}
+	for i := 0; i < shape.NOutputs; i++ {
+		if i >= len(tx.Outputs) {
+			b.hashes[i] = big.NewInt(0)
+			b.outputs[i] = Output{
+				Utxo:    toProofCircuitFields(proofZeroUtxo()),
+				IsDummy: frontend.Variable(1),
+				Hash:    big.NewInt(0),
+			}
+			continue
+		}
+		parsed, err := parseProofUtxo(tx.Outputs[i], nil)
+		if err != nil {
+			return builtOutputs{}, fmt.Errorf("output %d: %w", i, err)
+		}
+		outputHash, err := UtxoHash(parsed.utxo)
+		if err != nil {
+			return builtOutputs{}, err
+		}
+		b.hashes[i] = outputHash
+		b.outputs[i] = Output{
+			Utxo:    toProofCircuitFields(parsed.utxo),
+			IsDummy: frontend.Variable(0),
+			Hash:    outputHash,
+		}
+		b.responses = append(b.responses, ProofUtxoResponse{
+			Utxo: parsed.normalized,
+			Hash: proofFieldHex(outputHash),
+		})
+	}
+	return b, nil
 }
 
 func parseProofInput(input ProofInputRequest) (proofInput, error) {

@@ -137,31 +137,6 @@ func fillProofPath(path []frontend.Variable, dirs []frontend.Variable, siblings 
 	}
 }
 
-func proofBigIntsToVariables(values []*big.Int) []frontend.Variable {
-	out := make([]frontend.Variable, len(values))
-	for i, value := range values {
-		out[i] = value
-	}
-	return out
-}
-
-func proofVariablesToBigInts(values []frontend.Variable) ([]*big.Int, error) {
-	out := make([]*big.Int, len(values))
-	for i, value := range values {
-		switch v := value.(type) {
-		case *big.Int:
-			out[i] = new(big.Int).Set(v)
-		case int:
-			out[i] = big.NewInt(int64(v))
-		case int64:
-			out[i] = big.NewInt(v)
-		default:
-			return nil, fmt.Errorf("spp: unexpected witness variable type %T", value)
-		}
-	}
-	return out, nil
-}
-
 func proofTrimTrailingZeroHexes(values []*big.Int) []string {
 	end := len(values)
 	for end > 0 && values[end-1].Sign() == 0 {
