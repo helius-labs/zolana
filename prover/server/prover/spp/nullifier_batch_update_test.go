@@ -27,20 +27,14 @@ func TestNullifierBatchUpdateCircuit(t *testing.T) {
 	assert.Error(test.IsSolved(circuit, witness, ecc.BN254.ScalarField()))
 }
 
-func TestNullifierBatchUpdateUsesQueueHashChain(t *testing.T) {
+func TestNullifierBatchUpdateUsesCanonicalHashChain(t *testing.T) {
 	inputs := []*big.Int{fe(1), fe(2), fe(3)}
 
-	got, err := QueueHashChain(inputs)
-	if err != nil {
-		t.Fatalf("queue hash chain: %v", err)
-	}
+	got := mustHashChain(t, inputs)
 	leftInner := mustPoseidon(t, 3, []*big.Int{fe(1), fe(2)})
 	want := mustPoseidon(t, 3, []*big.Int{leftInner, fe(3)})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("left-fold mismatch: got %s want %s", got, want)
-	}
-	if got.Cmp(mustHashChain(t, inputs)) == 0 {
-		t.Fatal("queue hash chain unexpectedly matched SPP transaction right-fold")
 	}
 }
 

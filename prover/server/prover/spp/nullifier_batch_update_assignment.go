@@ -67,12 +67,12 @@ func buildNullifierBatchUpdateAssignment(treeHeight, batchSize uint32, request N
 		newProofs[i] = witness.NewSiblings
 	}
 
-	hashchain, err := QueueHashChain(newValues)
+	hashchain, err := HashChain(newValues)
 	if err != nil {
 		return nil, err
 	}
 	startIndexField := new(big.Int).SetUint64(startIndex)
-	publicInputHash, err := QueueHashChain([]*big.Int{
+	publicInputHash, err := HashChain([]*big.Int{
 		oldRoot,
 		tree.Root,
 		hashchain,

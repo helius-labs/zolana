@@ -117,9 +117,9 @@ func HashChainCircuit(api frontend.API, inputs []frontend.Variable) frontend.Var
 		return frontend.Variable(0)
 	}
 
-	h := inputs[len(inputs)-1]
-	for i := len(inputs) - 2; i >= 0; i-- {
-		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{inputs[i], h})
+	h := inputs[0]
+	for i := 1; i < len(inputs); i++ {
+		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{h, inputs[i]})
 	}
 	return h
 }
@@ -137,18 +137,4 @@ func PrivateTxHashCircuit(
 		outputChain,
 		externalDataHash,
 	})
-}
-
-// QueueHashChainCircuit is the in-circuit QueueHashChain (see hash.go): the
-// left-folded queue convention used by nullifier batch updates.
-func QueueHashChainCircuit(api frontend.API, inputs []frontend.Variable) frontend.Variable {
-	if len(inputs) == 0 {
-		return frontend.Variable(0)
-	}
-
-	h := inputs[0]
-	for i := 1; i < len(inputs); i++ {
-		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{h, inputs[i]})
-	}
-	return h
 }

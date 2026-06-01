@@ -78,10 +78,10 @@ func (c *NullifierBatchUpdateCircuit) Define(api frontend.API) error {
 	}
 
 	api.AssertIsEqual(c.NewRoot, currentRoot)
-	api.AssertIsEqual(c.HashchainHash, QueueHashChainCircuit(api, c.NewElementValues))
+	api.AssertIsEqual(c.HashchainHash, HashChainCircuit(api, c.NewElementValues))
 	api.AssertIsEqual(
 		c.PublicInputHash,
-		QueueHashChainCircuit(api, []frontend.Variable{
+		HashChainCircuit(api, []frontend.Variable{
 			c.OldRoot,
 			c.NewRoot,
 			c.HashchainHash,

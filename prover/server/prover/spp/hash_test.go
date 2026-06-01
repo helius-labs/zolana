@@ -175,20 +175,20 @@ func TestP256OwnerKeyHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-func TestHashChainRightFold(t *testing.T) {
+func TestHashChainLeftFold(t *testing.T) {
 	inputs := []*big.Int{fe(1), fe(2), fe(3)}
 
 	got := mustHashChain(t, inputs)
-	inner := mustPoseidon(t, 3, []*big.Int{fe(2), fe(3)})
-	want := mustPoseidon(t, 3, []*big.Int{fe(1), inner})
+	inner := mustPoseidon(t, 3, []*big.Int{fe(1), fe(2)})
+	want := mustPoseidon(t, 3, []*big.Int{inner, fe(3)})
 	if got.Cmp(want) != 0 {
-		t.Fatalf("right-fold mismatch: got %s want %s", got, want)
+		t.Fatalf("left-fold mismatch: got %s want %s", got, want)
 	}
 
-	leftInner := mustPoseidon(t, 3, []*big.Int{fe(1), fe(2)})
-	leftFold := mustPoseidon(t, 3, []*big.Int{leftInner, fe(3)})
-	if got.Cmp(leftFold) == 0 {
-		t.Fatal("hash chain unexpectedly matched left-fold result")
+	rightInner := mustPoseidon(t, 3, []*big.Int{fe(2), fe(3)})
+	rightFold := mustPoseidon(t, 3, []*big.Int{fe(1), rightInner})
+	if got.Cmp(rightFold) == 0 {
+		t.Fatal("hash chain unexpectedly matched right-fold result")
 	}
 }
 
