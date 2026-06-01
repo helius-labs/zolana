@@ -33,10 +33,13 @@ func parseProofInput(input ProofInputRequest) (proofInput, error) {
 }
 
 // parsedUtxo holds a ProofUtxoRequest decoded into its circuit fields plus the
-// owner material derived alongside it.
+// owner material derived alongside it. response is the copy echoed back in the
+// transaction response: field elements are canonicalized to 64-char hex, while
+// owner pubkeys are only stripped of any "0x" prefix (they are not field
+// elements, so they are passed through, not canonicalized).
 type parsedUtxo struct {
 	utxo         Utxo
-	normalized   ProofUtxoRequest
+	response     ProofUtxoRequest
 	ownerKeyHash *big.Int
 	nullifierPk  *big.Int
 	isP256       bool
@@ -85,7 +88,7 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		PolicyData:      policyData,
 		PolicyProgramID: policyProgramID,
 	}
-	normalized := ProofUtxoRequest{
+	response := ProofUtxoRequest{
 		Domain:            proofFieldHex(domain),
 		Owner:             proofFieldHex(own.owner),
 		OwnerSolanaPubkey: strings.TrimPrefix(input.OwnerSolanaPubkey, "0x"),
@@ -99,7 +102,7 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	}
 	return parsedUtxo{
 		utxo:         utxo,
-		normalized:   normalized,
+		response:     response,
 		ownerKeyHash: own.keyHash,
 		nullifierPk:  own.nullifierPk,
 		isP256:       own.isP256,
@@ -189,7 +192,7 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 	nullifierSecret := inputNullifierSecret
 	if nullifierSecret == nil {
 		if input.OwnerNullifierSecret == "" {
-			return ownerKey{}, fmt.Errorf("owner_nullifier_secret is required when owner is omitted")
+			return ownerKey{}, fmt.Errorf("owner_nullifier_secret is required to derive owner key material from the supplied pubkey")
 		}
 		nullifierSecret, err = parseField(input.OwnerNullifierSecret)
 		if err != nil {

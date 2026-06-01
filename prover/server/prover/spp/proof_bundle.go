@@ -122,10 +122,6 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 	if err := Verify(ps, built.circuit, proof); err != nil {
 		return ProofTransaction{}, err
 	}
-	publicInputHash, err := PublicInputHash(publicInputs)
-	if err != nil {
-		return ProofTransaction{}, err
-	}
 
 	var debugInfo *ProofDebug
 	if includeDebug {
@@ -153,7 +149,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		PublicSplAmount:        tx.PublicSplAmount,
 		PublicSplAssetPubkey:   strings.TrimPrefix(tx.PublicSplAssetPubkey, "0x"),
 		EncryptedUtxos:         strings.TrimPrefix(tx.EncryptedUtxos, "0x"),
-		PublicInputHash:        proofFieldHex(publicInputHash),
+		PublicInputHash:        proofFieldHex(built.publicInputHash),
 		ExternalDataHash:       proofFieldHex(publicInputs.ExternalDataHash),
 		UserSolAccount:         proofBytesHex(built.external.userSolAccount[:]),
 		UserSplTokenAccount:    proofBytesHex(built.external.userSplToken[:]),

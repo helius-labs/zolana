@@ -12,11 +12,12 @@ import (
 // normalized output UTXOs to return, and the values derived along the way that
 // the response and optional debug block draw from.
 type proofAssignment struct {
-	circuit      *Circuit
-	publicInputs PublicInputs
-	outputUtxos  []ProofUtxoResponse
-	external     externalData
-	derived      proofDerivedValues
+	circuit         *Circuit
+	publicInputs    PublicInputs
+	publicInputHash *big.Int
+	outputUtxos     []ProofUtxoResponse
+	external        externalData
+	derived         proofDerivedValues
 }
 
 func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *big.Int, options proofBuildOptions) (proofAssignment, error) {
@@ -96,10 +97,11 @@ func buildProofAssignment(shape Shape, tx ProofTransactionRequest, signerHash *b
 		PublicInputHash:      publicInputHash,
 	}
 	return proofAssignment{
-		circuit:      circuit,
-		publicInputs: publicInputs,
-		outputUtxos:  out.responses,
-		external:     external,
+		circuit:         circuit,
+		publicInputs:    publicInputs,
+		publicInputHash: publicInputHash,
+		outputUtxos:     out.responses,
+		external:        external,
 		derived: proofDerivedValues{
 			inputHashes:              in.hashes,
 			outputHashes:             out.hashes,
@@ -274,7 +276,7 @@ func buildInputs(shape Shape, tx ProofTransactionRequest, trees proofTrees) (bui
 
 // builtOutputs is the output half of a circuit assignment: the per-slot Output
 // witnesses, their hashes (for the private-tx hash and public inputs), and the
-// normalized UTXO responses returned to the caller.
+// UTXO copies returned to the caller in the response.
 type builtOutputs struct {
 	outputs   []Output
 	hashes    []*big.Int
@@ -312,7 +314,7 @@ func buildOutputs(shape Shape, tx ProofTransactionRequest) (builtOutputs, error)
 			Hash:    outputHash,
 		}
 		b.responses = append(b.responses, ProofUtxoResponse{
-			Utxo: parsed.normalized,
+			Utxo: parsed.response,
 			Hash: proofFieldHex(outputHash),
 		})
 	}
