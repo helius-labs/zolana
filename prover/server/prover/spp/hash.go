@@ -197,3 +197,34 @@ func validateFieldElement(name string, value *big.Int) error {
 	}
 	return nil
 }
+
+// QueueHashChain matches Light's batched queue hash-chain convention:
+//
+//	h = inputs[0]
+//	for i = 1; i < len(inputs); i++:
+//	    h = Poseidon(h, inputs[i])
+//
+// The SPP transaction circuit uses a right-folded hash chain (HashChain) for
+// spec public inputs. Nullifier batch updates must use the queue convention
+// because the proof binds to the exact hash_chain_stores value consumed from
+// Light's address queue.
+func QueueHashChain(inputs []*big.Int) (*big.Int, error) {
+	if len(inputs) == 0 {
+		return new(big.Int), nil
+	}
+	for i, input := range inputs {
+		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("spp: queue hash chain: %w", err)
+		}
+	}
+
+	h := new(big.Int).Set(inputs[0])
+	for i := 1; i < len(inputs); i++ {
+		next, err := poseidon.HashWithT(3, []*big.Int{h, inputs[i]})
+		if err != nil {
+			return nil, fmt.Errorf("spp: queue hash chain step %d: %w", i, err)
+		}
+		h = next
+	}
+	return h, nil
+}

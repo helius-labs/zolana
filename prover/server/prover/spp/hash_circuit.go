@@ -140,3 +140,17 @@ func PrivateTxHashCircuit(
 		expiryUnixTs,
 	})
 }
+
+// QueueHashChainCircuit is the in-circuit QueueHashChain (see hash.go): the
+// left-folded queue convention used by nullifier batch updates.
+func QueueHashChainCircuit(api frontend.API, inputs []frontend.Variable) frontend.Variable {
+	if len(inputs) == 0 {
+		return frontend.Variable(0)
+	}
+
+	h := inputs[0]
+	for i := 1; i < len(inputs); i++ {
+		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{h, inputs[i]})
+	}
+	return h
+}
