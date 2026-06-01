@@ -37,8 +37,8 @@ func assertBalanceConservation(
 	for _, output := range outputs {
 		assertUnsigned64Range(api, output.Utxo.AssetAmount)
 	}
-	assertSigned64Range(api, publicSolAmount)
-	assertSigned64Range(api, publicSplAmount)
+	assertSignedAmountRange(api, publicSolAmount)
+	assertSignedAmountRange(api, publicSplAmount)
 
 	solAsset := SolAsset()
 
@@ -92,10 +92,11 @@ func assertUnsigned64Range(api frontend.API, value frontend.Variable) {
 	api.ToBinary(value, 64)
 }
 
-// assertSigned64Range constrains a SignedToFe-encoded amount to
-// [-2^64, 2^64): shifting by 2^64 lands it in [0, 2^65), and the 65-bit
-// decomposition enforces that bound.
-func assertSigned64Range(api frontend.API, value frontend.Variable) {
+// assertSignedAmountRange keeps a public amount in the range the program can
+// build from u64 instruction amounts: -2^64 <= amount < 2^64. Without this, a
+// bad witness could use an arbitrary field value that only balances modulo
+// BN254.
+func assertSignedAmountRange(api frontend.API, value frontend.Variable) {
 	shift := new(big.Int).Lsh(big.NewInt(1), 64)
 	api.ToBinary(api.Add(value, shift), 65)
 }
