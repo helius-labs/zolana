@@ -130,8 +130,7 @@ func HashToFieldSize(data ...[]byte) *big.Int {
 	return new(big.Int).SetBytes(sum)
 }
 
-// HashChain is the canonical SPP hash chain. It folds values left-to-right,
-// matching Light's queue hash-chain convention:
+// HashChain is the canonical SPP hash chain: a left fold over Poseidon.
 //
 //	h = inputs[0]
 //	for i = 1; i < len(inputs); i++:
