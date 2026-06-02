@@ -1,6 +1,7 @@
 package spp
 
 import (
+	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -64,5 +65,29 @@ func TestNullifierBatchUpdateRejectsDuplicateEntries(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected duplicate nullifier update entry to fail")
+	}
+}
+
+func TestNullifierBatchUpdateBundleOnlyContainsTransactionInputs(t *testing.T) {
+	bundleJSON, err := json.Marshal(NullifierBatchUpdateBundle{
+		NewRoot: "0x01",
+	})
+	if err != nil {
+		t.Fatalf("marshal bundle: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(bundleJSON, &fields); err != nil {
+		t.Fatalf("unmarshal bundle: %v", err)
+	}
+
+	for _, key := range []string{"proof", "new_root"} {
+		if fields[key] == nil {
+			t.Fatalf("expected %q in bundle JSON", key)
+		}
+	}
+	for _, key := range []string{"old_root", "hashchain_hash", "start_index", "public_input_hash", "new_entries"} {
+		if fields[key] != nil {
+			t.Fatalf("did not expect %q in bundle JSON", key)
+		}
 	}
 }

@@ -17,13 +17,8 @@ type NullifierBatchUpdateRequest struct {
 }
 
 type NullifierBatchUpdateBundle struct {
-	Proof           *common.Proof `json:"proof"`
-	OldRoot         string        `json:"old_root"`
-	NewRoot         string        `json:"new_root"`
-	HashchainHash   string        `json:"hashchain_hash"`
-	StartIndex      uint64        `json:"start_index"`
-	PublicInputHash string        `json:"public_input_hash"`
-	NewEntries      []string      `json:"new_entries"`
+	Proof   *common.Proof `json:"proof"`
+	NewRoot string        `json:"new_root"`
 }
 
 func WriteNullifierBatchUpdateBundle(ps *common.BatchProofSystem, requestPath string, outputPath string) error {
@@ -70,12 +65,7 @@ func BuildNullifierBatchUpdateBundle(ps *common.BatchProofSystem, request Nullif
 	}
 
 	return &NullifierBatchUpdateBundle{
-		Proof:           &common.Proof{Proof: proof},
-		OldRoot:         common.ToHex(assignmentData.oldRoot),
-		NewRoot:         common.ToHex(assignmentData.newRoot),
-		HashchainHash:   common.ToHex(assignmentData.hashchainHash),
-		StartIndex:      assignmentData.startIndex,
-		PublicInputHash: common.ToHex(assignmentData.publicInputHash),
-		NewEntries:      proofTrimTrailingZeroHexes(assignmentData.newElementValues),
+		Proof:   &common.Proof{Proof: proof},
+		NewRoot: common.ToHex(assignmentData.newRoot),
 	}, nil
 }
