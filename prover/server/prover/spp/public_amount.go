@@ -16,6 +16,8 @@ type publicAmounts struct {
 // derivePublicAmounts validates the mode and builds the signed public amounts
 // and the SPL asset id. A transfer (mode 0) must carry no public amount;
 // shield/unshield set the sign (and fold the SOL relayer fee into the SOL side).
+// A shield carries no relayer fee: the user pays, so the fee is always
+// subtracted and a stray fee would silently skim the deposit.
 func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 	if err := validatePublicAmountMode(tx.PublicAmountMode); err != nil {
 		return publicAmounts{}, err
@@ -24,6 +26,9 @@ func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 	spl := optionalU64(tx.PublicSplAmount)
 	if tx.PublicAmountMode == 0 && (sol != 0 || spl != 0) {
 		return publicAmounts{}, fmt.Errorf("spp: transfer mode carries non-zero public amounts (sol=%d, spl=%d)", sol, spl)
+	}
+	if tx.PublicAmountMode == 1 && tx.RelayerFee != 0 {
+		return publicAmounts{}, fmt.Errorf("spp: shield mode must not carry a relayer fee (got %d); the user pays", tx.RelayerFee)
 	}
 	asset := big.NewInt(0)
 	if spl != 0 {

@@ -90,6 +90,34 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 	}
 }
 
+func TestDerivePublicAmountsRejectsShieldFee(t *testing.T) {
+	sol := uint64(100)
+	shieldWithFee := ProofTransactionRequest{
+		PublicAmountMode: 1, // shield
+		PublicSolAmount:  &sol,
+		RelayerFee:       5,
+	}
+	if _, err := derivePublicAmounts(shieldWithFee); err == nil {
+		t.Fatal("shield with relayer fee accepted, want error")
+	}
+
+	shieldNoFee := shieldWithFee
+	shieldNoFee.RelayerFee = 0
+	if _, err := derivePublicAmounts(shieldNoFee); err != nil {
+		t.Fatalf("shield without fee rejected: %v", err)
+	}
+
+	// Unshield (relayer-submitted) may carry a fee.
+	unshieldWithFee := ProofTransactionRequest{
+		PublicAmountMode: 2, // unshield
+		PublicSolAmount:  &sol,
+		RelayerFee:       5,
+	}
+	if _, err := derivePublicAmounts(unshieldWithFee); err != nil {
+		t.Fatalf("unshield with fee rejected: %v", err)
+	}
+}
+
 func TestSignedAmountsByMode(t *testing.T) {
 	// Transfer (mode 0) moves no public value: SPL must be zero, not a deposit
 	// (the regression — previously +amount, which minted SPL). SOL is -fee only.
