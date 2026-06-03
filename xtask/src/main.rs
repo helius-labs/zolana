@@ -1,10 +1,11 @@
 use std::{
     env, fs,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
 };
 
+use groth16_solana_bsb22::gnark_vk_parser::{bsb22_vk_to_rust_const, parse_gnark_vk_bytes};
 use sha2::{Digest, Sha256};
 
 fn main() {
@@ -14,11 +15,58 @@ fn main() {
             let options = CreateVerifyingKeysOptions::parse(args.collect());
             create_verifying_keys(options);
         }
+        Some("generate-vkey-rs") => {
+            let options = GenerateVkeyRsOptions::parse(args.collect());
+            generate_vkey_rs(options);
+        }
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");
             print_help();
             std::process::exit(2);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct GenerateVkeyRsOptions {
+    input_path: PathBuf,
+    output_path: PathBuf,
+}
+
+impl GenerateVkeyRsOptions {
+    fn parse(args: Vec<String>) -> Self {
+        let mut input_path = None;
+        let mut output_path = None;
+
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--input-path" => {
+                    input_path = Some(
+                        args.next()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| usage_and_exit("--input-path missing value")),
+                    );
+                }
+                "--output-path" => {
+                    output_path = Some(
+                        args.next()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| usage_and_exit("--output-path missing value")),
+                    );
+                }
+                "--help" | "-h" => {
+                    print_generate_vkey_rs_help();
+                    std::process::exit(0);
+                }
+                other => usage_and_exit(&format!("unexpected arg {other:?}")),
+            }
+        }
+
+        Self {
+            input_path: input_path.unwrap_or_else(|| usage_and_exit("--input-path is required")),
+            output_path: output_path.unwrap_or_else(|| usage_and_exit("--output-path is required")),
         }
     }
 }
@@ -167,7 +215,8 @@ fn read_proving_keys(keys_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn export_verifying_key(prover_server_dir: &Path, key_path: &Path, output_path: &Path) {
-    let status = Command::new("go")
+    let go = env::var("GO").unwrap_or_else(|_| "go".to_string());
+    let status = Command::new(go)
         .current_dir(prover_server_dir)
         .args(["run", ".", "export-vk", "--keys-file"])
         .arg(key_path)
@@ -178,6 +227,51 @@ fn export_verifying_key(prover_server_dir: &Path, key_path: &Path, output_path: 
 
     if !status.success() {
         panic!("go export-vk failed with status {status}");
+    }
+}
+
+fn generate_vkey_rs(options: GenerateVkeyRsOptions) {
+    let input_path = options.input_path;
+    let output_path = options.output_path;
+    let bytes = read_vkey_bytes(&input_path);
+    let vk = parse_gnark_vk_bytes(&bytes).expect("failed to parse gnark verifying key");
+    let code = bsb22_vk_to_rust_const(&vk, "VERIFYINGKEY").replace(
+        "use groth16_solana::groth16::Groth16Verifyingkey;",
+        "use groth16_solana_bsb22::groth16::Groth16Verifyingkey;",
+    );
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).expect("failed to create vkey output directory");
+    }
+    let mut file = fs::File::create(&output_path).expect("failed to create vkey rs file");
+    file.write_all(code.as_bytes())
+        .expect("failed to write vkey rs");
+    run_rustfmt(&output_path);
+}
+
+fn read_vkey_bytes(path: &Path) -> Vec<u8> {
+    let bytes = fs::read(path)
+        .unwrap_or_else(|error| panic!("failed to read verifying key {}: {error}", path.display()));
+    if bytes.first() != Some(&b'[') {
+        return bytes;
+    }
+    let text = String::from_utf8(bytes).expect("text vkey is not UTF-8");
+    text.trim_matches(|p| p == '[' || p == ']')
+        .split_whitespace()
+        .map(|s| {
+            s.parse::<u8>()
+                .unwrap_or_else(|_| panic!("invalid vkey byte {s:?}"))
+        })
+        .collect()
+}
+
+fn run_rustfmt(path: &Path) {
+    let status = Command::new("rustfmt")
+        .arg(path)
+        .status()
+        .unwrap_or_else(|error| panic!("failed to run rustfmt: {error}"));
+    if !status.success() {
+        panic!("rustfmt failed with status {status}");
     }
 }
 
@@ -225,6 +319,7 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
+    println!("  generate-vkey-rs         Convert a gnark verifying key into Rust constants");
 }
 
 fn print_create_verifying_keys_help() {
@@ -233,4 +328,8 @@ fn print_create_verifying_keys_help() {
     println!("Defaults:");
     println!("  --keys-dir prover/server/proving-keys");
     println!("  --out-dir  $ZOLANA_VERIFYING_KEYS_DIR or target/verifying-keys");
+}
+
+fn print_generate_vkey_rs_help() {
+    println!("xtask generate-vkey-rs --input-path <path> --output-path <path>");
 }
