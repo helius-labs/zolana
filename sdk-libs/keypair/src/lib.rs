@@ -14,7 +14,7 @@ pub use nullifier_key::NullifierKey;
 pub use pubkey::{P256Pubkey, PublicKey, SignatureType};
 pub use shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair};
 pub use signing_key::SigningKey;
-pub use viewing_key::ViewingKey;
+pub use viewing_key::{EncryptedTransaction, ViewingKey};
 
 pub type Signature = [u8; 64];
 

@@ -6,9 +6,7 @@ use crate::KeypairWorld;
 
 #[given(expr = "a random P256 public key {string}")]
 fn random_p256_public_key(world: &mut KeypairWorld, name: String) {
-    world
-        .pubkeys
-        .insert(name, ViewingKey::new().viewing_pubkey());
+    world.pubkeys.insert(name, ViewingKey::new().pubkey());
 }
 
 #[when(expr = "I parse the bytes of P256 key {string}")]

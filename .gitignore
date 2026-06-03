@@ -7,3 +7,6 @@
 /test-ledger/
 /.DS_Store
 /.idea
+.claude
+docs
+experiments

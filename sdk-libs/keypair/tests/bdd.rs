@@ -12,7 +12,6 @@ pub struct KeypairWorld {
     pub signing: HashMap<String, SigningKey>,
     pub pubkeys: HashMap<String, P256Pubkey>,
     pub tagged: HashMap<String, PublicKey>,
-    pub bytes: HashMap<String, Vec<u8>>,
     pub b32: HashMap<String, [u8; 32]>,
     pub sigs: HashMap<String, [u8; 64]>,
     pub last_error: bool,
@@ -44,10 +43,6 @@ impl KeypairWorld {
 
     pub fn tag(&self, name: &str) -> PublicKey {
         *self.tagged.get(name).expect("tagged pubkey not set")
-    }
-
-    pub fn buf(&self, name: &str) -> Vec<u8> {
-        self.bytes.get(name).expect("byte buffer not set").clone()
     }
 
     pub fn word(&self, name: &str) -> [u8; 32] {

@@ -16,6 +16,7 @@ pub(crate) fn ecdh_x(secret_key: &SecretKey, pubkey: &P256Pubkey) -> [u8; 32] {
     x
 }
 
+// TODO: try to use a library directly and ensure HSM and yubikey compatibility (different pr)
 fn derive_key_and_nonce(
     dh: &[u8; 32],
     ephemeral_pubkey: &P256Pubkey,
@@ -86,7 +87,30 @@ pub(crate) fn decrypt(
         .map_err(|_| KeypairError::Aead)
 }
 
-pub(crate) fn encrypt_transfer(
+pub(crate) fn decrypt_ephemeral(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
+    ciphertext: &[u8],
+    info: &[u8],
+    aad: &[u8],
+    salt: &[u8],
+) -> Result<Vec<u8>, KeypairError> {
+    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
+    let dh = ecdh_x(ephemeral_secret_key, recipient_pubkey);
+    let (key, nonce) = derive_key_and_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
+    cipher
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| KeypairError::Aead)
+}
+
+pub(crate) fn encrypt_utxo(
     ephemeral_secret_key: &SecretKey,
     recipient_pubkey: &P256Pubkey,
     plaintext: &[u8],
@@ -102,7 +126,7 @@ pub(crate) fn encrypt_transfer(
     )
 }
 
-pub(crate) fn decrypt_transfer(
+pub(crate) fn decrypt_utxo(
     viewing_secret_key: &SecretKey,
     ephemeral_pubkey: &P256Pubkey,
     ciphertext: &[u8],
@@ -111,6 +135,22 @@ pub(crate) fn decrypt_transfer(
     decrypt(
         viewing_secret_key,
         ephemeral_pubkey,
+        ciphertext,
+        ENC_INFO_TRANSFER,
+        &[],
+        salt,
+    )
+}
+
+pub(crate) fn decrypt_utxo_ephemeral(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
+    ciphertext: &[u8],
+    salt: &[u8],
+) -> Result<Vec<u8>, KeypairError> {
+    decrypt_ephemeral(
+        ephemeral_secret_key,
+        recipient_pubkey,
         ciphertext,
         ENC_INFO_TRANSFER,
         &[],

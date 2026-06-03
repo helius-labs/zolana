@@ -25,7 +25,8 @@ impl SigningKey {
     }
 
     pub fn from_p256_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
-        let secret_key = SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
+        let secret_key =
+            SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
         Ok(Self::P256(secret_key))
     }
 

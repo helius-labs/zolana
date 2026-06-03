@@ -25,4 +25,10 @@ pub enum KeypairError {
 
     #[error("field element input exceeds 32 bytes")]
     FieldElementTooLong,
+
+    #[error("transaction has no sender bundle")]
+    EmptyTransaction,
+
+    #[error("sender bundle too short for recipient keys: need {expected} bytes, got {actual}")]
+    SenderBundleTooShort { expected: usize, actual: usize },
 }

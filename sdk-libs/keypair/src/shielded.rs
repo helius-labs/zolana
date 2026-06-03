@@ -4,7 +4,7 @@ use crate::hash::owner_hash;
 use crate::nullifier_key::NullifierKey;
 use crate::pubkey::{P256Pubkey, PublicKey};
 use crate::signing_key::SigningKey;
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key::{EncryptedTransaction, ViewingKey};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -80,7 +80,7 @@ impl ShieldedKeypair {
     }
 
     pub fn viewing_pubkey(&self) -> P256Pubkey {
-        self.viewing_key.viewing_pubkey()
+        self.viewing_key.pubkey()
     }
 
     pub fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -114,23 +114,34 @@ impl ShieldedKeypair {
         self.nullifier_key.nullifier(utxo_hash, blinding)
     }
 
-    pub fn encrypt(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key.encrypt(recipient_pubkey, plaintext, salt)
-    }
-
-    pub fn decrypt(
+    pub fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
-        salt: &[u8],
+        salt: u64,
+        slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
-            .decrypt(ciphertext, tx_viewing_pubkey, salt)
+            .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
+    }
+
+    pub fn encrypt_transaction(
+        &self,
+        first_nullifier: &[u8; 32],
+        plaintexts: &[&[u8]],
+    ) -> Result<EncryptedTransaction, KeypairError> {
+        self.viewing_key
+            .encrypt_transaction(first_nullifier, plaintexts)
+    }
+
+    pub fn decrypt_transaction(
+        &self,
+        first_nullifier: &[u8; 32],
+        ciphertexts: &[&[u8]],
+        salt: u64,
+    ) -> Result<Vec<Vec<u8>>, KeypairError> {
+        self.viewing_key
+            .decrypt_transaction(first_nullifier, ciphertexts, salt)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {

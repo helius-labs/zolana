@@ -1,5 +1,5 @@
 use cucumber::then;
-use zolana_keypair::constants::BLINDING_LEN;
+use zolana_keypair::constants::{BLINDING_LEN, PUBLIC_KEY_LEN};
 use zolana_keypair::{
     owner_hash, CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair,
     SigningKey, ViewingKey,
@@ -70,21 +70,20 @@ fn facade_transfer(world: &mut KeypairWorld, sender: String, recipient: String) 
         .keypair(&sender)
         .nullifier(&[1u8; 32], &[2u8; BLINDING_LEN])
         .unwrap();
-    let tx = world
+    let recipient_pubkey = world.keypair(&recipient).viewing_pubkey();
+    let mut sender_bundle = vec![0u8; PUBLIC_KEY_LEN + 3 * 8 + BLINDING_LEN];
+    sender_bundle.extend_from_slice(recipient_pubkey.as_bytes());
+    let recipient_plaintext = b"owner || asset || amount || blinding".to_vec();
+    let plaintexts: Vec<&[u8]> = vec![sender_bundle.as_slice(), recipient_plaintext.as_slice()];
+
+    let enc = world
         .keypair(&sender)
-        .get_transaction_viewing_key(&first_nullifier)
+        .encrypt_transaction(&first_nullifier, &plaintexts)
         .unwrap();
-    let plaintext = b"owner || asset || amount || blinding";
-    let ct = tx
-        .encrypt(
-            &world.keypair(&recipient).viewing_pubkey(),
-            plaintext,
-            b"tx-salt",
-        )
+    let ciphertexts: Vec<&[u8]> = enc.ciphertexts.iter().map(|c| c.as_slice()).collect();
+    let decrypted = world
+        .keypair(&sender)
+        .decrypt_transaction(&first_nullifier, &ciphertexts, enc.salt)
         .unwrap();
-    let pt = world
-        .keypair(&recipient)
-        .decrypt(&ct, &tx.viewing_pubkey(), b"tx-salt")
-        .unwrap();
-    assert_eq!(pt, plaintext);
+    assert_eq!(decrypted[1], recipient_plaintext);
 }
