@@ -22,6 +22,7 @@ pub mod utils;
 
 pub use crate::epoch::{finalize_registration::*, register_epoch::*, report_work::*};
 pub use forester::forest_address_tree::*;
+pub use forester::forest_nullifier_tree::*;
 pub use protocol_config::{initialize::*, update::*};
 pub use selection::forester::*;
 
@@ -214,5 +215,14 @@ pub mod light_registry {
         data: zolana_interface::instruction::BatchUpdateAddressTreeData,
     ) -> Result<()> {
         forester::forest_address_tree::process_forest_address_tree(ctx, data)
+    }
+
+    /// Drives a nullifier-tree batch update on the shielded-pool program.
+    /// Registry CPIs into shielded-pool with its CPI authority PDA as signer.
+    pub fn forest_nullifier_tree<'info>(
+        ctx: Context<'info, ForestNullifierTree<'info>>,
+        data: zolana_interface::instruction::BatchUpdateNullifierTreeData,
+    ) -> Result<()> {
+        forester::forest_nullifier_tree::process_forest_nullifier_tree(ctx, data)
     }
 }
