@@ -321,11 +321,14 @@ Symmetric key to derive nullifiers.
 
 ## Derived secrets
 
-- `sender_view_tag_secret    := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/sender_view_tag",    L=32)`
-- `recipient_view_tag_secret := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/recipient_view_tag", L=32)`
-- `merge_view_tag_secret     := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/merge_view_tag",     L=32)`
-- `tx_viewing_secret         := HKDF-SHA256(salt=∅, IKM=viewing_sk, info="TSPP/tx_viewing",         L=32)`
-  - Purpose: seed to derive transaction viewing keys.
+Secrets derive from `view_root`, an ECDH-derived root, so the viewing key can stay in an HSM (one `CKM_ECDH1_DERIVE`).
+
+- `P_const   := hash_to_curve_P256(DST="TSPP/view_root/P_const/v1")` — RFC 9380 `P256_XMD:SHA-256_SSWU_RO_`; fixed generator, unknown discrete log relative to `G` (else `ECDH(viewing_sk, P_const) = p·viewing_pk` would be public).
+- `view_root := HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — `ECDH` is the shared point's 32-byte big-endian x-coordinate.
+- `sender_view_tag_secret    := HKDF-Expand(view_root, "TSPP/sender_view_tag",    L=32)`
+- `recipient_view_tag_secret := HKDF-Expand(view_root, "TSPP/recipient_view_tag", L=32)`
+- `merge_view_tag_secret     := HKDF-Expand(view_root, "TSPP/merge_view_tag",     L=32)`
+- `tx_viewing_secret         := HKDF-Expand(view_root, "TSPP/tx_viewing",         L=32)` — seeds the transaction viewing keys.
 
 ## Transaction Viewing Key
 
@@ -393,7 +396,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 ### Merge view tag
 
 5. **`merge_view_tag`**
-    - Derived by: the owner (wallet) and the merge service, independently — both derive from `viewing_sk` (the service has it as the sync delegate or receives plaintext over a separate channel; see [Merge Service](#merge-service-1)).
+    - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the merge service.
     - Indexed by: the owner.
     - Counter: per-service `merge_count` keyed by the merge service's Solana account `merge_authority` (`wallet.merge_services[merge_authority]`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
@@ -1652,7 +1655,7 @@ A sync delegate can optionally be set up by a wallet.The sync delegate holds a s
 
 **Setup** Sync delegate appointment is recorded in the [Registry](#registry) via [`set_delegate`](#set_delegate). Wallet and delegate then share two values out-of-band:
 
-1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**).
+1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**). From each shared `viewing_sk` the delegate derives that epoch's `view_root` and its self-rooted secrets (see [Derived secrets](#derived-secrets)).
 2. The [NullifierKey](#nullifierkey).
 
 **Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_delegate_key` / `revoke` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.

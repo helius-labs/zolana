@@ -46,6 +46,7 @@ Types used in this document.
 | `Signature` | `[u8; 64]` | Ed25519 Solana transaction signature. |
 | `Instruction` | — | Solana SDK instruction: program id + account metas + data. |
 | `P256Pubkey` | `[u8; 33]` | SEC1-compressed P-256 public key: 1-byte parity prefix + 32-byte x-coordinate. |
+| `asset_id` | `u64` | Asset identifier in UTXOs and ciphertexts. `1` is SOL; each SPL mint gets a distinct `asset_id ≥ 2`, set in a per-mint PDA at SPL interface creation. |
 | `ZoneProof` | `[u8; 192]` | Compressed Groth16 zone proof with commitment. |
 | `SppProof` | `[u8; 192]` | Compressed Groth16 SPP proof with commitment; forwarded to SPP. |
 | `SharedKeyCiphertext` | `[u8; 81]` | HPKE-wrapped shared viewing private key: 33-byte ephemeral P-256 key + 32-byte AES-GCM ciphertext + 16-byte GCM tag. |
@@ -77,7 +78,7 @@ Anyone using the zone. Every user has a [viewing key account](#viewing-key-accou
 | 5 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
 | 6 | create_viewing_key_account | Create an account that registers a shared viewing key (published encrypted to the auditor) and whitelist the merge service. |
 | 7 | update_viewing_key_account | Update the recovery keys or rotate the shared viewing key; re-encrypts the shared secret with a key rotation proof. |
-| 8 | toggle_viewing_key_account | Block transfers, migrate or other key updates. Only clear text withdrawal is possible in toggled accounts. |
+| 8 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only clear_text_withdrawal is possible. |
 | 9 | close_viewing_key_account | Close the viewing key account and reclaim rent. |
 | 10 | create_proposal | Create a proposal account to queue a deposit, withdraw or transfer operation for later execution. |
 | 11 | cancel_proposal | Cancel a queued operation for later execution. |
@@ -478,7 +479,7 @@ Verified by `execute_key_update` (recovery-key changes, shared-key rotation) and
 | 7 | update_viewing_key_account | 6 | Propose recovery-key changes or a shared-key rotation through the smart account. | — | ViewingKeyAccount | KeyUpdateProposal (create) | Smart account approval |
 | 8 | migrate_viewing_key_account | 7 | Permissionless re-encryption to a rotated auditor key. | — | ZoneConfig | ViewingKeyAccount | Permissionless (proof) |
 | 9 | close_viewing_key_account | 8 | Close the viewing key account and reclaim rent. | — | — | ViewingKeyAccount (close) | Owner signs |
-| 10 | toggle_viewing_key_account | 9 | Block transfers; only clear_text_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
+| 10 | toggle_viewing_key_account | 9 | Block or unblock transfers; while blocked, only clear_text_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
 | 11 | clear_text_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
 | 12 | create_proposal | 11 | Queue a deposit, withdrawal, or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
 | 13 | cancel_proposal | 12 | Cancel a queued proposal before execution. | — | — | Proposal (close) | Proposer / owner signs |
@@ -517,8 +518,6 @@ struct TransactIxData {
     private_tx_hash: [u8; 32],
     /// Unix timestamp after which the transaction is rejected.
     expiry: i64,
-    /// Relayer fee; 0 on deposit.
-    relayer_fee: u16,
     /// One hash per output UTXO. Length M.
     output_utxo_hashes: Vec<[u8; 32]>,
     /// Per input: root-cache index in its UTXO tree. Length N.
@@ -561,6 +560,8 @@ struct RecipientPlaintext {
 
 The recipient reconstructs its UTXO from the plaintext plus `owner` (the `recipient_viewing_key_account` owner). The sender derives its change blinding from the seed.
 
+The Squads backend is the relayer and the `payer`: it pays the Solana base fee natively, so there is no in-pool reimbursement. The zone passes `relayer_fee = 0` to the SPP CPI and omits the field from its own instruction data.
+
 Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
 
 | R | Blob (B) |
@@ -570,35 +571,33 @@ Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
 
 **Transaction Size**
 
-Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 + relayer_fee 2 = 426`, plus `public_amount` (1 `None`, 9 `Some`). Four `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `utxo_tree_root_index` (`2·N`), `nullifier_tree_root_index` (`2·N`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `512 + 32·M + 4·N + 63·R`.
+Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Four `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `utxo_tree_root_index` (`2·N`), `nullifier_tree_root_index` (`2·N`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `510 + 32·M + 4·N + 63·R`.
 
 Each account address costs 32 bytes when written in full, or ~1 byte when referenced through an address-lookup table (ALT). The static accounts (`zone_config`, `zone_auth`, `spp_program`, `tree_account`) are referenced through the ALT; `payer`, `co_signer`, the viewing key accounts, and `zone_program_id` are written in full. The transaction total assumes one signer (65 B), the message header (3 B), a recent blockhash (32 B), and the instruction framing.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| transfer | 1 | 2 | 643 | 4 | 4 | 956 |
+| transfer | 1 | 2 | 641 | 4 | 4 | 954 |
 
 **Withdraw Transaction Size**
 
 A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_amount` `Some`, 9 B). The single output is the sender's change, so it uses only the sender ciphertext (`R = 0`, `encrypted_utxos` `69` B), and there is no `recipient_viewing_key_account`.
 
-Data, at `M = N = 1`: `426 + 9 (public_amount) + (4 + 32) + (4 + 2) + (4 + 2) + (4 + 69) = 556` B.
+Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 2) + (4 + 2) + (4 + 69) = 554` B.
 
 A withdrawal also moves SPL out of the pool: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| withdraw | 1 | 1 | 556 | 4 | 6 | 873 |
+| withdraw | 1 | 1 | 554 | 4 | 6 | 871 |
 
 
 # TODO:
-1. add relayer fee will be 0 since squads backend is the relayer and pays for fees.
-2. toggle_viewing_key_account add that the instruction can toggle and untoggle
-3. add asset_id to glossar (see spec.md for explanation dont reference spec.md)
-4. add detailed instruction data layout (the merge proof uses verifiable encryption, )
-5. remove merge authority whitelist, add merge authorities vec to protocol config
-6. specify  Async deposit SPL-source authorization. same as in dev/confidential-transfers
-7. specify Replay protection for signed async proposals: spec relies on commitment_hash + nullifier + expiry; the impl additionally has signing_nonce. State explicitly that the UTXO nullifier is what prevents async-proposal replay, we should add the nonce
+1. add detailed instruction data layout (the merge proof uses verifiable encryption, )
+2. remove merge authority whitelist, add merge authorities vec to protocol config
+3. specify  Async deposit SPL-source authorization. same as in dev/confidential-transfers
+4. specify Replay protection for signed async proposals: spec relies on commitment_hash + nullifier + expiry; the impl additionally has signing_nonce. State explicitly that the UTXO nullifier is what prevents async-proposal replay, we should add the nonce
 
 # Notes:
 1. Multiple auditors viewking key accounts are compatible with multiple auditors. The protocol config currently only contains one auditor key. If we add multiple auditor keys to the protocol config should every viewing key account be encrypted to all or only 1 auditor? (we could let the co-signer enforce this dynamically.)
+2. Relayer fee is hardcoded to 0 since we assume squads backend sponsors fees.
