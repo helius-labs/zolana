@@ -6,23 +6,23 @@ use p256::SecretKey;
 use sha2::Sha256;
 
 use crate::constants::{ENC_INFO_TRANSFER, GCM_NONCE_LEN, HPKE_PREFIX, P256_PUBKEY_LEN};
-use crate::error::Error;
+use crate::error::KeypairError;
 use crate::pubkey::P256Pubkey;
 
-pub(crate) fn ecdh_x(sk: &SecretKey, pubkey: &P256Pubkey) -> [u8; 32] {
-    let shared = diffie_hellman(sk.to_nonzero_scalar(), pubkey.to_p256().as_affine());
+pub(crate) fn ecdh_x(secret_key: &SecretKey, pubkey: &P256Pubkey) -> [u8; 32] {
+    let shared = diffie_hellman(secret_key.to_nonzero_scalar(), pubkey.to_p256().as_affine());
     let mut x = [0u8; 32];
     x.copy_from_slice(shared.raw_secret_bytes().as_slice());
     x
 }
 
-fn key_schedule(
+fn derive_key_and_nonce(
     dh: &[u8; 32],
     ephemeral_pubkey: &P256Pubkey,
     recipient_pubkey: &P256Pubkey,
     info: &[u8],
     salt: &[u8],
-) -> Result<([u8; 32], [u8; GCM_NONCE_LEN]), Error> {
+) -> Result<([u8; 32], [u8; GCM_NONCE_LEN]), KeypairError> {
     let mut ikm = [0u8; 32 + 2 * P256_PUBKEY_LEN];
     ikm[..32].copy_from_slice(dh);
     ikm[32..32 + P256_PUBKEY_LEN].copy_from_slice(ephemeral_pubkey.as_bytes());
@@ -31,7 +31,7 @@ fn key_schedule(
     let mut okm = [0u8; 32 + GCM_NONCE_LEN];
     Hkdf::<Sha256>::new(Some(salt), &ikm)
         .expand_multi_info(&[HPKE_PREFIX, info], &mut okm)
-        .map_err(|_| Error::Hkdf)?;
+        .map_err(|_| KeypairError::Hkdf)?;
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&okm[..32]);
@@ -40,78 +40,60 @@ fn key_schedule(
     Ok((key, nonce))
 }
 
-fn seal(
-    key: &[u8; 32],
-    nonce: &[u8; GCM_NONCE_LEN],
+pub(crate) fn encrypt(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
     plaintext: &[u8],
+    info: &[u8],
     aad: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| Error::Aead)?;
+    salt: &[u8],
+) -> Result<Vec<u8>, KeypairError> {
+    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
+    let dh = ecdh_x(ephemeral_secret_key, recipient_pubkey);
+    let (key, nonce) = derive_key_and_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
     cipher
         .encrypt(
-            Nonce::from_slice(nonce),
+            Nonce::from_slice(&nonce),
             Payload {
                 msg: plaintext,
                 aad,
             },
         )
-        .map_err(|_| Error::Aead)
-}
-
-fn open(
-    key: &[u8; 32],
-    nonce: &[u8; GCM_NONCE_LEN],
-    ciphertext: &[u8],
-    aad: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| Error::Aead)?;
-    cipher
-        .decrypt(
-            Nonce::from_slice(nonce),
-            Payload {
-                msg: ciphertext,
-                aad,
-            },
-        )
-        .map_err(|_| Error::Aead)
-}
-
-pub(crate) fn encrypt(
-    ephemeral_sk: &SecretKey,
-    recipient_pubkey: &P256Pubkey,
-    plaintext: &[u8],
-    info: &[u8],
-    aad: &[u8],
-    salt: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_sk.public_key());
-    let dh = ecdh_x(ephemeral_sk, recipient_pubkey);
-    let (key, nonce) = key_schedule(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt)?;
-    seal(&key, &nonce, plaintext, aad)
+        .map_err(|_| KeypairError::Aead)
 }
 
 pub(crate) fn decrypt(
-    viewing_sk: &SecretKey,
+    viewing_secret_key: &SecretKey,
     ephemeral_pubkey: &P256Pubkey,
     ciphertext: &[u8],
     info: &[u8],
     aad: &[u8],
     salt: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let recipient_pubkey = P256Pubkey::from_p256(&viewing_sk.public_key());
-    let dh = ecdh_x(viewing_sk, ephemeral_pubkey);
-    let (key, nonce) = key_schedule(&dh, ephemeral_pubkey, &recipient_pubkey, info, salt)?;
-    open(&key, &nonce, ciphertext, aad)
+) -> Result<Vec<u8>, KeypairError> {
+    let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
+    let dh = ecdh_x(viewing_secret_key, ephemeral_pubkey);
+    let (key, nonce) = derive_key_and_nonce(&dh, ephemeral_pubkey, &recipient_pubkey, info, salt)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
+    cipher
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| KeypairError::Aead)
 }
 
 pub(crate) fn encrypt_transfer(
-    ephemeral_sk: &SecretKey,
+    ephemeral_secret_key: &SecretKey,
     recipient_pubkey: &P256Pubkey,
     plaintext: &[u8],
     salt: &[u8],
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, KeypairError> {
     encrypt(
-        ephemeral_sk,
+        ephemeral_secret_key,
         recipient_pubkey,
         plaintext,
         ENC_INFO_TRANSFER,
@@ -121,13 +103,13 @@ pub(crate) fn encrypt_transfer(
 }
 
 pub(crate) fn decrypt_transfer(
-    viewing_sk: &SecretKey,
+    viewing_secret_key: &SecretKey,
     ephemeral_pubkey: &P256Pubkey,
     ciphertext: &[u8],
     salt: &[u8],
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, KeypairError> {
     decrypt(
-        viewing_sk,
+        viewing_secret_key,
         ephemeral_pubkey,
         ciphertext,
         ENC_INFO_TRANSFER,

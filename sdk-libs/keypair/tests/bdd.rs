@@ -30,7 +30,7 @@ impl KeypairWorld {
         self.viewing.get(name).expect("viewing key not set")
     }
 
-    pub fn sk(&self, name: &str) -> &ShieldedKeypair {
+    pub fn keypair(&self, name: &str) -> &ShieldedKeypair {
         self.shielded.get(name).expect("shielded keypair not set")
     }
 

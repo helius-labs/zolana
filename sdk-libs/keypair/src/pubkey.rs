@@ -2,7 +2,7 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::PublicKey as P256PublicKey;
 
 use crate::constants::{ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
-use crate::error::Error;
+use crate::error::KeypairError;
 
 pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
@@ -13,19 +13,23 @@ pub enum SignatureType {
     Ed25519,
 }
 
-impl SignatureType {
-    pub fn prefix(self) -> u8 {
-        match self {
+impl From<SignatureType> for u8 {
+    fn from(value: SignatureType) -> Self {
+        match value {
             SignatureType::P256 => SIGNATURE_TYPE_P256,
             SignatureType::Ed25519 => SIGNATURE_TYPE_ED25519,
         }
     }
+}
 
-    pub fn from_prefix(prefix: u8) -> Result<Self, Error> {
-        match prefix {
+impl TryFrom<u8> for SignatureType {
+    type Error = KeypairError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
             SIGNATURE_TYPE_P256 => Ok(SignatureType::P256),
             SIGNATURE_TYPE_ED25519 => Ok(SignatureType::Ed25519),
-            other => Err(Error::InvalidSignatureType(other)),
+            other => Err(KeypairError::InvalidSignatureType(other)),
         }
     }
 }
@@ -34,8 +38,8 @@ impl SignatureType {
 pub struct P256Pubkey([u8; P256_PUBKEY_LEN]);
 
 impl P256Pubkey {
-    pub fn from_bytes(bytes: [u8; P256_PUBKEY_LEN]) -> Result<Self, Error> {
-        P256PublicKey::from_sec1_bytes(&bytes).map_err(|_| Error::InvalidPublicKey)?;
+    pub fn from_bytes(bytes: [u8; P256_PUBKEY_LEN]) -> Result<Self, KeypairError> {
+        P256PublicKey::from_sec1_bytes(&bytes).map_err(|_| KeypairError::InvalidPublicKey)?;
         Ok(Self(bytes))
     }
 
@@ -71,20 +75,20 @@ pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 impl PublicKey {
     pub fn from_p256(pubkey: &P256Pubkey) -> Self {
         let mut bytes = [0u8; PUBLIC_KEY_LEN];
-        bytes[0] = SignatureType::P256.prefix();
+        bytes[0] = u8::from(SignatureType::P256);
         bytes[1..].copy_from_slice(pubkey.as_bytes());
         Self(bytes)
     }
 
     pub fn from_ed25519(pubkey: &[u8; ED25519_PUBKEY_LEN]) -> Self {
         let mut bytes = [0u8; PUBLIC_KEY_LEN];
-        bytes[0] = SignatureType::Ed25519.prefix();
+        bytes[0] = u8::from(SignatureType::Ed25519);
         bytes[1..1 + ED25519_PUBKEY_LEN].copy_from_slice(pubkey);
         Self(bytes)
     }
 
-    pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, Error> {
-        match SignatureType::from_prefix(bytes[0])? {
+    pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
+        match SignatureType::try_from(bytes[0])? {
             SignatureType::P256 => {
                 let mut body = [0u8; P256_PUBKEY_LEN];
                 body.copy_from_slice(&bytes[1..]);
@@ -96,7 +100,7 @@ impl PublicKey {
     }
 
     pub fn signature_type(&self) -> SignatureType {
-        SignatureType::from_prefix(self.0[0])
+        SignatureType::try_from(self.0[0])
             .expect("public key has a validated signature-type prefix")
     }
 
@@ -104,18 +108,18 @@ impl PublicKey {
         &self.0
     }
 
-    pub fn as_p256(&self) -> Result<P256Pubkey, Error> {
+    pub fn as_p256(&self) -> Result<P256Pubkey, KeypairError> {
         if self.signature_type() != SignatureType::P256 {
-            return Err(Error::InvalidSignatureType(self.0[0]));
+            return Err(KeypairError::InvalidSignatureType(self.0[0]));
         }
         let mut body = [0u8; P256_PUBKEY_LEN];
         body.copy_from_slice(&self.0[1..]);
         P256Pubkey::from_bytes(body)
     }
 
-    pub fn as_ed25519(&self) -> Result<[u8; ED25519_PUBKEY_LEN], Error> {
+    pub fn as_ed25519(&self) -> Result<[u8; ED25519_PUBKEY_LEN], KeypairError> {
         if self.signature_type() != SignatureType::Ed25519 {
-            return Err(Error::InvalidSignatureType(self.0[0]));
+            return Err(KeypairError::InvalidSignatureType(self.0[0]));
         }
         let mut body = [0u8; ED25519_PUBKEY_LEN];
         body.copy_from_slice(&self.0[1..1 + ED25519_PUBKEY_LEN]);

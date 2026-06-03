@@ -8,11 +8,11 @@ pub mod shielded;
 pub mod signing_key;
 pub mod viewing_key;
 
-pub use error::Error;
+pub use error::KeypairError;
 pub use hash::{owner_hash, pubkey_field, sha256_be};
 pub use nullifier_key::NullifierKey;
 pub use pubkey::{P256Pubkey, PublicKey, SignatureType};
-pub use shielded::{ShieldedAddress, ShieldedKeypair};
+pub use shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair};
 pub use signing_key::SigningKey;
 pub use viewing_key::ViewingKey;
 

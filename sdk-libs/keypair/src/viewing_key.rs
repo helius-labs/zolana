@@ -12,7 +12,7 @@ use crate::constants::{
     INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, VIEW_TAG_LEN,
 };
 use crate::encryption;
-use crate::error::Error;
+use crate::error::KeypairError;
 use crate::pubkey::P256Pubkey;
 
 pub struct ViewingKey {
@@ -24,10 +24,10 @@ pub(crate) fn hkdf_expand(
     ikm: &[u8],
     info: &[&[u8]],
     out: &mut [u8],
-) -> Result<(), Error> {
+) -> Result<(), KeypairError> {
     Hkdf::<Sha256>::new(salt, ikm)
         .expand_multi_info(info, out)
-        .map_err(|_| Error::Hkdf)
+        .map_err(|_| KeypairError::Hkdf)
 }
 
 impl ViewingKey {
@@ -37,12 +37,12 @@ impl ViewingKey {
         }
     }
 
-    pub fn from_sk(secret: SecretKey) -> Self {
+    pub fn from_secret_key(secret: SecretKey) -> Self {
         Self { secret }
     }
 
-    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, Error> {
-        let secret = SecretKey::from_slice(bytes).map_err(|_| Error::InvalidSecretKey)?;
+    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
+        let secret = SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
         Ok(Self { secret })
     }
 
@@ -60,29 +60,29 @@ impl ViewingKey {
         encryption::ecdh_x(&self.secret, counterparty)
     }
 
-    pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], Error> {
+    pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], KeypairError> {
         let mut out = [0u8; 32];
         hkdf_expand(None, self.secret_bytes().as_slice(), &[info], &mut out)?;
         Ok(out)
     }
 
-    pub fn sender_view_tag_secret(&self) -> Result<[u8; 32], Error> {
+    pub fn sender_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_SENDER_VIEW_TAG_SECRET)
     }
 
-    pub fn recipient_view_tag_secret(&self) -> Result<[u8; 32], Error> {
+    pub fn recipient_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_RECIPIENT_VIEW_TAG_SECRET)
     }
 
-    pub fn merge_view_tag_secret(&self) -> Result<[u8; 32], Error> {
+    pub fn merge_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_MERGE_VIEW_TAG_SECRET)
     }
 
-    pub fn tx_viewing_secret(&self) -> Result<[u8; 32], Error> {
+    pub fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_TX_VIEWING)
     }
 
-    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         let secret = self.sender_view_tag_secret()?;
         let mut out = [0u8; VIEW_TAG_LEN];
         hkdf_expand(
@@ -97,7 +97,7 @@ impl ViewingKey {
     pub fn get_recipient_request_view_tag(
         &self,
         request_count: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         let secret = self.recipient_view_tag_secret()?;
         let mut out = [0u8; VIEW_TAG_LEN];
         hkdf_expand(
@@ -116,7 +116,7 @@ impl ViewingKey {
         &self,
         merge_authority_pubkey: &[u8],
         merge_count: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         let secret = self.merge_view_tag_secret()?;
         let mut out = [0u8; VIEW_TAG_LEN];
         hkdf_expand(
@@ -137,7 +137,7 @@ impl ViewingKey {
         counterparty: &P256Pubkey,
         r_pubkey: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         let shared = self.ecdh(counterparty);
         let mut domain = [0u8; VIEW_TAG_LEN];
         hkdf_expand(
@@ -161,7 +161,7 @@ impl ViewingKey {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         self.shared_view_tag(counterparty, counterparty, i)
     }
 
@@ -169,7 +169,7 @@ impl ViewingKey {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], Error> {
+    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
         let r_pubkey = self.viewing_pubkey();
         self.shared_view_tag(counterparty, &r_pubkey, i)
     }
@@ -181,14 +181,14 @@ impl ViewingKey {
     pub fn get_transaction_viewing_key(
         &self,
         first_nullifier: &[u8; 32],
-    ) -> Result<ViewingKey, Error> {
+    ) -> Result<ViewingKey, KeypairError> {
         let secret = self.tx_viewing_secret()?;
         let mut okm = [0u8; 48];
         hkdf_expand(Some(first_nullifier), &secret, &[INFO_TX_VIEWING], &mut okm)?;
         let scalar = Scalar::from_okm(GenericArray::from_slice(&okm));
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
-            .ok_or(Error::InvalidSecretKey)?;
-        Ok(ViewingKey::from_sk(SecretKey::from(nonzero)))
+            .ok_or(KeypairError::ZeroScalar)?;
+        Ok(ViewingKey::from_secret_key(SecretKey::from(nonzero)))
     }
 
     pub fn encrypt(
@@ -196,7 +196,7 @@ impl ViewingKey {
         recipient_pubkey: &P256Pubkey,
         plaintext: &[u8],
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         encryption::encrypt_transfer(&self.secret, recipient_pubkey, plaintext, salt)
     }
 
@@ -205,7 +205,7 @@ impl ViewingKey {
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         encryption::decrypt_transfer(&self.secret, tx_viewing_pubkey, ciphertext, salt)
     }
 
@@ -216,7 +216,7 @@ impl ViewingKey {
         info: &[u8],
         aad: &[u8],
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         encryption::encrypt(&self.secret, recipient_pubkey, plaintext, info, aad, salt)
     }
 
@@ -227,7 +227,7 @@ impl ViewingKey {
         info: &[u8],
         aad: &[u8],
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         encryption::decrypt(&self.secret, ephemeral_pubkey, ciphertext, info, aad, salt)
     }
 }

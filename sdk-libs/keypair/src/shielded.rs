@@ -1,5 +1,5 @@
 use crate::constants::BLINDING_LEN;
-use crate::error::Error;
+use crate::error::KeypairError;
 use crate::hash::owner_hash;
 use crate::nullifier_key::NullifierKey;
 use crate::pubkey::{P256Pubkey, PublicKey};
@@ -13,6 +13,29 @@ pub struct ShieldedAddress {
     pub viewing_pubkey: P256Pubkey,
 }
 
+impl ShieldedAddress {
+    pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
+        owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CompressedShieldedAddress {
+    pub owner_hash: [u8; 32],
+    pub viewing_pubkey: P256Pubkey,
+}
+
+impl TryFrom<&ShieldedAddress> for CompressedShieldedAddress {
+    type Error = KeypairError;
+
+    fn try_from(address: &ShieldedAddress) -> Result<Self, Self::Error> {
+        Ok(Self {
+            owner_hash: address.owner_hash()?,
+            viewing_pubkey: address.viewing_pubkey,
+        })
+    }
+}
+
 pub struct ShieldedKeypair {
     pub signing_key: SigningKey,
     pub nullifier_key: NullifierKey,
@@ -20,7 +43,10 @@ pub struct ShieldedKeypair {
 }
 
 impl ShieldedKeypair {
-    pub fn from_keys(signing_key: SigningKey, viewing_key: ViewingKey) -> Result<Self, Error> {
+    pub fn from_keys(
+        signing_key: SigningKey,
+        viewing_key: ViewingKey,
+    ) -> Result<Self, KeypairError> {
         let nullifier_key = NullifierKey::from_signing_key(&signing_key)?;
         Ok(Self {
             signing_key,
@@ -41,40 +67,39 @@ impl ShieldedKeypair {
         }
     }
 
-    pub fn new() -> Result<Self, Error> {
+    pub fn new() -> Result<Self, KeypairError> {
         Self::from_keys(SigningKey::new_p256(), ViewingKey::new())
     }
 
-    pub fn new_ed25519() -> Result<Self, Error> {
+    pub fn new_ed25519() -> Result<Self, KeypairError> {
         Self::from_keys(SigningKey::new_ed25519(), ViewingKey::new())
     }
 
     pub fn signing_pubkey(&self) -> PublicKey {
-        self.signing_key.signing_pubkey()
+        self.signing_key.pubkey()
     }
 
     pub fn viewing_pubkey(&self) -> P256Pubkey {
         self.viewing_key.viewing_pubkey()
     }
 
-    pub fn nullifier_pubkey(&self) -> Result<[u8; 32], Error> {
-        self.nullifier_key.nullifier_pubkey()
-    }
-
-    pub fn shielded_address(&self) -> Result<ShieldedAddress, Error> {
+    pub fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
         Ok(ShieldedAddress {
             signing_pubkey: self.signing_pubkey(),
-            nullifier_pubkey: self.nullifier_pubkey()?,
+            nullifier_pubkey: self.nullifier_key.pubkey()?,
             viewing_pubkey: self.viewing_pubkey(),
         })
     }
 
-    pub fn owner_hash(&self) -> Result<[u8; 32], Error> {
-        owner_hash(&self.signing_pubkey(), &self.nullifier_pubkey()?)
+    pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
+        owner_hash(&self.signing_pubkey(), &self.nullifier_key.pubkey()?)
     }
 
-    pub fn compressed_address(&self) -> Result<([u8; 32], P256Pubkey), Error> {
-        Ok((self.owner_hash()?, self.viewing_pubkey()))
+    pub fn compressed_address(&self) -> Result<CompressedShieldedAddress, KeypairError> {
+        Ok(CompressedShieldedAddress {
+            owner_hash: self.owner_hash()?,
+            viewing_pubkey: self.viewing_pubkey(),
+        })
     }
 
     pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
@@ -85,7 +110,7 @@ impl ShieldedKeypair {
         &self,
         utxo_hash: &[u8; 32],
         blinding: &[u8; BLINDING_LEN],
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<[u8; 32], KeypairError> {
         self.nullifier_key.nullifier(utxo_hash, blinding)
     }
 
@@ -94,7 +119,7 @@ impl ShieldedKeypair {
         recipient_pubkey: &P256Pubkey,
         plaintext: &[u8],
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key.encrypt(recipient_pubkey, plaintext, salt)
     }
 
@@ -103,16 +128,19 @@ impl ShieldedKeypair {
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
         salt: &[u8],
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt(ciphertext, tx_viewing_pubkey, salt)
     }
 
-    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], Error> {
+    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {
         self.viewing_key.get_sender_view_tag(tx_count)
     }
 
-    pub fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<[u8; 32], Error> {
+    pub fn get_recipient_request_view_tag(
+        &self,
+        request_count: u64,
+    ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key
             .get_recipient_request_view_tag(request_count)
     }
@@ -121,7 +149,7 @@ impl ShieldedKeypair {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key.get_send_shared_view_tag(counterparty, i)
     }
 
@@ -129,7 +157,7 @@ impl ShieldedKeypair {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key.get_shared_view_tag(counterparty, i)
     }
 
@@ -137,7 +165,7 @@ impl ShieldedKeypair {
         &self,
         merge_authority_pubkey: &[u8],
         merge_count: u64,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key
             .get_merge_view_tag(merge_authority_pubkey, merge_count)
     }
@@ -149,7 +177,7 @@ impl ShieldedKeypair {
     pub fn get_transaction_viewing_key(
         &self,
         first_nullifier: &[u8; 32],
-    ) -> Result<ViewingKey, Error> {
+    ) -> Result<ViewingKey, KeypairError> {
         self.viewing_key
             .get_transaction_viewing_key(first_nullifier)
     }

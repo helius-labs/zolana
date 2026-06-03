@@ -26,8 +26,8 @@ fn random_ed25519_signing_key(world: &mut KeypairWorld, name: String) {
 
 #[given(expr = "a P256 signing key {string} from scalar {int}")]
 fn p256_signing_key_from_scalar(world: &mut KeypairWorld, name: String, n: u8) {
-    let sk = SigningKey::from_p256_bytes(&scalar_bytes(n)).unwrap();
-    world.signing.insert(name, sk);
+    let secret_key = SigningKey::from_p256_bytes(&scalar_bytes(n)).unwrap();
+    world.signing.insert(name, secret_key);
 }
 
 #[given(expr = "a random P256 shielded keypair {string}")]

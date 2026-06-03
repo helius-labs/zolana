@@ -9,7 +9,7 @@ fn nullifier_deterministic(world: &mut KeypairWorld, key: String) {
     let a = NullifierKey::from_signing_key(world.sig_key(&key)).unwrap();
     let b = NullifierKey::from_signing_key(world.sig_key(&key)).unwrap();
     assert_eq!(a.secret(), b.secret());
-    assert_eq!(a.nullifier_pubkey().unwrap(), b.nullifier_pubkey().unwrap());
+    assert_eq!(a.pubkey().unwrap(), b.pubkey().unwrap());
 }
 
 #[then(expr = "{string} and {string} derive different nullifier secrets")]
@@ -37,5 +37,5 @@ fn nullifier_binds_inputs(_world: &mut KeypairWorld) {
 #[then(expr = "the nullifier public key for secret {int} is {string}")]
 fn nullifier_pubkey_golden(_world: &mut KeypairWorld, fill: u8, expected: String) {
     let nk = NullifierKey::from_secret([fill; BLINDING_LEN]);
-    assert_eq!(hex::encode(nk.nullifier_pubkey().unwrap()), expected);
+    assert_eq!(hex::encode(nk.pubkey().unwrap()), expected);
 }

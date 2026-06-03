@@ -37,7 +37,7 @@ fn signs_identically(world: &mut KeypairWorld, key: String, msg: String) {
 #[then(expr = "signing key {string} has scheme P256")]
 fn signing_scheme_p256(world: &mut KeypairWorld, key: String) {
     assert_eq!(
-        world.sig_key(&key).signing_pubkey().signature_type(),
+        world.sig_key(&key).pubkey().signature_type(),
         SignatureType::P256
     );
 }
@@ -45,7 +45,7 @@ fn signing_scheme_p256(world: &mut KeypairWorld, key: String) {
 #[then(expr = "signing key {string} has scheme Ed25519")]
 fn signing_scheme_ed25519(world: &mut KeypairWorld, key: String) {
     assert_eq!(
-        world.sig_key(&key).signing_pubkey().signature_type(),
+        world.sig_key(&key).pubkey().signature_type(),
         SignatureType::Ed25519
     );
 }
@@ -55,7 +55,7 @@ fn p256_secret_roundtrip(world: &mut KeypairWorld, key: String) {
     let k = world.sig_key(&key);
     let bytes = k.secret_bytes();
     let restored = SigningKey::from_p256_bytes(&bytes).unwrap();
-    assert_eq!(k.signing_pubkey(), restored.signing_pubkey());
+    assert_eq!(k.pubkey(), restored.pubkey());
     assert_eq!(*bytes, *restored.secret_bytes());
 }
 
@@ -64,5 +64,5 @@ fn ed25519_seed_roundtrip(world: &mut KeypairWorld, key: String) {
     let k = world.sig_key(&key);
     let seed = k.secret_bytes();
     let restored = SigningKey::from_ed25519_seed(&seed);
-    assert_eq!(k.signing_pubkey(), restored.signing_pubkey());
+    assert_eq!(k.pubkey(), restored.pubkey());
 }

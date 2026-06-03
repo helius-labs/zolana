@@ -1,26 +1,30 @@
 use cucumber::then;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::{
-    owner_hash, NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
+    owner_hash, CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair,
+    SigningKey, ViewingKey,
 };
 
 use crate::KeypairWorld;
 
 #[then(expr = "the shielded address of {string} is consistent")]
 fn address_consistent(world: &mut KeypairWorld, name: String) {
-    let kp = world.sk(&name);
+    let kp = world.keypair(&name);
     let expected = ShieldedAddress {
         signing_pubkey: kp.signing_pubkey(),
-        nullifier_pubkey: kp.nullifier_pubkey().unwrap(),
+        nullifier_pubkey: kp.nullifier_key.pubkey().unwrap(),
         viewing_pubkey: kp.viewing_pubkey(),
     };
     assert_eq!(kp.shielded_address().unwrap(), expected);
 
     let expected_owner_hash =
-        owner_hash(&kp.signing_pubkey(), &kp.nullifier_pubkey().unwrap()).unwrap();
+        owner_hash(&kp.signing_pubkey(), &kp.nullifier_key.pubkey().unwrap()).unwrap();
     assert_eq!(
         kp.compressed_address().unwrap(),
-        (expected_owner_hash, kp.viewing_pubkey())
+        CompressedShieldedAddress {
+            owner_hash: expected_owner_hash,
+            viewing_pubkey: kp.viewing_pubkey(),
+        }
     );
 }
 
@@ -36,7 +40,7 @@ fn from_keys_derives_nullifier(world: &mut KeypairWorld, signing: String, viewin
 
 #[then(expr = "the facade of {string} signs and computes nullifiers consistently")]
 fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
-    let kp = world.sk(&name);
+    let kp = world.keypair(&name);
     let msg = b"private_tx_hash";
     assert!(kp.signing_key.verify(msg, &kp.sign(msg)));
     let utxo_hash = [5u8; 32];
@@ -50,12 +54,12 @@ fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
 #[then(expr = "{string} and {string} derive matching shared view tags through the facade")]
 fn facade_shared_tags(world: &mut KeypairWorld, sender: String, recipient: String) {
     let send = world
-        .sk(&sender)
-        .get_send_shared_view_tag(&world.sk(&recipient).viewing_pubkey(), 0)
+        .keypair(&sender)
+        .get_send_shared_view_tag(&world.keypair(&recipient).viewing_pubkey(), 0)
         .unwrap();
     let recv = world
-        .sk(&recipient)
-        .get_shared_view_tag(&world.sk(&sender).viewing_pubkey(), 0)
+        .keypair(&recipient)
+        .get_shared_view_tag(&world.keypair(&sender).viewing_pubkey(), 0)
         .unwrap();
     assert_eq!(send, recv);
 }
@@ -63,23 +67,23 @@ fn facade_shared_tags(world: &mut KeypairWorld, sender: String, recipient: Strin
 #[then(expr = "a transfer from {string} to {string} round-trips through the facade")]
 fn facade_transfer(world: &mut KeypairWorld, sender: String, recipient: String) {
     let first_nullifier = world
-        .sk(&sender)
+        .keypair(&sender)
         .nullifier(&[1u8; 32], &[2u8; BLINDING_LEN])
         .unwrap();
     let tx = world
-        .sk(&sender)
+        .keypair(&sender)
         .get_transaction_viewing_key(&first_nullifier)
         .unwrap();
     let plaintext = b"owner || asset || amount || blinding";
     let ct = tx
         .encrypt(
-            &world.sk(&recipient).viewing_pubkey(),
+            &world.keypair(&recipient).viewing_pubkey(),
             plaintext,
             b"tx-salt",
         )
         .unwrap();
     let pt = world
-        .sk(&recipient)
+        .keypair(&recipient)
         .decrypt(&ct, &tx.viewing_pubkey(), b"tx-salt")
         .unwrap();
     assert_eq!(pt, plaintext);
