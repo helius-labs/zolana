@@ -1,8 +1,9 @@
 use cucumber::then;
 use zolana_keypair::constants::{BLINDING_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::hash::owner_hash;
 use zolana_keypair::{
-    owner_hash, CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair,
-    SigningKey, ViewingKey,
+    CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey,
+    ViewingKey,
 };
 
 use crate::KeypairWorld;
@@ -31,8 +32,7 @@ fn address_consistent(world: &mut KeypairWorld, name: String) {
 #[then(expr = "a shielded keypair from {string} and {string} matches the standalone nullifier key")]
 fn from_keys_derives_nullifier(world: &mut KeypairWorld, signing: String, viewing: String) {
     let expected = NullifierKey::from_signing_key(world.sig_key(&signing)).unwrap();
-    let signing_clone =
-        SigningKey::from_p256_bytes(&world.sig_key(&signing).secret_bytes()).unwrap();
+    let signing_clone = SigningKey::from_bytes(&world.sig_key(&signing).secret_bytes()).unwrap();
     let viewing_clone = ViewingKey::from_bytes(&world.vk(&viewing).secret_bytes()).unwrap();
     let kp = ShieldedKeypair::from_keys(signing_clone, viewing_clone).unwrap();
     assert_eq!(kp.nullifier_key.secret(), expected.secret());

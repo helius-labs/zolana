@@ -17,6 +17,4 @@ Feature: Hash primitives
     And the owner hash of "alice" changes when the nullifier key changes
 
   Scenario: P256 and Ed25519 owners hash differently
-    Given a random P256 shielded keypair "p"
-    And a random Ed25519 shielded keypair "e"
-    Then "p" and "e" have different owner hashes
+    Then a P256 owner and an Ed25519 owner hash differently

@@ -1,6 +1,7 @@
 use cucumber::then;
 use sha2::{Digest, Sha256};
-use zolana_keypair::{owner_hash, pubkey_field, sha256_be};
+use zolana_keypair::hash::{owner_hash, pubkey_field, sha256_be};
+use zolana_keypair::{PublicKey, SigningKey};
 
 use crate::KeypairWorld;
 
@@ -44,10 +45,13 @@ fn owner_hash_binds_nullifier(world: &mut KeypairWorld, name: String) {
     assert_ne!(base, owner_hash(&signing_pubkey, &other).unwrap());
 }
 
-#[then(expr = "{string} and {string} have different owner hashes")]
-fn different_owner_hashes(world: &mut KeypairWorld, a: String, b: String) {
+#[then(expr = "a P256 owner and an Ed25519 owner hash differently")]
+fn p256_ed25519_owner_hash_differ(_world: &mut KeypairWorld) {
+    let nullifier_pubkey = [9u8; 32];
+    let p256 = SigningKey::new().pubkey();
+    let ed25519 = PublicKey::from_ed25519(&[7u8; 32]);
     assert_ne!(
-        world.keypair(&a).owner_hash().unwrap(),
-        world.keypair(&b).owner_hash().unwrap()
+        owner_hash(&p256, &nullifier_pubkey).unwrap(),
+        owner_hash(&ed25519, &nullifier_pubkey).unwrap()
     );
 }

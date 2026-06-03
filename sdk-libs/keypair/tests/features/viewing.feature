@@ -30,3 +30,10 @@ Feature: Viewing keys and view tags
   Scenario: A transaction viewing key is deterministic per first nullifier
     Given a random viewing key "alice"
     Then the transaction viewing key of "alice" is deterministic per first nullifier
+
+  Scenario: P_const matches the spec hash-to-curve generator
+    Then the committed P_const equals the hash-to-curve of its DST
+
+  Scenario: The sender view tag matches the golden vector
+    Given a viewing key "k" from scalar 1
+    Then the sender view tag of "k" at counter 0 is "d0ae24b9136f852f8f59671cd297f2804d021483a225b98607faa73755b47490"

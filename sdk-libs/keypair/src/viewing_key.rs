@@ -1,14 +1,15 @@
 //! P-256 viewing keypair: HPKE-style encryption of UTXO ciphertexts and
 //! derivation of the view-tag secrets wallets scan for.
 //!
-//! Per-purpose secrets expand from the key via labelled HKDF (`info` =
-//! `"TSPP/..."`), so the secret key can stay in an HSM. View tags let a
-//! wallet locate its ciphertexts at an indexer without trial decryption.
+//! Per-purpose secrets expand via labelled HKDF (`info` = `"TSPP/..."`) from
+//! `view_root = ECDH(viewing_sk, P_const)`, so the secret key only needs one
+//! ECDH and can stay in an HSM. View tags let a wallet locate its ciphertexts
+//! at an indexer without trial decryption.
 
 use hkdf::Hkdf;
 use p256::elliptic_curve::generic_array::GenericArray;
 use p256::elliptic_curve::hash2curve::FromOkm;
-use p256::{NonZeroScalar, Scalar, SecretKey};
+use p256::{NonZeroScalar, PublicKey as P256PublicKey, Scalar, SecretKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
@@ -18,7 +19,7 @@ use crate::constants::{
     BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
     INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
     INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P256_PUBKEY_LEN,
-    PUBLIC_KEY_LEN, VIEW_TAG_LEN,
+    PUBLIC_KEY_LEN, P_CONST_SEC1, VIEW_TAG_LEN,
 };
 use crate::encryption;
 use crate::error::KeypairError;
@@ -27,10 +28,23 @@ use crate::pubkey::P256Pubkey;
 /// A P-256 viewing keypair.
 pub struct ViewingKey {
     secret: SecretKey,
+    view_root: Zeroizing<[u8; 32]>,
 }
 
-/// Outputs of [`ViewingKey::encrypt_transaction`]; the caller assembles
-/// and serializes the transaction from these.
+/// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK
+/// all per-purpose secrets expand from.
+fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
+    let p_const =
+        P256PublicKey::from_sec1_bytes(&P_CONST_SEC1).expect("committed P_const is valid SEC1");
+    let ikm = Zeroizing::new(encryption::ecdh_x_point(secret, p_const.as_affine()));
+    let (prk, _) = Hkdf::<Sha256>::extract(None, ikm.as_slice());
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&prk);
+    out
+}
+
+/// Returned by [`ViewingKey::encrypt_transaction`] for the caller to serialize
+/// into a transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncryptedTransaction {
     /// Transaction viewing public key (`tx_viewing_pk`), shared by all transaction ciphertexts.
@@ -85,19 +99,20 @@ fn slot_salt(salt: u64, index: u32) -> [u8; 12] {
 impl ViewingKey {
     /// Generates a viewing key from the OS RNG.
     pub fn new() -> Self {
-        Self {
-            secret: SecretKey::random(&mut OsRng),
-        }
+        Self::from_secret_key(SecretKey::random(&mut OsRng))
     }
 
     /// Wraps an existing P-256 secret key.
     pub fn from_secret_key(secret: SecretKey) -> Self {
-        Self { secret }
+        Self {
+            view_root: view_root(&secret),
+            secret,
+        }
     }
 
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
         let secret = SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
-        Ok(Self { secret })
+        Ok(Self::from_secret_key(secret))
     }
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
@@ -117,7 +132,10 @@ impl ViewingKey {
 
     pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], KeypairError> {
         let mut out = [0u8; 32];
-        hkdf_expand(None, self.secret_bytes().as_slice(), &[info], &mut out)?;
+        Hkdf::<Sha256>::from_prk(self.view_root.as_slice())
+            .map_err(|_| KeypairError::Hkdf)?
+            .expand_multi_info(&[info], &mut out)
+            .map_err(|_| KeypairError::Hkdf)?;
         Ok(out)
     }
 

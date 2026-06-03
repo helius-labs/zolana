@@ -102,3 +102,23 @@ fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {
     let other = vk.get_transaction_viewing_key(&[4u8; 32]).unwrap();
     assert_ne!(k1.pubkey(), other.pubkey());
 }
+
+#[then(expr = "the committed P_const equals the hash-to-curve of its DST")]
+fn p_const_matches(_world: &mut KeypairWorld) {
+    use p256::elliptic_curve::hash2curve::{ExpandMsgXmd, GroupDigest};
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    use p256::NistP256;
+    use sha2::Sha256;
+    use zolana_keypair::constants::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
+
+    let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_VIEW_ROOT_P_CONST])
+        .unwrap();
+    let sec1 = point.to_affine().to_encoded_point(true);
+    assert_eq!(sec1.as_bytes(), P_CONST_SEC1);
+}
+
+#[then(expr = "the sender view tag of {string} at counter {int} is {string}")]
+fn sender_view_tag_golden(world: &mut KeypairWorld, name: String, counter: u64, expected: String) {
+    let tag = world.vk(&name).get_sender_view_tag(counter).unwrap();
+    assert_eq!(hex::encode(tag), expected);
+}

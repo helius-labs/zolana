@@ -2,7 +2,7 @@ use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use hkdf::Hkdf;
 use p256::ecdh::diffie_hellman;
-use p256::SecretKey;
+use p256::{AffinePoint, SecretKey};
 use sha2::Sha256;
 
 use crate::constants::{ENC_INFO_TRANSFER, GCM_NONCE_LEN, HPKE_PREFIX, P256_PUBKEY_LEN};
@@ -10,7 +10,11 @@ use crate::error::KeypairError;
 use crate::pubkey::P256Pubkey;
 
 pub(crate) fn ecdh_x(secret_key: &SecretKey, pubkey: &P256Pubkey) -> [u8; 32] {
-    let shared = diffie_hellman(secret_key.to_nonzero_scalar(), pubkey.to_p256().as_affine());
+    ecdh_x_point(secret_key, pubkey.to_p256().as_affine())
+}
+
+pub(crate) fn ecdh_x_point(secret_key: &SecretKey, point: &AffinePoint) -> [u8; 32] {
+    let shared = diffie_hellman(secret_key.to_nonzero_scalar(), point);
     let mut x = [0u8; 32];
     x.copy_from_slice(shared.raw_secret_bytes().as_slice());
     x

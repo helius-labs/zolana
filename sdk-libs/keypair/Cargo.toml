@@ -12,9 +12,6 @@ hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
-solana-keypair = { workspace = true }
-solana-signer = { workspace = true }
-solana-signature = { workspace = true }
 rand = { workspace = true }
 thiserror = { workspace = true }
 

@@ -68,11 +68,7 @@ impl ShieldedKeypair {
     }
 
     pub fn new() -> Result<Self, KeypairError> {
-        Self::from_keys(SigningKey::new_p256(), ViewingKey::new())
-    }
-
-    pub fn new_ed25519() -> Result<Self, KeypairError> {
-        Self::from_keys(SigningKey::new_ed25519(), ViewingKey::new())
+        Self::from_keys(SigningKey::new(), ViewingKey::new())
     }
 
     pub fn signing_pubkey(&self) -> PublicKey {

@@ -16,17 +16,6 @@ Feature: Spend-authorizing signatures
     Given a random P256 signing key "k"
     Then "k" signs "same" identically twice
 
-  Scenario: An Ed25519 signing key signs and verifies
-    Given a random Ed25519 signing key "k"
-    When "k" signs "private_tx_hash" as "sig"
-    Then "k" verifies "sig" over "private_tx_hash"
-    And "k" does not verify "sig" over "other"
-    And signing key "k" has scheme Ed25519
-
   Scenario: A P256 signing key round-trips through its secret bytes
     Given a random P256 signing key "k"
     Then signing key "k" round-trips through P256 secret bytes
-
-  Scenario: An Ed25519 signing key round-trips through its seed
-    Given a random Ed25519 signing key "k"
-    Then signing key "k" round-trips through an Ed25519 seed
