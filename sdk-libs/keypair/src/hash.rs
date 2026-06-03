@@ -16,10 +16,13 @@ pub(crate) fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     (low, high)
 }
 
-pub(crate) fn fe_right_align(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn fe_right_align(bytes: &[u8]) -> Result<[u8; 32], Error> {
+    if bytes.len() > 32 {
+        return Err(Error::FieldElementTooLong);
+    }
     let mut fe = [0u8; 32];
     fe[32 - bytes.len()..].copy_from_slice(bytes);
-    fe
+    Ok(fe)
 }
 
 pub(crate) fn bool_fe(b: bool) -> [u8; 32] {

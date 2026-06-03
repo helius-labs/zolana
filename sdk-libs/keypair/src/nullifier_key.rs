@@ -32,7 +32,7 @@ impl NullifierKey {
     }
 
     pub fn nullifier_pubkey(&self) -> Result<[u8; 32], Error> {
-        let secret_fe = fe_right_align(&self.secret);
+        let secret_fe = fe_right_align(&self.secret)?;
         poseidon(&[&secret_fe])
     }
 
@@ -41,8 +41,8 @@ impl NullifierKey {
         utxo_hash: &[u8; 32],
         blinding: &[u8; BLINDING_LEN],
     ) -> Result<[u8; 32], Error> {
-        let blinding_fe = fe_right_align(blinding);
-        let secret_fe = fe_right_align(&self.secret);
+        let blinding_fe = fe_right_align(blinding)?;
+        let secret_fe = fe_right_align(&self.secret)?;
         poseidon(&[utxo_hash, &blinding_fe, &secret_fe])
     }
 }

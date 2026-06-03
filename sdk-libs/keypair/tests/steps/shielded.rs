@@ -72,11 +72,15 @@ fn facade_transfer(world: &mut KeypairWorld, sender: String, recipient: String) 
         .unwrap();
     let plaintext = b"owner || asset || amount || blinding";
     let ct = tx
-        .encrypt(&world.sk(&recipient).viewing_pubkey(), plaintext)
+        .encrypt(
+            &world.sk(&recipient).viewing_pubkey(),
+            plaintext,
+            b"tx-salt",
+        )
         .unwrap();
     let pt = world
         .sk(&recipient)
-        .decrypt(&ct, &tx.viewing_pubkey())
+        .decrypt(&ct, &tx.viewing_pubkey(), b"tx-salt")
         .unwrap();
     assert_eq!(pt, plaintext);
 }

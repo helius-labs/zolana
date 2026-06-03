@@ -150,7 +150,11 @@ fn encrypt_to(
 ) {
     let ct = world
         .vk(&src)
-        .encrypt(&world.vk(&recipient).viewing_pubkey(), plaintext.as_bytes())
+        .encrypt(
+            &world.vk(&recipient).viewing_pubkey(),
+            plaintext.as_bytes(),
+            b"tx-salt",
+        )
         .unwrap();
     world.bytes.insert(dst, ct);
 }
@@ -171,6 +175,7 @@ fn encrypt_to_with_info(
             plaintext.as_bytes(),
             info.as_bytes(),
             &[],
+            b"tx-salt",
         )
         .unwrap();
     world.bytes.insert(dst, ct);
@@ -192,6 +197,7 @@ fn encrypt_to_with_aad(
             plaintext.as_bytes(),
             b"TSPP/tx",
             aad.as_bytes(),
+            b"tx-salt",
         )
         .unwrap();
     world.bytes.insert(dst, ct);
@@ -207,7 +213,7 @@ fn decrypts_to(
 ) {
     let pt = world
         .vk(&recipient)
-        .decrypt(&world.buf(&ct), &world.vk(&tx).viewing_pubkey())
+        .decrypt(&world.buf(&ct), &world.vk(&tx).viewing_pubkey(), b"tx-salt")
         .unwrap();
     assert_eq!(pt, expected.as_bytes());
 }
@@ -216,7 +222,7 @@ fn decrypts_to(
 fn cannot_decrypt(world: &mut KeypairWorld, recipient: String, ct: String, tx: String) {
     assert!(world
         .vk(&recipient)
-        .decrypt(&world.buf(&ct), &world.vk(&tx).viewing_pubkey())
+        .decrypt(&world.buf(&ct), &world.vk(&tx).viewing_pubkey(), b"tx-salt")
         .is_err());
 }
 
@@ -226,7 +232,7 @@ fn tampered_cannot_decrypt(world: &mut KeypairWorld, ct: String, recipient: Stri
     bytes[0] ^= 0xff;
     assert!(world
         .vk(&recipient)
-        .decrypt(&bytes, &world.vk(&tx).viewing_pubkey())
+        .decrypt(&bytes, &world.vk(&tx).viewing_pubkey(), b"tx-salt")
         .is_err());
 }
 
@@ -245,6 +251,7 @@ fn cannot_decrypt_info(
             &world.vk(&tx).viewing_pubkey(),
             info.as_bytes(),
             &[],
+            b"tx-salt",
         )
         .is_err());
 }
@@ -264,6 +271,7 @@ fn cannot_decrypt_aad(
             &world.vk(&tx).viewing_pubkey(),
             b"TSPP/tx",
             aad.as_bytes(),
+            b"tx-salt",
         )
         .is_err());
 }
@@ -278,7 +286,7 @@ fn kem_golden(
 ) {
     let ct = world
         .vk(&eph)
-        .encrypt(&world.vk(&rcpt).viewing_pubkey(), plaintext.as_bytes())
+        .encrypt(&world.vk(&rcpt).viewing_pubkey(), plaintext.as_bytes(), &[])
         .unwrap();
     assert_eq!(hex::encode(&ct), expected);
 }

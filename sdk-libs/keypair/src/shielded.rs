@@ -93,16 +93,19 @@ impl ShieldedKeypair {
         &self,
         recipient_pubkey: &P256Pubkey,
         plaintext: &[u8],
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        self.viewing_key.encrypt(recipient_pubkey, plaintext)
+        self.viewing_key.encrypt(recipient_pubkey, plaintext, salt)
     }
 
     pub fn decrypt(
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        self.viewing_key.decrypt(ciphertext, tx_viewing_pubkey)
+        self.viewing_key
+            .decrypt(ciphertext, tx_viewing_pubkey, salt)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], Error> {

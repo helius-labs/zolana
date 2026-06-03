@@ -195,16 +195,18 @@ impl ViewingKey {
         &self,
         recipient_pubkey: &P256Pubkey,
         plaintext: &[u8],
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        encryption::encrypt_transfer(&self.secret, recipient_pubkey, plaintext)
+        encryption::encrypt_transfer(&self.secret, recipient_pubkey, plaintext, salt)
     }
 
     pub fn decrypt(
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        encryption::decrypt_transfer(&self.secret, tx_viewing_pubkey, ciphertext)
+        encryption::decrypt_transfer(&self.secret, tx_viewing_pubkey, ciphertext, salt)
     }
 
     pub fn encrypt_with(
@@ -213,8 +215,9 @@ impl ViewingKey {
         plaintext: &[u8],
         info: &[u8],
         aad: &[u8],
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        encryption::encrypt(&self.secret, recipient_pubkey, plaintext, info, aad)
+        encryption::encrypt(&self.secret, recipient_pubkey, plaintext, info, aad, salt)
     }
 
     pub fn decrypt_with(
@@ -223,8 +226,9 @@ impl ViewingKey {
         ephemeral_pubkey: &P256Pubkey,
         info: &[u8],
         aad: &[u8],
+        salt: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        encryption::decrypt(&self.secret, ephemeral_pubkey, ciphertext, info, aad)
+        encryption::decrypt(&self.secret, ephemeral_pubkey, ciphertext, info, aad, salt)
     }
 }
 

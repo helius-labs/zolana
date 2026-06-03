@@ -19,4 +19,7 @@ pub enum Error {
 
     #[error("poseidon hash failed")]
     Poseidon,
+
+    #[error("field element input exceeds 32 bytes")]
+    FieldElementTooLong,
 }

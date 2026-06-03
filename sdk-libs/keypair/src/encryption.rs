@@ -21,6 +21,7 @@ fn key_schedule(
     ephemeral_pubkey: &P256Pubkey,
     recipient_pubkey: &P256Pubkey,
     info: &[u8],
+    salt: &[u8],
 ) -> Result<([u8; 32], [u8; GCM_NONCE_LEN]), Error> {
     let mut ikm = [0u8; 32 + 2 * P256_PUBKEY_LEN];
     ikm[..32].copy_from_slice(dh);
@@ -28,7 +29,7 @@ fn key_schedule(
     ikm[32 + P256_PUBKEY_LEN..].copy_from_slice(recipient_pubkey.as_bytes());
 
     let mut okm = [0u8; 32 + GCM_NONCE_LEN];
-    Hkdf::<Sha256>::new(None, &ikm)
+    Hkdf::<Sha256>::new(Some(salt), &ikm)
         .expand_multi_info(&[HPKE_PREFIX, info], &mut okm)
         .map_err(|_| Error::Hkdf)?;
 
@@ -81,10 +82,11 @@ pub(crate) fn encrypt(
     plaintext: &[u8],
     info: &[u8],
     aad: &[u8],
+    salt: &[u8],
 ) -> Result<Vec<u8>, Error> {
     let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_sk.public_key());
     let dh = ecdh_x(ephemeral_sk, recipient_pubkey);
-    let (key, nonce) = key_schedule(&dh, &ephemeral_pubkey, recipient_pubkey, info)?;
+    let (key, nonce) = key_schedule(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt)?;
     seal(&key, &nonce, plaintext, aad)
 }
 
@@ -94,10 +96,11 @@ pub(crate) fn decrypt(
     ciphertext: &[u8],
     info: &[u8],
     aad: &[u8],
+    salt: &[u8],
 ) -> Result<Vec<u8>, Error> {
     let recipient_pubkey = P256Pubkey::from_p256(&viewing_sk.public_key());
     let dh = ecdh_x(viewing_sk, ephemeral_pubkey);
-    let (key, nonce) = key_schedule(&dh, ephemeral_pubkey, &recipient_pubkey, info)?;
+    let (key, nonce) = key_schedule(&dh, ephemeral_pubkey, &recipient_pubkey, info, salt)?;
     open(&key, &nonce, ciphertext, aad)
 }
 
@@ -105,6 +108,7 @@ pub(crate) fn encrypt_transfer(
     ephemeral_sk: &SecretKey,
     recipient_pubkey: &P256Pubkey,
     plaintext: &[u8],
+    salt: &[u8],
 ) -> Result<Vec<u8>, Error> {
     encrypt(
         ephemeral_sk,
@@ -112,6 +116,7 @@ pub(crate) fn encrypt_transfer(
         plaintext,
         ENC_INFO_TRANSFER,
         &[],
+        salt,
     )
 }
 
@@ -119,6 +124,7 @@ pub(crate) fn decrypt_transfer(
     viewing_sk: &SecretKey,
     ephemeral_pubkey: &P256Pubkey,
     ciphertext: &[u8],
+    salt: &[u8],
 ) -> Result<Vec<u8>, Error> {
     decrypt(
         viewing_sk,
@@ -126,5 +132,6 @@ pub(crate) fn decrypt_transfer(
         ciphertext,
         ENC_INFO_TRANSFER,
         &[],
+        salt,
     )
 }
