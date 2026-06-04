@@ -238,6 +238,10 @@ build-spp-nullifier-keys: build-prover-server
         target/prover-server spp setup-nullifier-update --tree-height 40 --batch-size 10 --output "${stem}.key" --output-vkey "${stem}.vkey"
     fi
 
+test-pocket-cli-e2e: build-zolana-cli build-spp-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo test -p zolana-cli --test pocket_cli_e2e -- --ignored --nocapture --test-threads=1
+
 # === Formatting and linting ===
 
 fmt:
