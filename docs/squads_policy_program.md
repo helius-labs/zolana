@@ -65,6 +65,7 @@ Types used in this document.
 Source: [`diagrams/squads_policy_program.dot`](diagrams/squads_policy_program.dot). Regenerate with `just render-diagrams`.
 
 The squads program builds on top of the Solana Privacy Program (SPP). The backend (indexer, prover, relayer, and auditor) builds balances and proofs; the user signs; the squads program verifies the [zone proof](#zone-proof) and CPIs SPP. Execution is either synchronous ([transact](#transact)) or asynchronous with a [proposal](#asynchronous-transfers) user flow.
+The squads policy program has full control over the features exposed from the SPP and balances of zone users. The SPP ensures correct state transitions, that all UTXOs are fully backed by spl tokens and only the owner of the balance can spend it. 
 
 ## Operations
 
@@ -126,6 +127,16 @@ A private balance consists out of one or multiple UTXOs. Every UTXO can be spent
 **Incoming transactions** are parallel without limit. Each transfer creates a new UTXO for the recipient, so transfers to a user run in parallel without limit. at the cost of fragmentation: the balance spreads across many UTXOs. The backend merges incoming UTXOs on demand so the user can spend their full balance in one transfer.
 
 **Outgoing transactions** are limited by the number of UTXOs the user balance is composed of. The default is for every account to only hold one UTXO of every asset. To send multiple transfers in parallel from one keypair, a user splits their balance into several UTXOs in one transaction, then spends each in separate parallel transactions.
+
+## UTXO Balance Consolidation without User Interaction
+
+Incoming transfers and proofless deposits create new UTXOs. In a standard private transfer we spend two UTXOs.
+To achieve user experience similar to accounts the user balances should be a single or few UTXOs per asset so that the complete balance can be spent in a single Solana transaction.
+
+Whitelisted authorities can consolidate user balances in a specialized merge circuit which does not require the user to sign and merges UTXOs of a single user into one. Merge transactions cannot destroy, transfer value or encrypt UTXOs in an invalid way.
+Merge authorities do not necesarily hold encryption keys thus cannot perform any actions without the backend or user revealing UTXOs to merge.
+The merge feature is native to the SPP, the squads program has complete control to configure or disable this feature.
+
 
 ## Auditor 
 
@@ -467,7 +478,7 @@ Verified by `execute_key_update` (recovery-key changes, shared-key rotation) and
 
 | # | Instruction | Tag | Description | Co-Signer | Accounts Read | Accounts Modified | Access Control |
 |---|------------|-----|-------------|:---------:|---------------|-------------------|----------------|
-| 1 | transact | 0 | Deposit, withdrawal, or transfer; verifies the zone proof and CPIs SPP. | ✓ | ZoneConfig, recipient ViewingKeyAccount | sender ViewingKeyAccount (blinding_nonce), SPP trees (CPI), SPL vault | Owner signs; co-signer |
+| 1 | transact | 0 | Deposit, withdrawal, or transfer; verifies the zone proof and CPIs SPP. | ✓ | ZoneConfig, recipient ViewingKeyAccount | sender ViewingKeyAccount (blinding_nonce), SPP trees (CPI), SPL vault | zk proof that owner signed; co-signer signed |
 | 2 | proofless_deposit | 1 | Public deposit without a proof. | ✓ | recipient ViewingKeyAccount | SPP UTXO tree (CPI), SPL vault | Depositor signs; co-signer |
 | 3 | merge_transact | 2 | Merge service consolidates a user's fragmented zone UTXOs. | ✓ | ZoneConfig, owner ViewingKeyAccount | SPP trees (CPI) | Whitelisted merge authority (proof); co-signer |
 | 4 | create_zone_config | 3 | Create the zone; set the auditor key and co-signer. | — | — | ZoneConfig (create) | Zone creator signs |
