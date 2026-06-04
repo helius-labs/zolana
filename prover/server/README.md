@@ -65,7 +65,37 @@ go build .
 light-prover --config path/to/config/file
 ```
 
-## Performance Testing
+## Benchmarks
+
+### SPP transaction proving
+
+The SPP transaction proving benchmark times Groth16 proof generation only.
+Circuit compilation, Groth16 setup, and witness assignment construction run outside the benchmark timer.
+The `constraints` column is the gnark R1CS constraint count for the compiled circuit shape.
+
+Run the full supported-shape matrix from this directory:
+
+```shell
+./scripts/bench_spp_proving.sh
+```
+
+The script defaults to one proof per shape. For less noisy local measurements:
+
+```shell
+BENCHTIME=3x COUNT=3 ./scripts/bench_spp_proving.sh
+```
+
+Reference run on Apple M5 Pro with `BENCHTIME=1x` and `COUNT=1`:
+
+| Shape | Proving time | Constraints |
+|---|---:|---:|
+| 1 input / 2 outputs | 323 ms | 183,126 |
+| 2 inputs / 2 outputs | 354 ms | 204,658 |
+| 3 inputs / 3 outputs | 370 ms | 227,187 |
+| 5 inputs / 3 outputs | 459 ms | 270,293 |
+| 1 input / 8 outputs | 335 ms | 189,090 |
+
+### Server load testing
 
 We have included two scripts to benchmark the performance:
 
