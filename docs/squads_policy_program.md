@@ -5,7 +5,7 @@ TODO: lookup requirements again and tick all boxes in the intro.
 
 For compliance, the zone program configures an auditor encryption key and verifies a zk proof in every transfer instruction. The zone zk proof shows that all balance updates encrypted to an auditor-readable key, so the auditor can decrypt and index all balances.
 
-For smart accounts, the program supports asynchronous execution and user accounts with shared encryption keys. Asynchronous execution uses a proposal buffer that a co-signer or relayer executes after approval. User accounts store encryption keys shared between the auditor and one or more smart account holders. The auditor key and user keys can be safely migrated unilaterally by proving the new shared key was encrypted correctly.
+For smart accounts, the program supports asynchronous execution and user accounts with shared encryption keys. Asynchronous execution uses a proposal buffer that a co-signer or relayer executes after approval. User accounts store encryption keys shared between the auditor and one or more smart account holders. The auditor and recovery keys can be rotated by proving the new shared key is encrypted to every key holder.
 
 Balances are stored in unspent transaction outputs (UTXOs). For a seamless account-like experience, the auditor consolidates fragmented UTXO balances so users can spend their full balance in one transfer. The squads zone depends on its backend and co-signer for liveness. To ensure that users can withdraw funds without the Squads backend, users can sync their wallets from RPC data alone, decrypt locally, and withdraw without a co-signer.
 
@@ -31,8 +31,7 @@ This document specifies how the zone program fits into the TSPP architecture, sh
     - [Zone Config](#zone-config)
   - [Zone ZK Proofs](#zone-zk-proofs)
     - [Zone Proof](#zone-proof)
-    - [Viewing Key Encryption Proof](#viewing-key-encryption-proof)
-    - [Key Rotation Proof](#key-rotation-proof)
+    - [Key Encryption Proof](#key-encryption-proof)
   - [Instructions](#instructions)
   - [Encrypted UTXO Serialization](#encrypted-utxo-serialization)
 
@@ -98,9 +97,9 @@ Roles operated by Squads: the auditor, the merge service, the zone creator, and 
 | 3 | execute_proposal | Relayer/co-signer settles an approved proposal. |
 | 4 | merge_transact | Merge service consolidates a user's fragmented zone UTXOs. |
 | 5 | index (audit) | Auditor decrypts every zone UTXO via each user's shared viewing secret; cannot sign or spend. |
-| 6 | migrate_viewing_key_account | Permissionless re-encryption of a viewing key account to a rotated auditor key after `update_zone_config`. |
+| 6 | migrate auditor | Co-signer rotates a viewing key account to the new zone auditor via `update_viewing_key_account`, when the stored auditor differs from `zone_config`. |
 | 7 | fill_key_update | Executor fills a key update proposal buffer with the new shared-key ciphertexts. |
-| 8 | execute_key_update | Backend settles an approved key update proposal with the key rotation proof. |
+| 8 | execute_key_update | Backend settles an approved key update proposal with the key encryption proof. |
 
 
 ## Shared Viewing Keys
@@ -146,7 +145,7 @@ A P256 public key stored in `ZoneConfig`. The auditor key is held by the backend
 1. **Keys held** — P-256 encryption keypair.
 2. **Can do** — Decrypt every zone UTXO via the shared viewing secret in each [viewing key account](#viewing-key-account).
 3. **Cannot do** — Sign, spend, block transfers.
-4. **Key rotation** — Rotates with `update_zone_config`.
+4. **Key rotation** — Rotates with `update_zone_config`; existing viewing key accounts are then migrated by the co-signer via `update_viewing_key_account`.
 
 ## Squads Backend
 
@@ -158,7 +157,7 @@ The Squads backend indexes decrypted UTXOs, provides balances to users, runs the
 
 ### Backend API
 
-JSON-RPC. The backend decrypts a user's UTXOs and proposals with the shared viewing key, generates zk proofs, and builds transactions. Instructions without a proof — `create_proposal` and `update_viewing_key_account` — are built client-side and need no endpoint.
+JSON-RPC. The backend decrypts a user's UTXOs and proposals with the shared viewing key, generates zk proofs, and builds transactions. Instructions without a proof — `create_proposal` and `update_viewing_key_account` — are built client-side and need no endpoint (the co-signer builds the auditor-update variant of `update_viewing_key_account`).
 
 Any request that returns decrypted data (`getUtxos`, `getBalances`, `getProposals`) includes a `signature` by the viewing key account owner (or a smart account key holder); the backend rejects reads of another user's data.
 
@@ -230,7 +229,7 @@ struct DecryptedProposal {
 
 #### `requestCreateViewingKeyAccount`
 
-Builds the [viewing key encryption proof](#viewing-key-encryption-proof) and the `create_viewing_key_account` instruction. Without `owner_signature`, the created account is only encrypted to the auditor key.
+Builds the [key encryption proof](#key-encryption-proof) and the `create_viewing_key_account` instruction. Without `owner_signature`, the created account is only encrypted to the auditor key.
 
 ```rust
 struct RequestCreateViewingKeyAccountRequest {
@@ -302,7 +301,7 @@ Stores the user's shared viewing key and the ciphertexts that let each recovery 
 
 Derivation seed: `[b"viewing_key_account", owner]`.
 
-Created by `create_viewing_key_account`. `update_viewing_key_account` updates recovery keys or rotates the shared key; `migrate_viewing_key_account` re-encrypts to a rotated auditor key; `toggle_viewing_key_account` sets `state`; `close_viewing_key_account` reclaims rent.
+Created by `create_viewing_key_account`. `update_viewing_key_account` updates recovery keys, rotates the shared key, or migrates the auditor; `toggle_viewing_key_account` sets `state`; `close_viewing_key_account` reclaims rent.
 
 ```rust
 struct ViewingKeyAccount {
@@ -392,7 +391,7 @@ struct KeyUpdateProposal {
     domain: u16,
     /// Viewing key account to update.
     target: Address,
-    /// Requested change to a recovery key.
+    /// Requested change to a recovery key or the auditor.
     operation: KeyOperation,
     /// New shared private key wrapped to each recovery key, then the auditor.
     /// Filled by the executor and copied into the viewing key account at execution.
@@ -404,14 +403,17 @@ struct KeyUpdateProposal {
 }
 
 struct KeyOperation {
-    /// Add, remove, or replace a recovery key.
+    /// Add, remove, or replace a recovery key, or update the auditor.
     op: u8,
-    /// Recovery key slot the operation applies to.
+    /// Recovery- or auditor-key slot the operation applies to.
     index: u8,
-    /// New key for add and replace; ignored for remove.
+    /// New recovery key for add and replace; ignored for remove and auditor update
+    /// (the auditor is read from `zone_config`).
     key: P256Pubkey,
 }
 ```
+
+The auditor-update op is valid only when `zone_config.auditor_key` differs from the stored auditor, is signed by the co-signer, and triggers a full rotation like the other ops.
 
 Size is `114 + 81·K` bytes for `K = R' + A` buffered ciphertexts (header `1 + 2 + 32 + 32 + 35 + 8 = 110` plus a 4-byte `Vec` length prefix; each `SharedKeyCiphertext` is 81).
 
@@ -458,28 +460,17 @@ Verified by `transact` and `execute_proposal`. One circuit covers all user flows
 5. `commitment_hash` — Proposal (async) or instruction data (sync).
 6. `blinding_nonce` — sender ViewingKeyAccount, after increment; the proof checks the change blinding is `Poseidon(blinding_seed, blinding_nonce)`.
 
-#### Viewing Key Encryption Proof
+#### Key Encryption Proof
 
-Verified by `create_viewing_key_account`. Proves the `shared_viewing_key`'s private key is correctly encrypted to every recovery and auditor key.
-
-**Public inputs**
-
-1. `shared_viewing_key` — instruction data.
-2. `recovery_keys` — instruction data.
-3. `auditor_key` — ZoneConfig.
-4. `recovery_key_ciphertexts`, `auditor_key_ciphertexts` — instruction data.
-
-#### Key Rotation Proof
-
-Verified by `execute_key_update` (recovery-key changes, shared-key rotation) and `migrate_viewing_key_account` (auditor-key rotation). Proves the new `shared_viewing_key`'s private key is correctly encrypted to every updated recovery and auditor key, consistent with the account's prior state. Under `execute_key_update` every update is a full rotation: the new shared private key is re-wrapped to all `R'` resulting recovery keys and the auditor.
+Verified by `create_viewing_key_account` and `execute_key_update`. Proves the inserted ciphertexts encrypt the shared viewing private key to every recovery and auditor key. `old_state_hash` is the account's prior keys-and-ciphertexts hash for an update, and `0` at creation. Under `execute_key_update` every update is a full rotation: the new shared private key is re-wrapped to all `R'` resulting recovery keys and the auditor.
 
 **Public inputs**
 
-1. `old_state_hash` — hash of the account's current keys and ciphertexts.
-2. `new_shared_viewing_key` — instruction data.
-3. new recovery or auditor keys — KeyUpdateProposal (recovery) or ZoneConfig (auditor).
-4. new recovery and auditor ciphertexts — KeyUpdateProposal buffer for `execute_key_update`; instruction data for `migrate_viewing_key_account`, which rotates only the auditor copy and stays a single transaction.
-5. `new_encrypted_blinding_seed` — instruction data.
+1. `old_state_hash` — `0` at creation; the account's current keys-and-ciphertexts hash for an update.
+2. `shared_viewing_key` (`new_shared_viewing_key` for an update) — instruction data.
+3. recovery and auditor keys — instruction data at creation; KeyUpdateProposal (recovery) and ZoneConfig (auditor) for an update.
+4. recovery and auditor ciphertexts — instruction data at creation; KeyUpdateProposal buffer for `execute_key_update`.
+5. `encrypted_blinding_seed` — instruction data.
 
 ### Instructions
 
@@ -491,17 +482,16 @@ Verified by `execute_key_update` (recovery-key changes, shared-key rotation) and
 | 4 | create_zone_config | 3 | Create the zone; set the auditor key and co-signer. | — | — | ZoneConfig (create) | Zone creator signs |
 | 5 | update_zone_config | 4 | Rotate the auditor key, co-signer, or authority; burning the authority freezes the config. | — | — | ZoneConfig | `authority` signs |
 | 6 | create_viewing_key_account | 5 | Register a shared viewing key with recovery and auditor ciphertexts. | — | ZoneConfig | ViewingKeyAccount (create) | Owner signs to register recovery keys; without the owner signature the account is created auditor-only (no recovery keys) |
-| 7 | update_viewing_key_account | 6 | Propose recovery-key changes or a shared-key rotation through the smart account. | — | ViewingKeyAccount, ZoneConfig | KeyUpdateProposal (create) | Smart account approval |
+| 7 | update_viewing_key_account | 6 | Propose a recovery-key change, shared-key rotation, or auditor update. | — | ViewingKeyAccount, ZoneConfig | KeyUpdateProposal (create) | Smart account approval (recovery); co-signer (auditor update) |
 | 8 | fill_key_update | 7 | Executor appends new shared-key ciphertexts to a key update proposal buffer. | — | — | KeyUpdateProposal (buffer) | Proposal `executor` signs |
-| 9 | migrate_viewing_key_account | 8 | Permissionless re-encryption to a rotated auditor key. | — | ZoneConfig | ViewingKeyAccount | Permissionless (proof) |
-| 10 | close_viewing_key_account | 9 | Close the viewing key account and reclaim rent. | — | — | ViewingKeyAccount (close) | Owner signs |
-| 11 | toggle_viewing_key_account | 10 | Block or unblock transfers; while blocked, only full_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
-| 12 | full_withdrawal | 11 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
-| 13 | create_proposal | 12 | Queue a deposit, withdrawal, or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
-| 14 | cancel_proposal | 13 | Cancel a queued proposal before execution. | — | — | Proposal (close) | Proposer / owner signs |
-| 15 | execute_proposal | 14 | Relayer/co-signer settles an approved proposal with the proof. | ✓ | Proposal, ZoneConfig, sender + recipient ViewingKeyAccount | SPP trees (CPI), Proposal (close) | Co-signer / relayer signs |
-| 16 | execute_key_update | 15 | Backend settles an approved key update proposal with the key rotation proof. | — | KeyUpdateProposal, ZoneConfig | ViewingKeyAccount, KeyUpdateProposal (close) | Proposal `executor` signs (proof) |
-| 17 | cancel_key_update | 16 | Cancel a queued key update proposal before execution and reclaim rent. | — | — | KeyUpdateProposal (close) | Proposer / owner signs (smart account) |
+| 9 | close_viewing_key_account | 8 | Close the viewing key account and reclaim rent. | — | — | ViewingKeyAccount (close) | Owner signs |
+| 10 | toggle_viewing_key_account | 9 | Block or unblock transfers; while blocked, only full_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
+| 11 | full_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
+| 12 | create_proposal | 11 | Queue a deposit, withdrawal, or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
+| 13 | cancel_proposal | 12 | Cancel a queued proposal before execution. | — | — | Proposal (close) | Proposer / owner signs |
+| 14 | execute_proposal | 13 | Relayer/co-signer settles an approved proposal with the proof. | ✓ | Proposal, ZoneConfig, sender + recipient ViewingKeyAccount | SPP trees (CPI), Proposal (close) | Co-signer / relayer signs |
+| 15 | execute_key_update | 14 | Backend settles an approved key update proposal with the key encryption proof. | — | KeyUpdateProposal, ZoneConfig | ViewingKeyAccount, KeyUpdateProposal (close) | Proposal `executor` signs (proof) |
+| 16 | cancel_key_update | 15 | Cancel a queued key update proposal before execution and reclaim rent. | — | — | KeyUpdateProposal (close) | Proposer / owner signs (smart account) |
 
 #### transact
 
@@ -609,15 +599,15 @@ A withdrawal also moves SPL out of the pool: `spl_token_program` and `spl_interf
 
 #### update_viewing_key_account
 
-Creates a [key update proposal](#key-update-proposal), allocating its buffer for `K = R' + A` ciphertexts from the target's resulting recovery-key count `R'` (after `operation`) and auditor count `A`. The proposer names the `executor` that fills and settles it.
+Creates a [key update proposal](#key-update-proposal) for a recovery-key change, shared-key rotation, or auditor update, allocating its buffer for `K = R' + A` ciphertexts from the target's resulting recovery-key count `R'` (after `operation`) and auditor count `A`. The proposer names the `executor` that fills and settles it. A recovery or shared-key op needs smart-account approval; an auditor update is signed by the co-signer and allowed only when `zone_config.auditor_key` differs from the stored auditor.
 
 **Accounts**
 
-1. `proposer` — smart account key holder; signer, writable (fee payer).
+1. `proposer` — smart account key holder (recovery/shared-key op) or the co-signer (auditor update); signer, writable (fee payer).
 2. `target` — viewing key account to update; read (recovery and auditor counts).
 3. `key_update_proposal` — created and sized to `K`; writable.
 4. `system_program` — read.
-5. `zone_config` — read; checks the co-signer.
+5. `zone_config` — read; checks the co-signer and supplies the new auditor key.
 
 **Instruction data**
 
@@ -627,7 +617,7 @@ struct UpdateViewingKeyAccountIxData {
     domain: u16,
     /// Signer allowed to fill the buffer and settle the update.
     executor: Address,
-    /// Requested change to a recovery key.
+    /// Requested change to a recovery key or the auditor.
     operation: KeyOperation,
     /// Unix timestamp after which execution fails.
     expiry: i64,
@@ -654,13 +644,13 @@ struct FillKeyUpdateIxData {
 
 #### execute_key_update
 
-Settles an approved [key update proposal](#key-update-proposal): verifies the [key rotation proof](#key-rotation-proof), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key` and `encrypted_blinding_seed`, increments `key_nonce`, and closes the proposal. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`) and the signer to equal the proposal's `executor`.
+Settles an approved [key update proposal](#key-update-proposal): verifies the [key encryption proof](#key-encryption-proof), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key` and `encrypted_blinding_seed`, increments `key_nonce`, and closes the proposal. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`) and the signer to equal the proposal's `executor`.
 
 **Accounts**
 
 1. `executor` — must equal the proposal's `executor`; signer, writable (fee payer).
 2. `viewing_key_account` — target; writable (keys, ciphertexts, `key_nonce`).
-3. `zone_config` — read (co-signer).
+3. `zone_config` — read (co-signer, auditor).
 4. `key_update_proposal` — read, closed; writable.
 5. `rent_recipient` — receives the proposal rent; writable.
 6. `system_program` — read.
@@ -669,7 +659,7 @@ Settles an approved [key update proposal](#key-update-proposal): verifies the [k
 
 ```rust
 struct ExecuteKeyUpdateIxData {
-    /// Compressed Groth16 key rotation proof with commitment.
+    /// Compressed Groth16 key encryption proof with commitment.
     rotation_proof: [u8; 192],
     /// New public shared viewing key.
     new_shared_viewing_key: P256Pubkey,
@@ -684,8 +674,11 @@ struct ExecuteKeyUpdateIxData {
 2. remove merge authority whitelist, add merge authorities vec to protocol config
 3. specify  Async deposit SPL-source authorization. same as in dev/confidential-transfers
 4. specify Replay protection for signed async proposals: spec relies on commitment_hash + nullifier + expiry; the impl additionally has signing_nonce. State explicitly that the UTXO nullifier is what prevents async-proposal replay, we should add the nonce
+5. encrypt nullifier private key in account.
 
 # Notes:
 1. Multiple auditors viewking key accounts are compatible with multiple auditors. The protocol config currently only contains one auditor key. If we add multiple auditor keys to the protocol config should every viewing key account be encrypted to all or only 1 auditor? (we could let the co-signer enforce this dynamically.)
 2. Relayer fee is hardcoded to 0 since we assume squads backend sponsors fees.
 3. Should we add multiple co-signers? (just adds a vec to)
+4. No limit on the number of smart account holders and recovery keys
+5. For a complete balance history decryption we will need to use rotated shared viewing keys. We can index those by indexing rotation events.
