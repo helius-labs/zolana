@@ -74,17 +74,16 @@ A user is anyone using the zone. Every user has a [viewing key account](#viewing
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
-| 1 | deposit | Deposit and merge deposited amount into an existing UTXO | sender, recipient, amount public, existing account amount private   |
-| 2 | proofless_deposit | Public deposit without a proof. | fully public |
-| 3 | withdraw | Exit the zone to a public account. | sender visible, withdrawn asset and amount public, remaining account amount private |
-| 4 | transfer | Transfer between zone balances. | sender + recipient public, asset + amount private |
-| 5 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
-| 6 | create_viewing_key_account | Create an account that registers a shared viewing key (published encrypted to the auditor) and whitelist the merge service. | public |
-| 7 | update_viewing_key_account | Propose a recovery-key change or shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
-| 8 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. | public |
-| 9 | close_viewing_key_account | Close the viewing key account and reclaim rent. | public |
-| 10 | create_proposal | Create a proposal account to queue a deposit, withdraw or transfer operation for later execution. | public |
-| 11 | cancel_proposal | Cancel a queued operation for later execution. | public |
+| 1 | deposit | Public deposit into a new UTXO; no proof, no co-signer, no backend. | fully public |
+| 2 | withdraw | Exit the zone to a public account. | sender visible, withdrawn asset and amount public, remaining account amount private |
+| 3 | transfer | Transfer between zone balances. | sender + recipient public, asset + amount private |
+| 4 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
+| 5 | create_viewing_key_account | Create an account that registers a shared viewing key (published encrypted to the auditor) and whitelist the merge service. | public |
+| 6 | update_viewing_key_account | Propose a recovery-key change or shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
+| 7 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. | public |
+| 8 | close_viewing_key_account | Close the viewing key account and reclaim rent. | public |
+| 9 | create_proposal | Create a proposal account to queue a withdraw or transfer operation for later execution. | public |
+| 10 | cancel_proposal | Cancel a queued operation for later execution. | public |
 
 ### Squads
 
@@ -114,7 +113,7 @@ UTXOs transferred to and from the account are encrypted to the shared key, so an
 
 Smart accounts controlled by several keys with an approval threshold need to collecting signatures over multiple transactions for a proposal. The proposal cannot contain a SPP zk proof because SPP proofs reference a recent Merkle tree root which are only valid for a short time. To address this issue the Squads policy program implements a proposal user flow. 
 
-A key holder creates a proposal that commits to a single operation (deposit, withdrawal, or transfer) and encrypts the amount to the shared viewing key. The remaining signers approve the proposal through the smart account.
+A key holder creates a proposal that commits to a single operation (withdrawal or transfer) and encrypts the amount to the shared viewing key. The remaining signers approve the proposal through the smart account.
 
 Once the threshold is met, a co-signer or relayer holding the shared viewing key decrypts the proposal, builds the proof, and executes the transaction. The proposer can cancel a proposal before it executes, and a proposal expires at a set Unix timestamp.
 
@@ -130,7 +129,7 @@ A private balance consists out of one or multiple UTXOs. Every UTXO can be spent
 
 ## UTXO Balance Consolidation without User Interaction
 
-Incoming transfers and proofless deposits create new UTXOs. In a standard private transfer we spend two UTXOs.
+Incoming transfers and deposits create new UTXOs. In a standard private transfer we spend two UTXOs.
 To achieve user experience similar to accounts the user balances should be a single or few UTXOs per asset so that the complete balance can be spent in a single Solana transaction.
 
 Whitelisted authorities can consolidate user balances in a specialized merge circuit which does not require the user to sign and merges UTXOs of a single user into one. Merge transactions cannot destroy, transfer value or encrypt UTXOs in an invalid way.
@@ -157,23 +156,35 @@ The Squads backend indexes decrypted UTXOs, provides balances to users, runs the
 
 ### Backend API
 
-JSON-RPC. The backend decrypts a user's UTXOs and proposals with the shared viewing key, generates zk proofs, and builds transactions. Instructions without a proof — `create_proposal` and `update_viewing_key_account` — are built client-side and need no endpoint (the co-signer builds the auditor-update variant of `update_viewing_key_account`).
+JSON-RPC. The backend decrypts a user's UTXOs and proposals with the shared viewing key, generates the zk proofs, and builds and sends the Solana transaction. The shielded payload — `encrypted_utxos` and the input/output selection — is built client-side, since building it needs wallet secrets. Instructions without a proof — `deposit`, `create_proposal`, and `update_viewing_key_account` — are built client-side and need no endpoint; `deposit` involves neither the backend nor a co-signer (the co-signer builds the auditor-update variant of `update_viewing_key_account`).
 
-Any request that returns decrypted data (`getUtxos`, `getBalances`, `getProposals`) includes a `signature` by the viewing key account owner (or a smart account key holder); the backend rejects reads of another user's data.
+Any request that returns decrypted data (`getBalances`, `getProposals`) includes a `signature` by the viewing key account owner (or a smart account key holder); the backend rejects reads of another user's data.
 
 A `request*` call returns the built instruction for a smart account to wrap and submit; for a keypair owner the backend sends the transaction and sets `signature`.
 
-#### `getUtxos`
+#### `getBalances`
 
-Returns the user's UTXOs, decrypted with the shared viewing key.
+Returns the user's balance per asset, decrypted with the shared viewing key: one `AssetBalance` per asset, with its total `amount` and the UTXOs that sum to it. `skip_utxos` leaves each `utxos` empty; `amount` is still returned.
 
 ```rust
-struct GetUtxosRequest {
+struct GetBalancesRequest {
     viewing_key_account: Address,
+    /// When true, each AssetBalance.utxos is empty.
+    skip_utxos: bool,
     signature: [u8; 64],
 }
 
-struct GetUtxosResponse {
+struct GetBalancesResponse {
+    balances: Vec<AssetBalance>,
+}
+
+struct AssetBalance {
+    asset_id: u64,
+    /// SPL mint; Address::default() for SOL.
+    mint: Address,
+    /// Total across the asset's UTXOs.
+    amount: u64,
+    /// The asset's UTXOs; empty when skip_utxos.
     utxos: Vec<DecryptedUtxo>,
 }
 
@@ -182,22 +193,6 @@ struct DecryptedUtxo {
     asset_id: u64,
     amount: u64,
     blinding: [u8; 31],
-}
-```
-
-#### `getBalances`
-
-Returns the user's total balance per requested mint, summed by the backend from the decrypted UTXOs. `balances[i]` is the total for `mints[i]`.
-
-```rust
-struct GetBalancesRequest {
-    viewing_key_account: Address,
-    mints: Vec<Address>,
-    signature: [u8; 64],
-}
-
-struct GetBalancesResponse {
-    balances: Vec<u64>,
 }
 ```
 
@@ -217,13 +212,13 @@ struct GetProposalsResponse {
 
 struct DecryptedProposal {
     pda: Address,
-    /// deposit | withdraw | transfer
+    /// withdraw | transfer
     op: u8,
     asset_id: u64,
     amount: u64,
     recipient: Address,
     expiry: i64,
-    commitment_hash: [u8; 32],
+    proposal_hash: [u8; 32],
 }
 ```
 
@@ -238,54 +233,64 @@ struct RequestCreateViewingKeyAccountRequest {
     owner_signature: Option<[u8; 64]>,
 }
 
-struct RequestCreateViewingKeyAccountResponse {
-    viewing_key_account: Address,
-    instruction: Instruction,
-    signature: Option<Signature>,
+enum RequestCreateViewingKeyAccountResponse {
+    /// Smart account: wrap and submit.
+    Instruction { viewing_key_account: Address, instruction: Instruction },
+    /// Keypair: the backend sent the transaction.
+    Signature { viewing_key_account: Address, signature: Signature },
 }
 ```
 
-#### `requestTransfer`
+#### `requestTransact`
 
-Builds the zone proof, the SPP proof, and the `transact` instruction for a transfer.
+Sync smart account transfers and withdrawals return an instruction, sync keypair transactions return a solana signature.
+Builds the zone proof, the SPP proof, and the [`transact`](#transact) instruction for a withdrawal or transfer, selected by `transaction_type`. `owner_signature` signs `transaction_type` and `intent` together. (Deposits are public and self-serve — see [`deposit`](#deposit) — so they have no endpoint here.)
 
 ```rust
-struct RequestTransferRequest {
+struct RequestTransactRequest {
+    /// Transfer, Withdrawal
+    transaction_type: TransactionType,
+    intent: PrivateTransactionIntent,
+    /// None for smart accounts, Some for P256 owners
+    owner_signature: Option<[u8; 64]>,
+}
+
+enum RequestTransactResponse {
+    /// Smart account: wrap, partial-sign, co-signer co-signs, submit.
+    Instruction(Instruction),
+    /// Keypair: backend co-signed and sent the transaction.
+    Signature(Signature),
+}
+
+enum TransactionType {
+    Transfer { recipient_viewing_key_account: Address },
+    Withdraw { sol: Option<PublicSol>, spl: Option<PublicSpl> },
+}
+
+struct PublicSol {
+    public_amount: u64,
+    user_sol_account: Address,
+}
+
+struct PublicSpl {
+    public_amount: u64,
+    user_spl_token_account: Address,
+    spl_token_interface: Address,
+}
+
+struct OutputUtxo {
+    owner: Address,
+    asset_id: u64,
+    amount: u64,
+    blinding: [u8; 31],
+}
+
+struct PrivateTransactionIntent {
     sender_viewing_key_account: Address,
-    recipient_viewing_key_account: Address,
-    asset_id: u64,
-    amount: u64,
-}
-
-struct RequestTransactResponse {
-    instruction: Instruction,
-    signature: Option<Signature>,
-}
-```
-
-#### `requestDeposit`
-
-Builds the proofs and the `transact` instruction for a deposit. Returns `RequestTransactResponse`.
-
-```rust
-struct RequestDepositRequest {
-    viewing_key_account: Address,
-    asset_id: u64,
-    amount: u64,
-    spl_source: Address,
-}
-```
-
-#### `requestWithdraw`
-
-Builds the proofs and the `transact` instruction for a withdrawal. Returns `RequestTransactResponse`.
-
-```rust
-struct RequestWithdrawRequest {
-    viewing_key_account: Address,
-    asset_id: u64,
-    amount: u64,
-    spl_recipient: Address,
+    inputs: Vec<DecryptedUtxo>,
+    outputs: Vec<OutputUtxo>,
+    encrypted_utxos: EncryptedUtxos,
+    expiry: i64,
 }
 ```
 
@@ -347,7 +352,7 @@ ViewingKeyAccount size is `181 + 114·(R + A)` bytes, for `R` recovery keys and 
 
 #### Proposal
 
-The proposal account holds the parameters of a queued deposit, withdrawal, or transfer. The `commitment_hash` is a public input to the [zone proof](#zone-proof) so that the executor who creates the proof when sending the transaction cannot change the operation between approval and execution.
+The proposal account holds the parameters of a queued withdrawal or transfer. The `proposal_hash` is a public input to the [zone proof](#zone-proof) so that the executor who creates the proof when sending the transaction cannot change the operation between approval and execution.
 
 Derivation seed: `[b"proposal", owner, cipher_text[0..33]]`. The ciphertext prefix is the ephemeral P-256 key, fresh per encryption, so each proposal derives a distinct PDA.
 
@@ -359,13 +364,13 @@ struct Proposal {
     discriminator: u8,
     /// Viewing key account whose UTXOs the operation spends.
     owner: Address,
-    /// Recipient owner for a transfer, SPL account for a deposit or withdrawal.
+    /// Recipient owner for a transfer, SPL account for a withdrawal.
     recipient: Address,
     /// Asset mint. SOL is Address::default().
     asset: Address,
     /// Poseidon commitment over the operation parameters; public input to the
     /// zone proof at execution.
-    commitment_hash: [u8; 32],
+    proposal_hash: [u8; 32],
     /// Amount and blinding encrypted to the shared viewing key.
     cipher_text: ProposalCiphertext,
     /// Unix timestamp after which execution fails.
@@ -449,15 +454,15 @@ The zone verifies its own ZK proof (Groth16), separate from the SPP proof which 
 
 #### Zone Proof
 
-Verified by `transact` and `execute_proposal`. One circuit covers all user flows: deposit, withdrawal, and transfer. Proves every output UTXO is encrypted to the named recipient viewing keys, and that the encrypted amounts match the committed operation. Each viewing key is shared with the auditor, so encrypting to it gives the auditor read access. 
+Verified by `transact` and `execute_proposal`. One circuit covers both spend flows: withdrawal and transfer. Proves every output UTXO is encrypted to the named recipient viewing keys, and that the encrypted amounts match the committed operation. Each viewing key is shared with the auditor, so encrypting to it gives the auditor read access. 
 
 **Public inputs**
 
 1. `private_tx_hash` — instruction data; shared with the SPP proof.
 2. `recipient_viewing_keys` — recipient ViewingKeyAccount(s).
 3. `output_utxo_ciphertexts` — instruction data.
-4. `public_amount` — instruction data (deposit/withdrawal; `0` for transfer).
-5. `commitment_hash` — Proposal (async) or instruction data (sync).
+4. `public_amount` — instruction data (withdrawal; `0` for transfer).
+5. `proposal_hash` — Proposal (async) or instruction data (sync).
 6. `blinding_nonce` — sender ViewingKeyAccount, after increment; the proof checks the change blinding is `Poseidon(blinding_seed, blinding_nonce)`.
 
 #### Key Encryption Proof
@@ -476,8 +481,8 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 
 | # | Instruction | Tag | Description | Co-Signer | Accounts Read | Accounts Modified | Access Control |
 |---|------------|-----|-------------|:---------:|---------------|-------------------|----------------|
-| 1 | transact | 0 | Deposit, withdrawal, or transfer; verifies the zone proof and CPIs SPP. | ✓ | ZoneConfig, recipient ViewingKeyAccount | sender ViewingKeyAccount (blinding_nonce), SPP trees (CPI), SPL vault | zk proof that owner signed; co-signer signed |
-| 2 | proofless_deposit | 1 | Public deposit without a proof. | ✓ | recipient ViewingKeyAccount | SPP UTXO tree (CPI), SPL vault | Depositor signs; co-signer |
+| 1 | transact | 0 | Withdrawal or transfer; verifies the zone proof and CPIs SPP. | ✓ | ZoneConfig, recipient ViewingKeyAccount | sender ViewingKeyAccount (blinding_nonce), SPP trees (CPI), SPL interface account | zk proof that owner signed; co-signer signed |
+| 2 | deposit | 1 | Public deposit into a new UTXO; no proof or co-signer. | — | recipient ViewingKeyAccount | SPP UTXO tree (CPI), SPL interface account | Depositor signs |
 | 3 | merge_transact | 2 | Merge service consolidates a user's fragmented zone UTXOs. | ✓ | ZoneConfig, owner ViewingKeyAccount | SPP trees (CPI) | Whitelisted merge authority (proof); co-signer |
 | 4 | create_zone_config | 3 | Create the zone; set the auditor key and co-signer. | — | — | ZoneConfig (create) | Zone creator signs |
 | 5 | update_zone_config | 4 | Rotate the auditor key, co-signer, or authority; burning the authority freezes the config. | — | — | ZoneConfig | `authority` signs |
@@ -486,8 +491,8 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 | 8 | fill_key_update | 7 | Executor appends new shared-key ciphertexts to a key update proposal buffer. | — | — | KeyUpdateProposal (buffer) | Proposal `executor` signs |
 | 9 | close_viewing_key_account | 8 | Close the viewing key account and reclaim rent. | — | — | ViewingKeyAccount (close) | Owner signs |
 | 10 | toggle_viewing_key_account | 9 | Block or unblock transfers; while blocked, only full_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
-| 11 | full_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
-| 12 | create_proposal | 11 | Queue a deposit, withdrawal, or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
+| 11 | full_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL interface account | Owner signs |
+| 12 | create_proposal | 11 | Queue a withdrawal or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
 | 13 | cancel_proposal | 12 | Cancel a queued proposal before execution. | — | — | Proposal (close) | Proposer / owner signs |
 | 14 | execute_proposal | 13 | Relayer/co-signer settles an approved proposal with the proof. | ✓ | Proposal, ZoneConfig, sender + recipient ViewingKeyAccount | SPP trees (CPI), Proposal (close) | Co-signer / relayer signs |
 | 15 | execute_key_update | 14 | Backend settles an approved key update proposal with the key encryption proof. | — | KeyUpdateProposal, ZoneConfig | ViewingKeyAccount, KeyUpdateProposal (close) | Proposal `executor` signs (proof) |
@@ -495,11 +500,11 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 
 #### transact
 
-Verifies the zone proof, then CPIs SPP `zone_transact`, which verifies the SPP proof and settles the UTXO state transition. One entrypoint for deposit, withdrawal, and transfer; `public_amount` selects the operation.
+Verifies the zone proof, then CPIs SPP `zone_transact`, which verifies the SPP proof and settles the UTXO state transition. One entrypoint for withdrawal and transfer; `public_amount` selects the operation.
 
 **Accounts**
 
-1. `payer` — fee payer (relayer for transfer/withdrawal, user for deposit); signer, writable.
+1. `payer` — fee payer (relayer for transfer/withdrawal); signer, writable.
 2. `co_signer` — zone co-signer; signer.
 3. `zone_config` — read.
 4. `sender_viewing_key_account` — read, writable (`blinding_nonce` incremented).
@@ -518,7 +523,7 @@ struct TransactIxData {
     zone_proof: ZoneProof,
     /// Compressed Groth16 SPP proof; forwarded to SPP.
     spp_proof: SppProof,
-    /// Some for deposit/withdrawal, None for transfer.
+    /// Some for withdrawal, None for transfer.
     public_amount: Option<u64>,
     /// Public input shared with the SPP proof.
     private_tx_hash: [u8; 32],
@@ -566,7 +571,7 @@ struct RecipientPlaintext {
 
 The recipient reconstructs its UTXO from the plaintext plus `owner` (the `recipient_viewing_key_account` owner). The sender derives its change blinding from the seed.
 
-The Squads backend is the relayer and the `payer`: it pays the Solana base fee natively, so there is no in-pool reimbursement. The zone passes `relayer_fee = 0` to the SPP CPI and omits the field from its own instruction data.
+The Squads backend is the relayer and the `payer`: it pays the Solana base fee natively, so there is no reimbursement. The zone passes `relayer_fee = 0` to the SPP CPI and omits the field from its own instruction data.
 
 Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
 
@@ -591,11 +596,66 @@ A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_a
 
 Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 2) + (4 + 2) + (4 + 69) = 554` B.
 
-A withdrawal also moves SPL out of the pool: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
+A withdrawal also moves SPL out of the SPL interface account: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
 | withdraw | 1 | 1 | 554 | 4 | 6 | 871 |
+
+#### deposit
+
+Deposits SPL or SOL into the zone. Amount, asset, and recipient are public. The UTXO hash is computed in the SPP program.
+
+**Accounts**
+
+1. `depositor` — owner of the SPL source; signs to authorize the SPL transfer; writable.
+2. `recipient_viewing_key_account` — read; owns the new UTXO.
+3. `zone_auth` — zone PDA; signs the SPP CPI.
+4. `spp_program` — SPP program (CPI target).
+5. `tree_account` — SPP UTXO tree; writable.
+6. `spl_source` — the depositor's token account; writable.
+7. `spl_interface` — the SPL interface account; the `asset_id` is read from it.
+8. `spl_token_program` — token program for the transfer.
+
+**Instruction data**
+
+```rust
+struct DepositIxData {
+    /// Public deposit amount moved into the SPL interface account.
+    amount: u64,
+}
+```
+
+#### create_proposal
+
+Queues one withdrawal or transfer for asynchronous execution by creating a [proposal](#proposal) account that commits to the operation via `proposal_hash`. The smart account votes on this instruction; the zone program treats the resulting account as approved (see [Asynchronous Transfers](#asynchronous-transfers)). [execute_proposal](#instructions) later settles it.
+
+**Accounts**
+
+1. `fee_payer` — pays rent; signer, writable.
+2. `proposal` — the [proposal](#proposal) account, created at its derived PDA; writable.
+3. `viewing_key_account` — the [viewing key account](#viewing-key-account) whose UTXOs the operation spends; read.
+4. `system_program` — read.
+5. `owner` — the smart account vault, signing through the approving Squads CPI; signer. Must equal `viewing_key_account.owner`.
+
+**Instruction data**
+
+```rust
+struct CreateProposalIxData {
+    /// Recipient owner for a transfer, SPL account for a withdrawal.
+    recipient: Address,
+    /// Asset mint. SOL is Address::default().
+    asset: Address,
+    /// Operation commitment; a public input to the zone proof at execution.
+    proposal_hash: [u8; 32],
+    /// Amount and blinding encrypted to the shared viewing key.
+    cipher_text: ProposalCiphertext,
+    /// Unix timestamp after which execution fails.
+    expiry: i64,
+}
+```
+
+The program sets `discriminator` and `owner` (= `viewing_key_account`) and copies the remaining fields into the [proposal](#proposal).
 
 #### update_viewing_key_account
 
@@ -672,9 +732,10 @@ struct ExecuteKeyUpdateIxData {
 # TODO:
 1. add detailed instruction data layout (the merge proof uses verifiable encryption, )
 2. remove merge authority whitelist, add merge authorities vec to protocol config
-3. specify  Async deposit SPL-source authorization. same as in dev/confidential-transfers
-4. specify Replay protection for signed async proposals: spec relies on commitment_hash + nullifier + expiry; the impl additionally has signing_nonce. State explicitly that the UTXO nullifier is what prevents async-proposal replay, we should add the nonce
-5. encrypt nullifier private key in account.
+3. specify Replay protection for signed async proposals: spec relies on proposal_hash + nullifier + expiry; the impl additionally has signing_nonce. State explicitly that the UTXO nullifier is what prevents async-proposal replay, we should add the nonce
+4. add to view key account: encrypted nullifier private key, nullifier pubkey, and rotate with other keys like encrypted_blinding_seed
+5. Merge get balances with get decrypted utxos, get balances should also return the utxos with an option to skip then the utxo vec per balance amount is empty
+6. check whether we can use an instruction data eddsa signature with smart accounts then we could eliminate the round trip for the sync smart account user flow
 
 # Notes:
 1. Multiple auditors viewking key accounts are compatible with multiple auditors. The protocol config currently only contains one auditor key. If we add multiple auditor keys to the protocol config should every viewing key account be encrypted to all or only 1 auditor? (we could let the co-signer enforce this dynamically.)
@@ -682,3 +743,4 @@ struct ExecuteKeyUpdateIxData {
 3. Should we add multiple co-signers? (just adds a vec to)
 4. No limit on the number of smart account holders and recovery keys
 5. For a complete balance history decryption we will need to use rotated shared viewing keys. We can index those by indexing rotation events.
+6. Shield with proof only makes sense if we want to merge utxos at shield, but we have the merge service. Because of the confidential nature amount, recipient, and asset are always known.
