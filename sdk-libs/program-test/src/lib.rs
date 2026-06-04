@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use borsh::BorshSerialize;
 use litesvm::LiteSVM;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -28,8 +29,10 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        InsertAddressesData,
+        CreateProtocolConfigData, InsertAddressesData, PauseTreeData, TransactData,
+        UpdateProtocolConfigData,
     },
+    state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -78,6 +81,15 @@ impl PoolTestRig {
     }
 
     pub fn with_program_path(path: &Path) -> Result<Self, RigError> {
+        Self::with_program_path_and_payer(path, Keypair::new())
+    }
+
+    pub fn new_with_payer(payer: Keypair) -> Result<Self, RigError> {
+        let program_path = default_program_path();
+        Self::with_program_path_and_payer(&program_path, payer)
+    }
+
+    pub fn with_program_path_and_payer(path: &Path, payer: Keypair) -> Result<Self, RigError> {
         if !path.exists() {
             return Err(RigError::MissingProgram(path.to_path_buf()));
         }
@@ -88,7 +100,6 @@ impl PoolTestRig {
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| RigError::Litesvm(format!("add_program: {e:?}")))?;
 
-        let payer = Keypair::new();
         // ~20 SOL — the combined pool-tree account is ~1.16 MB which costs
         // ~8 SOL rent-exempt, so a 1 SOL airdrop is too small.
         svm.airdrop(&payer.pubkey(), 20_000_000_000)
@@ -141,6 +152,10 @@ impl PoolTestRig {
     pub fn create_program_owned_account(&mut self, account_size: u64) -> Result<Keypair, RigError> {
         let program_id = self.program_id;
         self.create_account_with_owner(account_size, program_id)
+    }
+
+    pub fn create_protocol_config_account(&mut self) -> Result<Keypair, RigError> {
+        self.create_program_owned_account(PROTOCOL_CONFIG_ACCOUNT_LEN as u64)
     }
 
     pub fn create_account_with_owner(
@@ -406,6 +421,91 @@ impl PoolTestRig {
             data: payload,
         };
         self.send(&[ix], &[&self.payer.insecure_clone()])
+    }
+
+    pub fn create_shielded_pool_protocol_config(
+        &mut self,
+        config: &Keypair,
+        authority: &Keypair,
+        data: CreateProtocolConfigData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::CREATE_PROTOCOL_CONFIG];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(config.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn update_shielded_pool_protocol_config(
+        &mut self,
+        config: &Keypair,
+        authority: &Keypair,
+        data: UpdateProtocolConfigData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::UPDATE_PROTOCOL_CONFIG];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(config.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn pause_tree(
+        &mut self,
+        config: &Keypair,
+        tree: &Keypair,
+        authority: &Keypair,
+        data: PauseTreeData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::PAUSE_TREE];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new_readonly(config.pubkey(), false),
+                AccountMeta::new(tree.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn transact(&mut self, tree: &Keypair, data: TransactData) -> Result<(), RigError> {
+        self.transact_with_extra_accounts(tree, data, Vec::new())
+    }
+
+    pub fn transact_with_extra_accounts(
+        &mut self,
+        tree: &Keypair,
+        data: TransactData,
+        extra_accounts: Vec<AccountMeta>,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::TRANSACT];
+        data.serialize(&mut payload).expect("infallible");
+        let mut accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new_readonly(self.payer.pubkey(), true),
+        ];
+        accounts.extend(extra_accounts);
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts,
+            data: payload,
+        };
+        let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        self.send(&[compute_budget_ix, ix], &[&self.payer.insecure_clone()])
     }
 
     /// Read the raw bytes of any account in the rig.

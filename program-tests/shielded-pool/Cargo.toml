@@ -5,6 +5,26 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-pinocchio = "0.10"
+pinocchio = { workspace = true }
 shielded-pool-program = { workspace = true }
 zolana-interface = { workspace = true }
+
+[dev-dependencies]
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-program-test = { path = "../../sdk-libs/program-test" }
+light-prover-client = { workspace = true }
+light-sparse-merkle-tree = { workspace = true }
+light-verifier = { workspace = true }
+groth16-solana-bsb22 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-program-pack = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+spl-token = { workspace = true }

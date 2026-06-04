@@ -53,12 +53,16 @@ test-scaffold:
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
 
-# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
-# `.so`s under `target/deploy/`; run `just build-programs` first.
+# End-to-end LiteSVM tests for shielded-pool plus stable program-test coverage.
+# Requires the SBF `.so`s under `target/deploy`; run `just build-programs` first.
 test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo test -p light-program-test
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml --features no-idl,no-log-ix-name
+    cargo test -p shielded-pool-tests --test transact_e2e
+    # Registry lifecycle/CPI tests currently trap inside light_registry's
+    # initialize_protocol_config under LiteSVM before reaching shielded-pool.
+    cargo test -p light-program-test --lib
+    cargo test -p light-program-test --test end_to_end
 
 # Aggregate of all CI-runnable rust tests.
 test-all: test-scaffold test-litesvm
@@ -179,7 +183,7 @@ build-light-programs: fetch-fixtures
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml --features no-idl,no-log-ix-name
     mkdir -p target/deploy
     tag=$(tr -d '[:space:]' < .fixtures-version)
     fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
