@@ -1,13 +1,13 @@
 # Squads Zone Program
 
-The Squads Zone Program configures a zone on the Solana Privacy Protocol (TSPP), which provides anonymous transfers in a single Solana transaction. It adds compliance features, a co-signer, and smart-account support.
+The Squads Zone Program configures a zone on the Solana Privacy Protocol (TSPP), which provides private transfers in a single Solana transaction. The zone adds compliance features, a co-signer, and smart-account support.
 TODO: lookup requirements again and tick all boxes in the intro.
 
-For compliance, the zone program configures an auditor encryption key and verifies a zk proof in every transfer instruction. The zone proof shows that new output UTXOs are encrypted to an auditor-readable key, so the auditor can decrypt and index every zone UTXO.
+For compliance, the zone program configures an auditor encryption key and verifies a zk proof in every transfer instruction. The zone zk proof shows that all balance updates encrypted to an auditor-readable key, so the auditor can decrypt and index all balances.
 
 For smart accounts, the program supports asynchronous execution and user accounts with shared encryption keys. Asynchronous execution uses a proposal buffer that a co-signer or relayer executes after approval. User accounts store encryption keys shared between the auditor and one or more smart account holders. The auditor key and user keys can be safely migrated unilaterally by proving the new shared key was encrypted correctly.
 
-For a seamless account-like experience, the auditor consolidates fragmented UTXO balances so users can spend their full balance in one transfer. The squads zone depends on its backend and co-signer for liveness. To ensure that users can withdraw funds without the Squads backend, users can sync their wallets from RPC data alone, decrypt locally, and withdraw without a co-signer.
+Balances are stored in unspent transaction outputs (UTXOs). For a seamless account-like experience, the auditor consolidates fragmented UTXO balances so users can spend their full balance in one transfer. The squads zone depends on its backend and co-signer for liveness. To ensure that users can withdraw funds without the Squads backend, users can sync their wallets from RPC data alone, decrypt locally, and withdraw without a co-signer.
 
 This document specifies how the zone program fits into the TSPP architecture, shared viewing keys between smart account holders and auditors, the program's accounts, its zone proof, its instructions, its zone-specific encrypted UTXO serialization, and transaction sizes.
 
@@ -44,15 +44,18 @@ Types used in this document.
 | --- | --- | --- |
 | `Address` | `[u8; 32]` | Solana account address. |
 | `Signature` | `[u8; 64]` | Ed25519 Solana transaction signature. |
-| `Instruction` | — | Solana SDK instruction: program id + account metas + data. |
+| `Instruction` | — | Solana SDK instruction. |
 | `P256Pubkey` | `[u8; 33]` | SEC1-compressed P-256 public key: 1-byte parity prefix + 32-byte x-coordinate. |
 | `asset_id` | `u64` | Asset identifier in UTXOs and ciphertexts. `1` is SOL; each SPL mint gets a distinct `asset_id ≥ 2`, set in a per-mint PDA at SPL interface creation. |
+| `Spp` | `[u8; 192]` | Solana privacy program. |
 | `ZoneProof` | `[u8; 192]` | Compressed Groth16 zone proof with commitment. |
-| `SppProof` | `[u8; 192]` | Compressed Groth16 SPP proof with commitment; forwarded to SPP. |
+| `SppProof` | `[u8; 192]` | Compressed Groth16 SPP proof with commitment; verified in SPP. |
 | `SharedKeyCiphertext` | `[u8; 81]` | HPKE-wrapped shared viewing private key: 33-byte ephemeral P-256 key + 32-byte AES-GCM ciphertext + 16-byte GCM tag. |
-| `ProposalCiphertext` | `[u8; 89]` | Operation amount and blinding encrypted to the shared viewing key: 33-byte ephemeral P-256 key + 40-byte AES-GCM ciphertext (8-byte amount + 32-byte blinding) + 16-byte GCM tag. |
+| `ProposalCiphertext` | `[u8; 88]` | Operation amount and blinding encrypted to the shared viewing key: 33-byte ephemeral P-256 key + 39-byte AES-GCM ciphertext (8-byte amount + 31-byte blinding) + 16-byte GCM tag. |
 | `SenderCiphertext` | `[u8; 32]` | Sender change ciphertext: 16-byte plaintext (`amount`, `asset_id`) + 16-byte GCM tag. |
 | `RecipientCiphertext` | `[u8; 63]` | Recipient output ciphertext: 47-byte plaintext (`amount`, `asset_id`, 31-byte `blinding`) + 16-byte GCM tag. |
+| `Shielded Keypair` | `` | |
+| `Shielded Address` | `` | |
 
 
 ## Architecture
@@ -61,13 +64,13 @@ Types used in this document.
 
 Source: [`diagrams/squads_policy_program.dot`](diagrams/squads_policy_program.dot). Regenerate with `just render-diagrams`.
 
-The squads program builds on top of the SPP. The backend (indexer, prover, relayer, and auditor) builds balances and proofs; the client signs; the squads program verifies the [zone proof](#zone-proof) and CPIs SPP. Execution is either synchronous ([transact](#transact)) or deferred through a [proposal](#asynchronous-transfers).
+The squads program builds on top of the Solana Privacy Program (SPP). The backend (indexer, prover, relayer, and auditor) builds balances and proofs; the user signs; the squads program verifies the [zone proof](#zone-proof) and CPIs SPP. Execution is either synchronous ([transact](#transact)) or asynchronous with a [proposal](#asynchronous-transfers) user flow.
 
 ## Operations
 
 ### User
 
-Anyone using the zone. Every user has a [viewing key account](#viewing-key-account).
+A user is anyone using the zone. Every user has a [viewing key account](#viewing-key-account).
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
@@ -78,7 +81,7 @@ Anyone using the zone. Every user has a [viewing key account](#viewing-key-accou
 | 5 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
 | 6 | create_viewing_key_account | Create an account that registers a shared viewing key (published encrypted to the auditor) and whitelist the merge service. |
 | 7 | update_viewing_key_account | Update the recovery keys or rotate the shared viewing key; re-encrypts the shared secret with a key rotation proof. |
-| 8 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only clear_text_withdrawal is possible. |
+| 8 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. |
 | 9 | close_viewing_key_account | Close the viewing key account and reclaim rent. |
 | 10 | create_proposal | Create a proposal account to queue a deposit, withdraw or transfer operation for later execution. |
 | 11 | cancel_proposal | Cancel a queued operation for later execution. |
@@ -93,8 +96,8 @@ Roles operated by Squads: the auditor, the merge service, the zone creator, and 
 | 2 | update_zone_config | Rotate the auditor key, co-signer, or authority; burning the authority freezes the config. |
 | 3 | execute_proposal | Relayer/co-signer settles an approved proposal. |
 | 4 | merge_transact | Merge service consolidates a user's fragmented zone UTXOs. |
-| 5 | read (audit) | Auditor decrypts every zone UTXO via each user's shared viewing secret; cannot sign or spend. |
-| 6 | migrate_viewing_key_account | Permissionless re-encryption of a config to a rotated auditor key after `update_zone_config`. |
+| 5 | index (audit) | Auditor decrypts every zone UTXO via each user's shared viewing secret; cannot sign or spend. |
+| 6 | migrate_viewing_key_account | Permissionless re-encryption of a viewing key account to a rotated auditor key after `update_zone_config`. |
 | 7 | execute_key_update | Backend settles an approved key update proposal with the key rotation proof. |
 
 
@@ -102,31 +105,31 @@ Roles operated by Squads: the auditor, the merge service, the zone creator, and 
 
 An auditor and a smart account with multiple keys need a shared viewing key so every key holder can view its UTXOs.
 
-Viewing key accounts create, distribute, and store shared viewing keys with a correctness proof. At creation several viewing keys are declared, one per smart account key holder plus the auditor(s). The account stores the shared key's public key and its private key encrypted separately to each declared viewing key. At account creation and with any key rotations a zero knowledge proof proves that the encrypted private keys are correctly encrypted to all individual encryption keys. Each key holder and the auditor can then recover the shared private key independently.
+Viewing key accounts create, distribute, and store shared viewing keys. At creation several viewing keys are declared, one per smart account key holder plus the auditor(s). The account stores the shared key's public key and its private key encrypted separately to each declared viewing key. At account creation and with any key rotations a zero knowledge proof proves that the encrypted private keys are correctly encrypted to all individual encryption keys. Each key holder and the auditor can then recover the shared private key independently.
 
 UTXOs transferred to and from the account are encrypted to the shared key, so any eligible viewer can decrypt them. Verifiable encryption proves each UTXO is encrypted to the shared key. A viewing key account is required for sender and recipient of any operation in the squads zone.
 
 ## Asynchronous Transfers
 
-A smart account is controlled by several keys behind an approval threshold, so collecting their signatures can span more than one transaction. These use a proposal pattern.
+Smart accounts controlled by several keys with an approval threshold need to collecting signatures over multiple transactions for a proposal. The proposal cannot contain a SPP zk proof because SPP proofs reference a recent Merkle tree root which are only valid for a short time. To address this issue the Squads policy program implements a proposal user flow. 
 
 A key holder creates a proposal that commits to a single operation (deposit, withdrawal, or transfer) and encrypts the amount to the shared viewing key. The remaining signers approve the proposal through the smart account.
 
 Once the threshold is met, a co-signer or relayer holding the shared viewing key decrypts the proposal, builds the proof, and executes the transaction. The proposer can cancel a proposal before it executes, and a proposal expires at a set Unix timestamp.
 
-The zone program does not verify the smart-account threshold itself. Approval is enforced by the Squads multisig that wraps `create_proposal`, so the zone program treats an existing `Proposal` account as an approved operation; `execute_proposal` checks only the co-signer and the proof.
+The zone program does not verify the smart-account threshold itself. Approval is enforced by the smart account program that votes on the `create_proposal` instruction. The zone program treats an existing `Proposal` account as an approved operation; `execute_proposal` checks only the co-signer and the proof.
 
 ## Concurrency
 
-A UTXO is spent once, so transactions that spend different UTXOs are independent.
+A private balance consists out of one or multiple UTXOs. Every UTXO can be spent independently or multiple UTXOs can be spent in the same transaction.
 
-**Incoming.** Each transfer creates a new UTXO for the recipient, so transfers to a user run in parallel without limit, at the cost of fragmentation: the balance spreads across many UTXOs. The backend merges incoming UTXOs on demand so the user can spend their full balance in one transfer.
+**Incoming transactions** are parallel without limit. Each transfer creates a new UTXO for the recipient, so transfers to a user run in parallel without limit. at the cost of fragmentation: the balance spreads across many UTXOs. The backend merges incoming UTXOs on demand so the user can spend their full balance in one transfer.
 
-**Outgoing.** A UTXO can be spent by only one transaction at a time. To send multiple transfers in parallel from one keypair, a user splits their balance into several UTXOs in one transaction, then spends each in a separate transaction.
+**Outgoing transactions** are limited by the number of UTXOs the user balance is composed of. The default is for every account to only hold one UTXO of every asset. To send multiple transfers in parallel from one keypair, a user splits their balance into several UTXOs in one transaction, then spends each in separate parallel transactions.
 
 ## Auditor 
 
-A P256 public key stored in `ZoneConfig`. In production, held by the backend.
+A P256 public key stored in `ZoneConfig`. The auditor key is held by the backend.
 
 1. **Keys held** — P-256 encryption keypair.
 2. **Can do** — Decrypt every zone UTXO via the shared viewing secret in each [viewing key account](#viewing-key-account).
@@ -215,7 +218,7 @@ struct DecryptedProposal {
 
 #### `requestCreateViewingKeyAccount`
 
-Builds the [viewing key encryption proof](#viewing-key-encryption-proof) and the `create_viewing_key_account` instruction. With no `owner_signature`, the account is created auditor-only.
+Builds the [viewing key encryption proof](#viewing-key-encryption-proof) and the `create_viewing_key_account` instruction. Without `owner_signature`, the created account is only encrypted to the auditor key.
 
 ```rust
 struct RequestCreateViewingKeyAccountRequest {
@@ -359,7 +362,7 @@ struct Proposal {
 }
 ```
 
-Size: `226` bytes (`1 + 32 + 32 + 32 + 32 + 89 + 8`, borsh-packed).
+Size: `225` bytes (`1 + 32 + 32 + 32 + 32 + 88 + 8`, borsh-packed).
 
 #### Key Update Proposal
 
@@ -377,7 +380,7 @@ struct KeyUpdateProposal {
     domain: u16,
     /// Viewing key account to update.
     target: Address,
-    /// Requested changes to the recovery keys.
+    /// Requested change to a recovery key.
     operation: KeyOperation,
     /// Unix timestamp after which execution fails.
     expiry: i64,
@@ -393,13 +396,7 @@ struct KeyOperation {
 }
 ```
 
-Size is `45 + 35·N` bytes for `N` operations (header `1 + 32 + 8` plus a 4-byte `Vec` length prefix; each `KeyOperation` is `1 + 1 + 33`):
-
-| Operations (N) | Size (bytes) |
-| --- | --- |
-| 1 | 80 |
-| 2 | 115 |
-| 3 | 150 |
+Size: `78` bytes (`1 + 2 + 32 + 35 + 8`, borsh-packed; the `KeyOperation` is `1 + 1 + 33`).
 
 #### Zone Config
 
@@ -479,8 +476,8 @@ Verified by `execute_key_update` (recovery-key changes, shared-key rotation) and
 | 7 | update_viewing_key_account | 6 | Propose recovery-key changes or a shared-key rotation through the smart account. | — | ViewingKeyAccount | KeyUpdateProposal (create) | Smart account approval |
 | 8 | migrate_viewing_key_account | 7 | Permissionless re-encryption to a rotated auditor key. | — | ZoneConfig | ViewingKeyAccount | Permissionless (proof) |
 | 9 | close_viewing_key_account | 8 | Close the viewing key account and reclaim rent. | — | — | ViewingKeyAccount (close) | Owner signs |
-| 10 | toggle_viewing_key_account | 9 | Block or unblock transfers; while blocked, only clear_text_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
-| 11 | clear_text_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
+| 10 | toggle_viewing_key_account | 9 | Block or unblock transfers; while blocked, only full_withdrawal remains available. | — | — | ViewingKeyAccount (state) | Owner signs |
+| 11 | full_withdrawal | 10 | Escape-hatch exit without the co-signer or backend. | — | ViewingKeyAccount | SPP trees (CPI), SPL vault | Owner signs |
 | 12 | create_proposal | 11 | Queue a deposit, withdrawal, or transfer for async execution. | — | ViewingKeyAccount | Proposal (create) | Proposer signs (smart account) |
 | 13 | cancel_proposal | 12 | Cancel a queued proposal before execution. | — | — | Proposal (close) | Proposer / owner signs |
 | 14 | execute_proposal | 13 | Relayer/co-signer settles an approved proposal with the proof. | ✓ | Proposal, ZoneConfig, sender + recipient ViewingKeyAccount | SPP trees (CPI), Proposal (close) | Co-signer / relayer signs |
