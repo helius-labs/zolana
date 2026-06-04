@@ -17,13 +17,14 @@ digraph G {
     node [shape=box, style="rounded,filled", fillcolor="#EEF2FF", color="#6366F1", fontcolor="#1E1B4B", fontname="Helvetica", fontsize=11, penwidth=1.2];
     edge [color="#475569", fontcolor="#334155", fontname="Helvetica", fontsize=10, penwidth=1.1];
 
-    // Smart-account holders + co-signer. Ports line up with the Pocket RPC rows.
+    // Users and the keypairs they hold. Ports line up with the Pocket RPC rows.
     Client [shape=plaintext, label=<
-        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED">
-            <TR><TD HEIGHT="18" WIDTH="150"><FONT COLOR="#1E1B4B" POINT-SIZE="12"><B>Smart Accounts</B></FONT></TD></TR>
-            <TR><TD HEIGHT="16" WIDTH="150"></TD></TR>
-            <TR><TD PORT="u" HEIGHT="30" WIDTH="150"></TD></TR>
-            <TR><TD PORT="p" HEIGHT="30" WIDTH="150"></TD></TR>
+        <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#FFFFFF" COLOR="#6366F1" STYLE="ROUNDED">
+            <TR><TD HEIGHT="18" WIDTH="170"><FONT COLOR="#1E1B4B" POINT-SIZE="12"><B>Users</B></FONT></TD></TR>
+            <TR><TD HEIGHT="16" WIDTH="170"></TD></TR>
+            <TR><TD PORT="u" HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Smart Accounts</FONT></TD></TR>
+            <TR><TD PORT="p" HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Shielded Keypairs</FONT></TD></TR>
+            <TR><TD HEIGHT="30" WIDTH="170" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Solana Keypairs</FONT></TD></TR>
         </TABLE>
     >];
 
