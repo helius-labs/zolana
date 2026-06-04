@@ -110,7 +110,9 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
     let root = workspace_root()?;
     let program_so = require_path(root.join("target/deploy/shielded_pool_program.so"))?;
     let prover_bin = require_path(root.join("target/prover-server"))?;
-    let keys_file = require_path(root.join("target/spp/spp_1_2.key"))?;
+    let deposit_keys_file = require_path(root.join("target/spp/spp_0_1.key"))?;
+    let transfer_keys_file = require_path(root.join("target/spp/spp_1_2.key"))?;
+    let withdraw_keys_file = require_path(root.join("target/spp/spp_1_0.key"))?;
     let temp = TempWorkspace::new()?;
     let rpc_port = free_port()?;
     let faucet_port = free_port()?;
@@ -192,7 +194,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&deposit_keys_file)?,
         "--amount",
         "100",
         "--asset-pubkey",
@@ -224,7 +226,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&transfer_keys_file)?,
         "--amount",
         "40",
     ])?;
@@ -244,7 +246,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&withdraw_keys_file)?,
         "--amount",
         "40",
         "--asset-pubkey",
@@ -277,7 +279,9 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
     let root = workspace_root()?;
     let program_so = require_path(root.join("target/deploy/shielded_pool_program.so"))?;
     let prover_bin = require_path(root.join("target/prover-server"))?;
-    let keys_file = require_path(root.join("target/spp/spp_1_2.key"))?;
+    let deposit_keys_file = require_path(root.join("target/spp/spp_0_1.key"))?;
+    let transfer_keys_file = require_path(root.join("target/spp/spp_1_2.key"))?;
+    let withdraw_keys_file = require_path(root.join("target/spp/spp_1_0.key"))?;
     let temp = TempWorkspace::new()?;
     let rpc_port = free_port()?;
     let faucet_port = free_port()?;
@@ -368,7 +372,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&deposit_keys_file)?,
         "--amount",
         "1000000000",
     ])?;
@@ -394,7 +398,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&transfer_keys_file)?,
         "--amount",
         "400000000",
         "--asset-id",
@@ -424,7 +428,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&deposit_keys_file)?,
         "--amount",
         "800000000",
     ])?;
@@ -452,7 +456,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&transfer_keys_file)?,
         "--amount",
         "700000000",
         "--asset-id",
@@ -482,7 +486,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&withdraw_keys_file)?,
         "--amount",
         "700000000",
         "--asset-id",
@@ -506,7 +510,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&deposit_keys_file)?,
         "--amount",
         "500000000",
     ])?;
@@ -529,7 +533,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--prover-bin",
         path_str(&prover_bin)?,
         "--keys-file",
-        path_str(&keys_file)?,
+        path_str(&withdraw_keys_file)?,
         "--amount",
         "499990000",
         "--relayer-fee",

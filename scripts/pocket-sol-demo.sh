@@ -16,7 +16,9 @@ VALIDATOR_LOG="${WORKDIR}/validator.log"
 
 POCKET="${ROOT}/target/debug/pocket"
 PROVER="${ROOT}/target/prover-server"
-KEYS_FILE="${ROOT}/target/spp/spp_1_2.key"
+DEPOSIT_KEYS_FILE="${ROOT}/target/spp/spp_0_1.key"
+TRANSFER_KEYS_FILE="${ROOT}/target/spp/spp_1_2.key"
+WITHDRAW_KEYS_FILE="${ROOT}/target/spp/spp_1_0.key"
 PROGRAM_SO="${ROOT}/target/deploy/shielded_pool_program.so"
 
 A_KEY="${WORKDIR}/wallet-a.json"
@@ -209,7 +211,7 @@ SHIELD_A_JSON="$("$POCKET" shield \
     --state "$A_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$DEPOSIT_KEYS_FILE" \
     --amount "$A_SHIELD_LAMPORTS")"
 printf '%s\n' "$SHIELD_A_JSON"
 print_signature "shield A" "$SHIELD_A_JSON"
@@ -224,7 +226,7 @@ TRANSFER_JSON="$("$POCKET" transfer \
     --recipient-state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$TRANSFER_KEYS_FILE" \
     --amount "$TRANSFER_LAMPORTS")"
 printf '%s\n' "$TRANSFER_JSON"
 print_signature "transfer A to B" "$TRANSFER_JSON"
@@ -238,7 +240,7 @@ P256_SHIELD_A_JSON="$("$POCKET" shield \
     --owner-p256-wallet "$A_P256_WALLET" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$DEPOSIT_KEYS_FILE" \
     --amount "$P256_A_SHIELD_LAMPORTS")"
 printf '%s\n' "$P256_SHIELD_A_JSON"
 print_signature "shield A P256" "$P256_SHIELD_A_JSON"
@@ -254,7 +256,7 @@ P256_TRANSFER_JSON="$("$POCKET" transfer \
     --recipient-state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$TRANSFER_KEYS_FILE" \
     --amount "$P256_TRANSFER_LAMPORTS" \
     --asset-id 1)"
 printf '%s\n' "$P256_TRANSFER_JSON"
@@ -269,7 +271,7 @@ P256_UNSHIELD_B_JSON="$("$POCKET" unshield \
     --owner-p256-wallet "$B_P256_WALLET" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$WITHDRAW_KEYS_FILE" \
     --amount "$P256_TRANSFER_LAMPORTS" \
     --asset-id 1)"
 printf '%s\n' "$P256_UNSHIELD_B_JSON"
@@ -283,7 +285,7 @@ SHIELD_B_JSON="$("$POCKET" shield \
     --state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$DEPOSIT_KEYS_FILE" \
     --amount "$B_SHIELD_LAMPORTS")"
 printf '%s\n' "$SHIELD_B_JSON"
 print_signature "shield B" "$SHIELD_B_JSON"
@@ -296,7 +298,7 @@ UNSHIELD_B_JSON="$("$POCKET" unshield \
     --state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$WITHDRAW_KEYS_FILE" \
     --amount "$B_UNSHIELD_LAMPORTS")"
 printf '%s\n' "$UNSHIELD_B_JSON"
 print_signature "unshield B" "$UNSHIELD_B_JSON"

@@ -12,12 +12,35 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 
 	"light/light-prover/prover/common"
+	txcircuit "light/light-prover/prover/spp/circuit/transaction"
+	"light/light-prover/prover/spp/internal/p256key"
+	"light/light-prover/prover/spp/model"
+	"light/light-prover/prover/spp/parse"
+	txprover "light/light-prover/prover/spp/prover/transaction"
 
+	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
+)
+
+type Shape = model.Shape
+type Utxo = model.Utxo
+type ProofSystem = txprover.ProofSystem
+type Circuit = txcircuit.Circuit
+type PublicInputs = model.PublicInputs
+type Input = txcircuit.Input
+type Output = txcircuit.Output
+type UtxoCircuitFields = txcircuit.UtxoCircuitFields
+
+const (
+	StateTreeHeight     = model.StateTreeHeight
+	NullifierTreeHeight = model.NullifierTreeHeight
+	UtxoDomain          = 1
+	fixtureExpiryUnixTs = 1_000_000_000
 )
 
 var (
@@ -33,6 +56,70 @@ const (
 	PublicAmountDeposit
 	PublicAmountWithdraw
 )
+
+func UtxoHash(utxo Utxo) (*big.Int, error) {
+	return model.UtxoHash(utxo)
+}
+
+func NullifierHash(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {
+	return model.NullifierHash(utxoHash, blinding, nullifierSecret)
+}
+
+func SolanaPkHash(pubkey [32]byte) (*big.Int, error) {
+	return model.SolanaPkHash(pubkey)
+}
+
+func P256OwnerKeyHash(compressed []byte) (*big.Int, error) {
+	return model.P256OwnerKeyHash(compressed)
+}
+
+func PrivateTxHash(inputHashes, outputHashes []*big.Int, externalDataHash *big.Int) (*big.Int, error) {
+	return model.PrivateTxHash(inputHashes, outputHashes, externalDataHash, big.NewInt(fixtureExpiryUnixTs))
+}
+
+func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
+	return model.PublicInputHash(inputs)
+}
+
+func SignedToFe(value *big.Int) *big.Int {
+	return model.SignedToFe(value)
+}
+
+func NullifierPk(nullifierSecret *big.Int) (*big.Int, error) {
+	return model.NullifierPk(nullifierSecret)
+}
+
+func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
+	return model.OwnerHash(ownerKeyHash, nullifierPk)
+}
+
+func HashToFieldSize(data ...[]byte) *big.Int {
+	return model.HashToFieldSize(data...)
+}
+
+func SolAsset() *big.Int {
+	return big.NewInt(model.SpecSolAssetID)
+}
+
+func BuildSparseStateTree(entries map[uint64]*big.Int) (*big.Int, map[uint64]model.StateTreeWitness) {
+	root, proofs, err := model.BuildSparseStateTree(entries)
+	if err != nil {
+		panic(err)
+	}
+	return root, proofs
+}
+
+func Prove(ps *ProofSystem, assignment *Circuit) (groth16.Proof, error) {
+	return txprover.Prove(ps, assignment)
+}
+
+func Verify(ps *ProofSystem, assignment *Circuit, proof groth16.Proof) error {
+	return txprover.Verify(ps, assignment, proof)
+}
+
+func ReadProofSystem(path string) (*ProofSystem, error) {
+	return txprover.ReadProofSystem(path)
+}
 
 type E2EFixtureSet struct {
 	Shape                 Shape        `json:"shape"`
@@ -50,6 +137,7 @@ type E2EFixtureOptions struct {
 
 type E2EFixture struct {
 	Name                    string        `json:"name"`
+	Shape                   Shape         `json:"shape"`
 	ExpiryUnixTs            uint64        `json:"expiry_unix_ts"`
 	SenderViewTag           string        `json:"sender_view_tag"`
 	Proof                   *common.Proof `json:"proof"`
@@ -102,8 +190,74 @@ type fixtureInput struct {
 	leafIndex uint64
 }
 
+func (tx fixtureTx) shape() Shape {
+	return Shape{NInputs: len(tx.inputs), NOutputs: len(tx.outputs)}
+}
+
+type proofSystemCache struct {
+	seed    *ProofSystem
+	keyDir  string
+	systems map[Shape]*ProofSystem
+}
+
+func newProofSystemCache(seed *ProofSystem) *proofSystemCache {
+	return newProofSystemCacheWithKeyDir(seed, "")
+}
+
+func newProofSystemCacheWithKeyDir(seed *ProofSystem, keyDir string) *proofSystemCache {
+	return &proofSystemCache{
+		seed:    seed,
+		keyDir:  keyDir,
+		systems: make(map[Shape]*ProofSystem),
+	}
+}
+
+func (c *proofSystemCache) forShape(shape Shape) (*ProofSystem, error) {
+	if err := shape.Validate(); err != nil {
+		return nil, err
+	}
+	if c.seed != nil && c.seed.Shape == shape {
+		return c.seed, nil
+	}
+	if ps, ok := c.systems[shape]; ok {
+		return ps, nil
+	}
+	if c.keyDir != "" {
+		path := filepath.Join(c.keyDir, fmt.Sprintf("spp_%d_%d.key", shape.NInputs, shape.NOutputs))
+		ps, err := ReadProofSystem(path)
+		if err == nil {
+			if ps.Shape != shape {
+				return nil, fmt.Errorf("spp: key %s has shape %s, want %s", path, ps.Shape, shape)
+			}
+			c.systems[shape] = ps
+			return ps, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	ps, err := txprover.Setup(shape)
+	if err != nil {
+		return nil, err
+	}
+	c.systems[shape] = ps
+	return ps, nil
+}
+
 func WriteE2EFixtures(ps *ProofSystem, path string, options E2EFixtureOptions) error {
-	fixtures, err := BuildE2EFixtures(ps, options)
+	return writeE2EFixtures(ps, "", path, options)
+}
+
+func WriteE2EFixturesFromKeysFile(keysFile string, path string, options E2EFixtureOptions) error {
+	ps, err := ReadProofSystem(keysFile)
+	if err != nil {
+		return err
+	}
+	return writeE2EFixtures(ps, filepath.Dir(keysFile), path, options)
+}
+
+func writeE2EFixtures(ps *ProofSystem, keyDir string, path string, options E2EFixtureOptions) error {
+	fixtures, err := buildE2EFixtures(ps, keyDir, options)
 	if err != nil {
 		return err
 	}
@@ -116,7 +270,10 @@ func WriteE2EFixtures(ps *ProofSystem, path string, options E2EFixtureOptions) e
 }
 
 func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSet, error) {
-	shape := ps.Shape
+	return buildE2EFixtures(ps, "", options)
+}
+
+func buildE2EFixtures(ps *ProofSystem, keyDir string, options E2EFixtureOptions) (*E2EFixtureSet, error) {
 	if options.SolanaSignerPubkey == [32]byte{} {
 		return nil, fmt.Errorf("spp: e2e fixtures require a Solana signer pubkey")
 	}
@@ -242,13 +399,14 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 	}
 
 	out := &E2EFixtureSet{
-		Shape:                 shape,
+		Shape:                 ps.Shape,
 		SolanaSignerPubkeyHex: bytesHex(options.SolanaSignerPubkey[:]),
 	}
+	systems := newProofSystemCacheWithKeyDir(ps, keyDir)
 	stateNextIndex := uint64(0)
 	queueNextIndex := uint64(0)
 	for _, tx := range txs {
-		fixture, err := buildE2EFixture(ps, shape, tx, assetID, signerHash, options)
+		fixture, err := buildE2EFixture(systems, tx, assetID, signerHash, options)
 		if err != nil {
 			return nil, err
 		}
@@ -274,7 +432,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		stateEntries:   stateAfterTransfer,
 		utxoRootIndex:  2,
 	}
-	fixture, err := buildE2EFixture(ps, shape, doubleSpend, assetID, signerHash, options)
+	fixture, err := buildE2EFixture(systems, doubleSpend, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +451,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		encryptedUtxos: []byte{6, 0, 60, 61},
 		stateEntries:   map[uint64]*big.Int{},
 	}
-	fixture, err = buildE2EFixture(ps, shape, solShield, assetID, signerHash, options)
+	fixture, err = buildE2EFixture(systems, solShield, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +474,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		stateEntries:   solStateAfterShield,
 		utxoRootIndex:  1,
 	}
-	fixture, err = buildE2EFixture(ps, shape, solUnshield, assetID, signerHash, options)
+	fixture, err = buildE2EFixture(systems, solUnshield, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +497,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		stateEntries:   stateAfterShield,
 		utxoRootIndex:  1,
 	}
-	fixture, err = buildE2EFixture(ps, shape, wrongDiscriminator, assetID, signerHash, options)
+	fixture, err = buildE2EFixture(systems, wrongDiscriminator, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +516,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		encryptedUtxos: []byte{8, 0, 80, 81},
 		stateEntries:   map[uint64]*big.Int{},
 	}
-	fixture, err = buildE2EFixture(ps, shape, p256Shield, assetID, signerHash, options)
+	fixture, err = buildE2EFixture(systems, p256Shield, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +542,7 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 		isP256Owner:     true,
 		p256PrivateKey:  p256Priv,
 	}
-	fixture, err = buildE2EFixture(ps, shape, p256Transfer, assetID, signerHash, options)
+	fixture, err = buildE2EFixture(systems, p256Transfer, assetID, signerHash, options)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +554,12 @@ func BuildE2EFixtures(ps *ProofSystem, options E2EFixtureOptions) (*E2EFixtureSe
 	return out, nil
 }
 
-func buildE2EFixture(ps *ProofSystem, shape Shape, tx fixtureTx, assetID, signerHash *big.Int, options E2EFixtureOptions) (E2EFixture, error) {
+func buildE2EFixture(systems *proofSystemCache, tx fixtureTx, assetID, signerHash *big.Int, options E2EFixtureOptions) (E2EFixture, error) {
+	shape := tx.shape()
+	ps, err := systems.forShape(shape)
+	if err != nil {
+		return E2EFixture{}, err
+	}
 	assignment, publicInputs, debug, err := buildFixtureAssignment(shape, tx, assetID, signerHash, options)
 	if err != nil {
 		return E2EFixture{}, err
@@ -422,14 +585,15 @@ func buildE2EFixture(ps *ProofSystem, shape Shape, tx fixtureTx, assetID, signer
 	for i := range utxoRootIndices {
 		utxoRootIndices[i] = tx.utxoRootIndex
 	}
-	outputHashes := trimTrailingZeroHexes(debug.outputHashes)
+	outputHashes := bigIntHexes(debug.outputHashes)
 	fixture := E2EFixture{
 		Name:                    tx.name,
+		Shape:                   shape,
 		ExpiryUnixTs:            1_000_000_000,
 		SenderViewTag:           fieldHex(tx.senderTag),
 		Proof:                   &common.Proof{Proof: proof},
 		RelayerFee:              0,
-		Nullifiers:              trimTrailingZeroHexes(debug.nullifiers),
+		Nullifiers:              bigIntHexes(debug.nullifiers),
 		OutputUtxoHashes:        outputHashes,
 		UtxoTreeRootIndex:       utxoRootIndices,
 		NullifierTreeRootIndex:  nullifierRootIndices,
@@ -467,9 +631,15 @@ type fixtureDebug struct {
 }
 
 func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.Int, options E2EFixtureOptions) (*Circuit, PublicInputs, fixtureDebug, error) {
+	if len(tx.inputs) != shape.NInputs {
+		return nil, PublicInputs{}, fixtureDebug{}, fmt.Errorf("spp: fixture %s shape %s requires %d inputs, got %d", tx.name, shape, shape.NInputs, len(tx.inputs))
+	}
+	if len(tx.outputs) != shape.NOutputs {
+		return nil, PublicInputs{}, fixtureDebug{}, fmt.Errorf("spp: fixture %s shape %s requires %d outputs, got %d", tx.name, shape, shape.NOutputs, len(tx.outputs))
+	}
+
 	inputUtxos := make([]UtxoCircuitFields, shape.NInputs)
 	solanaPkHashes := make([]frontend.Variable, shape.NInputs)
-	isDummyInput := make([]frontend.Variable, shape.NInputs)
 	statePath := make([][]frontend.Variable, shape.NInputs)
 	stateDirs := make([][]frontend.Variable, shape.NInputs)
 	nfLowValue := make([]frontend.Variable, shape.NInputs)
@@ -482,12 +652,14 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 	nullifierRoots := make([]*big.Int, shape.NInputs)
 
 	stateRoot, stateProofs := BuildSparseStateTree(tx.stateEntries)
-	nullifierTree := NewIndexedTree()
+	nullifierTree, err := model.NewIndexedTree()
+	if err != nil {
+		return nil, PublicInputs{}, fixtureDebug{}, err
+	}
 	nullifierSecret := tx.nullifierSecret
 	if nullifierSecret == nil {
 		nullifierSecret = big.NewInt(99)
 	}
-	var err error
 	ownerKeyHash := tx.ownerKeyHash
 	if ownerKeyHash == nil {
 		if tx.isP256Owner {
@@ -511,19 +683,6 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		stateDirs[i] = zeroVariableSlice(StateTreeHeight)
 		nfLowPath[i] = zeroVariableSlice(NullifierTreeHeight)
 		nfLowDirs[i] = zeroVariableSlice(NullifierTreeHeight)
-		nfLowValue[i] = big.NewInt(0)
-		nfNextValue[i] = big.NewInt(0)
-		utxoRoots[i] = big.NewInt(0)
-		nullifierRoots[i] = big.NewInt(0)
-
-		if i >= len(tx.inputs) {
-			inputUtxos[i] = toFixtureCircuitFields(zeroUtxo())
-			solanaPkHashes[i] = big.NewInt(0)
-			isDummyInput[i] = frontend.Variable(1)
-			nullifiers[i] = big.NewInt(0)
-			inputHashes[i] = big.NewInt(0)
-			continue
-		}
 
 		input := tx.inputs[i]
 		inputUtxos[i] = toFixtureCircuitFields(input.utxo)
@@ -541,10 +700,9 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		} else {
 			solanaPkHashes[i] = ownerKeyHash
 		}
-		isDummyInput[i] = frontend.Variable(0)
 		nullifiers[i] = nullifier
 		utxoRoots[i] = stateRoot
-		nullifierRoots[i] = nullifierTree.Root
+		nullifierRoots[i] = nullifierTree.Root()
 
 		proof, ok := stateProofs[input.leafIndex]
 		if !ok {
@@ -552,30 +710,24 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		}
 		fillFixturePath(statePath[i], stateDirs[i], proof.Siblings, proof.Directions)
 
-		nfWitness := nullifierTree.NonInclusion(nullifier)
+		nfWitness, err := nullifierTree.NonInclusionChecked(nullifier)
+		if err != nil {
+			return nil, PublicInputs{}, fixtureDebug{}, err
+		}
 		nfLowValue[i] = nfWitness.LowValue
 		nfNextValue[i] = nfWitness.NextValue
 		fillFixturePath(nfLowPath[i], nfLowDirs[i], nfWitness.Siblings, nfWitness.Directions)
 	}
 
 	outputUtxos := make([]UtxoCircuitFields, shape.NOutputs)
-	isDummyOutput := make([]frontend.Variable, shape.NOutputs)
 	outputHashes := make([]*big.Int, shape.NOutputs)
 	outputHashVars := make([]frontend.Variable, shape.NOutputs)
 	for i := 0; i < shape.NOutputs; i++ {
-		if i >= len(tx.outputs) {
-			outputUtxos[i] = toFixtureCircuitFields(zeroUtxo())
-			isDummyOutput[i] = frontend.Variable(1)
-			outputHashes[i] = big.NewInt(0)
-			outputHashVars[i] = big.NewInt(0)
-			continue
-		}
 		outputUtxos[i] = toFixtureCircuitFields(tx.outputs[i])
 		outputHash, err := UtxoHash(tx.outputs[i])
 		if err != nil {
 			return nil, PublicInputs{}, fixtureDebug{}, err
 		}
-		isDummyOutput[i] = frontend.Variable(0)
 		outputHashes[i] = outputHash
 		outputHashVars[i] = outputHash
 	}
@@ -596,7 +748,10 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 	if err != nil {
 		return nil, PublicInputs{}, fixtureDebug{}, err
 	}
-	privateTxHashBytes := proofFieldBytes(privateTxHash)
+	privateTxHashBytes, err := parse.FieldBytes(privateTxHash)
+	if err != nil {
+		return nil, PublicInputs{}, fixtureDebug{}, err
+	}
 	p256Pub, p256Sig, err := tx.p256Witness(privateTxHashBytes[:])
 	if err != nil {
 		return nil, PublicInputs{}, fixtureDebug{}, err
@@ -617,9 +772,11 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		PublicSolAmount:      publicSolAmount,
 		PublicSplAmount:      publicSplAmount,
 		PublicSplAssetPubkey: publicSplAsset,
-		ProgramIDHashChain:   big.NewInt(0),
+		ProgramIDHashchain:   big.NewInt(0),
 		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
 		SolanaPkHashes:       toFixtureBigInts(solanaPkHashes),
+		DataHash:             big.NewInt(0),
+		ZoneDataHash:         big.NewInt(0),
 	}
 	publicInputHash, err := PublicInputHash(publicInputs)
 	if err != nil {
@@ -632,23 +789,23 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 	for i := range inputs {
 		inputs[i] = Input{
 			Utxo:          inputUtxos[i],
-			IsDummy:       isDummyInput[i],
+			StatePath:     statePath[i],
+			StatePathDirs: stateDirs[i],
+			NfLowPath:     nfLowPath[i],
+			NfLowPathDirs: nfLowDirs[i],
+			NfLowValue:    nfLowValue[i],
+			NfNextValue:   nfNextValue[i],
 			SolanaPkHash:  solanaPkHashes[i],
 			Nullifier:     nullifiers[i],
 			UtxoTreeRoot:  utxoRootVars[i],
 			NullifierRoot: nullifierRootVars[i],
-			State:         MerkleProof{Siblings: statePath[i], Directions: stateDirs[i]},
-			NfLowValue:    nfLowValue[i],
-			NfNextValue:   nfNextValue[i],
-			NfLow:         MerkleProof{Siblings: nfLowPath[i], Directions: nfLowDirs[i]},
 		}
 	}
 	outputs := make([]Output, shape.NOutputs)
 	for i := range outputs {
 		outputs[i] = Output{
-			Utxo:    outputUtxos[i],
-			IsDummy: isDummyOutput[i],
-			Hash:    outputHashVars[i],
+			Utxo: outputUtxos[i],
+			Hash: outputHashVars[i],
 		}
 	}
 
@@ -657,6 +814,7 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		Inputs:               inputs,
 		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
+		ExpiryUnixTs:         big.NewInt(fixtureExpiryUnixTs),
 		NullifierSecret:      nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
@@ -664,8 +822,10 @@ func buildFixtureAssignment(shape Shape, tx fixtureTx, assetID, signerHash *big.
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashChain:   publicInputs.ProgramIDHashChain,
+		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
 		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
+		DataHash:             publicInputs.DataHash,
+		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
 	}
 	return assignment, publicInputs, fixtureDebug{
@@ -695,7 +855,7 @@ func (tx fixtureTx) solanaOwnerInputIndices() []int {
 
 func (tx fixtureTx) p256Witness(msg []byte) (gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr], gnarkecdsa.Signature[emulated.P256Fr], error) {
 	if !tx.isP256Owner || len(tx.inputs) == 0 {
-		return dummyP256Witness(msg)
+		return inactiveP256Witness(msg)
 	}
 	if tx.p256PrivateKey == nil {
 		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, fmt.Errorf("spp: P256 fixture %s missing private key", tx.name)
@@ -707,6 +867,28 @@ func (tx fixtureTx) p256Witness(msg []byte) (gnarkecdsa.PublicKey[emulated.P256F
 	return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{
 			X: emulated.ValueOf[emulated.P256Fp](tx.p256PrivateKey.PublicKey.X),
 			Y: emulated.ValueOf[emulated.P256Fp](tx.p256PrivateKey.PublicKey.Y),
+		}, gnarkecdsa.Signature[emulated.P256Fr]{
+			R: emulated.ValueOf[emulated.P256Fr](r),
+			S: emulated.ValueOf[emulated.P256Fr](s),
+		}, nil
+}
+
+func fixedP256PrivateKey(scalar *big.Int) (*ecdsa.PrivateKey, error) {
+	return p256key.PrivateKeyFromScalar(scalar)
+}
+
+func inactiveP256Witness(msg []byte) (gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr], gnarkecdsa.Signature[emulated.P256Fr], error) {
+	priv, err := fixedP256PrivateKey(big.NewInt(7))
+	if err != nil {
+		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, err
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, priv, msg)
+	if err != nil {
+		return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{}, gnarkecdsa.Signature[emulated.P256Fr]{}, err
+	}
+	return gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]{
+			X: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.X),
+			Y: emulated.ValueOf[emulated.P256Fp](priv.PublicKey.Y),
 		}, gnarkecdsa.Signature[emulated.P256Fr]{
 			R: emulated.ValueOf[emulated.P256Fr](r),
 			S: emulated.ValueOf[emulated.P256Fr](s),
@@ -778,7 +960,7 @@ func sampleFixtureUtxo(base int64, ownerHash, assetID, amount *big.Int) Utxo {
 	return Utxo{
 		Domain:        big.NewInt(UtxoDomain),
 		Owner:         new(big.Int).Set(ownerHash),
-		Asset:         new(big.Int).Set(assetID),
+		AssetID:       new(big.Int).Set(assetID),
 		AssetAmount:   new(big.Int).Set(amount),
 		Blinding:      big.NewInt(base + 5),
 		DataHash:      big.NewInt(base + 6),
@@ -791,7 +973,7 @@ func zeroUtxo() Utxo {
 	return Utxo{
 		Domain:        big.NewInt(0),
 		Owner:         big.NewInt(0),
-		Asset:         big.NewInt(0),
+		AssetID:       big.NewInt(0),
 		AssetAmount:   big.NewInt(0),
 		Blinding:      big.NewInt(0),
 		DataHash:      big.NewInt(0),
@@ -804,7 +986,7 @@ func toFixtureCircuitFields(utxo Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
 		Domain:        utxo.Domain,
 		Owner:         utxo.Owner,
-		Asset:         utxo.Asset,
+		AssetID:       utxo.AssetID,
 		AssetAmount:   utxo.AssetAmount,
 		Blinding:      utxo.Blinding,
 		DataHash:      utxo.DataHash,

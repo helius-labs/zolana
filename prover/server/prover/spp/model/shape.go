@@ -15,6 +15,10 @@ type Shape struct {
 }
 
 var SupportedShapes = []Shape{
+	{NInputs: 0, NOutputs: 1},
+	{NInputs: 0, NOutputs: 2},
+	{NInputs: 1, NOutputs: 0},
+	{NInputs: 1, NOutputs: 1},
 	{NInputs: 2, NOutputs: 2},
 	{NInputs: 1, NOutputs: 2},
 	{NInputs: 3, NOutputs: 3},
@@ -31,11 +35,11 @@ func NewShape(nInputs, nOutputs int) (Shape, error) {
 }
 
 func (s Shape) Validate() error {
-	if s.NInputs < 1 {
-		return fmt.Errorf("spp: NInputs must be >= 1, got %d", s.NInputs)
+	if s.NInputs < 0 {
+		return fmt.Errorf("spp: NInputs must be >= 0, got %d", s.NInputs)
 	}
-	if s.NOutputs < 1 {
-		return fmt.Errorf("spp: NOutputs must be >= 1, got %d", s.NOutputs)
+	if s.NOutputs < 0 {
+		return fmt.Errorf("spp: NOutputs must be >= 0, got %d", s.NOutputs)
 	}
 	if !s.IsSupported() {
 		return fmt.Errorf("spp: unsupported circuit shape %s", s)

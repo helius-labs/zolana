@@ -212,6 +212,18 @@ build-spp-keys: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p target/spp
+    if [[ ! -f target/spp/spp_0_1.key ]]; then
+        target/prover-server spp setup --inputs 0 --outputs 1 --output target/spp/spp_0_1.key --output-vkey target/spp/spp_0_1.vkey
+    fi
+    if [[ ! -f target/spp/spp_0_2.key ]]; then
+        target/prover-server spp setup --inputs 0 --outputs 2 --output target/spp/spp_0_2.key --output-vkey target/spp/spp_0_2.vkey
+    fi
+    if [[ ! -f target/spp/spp_1_0.key ]]; then
+        target/prover-server spp setup --inputs 1 --outputs 0 --output target/spp/spp_1_0.key --output-vkey target/spp/spp_1_0.vkey
+    fi
+    if [[ ! -f target/spp/spp_1_1.key ]]; then
+        target/prover-server spp setup --inputs 1 --outputs 1 --output target/spp/spp_1_1.key --output-vkey target/spp/spp_1_1.vkey
+    fi
     if [[ ! -f target/spp/spp_1_2.key ]]; then
         target/prover-server spp setup --inputs 1 --outputs 2 --output target/spp/spp_1_2.key --output-vkey target/spp/spp_1_2.vkey
     fi
@@ -220,7 +232,7 @@ build-spp-spec-keys: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p target/spp
-    for shape in 2:2 1:2 3:3 5:3 1:8; do
+    for shape in 0:1 0:2 1:0 1:1 2:2 1:2 3:3 5:3 1:8; do
         inputs="${shape%%:*}"
         outputs="${shape##*:}"
         stem="target/spp/spp_${inputs}_${outputs}"

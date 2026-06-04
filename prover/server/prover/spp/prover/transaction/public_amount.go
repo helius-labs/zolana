@@ -40,7 +40,10 @@ func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 		if err != nil {
 			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
 		}
-		asset = model.HashToFieldSize(mint[:])
+		asset, err = model.SolanaPkHash(mint)
+		if err != nil {
+			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+		}
 	}
 
 	return publicAmounts{

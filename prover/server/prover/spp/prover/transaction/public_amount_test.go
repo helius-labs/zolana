@@ -64,7 +64,11 @@ func TestDerivePublicAmountsSignsAmounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if amounts.asset.Cmp(model.HashToFieldSize(mint[:])) != 0 {
+	expectedAsset, err := model.SolanaPkHash(mint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if amounts.asset.Cmp(expectedAsset) != 0 {
 		t.Fatalf("asset = %s", amounts.asset)
 	}
 }

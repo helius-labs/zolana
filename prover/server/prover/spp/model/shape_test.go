@@ -4,6 +4,10 @@ import "testing"
 
 func TestSupportedShapes(t *testing.T) {
 	tests := []Shape{
+		{NInputs: 0, NOutputs: 1},
+		{NInputs: 0, NOutputs: 2},
+		{NInputs: 1, NOutputs: 0},
+		{NInputs: 1, NOutputs: 1},
 		{NInputs: 2, NOutputs: 2},
 		{NInputs: 1, NOutputs: 2},
 		{NInputs: 3, NOutputs: 3},
@@ -20,9 +24,6 @@ func TestSupportedShapes(t *testing.T) {
 
 func TestUnsupportedShapes(t *testing.T) {
 	tests := []Shape{
-		{NInputs: 0, NOutputs: 1},
-		{NInputs: 1, NOutputs: 0},
-		{NInputs: 1, NOutputs: 1},
 		{NInputs: 3, NOutputs: 2},
 	}
 

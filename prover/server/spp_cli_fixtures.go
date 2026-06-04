@@ -28,10 +28,6 @@ func sppFixtureCommands() []*cli.Command {
 				&cli.StringFlag{Name: "spl-token-interface-hex", Usage: "32-byte SPL vault/interface pubkey created by the test", Required: true},
 			},
 			Action: func(context *cli.Context) error {
-				system, err := spp.ReadProofSystem(context.String("keys-file"))
-				if err != nil {
-					return err
-				}
 				seed, err := hex.DecodeString(context.String("solana-signer-seed-hex"))
 				if err != nil {
 					return fmt.Errorf("decode Solana signer seed: %w", err)
@@ -69,7 +65,7 @@ func sppFixtureCommands() []*cli.Command {
 					UserSplToken:         userSplToken,
 					SplTokenInterface:    splTokenInterface,
 				}
-				if err := spp.WriteE2EFixtures(system, context.String("output"), options); err != nil {
+				if err := spp.WriteE2EFixturesFromKeysFile(context.String("keys-file"), context.String("output"), options); err != nil {
 					return err
 				}
 				fmt.Printf("wrote %s\n", context.String("output"))

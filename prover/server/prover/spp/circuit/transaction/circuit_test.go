@@ -322,14 +322,22 @@ func buildCircuitAssignment(t *testing.T, shape model.Shape) *Circuit {
 	t.Helper()
 
 	inputUtxos, outputUtxos := defaultBalancedUtxos(t, shape)
+	publicSplAmount := big.NewInt(0)
+	publicSplAssetPubkey := fe(0)
+	if shape.NInputs > 0 && shape.NOutputs == 0 {
+		for _, input := range inputUtxos {
+			publicSplAmount.Sub(publicSplAmount, input.AssetAmount)
+		}
+		publicSplAssetPubkey = inputUtxos[0].AssetID
+	}
 	return buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
 		inputUtxos,
 		outputUtxos,
 		big.NewInt(0),
-		big.NewInt(0),
-		fe(0),
+		publicSplAmount,
+		publicSplAssetPubkey,
 	)
 }
 

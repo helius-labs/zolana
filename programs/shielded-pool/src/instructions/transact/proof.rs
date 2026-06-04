@@ -30,6 +30,34 @@ pub fn verify_transact_proof(
     let proof = bsb22_proof(&data.proof)?;
 
     match canonical_shape(data)? {
+        (0, 1) => verify_shape::<0, 1>(
+            pool_tree_bytes,
+            data,
+            settlement,
+            &proof,
+            &verifying_keys::spp_0_1::VERIFYINGKEY,
+        ),
+        (0, 2) => verify_shape::<0, 2>(
+            pool_tree_bytes,
+            data,
+            settlement,
+            &proof,
+            &verifying_keys::spp_0_2::VERIFYINGKEY,
+        ),
+        (1, 0) => verify_shape::<1, 0>(
+            pool_tree_bytes,
+            data,
+            settlement,
+            &proof,
+            &verifying_keys::spp_1_0::VERIFYINGKEY,
+        ),
+        (1, 1) => verify_shape::<1, 1>(
+            pool_tree_bytes,
+            data,
+            settlement,
+            &proof,
+            &verifying_keys::spp_1_1::VERIFYINGKEY,
+        ),
         (1, 2) => verify_shape::<1, 2>(
             pool_tree_bytes,
             data,
@@ -104,15 +132,16 @@ pub fn canonical_shape(data: &TransactData) -> Result<(usize, usize), ProgramErr
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    // The v1 wire format does not carry an explicit shape. Use the smallest
-    // spec circuit that can carry the active vectors so proof verification has
-    // a single canonical verifying key.
     match (inputs, outputs) {
-        (0 | 1, 0..=2) => Ok((1, 2)),
-        (0 | 1, 3..=8) => Ok((1, 8)),
-        (2, 0..=2) => Ok((2, 2)),
-        (2..=3, 0..=3) => Ok((3, 3)),
-        (4..=5, 0..=3) => Ok((5, 3)),
+        (0, 1) => Ok((0, 1)),
+        (0, 2) => Ok((0, 2)),
+        (1, 0) => Ok((1, 0)),
+        (1, 1) => Ok((1, 1)),
+        (1, 2) => Ok((1, 2)),
+        (1, 8) => Ok((1, 8)),
+        (2, 2) => Ok((2, 2)),
+        (3, 3) => Ok((3, 3)),
+        (5, 3) => Ok((5, 3)),
         _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
     }
 }
@@ -354,9 +383,9 @@ fn hash_chain(values: &[[u8; 32]]) -> Result<[u8; 32], ProgramError> {
         return Ok(EMPTY_FIELD);
     }
 
-    let mut hash = values[values.len() - 1];
-    for value in values[..values.len() - 1].iter().rev() {
-        hash = Poseidon::hashv(&[value.as_slice(), hash.as_slice()])
+    let mut hash = values[0];
+    for value in values[1..].iter() {
+        hash = Poseidon::hashv(&[hash.as_slice(), value.as_slice()])
             .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
     }
     Ok(hash)

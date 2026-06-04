@@ -1123,8 +1123,10 @@ struct PocketUtxo {
     asset_amount: String,
     blinding: String,
     data_hash: String,
-    policy_data: String,
-    policy_program_id: String,
+    #[serde(default, alias = "policy_data")]
+    zone_data_hash: String,
+    #[serde(default, alias = "policy_program_id")]
+    zone_program_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1155,7 +1157,7 @@ struct PocketProofRequestTx {
     nullifier_tree_root_index: Vec<u16>,
     program_id_hashchain: String,
     data_hash: String,
-    policy_data: String,
+    zone_data_hash: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     p256_owner_pubkey: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -2313,7 +2315,7 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
         nullifier_tree_root_index: vec![0; input_count],
         program_id_hashchain: zero_field_hex(),
         data_hash: zero_field_hex(),
-        policy_data: zero_field_hex(),
+        zone_data_hash: zero_field_hex(),
         p256_owner_pubkey: String::new(),
         p256_signature_r: String::new(),
         p256_signature_s: String::new(),
@@ -2329,12 +2331,12 @@ fn pocket_new_utxo(owner: &Pubkey, asset_id: &str, asset_amount: u64) -> (Pocket
             owner_solana_pubkey: pubkey_hex(owner),
             owner_p256_pubkey: String::new(),
             owner_nullifier_secret: nullifier_secret.clone(),
-            asset_id: asset_id.to_string(),
+            asset_id: prover_field(asset_id),
             asset_amount: asset_amount.to_string(),
             blinding: random_field_hex(),
             data_hash: zero_field_hex(),
-            policy_data: zero_field_hex(),
-            policy_program_id: zero_field_hex(),
+            zone_data_hash: zero_field_hex(),
+            zone_program_id: zero_field_hex(),
         },
         nullifier_secret,
     )
@@ -2352,12 +2354,12 @@ fn pocket_new_p256_utxo(
             owner_solana_pubkey: String::new(),
             owner_p256_pubkey: wallet.p256_public_key.clone(),
             owner_nullifier_secret: wallet.nullifier_secret.clone(),
-            asset_id: asset_id.to_string(),
+            asset_id: prover_field(asset_id),
             asset_amount: asset_amount.to_string(),
             blinding: random_field_hex(),
             data_hash: zero_field_hex(),
-            policy_data: zero_field_hex(),
-            policy_program_id: zero_field_hex(),
+            zone_data_hash: zero_field_hex(),
+            zone_program_id: zero_field_hex(),
         },
         wallet.nullifier_secret.clone(),
     )
@@ -2443,9 +2445,10 @@ fn p256_signing_key(wallet: &PocketP256Wallet) -> Result<P256SigningKey> {
 }
 
 fn p256_nullifier_secret_hex(signing_key: &P256SigningKey) -> Result<String> {
-    Ok(hex::encode(p256_nullifier_secret_bytes_from_key(
-        signing_key,
-    )?))
+    Ok(format!(
+        "0x{}",
+        hex::encode(p256_nullifier_secret_bytes_from_key(signing_key,)?)
+    ))
 }
 
 fn p256_nullifier_secret_bytes_from_key(signing_key: &P256SigningKey) -> Result<[u8; 31]> {
@@ -2488,8 +2491,8 @@ fn sign_p256_private_tx_hash(
         .map_err(|error| anyhow!("sign P256 private_tx_hash: {error}"))?;
     let signature_bytes = signature.to_bytes();
     Ok((
-        hex::encode(&signature_bytes[..32]),
-        hex::encode(&signature_bytes[32..]),
+        format!("0x{}", hex::encode(&signature_bytes[..32])),
+        format!("0x{}", hex::encode(&signature_bytes[32..])),
     ))
 }
 
@@ -2602,9 +2605,18 @@ fn pocket_state_entries(state: &PocketState) -> Vec<PocketStateEntry> {
         .iter()
         .map(|leaf| PocketStateEntry {
             index: leaf.index,
-            hash: leaf.hash.clone(),
+            hash: prover_field(&leaf.hash),
         })
         .collect()
+}
+
+fn prover_field(value: &str) -> String {
+    let value = value.trim();
+    if value.starts_with("0x") || value.starts_with("0X") {
+        value.to_string()
+    } else {
+        format!("0x{value}")
+    }
 }
 
 fn select_pocket_note(
@@ -2654,11 +2666,12 @@ fn pocket_spl_asset_identity(
         anyhow!("{command} requires --asset-pubkey/--spl-mint for SPL settlement")
     })?;
     let asset_id = pocket_canonical_asset_field(&asset_pubkey)?;
+    let normalized_asset_id = normalize_pocket_field(&asset_id)?;
     if let Some(requested) = opts.asset_id.as_deref() {
         let requested = normalize_pocket_field(requested)?;
-        if requested != asset_id {
+        if requested != normalized_asset_id {
             bail!(
-                "{command} SPL settlement uses canonical mint-derived asset id {asset_id}, got {requested}"
+                "{command} SPL settlement uses canonical mint-derived asset id {normalized_asset_id}, got {requested}"
             );
         }
     }
@@ -2675,7 +2688,7 @@ fn pocket_canonical_asset_field(pubkey: &Pubkey) -> Result<String> {
     let high = pocket_field_from_u128_be(&pubkey[..16]);
     let hash = Poseidon::hashv(&[low.as_slice(), high.as_slice()])
         .map_err(|error| anyhow!("hash canonical SPL asset pubkey: {error:?}"))?;
-    Ok(hex::encode(hash))
+    Ok(format!("0x{}", hex::encode(hash)))
 }
 
 fn pocket_field_from_u128_be(value: &[u8]) -> [u8; 32] {
@@ -2817,7 +2830,7 @@ fn random_field_hex() -> String {
     let keypair = Keypair::new();
     let mut bytes = keypair.to_bytes();
     bytes[0] = 0;
-    hex::encode(&bytes[..32])
+    format!("0x{}", hex::encode(&bytes[..32]))
 }
 
 fn random_hex_bytes(len: usize) -> String {

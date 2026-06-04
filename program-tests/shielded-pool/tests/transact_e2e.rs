@@ -51,9 +51,18 @@ fn tree_account_size() -> u64 {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+struct FixtureShape {
+    #[serde(rename = "NInputs")]
+    n_inputs: usize,
+    #[serde(rename = "NOutputs")]
+    n_outputs: usize,
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 struct FixtureSet {
-    shape: serde_json::Value,
+    shape: FixtureShape,
     solana_signer_pubkey: String,
     fixtures: Vec<Fixture>,
 }
@@ -62,6 +71,7 @@ struct FixtureSet {
 #[derive(Clone, Debug, Deserialize)]
 struct Fixture {
     name: String,
+    shape: FixtureShape,
     expiry_unix_ts: u64,
     sender_view_tag: String,
     proof: serde_json::Value,
@@ -120,6 +130,26 @@ fn proof_bytes(value: &serde_json::Value) -> [u8; 192] {
     let proof: GnarkProofJson =
         serde_json::from_value(value.clone()).expect("valid gnark proof fixture");
     bsb22_proof_bytes_from_json_struct(proof).expect("valid BSB22 proof fixture")
+}
+
+fn fixture_verifying_key(
+    shape: FixtureShape,
+) -> &'static groth16_solana_bsb22::groth16::Groth16Verifyingkey<'static> {
+    match (shape.n_inputs, shape.n_outputs) {
+        (0, 1) => &verifying_keys::spp_0_1::VERIFYINGKEY,
+        (0, 2) => &verifying_keys::spp_0_2::VERIFYINGKEY,
+        (1, 0) => &verifying_keys::spp_1_0::VERIFYINGKEY,
+        (1, 1) => &verifying_keys::spp_1_1::VERIFYINGKEY,
+        (1, 2) => &verifying_keys::spp_1_2::VERIFYINGKEY,
+        (1, 8) => &verifying_keys::spp_1_8::VERIFYINGKEY,
+        (2, 2) => &verifying_keys::spp_2_2::VERIFYINGKEY,
+        (3, 3) => &verifying_keys::spp_3_3::VERIFYINGKEY,
+        (5, 3) => &verifying_keys::spp_5_3::VERIFYINGKEY,
+        _ => panic!(
+            "unsupported fixture shape {}-{}",
+            shape.n_inputs, shape.n_outputs
+        ),
+    }
 }
 
 fn transact_data(fixture: &Fixture) -> TransactData {
@@ -704,7 +734,7 @@ fn fixture_proofs_verify_against_committed_verifying_key() {
             &commitment,
             &commitment_pok,
             &public_inputs,
-            &verifying_keys::spp_1_2::VERIFYINGKEY,
+            fixture_verifying_key(fixture.shape),
         )
         .unwrap_or_else(|err| {
             panic!(
@@ -878,7 +908,7 @@ fn transact_rejects_tampered_proof_without_mutating() {
     let err = rig
         .transact_with_extra_accounts(&tree, data, settlement.metas())
         .expect_err("tampered proof must fail");
-    assert_error_contains(err, "Custom(12)");
+    assert_error_contains(err, "Custom(11)");
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -928,7 +958,7 @@ fn transact_rejects_tampered_bsb22_commitment_without_mutating() {
     let err = rig
         .transact_with_extra_accounts(&tree, data, settlement.metas())
         .expect_err("tampered BSB22 commitment must fail");
-    assert_error_contains(err, "Custom(11)");
+    assert_error_contains(err, "Custom(12)");
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
