@@ -1,7 +1,6 @@
 # Squads Zone Program
 
-The Squads Zone Program configures a zone on The Solana Privacy Protocol (TSPP), which provides private transfers in a single Solana transaction. The zone adds compliance features, a co-signer, and smart-account support.
-TODO: lookup requirements again and tick all boxes in the intro.
+The Squads Zone Program configures a zone on The Solana Privacy Protocol (TSPP), which provides private transfers in a single Solana transaction. The zone adds an auditor key for compliance features, a co-signer, and smart-account support.
 
 For compliance, the zone program configures an auditor encryption key and verifies a zk proof in every transfer instruction. The zone zk proof shows that all balance updates are encrypted to an auditor-readable key, so the auditor can decrypt and index all balances.
 
@@ -18,11 +17,15 @@ This document specifies how the zone program fits into the TSPP architecture, sh
 - [Architecture](#architecture)
 - [Operations](#operations)
   - [User](#user)
+    - [Synchronous transfers](#synchronous-transfers)
+    - [Asynchronous transfers](#asynchronous-transfers)
+    - [Viewing key accounts](#viewing-key-accounts)
+    - [Permissionless exit](#permissionless-exit)
   - [Squads](#squads)
 - [Shared Viewing Keys](#shared-viewing-keys)
-- [Asynchronous Transfers](#asynchronous-transfers)
+- [Asynchronous Transfers](#asynchronous-transfers-1)
 - [Concurrency](#concurrency)
-- [UTXO Balance Consolidation without User Interaction](#utxo-balance-consolidation-without-user-interaction)
+- [UTXO Balance Consolidation](#utxo-balance-consolidation)
 - [Auditor](#auditor)
 - [Squads Backend](#squads-backend)
   - [Backend API](#backend-api)
@@ -30,7 +33,7 @@ This document specifies how the zone program fits into the TSPP architecture, sh
     - [`getProposals`](#getproposals)
     - [`requestCreateViewingKeyAccount`](#requestcreateviewingkeyaccount)
     - [`requestTransact`](#requesttransact)
-- [Squads Zone Program](#squads-zone-program)
+- [Squads Zone Program](#squads-zone-program-1)
   - [Accounts](#accounts)
     - [Viewing Key Account](#viewing-key-account)
     - [Proposal](#proposal)
@@ -102,19 +105,36 @@ The squads policy program has full control over the features exposed from the SP
 
 A user is anyone using the zone. Every user has a [viewing key account](#viewing-key-account).
 
+#### Synchronous transfers
+
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
 | 1 | deposit | Public deposit into a new UTXO; no proof, no co-signer, no backend. | fully public |
 | 2 | withdraw | Exit the zone to a public account. | sender visible, withdrawn asset and amount public, remaining account amount private |
 | 3 | transfer | Transfer between zone balances. | sender + recipient public, asset + amount private |
-| 4 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
-| 5 | create_viewing_key_account | Create an account that registers a shared viewing key, published encrypted to the auditor. | public |
-| 6 | update_viewing_key_account | Propose recovery-key changes or a shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
-| 7 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. | public |
-| 8 | close_viewing_key_account | Close the viewing key account and reclaim rent. | public |
-| 9 | create_proposal | Create a proposal account to queue a withdraw or transfer operation for later execution. | public |
-| 10 | cancel_proposal | Cancel a queued operation for later execution. | public |
-| 11 | cancel_key_update | Cancel a queued key update proposal before execution and reclaim rent. | public |
+
+#### Asynchronous transfers
+
+| # | Name | Description | Privacy |
+| --- | --- | --- | --- |
+| 4 | create_proposal | Create a proposal account to queue a withdraw or transfer operation for later execution. | public |
+| 5 | cancel_proposal | Cancel a queued operation for later execution. | public |
+
+#### Viewing key accounts
+
+| # | Name | Description | Privacy |
+| --- | --- | --- | --- |
+| 6 | create_viewing_key_account | Create an account that registers a shared viewing key, published encrypted to the auditor. | public |
+| 7 | update_viewing_key_account | Propose recovery-key changes or a shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
+| 8 | cancel_key_update | Cancel a queued key update proposal before execution and reclaim rent. | public |
+| 9 | close_viewing_key_account | Close the viewing key account and reclaim rent. | public |
+
+#### Permissionless exit
+
+| # | Name | Description | Privacy |
+| --- | --- | --- | --- |
+| 10 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. | public |
+| 11 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
 
 ### Squads
 
@@ -589,7 +609,7 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 |---|------------|-----|-------------|:---------:|---------------|-------------------|----------------|
 | 1 | [create_zone_config](#create_zone_config) | 3 | Create the zone; set the auditor key and co-signer. | — | — | ZoneConfig (create) | Zone creator signs |
 | 2 | [update_zone_config](#update_zone_config) | 4 | Rotate the auditor key, co-signer, or authority; burning the authority freezes the config. | — | — | ZoneConfig | `authority` signs |
-| 3 | [merge_transact](#merge_transact) | 2 | Merge service consolidates a user's zone UTXOs. | ✓ | ZoneConfig, owner ViewingKeyAccount | SPP trees (CPI) | Whitelisted merge authority (proof); co-signer |
+| 3 | [merge_transact](#merge_transact) | 2 | Merge service consolidates a user's zone UTXOs. | — | ZoneConfig, owner ViewingKeyAccount | SPP trees (CPI) | Whitelisted merge authority (proof) |
 
 #### transact
 
@@ -604,7 +624,7 @@ Verifies the zone proof, then CPIs SPP `zone_transact`, which verifies the SPP p
 5. `recipient_viewing_key_account` — read (transfer only).
 6. `zone_auth` — zone PDA; signs the SPP CPI.
 7. `spp_program` — SPP program (CPI target).
-8. `tree_account` — SPP nullifier + UTXO trees; writable. TODO: allow multiple trees
+8. `tree_accounts` — the SPP Tree accounts this transaction touches, as the remaining accounts; writable. Each input selects its tree by index (see instruction data); all outputs append to `tree_accounts[0]`. SPP validates each.
 
 **Instruction data**
 
@@ -624,16 +644,23 @@ struct TransactIxData {
     expiry: i64,
     /// One hash per output UTXO. Length M.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Per input: root-cache index in its UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input: root-cache index in its nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
+    /// Per input: the tree holding it and the roots to verify it against. Length N.
+    tree_contexts: Vec<TreeContext>,
     /// Output ciphertexts, zone serialization. Checked by the zone proof, not parsed by SPP.
     encrypted_utxos: Vec<u8>,
 }
+
+struct TreeContext {
+    /// `tree_accounts` index of the tree holding the input.
+    tree_index: u8,
+    /// Root-cache index in that tree's UTXO tree.
+    utxo_root_index: u16,
+    /// Root-cache index in that tree's nullifier tree.
+    nullifier_root_index: u16,
+}
 ```
 
-**Encrypted UTXO Serialization**
+##### Encrypted UTXO Serialization
 
 The `sender_viewing_key_account` and `recipient_viewing_key_account` identify the owners and serve as view tags, so the ciphertext contains no pubkeys or tags. A transfer moves one asset with no separate SOL change, so the sender has one change output and each recipient one. The asset stays private; each ciphertext includes its own `asset_id`.
 
@@ -675,25 +702,25 @@ Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
 
 **Transaction Size**
 
-Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Four `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `utxo_tree_root_index` (`2·N`), `nullifier_tree_root_index` (`2·N`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `510 + 32·M + 4·N + 63·R`.
+Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Three `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `tree_contexts` (`5·N`, each `TreeContext` is `1 + 2 + 2`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `506 + 32·M + 5·N + 63·R`.
 
-Each account address costs 32 bytes when written in full, or ~1 byte when referenced through an address-lookup table (ALT). The static accounts (`zone_config`, `zone_auth`, `spp_program`, `tree_account`) are referenced through the ALT; `payer`, `co_signer`, the viewing key accounts, and `zone_program_id` are written in full. The transaction total assumes one signer (65 B), the message header (3 B), a recent blockhash (32 B), and the instruction framing.
+Each account address costs 32 bytes when written in full, or ~1 byte when referenced through an address-lookup table (ALT). The static accounts (`zone_config`, `zone_auth`, `spp_program`) and the `tree_accounts` tail are referenced through the ALT; `payer`, `co_signer`, the viewing key accounts, and `zone_program_id` are written in full. Each distinct tree touched adds one ALT key. The transaction total assumes one signer (65 B), the message header (3 B), a recent blockhash (32 B), and the instruction framing.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| transfer | 1 | 2 | 641 | 5 | 4 | 954 |
+| transfer | 1 | 2 | 638 | 5 | 4 | 951 |
 
 **Withdraw Transaction Size**
 
 A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_amount` `Some`, 9 B). The single output is the sender's change, so it uses only the sender ciphertext (`R = 0`, `encrypted_utxos` `69` B), and there is no `recipient_viewing_key_account`.
 
-Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 2) + (4 + 2) + (4 + 69) = 554` B.
+Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 5) + (4 + 69) = 551` B.
 
 A withdrawal also moves SPL out of the SPL interface account: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| withdraw | 1 | 1 | 554 | 5 | 6 | 871 |
+| withdraw | 1 | 1 | 551 | 5 | 6 | 868 |
 
 #### deposit
 
@@ -776,7 +803,7 @@ Settles an approved [proposal](#proposal). Like [transact](#transact), it verifi
 7. `rent_recipient` — must equal the proposal's `rent_payer`; receives the reclaimed rent; writable.
 8. `zone_auth` — zone PDA; signs the SPP CPI.
 9. `spp_program` — SPP program (CPI target).
-10. `tree_account` — SPP nullifier + UTXO trees; writable.
+10. `tree_accounts` — SPP Tree accounts touched, as in [transact](#transact); writable.
 
 **Instruction data**
 
@@ -940,10 +967,10 @@ Lets the owner withdraw their balance to a public account without the co-signer 
 2. `viewing_key_account` — read; the spent UTXOs' owner.
 3. `zone_auth` — zone PDA; signs the SPP CPI.
 4. `spp_program` — SPP program (CPI target).
-5. `tree_account` — SPP nullifier + UTXO trees; writable.
-6. `spl_interface` — SPL interface account; writable.
-7. `spl_recipient_account` — public withdrawal destination; writable.
-8. `spl_token_program` — token program for the transfer.
+5. `spl_interface` — SPL interface account; writable.
+6. `spl_recipient_account` — public withdrawal destination; writable.
+7. `spl_token_program` — token program for the transfer.
+8. `tree_accounts` — SPP Tree accounts holding the spent inputs, as the remaining accounts; writable. Each input selects its tree by index (see instruction data).
 
 **Instruction data**
 
@@ -953,10 +980,8 @@ struct FullWithdrawalIxData {
     spp_proof: SppProof,
     /// Public withdrawn amount; the full value of the spent inputs.
     public_amount: u64,
-    /// Per input: root-cache index in its UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input: root-cache index in its nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
+    /// Per input: the tree holding it and the roots to verify it against. Length N.
+    tree_contexts: Vec<TreeContext>,
 }
 ```
 
@@ -1019,17 +1044,16 @@ struct UpdateZoneConfigIxData {
 
 #### merge_transact
 
-Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation-without-user-interaction)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`; the co-signer signs.
+Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`.
 
 **Accounts**
 
 1. `merge_authority` — must be in `zone_config.merge_authorities`; signer, writable (fee payer).
-2. `co_signer` — zone co-signer; signer.
-3. `zone_config` — read (merge authorities, co-signer).
-4. `owner_viewing_key_account` — read; the owner whose UTXOs are merged.
-5. `zone_auth` — zone PDA; signs the SPP CPI.
-6. `spp_program` — SPP program (CPI target).
-7. `tree_account` — SPP nullifier + UTXO trees; writable.
+2. `zone_config` — read (merge authorities).
+3. `owner_viewing_key_account` — read; the owner whose UTXOs are merged.
+4. `zone_auth` — zone PDA; signs the SPP CPI.
+5. `spp_program` — SPP program (CPI target).
+6. `tree_accounts` — SPP Tree accounts holding the merged inputs, as the remaining accounts; writable. Each input selects its tree by index; the consolidated output appends to `tree_accounts[0]`.
 
 **Instruction data**
 
@@ -1043,10 +1067,8 @@ struct MergeTransactIxData {
     private_tx_hash: [u8; 32],
     /// Hash of the consolidated output UTXO.
     output_utxo_hash: [u8; 32],
-    /// Per input: root-cache index in its UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input: root-cache index in its nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
+    /// Per input: the tree holding it and the roots to verify it against. Length N.
+    tree_contexts: Vec<TreeContext>,
     /// Consolidated output encrypted to the owner's shared viewing key; checked by the merge proof.
     encrypted_utxo: Vec<u8>,
 }
