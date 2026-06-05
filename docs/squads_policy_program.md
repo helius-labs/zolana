@@ -1112,7 +1112,7 @@ struct MergeTransactIxData {
 ```
 
 
-# TODO:
+# Open Question:
 1. check whether we can use an instruction data eddsa signature with smart accounts then we could eliminate the round trip for the sync smart account user flow
 
 # Notes:
