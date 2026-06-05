@@ -4,3 +4,4 @@
 
 Notes
 1. Shield with proof only makes sense if we want to merge utxos at shield, but we have the merge service. Because of the confidential nature amount, recipient, and asset are always known.
+2. smart account execution adds 54 bytes
