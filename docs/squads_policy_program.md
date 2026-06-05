@@ -611,6 +611,8 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 | 2 | [update_zone_config](#update_zone_config) | 4 | Rotate the auditor key, co-signer, or authority; burning the authority freezes the config. | — | — | ZoneConfig | `authority` signs |
 | 3 | [merge_transact](#merge_transact) | 2 | Merge service consolidates a user's zone UTXOs. | — | ZoneConfig, owner ViewingKeyAccount | SPP trees (CPI) | Whitelisted merge authority (proof) |
 
+---
+
 #### transact
 
 Verifies the zone proof, then CPIs SPP `zone_transact`, which verifies the SPP proof and settles the UTXO state transition. It's a single instruction which handles withdrawal and transfer; `public_amount` implicitly selects the operation per call.
@@ -644,13 +646,15 @@ struct TransactIxData {
     expiry: i64,
     /// One hash per output UTXO. Length M.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Per input: the tree holding it and the roots to verify it against. Length N.
-    tree_contexts: Vec<TreeContext>,
+    /// Per input: its nullifier, the tree holding it, and the roots to verify it against. Length N.
+    input_contexts: Vec<InputContext>,
     /// Output ciphertexts, zone serialization. Checked by the zone proof, not parsed by SPP.
     encrypted_utxos: Vec<u8>,
 }
 
-struct TreeContext {
+struct InputContext {
+    /// Nullifier of the spent input; inserted into its tree's nullifier tree.
+    nullifier: [u8; 32],
     /// `tree_accounts` index of the tree holding the input.
     tree_index: u8,
     /// Root-cache index in that tree's UTXO tree.
@@ -702,25 +706,30 @@ Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
 
 **Transaction Size**
 
-Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Three `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `tree_contexts` (`5·N`, each `TreeContext` is `1 + 2 + 2`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `506 + 32·M + 5·N + 63·R`.
+Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Three `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `input_contexts` (`37·N`, each `InputContext` is `32 + 1 + 2 + 2`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `506 + 32·M + 37·N + 63·R`.
 
 Each account address costs 32 bytes when written in full, or ~1 byte when referenced through an address-lookup table (ALT). The static accounts (`zone_config`, `zone_auth`, `spp_program`) and the `tree_accounts` tail are referenced through the ALT; `payer`, `co_signer`, the viewing key accounts, and `zone_program_id` are written in full. Each distinct tree touched adds one ALT key. The transaction total assumes one signer (65 B), the message header (3 B), a recent blockhash (32 B), and the instruction framing.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| transfer | 1 | 2 | 638 | 5 | 4 | 951 |
+| transfer | 1 | 2 | 670 | 5 | 4 | 983 |
+| transfer | 2 | 2 | 707 | 5 | 4 | 1020 |
+| transfer | 3 | 2 | 744 | 5 | 4 | 1057 |
+| transfer | 4 | 2 | 781 | 5 | 4 | 1094 |
 
 **Withdraw Transaction Size**
 
 A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_amount` `Some`, 9 B). The single output is the sender's change, so it uses only the sender ciphertext (`R = 0`, `encrypted_utxos` `69` B), and there is no `recipient_viewing_key_account`.
 
-Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 5) + (4 + 69) = 551` B.
+Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 37) + (4 + 69) = 583` B.
 
 A withdrawal also moves SPL out of the SPL interface account: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| withdraw | 1 | 1 | 551 | 5 | 6 | 868 |
+| withdraw | 1 | 1 | 583 | 5 | 6 | 900 |
+
+---
 
 #### deposit
 
@@ -745,6 +754,8 @@ struct DepositIxData {
     amount: u64,
 }
 ```
+
+---
 
 #### create_proposal
 
@@ -777,6 +788,8 @@ struct CreateProposalIxData {
 
 The program sets `discriminator`, `owner` (= `viewing_key_account`), and `rent_payer` (= `fee_payer`), then copies the remaining fields into the [proposal](#proposal).
 
+---
+
 #### cancel_proposal
 
 Closes a queued [proposal](#proposal) before execution and reclaims its rent. Takes no instruction data.
@@ -787,6 +800,8 @@ Closes a queued [proposal](#proposal) before execution and reclaims its rent. Ta
 2. `viewing_key_account` — the proposal's `owner`; read.
 3. `proposal` — closed; writable. Its `owner` must equal `viewing_key_account`.
 4. `rent_recipient` — must equal the proposal's `rent_payer`; receives the reclaimed rent; writable.
+
+---
 
 #### execute_proposal
 
@@ -808,6 +823,8 @@ Settles an approved [proposal](#proposal). Like [transact](#transact), it verifi
 **Instruction data**
 
 Matches [transact](#transact)'s `TransactIxData` without `expiry`; the proposal supplies `proposal_hash` (the zone proof public input), `recipient`, and `asset`.
+
+---
 
 #### create_viewing_key_account
 
@@ -842,6 +859,8 @@ struct CreateViewingKeyAccountIxData {
 }
 ```
 
+---
+
 #### update_viewing_key_account
 
 Creates a [key update proposal](#key-update-proposal) for one or more recovery-key changes (with a shared-key rotation) or an auditor update, allocating its buffer for `K = R' + A` ciphertexts from the target's resulting recovery-key count `R'` (after applying `operations`) and auditor count `A`. The proposer names the `executor` that fills and settles it. Recovery-key ops need smart-account approval; an auditor update is signed by the co-signer and allowed only when `zone_config.auditor_keys` differs from the stored auditor keys. Batching adds lets an auditor-only account register all holder keys in one approved transaction, so an account can hold more recovery keys than fit a single `create_viewing_key_account`.
@@ -871,6 +890,8 @@ struct UpdateViewingKeyAccountIxData {
 
 The program sets the proposal's `rent_payer` to `proposer`.
 
+---
+
 #### fill_key_update
 
 The `executor` appends a chunk of new shared-key ciphertexts to the proposal buffer.
@@ -888,6 +909,8 @@ struct FillKeyUpdateIxData {
     ciphertexts: Vec<SharedKeyCiphertext>,
 }
 ```
+
+---
 
 #### execute_key_update
 
@@ -918,6 +941,8 @@ struct ExecuteKeyUpdateIxData {
 }
 ```
 
+---
+
 #### cancel_key_update
 
 Closes a queued [key update proposal](#key-update-proposal) before execution and reclaims its rent. Takes no instruction data.
@@ -929,6 +954,8 @@ Closes a queued [key update proposal](#key-update-proposal) before execution and
 3. `key_update_proposal` — closed; writable. Its `target` must equal `target`.
 4. `rent_recipient` — must equal the proposal's `rent_payer`; receives the reclaimed rent; writable.
 
+---
+
 #### close_viewing_key_account
 
 Closes the [viewing key account](#viewing-key-account) and reclaims its rent; takes no instruction data. Before clearing it, the program records the complete account as a self-CPI event, so the owner's prior balances stay decryptable after the account is gone.
@@ -938,6 +965,8 @@ Closes the [viewing key account](#viewing-key-account) and reclaims its rent; ta
 1. `owner` — must equal `viewing_key_account.owner`; signer.
 2. `viewing_key_account` — closed; writable.
 3. `rent_recipient` — receives the reclaimed rent; writable.
+
+---
 
 #### toggle_viewing_key_account
 
@@ -956,6 +985,8 @@ struct ToggleViewingKeyAccountIxData {
     state: u8,
 }
 ```
+
+---
 
 #### full_withdrawal
 
@@ -980,10 +1011,12 @@ struct FullWithdrawalIxData {
     spp_proof: SppProof,
     /// Public withdrawn amount; the full value of the spent inputs.
     public_amount: u64,
-    /// Per input: the tree holding it and the roots to verify it against. Length N.
-    tree_contexts: Vec<TreeContext>,
+    /// Per input: its nullifier, the tree holding it, and the roots to verify it against. Length N.
+    input_contexts: Vec<InputContext>,
 }
 ```
+
+---
 
 #### create_zone_config
 
@@ -1014,6 +1047,8 @@ struct CreateZoneConfigIxData {
 
 The program sets `discriminator` and copies these into the [zone config](#zone-config). `auditor_keys` must contain exactly one key.
 
+---
+
 #### update_zone_config
 
 Overwrites the [zone config](#zone-config)'s mutable fields with the supplied values. Setting `authority` to the default freezes the config against further updates. The current `authority` signs.
@@ -1042,6 +1077,8 @@ struct UpdateZoneConfigIxData {
 
 `auditor_keys` must contain exactly one key.
 
+---
+
 #### merge_transact
 
 Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`.
@@ -1067,8 +1104,8 @@ struct MergeTransactIxData {
     private_tx_hash: [u8; 32],
     /// Hash of the consolidated output UTXO.
     output_utxo_hash: [u8; 32],
-    /// Per input: the tree holding it and the roots to verify it against. Length N.
-    tree_contexts: Vec<TreeContext>,
+    /// Per input: its nullifier, the tree holding it, and the roots to verify it against. Length N.
+    input_contexts: Vec<InputContext>,
     /// Consolidated output encrypted to the owner's shared viewing key; checked by the merge proof.
     encrypted_utxo: Vec<u8>,
 }
