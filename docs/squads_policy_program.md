@@ -7,7 +7,7 @@ For compliance, the zone program configures an auditor encryption key and verifi
 
 For smart accounts, the program supports asynchronous execution and user accounts with shared encryption keys. Asynchronous execution uses a proposal buffer that a co-signer or relayer executes after approval. User accounts store encryption keys shared between the auditor and one or more smart account holders. The auditor and recovery keys can be rotated by proving the new shared key is encrypted to every key holder.
 
-Balances are stored in unspent transaction outputs (UTXOs). For a seamless account-like experience, the Squads backend consolidates UTXO balances so users can spend their full balance in one transfer. The squads zone depends on its backend and co-signer for liveness. To ensure that users can withdraw funds without the Squads backend, users can sync their wallets from RPC data alone, decrypt locally, and withdraw without a co-signer.
+Balances are stored in unspent transaction outputs (UTXOs). For an account-like experience, the Squads backend consolidates UTXO balances so users can spend their full balance in one transfer. The squads zone depends on its backend and co-signer for liveness. To ensure that users can withdraw funds without the Squads backend, users can sync their wallets from RPC data alone, decrypt locally, and withdraw without a co-signer.
 
 This document specifies how the zone program fits into the TSPP architecture, shared viewing keys between smart account holders and auditors, the program's accounts, its zone proof, its instructions, its zone-specific encrypted UTXO serialization, and transaction sizes.
 
@@ -17,12 +17,19 @@ This document specifies how the zone program fits into the TSPP architecture, sh
 - [Glossary](#glossary)
 - [Architecture](#architecture)
 - [Operations](#operations)
+  - [User](#user)
+  - [Squads](#squads)
 - [Shared Viewing Keys](#shared-viewing-keys)
 - [Asynchronous Transfers](#asynchronous-transfers)
 - [Concurrency](#concurrency)
+- [UTXO Balance Consolidation without User Interaction](#utxo-balance-consolidation-without-user-interaction)
 - [Auditor](#auditor)
 - [Squads Backend](#squads-backend)
   - [Backend API](#backend-api)
+    - [`getBalances`](#getbalances)
+    - [`getProposals`](#getproposals)
+    - [`requestCreateViewingKeyAccount`](#requestcreateviewingkeyaccount)
+    - [`requestTransact`](#requesttransact)
 - [Squads Zone Program](#squads-zone-program)
   - [Accounts](#accounts)
     - [Viewing Key Account](#viewing-key-account)
@@ -33,7 +40,27 @@ This document specifies how the zone program fits into the TSPP architecture, sh
     - [Zone Proof](#zone-proof)
     - [Key Encryption Proof](#key-encryption-proof)
   - [Instructions](#instructions)
-  - [Encrypted UTXO Serialization](#encrypted-utxo-serialization)
+    - Synchronous transfers
+      - [`transact`](#transact)
+      - [`deposit`](#deposit)
+    - Asynchronous transfers
+      - [`create_proposal`](#create_proposal)
+      - [`cancel_proposal`](#cancel_proposal)
+      - [`execute_proposal`](#execute_proposal)
+    - Viewing key accounts
+      - [`create_viewing_key_account`](#create_viewing_key_account)
+      - [`update_viewing_key_account`](#update_viewing_key_account)
+      - [`fill_key_update`](#fill_key_update)
+      - [`execute_key_update`](#execute_key_update)
+      - [`cancel_key_update`](#cancel_key_update)
+      - [`close_viewing_key_account`](#close_viewing_key_account)
+    - Permissionless exit
+      - [`toggle_viewing_key_account`](#toggle_viewing_key_account)
+      - [`full_withdrawal`](#full_withdrawal)
+    - Admin (zone config)
+      - [`create_zone_config`](#create_zone_config)
+      - [`update_zone_config`](#update_zone_config)
+      - [`merge_transact`](#merge_transact)
 
 ## Glossary
 
@@ -66,7 +93,7 @@ Types used in this document.
 
 Source: [`diagrams/squads_policy_program.dot`](diagrams/squads_policy_program.dot). Regenerate with `just render-diagrams`.
 
-The squads program builds on top of the Solana Privacy Program (SPP). The backend (indexer, prover, relayer, and auditor) is operated as a single vertically integrated service by Squads; it builds balances and proofs; the user signs; the squads program verifies the [zone proof](#zone-proof) and CPIs SPP. Execution is either synchronous ([transact](#transact)) or asynchronous with a [proposal](#asynchronous-transfers) user flow.
+The squads program builds on top of the Solana Privacy Program (SPP). The backend (indexer, prover, relayer, and auditor) is operated as a single service by Squads; it builds balances and proofs; the user signs; the squads program verifies the [zone proof](#zone-proof) and CPIs SPP. Execution is either synchronous ([transact](#transact)) or asynchronous with a [proposal](#asynchronous-transfers) user flow.
 The squads policy program has full control over the features exposed from the SPP and balances of zone users. The SPP ensures correct state transitions, that all UTXOs are fully backed by SPL tokens and only the owner of the balance can spend it.
 
 ## Operations
@@ -82,7 +109,7 @@ A user is anyone using the zone. Every user has a [viewing key account](#viewing
 | 3 | transfer | Transfer between zone balances. | sender + recipient public, asset + amount private |
 | 4 | full_withdrawal | Escape-hatch exit without a co-signer or the backend. | amount + sender + recipient public |
 | 5 | create_viewing_key_account | Create an account that registers a shared viewing key, published encrypted to the auditor. | public |
-| 6 | update_viewing_key_account | Propose a recovery-key change or shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
+| 6 | update_viewing_key_account | Propose recovery-key changes or a shared-key rotation; sizes the proposal buffer for the executor to fill. | public |
 | 7 | toggle_viewing_key_account | Block or unblock transfers and key updates. While blocked, only full_withdrawal is possible. | public |
 | 8 | close_viewing_key_account | Close the viewing key account and reclaim rent. | public |
 | 9 | create_proposal | Create a proposal account to queue a withdraw or transfer operation for later execution. | public |
@@ -131,7 +158,7 @@ A private balance consists out of one or multiple UTXOs. Every UTXO can be spent
 
 **Outgoing transactions** are limited by the number of UTXOs the user balance is composed of. The default is for every account to only hold one UTXO of every asset. To send multiple transfers in parallel from one keypair, a user splits their balance into several UTXOs in one transaction, then spends each in separate parallel transactions.
 
-## UTXO Balance Consolidation without User Interaction
+## UTXO Balance Consolidation
 
 Incoming transfers and deposits create new UTXOs. In a standard private transfer we spend two UTXOs.
 To achieve user experience similar to accounts the user balances should be a single or few UTXOs per asset so that the complete balance can be spent in a single Solana transaction.
@@ -389,7 +416,7 @@ Size: `257` bytes (`1 + 32 + 32 + 32 + 32 + 88 + 8 + 32`, borsh-packed).
 
 #### Key Update Proposal
 
-Queues an async update to a viewing key account's recovery keys and buffers the new shared-key ciphertexts. The account is sized at creation for `K = R' + A` ciphertexts, where `R'` is the resulting recovery-key count (from the target [viewing key account](#viewing-key-account) and `operation`) and `A` the auditor count. The `executor` fills the buffer via [fill_key_update](#fill_key_update) (in chunks if it exceeds one transaction); `execute_key_update` copies it into the viewing key account and supplies only the proof.
+Queues an async update to a viewing key account's recovery keys and buffers the new shared-key ciphertexts. The account is sized at creation for `K = R' + A` ciphertexts, where `R'` is the resulting recovery-key count (the target [viewing key account](#viewing-key-account)'s count after applying the proposal's `operations`) and `A` the auditor count. The `executor` fills the buffer via [fill_key_update](#fill_key_update) (in chunks if it exceeds one transaction); `execute_key_update` copies it into the viewing key account and supplies only the proof.
 
 Derivation seed: `[b"key_update_proposal", target, domain]`
 
@@ -403,9 +430,9 @@ struct KeyUpdateProposal {
     domain: u16,
     /// Viewing key account to update.
     target: Address,
-    /// Requested change to a recovery key or the auditor.
-    operation: KeyOperation,
-    /// New shared private key encrypted to each recovery key, then the auditor.
+    /// Recovery-key changes applied in array order, or a single auditor update.
+    operations: Vec<KeyOperation>,
+    /// New shared private key encrypted to each resulting recovery key, then the auditor.
     /// Filled by the executor and copied into the viewing key account at execution.
     new_key_ciphertexts: Vec<SharedKeyCiphertext>,
     /// Unix timestamp after which execution fails.
@@ -419,7 +446,8 @@ struct KeyUpdateProposal {
 struct KeyOperation {
     /// Add, remove, or replace a recovery key, or update the auditor.
     op: u8,
-    /// Recovery- or auditor-key slot the operation applies to.
+    /// Recovery-key slot the op applies to, in the list as it stands at this step
+    /// (remove and replace); ignored for add (appends) and auditor update.
     index: u8,
     /// New recovery key for add and replace; ignored for remove and auditor update
     /// (the auditor is read from `zone_config`).
@@ -427,9 +455,9 @@ struct KeyOperation {
 }
 ```
 
-The auditor-update op is valid only when `zone_config.auditor_keys` differs from the stored auditor keys, is signed by the co-signer, and triggers a full rotation like the other ops.
+`operations` apply in array order to the target's `recovery_keys`; the resulting count is `R'`. A proposal holds either a batch of recovery-key ops (smart-account approval) or a single auditor-update op; the two are not mixed. The auditor-update op is valid only when `zone_config.auditor_keys` differs from the stored auditor keys, is signed by the co-signer, and triggers a full rotation like the recovery-key ops.
 
-Size is `146 + 81·K` bytes for `K = R' + A` buffered ciphertexts (header `1 + 2 + 32 + 32 + 35 + 8 + 32 = 142` plus a 4-byte `Vec` length prefix; each `SharedKeyCiphertext` is 81).
+Size is `115 + 35·O + 81·K` bytes for `O` operations and `K = R' + A` buffered ciphertexts (fixed part `1 + 2 + 32 + 8 + 32 + 32 = 107` plus two 4-byte `Vec` length prefixes; each `KeyOperation` is 35 and each `SharedKeyCiphertext` 81).
 
 #### Zone Config
 
@@ -515,7 +543,7 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 
 1. `old_state_hash` — `0` at creation; the account's current keys-and-ciphertexts hash for an update.
 2. `shared_viewing_key` (`new_shared_viewing_key` for an update) — instruction data.
-3. recovery and auditor keys — recovery from instruction data and auditor from ZoneConfig at creation; KeyUpdateProposal (recovery) and ZoneConfig (auditor) for an update.
+3. recovery and auditor keys — recovery from instruction data and auditor from ZoneConfig at creation; for an update, recovery is the target's `recovery_keys` with the proposal's `operations` applied, and auditor from ZoneConfig.
 4. recovery and auditor ciphertexts — instruction data at creation; KeyUpdateProposal buffer for `execute_key_update`.
 5. `nullifier_pubkey` (`new_nullifier_pubkey` for an update) — instruction data.
 6. `encrypted_nullifier_secret` — instruction data at creation; re-encrypted to the new shared viewing key for an update.
@@ -542,7 +570,7 @@ Verified by `create_viewing_key_account` and `execute_key_update`. Proves the in
 | # | Instruction | Tag | Description | Co-Signer | Accounts Read | Accounts Modified | Access Control |
 |---|------------|-----|-------------|:---------:|---------------|-------------------|----------------|
 | 1 | [create_viewing_key_account](#create_viewing_key_account) | 5 | Register a shared viewing key with recovery and auditor ciphertexts, the initial `nullifier_pubkey`, and the nullifier secret encrypted to the shared viewing key. | — | ZoneConfig | ViewingKeyAccount (create) | Owner signs to register recovery keys; without the owner signature the account is created auditor-only (no recovery keys) |
-| 2 | [update_viewing_key_account](#update_viewing_key_account) | 6 | Propose a recovery-key change, shared-key rotation, or auditor update. | — | ViewingKeyAccount, ZoneConfig | KeyUpdateProposal (create) | Smart account approval (recovery); co-signer (auditor update) |
+| 2 | [update_viewing_key_account](#update_viewing_key_account) | 6 | Propose recovery-key changes, a shared-key rotation, or an auditor update. | — | ViewingKeyAccount, ZoneConfig | KeyUpdateProposal (create) | Smart account approval (recovery); co-signer (auditor update) |
 | 3 | [fill_key_update](#fill_key_update) | 7 | Executor appends new shared-key ciphertexts to a key update proposal buffer. | — | — | KeyUpdateProposal (buffer) | Proposal `executor` signs |
 | 4 | [execute_key_update](#execute_key_update) | 14 | Backend settles an approved key update proposal with the key encryption proof. | ✓ | KeyUpdateProposal, ZoneConfig | ViewingKeyAccount, KeyUpdateProposal (close) | Proposal `executor` signs (proof); co-signer signs |
 | 5 | [cancel_key_update](#cancel_key_update) | 15 | Cancel a queued key update proposal before execution and reclaim rent. | — | — | KeyUpdateProposal (close) | Proposer / owner signs (smart account) |
@@ -691,71 +719,6 @@ struct DepositIxData {
 }
 ```
 
-#### full_withdrawal
-
-Lets the owner withdraw their balance to a public account without the co-signer or backend. The owner spends their UTXOs and moves the full value out as public SPL or SOL. Every output is public, so there is no private change and no [zone proof](#zone-proof); the owner requests the SPP proof from the Helius RPC and signs. Available even when the account is blocked (see [toggle_viewing_key_account](#toggle_viewing_key_account)).
-
-**Accounts**
-
-1. `owner` — must equal `viewing_key_account.owner`; signer, writable (fee payer).
-2. `viewing_key_account` — read; the spent UTXOs' owner.
-3. `zone_auth` — zone PDA; signs the SPP CPI.
-4. `spp_program` — SPP program (CPI target).
-5. `tree_account` — SPP nullifier + UTXO trees; writable.
-6. `spl_interface` — SPL interface account; writable.
-7. `spl_recipient_account` — public withdrawal destination; writable.
-8. `spl_token_program` — token program for the transfer.
-
-**Instruction data**
-
-```rust
-struct FullWithdrawalIxData {
-    /// Compressed Groth16 SPP proof; forwarded to SPP.
-    spp_proof: SppProof,
-    /// Public withdrawn amount; the full value of the spent inputs.
-    public_amount: u64,
-    /// Per input: root-cache index in its UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input: root-cache index in its nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
-}
-```
-
-#### merge_transact
-
-Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation-without-user-interaction)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`; the co-signer signs.
-
-**Accounts**
-
-1. `merge_authority` — must be in `zone_config.merge_authorities`; signer, writable (fee payer).
-2. `co_signer` — zone co-signer; signer.
-3. `zone_config` — read (merge authorities, co-signer).
-4. `owner_viewing_key_account` — read; the owner whose UTXOs are merged.
-5. `zone_auth` — zone PDA; signs the SPP CPI.
-6. `spp_program` — SPP program (CPI target).
-7. `tree_account` — SPP nullifier + UTXO trees; writable.
-
-**Instruction data**
-
-```rust
-struct MergeTransactIxData {
-    /// Verifiable-encryption merge proof.
-    merge_proof: MergeProof,
-    /// Compressed Groth16 SPP merge proof; forwarded to SPP.
-    spp_proof: SppProof,
-    /// Public input shared with the SPP proof.
-    private_tx_hash: [u8; 32],
-    /// Hash of the consolidated output UTXO.
-    output_utxo_hash: [u8; 32],
-    /// Per input: root-cache index in its UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input: root-cache index in its nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
-    /// Consolidated output encrypted to the owner's shared viewing key; checked by the merge proof.
-    encrypted_utxo: Vec<u8>,
-}
-```
-
 #### create_proposal
 
 Queues one withdrawal or transfer for asynchronous execution by creating a [proposal](#proposal) account that commits to the operation via `proposal_hash`. The smart account votes on this instruction; the zone program treats the resulting account as approved (see [Asynchronous Transfers](#asynchronous-transfers)). [execute_proposal](#instructions) later settles it.
@@ -854,7 +817,7 @@ struct CreateViewingKeyAccountIxData {
 
 #### update_viewing_key_account
 
-Creates a [key update proposal](#key-update-proposal) for a recovery-key change, shared-key rotation, or auditor update, allocating its buffer for `K = R' + A` ciphertexts from the target's resulting recovery-key count `R'` (after `operation`) and auditor count `A`. The proposer names the `executor` that fills and settles it. A recovery or shared-key op needs smart-account approval; an auditor update is signed by the co-signer and allowed only when `zone_config.auditor_keys` differs from the stored auditor keys.
+Creates a [key update proposal](#key-update-proposal) for one or more recovery-key changes (with a shared-key rotation) or an auditor update, allocating its buffer for `K = R' + A` ciphertexts from the target's resulting recovery-key count `R'` (after applying `operations`) and auditor count `A`. The proposer names the `executor` that fills and settles it. Recovery-key ops need smart-account approval; an auditor update is signed by the co-signer and allowed only when `zone_config.auditor_keys` differs from the stored auditor keys. Batching adds lets an auditor-only account register all holder keys in one approved transaction, so an account can hold more recovery keys than fit a single `create_viewing_key_account`.
 
 **Accounts**
 
@@ -872,8 +835,8 @@ struct UpdateViewingKeyAccountIxData {
     domain: u16,
     /// Signer allowed to fill the buffer and settle the update.
     executor: Address,
-    /// Requested change to a recovery key or the auditor.
-    operation: KeyOperation,
+    /// Recovery-key changes applied in order, or a single auditor update.
+    operations: Vec<KeyOperation>,
     /// Unix timestamp after which execution fails.
     expiry: i64,
 }
@@ -901,7 +864,7 @@ struct FillKeyUpdateIxData {
 
 #### execute_key_update
 
-Settles an approved [key update proposal](#key-update-proposal): verifies the [key encryption proof](#key-encryption-proof), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key`, `nullifier_pubkey`, and re-encrypted `encrypted_nullifier_secret`, increments `key_nonce`, and closes the proposal. Before overwriting them, it records the complete pre-rotation viewing key account as a self-CPI event (the program invokes itself with the account as instruction data), so indexers retain the old keys for decrypting balances from before the rotation. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`), the signer to equal the proposal's `executor`, and the zone co-signer to sign.
+Settles an approved [key update proposal](#key-update-proposal): verifies the [key encryption proof](#key-encryption-proof), applies the proposal's `operations` to the target's `recovery_keys` (or `auditor_keys` for an auditor update), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key`, `nullifier_pubkey`, and re-encrypted `encrypted_nullifier_secret`, increments `key_nonce`, and closes the proposal. Before overwriting them, it records the complete pre-rotation viewing key account as a self-CPI event (the program invokes itself with the account as instruction data), so indexers retain the old keys for decrypting balances from before the rotation. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`), the signer to equal the proposal's `executor`, and the zone co-signer to sign.
 
 **Accounts**
 
@@ -939,9 +902,19 @@ Closes a queued [key update proposal](#key-update-proposal) before execution and
 3. `key_update_proposal` — closed; writable. Its `target` must equal `target`.
 4. `rent_recipient` — must equal the proposal's `rent_payer`; receives the reclaimed rent; writable.
 
+#### close_viewing_key_account
+
+Closes the [viewing key account](#viewing-key-account) and reclaims its rent; takes no instruction data. Before clearing it, the program records the complete account as a self-CPI event, so the owner's prior balances stay decryptable after the account is gone.
+
+**Accounts**
+
+1. `owner` — must equal `viewing_key_account.owner`; signer.
+2. `viewing_key_account` — closed; writable.
+3. `rent_recipient` — receives the reclaimed rent; writable.
+
 #### toggle_viewing_key_account
 
-Sets the [viewing key account](#viewing-key-account)'s `state` to block or unblock transfers and key updates. While blocked, only [full_withdrawal](#instructions) remains available.
+Sets the [viewing key account](#viewing-key-account)'s `state` to block or unblock transfers and key updates. While blocked, only [full_withdrawal](#full_withdrawal) remains available.
 
 **Accounts**
 
@@ -957,15 +930,35 @@ struct ToggleViewingKeyAccountIxData {
 }
 ```
 
-#### close_viewing_key_account
+#### full_withdrawal
 
-Closes the [viewing key account](#viewing-key-account) and reclaims its rent; takes no instruction data. Before clearing it, the program records the complete account as a self-CPI event, so the owner's prior balances stay decryptable after the account is gone.
+Lets the owner withdraw their balance to a public account without the co-signer or backend. The owner spends their UTXOs and moves the full value out as public SPL or SOL. Every output is public, so there is no private change and no [zone proof](#zone-proof); the owner requests the SPP proof from the Helius RPC and signs. Available even when the account is blocked (see [toggle_viewing_key_account](#toggle_viewing_key_account)).
 
 **Accounts**
 
-1. `owner` — must equal `viewing_key_account.owner`; signer.
-2. `viewing_key_account` — closed; writable.
-3. `rent_recipient` — receives the reclaimed rent; writable.
+1. `owner` — must equal `viewing_key_account.owner`; signer, writable (fee payer).
+2. `viewing_key_account` — read; the spent UTXOs' owner.
+3. `zone_auth` — zone PDA; signs the SPP CPI.
+4. `spp_program` — SPP program (CPI target).
+5. `tree_account` — SPP nullifier + UTXO trees; writable.
+6. `spl_interface` — SPL interface account; writable.
+7. `spl_recipient_account` — public withdrawal destination; writable.
+8. `spl_token_program` — token program for the transfer.
+
+**Instruction data**
+
+```rust
+struct FullWithdrawalIxData {
+    /// Compressed Groth16 SPP proof; forwarded to SPP.
+    spp_proof: SppProof,
+    /// Public withdrawn amount; the full value of the spent inputs.
+    public_amount: u64,
+    /// Per input: root-cache index in its UTXO tree. Length N.
+    utxo_tree_root_index: Vec<u16>,
+    /// Per input: root-cache index in its nullifier tree. Length N.
+    nullifier_tree_root_index: Vec<u16>,
+}
+```
 
 #### create_zone_config
 
@@ -1024,14 +1017,47 @@ struct UpdateZoneConfigIxData {
 
 `auditor_keys` must contain exactly one key.
 
+#### merge_transact
+
+Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation-without-user-interaction)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`; the co-signer signs.
+
+**Accounts**
+
+1. `merge_authority` — must be in `zone_config.merge_authorities`; signer, writable (fee payer).
+2. `co_signer` — zone co-signer; signer.
+3. `zone_config` — read (merge authorities, co-signer).
+4. `owner_viewing_key_account` — read; the owner whose UTXOs are merged.
+5. `zone_auth` — zone PDA; signs the SPP CPI.
+6. `spp_program` — SPP program (CPI target).
+7. `tree_account` — SPP nullifier + UTXO trees; writable.
+
+**Instruction data**
+
+```rust
+struct MergeTransactIxData {
+    /// Verifiable-encryption merge proof.
+    merge_proof: MergeProof,
+    /// Compressed Groth16 SPP merge proof; forwarded to SPP.
+    spp_proof: SppProof,
+    /// Public input shared with the SPP proof.
+    private_tx_hash: [u8; 32],
+    /// Hash of the consolidated output UTXO.
+    output_utxo_hash: [u8; 32],
+    /// Per input: root-cache index in its UTXO tree. Length N.
+    utxo_tree_root_index: Vec<u16>,
+    /// Per input: root-cache index in its nullifier tree. Length N.
+    nullifier_tree_root_index: Vec<u16>,
+    /// Consolidated output encrypted to the owner's shared viewing key; checked by the merge proof.
+    encrypted_utxo: Vec<u8>,
+}
+```
+
 
 # TODO:
 1. check whether we can use an instruction data eddsa signature with smart accounts then we could eliminate the round trip for the sync smart account user flow
-3. Consider to restore multiple update operations in one key update it does add a lot of complexity though. This enables a clean way to create viewing key accounts for more than 6 viewing keys, create viewing key account auditor only, do a key update that adds all holder viewing keys -> only 1 tx must be approved.
 
 # Notes:
 1. Viewing key accounts are compatible with multiple auditors. `ZoneConfig.auditor_keys` is a vec, but create/update enforce length 1 for now. Open: when we allow more than one, should every viewing key account be encrypted to all auditors or only one? (we could let the co-signer enforce this dynamically or assign based on slots.)
 2. Relayer fee is hardcoded to 0 since the squads backend pays the fees.
 3. No limit on the number of smart account holders and recovery keys, we should cap it, where?
 4. For a complete balance history decryption we need the rotated shared viewing keys, blindings, and nullifier secrets. [execute_key_update](#execute_key_update) and [close_viewing_key_account](#close_viewing_key_account) record the complete prior account as a self-CPI event, so indexers can recover them.
-5. Shield with proof only makes sense if we want to merge utxos at shield, but we have the merge service. Because of the confidential nature amount, recipient, and asset are always known.
