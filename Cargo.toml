@@ -37,17 +37,17 @@ light-registry = { path = "programs/registry", version = "2.1.0", features = ["c
 aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.8.0", default-features = false }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0", default-features = false }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.2.0" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "4.0.0" }
 light-poseidon = "0.4.0"
-light-program-profiler = "0.1.1"
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "10.0.0" }
 light-sparse-merkle-tree = "0.3.0"
+groth16-solana = { version = "0.2.0" }
+groth16-solana-bsb22 = { package = "groth16-solana", git = "https://github.com/Lightprotocol/groth16-solana", rev = "b374683cd0139b9e8cd8c148b08cc1e22e8ace02", features = ["bsb22"] }
 
 # Solana and SPL.
 anchor-lang = "1.0.2"
@@ -81,7 +81,8 @@ solana-rent = "4.2"
 solana-rpc-client = "4.0.0-rc.0"
 solana-rpc-client-api = "4.0.0-rc.0"
 solana-security-txt = "1.1.2"
-solana-sdk = "3.0"
+solana-sdk = "4.0.1"
+solana-sha256-hasher = { version = "3.1", features = ["sha2"] }
 solana-signature = "3.4"
 solana-signer = "3.0"
 solana-system-interface = { version = "3.2", features = ["bincode"] }
@@ -152,7 +153,6 @@ light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-prog
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
