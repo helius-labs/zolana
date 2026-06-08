@@ -7,6 +7,7 @@ members = [
     "programs/shielded-pool",
     "prover/client",
     "sdk-libs/cli",
+    "sdk-libs/keypair",
     "sdk-libs/program-test",
     "xtask",
 ]
@@ -29,6 +30,7 @@ time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
+zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 light-prover-client = { path = "prover/client", version = "8.0.0" }
 light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
@@ -36,17 +38,17 @@ light-registry = { path = "programs/registry", version = "2.1.0", features = ["c
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
-light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.8.0", default-features = false }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
-light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.6.0" }
-light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "5.0.0", default-features = false }
-light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.3.0" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "2.2.0" }
-light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "0.11.0" }
-light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "4.0.0" }
+light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.8.0", default-features = false }
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.11.0" }
+light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.6.0" }
+light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "5.0.0", default-features = false }
+light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.3.0" }
+light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "2.2.0" }
+light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.11.0" }
+light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "4.0.0" }
 light-poseidon = "0.4.0"
 light-program-profiler = "0.1.1"
-light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main", version = "10.0.0" }
+light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "10.0.0" }
 light-sparse-merkle-tree = "0.3.0"
 
 # Solana and SPL.
@@ -145,17 +147,24 @@ ark-bn254 = "0.5"
 ark-serialize = "0.5"
 ark-std = "0.5"
 
+# Client keypair crypto.
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+hkdf = "0.12"
+zeroize = "1"
+cucumber = "0.22"
+
 [patch.crates-io]
 groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "4e6cacff2f4ff53744fda0509f5e62545fd99aa6" }
-light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
-light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", branch = "main" }
+light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
+light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
 light-registry = { path = "programs/registry" }
 
 [profile.dev]

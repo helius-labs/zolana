@@ -1,0 +1,25 @@
+[package]
+name = "zolana-keypair"
+version = "0.1.0"
+description = "TSPP client keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
+license = "Apache-2.0"
+edition.workspace = true
+
+[dependencies]
+p256 = { workspace = true }
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+zeroize = { workspace = true }
+sha2 = { workspace = true }
+light-hasher = { workspace = true, features = ["poseidon", "std"] }
+rand = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio = { workspace = true }
+hex = { workspace = true }
+
+[[test]]
+name = "bdd"
+harness = false
