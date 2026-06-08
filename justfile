@@ -187,8 +187,52 @@ build-light-programs: fetch-fixtures
     cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
 build-prover-server:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mkdir -p target
-    cd prover/server && go build -o ../../target/prover-server .
+    go_bin="${GO_BIN:-}"
+    if [[ -z "$go_bin" ]] && command -v go >/dev/null 2>&1; then
+        go_bin=go
+    fi
+    if [[ -z "$go_bin" ]]; then
+        if [[ -x target/prover-server ]]; then
+            echo "go not found; reusing existing target/prover-server"
+            exit 0
+        fi
+        echo "go not found; install Go or set GO_BIN" >&2
+        exit 127
+    fi
+    cd prover/server && "$go_bin" build -o ../../target/prover-server .
+
+build-spp-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    if [[ ! -f target/spp/spp_1_2.key ]]; then
+        target/prover-server spp setup --inputs 1 --outputs 2 --output target/spp/spp_1_2.key --output-vkey target/spp/spp_1_2.vkey
+    fi
+
+build-spp-spec-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    for shape in 2:2 1:2 3:3 5:3 1:8; do
+        inputs="${shape%%:*}"
+        outputs="${shape##*:}"
+        stem="target/spp/spp_${inputs}_${outputs}"
+        if [[ ! -f "${stem}.key" ]]; then
+            target/prover-server spp setup --inputs "$inputs" --outputs "$outputs" --output "${stem}.key" --output-vkey "${stem}.vkey"
+        fi
+    done
+
+build-spp-nullifier-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/spp
+    stem="target/spp/spp-nullifier-update_40_10"
+    if [[ ! -f "${stem}.key" ]]; then
+        target/prover-server spp setup-nullifier-update --tree-height 40 --batch-size 10 --output "${stem}.key" --output-vkey "${stem}.vkey"
+    fi
 
 # === Formatting and linting ===
 

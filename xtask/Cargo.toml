@@ -5,4 +5,6 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+groth16-solana = { workspace = true }
+groth16-solana-bsb22 = { workspace = true }
 sha2 = { workspace = true }
