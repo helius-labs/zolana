@@ -1351,6 +1351,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
+ "pem-rfc7468",
  "zeroize",
 ]
 
@@ -1507,6 +1508,7 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
+ "pem-rfc7468",
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
@@ -2516,7 +2518,7 @@ dependencies = [
 [[package]]
 name = "light-account-checks"
 version = "0.8.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "pinocchio 0.10.2",
  "pinocchio-system 0.5.0",
@@ -2527,14 +2529,16 @@ dependencies = [
 [[package]]
 name = "light-batched-merkle-tree"
 version = "0.11.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "aligned-sized",
  "borsh",
  "bytemuck",
  "light-account-checks",
  "light-bloom-filter",
+ "light-compressed-account",
  "light-hasher",
+ "light-macros",
  "light-merkle-tree-metadata",
  "light-verifier",
  "light-zero-copy-vec",
@@ -2549,7 +2553,7 @@ dependencies = [
 [[package]]
 name = "light-bloom-filter"
 version = "0.6.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "bitvec",
  "num-bigint 0.4.6",
@@ -2559,12 +2563,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-compressed-account"
+version = "0.11.0"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
+dependencies = [
+ "borsh",
+ "light-hasher",
+ "light-macros",
+ "light-program-profiler",
+ "light-zero-copy",
+ "pinocchio 0.10.2",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "zerocopy",
+]
+
+[[package]]
 name = "light-hasher"
 version = "5.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
+ "borsh",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
  "pinocchio 0.10.2",
@@ -2577,7 +2598,7 @@ dependencies = [
 [[package]]
 name = "light-indexed-array"
 version = "0.3.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "light-hasher",
  "num-bigint 0.4.6",
@@ -2586,9 +2607,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-macros"
+version = "2.2.0"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
+dependencies = [
+ "bs58",
+ "proc-macro2",
+ "quote",
+ "solana-pubkey 4.2.0",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "light-merkle-tree-metadata"
 version = "0.11.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -2601,7 +2634,7 @@ dependencies = [
 [[package]]
 name = "light-merkle-tree-reference"
 version = "4.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "light-hasher",
  "light-indexed-array",
@@ -2632,6 +2665,26 @@ dependencies = [
  "ark-ff 0.5.0",
  "num-bigint 0.4.6",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "light-profiler-macro"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a8be18fe4de58a6f754caa74a3fbc6d8a758a26f1f3c24d5b0f5b55df5f5408"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "light-program-profiler"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1d345871581aebd8825868a3f08410290aa1cdddcb189ca7f7e588f61d79fcf"
+dependencies = [
+ "light-profiler-macro",
 ]
 
 [[package]]
@@ -2705,17 +2758,39 @@ dependencies = [
 [[package]]
 name = "light-verifier"
 version = "10.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
- "borsh",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=4e6cacff2f4ff53744fda0509f5e62545fd99aa6)",
+ "light-compressed-account",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "light-zero-copy"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5621fb515e14af46148699c0b65334aabe230a1d2cbd06736ccc7a408c8a4af"
+dependencies = [
+ "light-zero-copy-derive",
+ "zerocopy",
+]
+
+[[package]]
+name = "light-zero-copy-derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41c46425e5c7ab5203ff5c86ae2615b169cca55f9283f5f60f5dd74143be6934"
+dependencies = [
+ "lazy_static",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
 name = "light-zero-copy-vec"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?branch=main#ffc39ed1858341998192a2b3439df28cedc90af5"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "solana-program-error",
  "wincode",
@@ -3090,6 +3165,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primeorder",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3131,6 +3218,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83a0692ec44e4cf1ef28ca317f14f8f07da2d95ec3fa01f86e4467b725e60917"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]
@@ -3260,6 +3356,15 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
 ]
 
 [[package]]
@@ -6267,6 +6372,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "spl-token"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "878b0183d51fcd8a53e1604f4c13321894cf53227e6773c529b0d03d499a8dfd"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "num-derive",
+ "num-traits",
+ "num_enum",
+ "solana-account-info",
+ "solana-cpi",
+ "solana-instruction",
+ "solana-msg",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-program-memory",
+ "solana-program-option",
+ "solana-program-pack",
+ "solana-pubkey 3.0.0",
+ "solana-rent 3.1.0",
+ "solana-sdk-ids",
+ "solana-sysvar 3.1.1",
+ "spl-token-interface",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "spl-token-2022-interface"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7633,7 +7766,32 @@ name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
+ "hmac",
+ "light-hasher",
+ "light-prover-client",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "p256",
+ "rand 0.8.6",
+ "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "shielded-pool-program",
+ "solana-commitment-config",
+ "solana-compute-budget-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-program-pack",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-signature",
+ "solana-signer",
+ "solana-system-interface 3.2.0",
+ "solana-transaction 3.1.0",
+ "spl-token",
+ "zolana-interface",
 ]
 
 [[package]]
