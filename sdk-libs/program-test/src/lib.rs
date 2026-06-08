@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use borsh::BorshSerialize;
 use litesvm::LiteSVM;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -28,8 +29,10 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        InsertAddressesData,
+        CreateProtocolConfigData, InsertAddressesData, PauseTreeData, TransactData,
+        UpdateProtocolConfigData,
     },
+    state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -78,6 +81,15 @@ impl PoolTestRig {
     }
 
     pub fn with_program_path(path: &Path) -> Result<Self, RigError> {
+        Self::with_program_path_and_payer(path, Keypair::new())
+    }
+
+    pub fn new_with_payer(payer: Keypair) -> Result<Self, RigError> {
+        let program_path = default_program_path();
+        Self::with_program_path_and_payer(&program_path, payer)
+    }
+
+    pub fn with_program_path_and_payer(path: &Path, payer: Keypair) -> Result<Self, RigError> {
         if !path.exists() {
             return Err(RigError::MissingProgram(path.to_path_buf()));
         }
@@ -88,7 +100,6 @@ impl PoolTestRig {
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| RigError::Litesvm(format!("add_program: {e:?}")))?;
 
-        let payer = Keypair::new();
         // ~20 SOL — the combined pool-tree account is ~1.16 MB which costs
         // ~8 SOL rent-exempt, so a 1 SOL airdrop is too small.
         svm.airdrop(&payer.pubkey(), 20_000_000_000)
@@ -107,24 +118,17 @@ impl PoolTestRig {
     /// instruction (NOT a CPI from inside shielded-pool) because Solana caps
     /// CPI reallocs at 10 KB and our combined account is ~1.16 MB.
     pub fn create_pool_tree(&mut self, account_size: u64) -> Result<Keypair, RigError> {
-        let tree = Keypair::new();
-        let rent = self
-            .svm
-            .minimum_balance_for_rent_exemption(account_size as usize);
+        self.create_pool_tree_with_size(account_size)
+    }
 
-        // 1. Top-level system_program::CreateAccount (discriminator 0).
-        let mut create_data = vec![0u8; 4 + 8 + 8 + 32];
-        create_data[4..12].copy_from_slice(&rent.to_le_bytes());
-        create_data[12..20].copy_from_slice(&account_size.to_le_bytes());
-        create_data[20..52].copy_from_slice(&self.program_id.to_bytes());
-        let create_ix = Instruction {
-            program_id: solana_pubkey::Pubkey::default(),
-            accounts: vec![
-                AccountMeta::new(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), true),
-            ],
-            data: create_data,
-        };
+    pub fn create_pool_tree_with_size(&mut self, account_size: u64) -> Result<Keypair, RigError> {
+        let tree = Keypair::new();
+        let create_ix = self.create_account_instruction(
+            &self.payer.pubkey(),
+            &tree.pubkey(),
+            account_size,
+            &self.program_id,
+        );
 
         // 2. Call create_pool_tree.
         let mut create_pool_data = vec![tag::CREATE_POOL_TREE];
@@ -140,11 +144,61 @@ impl PoolTestRig {
             data: create_pool_data,
         };
 
-        self.send(
-            &[create_ix, pool_ix],
-            &[&self.payer.insecure_clone(), &tree],
-        )?;
+        let payer = self.payer.insecure_clone();
+        self.send(&[create_ix, pool_ix], &[&payer, &tree])?;
         Ok(tree)
+    }
+
+    pub fn create_program_owned_account(&mut self, account_size: u64) -> Result<Keypair, RigError> {
+        let program_id = self.program_id;
+        self.create_account_with_owner(account_size, program_id)
+    }
+
+    pub fn create_protocol_config_account(&mut self) -> Result<Keypair, RigError> {
+        self.create_program_owned_account(PROTOCOL_CONFIG_ACCOUNT_LEN as u64)
+    }
+
+    pub fn create_account_with_owner(
+        &mut self,
+        account_size: u64,
+        owner: Pubkey,
+    ) -> Result<Keypair, RigError> {
+        let account = Keypair::new();
+        let create_ix = self.create_account_instruction(
+            &self.payer.pubkey(),
+            &account.pubkey(),
+            account_size,
+            &owner,
+        );
+        let payer = self.payer.insecure_clone();
+        self.send(&[create_ix], &[&payer, &account])?;
+        Ok(account)
+    }
+
+    fn create_account_instruction(
+        &self,
+        payer: &Pubkey,
+        new_account: &Pubkey,
+        account_size: u64,
+        owner: &Pubkey,
+    ) -> Instruction {
+        let rent = self
+            .svm
+            .minimum_balance_for_rent_exemption(account_size as usize);
+
+        // Top-level system_program::CreateAccount (discriminator 0).
+        let mut create_data = vec![0u8; 4 + 8 + 8 + 32];
+        create_data[4..12].copy_from_slice(&rent.to_le_bytes());
+        create_data[12..20].copy_from_slice(&account_size.to_le_bytes());
+        create_data[20..52].copy_from_slice(&owner.to_bytes());
+        Instruction {
+            program_id: solana_pubkey::Pubkey::default(),
+            accounts: vec![
+                AccountMeta::new(*payer, true),
+                AccountMeta::new(*new_account, true),
+            ],
+            data: create_data,
+        }
     }
 
     pub fn append_state_leaves(
@@ -236,6 +290,67 @@ impl PoolTestRig {
         self.send(&[ix], &[&self.payer.insecure_clone(), governance_authority])
     }
 
+    pub fn update_protocol_config(
+        &mut self,
+        authority: &Keypair,
+        new_authority: Option<&Keypair>,
+        config: Option<registry_sdk::ProtocolConfig>,
+    ) -> Result<(), RigError> {
+        let new_authority_pubkey = new_authority.map(|keypair| keypair.pubkey());
+        let ix = registry_sdk::build_update_protocol_config_ix(
+            &authority.pubkey(),
+            new_authority_pubkey.as_ref(),
+            config,
+        );
+        let mut signers = vec![authority];
+        if let Some(new_authority) = new_authority {
+            if new_authority.pubkey() != authority.pubkey() {
+                signers.push(new_authority);
+            }
+        }
+        let payer = authority.pubkey();
+        self.send_with_payer(&[ix], &signers, &payer)
+    }
+
+    pub fn update_forester_pda(
+        &mut self,
+        authority: &Keypair,
+        derivation_key: &Pubkey,
+        new_authority: Option<&Keypair>,
+        config: Option<registry_sdk::ForesterConfig>,
+    ) -> Result<(), RigError> {
+        let new_authority_pubkey = new_authority.map(|keypair| keypair.pubkey());
+        let ix = registry_sdk::build_update_forester_pda_ix(
+            &authority.pubkey(),
+            derivation_key,
+            new_authority_pubkey.as_ref(),
+            config,
+        );
+        let mut signers = vec![authority];
+        if let Some(new_authority) = new_authority {
+            if new_authority.pubkey() != authority.pubkey() {
+                signers.push(new_authority);
+            }
+        }
+        let payer = authority.pubkey();
+        self.send_with_payer(&[ix], &signers, &payer)
+    }
+
+    pub fn update_forester_pda_weight(
+        &mut self,
+        protocol_authority: &Keypair,
+        forester_authority: &Pubkey,
+        new_weight: u64,
+    ) -> Result<(), RigError> {
+        let ix = registry_sdk::build_update_forester_pda_weight_ix(
+            &protocol_authority.pubkey(),
+            forester_authority,
+            new_weight,
+        );
+        let payer = protocol_authority.pubkey();
+        self.send_with_payer(&[ix], &[protocol_authority], &payer)
+    }
+
     pub fn register_forester_epoch(
         &mut self,
         forester: &Keypair,
@@ -252,6 +367,12 @@ impl PoolTestRig {
         epoch: u64,
     ) -> Result<(), RigError> {
         let ix = registry_sdk::build_finalize_registration_ix(&forester.pubkey(), epoch);
+        let payer = forester.pubkey();
+        self.send_with_payer(&[ix], &[forester], &payer)
+    }
+
+    pub fn report_work(&mut self, forester: &Keypair, epoch: u64) -> Result<(), RigError> {
+        let ix = registry_sdk::build_report_work_ix(&forester.pubkey(), epoch);
         let payer = forester.pubkey();
         self.send_with_payer(&[ix], &[forester], &payer)
     }
@@ -302,9 +423,111 @@ impl PoolTestRig {
         self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
+    pub fn create_shielded_pool_protocol_config(
+        &mut self,
+        config: &Keypair,
+        authority: &Keypair,
+        data: CreateProtocolConfigData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::CREATE_PROTOCOL_CONFIG];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(config.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn update_shielded_pool_protocol_config(
+        &mut self,
+        config: &Keypair,
+        authority: &Keypair,
+        data: UpdateProtocolConfigData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::UPDATE_PROTOCOL_CONFIG];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(config.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn pause_tree(
+        &mut self,
+        config: &Keypair,
+        tree: &Keypair,
+        authority: &Keypair,
+        data: PauseTreeData,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::PAUSE_TREE];
+        data.serialize(&mut payload).expect("infallible");
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new_readonly(config.pubkey(), false),
+                AccountMeta::new(tree.pubkey(), false),
+            ],
+            data: payload,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn transact(&mut self, tree: &Keypair, data: TransactData) -> Result<(), RigError> {
+        self.transact_with_extra_accounts(tree, data, Vec::new())
+    }
+
+    pub fn transact_with_extra_accounts(
+        &mut self,
+        tree: &Keypair,
+        data: TransactData,
+        extra_accounts: Vec<AccountMeta>,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::TRANSACT];
+        data.serialize(&mut payload).expect("infallible");
+        let mut accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new_readonly(self.payer.pubkey(), true),
+        ];
+        accounts.extend(extra_accounts);
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts,
+            data: payload,
+        };
+        let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        self.send(&[compute_budget_ix, ix], &[&self.payer.insecure_clone()])
+    }
+
     /// Read the raw bytes of any account in the rig.
     pub fn account_data(&self, pubkey: &Pubkey) -> Option<Vec<u8>> {
         self.svm.get_account(pubkey).map(|acc| acc.data)
+    }
+
+    pub fn send_instructions(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+    ) -> Result<(), RigError> {
+        self.send(ixs, signers)
+    }
+
+    pub fn send_instructions_with_payer(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&Keypair],
+        payer: &Pubkey,
+    ) -> Result<(), RigError> {
+        self.send_with_payer(ixs, signers, payer)
     }
 
     fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<(), RigError> {

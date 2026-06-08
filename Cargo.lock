@@ -2692,8 +2692,14 @@ name = "light-program-test"
 version = "0.23.0"
 dependencies = [
  "borsh",
+ "light-batched-merkle-tree",
+ "light-hasher",
+ "light-sparse-merkle-tree",
  "litesvm",
+ "pinocchio 0.11.1",
  "serial_test",
+ "shielded-pool-program",
+ "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
  "solana-message 3.1.0",
@@ -4159,8 +4165,26 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
- "pinocchio 0.10.2",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=b374683cd0139b9e8cd8c148b08cc1e22e8ace02)",
+ "hex",
+ "light-batched-merkle-tree",
+ "light-hasher",
+ "light-program-test",
+ "light-prover-client",
+ "light-sparse-merkle-tree",
+ "light-verifier",
+ "pinocchio 0.11.1",
+ "serde",
+ "serde_json",
  "shielded-pool-program",
+ "solana-account 3.4.0",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-program-pack",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-system-interface 3.2.0",
+ "spl-token",
  "zolana-interface",
 ]
 

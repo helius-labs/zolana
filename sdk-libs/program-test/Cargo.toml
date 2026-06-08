@@ -15,6 +15,7 @@ default = []
 borsh = { workspace = true }
 litesvm = { workspace = true }
 solana-instruction = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
@@ -24,4 +25,9 @@ thiserror = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-sparse-merkle-tree = { workspace = true }
+pinocchio = { workspace = true }
 serial_test = { workspace = true }
+shielded-pool-program = { workspace = true }
