@@ -13,6 +13,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
+	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 )
 
 func FromHex(i *big.Int, s string) error {
@@ -29,9 +30,11 @@ func ToHex(i *big.Int) string {
 }
 
 type ProofJSON struct {
-	Ar  [2]string    `json:"ar"`
-	Bs  [2][2]string `json:"bs"`
-	Krs [2]string    `json:"krs"`
+	Ar                  [2]string    `json:"ar"`
+	Bs                  [2][2]string `json:"bs"`
+	Krs                 [2]string    `json:"krs"`
+	ProofCommitment     []string     `json:"proof_commitment,omitempty"`
+	ProofCommitmentPok  []string     `json:"proof_commitment_pok,omitempty"`
 }
 
 func (p *Proof) MarshalJSON() ([]byte, error) {
@@ -54,6 +57,23 @@ func (p *Proof) MarshalJSON() ([]byte, error) {
 		{proofHexNumbers[4], proofHexNumbers[5]},
 	}
 	proofJson.Krs = [2]string{proofHexNumbers[6], proofHexNumbers[7]}
+	if proofBN, ok := p.Proof.(*groth16bn254.Proof); ok {
+		if len(proofBN.Commitments) > 1 {
+			return nil, fmt.Errorf("expected at most one BSB22 commitment, got %d", len(proofBN.Commitments))
+		}
+		if len(proofBN.Commitments) == 1 {
+			commitment := proofBN.Commitments[0].RawBytes()
+			proofJson.ProofCommitment = []string{
+				ToHex(new(big.Int).SetBytes(commitment[:32])),
+				ToHex(new(big.Int).SetBytes(commitment[32:])),
+			}
+			pok := proofBN.CommitmentPok.RawBytes()
+			proofJson.ProofCommitmentPok = []string{
+				ToHex(new(big.Int).SetBytes(pok[:32])),
+				ToHex(new(big.Int).SetBytes(pok[32:])),
+			}
+		}
+	}
 
 	return json.Marshal(proofJson)
 }
@@ -204,7 +224,22 @@ func (ps *MerkleProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	if strings.Contains(strings.ToLower(path), "address-append") {
+	if strings.Contains(strings.ToLower(path), "spp-nullifier-update") ||
+		strings.Contains(strings.ToLower(path), "nullifier-update") {
+		ps := new(BatchProofSystem)
+		ps.CircuitType = SppNullifierUpdateCircuitType
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		_, err = ps.UnsafeReadFrom(file)
+		if err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
 		file, err := os.Open(path)

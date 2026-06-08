@@ -1,0 +1,38 @@
+{
+  "nullifiers": [
+    "0x01",
+    "0x02",
+    "0x03"
+  ],
+  "output_utxo_hashes": [
+    "0x04",
+    "0x05",
+    "0x06"
+  ],
+  "utxo_tree_roots": [
+    "0x07",
+    "0x08",
+    "0x09"
+  ],
+  "nullifier_roots": [
+    "0x0a",
+    "0x0b",
+    "0x0c"
+  ],
+  "private_tx_hash": "0x0d",
+  "p256_message_hash": "0x0e",
+  "external_data_hash": "0x0f",
+  "public_sol_amount": "0x10",
+  "public_spl_amount": "0x11",
+  "public_spl_asset_pubkey": "0x12",
+  "program_id_hashchain": "0x13",
+  "solana_pubkey_hash": "0x14",
+  "data_hash": "0x15",
+  "zone_data_hash": "0x16",
+  "solana_pk_hashes": [
+    "0x17",
+    "0x18",
+    "0x19"
+  ],
+  "public_input_hash": "0x189ea55c6eafe507d024bed9622a8698a449fb438aeaae4a75ccd8614f06db95"
+}
