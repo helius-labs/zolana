@@ -77,7 +77,19 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 	if err != nil {
 		return externalValues{}, fmt.Errorf("zone_data_hash: %w", err)
 	}
-	// TODO(zones): wire program_id_hashchain/data_hash/zone_data_hash on-chain (proof.rs hardcodes EMPTY_FIELD); until then non-zero values won't verify.
+	// Default transact carries no program/zone authorization: the circuit pins
+	// these to zero and SPP reconstructs them as zero on-chain, so a non-zero
+	// value could never prove or verify. Reject early with a clear error
+	// instead of failing inside the constraint solver.
+	if programIDHashchain.Sign() != 0 {
+		return externalValues{}, fmt.Errorf("program_id_hashchain must be zero: default transact carries no zone authorization")
+	}
+	if dataHash.Sign() != 0 {
+		return externalValues{}, fmt.Errorf("data_hash must be zero: default transact carries no zone authorization")
+	}
+	if zoneDataHash.Sign() != 0 {
+		return externalValues{}, fmt.Errorf("zone_data_hash must be zero: default transact carries no zone authorization")
+	}
 	return externalValues{
 		hash: externalDataFieldHash(externalDataPreimage{
 			InstructionDiscriminator: tx.InstructionDiscriminator,

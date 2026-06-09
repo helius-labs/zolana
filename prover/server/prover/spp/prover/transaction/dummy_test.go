@@ -64,11 +64,14 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 	}
 }
 
-// TestProveTransferWithDummyPadding proves a 1-in/1-out transfer inside a 2-2
-// shape: the extra input and output slots are dummies. This exercises the dummy
-// gating on both sides through real Groth16 proving and verification.
+// TestProveTransferWithDummyPadding proves a 1-in/1-out transfer inside the
+// canonical 1-2 shape: the second output slot is a dummy. This exercises the
+// dummy gating through real Groth16 proving and verification. (Dummy input
+// slots are exercised by TestProveShieldWithAllDummyInputs; a larger-than-
+// canonical shape such as 2-2 for this transfer would be rejected, since SPP
+// derives the vkey from the real counts.)
 func TestProveTransferWithDummyPadding(t *testing.T) {
-	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	signerPubkey, signerHash, owner, nullifierSecret := proveTestOwner(t)
 
 	input := protocol.Utxo{

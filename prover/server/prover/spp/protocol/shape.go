@@ -22,6 +22,32 @@ var SupportedShapes = []Shape{
 	{NInputs: 1, NOutputs: 8},
 }
 
+// canonicalShapeOrder lists SupportedShapes smallest-capacity first, mirroring
+// SHAPES in the on-chain verifier (transact/proof.rs canonical_shape).
+var canonicalShapeOrder = []Shape{
+	{NInputs: 1, NOutputs: 2},
+	{NInputs: 2, NOutputs: 2},
+	{NInputs: 3, NOutputs: 3},
+	{NInputs: 5, NOutputs: 3},
+	{NInputs: 1, NOutputs: 8},
+}
+
+// CanonicalShape returns the smallest supported shape that holds the given
+// real input/output counts. SPP derives the verifying key and public-input
+// padding from the real counts with the same smallest-fit rule, so a proof
+// built with any other shape can never verify on-chain.
+func CanonicalShape(nInputs, nOutputs int) (Shape, error) {
+	if nInputs < 0 || nOutputs < 0 {
+		return Shape{}, fmt.Errorf("spp: negative arity %d inputs / %d outputs", nInputs, nOutputs)
+	}
+	for _, shape := range canonicalShapeOrder {
+		if nInputs <= shape.NInputs && nOutputs <= shape.NOutputs {
+			return shape, nil
+		}
+	}
+	return Shape{}, fmt.Errorf("spp: no supported shape holds %d inputs and %d outputs", nInputs, nOutputs)
+}
+
 func NewShape(nInputs, nOutputs int) (Shape, error) {
 	shape := Shape{NInputs: nInputs, NOutputs: nOutputs}
 	if err := shape.Validate(); err != nil {

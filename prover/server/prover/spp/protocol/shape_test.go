@@ -34,6 +34,64 @@ func TestUnsupportedShapes(t *testing.T) {
 	}
 }
 
+// TestCanonicalShapeMatchesOnChainSelection mirrors canonical_shape_matches_
+// supported_vkeys in transact/proof.rs: both sides must map real input/output
+// counts to the same smallest-fit shape, or locally valid proofs cannot verify.
+func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
+	cases := []struct {
+		nInputs, nOutputs int
+		want              Shape
+	}{
+		// Exact arities map to themselves.
+		{2, 2, Shape{NInputs: 2, NOutputs: 2}},
+		{1, 2, Shape{NInputs: 1, NOutputs: 2}},
+		{3, 3, Shape{NInputs: 3, NOutputs: 3}},
+		{5, 3, Shape{NInputs: 5, NOutputs: 3}},
+		{1, 8, Shape{NInputs: 1, NOutputs: 8}},
+		// Smaller arities map to the smallest shape with capacity; the unused
+		// slots are dummy-padded (shield: 0 inputs, full unshield: 0 outputs).
+		{0, 1, Shape{NInputs: 1, NOutputs: 2}},
+		{0, 2, Shape{NInputs: 1, NOutputs: 2}},
+		{1, 0, Shape{NInputs: 1, NOutputs: 2}},
+		{1, 1, Shape{NInputs: 1, NOutputs: 2}},
+		{2, 1, Shape{NInputs: 2, NOutputs: 2}},
+		{3, 1, Shape{NInputs: 3, NOutputs: 3}},
+		{4, 3, Shape{NInputs: 5, NOutputs: 3}},
+		{0, 8, Shape{NInputs: 1, NOutputs: 8}},
+		{1, 4, Shape{NInputs: 1, NOutputs: 8}},
+	}
+	for _, tc := range cases {
+		got, err := CanonicalShape(tc.nInputs, tc.nOutputs)
+		if err != nil {
+			t.Fatalf("CanonicalShape(%d, %d): %v", tc.nInputs, tc.nOutputs, err)
+		}
+		if got != tc.want {
+			t.Fatalf("CanonicalShape(%d, %d) = %s, want %s", tc.nInputs, tc.nOutputs, got, tc.want)
+		}
+	}
+
+	for _, tc := range []struct{ nInputs, nOutputs int }{
+		{6, 1}, {2, 4}, {1, 9}, {2, 8}, {-1, 1}, {1, -1},
+	} {
+		if _, err := CanonicalShape(tc.nInputs, tc.nOutputs); err == nil {
+			t.Fatalf("CanonicalShape(%d, %d) should be rejected", tc.nInputs, tc.nOutputs)
+		}
+	}
+}
+
+// Every canonical shape must be a supported shape and vice versa, so the
+// smallest-fit list cannot drift from SupportedShapes.
+func TestCanonicalShapeOrderCoversSupportedShapes(t *testing.T) {
+	if len(canonicalShapeOrder) != len(SupportedShapes) {
+		t.Fatalf("canonicalShapeOrder has %d shapes, SupportedShapes has %d", len(canonicalShapeOrder), len(SupportedShapes))
+	}
+	for _, shape := range canonicalShapeOrder {
+		if !shape.IsSupported() {
+			t.Fatalf("canonical shape %s is not in SupportedShapes", shape)
+		}
+	}
+}
+
 func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 	expected := []string{
 		"nullifiers",

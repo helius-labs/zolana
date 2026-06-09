@@ -93,6 +93,18 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	if err != nil {
 		return parsedUtxo{}, fmt.Errorf("zone_program_id: %w", err)
 	}
+	// Default transact handles only bare UTXOs: the circuit pins these fields to
+	// zero on every real input and output, so a non-zero value could never
+	// prove. Reject early instead of failing inside the constraint solver.
+	if dataHash.Sign() != 0 {
+		return parsedUtxo{}, fmt.Errorf("data_hash must be zero: default transact handles only bare UTXOs")
+	}
+	if zoneDataHash.Sign() != 0 {
+		return parsedUtxo{}, fmt.Errorf("zone_data_hash must be zero: default transact handles only bare UTXOs")
+	}
+	if zoneProgramID.Sign() != 0 {
+		return parsedUtxo{}, fmt.Errorf("zone_program_id must be zero: default transact handles only bare UTXOs")
+	}
 	utxo := protocol.Utxo{
 		Domain:        domain,
 		Owner:         own.owner,

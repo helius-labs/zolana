@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -30,6 +31,48 @@ func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	}, signerHash, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "allows at most 2 outputs, got 3") {
 		t.Fatalf("output arity error = %v", err)
+	}
+}
+
+func TestBuildProofAssignmentRejectsNonCanonicalShape(t *testing.T) {
+	// 1 input / 2 outputs fits a 2-2 shape, but SPP derives the vkey from the
+	// real counts and would verify with 1-2 — the proof could never pass
+	// on-chain, so the build must fail.
+	_, _, _, _, _, err := buildProofAssignment(protocol.Shape{NInputs: 2, NOutputs: 2}, ProofTransactionRequest{
+		Inputs:  make([]ProofInputRequest, 1),
+		Outputs: make([]ProofUtxoRequest, 2),
+	}, big.NewInt(0), proofBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("non-canonical shape error = %v", err)
+	}
+}
+
+func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(tx *ProofTransactionRequest)
+	}{
+		{"tx program_id_hashchain", func(tx *ProofTransactionRequest) { tx.ProgramIDHashchain = proofFieldInput(big.NewInt(1)) }},
+		{"tx data_hash", func(tx *ProofTransactionRequest) { tx.DataHash = proofFieldInput(big.NewInt(1)) }},
+		{"tx zone_data_hash", func(tx *ProofTransactionRequest) { tx.ZoneDataHash = proofFieldInput(big.NewInt(1)) }},
+		{"output data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].DataHash = proofFieldInput(big.NewInt(1)) }},
+		{"output zone_data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].ZoneDataHash = proofFieldInput(big.NewInt(1)) }},
+		{"output zone_program_id", func(tx *ProofTransactionRequest) { tx.Outputs[0].ZoneProgramID = proofFieldInput(big.NewInt(1)) }},
+		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, signerHash, err := benchmarkTransaction(shape)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.mutate(&tx)
+			_, _, _, _, _, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+			if err == nil || !strings.Contains(err.Error(), "must be zero") {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
@@ -155,36 +198,47 @@ func TestParseProofUtxoNormalizesRequestFieldsAsPrefixedHex(t *testing.T) {
 	}
 }
 
+// TestProofUtxoJSONUsesZoneFields pins the JSON tags of the zone fields: each
+// key must land in its own struct field (a swapped tag would surface as the
+// wrong field name in the rejection error), and zero values must parse. The
+// default transact pipeline rejects non-zero zone fields outright.
 func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
-	var request ProofUtxoRequest
-	if err := json.Unmarshal([]byte(`{
+	const baseJSON = `{
 		"domain":"0x01",
 		"owner":"0x02",
 		"asset_id":"0x03",
 		"asset_amount":"0x04",
 		"blinding":"0x05",
-		"data_hash":"0x06",
-		"zone_data_hash":"0x07",
-		"zone_program_id":"0x08"
-	}`), &request); err != nil {
+		"data_hash":"%s",
+		"zone_data_hash":"%s",
+		"zone_program_id":"%s"
+	}`
+
+	var request ProofUtxoRequest
+	if err := json.Unmarshal([]byte(fmt.Sprintf(baseJSON, "0x00", "0x00", "0x00")), &request); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := parseProofUtxo(request, nil); err != nil {
+		t.Fatalf("zero zone fields should parse: %v", err)
 	}
 
-	parsed, err := parseProofUtxo(request, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parsed.utxo.ZoneDataHash.Cmp(big.NewInt(7)) != 0 {
-		t.Fatalf("zone data hash = %s", parsed.utxo.ZoneDataHash)
-	}
-	if parsed.utxo.ZoneProgramID.Cmp(big.NewInt(8)) != 0 {
-		t.Fatalf("zone program id = %s", parsed.utxo.ZoneProgramID)
-	}
-	if parsed.normalized.ZoneDataHash != proofFieldInput(big.NewInt(7)) {
-		t.Fatalf("normalized zone data hash = %q", parsed.normalized.ZoneDataHash)
-	}
-	if parsed.normalized.ZoneProgramID != proofFieldInput(big.NewInt(8)) {
-		t.Fatalf("normalized zone program id = %q", parsed.normalized.ZoneProgramID)
+	for _, tc := range []struct {
+		field  string
+		values [3]string
+	}{
+		{"data_hash", [3]string{"0x06", "0x00", "0x00"}},
+		{"zone_data_hash", [3]string{"0x00", "0x07", "0x00"}},
+		{"zone_program_id", [3]string{"0x00", "0x00", "0x08"}},
+	} {
+		var request ProofUtxoRequest
+		blob := fmt.Sprintf(baseJSON, tc.values[0], tc.values[1], tc.values[2])
+		if err := json.Unmarshal([]byte(blob), &request); err != nil {
+			t.Fatal(err)
+		}
+		_, err := parseProofUtxo(request, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.field+" must be zero") {
+			t.Fatalf("%s: error = %v", tc.field, err)
+		}
 	}
 }
 

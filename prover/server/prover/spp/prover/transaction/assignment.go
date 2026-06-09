@@ -114,14 +114,26 @@ func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error 
 		return err
 	}
 	// Fewer real inputs/outputs than the shape are padded with dummy slots, so a
-	// single shape serves any transaction up to its capacity (and a shield with 0
-	// inputs or an unshield with 0 outputs becomes provable). More than the shape
-	// can hold is the only error.
+	// shape serves any transaction up to its capacity (and a shield with 0
+	// inputs or an unshield with 0 outputs becomes provable).
 	if len(tx.Inputs) > shape.NInputs {
 		return fmt.Errorf("shape %s allows at most %d inputs, got %d", shape, shape.NInputs, len(tx.Inputs))
 	}
 	if len(tx.Outputs) > shape.NOutputs {
 		return fmt.Errorf("shape %s allows at most %d outputs, got %d", shape, shape.NOutputs, len(tx.Outputs))
+	}
+	// SPP derives the verifying key and public-input padding from the real
+	// counts with the smallest-fit rule, so a locally valid proof built with any
+	// other (merely large-enough) shape would be rejected on-chain.
+	canonical, err := protocol.CanonicalShape(len(tx.Inputs), len(tx.Outputs))
+	if err != nil {
+		return err
+	}
+	if shape != canonical {
+		return fmt.Errorf(
+			"shape %s is not canonical for %d inputs / %d outputs: SPP verifies with shape %s",
+			shape, len(tx.Inputs), len(tx.Outputs), canonical,
+		)
 	}
 	return nil
 }
