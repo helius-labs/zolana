@@ -6,8 +6,8 @@
   "solana_signer_pubkey": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
   "proofless_shield": {
     "owner_utxo_hash": "14c2102b77646240f8cfd480f636451b9206d3be82c36e962242f9b45eafa682",
-    "data_hash": "0000000000000000000000000000000000000000000000000000000000000010",
-    "zone_data_hash": "0000000000000000000000000000000000000000000000000000000000000011",
+    "data_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "zone_data_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "zone_program_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "amount": 100
   },
@@ -22,40 +22,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000003e9",
       "proof": {
         "ar": [
-          "0x2d3049d09d92cd07ffb74abcfce96fc1f08e946e9204a22dac5d739c9e64755e",
-          "0x05bfbc0c1f4b32787ae43490fe05074dac3a1040fb3afa480851c617baa480d7"
+          "0x00630893f84a9af03b8bcc65f3b9766a6969f31f4dc14b7ced1b5ba79a18f8f8",
+          "0x05cbd78bfd124bb118ee2ba92955eb86fb8329fa4dd6bfcef474f7edc946194d"
         ],
         "bs": [
           [
-            "0x158f6b7295b09fb7fa7d97ac65dd01d1690f3944f41e9a6647f7587f7f529b2c",
-            "0x15686aa64278e89e5cb2b44b6c8a3e076ffedaf8991f3b5c286b50bcf4bd069b"
+            "0x304a67f063149e1c7be10850e548e035f158e711e0608bf7a8c64e695208c336",
+            "0x10d697e7f4ca1b55f3033292703bfa334a069d9059a3f96f3b9ed10c595b0298"
           ],
           [
-            "0x02c88da6fcd338913e324aa2046c35a463fb40d1177cae1603e62c377d4df554",
-            "0x217d4bd5d3058e07f56b8943204f205675aed6b92aaa5ead7582d1654d7edc48"
+            "0x2b73fc7e6a255fc0dcb9337577e8a949d5de27fe1474981e863aa5489233bf3b",
+            "0x02699117792dcb3607d32471b071c2f5a57acf1cfe56ea4710aec37899f625df"
           ]
         ],
         "krs": [
-          "0x0e1302c91d01feea0fe05bc82d3f218478abc1f9605572bc206d9966956a1193",
-          "0x10494dccd957fd3ea0235469df8cfe5611d18672887311e1c7c69d967ece84ad"
+          "0x234f2e905aef7aef0d29b5d75b46836c00c0c1dca6aa57b015bd7614015b5cb3",
+          "0x264ad833c66d39b7b5626a3af001d159f71c3195d0fb5dce7ca9bf508cf442d7"
         ],
         "proof_commitment": [
-          "0x283e7161bda1d85aaaa21248692028c0abf2ecb49e2087797afaa37d8049834a",
-          "0x066148686e700c5ca775d2b8dcb49ecd2612f6a89e06ecd1c3dc0384402851f5"
+          "0x01fae85baad7b373eb0de07e63f0d3c89f8a8f2a02e99c7d184c73dca309d514",
+          "0x08e1db3dc1db4172e984ed9c2d3b8ea2f3caab602ae874a2ef3afdf8ff769d19"
         ],
         "proof_commitment_pok": [
-          "0x14af5b00fbed56a9bf5620fc25d53983c141aa10ff7b58af9b1b3c5c6821ef09",
-          "0x0fd100cab371be7a4c73f36ce59e74c70972e235cab05ca4a7a464605e6a08d9"
+          "0x2e3217eb87d262255dc022056b50396b2c44075945d2ae05ef67235d6de53d3b",
+          "0x057ad4230b9b6fb033ab8318d6a8c87819ce67cdde654326d8b621c7fcebae93"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "1ef6274815155111c9425369771097dcdef77176a5d6072ac07062b978cf1d1b"
+        "1c2a1bc529445bc53148ef03ace368dc26277996776e85bc13118d7d68c19845"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "025e01adb48d6cb2247999b17fc77ee9a7629562239323e2b1bc86a5abebd5e0",
+      "private_tx_hash": "068e22aec24b6f2cbae159014280b3d56ec59647a3687a1ee8262083913ed531",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 100,
@@ -63,8 +63,8 @@
       "encrypted_utxos": "01000a0b",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "01f9e3a98679aa8a79c7925a336740638c6e3f9ef940d280410a1f51f8043b61",
-      "public_input_hash": "0dcfccf908197a524ec4702376cc9533ddcf4c8a4d4610d11f51efe6e112d8ac",
+      "expected_state_root": "1f50eb58abd50989d704ef926d7bd7b7dce7660bf3225a3f74cae7222c293c62",
+      "public_input_hash": "266d40f35da621d9da0c9d3e54ea236b4db039a0f7767e5f6d524fd2b6dd3688",
       "external_data_hash": "0039a691cb5cf669ee24f5635d80a553a1e0dc4dc8f9bb0943490dd9f81b23db",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -72,7 +72,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "1ef6274815155111c9425369771097dcdef77176a5d6072ac07062b978cf1d1b"
+        "1c2a1bc529445bc53148ef03ace368dc26277996776e85bc13118d7d68c19845"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -87,39 +87,39 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000003ea",
       "proof": {
         "ar": [
-          "0x25c6916c411c424669cf4375af38ca192a66b3ee4c9e5fd630cd792f3f1e0fe0",
-          "0x21e467d4007792bee96d67feb85fccd336c77071cd8685b515b105bf048c2252"
+          "0x21a13f79ea486f79f2ef820d4a1db45bdc40a7ae31b3b1535fbf224646d813aa",
+          "0x20b76f0a2fbe9fbabb1bc0de9e5bd6584b5f83b76a7e5db873777e3eea544fe0"
         ],
         "bs": [
           [
-            "0x2878147ca5074afaab3d854cd456b0b398ae0b46e57e3571615e3fccd63bcb95",
-            "0x26cd0b21b27dad7e09c1b19a99b16daa64d63e27ff7e566aab38d16b63d69946"
+            "0x2bdb412b0b34e4e36e4df8b7809538dbd58380e954da6420c1a79790ae8c0a94",
+            "0x050c4b219640de95bfe1ef111937612108ae564e27e1699ec0f08c390353dacb"
           ],
           [
-            "0x1906b269e76b4857651607da5fa6cddb83b4cef7e59e14f3ab4c471f0244c3a8",
-            "0x1bc95c9963564d6bd887055514c85ccd1d0ce286f80ef5ac3fe6c8d4512235d6"
+            "0x2aba08e29dbdeb84c29ce3c60ceb87371cdfa3a3aa725088e0862142c999e52e",
+            "0x0d92b9e5080d2ee371ce6c2e901c59aba0bb0e08af81d0673f8fb8966f85e09e"
           ]
         ],
         "krs": [
-          "0x2c8eed908e4182d12a70eeda62ad5dca03f8bd5bbc256770422a9fbd2f88f256",
-          "0x04507008edc507d6ea60eeed5bd9f6213e41c9feecd36ae6f7bfca8b54583be3"
+          "0x276658b29d071684ddee4b8663d7d9d99d1e3ad73473aa92ecd747c439f8aaff",
+          "0x0fc29335400da13f10254bb72d3f91fd0dabd0cbd468c38f914ac23d72d41f76"
         ],
         "proof_commitment": [
-          "0x2fbfd458a725084a347451f839bf755444ea45e2df3cee06d00f1cfd40e3794f",
-          "0x298b267d08a208fa62ef882edec83b6989b418055238dfaf11d00ae92492e083"
+          "0x11ddf94420712e995c83cdea6d00875a3d60a7c2ce24eab138a80c84d3e6e4aa",
+          "0x2484de37f1e304395eb43402a15917f3eda08a530586a6ac4b5effee2b0f175f"
         ],
         "proof_commitment_pok": [
-          "0x01dfeba62436c6df6c3bbb7e2f1bf79eb3b25c82fb61b07c73b853b745c9757d",
-          "0x0c7eefd9a4324e77e758442c3aa7c8b3d87b8129ecca27631fe9f93f596835bc"
+          "0x17aed953d3829192b3bfbf5a40e4034749f391cea50c7c6d977758d92dc55766",
+          "0x1ac4f42ac00f08c898cb0bcd5f0c8ade6e5e3e63d8a0a72e254524a6a581f59d"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "0e4590eb53f083b7195202a721542264bd18b5e204f7d1eb19a3ce48e7a81b6d"
+        "2208844576df1f6d954348145fb4b196b682e7de4214f86e926cecd80009e34c"
       ],
       "output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "utxo_tree_root_index": [
         1
@@ -127,7 +127,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "220b123249c39dbb78b9a8a9a0bbdf1e7be46f17a712d740258498cf5ed9da89",
+      "private_tx_hash": "1ba035c64e7ba69f47b7f33b0fb5e45eaece140d5ccfad4d2036691056cd7d37",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -135,8 +135,8 @@
       "encrypted_utxos": "0200141516",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 3,
-      "expected_state_root": "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352",
-      "public_input_hash": "29e9d21a67571b57db386067b71af1bc5e87494c36a119b26f9076c205cc2838",
+      "expected_state_root": "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172",
+      "public_input_hash": "010d57436ecd4129e4ae5182bb60f154cf9be49f76e5dfb895ee264cb19189a0",
       "external_data_hash": "00b33fa0d913908997d97ff3868e8aee6515991bee62f9ce13887fe3d99d2b26",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -145,14 +145,14 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "1ef6274815155111c9425369771097dcdef77176a5d6072ac07062b978cf1d1b"
+        "1c2a1bc529445bc53148ef03ace368dc26277996776e85bc13118d7d68c19845"
       ],
       "debug_output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "debug_utxo_tree_roots": [
-        "01f9e3a98679aa8a79c7925a336740638c6e3f9ef940d280410a1f51f8043b61"
+        "1f50eb58abd50989d704ef926d7bd7b7dce7660bf3225a3f74cae7222c293c62"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -168,35 +168,35 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000003eb",
       "proof": {
         "ar": [
-          "0x0893d2f145cd747952e94738bfd2506fd08fe1d8c8201ed3342ac0b07350f32c",
-          "0x1717692e6c0d44fe489dc9e4cae3526c1e837dc09735da051c01d7ae78248c61"
+          "0x0acb4d2d4238ce4ed16430439703596171b3709320725e51fc7a23c99f02b329",
+          "0x0695bc63733e2d6937eda97f2fe1ebbf5e41657a59b46c41b94fb23e71b98b4a"
         ],
         "bs": [
           [
-            "0x1e1a88e62b4a4d8ed03d94d5928f29be2912daa6122ca63fda1a2e0c0c3fdcb6",
-            "0x1cd1933e2379fb64e096315905afc41a8b66beb74a34e4d9efb2788f012b884e"
+            "0x2a2e1a3617384145e2d1c089913f5b0fa5a37f04d181a3732465856a2a6d26dd",
+            "0x0cbc99d999023d18e7aecce66347e86f38ed3af9b371c4c67ea181078ea3ed0a"
           ],
           [
-            "0x07a3ea0f72523e61e193382c0aa56e4d6046fa7782c97cae3a1db0bd9067b716",
-            "0x173b879dee10c88a608eeed4d96c7b3fd6e0c571d0aedd3972794feca39fc890"
+            "0x29c31815faffa5466606619e18efd1ae44e5ea4b61cb6b8c8bae38d0093e7be9",
+            "0x12a044609a0625e122a4e7ed607d117728aaa58a608d4f3f41e49b2f918a4236"
           ]
         ],
         "krs": [
-          "0x222eb905a244a0a69d9e14dfc6476781020f23a8ddec6a9d5da14c28e423810b",
-          "0x0f24438094555f9a2c33885176efb9e08215e005652933bbabda20a2f53fb7b4"
+          "0x185f456f16e0c2416e94513760f4c7e304cfc6a8a607af16c4949262093a2e12",
+          "0x2d4b31b1e94eff4bf538d36e03de28f9f7af30c90d0123d238ea9afbf6bef9c0"
         ],
         "proof_commitment": [
-          "0x01dcda51104b61db3df468ea37529e155c0ff42844cdc68fc627c4596d9044b2",
-          "0x04319f34d8d5c665871b4ee5abc11cc40b45b44416371bb9b90e080bc7c712eb"
+          "0x07ba0775f8cc1290e09ee0dd7a5fcc75d7fcce94a819b64a8396ac582eae388a",
+          "0x3044109e6068b8c42d1d3eccad3fa04558702746e608ed46e185652d905ba065"
         ],
         "proof_commitment_pok": [
-          "0x1b0817a82ce807151b1071e762375d66d1c4f1b0961a1739c901c08a998a3d26",
-          "0x24d010da3d1f4ddaa3e06cf6085a616cfa9879bde648c61f10fee6ab7c283a41"
+          "0x120be53bedcf79cde67aeb498a509ecc54af960426d34e4803288304d15e4fff",
+          "0x1505f4d28412eda6678241b824832ed3f3b720178ae1531bd77653451478281f"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "1f019b5c0c05e6664f6d697b5cd3453613738d10f0efe54e5462a3c4d8b7ac84"
+        "208aec52b94292fadff8d76f637f90fdcc6feea9a53283bfc136a105c387544b"
       ],
       "output_utxo_hashes": [],
       "utxo_tree_root_index": [
@@ -205,7 +205,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "027ff1fc747d87469efe025daae45fad0b4478485c210e0e61187fe17a74fb87",
+      "private_tx_hash": "136d11778c359c3c7e7f58e49eba6c8e71b1793662a247d34653ab7976b61d14",
       "public_amount_mode": 2,
       "public_sol_amount": null,
       "public_spl_amount": 40,
@@ -213,8 +213,8 @@
       "encrypted_utxos": "03001e",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 5,
-      "expected_state_root": "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352",
-      "public_input_hash": "146a50fd66da9f103ebbb0fdd6cfdf1c8ea18e5130376bacf5a53d10e8d03fac",
+      "expected_state_root": "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172",
+      "public_input_hash": "11f6cc967cbeb04ab6f3ddd3cb38ccbf75c08e353c5b7841720ec3ea695fd904",
       "external_data_hash": "00d7d59635f87258032e42c53f320c439dbbf91d84d757f570e5be5e8c17a155",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -223,11 +223,11 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "debug_output_utxo_hashes": [],
       "debug_utxo_tree_roots": [
-        "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352"
+        "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -243,39 +243,39 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000003ec",
       "proof": {
         "ar": [
-          "0x2dfeb538da5a048b2259c626c18b83c8d50ccf9292e8ba280f2cdda5e54c9686",
-          "0x0407410a9ff0b0a6049574ce7290a130610aef2e9401ee8b2287e8cb5d1ec558"
+          "0x17dc813e4c4dbc5d56ce5b233518fbfa2aa0be265d1ad6414357d5bbcb339eb7",
+          "0x2f7491ebb129aedfed3f922f07074ae2f85238aa49a84e10a1ded37454ac73a0"
         ],
         "bs": [
           [
-            "0x1171bd4f7150cdf49701ae65ec86312d93fa04c1d28d7642ddc92d9bfdec8912",
-            "0x20bdbadd861497957808c156c46ea7002c23cfe06f02b4405b0d004e1fcf1951"
+            "0x2c031128b71694dbd490ffa69f039c93ba65abebeee75f7a80adbd5b56c5d77f",
+            "0x19aab2e46f84ca62504a67d65dcfdd5ef8cc391e02068a3f4086a094bc65ec4a"
           ],
           [
-            "0x25dff864e3455b435d0da93033261109a1ad0cdb9d967121659369fd72ef06bf",
-            "0x292485ebbf4f1d3aa31967dda6bb61d97728fe6db0fffb4e41920dd94c120e98"
+            "0x0c12cd273ee13866c6018a277df10603ee574fbc6c2480566e36613a4f80439e",
+            "0x292e25e7faadc960570feace50c0d3188c5e6dd5fd2abf0947fd8b75f50459c6"
           ]
         ],
         "krs": [
-          "0x2c613dd4513710bcecf6e6acc9ed55872facab5e0d76acab67f0b8c0194a54e1",
-          "0x2357b3b7e688ed8713faf534ab977c2cc9e267567e806745346e1c12eab336fd"
+          "0x2b4a9d169b1200a19c7efb4e634c63262b8e6acb0df39a311b61a691828d2fb3",
+          "0x0c061c097a72a17b075409acccbce774eb87dcf0ec6db9d0715cacd87aad3f16"
         ],
         "proof_commitment": [
-          "0x0887968e8398b7f5bcae0b94889794c58654527ab8ce18e92fe228e6c37ba47d",
-          "0x22c29c96736c6f02bf977d849c4b567c7e28775140ecec6b5f26bec8bf856fb2"
+          "0x07c155b0cccf82022779bb728eace32ea3668569c8e1cee9c6b374a628c3b193",
+          "0x1d281304f845ba1b3132b66cc01c5dc7cf27a64d142621245ab9df868b57e2e3"
         ],
         "proof_commitment_pok": [
-          "0x037864126da53ac160635950cb04b1783ecfac74b95456b432f8d595a8e46f0f",
-          "0x2a30742b2e8cb16f9d051fcc5d1b81a063f4f3a6a3770a038ebf770dfae23c0f"
+          "0x0a58c8298a81233fa4ecbbbf9cfa9f622df2e2f310cdfc9f93672f37bbefe183",
+          "0x2e6b1a00f16aea285555b7e67d6664ef874fe05973d0a9252a054c85056b0430"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "0e4590eb53f083b7195202a721542264bd18b5e204f7d1eb19a3ce48e7a81b6d"
+        "2208844576df1f6d954348145fb4b196b682e7de4214f86e926cecd80009e34c"
       ],
       "output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "utxo_tree_root_index": [
         2
@@ -283,7 +283,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "22f4d4b8efdedcfce30888ff81ffd1af8cfc543c0c36d997ff01dc1d59a010db",
+      "private_tx_hash": "20ef7a4fed91925b2a2e9ec8d5a6c84a549b96b5e01a3ddc54b8078bb16d75ec",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -291,8 +291,8 @@
       "encrypted_utxos": "040028292a",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 3,
-      "expected_state_root": "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352",
-      "public_input_hash": "2c0b419404d3f2baacb0cbdfdc8a2a099771f7928da0d1b32f625065b9dac56d",
+      "expected_state_root": "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172",
+      "public_input_hash": "18307ea7fe77119e0b41ed017c92aac792a404d71b0e6c2566934c5b571e8118",
       "external_data_hash": "00765f87a8aed3016971b1d81b9f86f658525e89c85f7c5b734c3db542585a3f",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -301,14 +301,14 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "1ef6274815155111c9425369771097dcdef77176a5d6072ac07062b978cf1d1b"
+        "1c2a1bc529445bc53148ef03ace368dc26277996776e85bc13118d7d68c19845"
       ],
       "debug_output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "debug_utxo_tree_roots": [
-        "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352"
+        "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -324,40 +324,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000007d1",
       "proof": {
         "ar": [
-          "0x1401f70af821e29acd1aff8f974a10453e4fbc67df72f728d3ea3008620bed9c",
-          "0x2050870aa7d7fa771b604e416d967f50a5166b7ce5260209c537a5b8491e8b78"
+          "0x0f75ae881bc60ee3b3ad54bbd9382bcdd40dedd454908bd6ec75ad280cd303c5",
+          "0x0ba75a8ec6478d5d141ed67faaaef8ae3e7718ed7b8739fcbb74013986c8bdf5"
         ],
         "bs": [
           [
-            "0x02b57d359638312bfdcdceeb87a36204f294aac92d43a4bb6e112cbfb68ff38a",
-            "0x252c59f0221db9faffa50ed26f1e9e8b7fe47356ccd0c8cba1b4c4a2dcd0f506"
+            "0x004daf16bf16965d76a815817f209d26c96abfd37fca8d1bcae82d2fd88845d0",
+            "0x02d7da24778f9ae04cb1dcb55a3b024a0109686ed5e8fb2780323bdb9796aa23"
           ],
           [
-            "0x0aedf40359cc9c308a4e91bc1e973e4edd094f5387c4ec0fcad273dc27ece18b",
-            "0x1cebb6de7f9f405c73be27088b60e7641a35413b98b1fc4587fc6db9c0ced93e"
+            "0x0d23f98b62de0545311981d894684dfe916aaa0572aa9d823e8759c61da42283",
+            "0x1df5a4e93f2df711e4b4886c5943b7403eb723093c8fb397864fb7e1d0d3fbea"
           ]
         ],
         "krs": [
-          "0x27a279897668629d076ea5a79d99c2863ba025828374799aba8e76500687048e",
-          "0x195fca7c70a1aeae87a957b125188ebd9a5d0cd030c5193edfc72683faaa6d5e"
+          "0x0f28604ab29dc93b5050a682718a0cacf1ab39dd21ce60238f584d751c2d28d5",
+          "0x0cf03a3fb642fec43b27101e3a0bab9f3d8ada9600720f872d8f411c69c9fd8a"
         ],
         "proof_commitment": [
-          "0x06e0693c7cea70e14bb7e7e94c61ddd7328f8a95167f15b304bbcef05c0f37a7",
-          "0x033b6b8d846ec4bbe1fb399236107514104ea8649eecbecbe8969048248a9a51"
+          "0x23f989c9de51695cd756684b43722717ece292d7f85dfb0434d5d0b6a9e26784",
+          "0x254f2ad68aff27464d75f4e211cbb6bf9dc9425d8db845c9b826a72953f6b1bb"
         ],
         "proof_commitment_pok": [
-          "0x2019afe55cbe09fef5caab49e0a4dd22e21828f200ef2d75d8bd6efb9d96ac7b",
-          "0x129835c03d7f4b43451e5543d4133237f0321405f59dd1c29ae4cad5f580d4cd"
+          "0x2bf3d13fefbe080ee30d4d0ad484083535d5e1c5749e440d23cc735560fabc86",
+          "0x193604c2f6530896034d53c1efa7c437a5e0b01d1e5fe87da0a622227fbe8cbf"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0610f60036ab9e21c6bb8f67b3a6eb8a871de5fb6ed70a5fd8cbc9ac82b6907d"
+        "0b300703ec56aff502e4a3655cb85d452ac6529467be438c0e2ced33c6485395"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "1170d172c876a71e1fc656acf82df82b28422f55a710d3cccdfcb651d19c51ad",
+      "private_tx_hash": "259271e698954435461c941bcca815d30ac9012c63cd661d9c8df985a83bff63",
       "public_amount_mode": 1,
       "public_sol_amount": 80,
       "public_spl_amount": null,
@@ -365,8 +365,8 @@
       "encrypted_utxos": "06003c3d",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "29b6a30c798cd17ef257b425c828076f7649fa393a07256b091fbbd93bd1f9d1",
-      "public_input_hash": "1f3d5a7f57311b9f6486f47edd093a50588dbdf967caf5c16e77152d07aac016",
+      "expected_state_root": "1b339ffcdf6873bfbf84e4f6ac5e487a31f19ab2657d8c161fa521dcd2c27391",
+      "public_input_hash": "07e269068540474e43cc9f89e3b2b789381e9e1efc88c56525a75c0cb7359f5e",
       "external_data_hash": "004e30fe3e83c2aed30555076f81692b68036872923a8d2af82f6047e8d16074",
       "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -374,7 +374,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0610f60036ab9e21c6bb8f67b3a6eb8a871de5fb6ed70a5fd8cbc9ac82b6907d"
+        "0b300703ec56aff502e4a3655cb85d452ac6529467be438c0e2ced33c6485395"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -389,35 +389,35 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000007d2",
       "proof": {
         "ar": [
-          "0x28422000d0846673dff2c7d7889b29b5d28749560a2a233de4bb35431751efba",
-          "0x1fb83170b3b963bcbf5758a2a2057aa5040de41bb490b916034b60b74e388d87"
+          "0x14acfeb9b76de9a81aad2f9cba3cae54619c405a2504f0f3af5b38b4a6878de7",
+          "0x27a4e07643f2173d0fccb2fc4f980449b74daf3773c676e9be324a9ed7d43ffe"
         ],
         "bs": [
           [
-            "0x2bfb0e655a659bf810631f7ff5e736ca4101cfe0e89a797d06da56526188f461",
-            "0x2a322825163e1824f187b2f19b9e38835c983aa0987f7b3c885505499eff4401"
+            "0x194491299b0051008204817ff5815e0e72353daff663b391647d9c3b9aff6004",
+            "0x22971692b0cace911faf485a329564e4934ff216f6d699af0ffb09000f3ab4e9"
           ],
           [
-            "0x1702e4ea53f88d439f21f81f38d19350db488de36f6a8d4bd6720835e6342e2c",
-            "0x058a8ba5841fdccadd869b14b7d065ecdd0e8cbfb06d422d64a24176d1ae51d5"
+            "0x06d0cd4665bf8dd7700559298a7990ade4a8c0a130a17e19ec9258dd07f311d8",
+            "0x1b340690ab443e6888991e43769bbeba0e58b42db3db912805216528e2d154f5"
           ]
         ],
         "krs": [
-          "0x03b56094e4baf09b0a097d5bb6dcddd82dce237ead2c42da6bcac81a5364638f",
-          "0x229ff891a6b69919db82737d40eeb8d8def59bbd04e25bd2d9837b8caa5a2987"
+          "0x2e905e2fdd84518363dbb9b1e656e7b5f606619d5ba4c4cc27fad1a3c32c0ff4",
+          "0x114e923e0c53a73d69d77654c0b7c5ef40a53902f12a086821101a93c2f27187"
         ],
         "proof_commitment": [
-          "0x05dc3087fe823e9f67a2944027d56f8644c5c425b748473f32d71fad2c0c2501",
-          "0x270e8042e82344ab03111313c8fcf5c807855f308910f24c7ebf12d8e26fd5eb"
+          "0x2bd145c9ee626f2cd192c6115fa376da7f57aac3ea4ef253fbdead79f01425c5",
+          "0x2cc4d7120f254f8481e6d04b1e20ea83ea1aed75335488e0fa1f985548dc8a00"
         ],
         "proof_commitment_pok": [
-          "0x21a523c86ce540d30218d2f0f114c1e7064fd5a8b757d07f011d9daa0337ca94",
-          "0x1344176c71426a6f7544a7ac821519ccbeea755ebe120ddfa162c90c226541b5"
+          "0x018c5cc04bc0613e6c45662e3d1897532fa7cdaf6702a818df349de2fcfae3db",
+          "0x1854f751f90b91879e16a0d1843a3d8bf9c5ee6d2d28d9221088dbf9e30a1626"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "1d8de456dc2027cf3078d4c1ea41c498ffb192930123ee0699f52d4c0b2d4f0e"
+        "06d8b3fa7b7b8d1b94514d37c10474f3aa0a593bedab5a3295879cabcb05690f"
       ],
       "output_utxo_hashes": [],
       "utxo_tree_root_index": [
@@ -426,7 +426,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "1b4a1b23431c17f4c9736dc81b7bde49f34ed3ac96f3b3197396e3c72c9cd395",
+      "private_tx_hash": "29d890b454274632c94d78a39dc241f95c42cb59af524d71e90c2b00c973dc17",
       "public_amount_mode": 2,
       "public_sol_amount": 80,
       "public_spl_amount": null,
@@ -434,8 +434,8 @@
       "encrypted_utxos": "070046",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 3,
-      "expected_state_root": "29b6a30c798cd17ef257b425c828076f7649fa393a07256b091fbbd93bd1f9d1",
-      "public_input_hash": "10a8eb0a384c291752937d9000079353fe2ae45bad3d41c741a9d945dc7acc31",
+      "expected_state_root": "1b339ffcdf6873bfbf84e4f6ac5e487a31f19ab2657d8c161fa521dcd2c27391",
+      "public_input_hash": "162ee679779ceca05be7e4b828aabb110e31ef4a27ae529c31ca8246449b2934",
       "external_data_hash": "00667755f7d3f44a9a7ba036dba2cae22b6a6fb982781004642bfe6c7ed005f2",
       "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -444,11 +444,11 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "0610f60036ab9e21c6bb8f67b3a6eb8a871de5fb6ed70a5fd8cbc9ac82b6907d"
+        "0b300703ec56aff502e4a3655cb85d452ac6529467be438c0e2ced33c6485395"
       ],
       "debug_output_utxo_hashes": [],
       "debug_utxo_tree_roots": [
-        "29b6a30c798cd17ef257b425c828076f7649fa393a07256b091fbbd93bd1f9d1"
+        "1b339ffcdf6873bfbf84e4f6ac5e487a31f19ab2657d8c161fa521dcd2c27391"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -464,39 +464,39 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000003ed",
       "proof": {
         "ar": [
-          "0x19403c1b81261bfa3412b6cff561bea8126f1b5dbd1e8cf568102e7ee1ae8ba9",
-          "0x0c100fe5c1616db80761bd9bc5e1674211b4874a1422480773bf3cf705657593"
+          "0x09e13530b0844e1a4660039b134744a2b3f563e1031a53ec133a96d0e388d7e1",
+          "0x00ffea59448549631ddaf0d2d8fccae3bdb66b1fcfb87d103f1adb962821c875"
         ],
         "bs": [
           [
-            "0x03a12765a3969c68dfbdb39542dee380ba34dbf29df9ac011cc062243d398b1b",
-            "0x0d3929102ee48c932092a582994704cf69fed4800a77cfa9d02ad383e89d0aea"
+            "0x090e28ad2fecc7e1765543fc3ffaac2c9f771ea25c6a34cd560876fe205fba82",
+            "0x2ced8b5079c47ed2aacda80f71be4cae28e9878eef2bd401a64458e871d312b7"
           ],
           [
-            "0x07b1ecef80e2af4f37d1437e1a14726f4aa59251ddeb30734a1bd865418bf4b1",
-            "0x061be60ff2865635c0d7bb7bbda60e7f122baf86ee844e5a085bbe2764abba0c"
+            "0x1440a66c2fd88ffa1e43fe3cb33854256d8956beef0ce6efb7a0e134b32235d0",
+            "0x1cb7b45220657c33f38e4cbe736e41721e0d7f3b4bfb5eb97700329201b0d9a9"
           ]
         ],
         "krs": [
-          "0x05ade81195277c0d0e7c43550732d13dbf5856bc98cacd2ddbafc349623e3168",
-          "0x2239ea5dbc9c60e8570c280d8c20327d859cdc0eea2886a1504a8e761dc81c80"
+          "0x18e0a43a1ac1a08c5a4ea65f86ebbd95e1393bb16ccba318fc97bdf901f3dac6",
+          "0x0a756b0cfde4cce4bcd6bb7840cc80ea22c0abc5043990c2f555df6e7d882100"
         ],
         "proof_commitment": [
-          "0x0bf515085cd1f6ff00c2cf754402c756a949d18b5a0fa21c51721d42d5324edb",
-          "0x1ed04a344c4e03cb737fae8667f6e7e23f109c384dcf8b26ae9d0034740f51ee"
+          "0x2687b97a08cd6ba672351ace5c447314cb361d89a05469b5e6ae23ffff0c117c",
+          "0x125b012406d3373085fdce78f15f5107799aba2e00d78656001c4b4cbf095415"
         ],
         "proof_commitment_pok": [
-          "0x2927cdb0e1bba85898348eb03e3daef0478d5b5faa4d4a7bfc1733ef6d8d8029",
-          "0x203f4ede35913ae3f7bf64ba34c435a4077ece6124e4a3b54b35313ffa94410a"
+          "0x247cde9f977a3ddf10b3a65a688baf5f31d482198d3fd3bb697aa72a00a5b8d5",
+          "0x246be96ea59e390e0a5b9dc41f6225ab4159dd9542c6a0cc641e4111c31e0b89"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "0e4590eb53f083b7195202a721542264bd18b5e204f7d1eb19a3ce48e7a81b6d"
+        "2208844576df1f6d954348145fb4b196b682e7de4214f86e926cecd80009e34c"
       ],
       "output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "utxo_tree_root_index": [
         1
@@ -504,7 +504,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "0ee306c87849e1eebd0da2b93c70b6234257df63622ee573b8ba35fa337a069f",
+      "private_tx_hash": "20a82e1b7cc9e28e01bc5bb2b7078a50c2ed3d927896e9a35624b83923c4190a",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -512,8 +512,8 @@
       "encrypted_utxos": "0500323334",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 3,
-      "expected_state_root": "29f974d33e41e833e26574304e42289234b5b44fd064f51ee78a15a816160352",
-      "public_input_hash": "260021cd07a4e1ce4d19ff8f16926f03273efd1c4c90373c0092774bfa28dc05",
+      "expected_state_root": "1ca02e39d59241ffe3f1014627dc3ecf0fb170118d6616b952b00465bf98a172",
+      "public_input_hash": "0d19bbce9596b806db2570ad4de0e3d0eb0a5208df62f5e9358bd20bfd2f8eb8",
       "external_data_hash": "007c157d51d2eb3c400e4fde46546e8b35cb2600e8691ef926f13150f99631b0",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -522,14 +522,14 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "1ef6274815155111c9425369771097dcdef77176a5d6072ac07062b978cf1d1b"
+        "1c2a1bc529445bc53148ef03ace368dc26277996776e85bc13118d7d68c19845"
       ],
       "debug_output_utxo_hashes": [
-        "1c3013c364bf4a21d3c5cc427062324b869e1aea166f24984e09fd3b00fe8837",
-        "2d89e5e632292614d971d5f443d09df6395278a41f379411233659ed0a4aee0f"
+        "04f2107867868b28f887a94728e00ce153c273d6a314880a3cb910fe6399c796",
+        "1aa99d71e043c8271b17176ce3b87420e9a64e27c0f0839f7f365779bec9d1f7"
       ],
       "debug_utxo_tree_roots": [
-        "01f9e3a98679aa8a79c7925a336740638c6e3f9ef940d280410a1f51f8043b61"
+        "1f50eb58abd50989d704ef926d7bd7b7dce7660bf3225a3f74cae7222c293c62"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -545,40 +545,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000000bb9",
       "proof": {
         "ar": [
-          "0x2ff34b2b013eca8158e77fbcbe75f5d06b6d7cf478a4785d602ecd5110a762a1",
-          "0x1edb25bdc9f8b113b0ec7bf6aa087060c9510071e451cae74c1f75050952f36e"
+          "0x1f53498a6166f5822146a5eedbcead03da078c9f0da9d5ec946b825ff67d69a7",
+          "0x1adb4e59e160cdfb4755e316beb4c20398e5f08acb1bc7aee4f46a2533de6763"
         ],
         "bs": [
           [
-            "0x16ec4a710a32018165a164acf0787ab0c5ff40f11182b0eb3022f2d894e4ed68",
-            "0x0d2778baaca1061246ae78ab2af14f419691ce81705fba78af37db78f835a32e"
+            "0x1fe316f941f6a17f67d578101bf976c20b5973124c91681a5a0a3906ce27886a",
+            "0x29fa0b539a3c431b0a72a96347bdd52690af9f10214bb1733bc350aa45410f7f"
           ],
           [
-            "0x025110e430763205cdf81784bb7c79bae8eec1e26bc9a4abe3058447724f507f",
-            "0x0aaea51113cb87903f2b61153e403bef3a0a17bf311eb2291cdc816c2397bd28"
+            "0x0c6b72bf97ed912d09d6431ae73a4fd65a5bf75e35673d2dba0c70fd89b94751",
+            "0x0e5988e2542a624dcd0307cb68b33f08d8b7d80fe9b8dbf6fced0590d97e5e30"
           ]
         ],
         "krs": [
-          "0x305c6bac158f8230c02f6752ee247c02d95273015716443edc46112ac363cb6a",
-          "0x29f92999b86fa34c3714cb108637e927f0ef622f8d3d1785da933b2dc99c70c2"
+          "0x2ee98fdd8aed1e771c759b041ce0bd4f1a5dcdc0ae1f72ef10c25563c94d0dc5",
+          "0x2018bd7de1a699e999746567df2b11a33037f967c0054015a3a5f62ec4898d2a"
         ],
         "proof_commitment": [
-          "0x142b92f0bce8f337542569014bbe0476ff7bce5096fddb6dee07c6155a2a05da",
-          "0x1c7a6b8f601b597dfe08e10954228654a4d715d94d411898c230e6ffb133f4ce"
+          "0x05c7539e2affd8d0ba7a88271c66f03475be678e32447bb1025bb0ff0a30cd53",
+          "0x039fc9a08ff8909475b844339a5194d3fa11e78fcb0aa90fc9a68b28ee4f10e5"
         ],
         "proof_commitment_pok": [
-          "0x071ccf07e4d28b3019fa5ae937da381962c2513793db912d12038662d47f297d",
-          "0x2d2bd725473ec35230d7cb9a0ccfe727b8591c8c81c3f4b4f40576ee4f392137"
+          "0x0e8cb2e6f1c2865977a461158f05cf8edc0f51ead6c5586910c1b17a334037dc",
+          "0x106527128783bd6bed05a298916af32203415a012814a4fad1d475ff4ba308ea"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0064dae93fa0e66c5e10fe5de8426ad42363b8482a40801db193f383ff420b10"
+        "0a3936e60d79ef88f3bddabdbbcf8e9c51ccbe3b27fe26f478978d323036b12a"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "03c15034bc5dd4e27b00a7edd03c19eec7102145e9d82227061d5486510c4f91",
+      "private_tx_hash": "08c3d1736da8357a9d5c92838d1d421a7d9cd4c3d24182af0df546912b50aada",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 25,
@@ -586,8 +586,8 @@
       "encrypted_utxos": "08005051",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "08049352e9c535fa2186a391622d00dece81e125d5a570ef997645e7b9f83de4",
-      "public_input_hash": "26341c5b0d8a39abcf7d92b5f3a74d1807dc984439093c7c9dfa58637e753db2",
+      "expected_state_root": "1c08e1819cc582fbb9afe61a1568429c23b2f666e2f4328e3810e8763a37d4f3",
+      "public_input_hash": "282e95cfc7980143bfa96266b9bc9ca7f1765093ca9137e3d970fb11a516bbdd",
       "external_data_hash": "00491c146f8666c97e66797d9bf9d3e22e62e6fcc7c35d56344ebd19df76406f",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -595,7 +595,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0064dae93fa0e66c5e10fe5de8426ad42363b8482a40801db193f383ff420b10"
+        "0a3936e60d79ef88f3bddabdbbcf8e9c51ccbe3b27fe26f478978d323036b12a"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -610,38 +610,38 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000000bba",
       "proof": {
         "ar": [
-          "0x10d4c91b02f9bd8db10966a2abf20ceb0582826c9c4fdcd46a303e576e59f1bc",
-          "0x00c4f4ec80d0b1de14f48dabf38cc56741b0dbac2c0a1bcdb375c35ca6aac3a1"
+          "0x260ebd4238c120cc287e72dad4c4331dfdd38fc6da63cce18a49b2d8e627925b",
+          "0x14fef230e55bc616d07686e8d1c989c5daa5b9c76455f0fa31a3b80311324d5f"
         ],
         "bs": [
           [
-            "0x19401338dad18117cf856c4a80a7a1bf34a1e053c30c0665a08fc02464a33bf8",
-            "0x138fa67536fd838f24f9251c5c6c0aec374ea5c241ae51ebacabc38ee9de6d40"
+            "0x2ffab7f0689db16d983d9776b95b67f74d05dc6ab0662a3dc7f60b2911c5fa3d",
+            "0x0b3b06f219006329807f20e4f62cfa998f287793f2263c6ba81438dca8a601ce"
           ],
           [
-            "0x0bed11bceeb955cafb1b346354b483024ca05af3ebc563549e78460496cd536b",
-            "0x06c344422cd4a7ecfd8d015c1d2b48abe7595cd4d110902f6e81354174d547c3"
+            "0x0b00e1189733f881c810049af39e722dfe8a2e5d35c416c3b31a5dfaa77b408f",
+            "0x295cc9397d261099a1e474a493e0964640b2e19c49d9a6b3fa3cb1d196227fc6"
           ]
         ],
         "krs": [
-          "0x0afcc2f7fb2d4dec31b754670c1885e0ded90c2efbbeb33dc6815581228ace98",
-          "0x122960b81efb437650592014e8b37618abeedc94b0f32bb7793dcba425a31dee"
+          "0x02d11ac8b2aff77bf4a7c3602c6f8679aa96c5852cba9383c04fb7b2781005b3",
+          "0x133ec4dab35a9489e50ba0eb1b70a240e7021377591da62b82b0f66dca214042"
         ],
         "proof_commitment": [
-          "0x301fd1d6a1ff5eff58e4eb1e238ddbef37e8d092c29a8887769e4c595cb7f846",
-          "0x283f67be54eb42068d8a865db5da5e611b9a5aad76e383d0ca453d3dbb1d0a8c"
+          "0x216e6c4b35b6d44cd10473c4ecd714d30a88d101711e889289f82d25268833bb",
+          "0x0e0d74b87391b4b38e34bbdd8dee6d1d9e725f0c098d1cc23482b72f3f643a2c"
         ],
         "proof_commitment_pok": [
-          "0x0187e4ad0f36b722dbecb09af248143a731dde8911ae12473e616b7387a83af5",
-          "0x270ff7f5c4f0ca5da5cd790c14558d178470ba249682a70584be7b6126c6dfc5"
+          "0x1535188a0202cfa7272cb8f28fa6e26970bdfaa213d8f6184498ea63ac596763",
+          "0x1a2ae698f87c6d23ccb83098ad055f2a00c47cab24990ad085994124ac542140"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "183d7b37554ade12dbc59bd1ab8f94949a146e72c23105163c7a7572073d203e"
+        "053e0a0bc3b2e432d9a1220311807ac1539f56180a9ae7776bf02d97c11f5cfd"
       ],
       "output_utxo_hashes": [
-        "0fd2c166f70958f0d262614f6ab14d97e4305c792954f71898396a05fd060bfe"
+        "1b9e748f496b5f7259dd723dbbcfacbb7a1cdeaf2702807093cbae1e31ca1a55"
       ],
       "utxo_tree_root_index": [
         1
@@ -649,7 +649,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "1a441be3d03882b92dd54939b4ca4e538967c7650aca3d9d78056df9cbb36575",
+      "private_tx_hash": "12ed67b95d397c26d2403644db3c3bd29788312e4110daadf113915d7eb1b15e",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -657,21 +657,21 @@
       "encrypted_utxos": "09005a5b",
       "expected_state_next_index": 2,
       "expected_queue_next_index": 3,
-      "expected_state_root": "1d5fe70ce2dbd97cb13d7904d30e7d355bad4a0773b97cabc1ae83b799cb5889",
-      "public_input_hash": "0d50098bac3e4153f32e715b0fc3c2dfb2aa4f94ea16cef273fbd9a6e9ed4051",
+      "expected_state_root": "2370f717e13b64cebb41da3225cb5999c84e407ce4b6b16fe1ab7797cf1360f1",
+      "public_input_hash": "0ac055cfd58c08d2071445795ab5f671871bd560d6e1ddf6696a463a87dfdf36",
       "external_data_hash": "00ab00b21f3503d2adc9c4cb2af09bd2a0a3132f2325f40f34494c63808cdd94",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [
-        "0064dae93fa0e66c5e10fe5de8426ad42363b8482a40801db193f383ff420b10"
+        "0a3936e60d79ef88f3bddabdbbcf8e9c51ccbe3b27fe26f478978d323036b12a"
       ],
       "debug_output_utxo_hashes": [
-        "0fd2c166f70958f0d262614f6ab14d97e4305c792954f71898396a05fd060bfe"
+        "1b9e748f496b5f7259dd723dbbcfacbb7a1cdeaf2702807093cbae1e31ca1a55"
       ],
       "debug_utxo_tree_roots": [
-        "08049352e9c535fa2186a391622d00dece81e125d5a570ef997645e7b9f83de4"
+        "1c08e1819cc582fbb9afe61a1568429c23b2f666e2f4328e3810e8763a37d4f3"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
@@ -687,40 +687,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000000fa2",
       "proof": {
         "ar": [
-          "0x01a2f3f642982a17cb7b01a91f3eb23b3b40643583e29370c24814ba6f857972",
-          "0x3013b216a8de97984df13ddad8064671e2ebbef938bbe5fc9cfa8fc2f7ea48f7"
+          "0x2e323e624eaf7be965e0fc1c47845171cb1e66900292d3fc4ec2f76a5b3c5b41",
+          "0x0c60aba64e2149e00dccd3d9915268942224ace2861890e663c589ba99b34d25"
         ],
         "bs": [
           [
-            "0x0c99bccc4eb99fcb708340d4aa98800d7612cb83723276ebde9d5088a2e4f550",
-            "0x10a68acf2cfabe6b01551192ba27d37ead198c01b2b3fe4e55ba958c5d40225b"
+            "0x2df9abf19b2041823a87848c50c2afcaa9599ecf542e28e0eb86e531e8db3a70",
+            "0x0869eb04bce726c39e0578d49a3e0a76d90de4073e055785358ecf4476f8f192"
           ],
           [
-            "0x139e4648c072c19e94e3e409d4c5e8abf3f514f74bd703524b30c72b20ef3a66",
-            "0x1109a177ef5ff254053bf88c67359807c217649ed9fc37bbb78ed12706501177"
+            "0x08becc78f87673ad7d8da3252c7b711911f20d7e219f78d914ed16f5c4b82246",
+            "0x2123cc92be7f8f33dc1ce6c55092771dfff5892934f5dba4824eb1e527cac6a4"
           ]
         ],
         "krs": [
-          "0x042e5f8bb72ffe3cc16d3a1cc6c9c7fe5d8a0c8c266e4676d3fb0954e398bd3f",
-          "0x25fa2589d9195aa92e465af90a419f5943f1aaa45fa1a659b1d84d642e6994e1"
+          "0x1982c7c6b86982f743870eaec30ea57f5b05d2f6026e8dd04195b8a8372e00bf",
+          "0x22dd1f643360ae3855459722de25b299bceb56ac00957070f3844a0a221f144e"
         ],
         "proof_commitment": [
-          "0x300295240b977096aecf45e566afb3cb6a2f1c0755d72bab89c255740e2d23c9",
-          "0x2166552a36e2a24474ce1e6c14af9fdf8572d29efaad410ad3df65e676876947"
+          "0x1073636d8aefda07688da140f6631c7c852af298a04c6eb064b2b98c22d26f58",
+          "0x0c479faf1ae311870979546851ba1347161895c9d488963e095dd8238e602541"
         ],
         "proof_commitment_pok": [
-          "0x061f107c1d0892c1867a85efeff91651997b6d5cd2d55f6000cfc58e13018669",
-          "0x28ef7120703157ca8c6ae3841fb2946bfe2aae2da1b148106c578087ab45679f"
+          "0x264e36bab175ef0cfcc13882e831017609ca8c06129d4e51a5f13724b97a5729",
+          "0x09d85d7e58ed9e708ccd02da2b5c498675366c3894ac415fc906896e389268a2"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0019559606f55847aee4041b6513baeece19c308343019ba5cecb8013562f2f5"
+        "2fa9672a872e0f0d83b2725b674c147dede1a56372b164f542ecaeca99325f71"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "0f3849b13b95e50cd8040c54447e208f892ebc0bbce44f903cc862244d23cee1",
+      "private_tx_hash": "1dc154ca32ef04e625b3b8185056c981fe3b952f764335b7233bdc00647682bc",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 60,
@@ -728,8 +728,8 @@
       "encrypted_utxos": "acc800",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "2faf7535d0fd010bab7d7205c19282b4a5305767cdb56a1efc0088fb0e367199",
-      "public_input_hash": "0350ec22f71207485a28b241caad80da163f392c44fe32587cb28b79db462b57",
+      "expected_state_root": "2e21329f2ac885507f2c15bd5a9b1902b09ac2f22bdd23e94fb11ee9fc977120",
+      "public_input_hash": "00a1a55f03f8586a9f47da4b564553aca14d3fc41b724e775793e56d34efb512",
       "external_data_hash": "00b2423861e0e0aa1b2d97d8038ca6b8162ea8a6bc1ed138e57ae2a8b7f14176",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -737,7 +737,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0019559606f55847aee4041b6513baeece19c308343019ba5cecb8013562f2f5"
+        "2fa9672a872e0f0d83b2725b674c147dede1a56372b164f542ecaeca99325f71"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -752,40 +752,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000000fa3",
       "proof": {
         "ar": [
-          "0x13ae780bfc9bc1fbeeddb25c83fc29e32a793b953657c927724f10515e4482a0",
-          "0x0cd5a5def1d644e8e6c3816a8901f782c9ce9e5c4ee840e77b5af51205352332"
+          "0x11526483f56bb8df1499b0c930a33d74dc4c9488da657b648fbc1577ced9781e",
+          "0x139a94140bc951c9c92004feb5d63c8d4e4894bcb7413ca47caeb0c2c146d23d"
         ],
         "bs": [
           [
-            "0x13f634dbdd9fc9342e4e50e7ddbeab585efb86f6342c5e9e8e0e40f7096fad95",
-            "0x1cd55fcdb9c749ce65871fb6f59c1f81ae55ce1944af46fa0d34ef550f04fff7"
+            "0x10040d4da7cca7a6cfec39fdf955c43bbbd02103fae961d2da2a6b91a3534756",
+            "0x2d3db3e201c7d3559c8e8473c8b1de9463e61283a2dfb3690666f3b685567ea3"
           ],
           [
-            "0x2bc842bf7b4f5c38bde2a435588107dfd2b81b7d3d181a1b275b2dbbb89832e1",
-            "0x05131c08a59572ae50e409a75aa950dab81a4e09e5cd5003e89f34c1a4c099f3"
+            "0x1b81a646ae78bf21a503716eae3753bd95160d15734a29ca5c3322164595ad8c",
+            "0x2b54cfaca05692a89380b40f524d0a443058556e5a7a07861551ce4fb79fda25"
           ]
         ],
         "krs": [
-          "0x2f2b5308867a71e6011da53c560f9fed5c856ffd6d63f8b9816b4eefb9b7f73e",
-          "0x002592e58ac7f59592ef6b2520ee4f65a7c125055ed93da9fdd9ee301c3ece5d"
+          "0x057eca34199d163fa65926934f57ddb378c315d54fe0155628d9bbfe910b302c",
+          "0x07b65ca198260fb2167f18fe664e05a717b4acb38d9d03753352d1d6bc4ba83b"
         ],
         "proof_commitment": [
-          "0x2193941db005280f7bd60734a04051c061a36c8478db48f12a60a2ed0252a190",
-          "0x2e7091e4bfc8cb8b0644ed97e42a115bfa37776438d5d6be6723ba4b4f746fce"
+          "0x1f55c77e5e35e28f6d8ca48a7391c5cb4ce5dde1a9dd9a3021926d72d2580510",
+          "0x23f0ca6a02974364a54404b64126f370e66f9c6372f779537af9190fe30ef9bc"
         ],
         "proof_commitment_pok": [
-          "0x0adfe8f95a301ec736cf9a00a03e275d11dfc8ba38f01f3a1d7b65dc3084328e",
-          "0x259b34eb9967b90f0cd73a7fa61f0861835247a2127fc58bf75e9250c9824eaa"
+          "0x043a562acbd87f76ee7210e04768b6558da1f187faecd8e792fadb62dde37d0f",
+          "0x1ae02a8850c38add4ec36086042f0a87b0b20427e9c6a94c47f1942604032638"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "185b30fe05397f1d0c4e1be485e38ed171b4b93b212e2e7763f76fba6937ad69"
+        "0b088465b8ccf1da4438d2bdc7b9d16102de87491d1912fcbb47dc2c9dd25373"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "299568233e834584bed656d377931910cba41826deabf638c6737d0877a15be6",
+      "private_tx_hash": "1ef2c5a6146e5aff4035eca45d28874ae34ec34d47874b38b979820b52650f66",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 40,
@@ -793,8 +793,8 @@
       "encrypted_utxos": "acc801",
       "expected_state_next_index": 2,
       "expected_queue_next_index": 2,
-      "expected_state_root": "2f46b3f334efdf76bf34a37cb6384a4c676490552319b8df4a15104402117166",
-      "public_input_hash": "20c478ef336977f3d4500d6fef9b28c2debb33ca4cad46a125b1406f635c386b",
+      "expected_state_root": "0b59ddd57f19f9b866629aaf41c338f8fa2fed3355ee7530bba558d893c67a68",
+      "public_input_hash": "28c495a7dfe12b0bf885d4fdc7fd7fe2e43f345188594e9895c1d0caa86dc35a",
       "external_data_hash": "00d4139683ac7e8b6a139376d0639bf76f3fb4449fe314fd6a02723b249c3f40",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -802,7 +802,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "185b30fe05397f1d0c4e1be485e38ed171b4b93b212e2e7763f76fba6937ad69"
+        "0b088465b8ccf1da4438d2bdc7b9d16102de87491d1912fcbb47dc2c9dd25373"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -817,40 +817,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000000fa1",
       "proof": {
         "ar": [
-          "0x1869e85e0422ff031fbf43c1491eb34338fc58d5320ad1be79353ccc0e2581dd",
-          "0x01554e9fa4447093a219d65f3c78b811305a4d87699986acfa5675afae7e59a4"
+          "0x1062b72d332022e73493b424c87d3d19316b63c7f0f0e18953e3c42b63009e11",
+          "0x0504ca81b1ced1c8496ef7f8a97c17b352dcb99604c7bbd4f52b6549a4a19273"
         ],
         "bs": [
           [
-            "0x2db17d298fa406fa37b2866a67eac56ca39a09b67041ce66d4db090475e2a0bf",
-            "0x1faaa72fc9f74c254c0c5af3ffa286db1dc4b0059da4a535d13537f46d11b478"
+            "0x13780783ffaeb5cf5324033b3f706444857fdcab83fd4dd53afaf84e94e741ac",
+            "0x0c8d5e8a44ead8307b84b0f932cb9bd04d74a110788f0308d5910b0c018ca5c2"
           ],
           [
-            "0x1ebed7ac644d401230d932fcfad11540d4ec2f4ebbeb72fc7f76bcb7e91c3f68",
-            "0x11d58d3bf28f75ffbfad627110371697e44ea93f47462f5eb6f16bd26e366c07"
+            "0x145ee76f0b6d9c2d7e7a9459cc6e80e034f8eabca1de541bcd6a192ac924c7d0",
+            "0x1b99e46e6729fe854182648244b740d4256af61170c7ebb56ac102fcc1f658e3"
           ]
         ],
         "krs": [
-          "0x2e3522c9343087efeaeff21e2a38ed0d2d20bd57c8873d1ccc2f3af2f3bfba77",
-          "0x23f4748c493d0ef54d059ef199db1cae4669edab6cd8d5efb34b40462922fd75"
+          "0x0411067a2da534c0b90595dc61b22ae9379e3aad1d8d9808439b6a168b16470c",
+          "0x2444d790ab4964ee24b8e7765c8516d761ba7c85bfb27ac27da3f6293a8caa17"
         ],
         "proof_commitment": [
-          "0x12a53c2f98e70d07bb0ef6cf6ce0a02502580272e0a296049cc57df45aec32a8",
-          "0x302bab43625a70a0c55950f57765ee621fe78066d102e4f9770329ed079ba1a4"
+          "0x0dc47177b00a4e7e099967b76d2f08642bd3699ce0f2a737b31fe3b61e1162fa",
+          "0x1f02b7d64024c6b5f4f3cd3d29d8b12ccee042a79b9fe572fc42a7e1ce9a6058"
         ],
         "proof_commitment_pok": [
-          "0x1dc5dd82855f8802ea321d8c3adc3aa94187705acbf51974afbdb0ff06806731",
-          "0x05d0999c0387994cffbbdaa4bef3646952b7d012714d3f5504789aafa3aa6bca"
+          "0x0819dda8165f9defbc395bf12986370db4234eac8a96592cd8ead8672184b70b",
+          "0x03d8cef50e2c6df95cd54d07a047e32e4ea1224d27c3770b65dd15d5b9ccad9e"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "197f6455e7e5bc5735cceafbfb042481c1ac6a9179cb663ae98add4535dd105f",
-        "0bc6bf0d579b991b87be596d344f89ea63c7fb23298d01061aa791f75ef7d07c"
+        "207ac10cda049beb244561046a6221bb0533360c9ff8a37a715ea19024881459",
+        "15e2bc401f2f2b9f5a88f6d40217587d57aa47ee2830fc475688e2100849222b"
       ],
       "output_utxo_hashes": [
-        "027f8de0d489e0a1189c874733f1b1bbe0066f1ffd9ac63bff8544a0d30e06a7",
-        "235aa3685e8bb0f354c8687f838208c920db4614754875ee65a0dddb46d1d966"
+        "2dcbc5ed8d6a2b273d46be0f28b64632ce1945764d2722eb78c33d1aa55f4a15",
+        "29105009e9f3059a461311b86f3f11d93c67c28f86df28d5c801ddfa18ca50d3"
       ],
       "utxo_tree_root_index": [
         2,
@@ -860,7 +860,7 @@
         0,
         0
       ],
-      "private_tx_hash": "25937e85876bb32fdd16a22401e0736fdfa1bf82c2862eb8375d56d006452ed4",
+      "private_tx_hash": "2b1c16cdb0018518de1ec655abf722aecc4caf73acf317a41910ef9bb7f44cc6",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -868,8 +868,8 @@
       "encrypted_utxos": "abc8",
       "expected_state_next_index": 4,
       "expected_queue_next_index": 5,
-      "expected_state_root": "0a9f2c6bb74d8e992dcf9f68cd0485290f070213b97a9644814dab48e15cf5c5",
-      "public_input_hash": "09bd48f8a9f035d5887029dc5b10ac9664c0f168cfe3561aad6a55ab6ae87063",
+      "expected_state_root": "0e8e99755a7582e3c10e4a7cfff4ec042e932b78bdb49761a0920c5bfa4993b6",
+      "public_input_hash": "1e8da73489af346f9942388589b0fd4f2829637c4c595512b9742ff1437a780e",
       "external_data_hash": "00f13017847c87e08a84b1c2ae22a17102d86f5ebf48388cccb89a046157ddde",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -879,16 +879,16 @@
         1
       ],
       "debug_input_utxo_hashes": [
-        "0019559606f55847aee4041b6513baeece19c308343019ba5cecb8013562f2f5",
-        "185b30fe05397f1d0c4e1be485e38ed171b4b93b212e2e7763f76fba6937ad69"
+        "2fa9672a872e0f0d83b2725b674c147dede1a56372b164f542ecaeca99325f71",
+        "0b088465b8ccf1da4438d2bdc7b9d16102de87491d1912fcbb47dc2c9dd25373"
       ],
       "debug_output_utxo_hashes": [
-        "027f8de0d489e0a1189c874733f1b1bbe0066f1ffd9ac63bff8544a0d30e06a7",
-        "235aa3685e8bb0f354c8687f838208c920db4614754875ee65a0dddb46d1d966"
+        "2dcbc5ed8d6a2b273d46be0f28b64632ce1945764d2722eb78c33d1aa55f4a15",
+        "29105009e9f3059a461311b86f3f11d93c67c28f86df28d5c801ddfa18ca50d3"
       ],
       "debug_utxo_tree_roots": [
-        "2f46b3f334efdf76bf34a37cb6384a4c676490552319b8df4a15104402117166",
-        "2f46b3f334efdf76bf34a37cb6384a4c676490552319b8df4a15104402117166"
+        "0b59ddd57f19f9b866629aaf41c338f8fa2fed3355ee7530bba558d893c67a68",
+        "0b59ddd57f19f9b866629aaf41c338f8fa2fed3355ee7530bba558d893c67a68"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277",
@@ -905,40 +905,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001006",
       "proof": {
         "ar": [
-          "0x111a843a5a7a92fa77ad5ae79127c89617ddf86d5db60784734f2e11be6212e8",
-          "0x2e0b92c11888ab25032027ed051a3d55c3c196e051d4c16cb353dd3481ab056e"
+          "0x1422ad9c2ff6a4e67fed91d783431fcd1e51471756974e05cb53473b53b42a51",
+          "0x01298739ff25cccdd2bfbfd9ce8dcab58d2b205de7ca6d6e4ae2e196eed42bb7"
         ],
         "bs": [
           [
-            "0x1a34a33dd740a60b76fe2df3f2d8e37d9884a0841be48dfefa5a8049c506a8fb",
-            "0x2221266f3f588f681a74b4a30d550aa489471dfb7ef29626edfa86d0c18daff8"
+            "0x22a8e3be1c25ddc10a796b709cc2b71d1ffcdad7a4a28749eb2f93a8f5606212",
+            "0x0c3d81b79ab668979e7ff052df4d22588e5709760012c997d67c16e3cfabe009"
           ],
           [
-            "0x2022c69c3887f0375903532e56aa6de35fc2d85d54487e607d1569aefc803684",
-            "0x01062d6c9c039434b2b6ab71e6bcc60825730b16ef5ed6d71c8872010ee39ff7"
+            "0x2b1ad82309ad4879b981563a31aa5f18be2e08bc97da154a6aa7fcb69ac3b499",
+            "0x1c81ea770a1631bc112fdb2feee91a474e7cb473bfc771a943b0a33b52c3ca57"
           ]
         ],
         "krs": [
-          "0x060ffc5e78dedecb273cbc0e05a102fb9736845682538b261276880f4f142aac",
-          "0x22bba8f36ce06a85aef9d21819201ebf43594a5cfa2670cdf2215de1a83f0850"
+          "0x076d9cab25878b452f22e9a853bdce0964c2be9c59d5c6cd6c22e337ff9fe1ab",
+          "0x1ef924f20c39b5dd8713ce7d33a507b46d434852a9f6ebabe82a8fe46fff4069"
         ],
         "proof_commitment": [
-          "0x2fbbb9e4b2a314bdacc79f9bcd01359f413d9e3b8541a739bcfc987cd0d1fede",
-          "0x0ed36d58bb374a5bca71d2a354e75d7ae10cb90ec9f5741247efaa91f795dbde"
+          "0x0f9ab0c65a2435497a258823c38eeb07186c5f18193064711cad48046fa706f3",
+          "0x242742b65bda499ef48272ef1a3fcda109a3f4ba15d934fa5db0136c204760bc"
         ],
         "proof_commitment_pok": [
-          "0x2a3ddeeb884ad8daeab5682428a4c8f6c7f198778affd5f980b2c208b40f4df4",
-          "0x251c46ef9e173d84c34cfaeea5e62c5ab195b63bee250c5cc65f246eac52d9b3"
+          "0x2d2b98bae7af16a020db6ede64a868e6e10b1bbe5e9200c18984f194fdc2807b",
+          "0x24a97984720e67792fcd054982f77a4a15b0fc2898f05c07ff2488b5c68f3888"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0254af54ad78b970fef63bb3ad96a4d177c633a495f3a8cc52742a484998521f"
+        "2ea52defb91ee46bf90f2ce56414aa99016fcfc7d12f30772ce6f27845e3494e"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "03a997f818a75c8948c60c11817cff82e58f3e9d6c6b6cdae70e6e40ff350366",
+      "private_tx_hash": "2a6179b4b6f976ddd116c6e066e1031cb03f0fce818f373481a27a071271bdc8",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 40,
@@ -946,8 +946,8 @@
       "encrypted_utxos": "ac2c00",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "0b64ff4fd7b737acc6a6e261d7961e0a5a38b26c8dd8407a5068d918e24d841f",
-      "public_input_hash": "1652d73b3a7312d6268d99fc9e8d76d5c6c323c9d3b15eab3ab073dfaa388888",
+      "expected_state_root": "13ff7e4fccdcaeb18e0ace57bc48138c82d1ef26bcb48d0a395a24b2e8bac221",
+      "public_input_hash": "06e81fa9394d41fabef64860a30e2aeedc016b577e329fbe9fedb8ecd3283d0c",
       "external_data_hash": "003fe54ac85ec74db8a013436cb38302a6e110e0f20cff2fdbc3175365cf8bdd",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -955,7 +955,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0254af54ad78b970fef63bb3ad96a4d177c633a495f3a8cc52742a484998521f"
+        "2ea52defb91ee46bf90f2ce56414aa99016fcfc7d12f30772ce6f27845e3494e"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -970,40 +970,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001007",
       "proof": {
         "ar": [
-          "0x1393444293253dcf241725b2b26e289dcb5d3b0fa12efcc943e653c29a25fbd2",
-          "0x041150b69800a71fce450584551a207e5e3c68d3c1e15ada5e69b5be462da262"
+          "0x201ab2d9f8be2e173d7a05c54dbbea08820847842f0fc7d5e47a373edef6bbd9",
+          "0x02076ec5d79a4369ed225818ce05bc3de46d6d30a9978ca62e86993b0e9858c5"
         ],
         "bs": [
           [
-            "0x2c3e031d99b6e041fc7161fad96e98d5b8228200fcccc05affc1e94748916169",
-            "0x12f5a4f8f53e12ad4870b790df468d7576cd529f1d10b66022b5356e5c89024e"
+            "0x297385baad3ff39a68a5edb40539fc93525809eff3cd649b4b1b88e6419b06f6",
+            "0x0c78bd7a20804eb577ca5b3d7129b022479172a2b5a02f315f05be078d817e12"
           ],
           [
-            "0x158cab87851549510f71859c6a1993b69e39113fcb4935717c7a64d1c505bb08",
-            "0x0c884ab50d7dd136d78244150b6215d0b20480c96695ec6b74cf528d22461f8f"
+            "0x0eec185e589a7e225e810e25ab572ab39fd931a92e2b592484611ba85d37464d",
+            "0x1fb90ff1286ef7dd269eb4bd81776e67f208104ac14284c0e295a67908db8047"
           ]
         ],
         "krs": [
-          "0x0299d30098b6c71d8c0ea51e1a2cbadc27c20571bb6371b7083f97e641b86850",
-          "0x276b4a0564d62923fb45d89483842ec390bb7938954e3980da88795e3b41839b"
+          "0x08153f69e724f2a118aff04080c76ea2a5e0f9ae10336af8300e0f95e024997e",
+          "0x04d024f831de5970594e03a7022c3c3e89413110a312fc13eae00685345c538b"
         ],
         "proof_commitment": [
-          "0x190be42d88a3a21733835514aeaac87ef0ef644312117471bf18d578f7d6194f",
-          "0x0b11d348167b80a593f09e34b628d93efed8adbeb3b086bc4f8623bb4b049a9f"
+          "0x1528d0929d3f13da2e0b0f729a28123145ece71d1611119a2edfa458d99df747",
+          "0x2221e16a3c2c69467e7883c86251f9700f69c23d3965890b07e241bd7b08f39d"
         ],
         "proof_commitment_pok": [
-          "0x05273f0ceb542668292fc3850998405c00532713935e18f7527e355cf9652f61",
-          "0x1cc565d7d674432c8cc37841f798eb2c7c1879f27099d22a1f27c1d55a06d5f3"
+          "0x2524f45469c18168b474f18599f94e75ed0c286a79d1c9f665b444d7543a1288",
+          "0x085debea2de38f48b22f39d50f0ecc9c55e2e86260931cf301c81f7c4d08b71c"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0f14a4178c2f304d58057cd7cc346459b708671892a362c9322f28c9d9f27f6b"
+        "1022217bf41d50828a424d7f0522e8fde1d923cd17e356ac5d1c2bbb0eb0086e"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "1787460502f34e09c5b7ef1d3d733d9f292e86952db0c21f1411306b5c845e13",
+      "private_tx_hash": "0ccc86e26adc42294cbc90d4752490652a39b603e798e227c13e6fbb92f04f39",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 40,
@@ -1011,8 +1011,8 @@
       "encrypted_utxos": "ac2c01",
       "expected_state_next_index": 2,
       "expected_queue_next_index": 2,
-      "expected_state_root": "02697166739ad3ca471aa650f27dc8ef16868a13cf5e49128c42d7b8c14d9d41",
-      "public_input_hash": "017b669588fabe18a0f24a7a267bacd7ecbc795e1031763d84df8a1d26c8c81d",
+      "expected_state_root": "00ec10bd7a9c98388c78f7eab21076351c18228224354abbab72b778908e9add",
+      "public_input_hash": "19c504dcfb6ea8dd65aae7a05fdcb34722ca7fb125c454be777cf2aa717bd2bc",
       "external_data_hash": "00e755174420d7374f6deae1d2ed7334ea693d9b560e9f0649a2bfc83df7e2c5",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1020,7 +1020,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0f14a4178c2f304d58057cd7cc346459b708671892a362c9322f28c9d9f27f6b"
+        "1022217bf41d50828a424d7f0522e8fde1d923cd17e356ac5d1c2bbb0eb0086e"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1035,40 +1035,40 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001008",
       "proof": {
         "ar": [
-          "0x23a42b8e66a658b9f0e59ddf01e35b4193aa70d23296a2568526f6c1336c828b",
-          "0x11063a81d788ac568f2d8544a021029d35791a387966ad9304c93890a91199cf"
+          "0x0710640efc864d80a1840db753ed7555227336a9be2ff87855a663ee9a5d55c3",
+          "0x0a8cc1f9789ff460a621cecb51ab333f290c20e0eb06509b9bbf4865356284fe"
         ],
         "bs": [
           [
-            "0x25c79a38af83fab8c5c6a5ff84aa639f042e22ca2d64e05cd36ea7973d6b84ac",
-            "0x075ac324e7c1a515bf41bfa750fa74a9c41d8e20aee9ca391380a607658d0edf"
+            "0x2bac3c1db3181ce4b0468c006e4ecc28f7684f36a30d6acc137bbb640466151b",
+            "0x0d4c9ec63fd606f478209cb9a01e181a4f4d1bf1c8458735b84a79d13eba8b5e"
           ],
           [
-            "0x0a94c299e1b7f0f0f5f37f57c26cdf31f6e5c9a65f8d77f279b7faa7c1531614",
-            "0x142d0b2ea298bad2462ca2ac7630670332896a7e62f9514f22589c01b43ce19a"
+            "0x25db28b232da98110d1723301c8d0c4417b791c14e79ee70ddd5e1b9135bdaf1",
+            "0x17a6ab9db2f3ff32dee7e46ffa163abed47e6c9c7621df02c8b0203fa41ac83e"
           ]
         ],
         "krs": [
-          "0x1552ad9d4316dd407d424ba60c71ed4530375ef10e2b563ff97d47de9950b268",
-          "0x208cfad7e0365bfb37eb2ae03ad459f4f39841f12d33be25c187b7d298eb2979"
+          "0x269c59794cee342d7673f75bc6860f81ef13dfa8bc93035fcb1430caa1731fa5",
+          "0x2c0d45d1e26be0d2c1a7dfc875e0e98e1bc4fb969b52cee7fa6a67b45a290be8"
         ],
         "proof_commitment": [
-          "0x0a0f2f019e222defaeaba50e5c95fab277c23b701eff9f0d4aab66463917d889",
-          "0x29120a245dffb4148a48c667e37b29fb5349b18d74296ba6582ebed1bf1aa1e7"
+          "0x22b5001c5645463d895a5b0fa365dfce9ff51052a1fe7ddce5f252332ba29a66",
+          "0x1719a589c8716fc7fce6ca7c0652f2f946137e37307693cfebedd734064e5473"
         ],
         "proof_commitment_pok": [
-          "0x1f0bec712675926bfdc494e1a371dcf35c99676cbba7c838ee66ff469ce18468",
-          "0x1c392acd48cb61e053f0ea5a06c1864d3793e76395d0e9b25123c832156592ea"
+          "0x1f12ce0e4e51ee3788922a8aac373eeaa5dd1d42f76db5da2251aaa523c42962",
+          "0x0e8299ee1b6e6beb2548528ff72ef09af213135d42f6fab7a7e9cfadf01386f6"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "26483a3b933e2f40842e31c7552d03235e852eebcce603727cc9aeadf0b67126"
+        "2b158529441f95b55fa494594152acdebec69c715c9f300f42c071ccca0f2848"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "25d2a88256ae702cf323cad3b91bc4b66584674c3d1fc00c0020c03a49d23ca9",
+      "private_tx_hash": "13408056aebde9c9b368cf3bd391ac7961ce375ed50f874afe5f0c8e1a291dd7",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 40,
@@ -1076,8 +1076,8 @@
       "encrypted_utxos": "ac2c02",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 3,
-      "expected_state_root": "24fd0ca1a75cab31a8a4f8cbef617b99dc62808f590ea04c44b445f07c67cf10",
-      "public_input_hash": "1f67f15451464d7a332840bb7415ceecae52eea77c61e65b54bd36920021557f",
+      "expected_state_root": "21557dcb4a0323a06b54460b695c51e093bad190e7c594121c1c4a758b3552ae",
+      "public_input_hash": "2fa4f78f494ce8e62510be26a521037adc52c6d602efcd7a84106743e501124d",
       "external_data_hash": "00c8a2d722dd9d06d096b8128121bf0a7ef06019bd66843b82c18abdd9098cc4",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1085,7 +1085,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "26483a3b933e2f40842e31c7552d03235e852eebcce603727cc9aeadf0b67126"
+        "2b158529441f95b55fa494594152acdebec69c715c9f300f42c071ccca0f2848"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1100,42 +1100,42 @@
       "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001005",
       "proof": {
         "ar": [
-          "0x0fd23a1e4ebff8687a45054b5f8387faf78b96f6a0f83b23fb9c3af220409fb3",
-          "0x010cc49bc019a68ed191b71c79baaa04c8e2e8f2a0be96a6b5bea072d3a991a5"
+          "0x29637b579fe63b6292ed62a432a55cea7c8735bbdfafe2a7330f7b620423f86b",
+          "0x01f3ea74e755e95fee8506f578173141861b5a5cb2bec9ea70bf5abc6f1c1268"
         ],
         "bs": [
           [
-            "0x2d1c650026a634fdcfe7d61ca382b97078a1913b91b6bddf9cbb12dfebcede48",
-            "0x252a6900c214715afc9f417e47eb038bbeee2cc971782a63fb69685573489ad5"
+            "0x2b8feedd281b90f2143c7363721ff8accf93b93805e50e0b2b1b2cabc3634186",
+            "0x1bd9686dff884bea7d9ca51dd25b0ce4af450c38cbfae00027ec95e091c26404"
           ],
           [
-            "0x2a08fc9c31aaf62d9dc97a61ae96a73a0e5ff0578ded690273f90802e53f2cc7",
-            "0x27036d6de062fbc59944ae4541312b38d60e7f44ee92c92ae95bc1e2ade931ef"
+            "0x0c5a7cac905be486b4b5c4740a47b6a76227742e691299d4b9b8ffa6e5914f83",
+            "0x1fd5ccabc68457237315e01e5bfd2af8467bbe267432d98c5d4fc64d9e1948fa"
           ]
         ],
         "krs": [
-          "0x2a50768a62833caf368001c7135d2c4b27875cb828b13fd7035e228fff0439ce",
-          "0x03f1b5505a936bd92759a2da119ae64a64de624cc82221fe7ca1075cf830c2fd"
+          "0x270fec35e382a3cca980519c61e654d7d1ca49762fa5b69c424344bf9105bcf6",
+          "0x112c2c8f7e7c41c9f618d1654e7a657f3f52f3ba83499351b6b7c46f922eb5af"
         ],
         "proof_commitment": [
-          "0x16cc94db0950825b15b8a6054a9752fd0f1335f4d999504a037ed116f1acd0f9",
-          "0x2ab07da234c03d8d7281f4fd0555cdd3d59df9ac39356b477daa5b11ffd7dba8"
+          "0x2bcf36d7d9f52eef38814d750880eff700c0d3ac0cde9d7412ea4985f9315fe5",
+          "0x294bf122b2faee4f6637555674d47d8128b6ff8a4e5dda7a6e10f2b3f5bdd7d7"
         ],
         "proof_commitment_pok": [
-          "0x14112d3f77ffcaba3d16993212b286448bd9b068c78faa1dbbecd760c9f2c960",
-          "0x2955784ff0516baec7e291cc0f97cf691892ed9e606eeec5150ebfed3183debd"
+          "0x097e6ab11900d04a1397ca412f9b461807c9890140100a903ed64134a15f2b9a",
+          "0x25c6ce7cb069292bdd8fdcaa3c50307df1bc4bf8144d4fefedbb06784f916c81"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "1c289c39d72631be372d020ec8d19c2601266bbb9076f8ec33b15797033d2a56",
-        "25f0e26354259a423678873286557503f89d9b3aa1ece394ca50269da1490f20",
-        "111f92daa18cc66bd9b6b23205f751173440a54e69825afbe9afc79d7c069e73"
+        "094cf993068c6c20a15046607db659d4370e5b9649d7f6cc7bd88e2359561ad0",
+        "2b6a85b304de1ab75101dac06598a5db169f9fc069727ecfa371f1c555e762ac",
+        "1b5e6ac29dbcaca9febb1fa464984befc0c4d78e22fdeadbfb9c5829d1c90e74"
       ],
       "output_utxo_hashes": [
-        "143ce4cd8b02d74bfc6bb3714dbd04150d647f2e449de9e0b71bc850efb9e85a",
-        "165bc8c543be5e9b3b69e1a67860ec7a56b344c419cef4551e7053bcd3328e8a",
-        "1bea6aa637ee762320d3a6f52aef76ae16b446a1dbbaed12bce30d6369f69693"
+        "1614b1867cccf255a0497de7af22e42c4697b877318355df115491b18a52078f",
+        "068ae1fd3b761ca2b326dd2d91db6085ad0dc4c3848be77d78fefda80fddf165",
+        "18ce8107ed6a7d4c016db81ccb89b16996e497490f750758e4505bea1a822389"
       ],
       "utxo_tree_root_index": [
         3,
@@ -1147,7 +1147,7 @@
         0,
         0
       ],
-      "private_tx_hash": "1b9d3ad7be68a5e08f99cb882f6e1cc7b4f5cad5fd38438d2b1556cb61f25b50",
+      "private_tx_hash": "23a97f9c64424c1c0c0b9fb75163990cef32b6b5478ee39d0313e74e0d94a688",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -1155,8 +1155,8 @@
       "encrypted_utxos": "ab2c",
       "expected_state_next_index": 6,
       "expected_queue_next_index": 7,
-      "expected_state_root": "11dbd4eae47c823eb43eeff1d90c258168232cfc49d07e643bd7d7e0f9ea546b",
-      "public_input_hash": "2ccf5fafc9a0ca7ed0877cd27c6269e9233f059c75c418348856c519ae67c450",
+      "expected_state_root": "05418c2cc307f053402c642217fbba6580eb83f049340d7f6f10f3443e0efd37",
+      "public_input_hash": "2d63aadd3556c451961864726a74eaebd94f3b564e95b65ce1c4c15a31fe03b1",
       "external_data_hash": "00e06db2808d1c43d73a24a680657a044404e291f72c4ed14516e9ee358f1f99",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -1167,19 +1167,19 @@
         2
       ],
       "debug_input_utxo_hashes": [
-        "0254af54ad78b970fef63bb3ad96a4d177c633a495f3a8cc52742a484998521f",
-        "0f14a4178c2f304d58057cd7cc346459b708671892a362c9322f28c9d9f27f6b",
-        "26483a3b933e2f40842e31c7552d03235e852eebcce603727cc9aeadf0b67126"
+        "2ea52defb91ee46bf90f2ce56414aa99016fcfc7d12f30772ce6f27845e3494e",
+        "1022217bf41d50828a424d7f0522e8fde1d923cd17e356ac5d1c2bbb0eb0086e",
+        "2b158529441f95b55fa494594152acdebec69c715c9f300f42c071ccca0f2848"
       ],
       "debug_output_utxo_hashes": [
-        "143ce4cd8b02d74bfc6bb3714dbd04150d647f2e449de9e0b71bc850efb9e85a",
-        "165bc8c543be5e9b3b69e1a67860ec7a56b344c419cef4551e7053bcd3328e8a",
-        "1bea6aa637ee762320d3a6f52aef76ae16b446a1dbbaed12bce30d6369f69693"
+        "1614b1867cccf255a0497de7af22e42c4697b877318355df115491b18a52078f",
+        "068ae1fd3b761ca2b326dd2d91db6085ad0dc4c3848be77d78fefda80fddf165",
+        "18ce8107ed6a7d4c016db81ccb89b16996e497490f750758e4505bea1a822389"
       ],
       "debug_utxo_tree_roots": [
-        "24fd0ca1a75cab31a8a4f8cbef617b99dc62808f590ea04c44b445f07c67cf10",
-        "24fd0ca1a75cab31a8a4f8cbef617b99dc62808f590ea04c44b445f07c67cf10",
-        "24fd0ca1a75cab31a8a4f8cbef617b99dc62808f590ea04c44b445f07c67cf10"
+        "21557dcb4a0323a06b54460b695c51e093bad190e7c594121c1c4a758b3552ae",
+        "21557dcb4a0323a06b54460b695c51e093bad190e7c594121c1c4a758b3552ae",
+        "21557dcb4a0323a06b54460b695c51e093bad190e7c594121c1c4a758b3552ae"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277",
@@ -1197,40 +1197,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013ee",
       "proof": {
         "ar": [
-          "0x1d91a5d174d21fc7f0db1a8a31df376ea23e1a51daeb84c78e86fc182847873a",
-          "0x1ebcc22110874cccabb953b61e1e33823cb8f7b979f4d95d5635fd760ef42e0e"
+          "0x22b6e4395add30258d40d5de99459ed1ebda92967a6034709c29f7e8ab08c17f",
+          "0x20c80a79ce8aa5b07961fe42e17f1369cc6e4464f1dfa076c1da145dbaaf19f4"
         ],
         "bs": [
           [
-            "0x1efb12ee3b0af346dbea9527691ef6e1b3acd83bb0043df7bcd27018039f3f73",
-            "0x07895746d210279c8f143fba8c576eb3b7b703fca5617bae6a7ac5340d4aff89"
+            "0x241f8fd9067081524035ed8f045bd5f68b7774bb14fadc2179e75056ba4d4884",
+            "0x058f345d9dd3e289b665172c80669185fc23bcb44a9a3beb21f8b970828c3dbf"
           ],
           [
-            "0x23dcf038db58889547972c6319fe4c6032ca4100fa40d6073bc155ac4187f75a",
-            "0x19b54889f9bca554cc71f178a870c7aee6c8ed228aa98c85268492e708286c7d"
+            "0x2ba58b290d30e30efffc04b530336a35e4a6da4b08387ba4e422832c6eea0563",
+            "0x126c6c2c129626ef702c101b86f978bb8ef8dda89bac66dc7dd9330a577a43f1"
           ]
         ],
         "krs": [
-          "0x16cace9cf02f0ba27b52e0bce15d7b47ef7aa1a324e87c60605684575d21c920",
-          "0x248a45086b41c69369e4263b3ac6d0fc41586d3449eb97b255797003b3841a3a"
+          "0x18307964736cd628f5ea5e3b33db9a51be9150451e9fe323a10b422f0d5b170c",
+          "0x2d6830cca57ecee9abd9da68455e47eda566b2c64eddf9627f8931030c9dc890"
         ],
         "proof_commitment": [
-          "0x1d25f79aee14f8c4b16372e2dacd7d111488be2ba3d46f30b725066251b801ee",
-          "0x1df69d07b519c2025768d9e44aec787872750ba333ca7f661fc6c1f70a925784"
+          "0x1e47289a6027d55e217980c8d7be95001cfa95c54fb71638ee0e7be4c74c7ca6",
+          "0x126dab7dbd0899c6507ae0980955fbb283944e4d46ac422bda00a90d678a26b4"
         ],
         "proof_commitment_pok": [
-          "0x2e814f79f05dc81ca4432aea82b747e27087a04f6b3de3727cca8548228a7ed7",
-          "0x2baad6790f24e58d5a75789bad7fd70eac0064cc306a1f4531d9f401cfc84808"
+          "0x0c48aefbce022bbbaac73c56921b6540f0681cdaf99b0235de9a895406f94df0",
+          "0x1eb57b205c69d52d0c8de481aded9b771832f51d57a2c1846a2c10633be4f402"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0429d9ccdea01671099cd93e848e995a4e77454c072241dc977adb48e970eb28"
+        "056d8046babf1a1309ad7a27d28dfdf4bdf74c6be489ffbbdedf120fbbb14e1e"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "2e9e710d7218639034860dfa778b4a5c9ac6d07fda5d29f8b1561f6c5fb6cb97",
+      "private_tx_hash": "2685f2a0442f0f47e42afc4afd8df809023b5f0bd42b621519bc9d381c8f2e47",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 30,
@@ -1238,8 +1238,8 @@
       "encrypted_utxos": "ac9000",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "2586c344a0934dbd53c89e8a58c927bfce4d771d773f4769b1fcd4c98d9114be",
-      "public_input_hash": "0aa5bff7e17ae47b9239527d56fe2240c045e27f80ce88740433ce26e560e589",
+      "expected_state_root": "26eaf224c59b28cb3d39285dc48bca39214e27f57f34dac1aca5583fee81b41a",
+      "public_input_hash": "22ebe74dbf3e00697e304fd1213f302e23941546c388df978392bc919a0cae51",
       "external_data_hash": "00dd826ff74cd5eda217de238ac56fe0d0b8d025ab0777d5657323d8857ba085",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1247,7 +1247,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0429d9ccdea01671099cd93e848e995a4e77454c072241dc977adb48e970eb28"
+        "056d8046babf1a1309ad7a27d28dfdf4bdf74c6be489ffbbdedf120fbbb14e1e"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1262,40 +1262,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013ef",
       "proof": {
         "ar": [
-          "0x0987eac2bf67f881547848a0dfb6db4bc1d96316f1db201e10b38e04482fbcba",
-          "0x0a9339b4587196d899c5f687127aa06089e3b6070a4b8ba5700beb9eb6b0a167"
+          "0x30040d9cc388fd4c5842e7ba13662e2a865701d7591e28cc99da046e927ce528",
+          "0x1c552b014aa42296b2b97c607d8b94ce8425b3d4629014edd7dbdca7ad49d9c8"
         ],
         "bs": [
           [
-            "0x1b576465e38d7ab2f9dd3435c79162a31b3508b03ec34b237d99c0fc675702db",
-            "0x10b426a5af12644528c2d762b37c9e1c36ad330bb7b29d03334d07355a51acb7"
+            "0x087194f2ee2987302e4563e4542881ee3b9ef011c443bed6ce990074c1d44715",
+            "0x258722dc2fe204a9ad17a9d7d57479be47ee0d147f07b0fcfd190a838ac275b4"
           ],
           [
-            "0x057613c5a533c418b4b3f550ec46a73a23594ecdf95e9f604b5883e971e63113",
-            "0x0808396b133a2d14c07ae95c0424b59225bc42473a7a76a4a9c51300ad59b320"
+            "0x065878cb2e300b9245988600cc0e6edcf3c0b66fa18c95e61ef1bf408c538f34",
+            "0x02d326661e0266491a21a250b2afcb9337187fe302b99c280c873406e66e4356"
           ]
         ],
         "krs": [
-          "0x2a5545b4e9f32828b1054e84b375de8696eba0b22db3eba2207abc23598ebbda",
-          "0x01fa1701a8ed2f7568c09392c45e231900dac1b64136ff6e77dcda5e09494d41"
+          "0x096bc3d30cdfd6913368035ae81c5583d8faf0cadd881c30c6aa2a0e11fffdfa",
+          "0x1282b4840afa725446180f8dff1c8b99828805ad4acfc9cf0186501dc6afc4bb"
         ],
         "proof_commitment": [
-          "0x08788464c6b310a08ea916d879517e01c55b1e41f7285b50e9e0c452ea067a9e",
-          "0x01dac8918b7849487a9f856d6c070a076bafdadade793d65ad9d882ca6d3d5dc"
+          "0x10728b440dbb23147b4929dfbde06bafae16861c472d082d5afde38fd0b85b59",
+          "0x13f55833a8954c38af559572070f4aba4322d4fa2eaa8232a2e008daaf6f479e"
         ],
         "proof_commitment_pok": [
-          "0x1fe4d6ff182116257b353687df6ff99e1bc61bc7c804b0ce87e4987bc6e23691",
-          "0x18030294dfc274645fe2d847c8fab8875ea0569c6fa80823a12caec5269e06a2"
+          "0x2655a89a46669d90248649e61fad9fd2d7263618501e1800225914c5b14c076f",
+          "0x27303f5c13145c79e4935a62f29a408961ee30421d091855c920f842b3d3d8a0"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0898ba6c721775cd0d7d7569ae0a4d69b566ef3dbd30990e5fffb1a52dc3a327"
+        "2a2e6586c1c0ec1e7aaaa8e4ae3e41151ea1bb177c98342eb208f1b9e46523f1"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "12d3d97aa52ec1559ee6c5c01c91a7adf57cea82b94ed5659b470361912cfa90",
+      "private_tx_hash": "124f96509e4ce46f6e60049a2a6aa86a25f9d693bcf599a882ea96d688bddedc",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 30,
@@ -1303,8 +1303,8 @@
       "encrypted_utxos": "ac9001",
       "expected_state_next_index": 2,
       "expected_queue_next_index": 2,
-      "expected_state_root": "2b52c7341601a747f2f551429aa64f10aeffcd3aeab92e16d6e134d5aef13976",
-      "public_input_hash": "1048f8e131ce11bff9044be0640f4891321b27c7963360c54f29bf40bdc912fb",
+      "expected_state_root": "19951b8c682d49a918417b3171666cb2fc096540a49f7c46aeaffe0267e7390e",
+      "public_input_hash": "1b9d611035368ef8cc9deea6cf29a8a81af4d5a6ccbec4e2b93fea11c5418b72",
       "external_data_hash": "00e03ffc057c79076ad267399d97d3d1c2b09d9b16c9ba95f4870b6e2e71d1b7",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1312,7 +1312,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0898ba6c721775cd0d7d7569ae0a4d69b566ef3dbd30990e5fffb1a52dc3a327"
+        "2a2e6586c1c0ec1e7aaaa8e4ae3e41151ea1bb177c98342eb208f1b9e46523f1"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1327,40 +1327,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013f0",
       "proof": {
         "ar": [
-          "0x18f0ab2a3591c5f05d92bba47dbaf2bc3fefe82dfd9d7a7538c050c62f662f70",
-          "0x133feb3113df9624bd10a3371f196a5c979b31e28b4f282e351fb8798444f089"
+          "0x2c59d61240de877c00cf6456c3833fab71fdcd9935a46145365abe1953b74a0b",
+          "0x158cbf07ccfa70bf65aac5d075676c8c9f152c25b4a95378d4bb842c84fbbcb5"
         ],
         "bs": [
           [
-            "0x1955ac32b8b1b5b873a58d5507afbf354f5e05586ef763a2899b028a715ed8a8",
-            "0x191d2fef570fd46e5d2bb6cf42f4312255e968a1cd755ac16e60ba6b534a1e4c"
+            "0x1317f3a02d4d6c7da016bb7b374b1d18ba30efe68f44474b0232713af0341b19",
+            "0x204435093671e97e2e515b826d3ff98ed29401b979db29237992a64cc795de6f"
           ],
           [
-            "0x036f87d537da691ea6a6c820310e7df9bb196509e77e1062f97208725208fd26",
-            "0x2a7beb9158f13b2ae5ca6616b0984b1f22c90b8dd3ca1622af14d5b466668194"
+            "0x1743a73697bc80a6d0a2d0c440184452c00be68100f0a7ec19bfbc58ebc7e5f7",
+            "0x25607b6f8074da9ff930bc8118c7130a3a5a9a20550eddce1ad4ef49951148a1"
           ]
         ],
         "krs": [
-          "0x2b288abba5dd6c6c49bd85d6bd214566e61db5f41666f3052427ceb92fabbb4c",
-          "0x18e200714acc87e92b502b38e478a8af834d86a8d525764e30ddbe602c859d8c"
+          "0x25c51b6f35a276fddf966769563bfed584244edc56904f318484eb4a68407b04",
+          "0x26248a844716f14ac9f34072a2402a54094b9de34df5eb445722922c60c6a371"
         ],
         "proof_commitment": [
-          "0x0a43666c3d7aed2be451d4f98f3fc5d52a21c23c5a6851b25a3123607fa3bb35",
-          "0x12354e643574848fdd6fda3f0168fbc6a342d887d2f6259de023493b0f9b81fc"
+          "0x1f702fe78cbaf49c90aa9086e485a536d9dd7f1f8c9c8971bb7f55cd9f5b599c",
+          "0x23f3fb26d2acf77e4708c3a2823c43b88a977cd449706732e03b9471548f74cf"
         ],
         "proof_commitment_pok": [
-          "0x1602cae72b1ed0175eea96ddcef53ff6c227e0d1f05436907d2f39740b0658ca",
-          "0x13f97775baa90637299eb7cd7b776eeda79f475bc0944abb3faccaecc8f757f2"
+          "0x2dccd7688467946010051c09acbbf03d307f864e1887cfc916ab79a72db3bd38",
+          "0x08b534097db98503e0c8f28ec0eb9972f3e0d0e7d4c9366b739d4353a590f767"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "23433f0e82769fa25678b566130322c94bb64c1c2d7542c05edda59c82f4cd86"
+        "24467d049553c3f18fd1e2b6c688704d0ee459ae558feebbb0dc1bcf9ea6b54f"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "04ce304a99f3d10e5a3305a331e54bb4b15c70107e968e589d6bc0b79949492d",
+      "private_tx_hash": "2ed924b83148a55fe9e55187f6f7948d172928588ccf568be0e827d13d03945b",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 30,
@@ -1368,8 +1368,8 @@
       "encrypted_utxos": "ac9002",
       "expected_state_next_index": 3,
       "expected_queue_next_index": 3,
-      "expected_state_root": "1f3dcbce5bd38c634c8c9a2356b74c2ede7eaf9795f518bdc5567e5c31ca54be",
-      "public_input_hash": "188d9e9ea290385adfb7aca698c3bcd6bdba5d95c35d9d31a20d84a6d5637591",
+      "expected_state_root": "24be5e9331e506e56568dc3f0b9c121e425b9252736e6825ab2af5bee90887c4",
+      "public_input_hash": "2af9eb308a394f7abaa34fe9e48abd965d56d08511d02e63a7760e2f929e32a1",
       "external_data_hash": "0077c8f2a123ee300e6a3260d8bf6586ff7caed115beecf6b1dcf665376d88a7",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1377,7 +1377,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "23433f0e82769fa25678b566130322c94bb64c1c2d7542c05edda59c82f4cd86"
+        "24467d049553c3f18fd1e2b6c688704d0ee459ae558feebbb0dc1bcf9ea6b54f"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1392,40 +1392,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013f1",
       "proof": {
         "ar": [
-          "0x258af1798d080b0b79ba2cb39fe0054515b47e9b4a77d59b25b5aea9fb0c0848",
-          "0x02298c1018b0a921e82e7614b768d1fa26a9e2a2792ad2b23a312ca14ea807ba"
+          "0x2931efca19d01b1986559948e486bb1eb52afd1bbe64f02f789dc38ecb94ac5a",
+          "0x15ef816c3adaeeb99fd66b5ab87688baa3f09a0fa8ee5605132aa3df0e7b13e3"
         ],
         "bs": [
           [
-            "0x10e26cfd440813c5359c8ffc44c3b35d5b008de6d109b6879baa98d5481eb192",
-            "0x0a4e4a939313b0a4dd7e84012e6000fb144c411d4a7fdc57abe336446d6f6cb7"
+            "0x026160a0d276ecc9a0ceb48e9dd34e81c6784f15f7408d75688652df8bdb09e2",
+            "0x0246504591c127fba6a1b7016bd2182f7a9304de6a110706a6fa7213c989e3ee"
           ],
           [
-            "0x203980250fdb0e23e3e9d3c4ce2ef17659adb5419985d210375e31dcee705396",
-            "0x00a4bd9bc8e8d81c9d5585897150ca5c49f69e6646fec20821850727916e91c6"
+            "0x0598829a178d6011582c3debf6eef9e621e328c263cfebb20c018a6e4a980d51",
+            "0x11ea11b656ba07e783a06336b640777da03df793dd623f96134e34a8c98402e3"
           ]
         ],
         "krs": [
-          "0x223be31b3b4b6a19a4cf320c86d7c4a9b4fcdb878dedddfb6fe52211b5dd8bd1",
-          "0x25e0fcc4c1ca5cbf25bfc8a860b384943ab04c7b4293a3991fdf897d55fe683b"
+          "0x09f8b915c5890ae4160a081f37db842f8beb809dd55ce6dc1bd6367161f8c70b",
+          "0x280779d856887bb0035cc5a41d8ed5302001576102e317824e1add0427485ce7"
         ],
         "proof_commitment": [
-          "0x1954b15f7b32226e7670083885f4f8568d5007a596fc79bf7110c6a29335ef8e",
-          "0x130c8c1d09d3fec621161acffb9f956c14a8484dbf7aa9c3d015ecbe58069c09"
+          "0x12ef9001ce3b03c3a73294e0c25d4d29586902e0c11d981a34b2e2ccd5e35a73",
+          "0x11aef4e3fc8f045c3a11dd149beac86ccfdfff9603c6d1054a54f6eddd48d931"
         ],
         "proof_commitment_pok": [
-          "0x02229839da00905755fff61448b1c21689a4b3bf3367045a0425fb0d5a43ccf0",
-          "0x079cd3fd9af2b47d0b294b4bf32961f33cfffa5c4e701f6237021a17895158a6"
+          "0x0bebbf677bd8fa31b6b2a34a1a2ed8212d11bade667b79206050178f21c118f0",
+          "0x2720ea49260f5c28b79e1f7cece02daba959dfdfedddeec1a9e0f7372ec506f0"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "1dc8a6e8b71bf9f2acfa672e9eb3787ff5c57549135a4412314fd90f8839efc7"
+        "244270af3da8cd775274bcd3be2abbfdf065d6885fd57215a412175ba26c54ac"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "205c45915dfcb9a04a4b4dac5341a3460330e8288ba05ece9c4b6ca847ad8ff0",
+      "private_tx_hash": "2ae3b46e127701fcba95d50afe11f8f62dbffc3bb78490356daad3754d02bbc4",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 30,
@@ -1433,8 +1433,8 @@
       "encrypted_utxos": "ac9003",
       "expected_state_next_index": 4,
       "expected_queue_next_index": 4,
-      "expected_state_root": "2dd4fba76268c0e59fb8fdf1f071e36c0b2177c6c776cd8e7479a3397c7d60c0",
-      "public_input_hash": "180540e47233e02b82ea666cdf214286f778ca643dd4331f1696695e53a2b3c2",
+      "expected_state_root": "009ba9c873afff2c4634a9b18255d796c68126b31dd2e851bdb1f6517c5b823c",
+      "public_input_hash": "18b9e91f289081989ff99cb2e1cfcda984e4b857d888e28fabf1c2d6977d9413",
       "external_data_hash": "0076906ddd87bd37c7379a57b9c17a8cd4a3586510b364290a56688cdaea0d9b",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1442,7 +1442,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "1dc8a6e8b71bf9f2acfa672e9eb3787ff5c57549135a4412314fd90f8839efc7"
+        "244270af3da8cd775274bcd3be2abbfdf065d6885fd57215a412175ba26c54ac"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1457,40 +1457,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013f2",
       "proof": {
         "ar": [
-          "0x25f50c5711230c04ef86d4e23718d7d65ef772fed01488092998f5e323366cb4",
-          "0x25f216104310799927fe05af6d6a7df2cafb2596a3b0e8455f52e87da9b2d192"
+          "0x08e935c31fe3e22fc6c887d58d9cfde214e1d9f26ac1f35286fb228f242df5e6",
+          "0x29599b8ffb8e76ed7b275267220a58ee80ef9dcecb344b6f3f5898b48933b081"
         ],
         "bs": [
           [
-            "0x0bb6ec2049900462f42a0fae85c9dd48335da489ecceeda6932de1a3a22b4775",
-            "0x2b8038174755cc99bdc1c675416dd96968e8be1645f83d92d778b49b29319383"
+            "0x2c1cf9918de510201aa1f8650e9b15104ede6769a7deffea830cd33139698fe8",
+            "0x0a3d488fe0fee95749b5bed8192dbd6e2a9dc2783ac1fdeae442855db475bcd4"
           ],
           [
-            "0x24877df012cd8859a0d00cbfeb207f33f740c1bb59e3aa159b01a50c8b63f0f2",
-            "0x2fa0d8f459bc54fb40cbd475e11260e1b4e4a7f17d9909b5c4273e6214ac0530"
+            "0x1cb49074060a574a6bf69f9517c42113d18a51062f1301a38d1f9e31a5a29c6f",
+            "0x2d5c10292a1b9930f1ec3c01887a4c1798a050db031dbf3c9c039b12cac7c6df"
           ]
         ],
         "krs": [
-          "0x122d2c1ec02b7b6da1bfdbac03b953374b0714b644edde48fa7702a8fd98ef43",
-          "0x21b29b3c4f64d504fad1e17e40e99cd8e721a55467bc84259983d4894be99fa6"
+          "0x072a088b4ab97f5e25aae28bd112f802b042f37fc11f08bba6aaa29ecbb4c74e",
+          "0x00a9e2c827710df56a84ab642cdc0b211f7901c8775dbf9265012d832df90f2c"
         ],
         "proof_commitment": [
-          "0x090c7564f62a3c65a5b2ae1365c03f46f71e1bdc91dc8c8b067f3903cfc35a49",
-          "0x186bf3cef4f12db0156bce135b0af204173d28a8ea480d29838349cdc4136e11"
+          "0x0d1c924fcc7e6392aea92689a7a4107820ee8bc710ec153c5bd8287e48ff2fa7",
+          "0x271a362ffb329ddb01fc98e918f55bcdb0f78b19460ed0a3d0f4d414e195fcc2"
         ],
         "proof_commitment_pok": [
-          "0x20c197af6115ed95375a6dd9c07929874051cdf3bbe054b9848b3c0b0f5505e9",
-          "0x2b5ed3401e3b3564dafbdf2103cf8321282172fda19839a28f0ad278813fd5ce"
+          "0x25673c1c9e5ee64bf3816a0aac9f2f5ffb7acf758006d757a894329207806ea6",
+          "0x0411ef69b4ef865472e965ea375c9c3d6113c60cd7295fd6f0452b687e0b65f8"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "0bb898d45b8260fff36aefe3dc6b537ecc95aca75a7a33cf3db48addf2afcb46"
+        "099ebfffa3e1f143cac3f92061bae4b73e1b3180c6df9a7577d29cd8aadb3aa3"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "27460d3ae4c71d316af51e2eafd7935713b148dbf10797d5730a0048ad93f910",
+      "private_tx_hash": "0820b671b0af30854a14ccbc28e5579f924662e59bb9f4605e3a0d70b916fd82",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 30,
@@ -1498,8 +1498,8 @@
       "encrypted_utxos": "ac9004",
       "expected_state_next_index": 5,
       "expected_queue_next_index": 5,
-      "expected_state_root": "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2",
-      "public_input_hash": "219d0ce5f0a111e72b7a2bb116f665d1991be9e36dfcd9d3af5ac485e882ca00",
+      "expected_state_root": "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710",
+      "public_input_hash": "1fb59b4405c7f6fcc16cda8a3d29636677ea07408825e4f185ede6ffb7942526",
       "external_data_hash": "0011f8524861bb9d6dae5ee18d160bf5b8836f84d8fa2bb7d77d08bde63a55be",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1507,7 +1507,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "0bb898d45b8260fff36aefe3dc6b537ecc95aca75a7a33cf3db48addf2afcb46"
+        "099ebfffa3e1f143cac3f92061bae4b73e1b3180c6df9a7577d29cd8aadb3aa3"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1522,44 +1522,44 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000013ed",
       "proof": {
         "ar": [
-          "0x1a8a437653bcce6204a8348deefa0054565deed9aab0b97bbbd00ff2bc665cc4",
-          "0x12bf35b510e2bff2a30412f39c2b74e114cf2b8c966aaa8864057955a2b8a7d0"
+          "0x2dc65c44d7379688ee800657afdc43238009e029deed2a96c381214609929dd2",
+          "0x1c8a8f479e3b2fc039ea806d07af4761d91536297f04f3dbed4072fa72c1bee6"
         ],
         "bs": [
           [
-            "0x2707d6d34c636df8855929ac1eaf46779cda859adad79f99f524ccc7a39e7fe2",
-            "0x114ac82ed20b9009070ffac6ea96cf90c7a872e784d9c744cf21e04e73c64a10"
+            "0x171db713dd88c04ede1ab02f2abd1310bbf45954f874e818059c0337bc9bff6b",
+            "0x2941d0ca0e1bfa4771f838bd416a82fab5cddde9377d364eb777961b43edc72e"
           ],
           [
-            "0x27668985160d5ffb514119cc32fd6c50af491e730d6a92ed342b6acb9e09cd0a",
-            "0x166ad4ed79ac3a71a0b0f4bf4882c192cc7bb06767f7a703a38b3c1e8e67dec4"
+            "0x12c7152206efeb2871eab050e9551ff69732e83f1be63479cca7a13e71749f06",
+            "0x284db37c158702d9c8b1ba49bd6f97c01189f42c36488593f267c930571d4403"
           ]
         ],
         "krs": [
-          "0x1121047eedb240fedc324bea1e37178f871821b44737567ba850887779968b27",
-          "0x1387dc644c746208f9eee9ce13411fb0992b5d49071e26130fc95552bc35525d"
+          "0x118965e4f7ee27b803bbdd55a49b6fffab0f4a6e16a7865d9b18006d672daea6",
+          "0x0cf2c721eb8961976703db77bb24288e95cbf9d36ee21afb938a21b2a25de8ad"
         ],
         "proof_commitment": [
-          "0x1abf3df33d69e2627dd35d43d6ae427bfcc6bbaba5aa9f497ac162ad90ac6de1",
-          "0x252235de1a78c0bff734a25c7ebed82c12c1abe4e2ccf5cd8e0b8caf171e6a1e"
+          "0x05ca30ab721dec4df15191eee4d18a4fed86c44921e3ff0ecdfc34cebacb5c51",
+          "0x16b46b136ede50cbbec3a7c09891b0f1a8d06bec3a1155e889f7db65a7811c07"
         ],
         "proof_commitment_pok": [
-          "0x18e4a621d65621b393b92fa9d2f01eba70b60dee81039a7167de91ab98646fe6",
-          "0x29238a3d80195f87c0485d39e0238b728f40e8a579fca1646c290993aa292b3a"
+          "0x29ceaa0dc0a80d3cc921153d869cdd9e78f6a8c677fda1bb769c632fa06dd947",
+          "0x20187a95d21b6387898b60917f7c86ffb153ae9d372bc559bd659430b8d91095"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "1a7e4c1da75989fe583c9525ba119706c1174c457f8703a45bab39b8a60f5c02",
-        "049e467967f0f8af47fcf11c390217bb15eb5b7a7274c96cf9e2f4148d643c3c",
-        "2147ed4c18ce561e4e217c8264f410f9388d98fa56a9f7e3cccf840b599f69de",
-        "2f0e5e27a07a43152645e9c531ff29009c49a5097cde6761ab51356bc3c1e39f",
-        "2c4f9c24bdc9adca8585b9d39f31bf0b11763ed3dce4d8107599bbf60ac98af1"
+        "278696bfcdcf2080b3574b3b8e993238c2e177d646540fa2ab31c5547531dcba",
+        "0e0a7ab8bdcf5f8fc61f7bb6be16471890a6c82f574467c48b15af9ed402603d",
+        "06fb452424abba6edcfafc8b535ace157a7b64c100aee28489a36bf66f11bcfd",
+        "01d229906ae7b8a67cb8d0ecf120f05d211d0d79b8fcf8ae2283b5b8d18bc65f",
+        "1acde9bf4f9de150c542ca4c30cc53344e56da9b70451e13cdf8c43f6af73257"
       ],
       "output_utxo_hashes": [
-        "04ab09d81cb0030f25c30e12071629ad3c8e4c0e4ff480be30dd7bb0ff5e99c9",
-        "1aa759549ba3916717fc141b03166c2e70112a9b4b357e09df62ab78053f30e1",
-        "1eda113bf48808fe072d0d21b8e0b23303190b5454c04ef6bc8d537431ed70ba"
+        "2a7ef7573d400d939219558da4463ee3c989b297ed85c9cba7c8ce87f636a61d",
+        "1ad0bd72957b16f0f90a6d853d94fc5b90cb16e83fca142499bb2953c3f37bbb",
+        "1606c44171eaf2d7e3413269baae2bb8dadfdd91aeb7d9411a828a2c9dbd1bf0"
       ],
       "utxo_tree_root_index": [
         5,
@@ -1575,7 +1575,7 @@
         0,
         0
       ],
-      "private_tx_hash": "153067d02d3c48c528ecc3ed9e9e70c75b159fc9a92c50d38e5927f737d73ae2",
+      "private_tx_hash": "30595ca1f2767bc6f3533e0524c46842790dca0d67e4ad9844a9267d0320c770",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -1583,8 +1583,8 @@
       "encrypted_utxos": "ab90",
       "expected_state_next_index": 8,
       "expected_queue_next_index": 11,
-      "expected_state_root": "119c5ab0675000f2de076ce62ec7334ea2f1e8eb6e66d4f160237fcf5501ad70",
-      "public_input_hash": "229f7a6c8507a31d8adfb6f99465cf313fa4a32de6f71fe07b4ce0646c64481a",
+      "expected_state_root": "1080af6b0b92b5288e1b22c50fe78806c3a1a2a845b654dc2aa02c09f38c2021",
+      "public_input_hash": "17846eb5e6e09159f5c7e3e101b75e03a698cf72e80ebf8121c8c5147d4bd39e",
       "external_data_hash": "007ac9bd9c774d750c89374c52ffd5a120662b6d1d823aa35de91d25ba2645aa",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -1597,23 +1597,23 @@
         4
       ],
       "debug_input_utxo_hashes": [
-        "0429d9ccdea01671099cd93e848e995a4e77454c072241dc977adb48e970eb28",
-        "0898ba6c721775cd0d7d7569ae0a4d69b566ef3dbd30990e5fffb1a52dc3a327",
-        "23433f0e82769fa25678b566130322c94bb64c1c2d7542c05edda59c82f4cd86",
-        "1dc8a6e8b71bf9f2acfa672e9eb3787ff5c57549135a4412314fd90f8839efc7",
-        "0bb898d45b8260fff36aefe3dc6b537ecc95aca75a7a33cf3db48addf2afcb46"
+        "056d8046babf1a1309ad7a27d28dfdf4bdf74c6be489ffbbdedf120fbbb14e1e",
+        "2a2e6586c1c0ec1e7aaaa8e4ae3e41151ea1bb177c98342eb208f1b9e46523f1",
+        "24467d049553c3f18fd1e2b6c688704d0ee459ae558feebbb0dc1bcf9ea6b54f",
+        "244270af3da8cd775274bcd3be2abbfdf065d6885fd57215a412175ba26c54ac",
+        "099ebfffa3e1f143cac3f92061bae4b73e1b3180c6df9a7577d29cd8aadb3aa3"
       ],
       "debug_output_utxo_hashes": [
-        "04ab09d81cb0030f25c30e12071629ad3c8e4c0e4ff480be30dd7bb0ff5e99c9",
-        "1aa759549ba3916717fc141b03166c2e70112a9b4b357e09df62ab78053f30e1",
-        "1eda113bf48808fe072d0d21b8e0b23303190b5454c04ef6bc8d537431ed70ba"
+        "2a7ef7573d400d939219558da4463ee3c989b297ed85c9cba7c8ce87f636a61d",
+        "1ad0bd72957b16f0f90a6d853d94fc5b90cb16e83fca142499bb2953c3f37bbb",
+        "1606c44171eaf2d7e3413269baae2bb8dadfdd91aeb7d9411a828a2c9dbd1bf0"
       ],
       "debug_utxo_tree_roots": [
-        "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2",
-        "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2",
-        "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2",
-        "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2",
-        "12bae5f5ba30741d514691e2f1f5d58e9c202984455da2c75ff11017853748b2"
+        "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710",
+        "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710",
+        "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710",
+        "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710",
+        "19a7c092cd89308d96d1dc10eae07ff4f1128ae3fe166747e768269ce6b3b710"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277",
@@ -1633,40 +1633,40 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000017d6",
       "proof": {
         "ar": [
-          "0x1c6f16f8d87de559dfca2723c8def2c26c76f5d3bbf4990b5a899ccc403c5116",
-          "0x1930d16be829f981592d1012a8f79aed1a67fd66641fec1016774cef41f49d7b"
+          "0x04b65e85eeda864f2d9b161a8ccd3c5dbf2d4954c607efd0751bc1fbc6d19c7e",
+          "0x2677b0ed945358dd09369bfac4b62af867b1c912112ade3eaba58a2cc2cf8592"
         ],
         "bs": [
           [
-            "0x1e9b83a01b77bd6dd89c2fa22c4867024dafae33ff2be004f7dc4678185634df",
-            "0x00b4efbb3d267c200cb8d90934cc62b49afa41f8815951d7c391dea04bd02629"
+            "0x2f226f4d0633522154f1119bc6b9a1bad2bd3944d0e52af980a16c44385d881e",
+            "0x1eda192b12169141e060bcd30a8448b4b26a4ff23ad1a39eb4772805e0741521"
           ],
           [
-            "0x2d7db01c51254b6096c01be9f98be356f2382965bada76e40934c7edd59892d3",
-            "0x0b9f72482ea06c4498a8815f4ddc9cd5c06a0557130fbdd1e1bc64686f893877"
+            "0x0df971ba41a62d20eaf95d4ae5323bbb922fd7a62804ea5b07ae553c6dbf3e41",
+            "0x0c8c7abe9b594e31c76530addcadd863722aacd7db00c2e7342682f025baee7f"
           ]
         ],
         "krs": [
-          "0x0369560cfe14f4762f997bcf47a53b16434ea8826289fa168624ad72bc18e504",
-          "0x261c0e05300a1d15f1c71eb0e38207bfa89f6242ef50acaed774b55833fa3bf9"
+          "0x2336cfad46c923922cb9deba332667b9caf390e2f8cad739e58bbe96bb4833f7",
+          "0x23906d74668f2bfbab70dfa460f6ab9b04cb884e43765d4a0ddec6d7d740167c"
         ],
         "proof_commitment": [
-          "0x212895bb13a0990e06d7c1019dac4e70f5de164bf4ee21266882b8618adcc32c",
-          "0x1b95b45b54c7f9d74525972e6139a2bee2ae394ccd6506367da04fdc81437741"
+          "0x1b9b23d098f06d5723232c61e70eb143da938f0a57574a89d5e3bbc38ee328c6",
+          "0x2b84d51387ccba28b4d1e7144c679fb24417c4095d754389d17219227abd83be"
         ],
         "proof_commitment_pok": [
-          "0x2af330024a6f99ea7be765e1be7a03599ca96386bf5d9e209b7c5be7928fbbd7",
-          "0x198b92187abbcff38fb77eb50ad2bc815211809b3ceafed21efe2f9bca52f938"
+          "0x27a2591bc29d55222955cb85d3c83c24e4849da0be3556cf94a41e5c92340553",
+          "0x1469a653002286355af5d6ca3f8357e589d25d68d0208fe0fb0e5bbca9c6796a"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [],
       "output_utxo_hashes": [
-        "2bafbfb2a4d578280e98ac23cf0c86547d5b7efea4dde76a12b456169f8fdba3"
+        "0533124a16ad8c17a48b38005e956fad746a3fc5a35163e8e163546bba84a6c2"
       ],
       "utxo_tree_root_index": [],
       "nullifier_tree_root_index": [],
-      "private_tx_hash": "29d2e50363982e815681b5f543353f76cfd9116b096df784de2bb6afe31926f2",
+      "private_tx_hash": "0ab14c0d32f218b2cd43f40d97df325d3565f90893de87bd8499da9f7981ccc5",
       "public_amount_mode": 1,
       "public_sol_amount": null,
       "public_spl_amount": 80,
@@ -1674,8 +1674,8 @@
       "encrypted_utxos": "acf400",
       "expected_state_next_index": 1,
       "expected_queue_next_index": 1,
-      "expected_state_root": "2081c622b5962969981e201d0ca163f1b41cd29ea60a8381f623538313e82aa1",
-      "public_input_hash": "013b0b8879ef8de79cc2909b6c438e6c9ccac1d633b06e9fe366d740bbcf06b4",
+      "expected_state_root": "169824a4e7925f5dafa6a36a2db25b7d24770397f6c520366bb576dc10ff7ea4",
+      "public_input_hash": "0a05234bb7cf2bf3b2ad640ec9f2bc8276f7ce406835b38b0c45b4857a94f574",
       "external_data_hash": "003255609a06843663377c3d9109455c2e453aea41f61b7478ab683ed138c430",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
@@ -1683,7 +1683,7 @@
       "solana_owner_input_indices": [],
       "debug_input_utxo_hashes": [],
       "debug_output_utxo_hashes": [
-        "2bafbfb2a4d578280e98ac23cf0c86547d5b7efea4dde76a12b456169f8fdba3"
+        "0533124a16ad8c17a48b38005e956fad746a3fc5a35163e8e163546bba84a6c2"
       ],
       "debug_utxo_tree_roots": [],
       "debug_nullifier_tree_roots": []
@@ -1698,45 +1698,45 @@
       "sender_view_tag": "00000000000000000000000000000000000000000000000000000000000017d5",
       "proof": {
         "ar": [
-          "0x257416112806434d115c6a6904fda7e81fee33e6e7e19f27ba9599addaf34f90",
-          "0x170107a5812fa2f9c55a205e36a37a24e63c60e7e2afb64f5c6b0697d8adb7af"
+          "0x29a569de79aebd8b65cef2ed4f1a9ee0d633fac4149a7c8ae3925f4ab29812e9",
+          "0x0e01cfcbebb3728067d6eabb5ed177ca5e626ab34b566dbadaf5ef086608cd7b"
         ],
         "bs": [
           [
-            "0x0a6b0f3641cc9158ee6a0c4f1bc9c5a8b05527bcb27dda4be5bce610686bcc26",
-            "0x24ff911536491b112cddf29b3f2696418b1f6a2a04ccc2c05d7bdbd9dbd68ed4"
+            "0x0f712429e965f4eb751020fc8be094458535204b2cc2a51512572fd04bdade3b",
+            "0x0753a0ff06d6eefe59f335df9c3649bdcc11f0e5d2175716ba11673dc17f2c6d"
           ],
           [
-            "0x2a7fcb41264ebb3e7f74a1b1271af3712f2d745d73798bd9ee5684440fb29ae4",
-            "0x0d7704c2da8c6ff93d86b1d7361aded4c269fc6750e46ae09701443218af6533"
+            "0x2035700456a7cde9bb492c37aec2e5d32712db9c463ccf6a3a8009aeca0450bc",
+            "0x02a4ec6d5c82625ccbd16648db0367443e2a714e7d7fce5ab432ffce7024ee9c"
           ]
         ],
         "krs": [
-          "0x271b80f8dabfcc1cfccc954adb394a314785d10efe530caf919d60e7e3e9fde0",
-          "0x0ecf985264c2eacf947fd8efe781f29702a68cbbb1632dee0d9e066b3feb087c"
+          "0x23d557199af8dc088958440443de419c5904006980c1a807169d091f99b230eb",
+          "0x1fbda3a77cde9627e1287018e710fe81a42408565a3c0ba81cf09fd137a0bcad"
         ],
         "proof_commitment": [
-          "0x17daaacdc25bf3ab1a5b40ae7dae5bcd1b4b898458f77e378e20db6e45eaed09",
-          "0x29133f95f9c431b12c0816b7f96814420fab399a8baaf8c86ed384b936e947f6"
+          "0x0529c89d1e76a43e754d47dac8e3f3d7ed15ba0d7b7f38987997b3eb1eda1c67",
+          "0x0f8e1cbbfbf9dc9629fedb9f999207f6b0339f4e0422fecc774bb8c4682208d8"
         ],
         "proof_commitment_pok": [
-          "0x108b9952b57f6e9c816142eb09d03ee5b118f5d13eaacb38fa71c0d95118d1b3",
-          "0x189b5353904ce7c885867919464745a472e965d3a1d2c020bb5e0e1fef7f87f9"
+          "0x118e49fe662955abb7aa0b04ce8d982104a1268191762a9b9f51877910e66785",
+          "0x2dbb3edd8933b3407eceed501b9b5fbb28911b56d0cd759e893a61b19b20b7bd"
         ]
       },
       "relayer_fee": 0,
       "nullifiers": [
-        "0149bba87b3fd54e3ff9ddef85510765118f50e8945cf5a9b00afa2c249cd2f4"
+        "259d3a136ab3052fe84a700756692ae6b6276433b167ebf923990f333e56a521"
       ],
       "output_utxo_hashes": [
-        "2f55e0e2595984dc285a9dba09f7bd8ced3ddb3953439409a4051a14612b70fc",
-        "08b2ec718f14a0ee1a25bc650063055c84561d63c49637a83023d8e3f31b5570",
-        "16f74ff1ef7366059d367a7ab4597cdc78a79cdebe452c5ed193af4138f43bfb",
-        "1d44c8befa5aff394bd7e66aae63b2a5c1683d7a422f426b4090a502193cf1c0",
-        "0c8aa79ca83884bf2e919554c761e6adfec6ba1805e6c5911fb9d2461dbc1ecf",
-        "290080fbab6fca6cce72e5f24608f3bc83e5a213ff77a09387db1b5e4f76f74f",
-        "06ab259c69f28606d0d8b0c3940e0b5980eddd53f99843ba49d919438977b790",
-        "1e2593cf9b23f9958d945be006d021bee03b716878a218f3f1a6d014cfadc082"
+        "26bbd3a977e0dc7af32e23e0ca727f78f74e711964405bfd59bb31d7b11df981",
+        "1616c2bb8c36f4464c8c7b6afe3d939f11176a0885d37ec9ee28dd02f2cfea37",
+        "10c464bc0b7a13815ed75272af2b420bf22467bb4801101be1d902a514714561",
+        "0c024f9cd04ebd7dbad7cc215fb33baaaba698cf4b257d90cb1afbd15b819232",
+        "2e61960185e4176b0df1274c58066bee0bf77b8632c9a3d910e6312893bc57c0",
+        "29ec5c6f51ded588159f1a6bb3bef7cf206baa8d2077d42d495eea7270eeec41",
+        "071a9fd75af38867bdb4c2f9017a91da977469544302486e1c9d526ba0ea8a53",
+        "1fdc7b4c0759ca85b2e724c1bc3435af064e7156c2f1400e655ba166d149ba4c"
       ],
       "utxo_tree_root_index": [
         1
@@ -1744,7 +1744,7 @@
       "nullifier_tree_root_index": [
         0
       ],
-      "private_tx_hash": "26c54711b54e037b1033238bc2e4095669d756463d671115fe2522dac7cd7e84",
+      "private_tx_hash": "1f08eb8c6a13cb25d8ebbaac784019afcd0e9b53f686b0447ecceb45e2470dc4",
       "public_amount_mode": 0,
       "public_sol_amount": null,
       "public_spl_amount": null,
@@ -1752,8 +1752,8 @@
       "encrypted_utxos": "abf4",
       "expected_state_next_index": 9,
       "expected_queue_next_index": 3,
-      "expected_state_root": "260170ffb36ce2be10b6237a9ec49e99ec47146e27b7a796b276362d5c165b0f",
-      "public_input_hash": "235e8edc49e379f09ed348effed72f9ccee17b167af90b154a949b29737098b2",
+      "expected_state_root": "18e74f2fc09b329cce71e256d2599248183d088f41e1d6e823f746dde3294f95",
+      "public_input_hash": "20a30a5339d0e8d6a888d6665fe6a0509c13833a80c58136daa69d017d7211f4",
       "external_data_hash": "0016c85075cad7ce84c1fcd853384e0564f9ddaf57b57486b159b4f99feebda0",
       "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
       "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -1762,20 +1762,20 @@
         0
       ],
       "debug_input_utxo_hashes": [
-        "2bafbfb2a4d578280e98ac23cf0c86547d5b7efea4dde76a12b456169f8fdba3"
+        "0533124a16ad8c17a48b38005e956fad746a3fc5a35163e8e163546bba84a6c2"
       ],
       "debug_output_utxo_hashes": [
-        "2f55e0e2595984dc285a9dba09f7bd8ced3ddb3953439409a4051a14612b70fc",
-        "08b2ec718f14a0ee1a25bc650063055c84561d63c49637a83023d8e3f31b5570",
-        "16f74ff1ef7366059d367a7ab4597cdc78a79cdebe452c5ed193af4138f43bfb",
-        "1d44c8befa5aff394bd7e66aae63b2a5c1683d7a422f426b4090a502193cf1c0",
-        "0c8aa79ca83884bf2e919554c761e6adfec6ba1805e6c5911fb9d2461dbc1ecf",
-        "290080fbab6fca6cce72e5f24608f3bc83e5a213ff77a09387db1b5e4f76f74f",
-        "06ab259c69f28606d0d8b0c3940e0b5980eddd53f99843ba49d919438977b790",
-        "1e2593cf9b23f9958d945be006d021bee03b716878a218f3f1a6d014cfadc082"
+        "26bbd3a977e0dc7af32e23e0ca727f78f74e711964405bfd59bb31d7b11df981",
+        "1616c2bb8c36f4464c8c7b6afe3d939f11176a0885d37ec9ee28dd02f2cfea37",
+        "10c464bc0b7a13815ed75272af2b420bf22467bb4801101be1d902a514714561",
+        "0c024f9cd04ebd7dbad7cc215fb33baaaba698cf4b257d90cb1afbd15b819232",
+        "2e61960185e4176b0df1274c58066bee0bf77b8632c9a3d910e6312893bc57c0",
+        "29ec5c6f51ded588159f1a6bb3bef7cf206baa8d2077d42d495eea7270eeec41",
+        "071a9fd75af38867bdb4c2f9017a91da977469544302486e1c9d526ba0ea8a53",
+        "1fdc7b4c0759ca85b2e724c1bc3435af064e7156c2f1400e655ba166d149ba4c"
       ],
       "debug_utxo_tree_roots": [
-        "2081c622b5962969981e201d0ca163f1b41cd29ea60a8381f623538313e82aa1"
+        "169824a4e7925f5dafa6a36a2db25b7d24770397f6c520366bb576dc10ff7ea4"
       ],
       "debug_nullifier_tree_roots": [
         "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
