@@ -1,9 +1,26 @@
 package protocol
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 )
+
+// TestInitialNullifierRootMatchesProgramConstant pins the empty-tree root that
+// the on-chain program seeds as INITIAL_NULLIFIER_ROOT
+// (programs/shielded-pool/.../create_pool_tree/init.rs). It is recomputed here
+// from the tree logic, so a change to the seed/leaf hashing that diverges from
+// the committed constant — which would fail the first batch_update on an
+// old_root mismatch — is caught. The Rust side pins the same hex in
+// initial_nullifier_root_is_pinned.
+func TestInitialNullifierRootMatchesProgramConstant(t *testing.T) {
+	const programConstantHex = "1d8e71a601b3e8debbba9b557b8369c7f404ae57bebf0852236b072820954277"
+	tree := mustNewNullifierTree(t)
+	got := fmt.Sprintf("%064x", tree.Root())
+	if got != programConstantHex {
+		t.Fatalf("initial nullifier root = %s, want program constant %s", got, programConstantHex)
+	}
+}
 
 func TestNullifierTreeNonInclusionWitness(t *testing.T) {
 	tree := mustNewNullifierTree(t)
