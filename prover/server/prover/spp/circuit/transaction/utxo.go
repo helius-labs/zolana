@@ -34,15 +34,18 @@ func FieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 }
 
 func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
-	return poseidon.HashCircuitWithT(api, 9, []frontend.Variable{
+	// owner_utxo_hash = Poseidon(owner, blinding) nests the owner so the
+	// commitment preimage never exposes it (enables owner-hiding proofless
+	// shields). Must match protocol.UtxoHash / OwnerUtxoHash.
+	ownerUtxoHash := poseidon.HashCircuitWithT(api, 3, []frontend.Variable{u.Owner, u.Blinding})
+	return poseidon.HashCircuitWithT(api, 8, []frontend.Variable{
 		u.Domain,
-		u.Owner,
 		u.AssetID,
 		u.AssetAmount,
-		u.Blinding,
 		u.DataHash,
 		u.ZoneDataHash,
 		u.ZoneProgramID,
+		ownerUtxoHash,
 	})
 }
 

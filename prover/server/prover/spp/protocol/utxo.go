@@ -29,10 +29,11 @@ func SolAsset() *big.Int {
 
 // UtxoDomain is the constant domain separator for UTXO Poseidon commitments
 // (spec: "Constant separating UTXOs from other Poseidon-hashed records").
-// Every real (non-dummy) UTXO must carry this domain.
-const UtxoDomain = 1
+// Every real (non-dummy) UTXO must carry this domain. Bumped to 2 when the
+// commitment preimage changed to the owner-hiding nested form, so old (flat)
+// and new (nested) UTXO hashes can never be confused.
+const UtxoDomain = 2
 
-// Utxo fields are ordered exactly as the Poseidon preimage.
 type Utxo struct {
 	Domain        *big.Int
 	Owner         *big.Int
@@ -44,21 +45,33 @@ type Utxo struct {
 	ZoneProgramID *big.Int
 }
 
-func (u Utxo) Fields() []*big.Int {
-	return []*big.Int{
-		u.Domain,
-		u.Owner,
-		u.AssetID,
-		u.AssetAmount,
-		u.Blinding,
-		u.DataHash,
-		u.ZoneDataHash,
-		u.ZoneProgramID,
+// OwnerUtxoHash nests the owner and blinding into a single field,
+// owner_utxo_hash = Poseidon(owner, blinding). The UTXO commitment carries this
+// instead of owner+blinding directly, so a proofless shield can commit to a
+// recipient without revealing the owner. The spend circuit re-derives it from
+// the (private) owner and blinding witnesses.
+func OwnerUtxoHash(owner, blinding *big.Int) (*big.Int, error) {
+	h, err := poseidon.HashWithT(3, []*big.Int{owner, blinding})
+	if err != nil {
+		return nil, fmt.Errorf("spp: owner utxo hash: %w", err)
 	}
+	return h, nil
 }
 
 func UtxoHash(u Utxo) (*big.Int, error) {
-	h, err := poseidon.HashWithT(9, u.Fields())
+	ownerUtxoHash, err := OwnerUtxoHash(u.Owner, u.Blinding)
+	if err != nil {
+		return nil, err
+	}
+	h, err := poseidon.HashWithT(8, []*big.Int{
+		u.Domain,
+		u.AssetID,
+		u.AssetAmount,
+		u.DataHash,
+		u.ZoneDataHash,
+		u.ZoneProgramID,
+		ownerUtxoHash,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: utxo hash: %w", err)
 	}
