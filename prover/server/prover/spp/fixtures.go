@@ -19,9 +19,10 @@ import (
 	txprover "light/light-prover/prover/spp/prover/transaction"
 )
 
-// fixtureShape is the single circuit shape every e2e fixture uses. Real inputs
-// and outputs below this capacity are dummy-padded by the prover, so one shape
-// covers shields (0 inputs), unshields (0 outputs), and transfers.
+// fixtureShape is the canonical shape for the default scenarios and seed
+// shields, all of which use at most 1 real input and 2 real outputs (unused
+// slots are dummy-padded). The per-shape flows (transfer_2_2 .. transfer_1_8)
+// prove with their own exact-arity shapes via shapeFlow.
 var fixtureShape = protocol.Shape{NInputs: 1, NOutputs: 2}
 
 const (
