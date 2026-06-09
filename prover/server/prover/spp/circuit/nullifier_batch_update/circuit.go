@@ -51,6 +51,17 @@ func NewCircuit(treeHeight, batchSize uint32) *Circuit {
 	return circuit
 }
 
+// assertStrictlyOrdered constrains lo < mid < hi. It uses AssertIsLessOrEqual
+// plus AssertIsDifferent rather than an `lo+1 <= mid` step: the latter adds 1
+// in the field, so a value near the modulus wraps to a small one and bypasses
+// the comparison. Mirrors the transaction circuit's assertStrictlyOrdered.
+func assertStrictlyOrdered(api frontend.API, lo, mid, hi frontend.Variable) {
+	api.AssertIsLessOrEqual(lo, mid)
+	api.AssertIsDifferent(lo, mid)
+	api.AssertIsLessOrEqual(mid, hi)
+	api.AssertIsDifferent(mid, hi)
+}
+
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateLayout(); err != nil {
 		return err
@@ -61,8 +72,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		oldLowLeaf := gadget.IndexedLeafHash(api, c.LowElementValues[i], c.LowElementNextValues[i])
 		newLowLeaf := gadget.IndexedLeafHash(api, c.LowElementValues[i], c.NewElementValues[i])
 
-		api.AssertIsLessOrEqual(api.Add(c.LowElementValues[i], 1), c.NewElementValues[i])
-		api.AssertIsLessOrEqual(api.Add(c.NewElementValues[i], 1), c.LowElementNextValues[i])
+		// The inserted value must sit strictly between its low element and that
+		// element's current next pointer: low < new < next.
+		assertStrictlyOrdered(api, c.LowElementValues[i], c.NewElementValues[i], c.LowElementNextValues[i])
 
 		lowIndexBits := api.ToBinary(c.LowElementIndices[i], int(c.TreeHeight))
 		oldLowRoot := gadget.MerkleRoot(api, oldLowLeaf, c.LowElementProofs[i], lowIndexBits)
