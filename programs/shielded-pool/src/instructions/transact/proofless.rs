@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Domain separator for UTXO commitments (mirrors protocol::UtxoDomain).
-const UTXO_DOMAIN: u64 = 1;
+const UTXO_DOMAIN: u64 = 2;
 
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
@@ -47,6 +47,8 @@ pub fn process_proofless_shield(
 
     // Asset field and amount come from the actual deposit; the UTXO hash uses
     // the same encoding as the circuit so the deposit is spendable by a proof.
+    // owner_utxo_hash = Poseidon(owner, blinding) is supplied opaquely, hiding
+    // the recipient (the circuit never checks an output UTXO's owner).
     let (asset, amount) = if needs_spl {
         let mint = spl_asset_pubkey(&verified.settlement)?;
         let mut bytes = [0u8; 32];
@@ -58,13 +60,12 @@ pub fn process_proofless_shield(
 
     let utxo_hash = Poseidon::hashv(&[
         field_from_u64(UTXO_DOMAIN).as_slice(),
-        data.owner.as_slice(),
         asset.as_slice(),
         field_from_u64(amount).as_slice(),
-        data.blinding.as_slice(),
         data.data_hash.as_slice(),
         data.zone_data_hash.as_slice(),
         data.zone_program_id.as_slice(),
+        data.owner_utxo_hash.as_slice(),
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
