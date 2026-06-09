@@ -209,7 +209,7 @@ func newScenarioBuilder(options E2EFixtureOptions) (*scenarioBuilder, error) {
 	if b.splAsset, err = protocol.SolanaPkHash(options.PublicSplAssetPubkey); err != nil {
 		return nil, err
 	}
-	b.solAsset = big.NewInt(protocol.SolAssetID)
+	b.solAsset = protocol.SolAsset()
 	b.signerHash = protocol.Sha256BEField(options.SolanaSignerPubkey[:])
 
 	if b.solanaOwner, err = ownerHashFor(protocol.SolanaPkHash, options.SolanaSignerPubkey, solanaNullifierSecret); err != nil {
