@@ -133,8 +133,8 @@ print_balances() {
     "$POCKET" balance --rpc-url "$RPC_URL" --wallet "$A_KEY"
     "$POCKET" balance --rpc-url "$RPC_URL" --wallet "$B_KEY"
     echo "== ${title}: private SOL note balances =="
-    "$POCKET" balance --state "$A_STATE" --asset-id 1
-    "$POCKET" balance --state "$B_STATE" --asset-id 1
+    "$POCKET" balance --state "$A_STATE"
+    "$POCKET" balance --state "$B_STATE"
 }
 
 require_cmd solana
@@ -255,8 +255,7 @@ P256_TRANSFER_JSON="$("$POCKET" transfer \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
     --keys-file "$KEYS_FILE" \
-    --amount "$P256_TRANSFER_LAMPORTS" \
-    --asset-id 1)"
+    --amount "$P256_TRANSFER_LAMPORTS")"
 printf '%s\n' "$P256_TRANSFER_JSON"
 print_signature "P256 transfer A to B" "$P256_TRANSFER_JSON"
 
@@ -270,8 +269,7 @@ P256_UNSHIELD_B_JSON="$("$POCKET" unshield \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
     --keys-file "$KEYS_FILE" \
-    --amount "$P256_TRANSFER_LAMPORTS" \
-    --asset-id 1)"
+    --amount "$P256_TRANSFER_LAMPORTS")"
 printf '%s\n' "$P256_UNSHIELD_B_JSON"
 print_signature "unshield B P256" "$P256_UNSHIELD_B_JSON"
 
