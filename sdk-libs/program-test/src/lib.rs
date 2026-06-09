@@ -29,8 +29,8 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        CreateProtocolConfigData, InsertAddressesData, PauseTreeData, TransactData,
-        UpdateProtocolConfigData,
+        CreateProtocolConfigData, InsertAddressesData, PauseTreeData, ProoflessShieldData,
+        TransactData, UpdateProtocolConfigData,
     },
     state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
@@ -493,6 +493,31 @@ impl PoolTestRig {
         extra_accounts: Vec<AccountMeta>,
     ) -> Result<(), RigError> {
         let mut payload = vec![tag::TRANSACT];
+        data.serialize(&mut payload).expect("infallible");
+        let mut accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new_readonly(self.payer.pubkey(), true),
+        ];
+        accounts.extend(extra_accounts);
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts,
+            data: payload,
+        };
+        let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        self.send(&[compute_budget_ix, ix], &[&self.payer.insecure_clone()])
+    }
+
+    /// Submits a proofless shield (tag 1): a public deposit that hashes and
+    /// appends a UTXO with no proof. `extra_accounts` are the settlement
+    /// accounts for the SOL/SPL deposit.
+    pub fn proofless_shield(
+        &mut self,
+        tree: &Keypair,
+        data: ProoflessShieldData,
+        extra_accounts: Vec<AccountMeta>,
+    ) -> Result<(), RigError> {
+        let mut payload = vec![tag::PROOFLESS_SHIELD];
         data.serialize(&mut payload).expect("infallible");
         let mut accounts = vec![
             AccountMeta::new(tree.pubkey(), false),

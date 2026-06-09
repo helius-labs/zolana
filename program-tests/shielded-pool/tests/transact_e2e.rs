@@ -20,7 +20,8 @@ use spl_token::state::{Account as TokenAccount, Mint};
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateProtocolConfigData, CreateSplInterfaceData,
-        InputUtxoSignerIndex, PauseTreeData, TransactData, UpdateProtocolConfigData,
+        InputUtxoSignerIndex, PauseTreeData, ProoflessShieldData, TransactData,
+        UpdateProtocolConfigData,
     },
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
@@ -55,7 +56,18 @@ fn tree_account_size() -> u64 {
 struct FixtureSet {
     shape: serde_json::Value,
     solana_signer_pubkey: String,
+    proofless_shield: ProoflessShieldFixtureData,
     fixtures: Vec<Fixture>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ProoflessShieldFixtureData {
+    owner: String,
+    blinding: String,
+    data_hash: String,
+    zone_data_hash: String,
+    zone_program_id: String,
+    amount: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -1370,4 +1382,46 @@ fn transact_one_in_eight_out_shape_on_chain() {
         .expect("create_pool_tree");
     let settlement = setup_spl_settlement(&mut rig);
     run_shape_flow(&mut rig, &tree, &settlement, "transfer_1_8", 1);
+}
+
+// A proofless shield (tag 1) creates a UTXO with no proof; the proof-based
+// `transfer` then spends it. The transfer succeeding proves the program's
+// proofless UTXO hash exactly matches the circuit's — i.e. proofless deposits
+// are spendable.
+#[test]
+fn proofless_shield_creates_spendable_utxo() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
+
+    // Proofless-shield exactly the UTXO the `transfer` fixture spends.
+    let ps = fixtures().proofless_shield;
+    let data = ProoflessShieldData {
+        owner: field_from_hex(&ps.owner),
+        blinding: field_from_hex(&ps.blinding),
+        data_hash: field_from_hex(&ps.data_hash),
+        zone_data_hash: field_from_hex(&ps.zone_data_hash),
+        zone_program_id: field_from_hex(&ps.zone_program_id),
+        bootstrap_view_tag: [7u8; 32],
+        public_sol_amount: None,
+        public_spl_amount: Some(ps.amount),
+        cleartext_utxo: Vec::new(),
+    };
+    rig.proofless_shield(&tree, data, settlement.metas())
+        .expect("proofless shield");
+
+    // The proofless deposit must hash to the same leaf the proof-based `shield`
+    // fixture produces; otherwise the transfer's input would not be in the tree.
+    append_reference(&mut reference, &fixture_output_hashes(&fixture("shield")));
+
+    let transfer = fixture("transfer");
+    submit_fixture(&mut rig, &tree, &transfer, Some(&settlement))
+        .expect("spend proofless-shielded UTXO via transfer");
+    append_reference(&mut reference, &fixture_output_hashes(&transfer));
+    assert_pool_state(&rig, tree.pubkey(), &reference, &transfer);
 }
