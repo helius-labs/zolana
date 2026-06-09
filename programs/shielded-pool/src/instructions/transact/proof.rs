@@ -104,14 +104,17 @@ pub fn canonical_shape(data: &TransactData) -> Result<(usize, usize), ProgramErr
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    match (inputs, outputs) {
-        (2, 2) => Ok((2, 2)),
-        (1, 2) => Ok((1, 2)),
-        (3, 3) => Ok((3, 3)),
-        (5, 3) => Ok((5, 3)),
-        (1, 8) => Ok((1, 8)),
-        _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
+    // Supported circuit shapes, smallest-capacity first. A transaction is proven
+    // with the first shape that can hold its real inputs/outputs; the remaining
+    // slots are dummy-padded in-circuit and reconstructed as zeros here. The
+    // prover selects the same shape, so the vkey and public-input padding agree.
+    const SHAPES: [(usize, usize); 5] = [(1, 2), (2, 2), (3, 3), (5, 3), (1, 8)];
+    for &(n, m) in SHAPES.iter() {
+        if inputs <= n && outputs <= m {
+            return Ok((n, m));
+        }
     }
+    Err(ShieldedPoolError::InvalidTransactShape.into())
 }
 
 fn public_input_hash_from_data<const N: usize, const M: usize>(
