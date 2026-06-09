@@ -147,5 +147,6 @@ fn sample_transact_data() -> TransactData {
         cpi_signer: None,
         in_utxo_signer_indices: None,
         encrypted_utxos: vec![],
+        requires_p256: true,
     }
 }

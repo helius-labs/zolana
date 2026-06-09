@@ -114,5 +114,8 @@ fn deposit_view(data: &ProoflessShieldData) -> TransactData {
         cpi_signer: None,
         in_utxo_signer_indices: None,
         encrypted_utxos: Vec::new(),
+        // Proofless deposits verify no proof; the rail is irrelevant here (this
+        // view only drives settlement account loading).
+        requires_p256: false,
     }
 }
