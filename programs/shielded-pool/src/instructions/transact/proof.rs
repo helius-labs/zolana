@@ -106,8 +106,9 @@ pub fn canonical_shape(data: &TransactData) -> Result<(usize, usize), ProgramErr
 
     // Supported circuit shapes, smallest-capacity first. A transaction is proven
     // with the first shape that can hold its real inputs/outputs; the remaining
-    // slots are dummy-padded in-circuit and reconstructed as zeros here. The
-    // prover selects the same shape, so the vkey and public-input padding agree.
+    // slots are dummy-padded in-circuit and reconstructed as zeros here. The Go
+    // prover enforces the same smallest-fit rule (protocol.CanonicalShape), so
+    // the vkey and public-input padding agree.
     const SHAPES: [(usize, usize); 5] = [(1, 2), (2, 2), (3, 3), (5, 3), (1, 8)];
     for &(n, m) in SHAPES.iter() {
         if inputs <= n && outputs <= m {
@@ -471,13 +472,34 @@ mod tests {
 
     #[test]
     fn canonical_shape_matches_supported_vkeys() {
+        // Exact arities map to themselves.
         let supported = [(2, 2), (1, 2), (3, 3), (5, 3), (1, 8)];
         for shape in supported {
             let data = transact_data_shape(shape.0, shape.1);
             assert_eq!(canonical_shape(&data).unwrap(), shape);
         }
 
-        for shape in [(0, 1), (0, 2), (1, 0), (1, 1), (2, 1), (4, 3)] {
+        // Smaller arities map to the smallest shape with capacity; the unused
+        // slots are dummy-padded (shield: 0 inputs, full unshield: 0 outputs).
+        // Mirrors TestCanonicalShapeMatchesOnChainSelection in Go.
+        let padded = [
+            ((0, 1), (1, 2)),
+            ((0, 2), (1, 2)),
+            ((1, 0), (1, 2)),
+            ((1, 1), (1, 2)),
+            ((2, 1), (2, 2)),
+            ((3, 1), (3, 3)),
+            ((4, 3), (5, 3)),
+            ((0, 8), (1, 8)),
+            ((1, 4), (1, 8)),
+        ];
+        for (real, want) in padded {
+            let data = transact_data_shape(real.0, real.1);
+            assert_eq!(canonical_shape(&data).unwrap(), want, "{real:?}");
+        }
+
+        // Arities no supported shape can hold are rejected.
+        for shape in [(6, 1), (2, 4), (1, 9), (2, 8)] {
             let data = transact_data_shape(shape.0, shape.1);
             assert!(canonical_shape(&data).is_err(), "{shape:?}");
         }
