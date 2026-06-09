@@ -19,17 +19,16 @@ func Sha256BEField(data ...[]byte) *big.Int {
 	return new(big.Int).SetBytes(sum)
 }
 
-// P256MessageHash returns 0x00 || SHA256(private_tx_hash_be32)[0:31].
+// P256MessageHash returns Sha256BE(private_tx_hash) — the ECDSA message digest
+// the P256 owner signature is checked against (spec: private_tx_hash_digest).
+// Sha256BE is SHA-256 with the most-significant byte zeroed (digest[1..32]).
 func P256MessageHash(privateTxHash *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("private_tx_hash", privateTxHash); err != nil {
 		return nil, fmt.Errorf("spp: P256 message hash: %w", err)
 	}
 	var privateTxHashBytes [32]byte
 	privateTxHash.FillBytes(privateTxHashBytes[:])
-	sum := sha256.Sum256(privateTxHashBytes[:])
-	var out [32]byte
-	copy(out[1:], sum[:31])
-	return new(big.Int).SetBytes(out[:]), nil
+	return Sha256BEField(privateTxHashBytes[:]), nil
 }
 
 // SignedToField maps a signed integer into BN254 Fr.

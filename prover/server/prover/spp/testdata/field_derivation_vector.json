@@ -17,7 +17,7 @@
   },
   "p256_message_hash": {
     "private_tx_hash": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
-    "hash": "0x00ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612"
+    "hash": "0x00216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9"
   },
   "negative_u64": [
     {

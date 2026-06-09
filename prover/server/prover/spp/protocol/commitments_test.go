@@ -181,7 +181,7 @@ func TestP256OwnerKeyHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-func TestP256MessageHashTruncatesSHA256(t *testing.T) {
+func TestP256MessageHashIsSha256BE(t *testing.T) {
 	privateTxHash := new(big.Int).SetBytes([]byte{
 		0x01, 0x02, 0x03, 0x04,
 		0x05, 0x06, 0x07, 0x08,
@@ -197,10 +197,10 @@ func TestP256MessageHashTruncatesSHA256(t *testing.T) {
 	got := mustHash(t, value, err)
 	var privateTxHashBytes [32]byte
 	privateTxHash.FillBytes(privateTxHashBytes[:])
+	// Sha256BE: SHA-256 with the most-significant byte zeroed (keeps digest[1..32]).
 	sum := sha256.Sum256(privateTxHashBytes[:])
-	var wantBytes [32]byte
-	copy(wantBytes[1:], sum[:31])
-	want := new(big.Int).SetBytes(wantBytes[:])
+	sum[0] = 0
+	want := new(big.Int).SetBytes(sum[:])
 
 	if got.Cmp(want) != 0 {
 		t.Fatalf("P256 message hash mismatch: got %s want %s", got, want)
