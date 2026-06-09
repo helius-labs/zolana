@@ -321,7 +321,7 @@ fn solana_pk_hashes<const N: usize>(
     Ok(out)
 }
 
-fn solana_pk_hash(pubkey: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+pub(crate) fn solana_pk_hash(pubkey: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     let pk_low = field_from_u128_be(&pubkey[16..]);
     let pk_high = field_from_u128_be(&pubkey[..16]);
     Poseidon::hashv(&[pk_low.as_slice(), pk_high.as_slice()])

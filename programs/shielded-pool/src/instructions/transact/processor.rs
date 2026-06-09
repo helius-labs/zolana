@@ -62,7 +62,7 @@ pub fn process_transact(
     Ok(())
 }
 
-fn insert_queue_entries(
+pub(crate) fn insert_queue_entries(
     bytes: &mut [u8],
     tree_pubkey: Address,
     entries: &[[u8; 32]],

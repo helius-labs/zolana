@@ -3,7 +3,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
     tag, AppendStateLeavesData, BatchUpdateAddressTreeData, BatchUpdateNullifierTreeData,
     CreatePocketConfigData, CreatePoolTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
-    InsertAddressesData, PauseTreeData, TransactData, UpdatePocketConfigData,
+    InsertAddressesData, PauseTreeData, ProoflessShieldData, TransactData, UpdatePocketConfigData,
     UpdatePocketConfigOwnerData, UpdateProtocolConfigData,
 };
 
@@ -24,6 +24,7 @@ use crate::{
             process_create_protocol_config, process_pause_tree, process_update_protocol_config,
         },
         transact::processor::process_transact,
+        transact::proofless::process_proofless_shield,
     },
 };
 
@@ -66,6 +67,11 @@ pub fn process_instruction(
             let data = TransactData::try_from_slice(payload)
                 .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
             process_transact(program_id, accounts, data)
+        }
+        tag::PROOFLESS_SHIELD => {
+            let data = ProoflessShieldData::try_from_slice(payload)
+                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+            process_proofless_shield(program_id, accounts, data)
         }
         tag::CREATE_SPL_INTERFACE => {
             let data = CreateSplInterfaceData::try_from_slice(payload)

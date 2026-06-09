@@ -84,7 +84,7 @@ pub fn verify<'a>(
     load_transact_accounts(program_id, accounts, data, sol_amount != 0, spl_amount != 0)
 }
 
-fn load_transact_accounts<'a>(
+pub(crate) fn load_transact_accounts<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
     data: &TransactData,
