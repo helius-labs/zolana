@@ -58,10 +58,19 @@ struct FixtureSet {
     fixtures: Vec<Fixture>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+struct FixtureShape {
+    #[serde(rename = "NInputs")]
+    n_inputs: usize,
+    #[serde(rename = "NOutputs")]
+    n_outputs: usize,
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 struct Fixture {
     name: String,
+    shape: FixtureShape,
     expiry_unix_ts: u64,
     sender_view_tag: String,
     proof: serde_json::Value,
@@ -234,6 +243,20 @@ fn assert_error_contains(err: RigError, expected: &str) {
     assert!(
         msg.contains(expected),
         "expected error containing {expected}, got: {msg}"
+    );
+}
+
+// A tampered proof or commitment is rejected either at point decompression
+// (InvalidTransactProofEncoding = 11) or at verification
+// (TransactProofVerificationFailed = 12). Which one a flipped byte triggers
+// depends on whether it yields an invalid encoding or a valid-but-wrong curve
+// point, which is not stable across (non-deterministic) trusted setups. Both
+// uphold the property under test: the proof is rejected without mutating state.
+fn assert_proof_rejected(err: RigError) {
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("Custom(11)") || msg.contains("Custom(12)"),
+        "expected proof rejection (Custom(11) or Custom(12)), got: {msg}"
     );
 }
 
@@ -697,6 +720,14 @@ fn fixture_proofs_verify_against_committed_verifying_key() {
         let commitment = decompression::decompress_g1(&commitment).unwrap();
         let commitment_pok = decompression::decompress_g1(&commitment_pok).unwrap();
         let public_inputs = [public_input_hash];
+        let verifying_key = match (fixture.shape.n_inputs, fixture.shape.n_outputs) {
+            (1, 2) => &verifying_keys::spp_1_2::VERIFYINGKEY,
+            (2, 2) => &verifying_keys::spp_2_2::VERIFYINGKEY,
+            (3, 3) => &verifying_keys::spp_3_3::VERIFYINGKEY,
+            (5, 3) => &verifying_keys::spp_5_3::VERIFYINGKEY,
+            (1, 8) => &verifying_keys::spp_1_8::VERIFYINGKEY,
+            other => panic!("fixture {} has unsupported shape {other:?}", fixture.name),
+        };
         let mut verifier = Groth16Verifier::new_with_commitment(
             &proof_a,
             &proof_b,
@@ -704,7 +735,7 @@ fn fixture_proofs_verify_against_committed_verifying_key() {
             &commitment,
             &commitment_pok,
             &public_inputs,
-            &verifying_keys::spp_1_2::VERIFYINGKEY,
+            verifying_key,
         )
         .unwrap_or_else(|err| {
             panic!(
@@ -878,7 +909,7 @@ fn transact_rejects_tampered_proof_without_mutating() {
     let err = rig
         .transact_with_extra_accounts(&tree, data, settlement.metas())
         .expect_err("tampered proof must fail");
-    assert_error_contains(err, "Custom(12)");
+    assert_proof_rejected(err);
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -928,7 +959,7 @@ fn transact_rejects_tampered_bsb22_commitment_without_mutating() {
     let err = rig
         .transact_with_extra_accounts(&tree, data, settlement.metas())
         .expect_err("tampered BSB22 commitment must fail");
-    assert_error_contains(err, "Custom(11)");
+    assert_proof_rejected(err);
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -1266,4 +1297,77 @@ fn transact_rejects_invalid_shape_without_mutating() {
     );
     assert_eq!(token_amount(&rig, &settlement.user_token), 1_000_000);
     assert_eq!(token_amount(&rig, &settlement.vault), 0);
+}
+
+// run_shape_flow seeds a shape's `n_inputs` input UTXOs with single-asset SPL
+// shields, then submits the shape's transfer spending them — proving and
+// transacting every supported circuit shape against the live program. The
+// transfer carries no public settlement (its SOL/SPL balance is internal).
+fn run_shape_flow(
+    rig: &mut PoolTestRig,
+    tree: &Keypair,
+    settlement: &SplSettlement,
+    name: &str,
+    n_inputs: usize,
+) {
+    let mut reference = SparseMerkleTree::<light_hasher::Poseidon, STATE_HEIGHT>::new_empty();
+    for i in 0..n_inputs {
+        let seed = fixture(&format!("{name}_seed_{i}"));
+        submit_fixture(rig, tree, &seed, Some(settlement))
+            .unwrap_or_else(|err| panic!("{name} seed {i} failed: {err}"));
+        append_reference(&mut reference, &fixture_output_hashes(&seed));
+    }
+    let transfer = fixture(name);
+    submit_fixture(rig, tree, &transfer, None)
+        .unwrap_or_else(|err| panic!("{name} transfer failed: {err}"));
+    append_reference(&mut reference, &fixture_output_hashes(&transfer));
+    assert_pool_state(rig, tree.pubkey(), &reference, &transfer);
+}
+
+#[test]
+fn transact_two_in_two_out_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "transfer_2_2", 2);
+}
+
+#[test]
+fn transact_three_in_three_out_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "transfer_3_3", 3);
+}
+
+#[test]
+fn transact_five_in_three_out_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "transfer_5_3", 5);
+}
+
+#[test]
+fn transact_one_in_eight_out_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "transfer_1_8", 1);
 }
