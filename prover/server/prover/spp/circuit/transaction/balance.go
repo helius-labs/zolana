@@ -24,9 +24,11 @@ func assertBalanceConservation(
 	rangeCheckSigned64(api, publicSolAmount)
 	rangeCheckSigned64(api, publicSplAmount)
 
-	// SPL public movement cannot target the SOL asset ID.
+	solAsset := protocol.SolAsset()
+
+	// SPL public movement cannot target the SOL asset.
 	splAmountIsZero := api.IsZero(publicSplAmount)
-	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, protocol.SolAssetID))
+	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAsset))
 	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
 
 	// Check every private asset plus SOL and the public SPL asset.
@@ -40,7 +42,7 @@ func assertBalanceConservation(
 		keys = append(keys, output.AssetID)
 	}
 	// Asset IDs are witness values; Go cannot dedup them safely.
-	keys = append(keys, frontend.Variable(protocol.SolAssetID), publicSplAssetPubkey)
+	keys = append(keys, frontend.Variable(solAsset), publicSplAssetPubkey)
 
 	for _, key := range keys {
 		inSum := frontend.Variable(0)
@@ -55,7 +57,7 @@ func assertBalanceConservation(
 			outSum = api.Add(outSum, api.Mul(match, output.AssetAmount))
 		}
 
-		solMatch := api.IsZero(api.Sub(key, protocol.SolAssetID))
+		solMatch := api.IsZero(api.Sub(key, solAsset))
 		splMatch := api.IsZero(api.Sub(key, publicSplAssetPubkey))
 		adjustedIn := api.Add(
 			inSum,

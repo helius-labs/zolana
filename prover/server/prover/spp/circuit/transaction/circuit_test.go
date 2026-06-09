@@ -291,7 +291,7 @@ func TestSignedAmountRangeBoundary(t *testing.T) {
 
 func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	solAssetID := spptest.Fe(protocol.SolAssetID)
+	solAssetID := protocol.SolAsset()
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
@@ -366,7 +366,7 @@ func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	solAssetID := spptest.Fe(protocol.SolAssetID)
+	solAssetID := protocol.SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,

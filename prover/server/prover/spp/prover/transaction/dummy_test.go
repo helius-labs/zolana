@@ -36,7 +36,7 @@ func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 	return ProofUtxoRequest{
 		Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
 		Owner:         proofFieldInput(owner),
-		AssetID:       proofFieldInput(big.NewInt(protocol.SolAssetID)),
+		AssetID:       proofFieldInput(protocol.SolAsset()),
 		AssetAmount:   proofFieldInput(big.NewInt(amount)),
 		Blinding:      proofFieldInput(big.NewInt(blinding)),
 		DataHash:      proofFieldInput(big.NewInt(0)),
@@ -74,7 +74,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 	input := protocol.Utxo{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		Owner:         owner,
-		AssetID:       big.NewInt(protocol.SolAssetID),
+		AssetID:       protocol.SolAsset(),
 		AssetAmount:   big.NewInt(100),
 		Blinding:      big.NewInt(1000),
 		DataHash:      big.NewInt(0),

@@ -7,8 +7,25 @@ import (
 	"light/light-prover/prover/poseidon"
 )
 
-// SolAssetID is the protocol asset id for native SOL.
-const SolAssetID = 1
+// solAssetValue is the UTXO asset field for native SOL: the default (all-zero)
+// address encoded like any Address in a UTXO commitment, Poseidon(low_128,
+// high_128) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
+// asset uses the same SolanaPkHash encoding (on-chain public_spl_asset).
+var solAssetValue = mustSolAsset()
+
+func mustSolAsset() *big.Int {
+	asset, err := SolanaPkHash([32]byte{})
+	if err != nil {
+		panic(err)
+	}
+	return asset
+}
+
+// SolAsset returns the native-SOL asset field used in UTXO commitments and the
+// balance check.
+func SolAsset() *big.Int {
+	return new(big.Int).Set(solAssetValue)
+}
 
 // UtxoDomain is the constant domain separator for UTXO Poseidon commitments
 // (spec: "Constant separating UTXOs from other Poseidon-hashed records").
