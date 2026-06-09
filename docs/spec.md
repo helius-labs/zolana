@@ -477,12 +477,14 @@ struct Utxo {
 ## UTXO Hash
 
 ```
-utxo_hash = Poseidon(domain, owner_hash, asset, amount, blinding,
+utxo_hash = Poseidon(domain, asset, amount,
                      program_data_hash, policy_data_hash,
-                     zone_program_id)
+                     zone_program_id, owner_utxo_hash)
+
+owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. `owner_hash` is defined in [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
 
 ## Nullifier
 
@@ -492,8 +494,25 @@ A nullifier deterministically derives from a UTXO and the recipient's [Nullifier
 nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 ```
 
-nullifier_secret - must be committed in the owner hash in the utxo_hash.
-utxo_blinding - must be committed as blinding in the utxo_hash.
+nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
+utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
+
+## Empty UTXO
+
+Fixed-size circuits pad unused output slots with empty UTXOs, most often a
+sender's absent SPL or SOL change. Every field is zero except `blinding`:
+
+```
+owner = asset = amount = 0
+program_data = policy_data = zone_program_id = None
+blinding = Sha256BE(blinding_seed || u8(position))
+```
+
+`owner = 0` leaves the output permanently unspendable: spending it later requires
+keys whose `owner_hash` is 0, which no one holds. The per-position `blinding`
+gives each empty output a distinct `utxo_hash`, so it looks like a real output.
+The sender ciphertext also stays fixed-size (amounts are fixed-width), so neither
+the output hash nor the ciphertext reveals whether the sender kept change.
 
 # Output UTXO Serialization
 
@@ -506,7 +525,20 @@ Schemes:
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — one ciphertext for the single merged output.
 
-TODO: add nonce derivation
+## AES Nonce derivation
+
+AES-GCM breaks if a `(key, nonce)` pair repeats. Every transaction encryption key is deterministically derived and single use. 
+In case that a transaction encryption key is derived multiple times because a transaction failed or was not sent we use a random u64 nonce.
+
+Transfer and split use `salt || slot_index` directly as the AES-GCM nonce; the key is derived from the ECDH shared secret, per ciphertext slot `i`:
+
+```
+nonce      = u64_be(salt) || u32_be(i)                      // 12 B, the AES-GCM nonce
+ikm        = ECDH_x(tx_viewing_sk, recipient_viewing_pk) || tx_viewing_pk || recipient_viewing_pk
+key        = HKDF-SHA256(salt = ∅, IKM = ikm, info = "TSPP/hpke/" || "TSPP/tx", L = 32)
+ciphertext = AES-256-GCM(key, nonce, plaintext)
+```
+
 
 ## Program Data
 
@@ -601,7 +633,7 @@ struct TransferSenderPlaintext {
 The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order with no length prefixes.
 
 ```rust
-/// Total size: 140 + 195*R bytes when every plaintext has both program-data slots
+/// Total size: 148 + 195*R bytes when every plaintext has both program-data slots
 /// absent (sender grows by `33·R` from `recipient_viewing_pks`; each recipient slot
 /// is 162 B). Each populated program-data slot grows its ciphertext (and thus the
 /// blob) by `3 + len` bytes. See [Program Data](#program-data).
@@ -609,6 +641,8 @@ struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
+    /// Per-transaction CSPRNG salt.
+    salt: u64,
     /// Number of recipient_slots that follow ciphertext_sender. Equals R.
     num_recipients: u8,
     /// Sender change bundle ciphertext: `89 + 33·R`-byte plaintext (when
@@ -638,22 +672,22 @@ struct RecipientSlot {
 
 #### Sender
 
-The sender ciphertext sits inline at offset 35 with no slot wrapper. Its view tag is `sender_view_tag`, included in the [transact](#transact) instruction data, not in `encrypted_utxos`.
+The sender ciphertext sits inline at offset 43 with no slot wrapper. Its view tag is `sender_view_tag`, included in the [transact](#transact) instruction data, not in `encrypted_utxos`.
 
 #### Sizes
 
 `R` = number of recipients.
 
-Total: `140 + 195·R` bytes. Standard single-recipient transfer: `R = 1`, total `335`.
+Total: `148 + 195·R` bytes. Standard single-recipient transfer: `R = 1`, total `343`.
 
 Blob size by recipient count:
 
 | R | Bytes |
 | --- | --- |
-| 1 | 335 |
-| 2 | 530 |
-| 4 | 920 |
-| 8 | 1700 |
+| 1 | 343 |
+| 2 | 538 |
+| 4 | 928 |
+| 8 | 1708 |
 
 Sizes assume `zone_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
 
@@ -697,7 +731,7 @@ struct SplitBundlePlaintext {
 ### Instruction Data Layout
 
 ```rust
-/// 132 bytes total when both program-data slots are absent on the plaintext; populated
+/// 140 bytes total when both program-data slots are absent on the plaintext; populated
 /// slots grow the ciphertext by `3 + len` bytes each. Packed, no length
 /// prefixes.
 /// Owner-side view tag is `sender_view_tag` from the transact instruction data
@@ -706,6 +740,8 @@ struct SplitEncryptedUtxos {
     /// Discriminator (SPLIT).
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
+    /// Per-transaction CSPRNG salt.
+    salt: u64,
     /// 82-byte plaintext + 16-byte GCM tag.
     ciphertext: [u8; 98],
 }
@@ -734,13 +770,16 @@ struct MergeBundlePlaintext {
 ### Instruction Data Layout
 
 ```rust
-/// 115 bytes total. Packed, no length prefixes.
+/// 123 bytes total. Packed, no length prefixes.
 /// Owner-side view tag is `merge_view_tag` from the merge_transact
 /// instruction data; not repeated in this blob.
 struct MergeEncryptedUtxo {
     /// Discriminator (MERGE).
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
+    /// Per-transaction CSPRNG salt; mixed into the Poseidon KDF key_schedule_context.
+    /// Public input to the merge proof.
+    salt: u64,
     /// 65-byte plaintext + 16-byte GCM tag.
     ciphertext: [u8; 81],
 }
@@ -776,7 +815,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | --- | --- |
 | owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). Solana / Ed25519 inputs use the public `solana_pk_hashes[i]`. |
 | `nullifier_pk` | owner's [Shielded Address](#shielded-address) nullifier commitment, a 32-byte field element |
-| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` also feeds the nullifier formula |
+| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
 | `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519). The proof checks it against the public `private_tx_hash_digest`; the SHA-256 that produces that digest is computed outside the circuit (see [UTXO Ownership Check](#utxo-ownership-check)). |
 
@@ -790,7 +829,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| `owner` | recipient's `owner_hash`; the proof hashes it into `output_utxo_hashes[i]` without unpacking the components |
+| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components |
 | `asset`, `amount`, `blinding`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
@@ -880,6 +919,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
 | `user_viewing_pk` | owner's P256 viewing pubkey, supplied by the prover (the wallet or sync delegate building the merge) |
 | `tx_viewing_sk` | P256 scalar used in ECDH; `tx_viewing_pk == tx_viewing_sk · G_P256` |
+| `salt` | Per-transaction CSPRNG salt from `MergeEncryptedUtxo`, mixed into the Poseidon KDF `key_schedule_context`. |
 
 **Private Inputs (output UTXO)**
 
@@ -906,7 +946,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
-| Verifiable encryption | The public `ciphertext` equals `AES-256-GCM(aes_key, nonce, plaintext, AAD = output_utxo_hash)` where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. |
+| Verifiable encryption | The public `ciphertext` equals `AES-256-GCM(aes_key, nonce, plaintext, AAD = output_utxo_hash)` where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk`, `user_viewing_pk`, and the public `salt`. |
 
 **Verifiable encryption: DHKEM(P-256) + Poseidon KDF + AES-256-GCM.** All steps are checked by the merge proof.
 
@@ -922,17 +962,17 @@ shared_secret = Poseidon(
     user_viewing_pk.lo, user_viewing_pk.hi,
 )
 
-// 3. Info siloing
-siloed = Poseidon(DOM_SEP_SILO, shared_secret, info.lo, info.hi)
-         where info = "TSPP/merge"
+// 3. Key schedule context (HPKE info binding; salt mixed in)
+key_schedule_context = Poseidon(DOM_SEP_CONTEXT, shared_secret, info.lo, info.hi, salt)
+         where info = "TSPP/merge", salt = public u64 from MergeEncryptedUtxo
 
 // 4. AES-256 key (two Poseidon calls, low 16 bytes from each high half)
-key_lo  = Poseidon(DOM_SEP_KEY,     siloed)
-key_hi  = Poseidon(DOM_SEP_KEY + 1, siloed)
+key_lo  = Poseidon(DOM_SEP_KEY,     key_schedule_context)
+key_hi  = Poseidon(DOM_SEP_KEY + 1, key_schedule_context)
 aes_key = key_hi[16..32] || key_lo[16..32]      // 32 B
 
 // 5. AES-GCM nonce
-nonce_raw = Poseidon(DOM_SEP_NONCE, siloed)
+nonce_raw = Poseidon(DOM_SEP_NONCE, key_schedule_context)
 nonce     = nonce_raw[20..32]                    // 12 B
 
 // 6. Encrypt
@@ -1080,13 +1120,13 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 | Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 140 | 206 | 766 | — |
-| 1 in 2 out | 1 | 2 | 335 | 206 | 957 | 875 |
-| 3 in 3 out | 3 | 3 | 335 | 206 | 993 | 911 |
-| 5 in 3 out | 5 | 3 | 335 | 206 | 997 | 915 |
-| 1 in 8 out | 1 | 8 | 132 | 206 | 946 | 864 |
+| 2 in 2 out | 2 | 2 | 148 | 206 | 774 | — |
+| 1 in 2 out | 1 | 2 | 343 | 206 | 965 | 883 |
+| 3 in 3 out | 3 | 3 | 343 | 206 | 1001 | 919 |
+| 5 in 3 out | 5 | 3 | 343 | 206 | 1005 | 923 |
+| 1 in 8 out | 1 | 8 | 140 | 206 | 954 | 872 |
 
-\* `private_tx_hash` is 32 B. Transfer ciphertext sizes follow the [Output UTXO Serialization § Transfer](#transfer-2) layout: 140 B at `R = 0` (shield-with-merge: 2 sender change outputs, no recipient slot), 335 B at `R = 1`, and `+195 B` per extra recipient (162 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
+\* `private_tx_hash` is 32 B. Transfer ciphertext sizes follow the [Output UTXO Serialization § Transfer](#transfer-2) layout: 148 B at `R = 0` (shield-with-merge: 2 sender change outputs, no recipient slot), 343 B at `R = 1`, and `+195 B` per extra recipient (162 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
 \*\* assumes ALT for `tree_account`, `payer` and `program_id` inline; overhead = 64 (signature) + 3 (message header) + 65 (inline account keys: compact-u16 count + 2 × 32-byte pubkeys for `payer` and `program_id`) + 32 (recent blockhash) + 36 (ALT section: compact-u16 count + 32-byte ALT pubkey + writable count + writable index + readonly count) + 6 (instruction body: program_id_index + account_indices + data_len_varint). Shield/unshield totals add 66 B (`+64` for inline `user_spl_token_account` and `spl_token_interface` pubkeys, `+2` for their indices in the instruction body) because these accounts vary per transaction and cannot be served from the ALT.
 
 **Checks**
