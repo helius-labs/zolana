@@ -62,8 +62,7 @@ struct FixtureSet {
 
 #[derive(Clone, Debug, Deserialize)]
 struct ProoflessShieldFixtureData {
-    owner: String,
-    blinding: String,
+    owner_utxo_hash: String,
     data_hash: String,
     zone_data_hash: String,
     zone_program_id: String,
@@ -1402,8 +1401,7 @@ fn proofless_shield_creates_spendable_utxo() {
     // Proofless-shield exactly the UTXO the `transfer` fixture spends.
     let ps = fixtures().proofless_shield;
     let data = ProoflessShieldData {
-        owner: field_from_hex(&ps.owner),
-        blinding: field_from_hex(&ps.blinding),
+        owner_utxo_hash: field_from_hex(&ps.owner_utxo_hash),
         data_hash: field_from_hex(&ps.data_hash),
         zone_data_hash: field_from_hex(&ps.zone_data_hash),
         zone_program_id: field_from_hex(&ps.zone_program_id),
