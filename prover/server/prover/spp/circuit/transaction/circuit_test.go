@@ -183,7 +183,9 @@ func TestCircuitAcceptsP256Owner(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
+// Spec single-owner rule: all non-dummy inputs must share one owner. Mixing a
+// P256-owned input with a Solana-owned input in one transaction is rejected.
+func TestCircuitRejectsMixedP256AndSolanaInputs(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
@@ -191,7 +193,7 @@ func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, priv, priv)
 
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsBadP256Signature(t *testing.T) {

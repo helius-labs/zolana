@@ -131,3 +131,18 @@ func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 		}
 	}
 }
+
+// assertSingleOwner enforces the spec's single-owner rule (spec.md "Nullifier
+// secret binding": all non-dummy inputs share nullifier_pk and therefore the
+// same owner). Every pair of real inputs must carry the same owner_hash; since
+// the nullifier_pk is already shared (one nullifier_secret), this forces a single
+// signing key — no mixing P256 with Solana, or distinct Solana keys, in one
+// transaction. Dummy slots are excluded.
+func (c *Circuit) assertSingleOwner(api frontend.API) {
+	for i := range c.Inputs {
+		for j := i + 1; j < len(c.Inputs); j++ {
+			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
+			api.AssertIsEqual(api.Mul(bothReal, api.Sub(c.Inputs[i].Utxo.Owner, c.Inputs[j].Utxo.Owner)), 0)
+		}
+	}
+}

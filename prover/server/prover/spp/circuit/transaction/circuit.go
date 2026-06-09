@@ -116,6 +116,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		inputHashes[i] = constrainInput(api, c.Inputs[i], env)
 	}
 	c.assertDistinctNullifiers(api)
+	c.assertSingleOwner(api)
 
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
