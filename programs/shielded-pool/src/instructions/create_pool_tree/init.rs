@@ -507,3 +507,23 @@ fn write_subtrees_to(
         state[start..start + 32].copy_from_slice(src);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::INITIAL_NULLIFIER_ROOT;
+
+    // Parity tripwire: this is the seed root of an empty height-40 indexed
+    // nullifier tree. It MUST equal protocol.NewNullifierTree().Root() on the
+    // Go side, which is pinned to the same value by
+    // TestInitialNullifierRootMatchesProgramConstant. If either side drifts the
+    // first batch_update fails on an old_root mismatch, so both pin this hex.
+    #[test]
+    fn initial_nullifier_root_is_pinned() {
+        let expected: [u8; 32] = [
+            0x1d, 0x8e, 0x71, 0xa6, 0x01, 0xb3, 0xe8, 0xde, 0xbb, 0xba, 0x9b, 0x55, 0x7b, 0x83,
+            0x69, 0xc7, 0xf4, 0x04, 0xae, 0x57, 0xbe, 0xbf, 0x08, 0x52, 0x23, 0x6b, 0x07, 0x28,
+            0x20, 0x95, 0x42, 0x77,
+        ];
+        assert_eq!(INITIAL_NULLIFIER_ROOT, expected);
+    }
+}
