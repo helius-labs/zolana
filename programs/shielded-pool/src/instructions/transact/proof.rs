@@ -345,10 +345,9 @@ fn signer_pubkey_hash(settlement: &SettlementAccounts<'_>) -> Result<[u8; 32], P
 }
 
 fn p256_message_hash(private_tx_hash: &[u8; 32]) -> [u8; 32] {
-    let sum = sha256_hashv(&[private_tx_hash.as_slice()]).to_bytes();
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(&sum[..31]);
-    out
+    // Sha256BE(private_tx_hash) per spec: SHA-256 with the most-significant byte
+    // zeroed (keeps digest[1..32]). Same convention as external_data_hash.
+    sha256_be_field_hash(&[private_tx_hash.as_slice()])
 }
 
 fn sha256_be_field_hash(slices: &[&[u8]]) -> [u8; 32] {
@@ -485,16 +484,16 @@ mod tests {
     }
 
     #[test]
-    fn p256_message_hash_uses_truncated_sha256() {
+    fn p256_message_hash_is_sha256_be() {
         let mut private_tx_hash = [0u8; 32];
         for (i, byte) in private_tx_hash.iter_mut().enumerate() {
             *byte = (i + 1) as u8;
         }
 
+        // Sha256BE: SHA-256 then zero the most-significant byte (keep digest[1..32]).
         let got = p256_message_hash(&private_tx_hash);
-        let sum = sha256_hashv(&[private_tx_hash.as_slice()]).to_bytes();
-        let mut want = [0u8; 32];
-        want[1..].copy_from_slice(&sum[..31]);
+        let mut want = sha256_hashv(&[private_tx_hash.as_slice()]).to_bytes();
+        want[0] = 0;
 
         assert_eq!(got, want);
         assert_eq!(got[0], 0);
