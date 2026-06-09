@@ -36,6 +36,15 @@ pub fn process_proofless_shield(
     if (sol == 0) == (spl == 0) {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
+    // Default-zone deposit: only bare UTXOs. Program/zone-owned UTXOs require the
+    // zone authorization path (spec: Program ownership), so reject program/policy
+    // data and a zone program id here — matching the transact circuit.
+    if data.data_hash != [0u8; 32]
+        || data.zone_data_hash != [0u8; 32]
+        || data.zone_program_id != [0u8; 32]
+    {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
+    }
     let needs_sol = sol != 0;
     let needs_spl = spl != 0;
 
