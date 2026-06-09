@@ -14,6 +14,12 @@ import (
 
 type Circuit struct {
 	Shape protocol.Shape `gnark:"-"`
+	// RequiresP256 selects the ownership rail at compile time. When true the
+	// circuit includes the emulated-P256 ECDSA gadget (~86% of constraints) for
+	// P256/passkey owners. When false it is a Solana-only circuit: the gadget is
+	// omitted (~7x smaller) and every real input must be Solana-owned. Both
+	// rails are homogeneous because the circuit enforces a single owner.
+	RequiresP256 bool `gnark:"-"`
 
 	Inputs  []Input
 	Outputs []Output
@@ -60,14 +66,28 @@ type Output struct {
 	Hash    frontend.Variable
 }
 
+// NewCircuit builds the P256-capable transaction circuit (includes the ECDSA
+// gadget). Use NewSolanaCircuit for the cheaper Solana-only rail.
 func NewCircuit(shape protocol.Shape) (*Circuit, error) {
+	return newCircuit(shape, true)
+}
+
+// NewSolanaCircuit builds the Solana-only transaction circuit: it omits the
+// emulated-P256 gadget (~7x fewer constraints) and requires every real input to
+// be Solana-owned.
+func NewSolanaCircuit(shape protocol.Shape) (*Circuit, error) {
+	return newCircuit(shape, false)
+}
+
+func newCircuit(shape protocol.Shape, requiresP256 bool) (*Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
 	c := &Circuit{
-		Shape:   shape,
-		Inputs:  make([]Input, shape.NInputs),
-		Outputs: make([]Output, shape.NOutputs),
+		Shape:        shape,
+		RequiresP256: requiresP256,
+		Inputs:       make([]Input, shape.NInputs),
+		Outputs:      make([]Output, shape.NOutputs),
 	}
 	for i := 0; i < shape.NInputs; i++ {
 		c.Inputs[i].StatePathElements = make([]frontend.Variable, protocol.StateTreeHeight)
@@ -84,32 +104,49 @@ func MustNewCircuit(shape protocol.Shape) *Circuit {
 	return circuit
 }
 
+func MustNewSolanaCircuit(shape protocol.Shape) *Circuit {
+	circuit, err := NewSolanaCircuit(shape)
+	if err != nil {
+		panic(err)
+	}
+	return circuit
+}
+
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateLayout(); err != nil {
 		return err
 	}
 
 	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
-	p256OwnerKeyHash, err := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
-	if err != nil {
-		return err
-	}
-	p256Message, err := p256MessageHashToP256Fr(api, c.P256MessageHash)
-	if err != nil {
-		return err
-	}
-	p256SigValid := c.P256Pub.IsValid(
-		api,
-		sw_emulated.GetCurveParams[emulated.P256Fp](),
-		p256Message,
-		&c.P256Sig,
-	)
-
 	env := spendEnv{
 		nullifierPkFromSecret: nullifierPkFromSecret,
-		p256OwnerKeyHash:      p256OwnerKeyHash,
-		p256SigValid:          p256SigValid,
 		nullifierSecret:       c.NullifierSecret,
+		requiresP256:          c.RequiresP256,
+	}
+	if c.RequiresP256 {
+		p256OwnerKeyHash, err := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
+		if err != nil {
+			return err
+		}
+		p256Message, err := p256MessageHashToP256Fr(api, c.P256MessageHash)
+		if err != nil {
+			return err
+		}
+		env.p256OwnerKeyHash = p256OwnerKeyHash
+		env.p256SigValid = c.P256Pub.IsValid(
+			api,
+			sw_emulated.GetCurveParams[emulated.P256Fp](),
+			p256Message,
+			&c.P256Sig,
+		)
+	} else {
+		// Solana-only rail: no P256 gadget. p256OwnerKeyHash is never selected
+		// (constrainInput forces every real input to be Solana-owned), and there
+		// is no P256 signature, so pin the message hash to 0. p256SigValid is
+		// unused (set to a constant for the gated checks that are never active).
+		api.AssertIsEqual(c.P256MessageHash, 0)
+		env.p256OwnerKeyHash = frontend.Variable(0)
+		env.p256SigValid = frontend.Variable(1)
 	}
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {

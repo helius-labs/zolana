@@ -183,6 +183,35 @@ func TestCircuitAcceptsP256Owner(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+// The Solana-only circuit variant (no P256 gadget) proves a Solana-owned
+// transaction. P256MessageHash must be 0 on this rail (no signature).
+func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewSolanaCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	assignment.P256MessageHash = spptest.Fe(0)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Soundness guard: the Solana-only variant must reject a P256-owned input
+// (SolanaPkHash == 0), since it skips the signature gadget. Otherwise a UTXO
+// owned by OwnerHash(0, nullifier_pk) could be spent with no signature.
+func TestSolanaCircuitRejectsP256Input(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewSolanaCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	priv := spptest.FixedP256Key(t, 11)
+	rewriteSingleInputAsP256(t, assignment, priv, priv)
+	assignment.P256MessageHash = spptest.Fe(0)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 // Spec single-owner rule: all non-dummy inputs must share one owner. Mixing a
 // P256-owned input with a Solana-owned input in one transaction is rejected.
 func TestCircuitRejectsMixedP256AndSolanaInputs(t *testing.T) {

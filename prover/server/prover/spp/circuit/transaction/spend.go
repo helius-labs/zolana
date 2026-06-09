@@ -39,6 +39,9 @@ type spendEnv struct {
 	p256OwnerKeyHash      frontend.Variable
 	p256SigValid          frontend.Variable
 	nullifierSecret       frontend.Variable
+	// requiresP256 is false for the Solana-only circuit variant, which omits the
+	// P256 gadget and must therefore reject any real P256-owned input.
+	requiresP256 bool
 }
 
 // constrainInput verifies one spent input: domain, state-tree inclusion, owner
@@ -74,6 +77,14 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	// Owner check: P256 inputs (SolanaPkHash == 0) rebuild the owner key hash
 	// from the P256 point in the witness; Solana inputs use the public hash.
 	isP256 := api.IsZero(in.SolanaPkHash)
+	if !env.requiresP256 {
+		// Solana-only variant: the P256 gadget (incl. the signature check) is
+		// absent, so a real input MUST be Solana-owned (SolanaPkHash != 0).
+		// Otherwise p256OwnerKeyHash is 0 and p256SigValid is forced 1, which
+		// would let a UTXO crafted with owner = OwnerHash(0, nullifier_pk) be
+		// spent here with no signature. This restricts the variant to its rail.
+		assertZeroWhen(api, notDummy, isP256)
+	}
 	ownerKeyHash := api.Select(isP256, env.p256OwnerKeyHash, in.SolanaPkHash)
 	ownerHash := OwnerHashCircuit(api, ownerKeyHash, env.nullifierPkFromSecret)
 	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
