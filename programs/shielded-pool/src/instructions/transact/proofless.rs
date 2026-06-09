@@ -2,7 +2,6 @@ use light_hasher::{Hasher, Poseidon};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{ProoflessShieldData, TransactData, PUBLIC_AMOUNT_DEPOSIT};
 
-use super::processor::insert_queue_entries;
 use super::proof::solana_pk_hash;
 use super::settlement::{settle_public_amounts, spl_asset_pubkey};
 use super::verify::load_transact_accounts;
@@ -52,7 +51,6 @@ pub fn process_proofless_shield(
     // settlement paths (mode = DEPOSIT, no proof / nullifiers / outputs).
     let tx = deposit_view(&data);
     let verified = load_transact_accounts(program_id, accounts, &tx, needs_sol, needs_spl)?;
-    let tree_pubkey = *verified.tree.address();
 
     // Asset field and amount come from the actual deposit; the UTXO hash uses
     // the same encoding as the circuit so the deposit is spendable by a proof.
@@ -80,10 +78,18 @@ pub fn process_proofless_shield(
 
     settle_public_amounts(program_id, &verified.settlement, &tx)?;
 
+    // Do NOT insert bootstrap_view_tag into the nullifier queue. Only
+    // sender_view_tag / merge_view_tag are single-use and belong in the
+    // nullifier tree (spec "View tags"); bootstrap_view_tag is the recipient's
+    // viewing_pk — constant per recipient and reused on every first-contact
+    // deposit — so queueing it would make the bloom dedup reject the recipient's
+    // second proofless shield forever. The indexer discovers proofless shields
+    // by scanning instruction data (bootstrap_view_tag + cleartext_utxo), which
+    // is the documented handling for reusable tags.
+    //
     // SAFETY: `tree` is the writable account passed by the caller and is not
     // aliased with the settlement accounts borrowed above.
     let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
-    insert_queue_entries(bytes, tree_pubkey, &[data.bootstrap_view_tag])?;
     if append_to_pool(bytes, &[utxo_hash]).is_err() {
         log("proofless_shield: state sub-tree append failed");
         return Err(ShieldedPoolError::StateAppendFailed.into());
