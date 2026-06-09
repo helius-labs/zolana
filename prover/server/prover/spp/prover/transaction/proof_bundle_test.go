@@ -259,7 +259,7 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	}
 
 	got := externalDataFieldHash(data)
-	const want = "00054bb92fedd78c3b5c592bf929a656d382cb9bff39094166d3e9a4ad15d89f"
+	const want = "004c9c75e10a9c259dd09496430d20f31465326a9d8c33ace8b49b1ff8908a73"
 	if parse.FieldHex(got) != want {
 		t.Fatalf("external data hash = %s, want %s", parse.FieldHex(got), want)
 	}

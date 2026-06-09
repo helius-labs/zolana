@@ -3,13 +3,14 @@
     "instruction_discriminator": 0,
     "sender_view_tag": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     "relayer_fee": 4660,
+    "expiry_unix_ts": 1234567890,
     "public_sol_amount": 1234567890123456789,
     "public_spl_amount": 9876543210987654321,
     "user_sol_account": "0x202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
     "user_spl_token_account": "0x404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
     "spl_token_interface": "0x606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
     "encrypted_utxos": "0x80818283848586878889aabbccddeeff",
-    "hash": "0x00fbcc589fe497e26df2d4677eff30646f41afdd704d245bf470b701f0367cb7"
+    "hash": "0x00c45300a55d2a9feedaf0466fc1883076573fffd1e3c904e74ac571d00a603a"
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",

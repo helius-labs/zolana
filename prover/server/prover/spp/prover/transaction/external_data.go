@@ -116,17 +116,23 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 func externalDataFieldHash(data externalDataPreimage) *big.Int {
 	var fee [2]byte
 	binary.BigEndian.PutUint16(fee[:], data.RelayerFee)
+	var expiry [8]byte
+	binary.BigEndian.PutUint64(expiry[:], data.ExpiryUnixTs)
 	var sol [8]byte
 	binary.BigEndian.PutUint64(sol[:], data.PublicSolAmount)
 	var spl [8]byte
 	binary.BigEndian.PutUint64(spl[:], data.PublicSplAmount)
 	// Field order is part of the transcript; it must match the on-chain
-	// external_data_hash byte-for-byte (spec §SPP Proof). expiry_unix_ts is NOT
-	// part of external_data_hash — expiry is bound through private_tx_hash.
+	// external_data_hash byte-for-byte (spec §SPP Proof). expiry_unix_ts is in
+	// the preimage so the on-chain clock check enforces the value the owner
+	// committed to: SPP cannot recompute private_tx_hash (it covers private
+	// input hashes), so binding expiry only through private_tx_hash would let a
+	// relayer submit with an arbitrary data.expiry_unix_ts.
 	return protocol.Sha256BEField(
 		[]byte{data.InstructionDiscriminator},
 		data.SenderViewTag[:],
 		fee[:],
+		expiry[:],
 		sol[:],
 		spl[:],
 		data.UserSolAccount[:],
