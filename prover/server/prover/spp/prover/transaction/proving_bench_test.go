@@ -78,7 +78,7 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 	outputAmount := big.NewInt(int64(shape.NInputs * 10))
 	for i := 0; i < shape.NInputs; i++ {
 		utxo := protocol.Utxo{
-			Domain:        big.NewInt(int64(i + 1)),
+			Domain:        big.NewInt(protocol.UtxoDomain),
 			Owner:         owner,
 			AssetID:       big.NewInt(protocol.SolAssetID),
 			AssetAmount:   new(big.Int).Set(inputAmount),
@@ -113,7 +113,7 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 
 	for i := 0; i < shape.NOutputs; i++ {
 		tx.Outputs = append(tx.Outputs, ProofUtxoRequest{
-			Domain:        proofFieldInput(big.NewInt(int64(100 + i))),
+			Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
 			Owner:         proofFieldInput(owner),
 			AssetID:       proofFieldInput(big.NewInt(protocol.SolAssetID)),
 			AssetAmount:   proofFieldInput(outputAmount),

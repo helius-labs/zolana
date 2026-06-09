@@ -10,22 +10,25 @@ import (
 	"light/light-prover/prover/spp/protocol"
 )
 
-func TestBuildProofAssignmentRequiresExactShapeArity(t *testing.T) {
+func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	signerHash := big.NewInt(0)
 
+	// Fewer inputs/outputs than the shape are allowed (padded with dummies); only
+	// exceeding the shape's capacity is an error.
 	_, _, _, _, _, err := buildProofAssignment(shape, ProofTransactionRequest{
+		Inputs:  make([]ProofInputRequest, shape.NInputs+1),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs),
 	}, signerHash, proofBuildOptions{})
-	if err == nil || !strings.Contains(err.Error(), "requires 1 inputs, got 0") {
+	if err == nil || !strings.Contains(err.Error(), "allows at most 1 inputs, got 2") {
 		t.Fatalf("input arity error = %v", err)
 	}
 
 	_, _, _, _, _, err = buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs),
-		Outputs: make([]ProofUtxoRequest, shape.NOutputs-1),
+		Outputs: make([]ProofUtxoRequest, shape.NOutputs+1),
 	}, signerHash, proofBuildOptions{})
-	if err == nil || !strings.Contains(err.Error(), "requires 2 outputs, got 1") {
+	if err == nil || !strings.Contains(err.Error(), "allows at most 2 outputs, got 3") {
 		t.Fatalf("output arity error = %v", err)
 	}
 }

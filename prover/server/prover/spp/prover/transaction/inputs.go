@@ -109,11 +109,21 @@ func buildInputWitnesses(
 		inputs.nullifierRoots[i] = nullifierRoot
 		inputs.nullifiers[i] = nullifier
 	}
+
+	for i := len(requests); i < shape.NInputs; i++ {
+		inputs.inputs[i] = dummyInputWitness()
+		inputs.hashes[i] = big.NewInt(0)
+		inputs.utxoRoots[i] = big.NewInt(0)
+		inputs.nullifierRoots[i] = big.NewInt(0)
+		inputs.nullifiers[i] = big.NewInt(0)
+		inputs.solanaPkHashes[i] = big.NewInt(0)
+	}
 	return inputs, nil
 }
 
 func newInputWitness() txcircuit.Input {
 	return txcircuit.Input{
+		IsDummy:                  big.NewInt(0),
 		StatePathElements:        zeroVariables(protocol.StateTreeHeight),
 		StatePathIndex:           big.NewInt(0),
 		NullifierLowPathElements: zeroVariables(protocol.NullifierTreeHeight),
@@ -123,6 +133,19 @@ func newInputWitness() txcircuit.Input {
 		UtxoTreeRoot:             big.NewInt(0),
 		NullifierRoot:            big.NewInt(0),
 	}
+}
+
+// dummyInputWitness fills an unused input slot. Every spend check is skipped for
+// it in-circuit; it folds nullifier 0, SolanaPkHash 0, and zero roots into the
+// public transcript. Zero roots match the on-chain verifier, which reconstructs
+// a slot's root as zero when no root index is supplied for it (a dummy slot).
+func dummyInputWitness() txcircuit.Input {
+	witness := newInputWitness()
+	witness.IsDummy = big.NewInt(1)
+	witness.Utxo = dummyUtxoFields()
+	witness.SolanaPkHash = big.NewInt(0)
+	witness.Nullifier = big.NewInt(0)
+	return witness
 }
 
 func parseProofInput(input ProofInputRequest) (parsedInput, error) {

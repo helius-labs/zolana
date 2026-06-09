@@ -117,7 +117,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 		t.Fatal(err)
 	}
 	utxo := protocol.Utxo{
-		Domain:        big.NewInt(7),
+		Domain:        big.NewInt(protocol.UtxoDomain),
 		Owner:         owner,
 		AssetID:       big.NewInt(1),
 		AssetAmount:   big.NewInt(5),
@@ -160,7 +160,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 			}},
 			Outputs: []txprover.ProofUtxoRequest{
 				{
-					Domain:        fieldInput(big.NewInt(7)),
+					Domain:        fieldInput(big.NewInt(protocol.UtxoDomain)),
 					Owner:         fieldInput(owner),
 					AssetID:       fieldInput(utxo.AssetID),
 					AssetAmount:   fieldInput(big.NewInt(5)),
@@ -170,7 +170,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 					ZoneProgramID: fieldInput(big.NewInt(0)),
 				},
 				{
-					Domain:        fieldInput(big.NewInt(8)),
+					Domain:        fieldInput(big.NewInt(protocol.UtxoDomain)),
 					Owner:         fieldInput(owner),
 					AssetID:       fieldInput(utxo.AssetID),
 					AssetAmount:   fieldInput(big.NewInt(0)),

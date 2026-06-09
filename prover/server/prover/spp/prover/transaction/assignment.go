@@ -113,11 +113,15 @@ func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error 
 	if err := shape.Validate(); err != nil {
 		return err
 	}
-	if len(tx.Inputs) != shape.NInputs {
-		return fmt.Errorf("shape %s requires %d inputs, got %d", shape, shape.NInputs, len(tx.Inputs))
+	// Fewer real inputs/outputs than the shape are padded with dummy slots, so a
+	// single shape serves any transaction up to its capacity (and a shield with 0
+	// inputs or an unshield with 0 outputs becomes provable). More than the shape
+	// can hold is the only error.
+	if len(tx.Inputs) > shape.NInputs {
+		return fmt.Errorf("shape %s allows at most %d inputs, got %d", shape, shape.NInputs, len(tx.Inputs))
 	}
-	if len(tx.Outputs) != shape.NOutputs {
-		return fmt.Errorf("shape %s requires %d outputs, got %d", shape, shape.NOutputs, len(tx.Outputs))
+	if len(tx.Outputs) > shape.NOutputs {
+		return fmt.Errorf("shape %s allows at most %d outputs, got %d", shape, shape.NOutputs, len(tx.Outputs))
 	}
 	return nil
 }

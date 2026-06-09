@@ -14,6 +14,22 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 	return txcircuit.FieldsFromUtxo(utxo)
 }
 
+// dummyUtxoFields is the all-zero UTXO used to fill unused input/output slots.
+// Its amount is zero (the circuit requires this of dummies) and its hash is
+// never bound, so the concrete field values are irrelevant.
+func dummyUtxoFields() txcircuit.UtxoCircuitFields {
+	return toProofCircuitFields(protocol.Utxo{
+		Domain:        big.NewInt(0),
+		Owner:         big.NewInt(0),
+		AssetID:       big.NewInt(0),
+		AssetAmount:   big.NewInt(0),
+		Blinding:      big.NewInt(0),
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
+		ZoneProgramID: big.NewInt(0),
+	})
+}
+
 func zeroVariables(n int) []frontend.Variable {
 	out := make([]frontend.Variable, n)
 	for i := range out {

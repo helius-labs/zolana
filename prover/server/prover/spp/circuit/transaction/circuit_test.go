@@ -112,7 +112,7 @@ func TestCircuitRejectsBadNullifierSecret(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-func TestCircuitAcceptsDuplicateInputWithinTransaction(t *testing.T) {
+func TestCircuitRejectsDuplicateInputWithinTransaction(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
@@ -131,8 +131,9 @@ func TestCircuitAcceptsDuplicateInputWithinTransaction(t *testing.T) {
 		spptest.Fe(0),
 	)
 
-	// Intra-transaction duplicate detection is deferred to nullifier updates.
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	// Spending the same UTXO twice yields equal nullifiers; assertDistinctNullifiers
+	// rejects it in-circuit so its amount can't be counted twice in the balance.
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 func TestCircuitRejectsSolanaSignerOwnerMismatch(t *testing.T) {
@@ -544,6 +545,7 @@ func buildCircuitAssignmentExact(
 	for i := 0; i < shape.NInputs; i++ {
 		inputs[i] = Input{
 			Utxo:                     inputCircuitUtxos[i],
+			IsDummy:                  spptest.Fe(0),
 			StatePathElements:        statePathElementsVars[i],
 			StatePathIndex:           statePathIndexVars[i],
 			NullifierLowValue:        nfLowValueVars[i],
@@ -559,8 +561,9 @@ func buildCircuitAssignmentExact(
 	outputs := make([]Output, shape.NOutputs)
 	for i := 0; i < shape.NOutputs; i++ {
 		outputs[i] = Output{
-			Utxo: outputCircuitUtxos[i],
-			Hash: outputHashVariables[i],
+			Utxo:    outputCircuitUtxos[i],
+			IsDummy: spptest.Fe(0),
+			Hash:    outputHashVariables[i],
 		}
 	}
 
@@ -659,7 +662,7 @@ func twoOutputUtxos(output protocol.Utxo) []protocol.Utxo {
 
 func sampleUtxo(base int) protocol.Utxo {
 	return protocol.Utxo{
-		Domain:        spptest.Fe(int64(base + 1)),
+		Domain:        spptest.Fe(protocol.UtxoDomain),
 		Owner:         testOwnerHashForNullifierSecret(spptest.Fe(99)),
 		AssetID:       spptest.Fe(int64(base + 3)),
 		AssetAmount:   spptest.Fe(int64(base + 4)),

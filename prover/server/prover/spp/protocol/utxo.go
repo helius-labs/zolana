@@ -10,6 +10,11 @@ import (
 // SolAssetID is the protocol asset id for native SOL.
 const SolAssetID = 1
 
+// UtxoDomain is the constant domain separator for UTXO Poseidon commitments
+// (spec: "Constant separating UTXOs from other Poseidon-hashed records").
+// Every real (non-dummy) UTXO must carry this domain.
+const UtxoDomain = 1
+
 // Utxo fields are ordered exactly as the Poseidon preimage.
 type Utxo struct {
 	Domain        *big.Int

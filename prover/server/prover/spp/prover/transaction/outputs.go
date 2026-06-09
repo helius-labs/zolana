@@ -38,14 +38,24 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 			return outputWitnesses{}, err
 		}
 		outputs.outputs[i] = txcircuit.Output{
-			Utxo: toProofCircuitFields(parsed.utxo),
-			Hash: outputHash,
+			Utxo:    toProofCircuitFields(parsed.utxo),
+			IsDummy: big.NewInt(0),
+			Hash:    outputHash,
 		}
 		outputs.hashes[i] = outputHash
 		outputs.responses = append(outputs.responses, ProofUtxoResponse{
 			Utxo: parsed.normalized,
 			Hash: parse.FieldHex(outputHash),
 		})
+	}
+
+	for i := len(requests); i < shape.NOutputs; i++ {
+		outputs.outputs[i] = txcircuit.Output{
+			Utxo:    dummyUtxoFields(),
+			IsDummy: big.NewInt(1),
+			Hash:    big.NewInt(0),
+		}
+		outputs.hashes[i] = big.NewInt(0)
 	}
 	return outputs, nil
 }

@@ -39,6 +39,7 @@ type Circuit struct {
 
 type Input struct {
 	Utxo              UtxoCircuitFields
+	IsDummy           frontend.Variable
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
 
@@ -54,8 +55,9 @@ type Input struct {
 }
 
 type Output struct {
-	Utxo UtxoCircuitFields
-	Hash frontend.Variable
+	Utxo    UtxoCircuitFields
+	IsDummy frontend.Variable
+	Hash    frontend.Variable
 }
 
 func NewCircuit(shape protocol.Shape) (*Circuit, error) {
@@ -102,41 +104,22 @@ func (c *Circuit) Define(api frontend.API) error {
 		p256Message,
 		&c.P256Sig,
 	)
+
+	env := spendEnv{
+		nullifierPkFromSecret: nullifierPkFromSecret,
+		p256OwnerKeyHash:      p256OwnerKeyHash,
+		p256SigValid:          p256SigValid,
+		nullifierSecret:       c.NullifierSecret,
+	}
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
-		input := c.Inputs[i]
-
-		inputHash := UtxoHashCircuit(api, input.Utxo)
-		inputHashes[i] = inputHash
-		statePathIndex := api.ToBinary(input.StatePathIndex, protocol.StateTreeHeight)
-		stateRoot := gadget.MerkleRoot(api, inputHash, input.StatePathElements, statePathIndex)
-		api.AssertIsEqual(stateRoot, input.UtxoTreeRoot)
-
-		isP256Input := api.IsZero(input.SolanaPkHash)
-		ownerKeyHash := api.Select(isP256Input, p256OwnerKeyHash, input.SolanaPkHash)
-		ownerHash := OwnerHashCircuit(api, ownerKeyHash, nullifierPkFromSecret)
-		api.AssertIsEqual(ownerHash, input.Utxo.Owner)
-		api.AssertIsEqual(api.Mul(isP256Input, api.Sub(1, p256SigValid)), 0)
-
-		nullifier := NullifierHashCircuit(api, inputHash, input.Utxo.Blinding, c.NullifierSecret)
-		api.AssertIsEqual(nullifier, input.Nullifier)
-
-		lowLeafHash := gadget.IndexedLeafHash(api, input.NullifierLowValue, input.NullifierNextValue)
-		nullifierPathIndex := api.ToBinary(input.NullifierLowPathIndex, protocol.NullifierTreeHeight)
-		nfRoot := gadget.MerkleRoot(api, lowLeafHash, input.NullifierLowPathElements, nullifierPathIndex)
-		api.AssertIsEqual(nfRoot, input.NullifierRoot)
-
-		api.AssertIsLessOrEqual(api.Add(input.NullifierLowValue, 1), input.Nullifier)
-		api.AssertIsLessOrEqual(api.Add(input.Nullifier, 1), input.NullifierNextValue)
+		inputHashes[i] = constrainInput(api, c.Inputs[i], env)
 	}
+	c.assertDistinctNullifiers(api)
 
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
-		output := c.Outputs[i]
-
-		outputHash := UtxoHashCircuit(api, output.Utxo)
-		outputHashes[i] = outputHash
-		api.AssertIsEqual(outputHash, output.Hash)
+		outputHashes[i] = constrainOutput(api, c.Outputs[i])
 	}
 
 	assertBalanceConservation(
