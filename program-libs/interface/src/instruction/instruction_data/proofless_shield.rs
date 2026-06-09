@@ -4,15 +4,18 @@ use borsh::{BorshDeserialize, BorshSerialize};
 ///
 /// The program hashes the recipient's UTXO from these fields plus the settled
 /// deposit amount/asset, inserts the hash into the UTXO tree, and indexes it
-/// under `bootstrap_view_tag`. The amount is taken from the actual public
-/// deposit (not a field here), so a depositor cannot mint a UTXO worth more
-/// than they deposited. No proof, no encryption — fully public.
+/// under `bootstrap_view_tag`. The owner is committed as `owner_utxo_hash =
+/// Poseidon(owner, blinding)`, so the recipient is hidden even though the
+/// deposit is public. The amount is taken from the actual public deposit (not a
+/// field here), so a depositor cannot mint a UTXO worth more than they
+/// deposited. No proof, no encryption (amount + asset are public).
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessShieldData {
-    /// Recipient's `owner_hash`, written directly (spec: `Utxo.owner`).
-    pub owner: [u8; 32],
-    /// UTXO blinding (field element).
-    pub blinding: [u8; 32],
+    /// `owner_utxo_hash = Poseidon(owner, blinding)`. Opaque to the program — it
+    /// hides the recipient. The depositor (who knows owner+blinding) records it
+    /// off-chain to spend later. A malformed value just yields an unspendable
+    /// UTXO (the depositor's loss only).
+    pub owner_utxo_hash: [u8; 32],
     /// `program_data_hash` field of the UTXO commitment.
     pub data_hash: [u8; 32],
     /// `policy_data_hash` field of the UTXO commitment.
