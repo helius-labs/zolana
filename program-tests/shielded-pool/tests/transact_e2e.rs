@@ -1080,9 +1080,14 @@ fn transact_rejects_stale_nullifier_root_index_without_mutating() {
     let mut data = transact_data(&transfer);
     data.nullifier_tree_root_index[0] = 199;
 
+    // Non-inclusion must be proven against the CURRENT nullifier root only;
+    // any other index (here a stale/unknown 199) is rejected as
+    // StaleNullifierRoot before any proof check or state mutation. This is the
+    // double-spend guard against proving non-inclusion at a pre-spend root
+    // once the nullifier's queue bloom filter has been zeroed.
     let err = submit_data(&mut rig, &tree, data, None)
-        .expect_err("unknown nullifier root index must fail before proof/state mutation");
-    assert_error_contains(err, "Custom(10)");
+        .expect_err("non-current nullifier root index must fail before proof/state mutation");
+    assert_error_contains(err, "Custom(21)"); // ShieldedPoolError::StaleNullifierRoot
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before
@@ -1421,5 +1426,12 @@ fn proofless_shield_creates_spendable_utxo() {
     submit_fixture(&mut rig, &tree, &transfer, Some(&settlement))
         .expect("spend proofless-shielded UTXO via transfer");
     append_reference(&mut reference, &fixture_output_hashes(&transfer));
-    assert_pool_state(&rig, tree.pubkey(), &reference, &transfer);
+
+    // proofless_shield appends to the state tree but inserts nothing into the
+    // nullifier queue (the bootstrap view tag is not queued), so this flow's
+    // queue_next is one less than the transfer fixture's default-flow value
+    // (where the preceding proof-based shield queues a sender view tag).
+    let mut expected = transfer.clone();
+    expected.expected_queue_next_index -= 1;
+    assert_pool_state(&rig, tree.pubkey(), &reference, &expected);
 }
