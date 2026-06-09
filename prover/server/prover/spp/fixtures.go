@@ -627,13 +627,14 @@ func ownerHashFor(keyHashFn func([32]byte) (*big.Int, error), pubkey [32]byte, n
 
 func sampleUtxo(base int64, owner, assetID *big.Int, amount int64) protocol.Utxo {
 	return protocol.Utxo{
-		Domain:        big.NewInt(protocol.UtxoDomain),
-		Owner:         new(big.Int).Set(owner),
-		AssetID:       new(big.Int).Set(assetID),
-		AssetAmount:   big.NewInt(amount),
-		Blinding:      big.NewInt(base + 5),
-		DataHash:      big.NewInt(base + 6),
-		ZoneDataHash:  big.NewInt(base + 7),
+		Domain:      big.NewInt(protocol.UtxoDomain),
+		Owner:       new(big.Int).Set(owner),
+		AssetID:     new(big.Int).Set(assetID),
+		AssetAmount: big.NewInt(amount),
+		Blinding:    big.NewInt(base + 5),
+		// Default transact requires bare UTXOs (no program/policy/zone data).
+		DataHash:      big.NewInt(0),
+		ZoneDataHash:  big.NewInt(0),
 		ZoneProgramID: big.NewInt(0),
 	}
 }
