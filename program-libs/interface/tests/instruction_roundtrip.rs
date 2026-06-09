@@ -116,6 +116,7 @@ fn transact_roundtrip() {
             input_index: 0,
         }]),
         encrypted_utxos: vec![12, 13],
+        requires_p256: true,
     };
     let bytes = encode_instruction(tag::TRANSACT, &payload);
     let decoded = TransactData::try_from_slice(&bytes[1..]).unwrap();

@@ -17,6 +17,11 @@ pub struct TransactData {
     pub cpi_signer: Option<CpiSignerData>,
     pub in_utxo_signer_indices: Option<Vec<InputUtxoSignerIndex>>,
     pub encrypted_utxos: Vec<u8>,
+    /// Ownership rail. true: P256-capable circuit (proof carries an ECDSA
+    /// signature gadget); false: the ~7x cheaper Solana-only circuit. Selects
+    /// the verifying key and whether p256_message_hash is bound in the public
+    /// inputs. A mismatch with the actual inputs fails proof verification.
+    pub requires_p256: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
