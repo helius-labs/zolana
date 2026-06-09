@@ -55,9 +55,13 @@ const DEFAULT_PROVER_PORT: u16 = 3001;
 const DEFAULT_LIMIT_LEDGER_SIZE: u64 = 10_000;
 const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
-const POCKET_SOL_ASSET_ID: u64 = 1;
+// UTXO commitment domain separator; must equal protocol::UtxoDomain (Go) and
+// UTXO_DOMAIN (program). The circuit asserts every real UTXO's domain == 2.
+const POCKET_UTXO_DOMAIN: u64 = 2;
 const POCKET_UTXO_ROOT_HISTORY_CAPACITY: u16 = 200;
-const POCKET_NULLIFIER_HKDF_INFO: &[u8] = b"zolana/nullifier";
+// HKDF `info` for the nullifier secret; must match the spec (spec.md "Nullifier
+// Key": nullifier_secret = HKDF-SHA256(IKM=signing_sk, info="TSPP/nullifier")).
+const POCKET_NULLIFIER_HKDF_INFO: &[u8] = b"TSPP/nullifier";
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 const LIGHT_REGISTRY_ID: &str = "Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX";
@@ -1929,10 +1933,13 @@ fn pocket_build_direct_proof(
         .as_ref()
         .map(|path| read_pocket_p256_wallet(path))
         .transpose()?;
-    let sender_output_owner = owner_p256_wallet
-        .clone()
-        .map(PocketOwner::P256)
-        .unwrap_or_else(|| PocketOwner::Solana(payer.pubkey()));
+    let sender_output_owner = match owner_p256_wallet.clone() {
+        Some(wallet) => PocketOwner::P256(wallet),
+        None => PocketOwner::Solana {
+            pubkey: payer.pubkey(),
+            nullifier_secret: ed25519_nullifier_secret_hex(payer)?,
+        },
+    };
     let mut recipient_state_path = None;
     let mut recipient_state = None;
     let mut output_targets = Vec::<PocketOutputTarget>::new();
@@ -1992,7 +1999,10 @@ fn pocket_build_direct_proof(
                         recipient_wallet.display()
                     )
                 })?;
-                PocketOwner::Solana(recipient_keypair.pubkey())
+                PocketOwner::Solana {
+                    pubkey: recipient_keypair.pubkey(),
+                    nullifier_secret: ed25519_nullifier_secret_hex(&recipient_keypair)?,
+                }
             };
             let recipient_state_file = opts
                 .recipient_state
@@ -2265,14 +2275,20 @@ enum PocketOutputRecipient {
 
 #[derive(Clone, Debug)]
 enum PocketOwner {
-    Solana(Pubkey),
+    // nullifier_secret is wallet-wide (derived from the Ed25519 signing key),
+    // so every UTXO for this owner shares one nullifier_pk — required for
+    // multi-input spends, which the circuit forces to share one nullifier_secret.
+    Solana {
+        pubkey: Pubkey,
+        nullifier_secret: String,
+    },
     P256(PocketP256Wallet),
 }
 
 impl PocketOwner {
     fn label(&self) -> String {
         match self {
-            PocketOwner::Solana(pubkey) => pubkey.to_string(),
+            PocketOwner::Solana { pubkey, .. } => pubkey.to_string(),
             PocketOwner::P256(wallet) => format!("p256:{}", wallet.p256_public_key),
         }
     }
@@ -2322,15 +2338,19 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
     })
 }
 
-fn pocket_new_utxo(owner: &Pubkey, asset_id: &str, asset_amount: u64) -> (PocketUtxo, String) {
-    let nullifier_secret = random_field_hex();
+fn pocket_new_utxo(
+    owner: &Pubkey,
+    nullifier_secret: &str,
+    asset_id: &str,
+    asset_amount: u64,
+) -> (PocketUtxo, String) {
     (
         PocketUtxo {
-            domain: random_field_hex(),
+            domain: pocket_field_hex_from_u64(POCKET_UTXO_DOMAIN),
             owner: String::new(),
             owner_solana_pubkey: pubkey_hex(owner),
             owner_p256_pubkey: String::new(),
-            owner_nullifier_secret: nullifier_secret.clone(),
+            owner_nullifier_secret: nullifier_secret.to_string(),
             asset_id: prover_field(asset_id),
             asset_amount: asset_amount.to_string(),
             blinding: random_field_hex(),
@@ -2338,7 +2358,7 @@ fn pocket_new_utxo(owner: &Pubkey, asset_id: &str, asset_amount: u64) -> (Pocket
             zone_data_hash: zero_field_hex(),
             zone_program_id: zero_field_hex(),
         },
-        nullifier_secret,
+        nullifier_secret.to_string(),
     )
 }
 
@@ -2349,7 +2369,7 @@ fn pocket_new_p256_utxo(
 ) -> (PocketUtxo, String) {
     (
         PocketUtxo {
-            domain: random_field_hex(),
+            domain: pocket_field_hex_from_u64(POCKET_UTXO_DOMAIN),
             owner: String::new(),
             owner_solana_pubkey: String::new(),
             owner_p256_pubkey: wallet.p256_public_key.clone(),
@@ -2371,7 +2391,10 @@ fn pocket_new_utxo_for_owner(
     asset_amount: u64,
 ) -> (PocketUtxo, String) {
     match owner {
-        PocketOwner::Solana(pubkey) => pocket_new_utxo(pubkey, asset_id, asset_amount),
+        PocketOwner::Solana {
+            pubkey,
+            nullifier_secret,
+        } => pocket_new_utxo(pubkey, nullifier_secret, asset_id, asset_amount),
         PocketOwner::P256(wallet) => pocket_new_p256_utxo(wallet, asset_id, asset_amount),
     }
 }
@@ -2451,11 +2474,25 @@ fn p256_nullifier_secret_hex(signing_key: &P256SigningKey) -> Result<String> {
     ))
 }
 
+// Wallet-wide nullifier secret for a Solana/Ed25519 owner, derived from the
+// signing key per spec ("Nullifier Key"): HKDF-SHA256(IKM=signing_sk). Used so
+// every UTXO of one Solana owner shares a nullifier_pk (multi-input spends).
+fn ed25519_nullifier_secret_hex(keypair: &Keypair) -> Result<String> {
+    Ok(format!(
+        "0x{}",
+        hex::encode(nullifier_secret_bytes_from_ikm(keypair.secret_bytes())?)
+    ))
+}
+
 fn p256_nullifier_secret_bytes_from_key(signing_key: &P256SigningKey) -> Result<[u8; 31]> {
-    let signing_key_bytes = signing_key.to_bytes();
+    nullifier_secret_bytes_from_ikm(signing_key.to_bytes().as_slice())
+}
+
+// HKDF-SHA256 with empty salt, info=POCKET_NULLIFIER_HKDF_INFO, L=31, per spec.
+fn nullifier_secret_bytes_from_ikm(ikm: &[u8]) -> Result<[u8; 31]> {
     let mut extract =
         Hmac::<Sha256>::new_from_slice(&[0u8; 32]).context("initialize HKDF extract")?;
-    extract.update(signing_key_bytes.as_slice());
+    extract.update(ikm);
     let prk = extract.finalize().into_bytes();
 
     let mut expand = Hmac::<Sha256>::new_from_slice(&prk).context("initialize HKDF expand")?;
@@ -2679,7 +2716,11 @@ fn pocket_spl_asset_identity(
 }
 
 fn pocket_sol_asset_field() -> String {
-    pocket_field_hex_from_u64(POCKET_SOL_ASSET_ID)
+    // SOL's asset id is the canonical encoding of Address::default() —
+    // Poseidon(0, 0) — matching protocol.SolAsset() (Go) and the program, which
+    // the circuit's balance check pins public SOL movement to. (A literal id
+    // would never satisfy balance conservation.)
+    pocket_canonical_asset_field(&Pubkey::default()).expect("canonical SOL asset hash")
 }
 
 fn pocket_canonical_asset_field(pubkey: &Pubkey) -> Result<String> {
