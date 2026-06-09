@@ -284,10 +284,13 @@ fn external_data_hash(
     settlement: &SettlementAccounts<'_>,
 ) -> Result<[u8; 32], ProgramError> {
     // Keep this field order stable; proofs bind to this transcript (spec
-    // §SPP Proof). expiry_unix_ts is NOT part of external_data_hash — expiry is
-    // bound through private_tx_hash. The on-chain clock check reads
-    // data.expiry_unix_ts directly (verify.rs).
+    // §SPP Proof). expiry_unix_ts is in the preimage (after relayer_fee) so the
+    // on-chain clock check enforces the owner-committed value: SPP cannot
+    // recompute private_tx_hash (it covers private input hashes), so binding
+    // expiry only there would let a relayer submit with an arbitrary
+    // data.expiry_unix_ts.
     let relayer_fee = data.relayer_fee.to_be_bytes();
+    let expiry_unix_ts = data.expiry_unix_ts.to_be_bytes();
     let public_sol_amount = data.public_sol_amount.unwrap_or(0).to_be_bytes();
     let public_spl_amount = data.public_spl_amount.unwrap_or(0).to_be_bytes();
     let user_sol_account = account_address_or_zero(settlement.user_sol_account);
@@ -299,6 +302,7 @@ fn external_data_hash(
         instruction_discriminator.as_slice(),
         data.sender_view_tag.as_slice(),
         relayer_fee.as_slice(),
+        expiry_unix_ts.as_slice(),
         public_sol_amount.as_slice(),
         public_spl_amount.as_slice(),
         user_sol_account.as_slice(),
@@ -567,6 +571,7 @@ mod tests {
         let instruction = [external["instruction_discriminator"].as_u64().unwrap() as u8];
         let sender_view_tag = field(external, "sender_view_tag");
         let relayer_fee = (external["relayer_fee"].as_u64().unwrap() as u16).to_be_bytes();
+        let expiry_unix_ts = external["expiry_unix_ts"].as_u64().unwrap().to_be_bytes();
         let public_sol_amount = external["public_sol_amount"]
             .as_u64()
             .unwrap()
@@ -583,6 +588,7 @@ mod tests {
             instruction.as_slice(),
             sender_view_tag.as_slice(),
             relayer_fee.as_slice(),
+            expiry_unix_ts.as_slice(),
             public_sol_amount.as_slice(),
             public_spl_amount.as_slice(),
             user_sol_account.as_slice(),
