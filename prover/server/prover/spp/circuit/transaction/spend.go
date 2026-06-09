@@ -66,6 +66,10 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	statePathIndex := api.ToBinary(in.StatePathIndex, protocol.StateTreeHeight)
 	stateRoot := gadget.MerkleRoot(api, utxoHash, in.StatePathElements, statePathIndex)
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
+	// A dummy slot's root is meaningless; pin it to 0 so the public transcript
+	// is canonical (matches the on-chain zero-padded reconstruction) rather than
+	// relying on that reducer alone to canonicalize it.
+	assertZeroWhen(api, in.IsDummy, in.UtxoTreeRoot)
 
 	// Owner check: P256 inputs (SolanaPkHash == 0) rebuild the owner key hash
 	// from the P256 point in the witness; Solana inputs use the public hash.
@@ -89,6 +93,7 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	nfPathIndex := api.ToBinary(in.NullifierLowPathIndex, protocol.NullifierTreeHeight)
 	nfRoot := gadget.MerkleRoot(api, lowLeafHash, in.NullifierLowPathElements, nfPathIndex)
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierRoot)
+	assertZeroWhen(api, in.IsDummy, in.NullifierRoot)
 	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 
 	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
