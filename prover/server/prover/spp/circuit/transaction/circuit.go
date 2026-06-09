@@ -131,6 +131,13 @@ func (c *Circuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
+	// Default transact carries no program/zone authorization: the tx-level
+	// program/policy fields must be zero (SPP also reconstructs them as zero
+	// on-chain). Zone flows would set these via zone_transact.
+	api.AssertIsEqual(c.ProgramIDHashchain, 0)
+	api.AssertIsEqual(c.DataHash, 0)
+	api.AssertIsEqual(c.ZoneDataHash, 0)
+
 	privateTxHash := PrivateTxHashCircuit(
 		api,
 		inputHashes,

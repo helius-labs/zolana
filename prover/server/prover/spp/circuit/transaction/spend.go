@@ -52,6 +52,13 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	// A dummy slot must be inert: zero amount and zero public-input material.
 	assertZeroWhen(api, in.IsDummy, in.Utxo.AssetAmount)
 	assertEqualWhen(api, notDummy, in.Utxo.Domain, protocol.UtxoDomain)
+	// Default transact handles only bare UTXOs: program/policy data and zone
+	// program id must be zero. Program-owned UTXOs (zone_program_id != 0) are
+	// spent via zone_transact with the zone PDA as signer (spec: Program
+	// ownership); the default path must not spend them without that authorization.
+	assertZeroWhen(api, notDummy, in.Utxo.DataHash)
+	assertZeroWhen(api, notDummy, in.Utxo.ZoneDataHash)
+	assertZeroWhen(api, notDummy, in.Utxo.ZoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
@@ -95,6 +102,10 @@ func constrainOutput(api frontend.API, out Output) frontend.Variable {
 
 	assertZeroWhen(api, out.IsDummy, out.Utxo.AssetAmount)
 	assertEqualWhen(api, notDummy, out.Utxo.Domain, protocol.UtxoDomain)
+	// Default transact creates only bare UTXOs (no program/policy/zone data).
+	assertZeroWhen(api, notDummy, out.Utxo.DataHash)
+	assertZeroWhen(api, notDummy, out.Utxo.ZoneDataHash)
+	assertZeroWhen(api, notDummy, out.Utxo.ZoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
 	assertEqualWhen(api, notDummy, utxoHash, out.Hash)

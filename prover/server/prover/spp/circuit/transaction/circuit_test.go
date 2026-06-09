@@ -136,6 +136,31 @@ func TestCircuitRejectsDuplicateInputWithinTransaction(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assetID := spptest.Fe(7)
+	input := sampleUtxoWithAssetAndAmount(10, assetID, spptest.Fe(100))
+	// A zone-owned input must be spent via zone_transact (zone PDA authorization),
+	// not the default transact. The circuit pins zone fields to zero.
+	input.ZoneProgramID = spptest.Fe(1)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{input},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, assetID, spptest.Fe(60)),
+			sampleUtxoWithAssetAndAmount(110, assetID, spptest.Fe(40)),
+		},
+		big.NewInt(0),
+		big.NewInt(0),
+		spptest.Fe(0),
+	)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 func TestCircuitRejectsSolanaSignerOwnerMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -667,9 +692,10 @@ func sampleUtxo(base int) protocol.Utxo {
 		AssetID:       spptest.Fe(int64(base + 3)),
 		AssetAmount:   spptest.Fe(int64(base + 4)),
 		Blinding:      spptest.Fe(int64(base + 5)),
-		DataHash:      spptest.Fe(int64(base + 6)),
-		ZoneDataHash:  spptest.Fe(int64(base + 7)),
-		ZoneProgramID: spptest.Fe(int64(base + 8)),
+		// Default transact requires bare UTXOs (no program/policy/zone data).
+		DataHash:      spptest.Fe(0),
+		ZoneDataHash:  spptest.Fe(0),
+		ZoneProgramID: spptest.Fe(0),
 	}
 }
 
