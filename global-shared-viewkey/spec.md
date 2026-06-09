@@ -100,7 +100,7 @@ sequenceDiagram
     participant C as Custodians
     C->>A: return shares
     alt fewer than t, or bad signature
-        A->>A: reject; key not reconstructed
+        A->>A: reject, key not reconstructed
     end
 ```
 
