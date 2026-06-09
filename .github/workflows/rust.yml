@@ -92,3 +92,19 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-scaffold
+
+  global-shared-viewkey:
+    name: tests / global-shared-viewkey
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: global-shared-viewkey/go/go.mod
+          cache-dependency-path: global-shared-viewkey/go/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just global-shared-viewkey-test

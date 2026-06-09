@@ -16,14 +16,17 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::constants::{
-    BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
+    INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
     INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
-    INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P256_PUBKEY_LEN,
-    PUBLIC_KEY_LEN, P_CONST_SEC1, VIEW_TAG_LEN,
+    INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P_CONST_SEC1,
+    SALT_LEN, VIEW_TAG_LEN,
 };
 use crate::encryption;
 use crate::error::KeypairError;
 use crate::pubkey::P256Pubkey;
+
+pub type ViewTag = [u8; VIEW_TAG_LEN];
+pub type Salt = [u8; SALT_LEN];
 
 /// A P-256 viewing keypair.
 pub struct ViewingKey {
@@ -43,16 +46,16 @@ fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     out
 }
 
-/// Returned by [`ViewingKey::encrypt_transaction`] for the caller to serialize
-/// into a transaction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EncryptedTransaction {
-    /// Transaction viewing public key (`tx_viewing_pk`), shared by all transaction ciphertexts.
-    pub tx_viewing_pubkey: P256Pubkey,
-    /// Random per-transaction salt; must be passed to `decrypt_transaction`.
-    pub salt: u64,
-    /// Ciphertexts in input order.
-    pub ciphertexts: Vec<Vec<u8>>,
+/// Draws a fresh per-transaction salt from the OS CSPRNG. It is folded into the
+/// per-slot AEAD key derivation (not the nonce), so each `(first_nullifier,
+/// salt, slot)` yields a unique single-use key. Under correct operation
+/// `first_nullifier` uniqueness alone prevents key reuse; the 16-byte salt is a
+/// defense-in-depth backstop against accidental `first_nullifier` reuse and must
+/// stay CSPRNG-sourced to retain that property.
+pub fn random_salt() -> Salt {
+    let mut salt = [0u8; SALT_LEN];
+    OsRng.fill_bytes(&mut salt);
+    salt
 }
 
 pub(crate) fn hkdf_expand(
@@ -64,36 +67,6 @@ pub(crate) fn hkdf_expand(
     Hkdf::<Sha256>::new(salt, ikm)
         .expand_multi_info(info, out)
         .map_err(|_| KeypairError::Hkdf)
-}
-
-const RECIPIENT_PKS_OFFSET: usize = PUBLIC_KEY_LEN + 3 * core::mem::size_of::<u64>() + BLINDING_LEN;
-
-fn recipient_viewing_pks(
-    sender_plaintext: &[u8],
-    count: usize,
-) -> Result<Vec<P256Pubkey>, KeypairError> {
-    let expected = RECIPIENT_PKS_OFFSET + count * P256_PUBKEY_LEN;
-    if sender_plaintext.len() < expected {
-        return Err(KeypairError::SenderBundleTooShort {
-            expected,
-            actual: sender_plaintext.len(),
-        });
-    }
-    (0..count)
-        .map(|i| {
-            let start = RECIPIENT_PKS_OFFSET + i * P256_PUBKEY_LEN;
-            let mut pk_bytes = [0u8; P256_PUBKEY_LEN];
-            pk_bytes.copy_from_slice(&sender_plaintext[start..start + P256_PUBKEY_LEN]);
-            P256Pubkey::from_bytes(pk_bytes)
-        })
-        .collect()
-}
-
-fn slot_salt(salt: u64, index: u32) -> [u8; 12] {
-    let mut out = [0u8; 12];
-    out[..8].copy_from_slice(&salt.to_be_bytes());
-    out[8..].copy_from_slice(&index.to_be_bytes());
-    out
 }
 
 impl ViewingKey {
@@ -162,9 +135,9 @@ impl ViewingKey {
 
     /// Sender-derived view tag for the sender's own change UTXO at `tx_count`;
     /// the sender both tags and indexes it.
-    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
         let secret = self.sender_view_tag_secret()?;
-        let mut out = [0u8; VIEW_TAG_LEN];
+        let mut out = ViewTag::default();
         hkdf_expand(
             None,
             &secret,
@@ -178,9 +151,9 @@ impl ViewingKey {
     pub fn get_recipient_request_view_tag(
         &self,
         request_count: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    ) -> Result<ViewTag, KeypairError> {
         let secret = self.recipient_view_tag_secret()?;
-        let mut out = [0u8; VIEW_TAG_LEN];
+        let mut out = ViewTag::default();
         hkdf_expand(
             None,
             &secret,
@@ -200,9 +173,9 @@ impl ViewingKey {
         &self,
         merge_authority_pubkey: &[u8],
         merge_count: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    ) -> Result<ViewTag, KeypairError> {
         let secret = self.merge_view_tag_secret()?;
-        let mut out = [0u8; VIEW_TAG_LEN];
+        let mut out = ViewTag::default();
         hkdf_expand(
             None,
             &secret,
@@ -221,9 +194,9 @@ impl ViewingKey {
         counterparty: &P256Pubkey,
         r_pubkey: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    ) -> Result<ViewTag, KeypairError> {
         let shared = self.ecdh(counterparty);
-        let mut domain = [0u8; VIEW_TAG_LEN];
+        let mut domain = ViewTag::default();
         hkdf_expand(
             None,
             &shared,
@@ -231,7 +204,7 @@ impl ViewingKey {
             &mut domain,
         )?;
 
-        let mut out = [0u8; VIEW_TAG_LEN];
+        let mut out = ViewTag::default();
         hkdf_expand(
             None,
             &domain,
@@ -247,7 +220,7 @@ impl ViewingKey {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    ) -> Result<ViewTag, KeypairError> {
         self.shared_view_tag(counterparty, counterparty, i)
     }
 
@@ -257,14 +230,14 @@ impl ViewingKey {
         &self,
         counterparty: &P256Pubkey,
         i: u64,
-    ) -> Result<[u8; VIEW_TAG_LEN], KeypairError> {
+    ) -> Result<ViewTag, KeypairError> {
         let r_pubkey = self.pubkey();
         self.shared_view_tag(counterparty, &r_pubkey, i)
     }
 
     /// Bootstrap view tag = this key's `viewing_pk` x-coordinate; anyone can
     /// derive it, so a first-time sender needs no coordination.
-    pub fn recipient_bootstrap_view_tag(&self) -> [u8; VIEW_TAG_LEN] {
+    pub fn recipient_bootstrap_view_tag(&self) -> ViewTag {
         self.pubkey().x()
     }
 
@@ -288,9 +261,10 @@ impl ViewingKey {
         &self,
         recipient_pubkey: &P256Pubkey,
         plaintext: &[u8],
-        salt: &[u8],
+        salt: &Salt,
+        slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
-        encryption::encrypt_utxo(&self.secret, recipient_pubkey, plaintext, salt)
+        encryption::encrypt_utxo(&self.secret, recipient_pubkey, plaintext, salt, slot_index)
     }
 
     /// Decrypts the UTXO ciphertext in slot `slot_index`, encrypted to this key
@@ -299,98 +273,42 @@ impl ViewingKey {
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
-        salt: u64,
+        salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
         encryption::decrypt_utxo(
             &self.secret,
             tx_viewing_pubkey,
             ciphertext,
-            &slot_salt(salt, slot_index),
+            &salt,
+            slot_index,
         )
     }
 
-    /// Encrypts every plaintext of one transaction, given the sender bundle in
-    /// `plaintexts[0]` and each recipient plaintext after it. Re-derives the
-    /// transaction viewing key from `first_nullifier`, encrypts the sender
-    /// bundle to this key, and reads each recipient's `viewing_pk` from the
-    /// sender bundle's `recipient_viewing_pks` to encrypt the recipient slots.
-    /// A per-transaction salt is drawn from the OS CSPRNG and combined with each
-    /// slot index, so nonces stay unique across slots and across repeated builds
-    /// of the same transaction. Returns an [`EncryptedTransaction`].
-    pub fn encrypt_transaction(
+    pub fn encrypt_slot(
         &self,
-        first_nullifier: &[u8; 32],
-        plaintexts: &[&[u8]],
-    ) -> Result<EncryptedTransaction, KeypairError> {
-        let (sender_plaintext, recipient_plaintexts) = plaintexts
-            .split_first()
-            .ok_or(KeypairError::EmptyTransaction)?;
-        let recipient_pubkeys =
-            recipient_viewing_pks(sender_plaintext, recipient_plaintexts.len())?;
-
-        let salt = OsRng.next_u64();
-        let tx = self.get_transaction_viewing_key(first_nullifier)?;
-        let tx_viewing_pubkey = tx.pubkey();
-        let mut ciphertexts = Vec::with_capacity(plaintexts.len());
-        ciphertexts.push(tx.encrypt_utxo(&self.pubkey(), sender_plaintext, &slot_salt(salt, 0))?);
-        for (i, (plaintext, recipient_pubkey)) in recipient_plaintexts
-            .iter()
-            .zip(&recipient_pubkeys)
-            .enumerate()
-        {
-            ciphertexts.push(tx.encrypt_utxo(
-                recipient_pubkey,
-                plaintext,
-                &slot_salt(salt, i as u32 + 1),
-            )?);
-        }
-
-        Ok(EncryptedTransaction {
-            tx_viewing_pubkey,
-            salt,
-            ciphertexts,
-        })
+        recipient_pubkey: &P256Pubkey,
+        plaintext: &[u8],
+        salt: Salt,
+        slot_index: u32,
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.encrypt_utxo(recipient_pubkey, plaintext, &salt, slot_index)
     }
 
-    /// Decrypts every ciphertext of one transaction, given the sender bundle in
-    /// `ciphertexts[0]` and each recipient slot after it. Re-derives the transaction viewing key from
-    /// `first_nullifier`, decrypts the sender bundle, and reads each recipient's
-    /// `viewing_pk` from its `recipient_viewing_pks` to decrypt the recipient
-    /// slots. `salt` must be the value returned by `encrypt_transaction`.
-    /// Returns plaintexts in input order.
-    pub fn decrypt_transaction(
+    pub fn decrypt_slot_ephemeral(
         &self,
-        first_nullifier: &[u8; 32],
-        ciphertexts: &[&[u8]],
-        salt: u64,
-    ) -> Result<Vec<Vec<u8>>, KeypairError> {
-        let (sender_ciphertext, recipient_ciphertexts) = ciphertexts
-            .split_first()
-            .ok_or(KeypairError::EmptyTransaction)?;
-
-        let tx = self.get_transaction_viewing_key(first_nullifier)?;
-        let tx_pubkey = tx.pubkey();
-        let sender_plaintext = self.decrypt_utxo(sender_ciphertext, &tx_pubkey, salt, 0)?;
-        let recipient_pubkeys =
-            recipient_viewing_pks(&sender_plaintext, recipient_ciphertexts.len())?;
-
-        let mut plaintexts = Vec::with_capacity(ciphertexts.len());
-        plaintexts.push(sender_plaintext);
-        for (i, (ciphertext, recipient_pubkey)) in recipient_ciphertexts
-            .iter()
-            .zip(&recipient_pubkeys)
-            .enumerate()
-        {
-            plaintexts.push(encryption::decrypt_utxo_ephemeral(
-                &tx.secret,
-                recipient_pubkey,
-                ciphertext,
-                &slot_salt(salt, i as u32 + 1),
-            )?);
-        }
-
-        Ok(plaintexts)
+        recipient_pubkey: &P256Pubkey,
+        ciphertext: &[u8],
+        salt: Salt,
+        slot_index: u32,
+    ) -> Result<Vec<u8>, KeypairError> {
+        encryption::decrypt_utxo_ephemeral(
+            &self.secret,
+            recipient_pubkey,
+            ciphertext,
+            &salt,
+            slot_index,
+        )
     }
 }
 

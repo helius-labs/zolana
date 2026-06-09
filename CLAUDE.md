@@ -375,6 +375,14 @@ Endpoints are tagged by signer mode:
 1. default light-zero-copy
 3. if not hot path can use borsh
 
+### wincode length prefixes (zolana-transaction)
+
+When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..>>`:
+- `Vec<u8>` (byte vectors: ciphertexts, program/zone data, can exceed 255 bytes) use `FixIntLen<u16>`.
+- every other vector (element counts: records, recipient slots, recipient viewing keys; always small) use `FixIntLen<u8>`.
+
+Rule of thumb: `Vec<u8>` -> `u16`, otherwise -> `u8`.
+
 ### Accounts
 1. if lamports are transferred accounts must have fee payer account else must not have a fee payer account
 2. no need to verify pda derivation for initialized accounts, checking discriminator and program ownership is enough if access control checks dont rely on the derivation itself, if access control relies on the derivation check store the bump in the account data or send it in instruction data, account data is cleaner if the account has data

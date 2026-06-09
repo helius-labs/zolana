@@ -1,6 +1,6 @@
 use cucumber::then;
 use sha2::{Digest, Sha256};
-use zolana_keypair::hash::{owner_hash, pubkey_field, sha256_be};
+use zolana_keypair::hash::{owner_hash, sha256_be};
 use zolana_keypair::{PublicKey, SigningKey};
 
 use crate::KeypairWorld;
@@ -15,17 +15,14 @@ fn sha256_be_matches(_world: &mut KeypairWorld, input: String) {
 
 #[then(expr = "pubkey_field of signing key {string} is {string}")]
 fn pubkey_field_golden(world: &mut KeypairWorld, name: String, expected: String) {
-    let pf = pubkey_field(&world.sig_key(&name).pubkey()).unwrap();
+    let pf = world.sig_key(&name).pubkey().hash().unwrap();
     assert_eq!(hex::encode(pf), expected);
 }
 
 #[then(expr = "pubkey_field of signing key {string} is stable")]
 fn pubkey_field_stable(world: &mut KeypairWorld, name: String) {
     let pubkey = world.sig_key(&name).pubkey();
-    assert_eq!(
-        pubkey_field(&pubkey).unwrap(),
-        pubkey_field(&pubkey).unwrap()
-    );
+    assert_eq!(pubkey.hash().unwrap(), pubkey.hash().unwrap());
 }
 
 #[then(expr = "the owner hash of {string} is stable")]

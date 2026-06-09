@@ -8120,6 +8120,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-global-shared-viewkey"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "cucumber",
+ "hex",
+ "hkdf",
+ "p256",
+ "rand 0.8.6",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
@@ -8143,6 +8159,21 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "zolana-transaction"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "cucumber",
+ "hex",
+ "light-poseidon 0.4.0",
+ "solana-address 2.6.0",
+ "thiserror 2.0.18",
+ "tokio",
+ "wincode",
+ "zolana-keypair",
 ]
 
 [[package]]

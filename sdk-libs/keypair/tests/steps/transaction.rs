@@ -1,145 +1,80 @@
 use cucumber::then;
-use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
-use zolana_keypair::{KeypairError, ViewingKey};
+use zolana_keypair::random_salt;
 
 use crate::KeypairWorld;
 
-const SENDER_HEADER: usize = PUBLIC_KEY_LEN + 3 * 8 + BLINDING_LEN;
+#[then(expr = "{string} encrypts a slot to {string} and both can read it")]
+fn slot_round_trips(world: &mut KeypairWorld, sender: String, recipient: String) {
+    let nf = [7u8; 32];
+    let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
+    let salt = random_salt();
+    let payload = b"recipient payload".to_vec();
+    let recipient_pk = world.vk(&recipient).pubkey();
+    let ct = tx.encrypt_slot(&recipient_pk, &payload, salt, 1).unwrap();
 
-fn sender_bundle(recipients: &[&ViewingKey]) -> Vec<u8> {
-    let mut bundle = vec![0u8; SENDER_HEADER];
-    for recipient in recipients {
-        bundle.extend_from_slice(recipient.pubkey().as_bytes());
-    }
-    bundle
+    let by_recipient = world
+        .vk(&recipient)
+        .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
+        .unwrap();
+    assert_eq!(by_recipient, payload);
+
+    let by_sender = tx
+        .decrypt_slot_ephemeral(&recipient_pk, &ct, salt, 1)
+        .unwrap();
+    assert_eq!(by_sender, payload);
 }
 
-#[then(expr = "{string} encrypts and decrypts a transaction to {string} and {string}")]
-fn round_trips(world: &mut KeypairWorld, sender: String, a: String, b: String) {
-    let sender_plaintext = sender_bundle(&[world.vk(&a), world.vk(&b)]);
-    let payload_a = b"recipient a".to_vec();
-    let payload_b = b"recipient b".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![
-        sender_plaintext.as_slice(),
-        payload_a.as_slice(),
-        payload_b.as_slice(),
-    ];
-
-    let enc = world
-        .vk(&sender)
-        .encrypt_transaction(&[7u8; 32], &plaintexts)
+#[then(
+    expr = "{string} encrypts the same payload to {string} in two slots with distinct ciphertexts"
+)]
+fn distinct_slots(world: &mut KeypairWorld, sender: String, recipient: String) {
+    let nf = [9u8; 32];
+    let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
+    let salt = random_salt();
+    let recipient_pk = world.vk(&recipient).pubkey();
+    let c0 = tx
+        .encrypt_slot(&recipient_pk, b"identical", salt, 0)
         .unwrap();
-    let ciphertexts: Vec<&[u8]> = enc.ciphertexts.iter().map(|c| c.as_slice()).collect();
-    let decrypted = world
-        .vk(&sender)
-        .decrypt_transaction(&[7u8; 32], &ciphertexts, enc.salt)
+    let c1 = tx
+        .encrypt_slot(&recipient_pk, b"identical", salt, 1)
         .unwrap();
-
-    let expected: Vec<Vec<u8>> = plaintexts.iter().map(|p| p.to_vec()).collect();
-    assert_eq!(decrypted, expected);
+    assert_ne!(c0, c1);
 }
 
-#[then(expr = "{string} encrypts a transaction to {string} twice with distinct ciphertexts")]
-fn duplicate_recipient_distinct(world: &mut KeypairWorld, sender: String, recipient: String) {
-    let recipient = world.vk(&recipient);
-    let sender_plaintext = sender_bundle(&[recipient, recipient]);
-    let same = b"identical payload".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![
-        sender_plaintext.as_slice(),
-        same.as_slice(),
-        same.as_slice(),
-    ];
-
-    let enc = world
-        .vk(&sender)
-        .encrypt_transaction(&[9u8; 32], &plaintexts)
-        .unwrap();
-    assert_ne!(enc.ciphertexts[1], enc.ciphertexts[2]);
-
-    let ciphertexts: Vec<&[u8]> = enc.ciphertexts.iter().map(|c| c.as_slice()).collect();
-    let decrypted = world
-        .vk(&sender)
-        .decrypt_transaction(&[9u8; 32], &ciphertexts, enc.salt)
-        .unwrap();
-    assert_eq!(decrypted, vec![sender_plaintext, same.clone(), same]);
-}
-
-#[then(expr = "{string} cannot decrypt a transaction from {string} to {string}")]
-fn stranger_cannot_decrypt(
-    world: &mut KeypairWorld,
-    stranger: String,
-    sender: String,
-    recipient: String,
-) {
-    let sender_plaintext = sender_bundle(&[world.vk(&recipient)]);
-    let payload = b"payload".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![sender_plaintext.as_slice(), payload.as_slice()];
-
-    let enc = world
-        .vk(&sender)
-        .encrypt_transaction(&[7u8; 32], &plaintexts)
-        .unwrap();
-    let ciphertexts: Vec<&[u8]> = enc.ciphertexts.iter().map(|c| c.as_slice()).collect();
+#[then(expr = "{string} cannot decrypt a slot from {string} to {string}")]
+fn stranger_cannot(world: &mut KeypairWorld, stranger: String, sender: String, recipient: String) {
+    let nf = [7u8; 32];
+    let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
+    let salt = random_salt();
+    let recipient_pk = world.vk(&recipient).pubkey();
+    let ct = tx.encrypt_slot(&recipient_pk, b"payload", salt, 1).unwrap();
     assert!(world
         .vk(&stranger)
-        .decrypt_transaction(&[7u8; 32], &ciphertexts, enc.salt)
+        .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
         .is_err());
 }
 
-#[then(expr = "a tampered transaction from {string} to {string} is rejected")]
+#[then(expr = "a tampered slot from {string} to {string} is rejected")]
 fn tampered_rejected(world: &mut KeypairWorld, sender: String, recipient: String) {
-    let sender_plaintext = sender_bundle(&[world.vk(&recipient)]);
-    let payload = b"payload".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![sender_plaintext.as_slice(), payload.as_slice()];
-
-    let enc = world
-        .vk(&sender)
-        .encrypt_transaction(&[7u8; 32], &plaintexts)
-        .unwrap();
-    let mut ciphertexts = enc.ciphertexts.clone();
-    ciphertexts[1][0] ^= 0xff;
-    let slices: Vec<&[u8]> = ciphertexts.iter().map(|c| c.as_slice()).collect();
+    let nf = [7u8; 32];
+    let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
+    let salt = random_salt();
+    let recipient_pk = world.vk(&recipient).pubkey();
+    let mut ct = tx.encrypt_slot(&recipient_pk, b"payload", salt, 1).unwrap();
+    ct[0] ^= 0xff;
     assert!(world
-        .vk(&sender)
-        .decrypt_transaction(&[7u8; 32], &slices, enc.salt)
+        .vk(&recipient)
+        .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
         .is_err());
-}
-
-#[then(expr = "{string} fails to encrypt an empty transaction")]
-fn empty_fails(world: &mut KeypairWorld, sender: String) {
-    let err = world
-        .vk(&sender)
-        .encrypt_transaction(&[0u8; 32], &[])
-        .unwrap_err();
-    assert_eq!(err, KeypairError::EmptyTransaction);
-}
-
-#[then(expr = "{string} fails to encrypt a transaction with a truncated sender bundle")]
-fn short_bundle_fails(world: &mut KeypairWorld, sender: String) {
-    let short_bundle = vec![0u8; SENDER_HEADER];
-    let recipient_plaintext = b"x".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![short_bundle.as_slice(), recipient_plaintext.as_slice()];
-
-    let err = world
-        .vk(&sender)
-        .encrypt_transaction(&[0u8; 32], &plaintexts)
-        .unwrap_err();
-    assert_eq!(
-        err,
-        KeypairError::SenderBundleTooShort {
-            expected: SENDER_HEADER + P256_PUBKEY_LEN,
-            actual: SENDER_HEADER,
-        }
-    );
 }
 
 #[then(expr = "{string} decrypts the golden ciphertext from {string}")]
 fn golden_decrypts(world: &mut KeypairWorld, recipient: String, ephemeral: String) {
     let ciphertext =
-        hex::decode("82a9987a69b9627d60fe544fbadf2f1e4d0b19034284b0269b36410fb9").unwrap();
+        hex::decode("0dedf6fb1c2c64f57a31740887dbc87d6502ea3e4791598dc543358cd9").unwrap();
     let plaintext = world
         .vk(&recipient)
-        .decrypt_utxo(&ciphertext, &world.vk(&ephemeral).pubkey(), 0, 0)
+        .decrypt_utxo(&ciphertext, &world.vk(&ephemeral).pubkey(), [0u8; 16], 0)
         .unwrap();
     assert_eq!(plaintext, b"deterministic");
 }

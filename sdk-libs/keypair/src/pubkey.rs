@@ -125,4 +125,15 @@ impl PublicKey {
         body.copy_from_slice(&self.0[1..1 + ED25519_PUBKEY_LEN]);
         Ok(body)
     }
+
+    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
+        match self.signature_type() {
+            SignatureType::P256 => {
+                let p = self.as_p256()?;
+                let x_hash = crate::hash::hash_field(&p.x())?;
+                crate::hash::poseidon(&[&crate::hash::bool_fe(p.y_is_odd()), &x_hash])
+            }
+            SignatureType::Ed25519 => crate::hash::hash_field(&self.as_ed25519()?),
+        }
+    }
 }
