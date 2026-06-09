@@ -77,7 +77,7 @@ func TestBuildProofBundleAcceptsSignedP256Input(t *testing.T) {
 	tx.P256SignatureR = fieldInput(r)
 	tx.P256SignatureS = fieldInput(s)
 
-	ps, err := txprover.Setup(protocol.Shape{NInputs: 1, NOutputs: 2})
+	ps, err := txprover.Setup(protocol.Shape{NInputs: 1, NOutputs: 2}, txprover.TransactionRequiresP256(*tx))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,16 +18,28 @@ import (
 	gnarkio "github.com/consensys/gnark/io"
 )
 
-// ProofSystem holds keys and constraints for one transaction circuit shape.
+// ProofSystem holds keys and constraints for one transaction circuit shape and
+// ownership rail. RequiresP256 selects the P256-capable circuit (true) or the
+// Solana-only variant (false, ~7x fewer constraints). It is not serialized;
+// callers set it from which key they loaded.
 type ProofSystem struct {
 	Shape            protocol.Shape
+	RequiresP256     bool
 	ConstraintSystem constraint.ConstraintSystem
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 }
 
-func Compile(shape protocol.Shape) (constraint.ConstraintSystem, error) {
-	circuit, err := txcircuit.NewCircuit(shape)
+func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSystem, error) {
+	var (
+		circuit *txcircuit.Circuit
+		err     error
+	)
+	if requiresP256 {
+		circuit, err = txcircuit.NewCircuit(shape)
+	} else {
+		circuit, err = txcircuit.NewSolanaCircuit(shape)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -39,8 +51,8 @@ func Compile(shape protocol.Shape) (constraint.ConstraintSystem, error) {
 	)
 }
 
-func Setup(shape protocol.Shape) (*ProofSystem, error) {
-	ccs, err := Compile(shape)
+func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
+	ccs, err := Compile(shape, requiresP256)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +62,7 @@ func Setup(shape protocol.Shape) (*ProofSystem, error) {
 	}
 	return &ProofSystem{
 		Shape:            shape,
+		RequiresP256:     requiresP256,
 		ConstraintSystem: ccs,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,

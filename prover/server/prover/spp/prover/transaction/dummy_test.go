@@ -47,7 +47,7 @@ func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 
 func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionRequest, signerHash *big.Int) {
 	t.Helper()
-	ps, err := Setup(shape)
+	ps, err := Setup(shape, TransactionRequiresP256(tx))
 	if err != nil {
 		t.Fatal(err)
 	}

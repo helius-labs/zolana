@@ -19,11 +19,11 @@ func BenchmarkProveByShape(b *testing.B) {
 }
 
 func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
-	ps, err := Setup(shape)
+	tx, signerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		b.Fatal(err)
 	}
-	tx, signerHash, err := benchmarkTransaction(shape)
+	ps, err := Setup(shape, TransactionRequiresP256(tx))
 	if err != nil {
 		b.Fatal(err)
 	}

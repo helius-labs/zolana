@@ -3,11 +3,24 @@ package transaction
 import (
 	"fmt"
 	"math/big"
+	"strings"
 
 	txcircuit "light/light-prover/prover/spp/circuit/transaction"
 	"light/light-prover/prover/spp/parse"
 	"light/light-prover/prover/spp/protocol"
 )
+
+// TransactionRequiresP256 reports whether a transaction uses the P256 ownership
+// rail (any input is P256-owned) rather than the Solana-only rail. Callers use
+// it to select the matching proving system / verifying key before proving.
+func TransactionRequiresP256(tx ProofTransactionRequest) bool {
+	for i := range tx.Inputs {
+		if strings.TrimSpace(tx.Inputs[i].Utxo.OwnerP256Pubkey) != "" {
+			return true
+		}
+	}
+	return false
+}
 
 type proofBuildOptions struct {
 	AllowMissingP256Signature bool
@@ -64,6 +77,14 @@ func buildProofAssignment(
 	if err != nil {
 		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
 	}
+	// Ownership rail: a transaction with any P256 input uses the P256-capable
+	// circuit; otherwise the Solana-only variant, which omits the P256 gadget
+	// and pins P256MessageHash to 0 (no signature). The rail must match the
+	// proving system the caller selected (buildProofTransaction checks this).
+	requiresP256 := inputs.requiresP256OwnerWitness
+	if !requiresP256 {
+		p256MessageHash = big.NewInt(0)
+	}
 	p256Pub, p256Sig, err := p256WitnessForTransaction(
 		tx,
 		p256MessageHash,
@@ -81,6 +102,7 @@ func buildProofAssignment(
 
 	assignment := &txcircuit.Circuit{
 		Shape:                shape,
+		RequiresP256:         requiresP256,
 		Inputs:               inputs.inputs,
 		Outputs:              outputs.outputs,
 		ExternalDataHash:     external.hash,

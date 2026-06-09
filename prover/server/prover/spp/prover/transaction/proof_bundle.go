@@ -211,6 +211,12 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int) (ProofTransaction, error) {
+	if ps.RequiresP256 != TransactionRequiresP256(tx) {
+		return ProofTransaction{}, fmt.Errorf(
+			"spp: proving system rail mismatch: system requiresP256=%v, transaction requiresP256=%v",
+			ps.RequiresP256, TransactionRequiresP256(tx),
+		)
+	}
 	assignment, publicInputs, publicInputHash, outputUtxos, debug, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
