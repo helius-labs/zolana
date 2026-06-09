@@ -10,7 +10,9 @@ use super::settlement::{spl_asset_pubkey, SettlementAccounts};
 use super::verifying_keys;
 use crate::{
     error::ShieldedPoolError,
-    instructions::create_pool_tree::init::{nullifier_root_by_index, state_root_by_index},
+    instructions::create_pool_tree::init::{
+        current_nullifier_root_index, nullifier_root_by_index, state_root_by_index,
+    },
     instructions::hash::{field_from_u64, hash_chain, EMPTY_FIELD},
     log::log,
 };
@@ -271,8 +273,31 @@ fn nullifier_roots<const N: usize>(
     pool_tree_bytes: &[u8],
     data: &TransactData,
 ) -> Result<[[u8; 32]; N], ProgramError> {
+    // Non-inclusion must be proven against the CURRENT nullifier root only.
+    //
+    // The nullifier root history is a ring of past roots, but unlike Light's
+    // batched tree it is never invalidated when a queue bloom filter is zeroed.
+    // A spent nullifier's bloom is wiped ~1-2 forester rounds after it lands,
+    // while a pre-spend root stays selectable for ~200 batches — so proving
+    // non-inclusion against a stale root (where the nullifier was still absent)
+    // while its bloom is gone would let the same UTXO be spent twice. Forcing
+    // the current root closes that window: the latest root includes every
+    // applied nullifier, and anything still only in the queue is caught by its
+    // live bloom on insert.
+    //
+    // TODO(nullifier-root-grace-window): restore a bounded grace window by
+    // mirroring Light's zero_out_roots — zero stale SPP nullifier roots when the
+    // corresponding queue bloom is wiped — so concurrent proofs against a
+    // recent-but-not-latest root still verify. Requires per-root coverage
+    // tracking and validating the Light-queue/SPP-tree index mapping under a
+    // batch-update repro test.
+    let current = current_nullifier_root_index(pool_tree_bytes)
+        .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
     let mut roots = [[0u8; 32]; N];
     for (i, root_index) in data.nullifier_tree_root_index.iter().enumerate() {
+        if *root_index != current {
+            return Err(ShieldedPoolError::StaleNullifierRoot.into());
+        }
         roots[i] = nullifier_root_by_index(pool_tree_bytes, *root_index)
             .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
     }
@@ -472,6 +497,36 @@ mod tests {
             in_utxo_signer_indices: None,
             encrypted_utxos: vec![],
         }
+    }
+
+    #[test]
+    fn nullifier_roots_require_current_root_index() {
+        use crate::instructions::create_pool_tree::init::{
+            init_pool_tree_account, pool_tree_account_size, push_nullifier_root,
+        };
+        use pinocchio::Address;
+
+        let mut buf = vec![0u8; pool_tree_account_size()];
+        let owner = Address::new_from_array([1u8; 32]);
+        let tree_pubkey = Address::new_from_array([2u8; 32]);
+        init_pool_tree_account(&mut buf, &owner, &tree_pubkey).expect("init pool tree");
+        // Seed root is at index 0. Advance the ring so the current index is 1
+        // and index 0 is a valid-but-stale historical root.
+        push_nullifier_root(&mut buf, [7u8; 32]).expect("push root");
+        assert_eq!(current_nullifier_root_index(&buf).unwrap(), 1);
+
+        // A stale (non-current) root index is rejected even though it still
+        // resolves to a real root in the ring — this is the double-spend guard.
+        let mut data = transact_data_shape(1, 2);
+        data.nullifier_tree_root_index = vec![0];
+        assert!(
+            nullifier_roots::<1>(&buf, &data).is_err(),
+            "stale nullifier root index must be rejected"
+        );
+
+        // The current root index is accepted and resolves to the latest root.
+        data.nullifier_tree_root_index = vec![1];
+        assert_eq!(nullifier_roots::<1>(&buf, &data).unwrap()[0], [7u8; 32]);
     }
 
     #[test]

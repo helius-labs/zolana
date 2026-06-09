@@ -45,6 +45,8 @@ pub enum ShieldedPoolError {
     InvalidNullifierBatchUpdate,
     #[error("nullifier batch proof verification failed")]
     NullifierBatchProofVerificationFailed,
+    #[error("nullifier non-inclusion must use the current nullifier root")]
+    StaleNullifierRoot,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
