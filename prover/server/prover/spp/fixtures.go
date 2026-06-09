@@ -52,13 +52,13 @@ type E2EFixtureSet struct {
 	Fixtures              []E2EFixture            `json:"fixtures"`
 }
 
-// ProoflessShieldFixture exposes the cleartext UTXO body of the `transfer`
-// fixture's input so a proofless shield can create that exact UTXO on-chain and
-// the `transfer` fixture can then spend it — proving the program's proofless
-// UTXO hash matches the circuit's. The asset is the public SPL mint.
+// ProoflessShieldFixture exposes the `transfer` fixture's input UTXO (as the
+// owner-hiding owner_utxo_hash + public fields) so a proofless shield can create
+// that exact UTXO on-chain and the `transfer` fixture can then spend it —
+// proving the program's proofless UTXO hash matches the circuit's. The asset is
+// the public SPL mint.
 type ProoflessShieldFixture struct {
-	Owner         string `json:"owner"`
-	Blinding      string `json:"blinding"`
+	OwnerUtxoHash string `json:"owner_utxo_hash"`
 	DataHash      string `json:"data_hash"`
 	ZoneDataHash  string `json:"zone_data_hash"`
 	ZoneProgramID string `json:"zone_program_id"`
@@ -182,13 +182,17 @@ func BuildE2EFixtures(keyDir string, options E2EFixtureOptions) (*E2EFixtureSet,
 	}
 	cache := newProofSystemCache(keyDir)
 
+	ownerUtxoHash, err := protocol.OwnerUtxoHash(build.utxoA.Owner, build.utxoA.Blinding)
+	if err != nil {
+		return nil, err
+	}
+
 	signerHex := bytesHex(options.SolanaSignerPubkey[:])
 	set := &E2EFixtureSet{
 		Shape:                 fixtureShape,
 		SolanaSignerPubkeyHex: signerHex,
 		ProoflessShield: &ProoflessShieldFixture{
-			Owner:         fieldHex(build.utxoA.Owner),
-			Blinding:      fieldHex(build.utxoA.Blinding),
+			OwnerUtxoHash: fieldHex(ownerUtxoHash),
 			DataHash:      fieldHex(build.utxoA.DataHash),
 			ZoneDataHash:  fieldHex(build.utxoA.ZoneDataHash),
 			ZoneProgramID: fieldHex(build.utxoA.ZoneProgramID),
