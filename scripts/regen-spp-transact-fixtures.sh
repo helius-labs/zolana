@@ -33,15 +33,27 @@ cargo build -q -p xtask
 mkdir -p target/spp
 
 vkeys_dir=programs/shielded-pool/src/instructions/transact/verifying_keys
+# Each shape has two circuits / verifying keys: the P256-capable circuit and
+# the Solana-only variant (no ECDSA gadget, ~7x smaller). The fixture generator
+# and the program pick the rail per transaction (requires_p256).
 for shape in 2:2 1:2 3:3 5:3 1:8; do
     inp="${shape%%:*}"; outp="${shape##*:}"
-    stem="target/spp/spp_${inp}_${outp}"
-    rm -f "${stem}.key" "${stem}.vkey"
+    # P256-capable rail.
+    p256_stem="target/spp/spp_${inp}_${outp}"
+    rm -f "${p256_stem}.key" "${p256_stem}.vkey"
     target/prover-server spp setup --inputs "$inp" --outputs "$outp" \
-        --output "${stem}.key" --output-vkey "${stem}.vkey"
+        --output "${p256_stem}.key" --output-vkey "${p256_stem}.vkey"
     ./target/debug/xtask generate-vkey-rs \
-        --input-path "${stem}.vkey" \
+        --input-path "${p256_stem}.vkey" \
         --output-path "${vkeys_dir}/spp_${inp}_${outp}.rs"
+    # Solana-only rail.
+    sol_stem="target/spp/spp_${inp}_${outp}_solana"
+    rm -f "${sol_stem}.key" "${sol_stem}.vkey"
+    target/prover-server spp setup --inputs "$inp" --outputs "$outp" --solana \
+        --output "${sol_stem}.key" --output-vkey "${sol_stem}.vkey"
+    ./target/debug/xtask generate-vkey-rs \
+        --input-path "${sol_stem}.vkey" \
+        --output-path "${vkeys_dir}/spp_${inp}_${outp}_solana.rs"
 done
 
 target/prover-server spp e2e-proof-bundle \

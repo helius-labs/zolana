@@ -69,6 +69,7 @@ type ProoflessShieldFixture struct {
 type E2EFixture struct {
 	Name                    string         `json:"name"`
 	Shape                   protocol.Shape `json:"shape"`
+	RequiresP256            bool           `json:"requires_p256"`
 	ExpiryUnixTs            uint64         `json:"expiry_unix_ts"`
 	SenderViewTag           string        `json:"sender_view_tag"`
 	Proof                   *common.Proof `json:"proof"`
@@ -141,23 +142,34 @@ func WriteE2EFixturesFromKeysFile(keysFile string, path string, options E2EFixtu
 	return os.WriteFile(path, bytes, 0644)
 }
 
-// proofSystemCache lazily loads one proving system per shape from keyDir
-// (spp_<N>_<M>.key). The embedded verifying keys are exported from the same
-// keys, so the fixture proofs verify against them.
+// proofSystemCache lazily loads one proving system per (shape, rail) from
+// keyDir: spp_<N>_<M>.key for the P256-capable circuit and
+// spp_<N>_<M>_solana.key for the Solana-only variant. The embedded verifying
+// keys are exported from the same keys, so the fixture proofs verify.
+type railKey struct {
+	shape        protocol.Shape
+	requiresP256 bool
+}
+
 type proofSystemCache struct {
 	keyDir  string
-	systems map[protocol.Shape]*txprover.ProofSystem
+	systems map[railKey]*txprover.ProofSystem
 }
 
 func newProofSystemCache(keyDir string) *proofSystemCache {
-	return &proofSystemCache{keyDir: keyDir, systems: map[protocol.Shape]*txprover.ProofSystem{}}
+	return &proofSystemCache{keyDir: keyDir, systems: map[railKey]*txprover.ProofSystem{}}
 }
 
-func (c *proofSystemCache) forShape(shape protocol.Shape) (*txprover.ProofSystem, error) {
-	if ps, ok := c.systems[shape]; ok {
+func (c *proofSystemCache) forShapeRail(shape protocol.Shape, requiresP256 bool) (*txprover.ProofSystem, error) {
+	key := railKey{shape: shape, requiresP256: requiresP256}
+	if ps, ok := c.systems[key]; ok {
 		return ps, nil
 	}
-	path := filepath.Join(c.keyDir, fmt.Sprintf("spp_%d_%d.key", shape.NInputs, shape.NOutputs))
+	name := fmt.Sprintf("spp_%d_%d.key", shape.NInputs, shape.NOutputs)
+	if !requiresP256 {
+		name = fmt.Sprintf("spp_%d_%d_solana.key", shape.NInputs, shape.NOutputs)
+	}
+	path := filepath.Join(c.keyDir, name)
 	ps, err := txprover.ReadProofSystem(path)
 	if err != nil {
 		return nil, fmt.Errorf("spp: load proving system %s: %w", path, err)
@@ -165,7 +177,10 @@ func (c *proofSystemCache) forShape(shape protocol.Shape) (*txprover.ProofSystem
 	if ps.Shape != shape {
 		return nil, fmt.Errorf("spp: key %s has shape %s, want %s", path, ps.Shape, shape)
 	}
-	c.systems[shape] = ps
+	// RequiresP256 is not serialized; set it from which key was loaded so the
+	// prover binds the matching rail.
+	ps.RequiresP256 = requiresP256
+	c.systems[key] = ps
 	return ps, nil
 }
 
@@ -201,7 +216,11 @@ func BuildE2EFixtures(keyDir string, options E2EFixtureOptions) (*E2EFixtureSet,
 		},
 	}
 	for _, sc := range build.scenarios() {
-		ps, err := cache.forShape(sc.shape)
+		// A transaction uses the P256 rail only when it has a P256-owned input;
+		// shields (no inputs) and Solana-owned spends use the cheaper Solana
+		// rail. Matches TransactionRequiresP256 on the built request.
+		requiresP256 := sc.p256 && len(sc.inputs) > 0
+		ps, err := cache.forShapeRail(sc.shape, requiresP256)
 		if err != nil {
 			return nil, fmt.Errorf("fixture %s: %w", sc.name, err)
 		}
@@ -488,6 +507,7 @@ func (b *scenarioBuilder) fixture(ps *txprover.ProofSystem, signerHex string, sc
 	return E2EFixture{
 		Name:                    tx.Name,
 		Shape:                   sc.shape,
+		RequiresP256:            sc.p256 && len(sc.inputs) > 0,
 		ExpiryUnixTs:            tx.ExpiryUnixTs,
 		SenderViewTag:           tx.SenderViewTag,
 		Proof:                   tx.Proof,
