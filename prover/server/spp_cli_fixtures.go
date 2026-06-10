@@ -77,10 +77,36 @@ func sppFixtureCommands() []*cli.Command {
 			Usage: "generate the forester batch-update (address-append) e2e fixture",
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "proving-key", Usage: "Light batch_address-append_40_10.key path", Required: true},
+				&cli.StringFlag{Name: "spp-key-dir", Usage: "directory holding Solana-rail transact keys (spp_<N>_<M>_solana.key)", Required: true},
+				&cli.StringFlag{Name: "solana-signer-seed-hex", Usage: "32-byte ed25519 seed for the signer of the seed/spend transacts", Required: true},
+				&cli.StringFlag{Name: "user-sol-account-hex", Usage: "32-byte SOL account pubkey for the seed shields' public SOL settlement", Required: true},
 				&cli.StringFlag{Name: "output", Usage: "batch-update fixture JSON output", Required: true},
 			},
 			Action: func(context *cli.Context) error {
-				if err := spp.WriteBatchUpdateFixture(context.String("proving-key"), context.String("output")); err != nil {
+				seed, err := hex.DecodeString(context.String("solana-signer-seed-hex"))
+				if err != nil {
+					return fmt.Errorf("decode Solana signer seed: %w", err)
+				}
+				if len(seed) != ed25519.SeedSize {
+					return fmt.Errorf("Solana signer seed must be %d bytes", ed25519.SeedSize)
+				}
+				privateKey := ed25519.NewKeyFromSeed(seed)
+				var pubkey [32]byte
+				copy(pubkey[:], privateKey[32:])
+				userSolAccount, err := requiredHex32(context.String("user-sol-account-hex"), "user SOL account")
+				if err != nil {
+					return err
+				}
+				options := spp.E2EFixtureOptions{
+					SolanaSignerPubkey: pubkey,
+					UserSolAccount:     userSolAccount,
+				}
+				if err := spp.WriteBatchUpdateFixture(
+					context.String("proving-key"),
+					context.String("spp-key-dir"),
+					context.String("output"),
+					options,
+				); err != nil {
 					return err
 				}
 				fmt.Printf("wrote %s\n", context.String("output"))
