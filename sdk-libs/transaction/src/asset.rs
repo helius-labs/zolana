@@ -11,14 +11,28 @@ pub const SOL_MINT: Address = Address::new_from_array([0u8; 32]);
 pub struct AssetRegistry(HashMap<u64, Address>);
 
 impl AssetRegistry {
-    pub fn new(entries: impl IntoIterator<Item = (u64, Address)>) -> Self {
-        let mut map: HashMap<u64, Address> = entries.into_iter().collect();
-        map.insert(SOL_ASSET_ID, SOL_MINT);
-        Self(map)
+    pub fn new(
+        entries: impl IntoIterator<Item = (u64, Address)>,
+    ) -> Result<Self, TransactionError> {
+        let mut registry = Self::default();
+        for (asset_id, mint) in entries {
+            registry.insert(asset_id, mint)?;
+        }
+        Ok(registry)
     }
 
-    pub fn insert(&mut self, asset_id: u64, mint: Address) -> Option<Address> {
-        self.0.insert(asset_id, mint)
+    pub fn insert(&mut self, asset_id: u64, mint: Address) -> Result<(), TransactionError> {
+        if asset_id == SOL_ASSET_ID {
+            return Err(TransactionError::ReservedAssetId(asset_id));
+        }
+        if self.0.contains_key(&asset_id) {
+            return Err(TransactionError::DuplicateAssetId(asset_id));
+        }
+        if self.0.values().any(|m| m == &mint) {
+            return Err(TransactionError::DuplicateMint(mint));
+        }
+        self.0.insert(asset_id, mint);
+        Ok(())
     }
 
     pub fn resolve(&self, asset_id: u64) -> Result<Address, TransactionError> {
@@ -38,6 +52,6 @@ impl AssetRegistry {
 
 impl Default for AssetRegistry {
     fn default() -> Self {
-        Self::new([])
+        Self(HashMap::from([(SOL_ASSET_ID, SOL_MINT)]))
     }
 }

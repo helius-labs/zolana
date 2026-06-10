@@ -6,8 +6,8 @@ use crate::KeypairWorld;
 #[then(expr = "{string} and {string} agree on a shared secret")]
 fn ecdh_symmetric(world: &mut KeypairWorld, a: String, b: String) {
     assert_eq!(
-        world.vk(&a).ecdh(&world.vk(&b).pubkey()),
-        world.vk(&b).ecdh(&world.vk(&a).pubkey())
+        world.vk(&a).ecdh(&world.vk(&b).pubkey()).unwrap(),
+        world.vk(&b).ecdh(&world.vk(&a).pubkey()).unwrap()
     );
 }
 

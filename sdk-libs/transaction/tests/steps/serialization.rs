@@ -35,6 +35,54 @@ fn recipient_plaintext_round_trips(world: &mut TransactionWorld, name: String) {
     }
 }
 
+#[then(expr = "duplicate data records are rejected for {string}")]
+fn duplicate_data_records_rejected(world: &mut TransactionWorld, name: String) {
+    let pt = TransferRecipientPlaintext {
+        owner_pubkey: world.kp(&name).signing_pubkey(),
+        sender_pubkey: ViewingKey::new().pubkey(),
+        asset_id: 2,
+        amount: 42,
+        blinding: [1u8; BLINDING_LEN],
+        data: Data::new(vec![
+            DataRecord::ZoneData(vec![1]),
+            DataRecord::ZoneData(vec![2]),
+        ]),
+    };
+    assert_eq!(
+        pt.serialize().unwrap_err(),
+        TransactionError::DuplicateDataRecord
+    );
+    let bytes = wincode::serialize(&pt).unwrap();
+    assert_eq!(
+        TransferRecipientPlaintext::deserialize(&bytes).unwrap_err(),
+        TransactionError::DuplicateDataRecord
+    );
+}
+
+#[then(expr = "out-of-order data records are rejected for {string}")]
+fn out_of_order_data_records_rejected(world: &mut TransactionWorld, name: String) {
+    let pt = TransferRecipientPlaintext {
+        owner_pubkey: world.kp(&name).signing_pubkey(),
+        sender_pubkey: ViewingKey::new().pubkey(),
+        asset_id: 2,
+        amount: 42,
+        blinding: [1u8; BLINDING_LEN],
+        data: Data::new(vec![
+            DataRecord::ProgramData(vec![1]),
+            DataRecord::ZoneData(vec![2]),
+        ]),
+    };
+    assert_eq!(
+        pt.serialize().unwrap_err(),
+        TransactionError::NonCanonicalDataOrder
+    );
+    let bytes = wincode::serialize(&pt).unwrap();
+    assert_eq!(
+        TransferRecipientPlaintext::deserialize(&bytes).unwrap_err(),
+        TransactionError::NonCanonicalDataOrder
+    );
+}
+
 #[then(expr = "a sender plaintext for {string} to {string} round-trips")]
 fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, recipient: String) {
     let pt = TransferSenderPlaintext {
@@ -44,7 +92,8 @@ fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, re
         sol_amount: 5,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![world.kp(&recipient).viewing_pubkey()],
-        data: Data::default(),
+        spl_data: Data::default(),
+        sol_data: Data::default(),
     };
     let bytes = pt.serialize().unwrap();
     assert_eq!(TransferSenderPlaintext::deserialize(&bytes).unwrap(), pt);
@@ -71,6 +120,25 @@ fn transfer_blob_round_trips(_world: &mut TransactionWorld) {
     assert_eq!(
         TransferEncryptedUtxos::deserialize(&bytes).unwrap_err(),
         TransactionError::BadDiscriminator(9)
+    );
+}
+
+#[then(expr = "a blob with an invalid viewing pubkey is rejected")]
+fn invalid_viewing_pubkey_rejected(_world: &mut TransactionWorld) {
+    let blob = TransferEncryptedUtxos {
+        type_prefix: TRANSFER,
+        tx_viewing_pk: ViewingKey::new().pubkey(),
+        salt: [1u8; SALT_LEN],
+        sender_ciphertext: vec![7u8; 16],
+        recipient_slots: vec![],
+    };
+    let mut bytes = blob.serialize().unwrap();
+    for byte in bytes.get_mut(1..34).unwrap() {
+        *byte = 0xff;
+    }
+    assert_eq!(
+        TransferEncryptedUtxos::deserialize(&bytes).unwrap_err(),
+        TransactionError::Deserialize("Custom error: invalid p256 public key".to_string())
     );
 }
 

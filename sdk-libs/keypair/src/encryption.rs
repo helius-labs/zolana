@@ -4,13 +4,17 @@ use hkdf::Hkdf;
 use p256::ecdh::diffie_hellman;
 use p256::{AffinePoint, SecretKey};
 use sha2::Sha256;
+use zeroize::Zeroizing;
 
 use crate::constants::{ENC_INFO_TRANSFER, GCM_NONCE_LEN, HPKE_PREFIX, P256_PUBKEY_LEN, SALT_LEN};
 use crate::error::KeypairError;
 use crate::pubkey::P256Pubkey;
 
-pub(crate) fn ecdh_x(secret_key: &SecretKey, pubkey: &P256Pubkey) -> [u8; 32] {
-    ecdh_x_point(secret_key, pubkey.to_p256().as_affine())
+pub(crate) fn ecdh_x(
+    secret_key: &SecretKey,
+    pubkey: &P256Pubkey,
+) -> Result<[u8; 32], KeypairError> {
+    Ok(ecdh_x_point(secret_key, pubkey.to_p256()?.as_affine()))
 }
 
 pub(crate) fn ecdh_x_point(secret_key: &SecretKey, point: &AffinePoint) -> [u8; 32] {
@@ -28,17 +32,20 @@ fn derive_key_nonce(
     info: &[u8],
     salt: &[u8; SALT_LEN],
     slot: u32,
-) -> Result<([u8; 32], [u8; GCM_NONCE_LEN]), KeypairError> {
-    let mut ikm = [0u8; 32 + 2 * P256_PUBKEY_LEN];
+) -> Result<(Zeroizing<[u8; 32]>, [u8; GCM_NONCE_LEN]), KeypairError> {
+    let mut ikm = Zeroizing::new([0u8; 32 + 2 * P256_PUBKEY_LEN]);
     ikm[..32].copy_from_slice(dh);
     ikm[32..32 + P256_PUBKEY_LEN].copy_from_slice(ephemeral_pubkey.as_bytes());
     ikm[32 + P256_PUBKEY_LEN..].copy_from_slice(recipient_pubkey.as_bytes());
 
-    let mut okm = [0u8; 32 + GCM_NONCE_LEN];
-    Hkdf::<Sha256>::new(None, &ikm)
-        .expand_multi_info(&[HPKE_PREFIX, info, salt, &slot.to_be_bytes()], &mut okm)
+    let mut okm = Zeroizing::new([0u8; 32 + GCM_NONCE_LEN]);
+    Hkdf::<Sha256>::new(None, ikm.as_slice())
+        .expand_multi_info(
+            &[HPKE_PREFIX, info, salt, &slot.to_be_bytes()],
+            okm.as_mut_slice(),
+        )
         .map_err(|_| KeypairError::Hkdf)?;
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     let mut nonce = [0u8; GCM_NONCE_LEN];
     key.copy_from_slice(&okm[..32]);
     nonce.copy_from_slice(&okm[32..]);
@@ -55,10 +62,10 @@ pub(crate) fn encrypt(
     slot: u32,
 ) -> Result<Vec<u8>, KeypairError> {
     let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
-    let dh = ecdh_x(ephemeral_secret_key, recipient_pubkey);
+    let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
     let (key, nonce) =
         derive_key_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt, slot)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
+    let cipher = Aes256Gcm::new(&(*key).into());
     cipher
         .encrypt(
             Nonce::from_slice(&nonce),
@@ -80,10 +87,10 @@ pub(crate) fn decrypt(
     slot: u32,
 ) -> Result<Vec<u8>, KeypairError> {
     let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
-    let dh = ecdh_x(viewing_secret_key, ephemeral_pubkey);
+    let dh = Zeroizing::new(ecdh_x(viewing_secret_key, ephemeral_pubkey)?);
     let (key, nonce) =
         derive_key_nonce(&dh, ephemeral_pubkey, &recipient_pubkey, info, salt, slot)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
+    let cipher = Aes256Gcm::new(&(*key).into());
     cipher
         .decrypt(
             Nonce::from_slice(&nonce),
@@ -105,10 +112,10 @@ pub(crate) fn decrypt_ephemeral(
     slot: u32,
 ) -> Result<Vec<u8>, KeypairError> {
     let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
-    let dh = ecdh_x(ephemeral_secret_key, recipient_pubkey);
+    let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
     let (key, nonce) =
         derive_key_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt, slot)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).expect("aes-256-gcm uses a 32-byte key");
+    let cipher = Aes256Gcm::new(&(*key).into());
     cipher
         .decrypt(
             Nonce::from_slice(&nonce),

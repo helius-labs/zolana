@@ -13,3 +13,7 @@ Feature: Split output UTXO serialization
     Then the split blob deserializes back unchanged
     And the split has 8 distinct output blindings
     And "owner" decrypts the split and reads 8 outputs of 125
+
+  Scenario: Split data with zero outputs is rejected
+    Given a shielded keypair "owner"
+    Then split data with zero outputs is rejected for "owner"

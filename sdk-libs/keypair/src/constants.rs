@@ -39,7 +39,7 @@ pub(crate) const INFO_PAIR_DOMAIN_PREFIX: &[u8] = b"TSPP/pair-domain/";
 
 pub(crate) const INFO_PAIR_HINT_PREFIX: &[u8] = b"TSPP/pair-hint/";
 
-pub(crate) const VIEW_TAG_LEN: usize = 32;
+pub const VIEW_TAG_LEN: usize = 32;
 
 pub(crate) const HPKE_PREFIX: &[u8] = b"TSPP/hpke/";
 

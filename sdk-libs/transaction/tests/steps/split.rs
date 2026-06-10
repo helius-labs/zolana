@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use cucumber::{then, when};
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::data::Data;
+use zolana_transaction::asset::AssetRegistry;
+use zolana_transaction::data::{Data, DataRecord};
 use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::TransactionEncryption;
+use zolana_transaction::{Address, TransactionEncryption, TransactionError};
 
 use crate::TransactionWorld;
 
@@ -45,6 +46,23 @@ fn split_blindings(world: &mut TransactionWorld, count: usize) {
     for blinding in blindings {
         assert!(seen.insert(blinding));
     }
+}
+
+#[then(expr = "split data with zero outputs is rejected for {string}")]
+fn split_data_zero_outputs(world: &mut TransactionWorld, owner: String) {
+    let registry = AssetRegistry::new([(2, Address::new_from_array([5u8; 32]))]).unwrap();
+    let bundle = SplitBundlePlaintext {
+        owner_pubkey: world.kp(&owner).signing_pubkey(),
+        num_outputs: 0,
+        asset_id: 2,
+        asset_amount: 0,
+        blinding_seed: [3u8; BLINDING_LEN],
+        data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+    };
+    assert_eq!(
+        bundle.into_utxos(&registry, None).unwrap_err(),
+        TransactionError::DataWithoutOutput
+    );
 }
 
 #[then(expr = "{string} decrypts the split and reads {int} outputs of {int}")]

@@ -12,5 +12,11 @@ Feature: Asset registry
   Scenario: An unknown mint is rejected
     Then resolving an unknown mint fails
 
-  Scenario: SOL stays canonical even when overridden
-    Then SOL stays canonical when a bogus SOL entry is supplied
+  Scenario: The SOL asset id cannot be overridden
+    Then a SOL entry is rejected as reserved
+
+  Scenario: A duplicate asset id is rejected
+    Then a duplicate asset id is rejected
+
+  Scenario: A duplicate mint is rejected
+    Then a duplicate mint is rejected

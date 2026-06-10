@@ -42,7 +42,8 @@ fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, Data)>) {
         sol_amount: 5,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks,
-        data: Data::default(),
+        spl_data: Data::default(),
+        sol_data: Data::default(),
     };
 
     let first_nullifier = [7u8; 32];

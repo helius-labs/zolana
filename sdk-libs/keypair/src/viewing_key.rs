@@ -99,7 +99,7 @@ impl ViewingKey {
     }
 
     /// ECDH with `counterparty`, returning the shared point's x-coordinate.
-    pub fn ecdh(&self, counterparty: &P256Pubkey) -> [u8; 32] {
+    pub fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
         encryption::ecdh_x(&self.secret, counterparty)
     }
 
@@ -195,7 +195,7 @@ impl ViewingKey {
         r_pubkey: &P256Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
-        let shared = self.ecdh(counterparty);
+        let shared = self.ecdh(counterparty)?;
         let mut domain = ViewTag::default();
         hkdf_expand(
             None,

@@ -22,6 +22,27 @@ pub enum TransactionError {
     #[error("unknown mint: {0}")]
     UnknownMint(Address),
 
+    #[error("reserved asset id: {0}")]
+    ReservedAssetId(u64),
+
+    #[error("duplicate asset id: {0}")]
+    DuplicateAssetId(u64),
+
+    #[error("duplicate mint: {0}")]
+    DuplicateMint(Address),
+
+    #[error("data attached to an output with zero amount")]
+    DataWithoutOutput,
+
+    #[error("duplicate data record")]
+    DuplicateDataRecord,
+
+    #[error("data records out of canonical order")]
+    NonCanonicalDataOrder,
+
+    #[error("zone data present without zone program id")]
+    MissingZoneProgramId,
+
     #[error("poseidon hash failed: {0}")]
     Poseidon(String),
 

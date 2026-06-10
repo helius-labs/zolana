@@ -1,37 +1,22 @@
+use solana_address::Address;
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::hash::sha256_be;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{P256Pubkey, PublicKey};
 
 use crate::asset::{AssetRegistry, SOL_MINT};
 use crate::data::Data;
 use crate::error::TransactionError;
-use crate::utxo::Utxo;
-use crate::TRANSFER;
-
-pub fn sender_blinding(seed: &[u8; BLINDING_LEN], position: u8) -> [u8; BLINDING_LEN] {
-    let mut preimage = [0u8; BLINDING_LEN + 1];
-    preimage[..BLINDING_LEN].copy_from_slice(seed);
-    preimage[BLINDING_LEN] = position;
-    let digest = sha256_be(&preimage);
-    let mut out = [0u8; BLINDING_LEN];
-    out.copy_from_slice(&digest[1..]);
-    out
-}
-
-wincode::pod_wrapper! {
-    unsafe struct PodP256Pubkey(P256Pubkey);
-    unsafe struct PodPublicKey(PublicKey);
-}
+use crate::utxo::{derive_blinding, resolve_zone_program_id, Utxo};
+use crate::{P256PubkeySchema, PublicKeySchema, TRANSFER};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferRecipientPlaintext {
-    #[wincode(with = "PodPublicKey")]
+    #[wincode(with = "PublicKeySchema")]
     pub owner_pubkey: PublicKey,
-    #[wincode(with = "PodP256Pubkey")]
+    #[wincode(with = "P256PubkeySchema")]
     pub sender_pubkey: P256Pubkey,
     pub asset_id: u64,
     pub amount: u64,
@@ -41,20 +26,27 @@ pub struct TransferRecipientPlaintext {
 
 impl TransferRecipientPlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
+        self.data.validate()?;
         Ok(wincode::serialize(self)?)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
-        Ok(wincode::deserialize_exact(bytes)?)
+        let parsed: Self = wincode::deserialize_exact(bytes)?;
+        parsed.data.validate()?;
+        Ok(parsed)
     }
 
-    pub fn into_utxo(self, assets: &AssetRegistry) -> Result<Utxo, TransactionError> {
+    pub fn into_utxo(
+        self,
+        assets: &AssetRegistry,
+        zone_program_id: Option<Address>,
+    ) -> Result<Utxo, TransactionError> {
         Ok(Utxo {
             owner: self.owner_pubkey,
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: None,
+            zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
             data: self.data,
         })
     }
@@ -62,36 +54,52 @@ impl TransferRecipientPlaintext {
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferSenderPlaintext {
-    #[wincode(with = "PodPublicKey")]
+    #[wincode(with = "PublicKeySchema")]
     pub owner_pubkey: PublicKey,
     pub spl_asset_id: u64,
     pub spl_amount: u64,
     pub sol_amount: u64,
     pub blinding_seed: [u8; BLINDING_LEN],
-    #[wincode(with = "containers::Vec<PodP256Pubkey, FixIntLen<u8>>")]
+    #[wincode(with = "containers::Vec<P256PubkeySchema, FixIntLen<u8>>")]
     pub recipient_viewing_pks: Vec<P256Pubkey>,
-    pub data: Data,
+    pub spl_data: Data,
+    pub sol_data: Data,
 }
 
 impl TransferSenderPlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
+        self.spl_data.validate()?;
+        self.sol_data.validate()?;
         Ok(wincode::serialize(self)?)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
-        Ok(wincode::deserialize_exact(bytes)?)
+        let parsed: Self = wincode::deserialize_exact(bytes)?;
+        parsed.spl_data.validate()?;
+        parsed.sol_data.validate()?;
+        Ok(parsed)
     }
 
-    pub fn into_utxos(self, assets: &AssetRegistry) -> Result<Vec<Utxo>, TransactionError> {
+    pub fn into_utxos(
+        self,
+        assets: &AssetRegistry,
+        zone_program_id: Option<Address>,
+    ) -> Result<Vec<Utxo>, TransactionError> {
+        if self.spl_amount == 0 && !self.spl_data.is_empty() {
+            return Err(TransactionError::DataWithoutOutput);
+        }
+        if self.sol_amount == 0 && !self.sol_data.is_empty() {
+            return Err(TransactionError::DataWithoutOutput);
+        }
         let mut utxos = Vec::new();
         if self.spl_amount > 0 {
             utxos.push(Utxo {
                 owner: self.owner_pubkey,
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
-                blinding: sender_blinding(&self.blinding_seed, 0),
-                zone_program_id: None,
-                data: self.data,
+                blinding: derive_blinding(&self.blinding_seed, 0),
+                zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
+                data: self.spl_data,
             });
         }
         if self.sol_amount > 0 {
@@ -99,9 +107,9 @@ impl TransferSenderPlaintext {
                 owner: self.owner_pubkey,
                 asset: SOL_MINT,
                 amount: self.sol_amount,
-                blinding: sender_blinding(&self.blinding_seed, 1),
-                zone_program_id: None,
-                data: Data::default(),
+                blinding: derive_blinding(&self.blinding_seed, 1),
+                zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
+                data: self.sol_data,
             });
         }
         Ok(utxos)
@@ -124,7 +132,7 @@ pub struct RecipientOutput {
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferEncryptedUtxos {
     pub type_prefix: u8,
-    #[wincode(with = "PodP256Pubkey")]
+    #[wincode(with = "P256PubkeySchema")]
     pub tx_viewing_pk: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
