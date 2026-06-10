@@ -96,6 +96,20 @@ func sppCommand() *cli.Command {
 				return txprover.WriteProofSigningPayload(system, context.String("input"), context.String("output"))
 			},
 		},
+		{
+			Name:  "proofless-commitment",
+			Usage: "compute the owner-hiding UTXO commitment for a proofless shield (no proof, no keys)",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "input", Usage: "output UTXO request JSON", Required: true},
+				&cli.StringFlag{Name: "output", Usage: "commitment JSON output", Required: true},
+			},
+			Action: func(context *cli.Context) error {
+				if err := os.MkdirAll(filepath.Dir(context.String("output")), 0755); err != nil {
+					return err
+				}
+				return txprover.WriteProoflessCommitment(context.String("input"), context.String("output"))
+			},
+		},
 	}
 	subcommands = append(subcommands, sppFixtureCommands()...)
 	return &cli.Command{
