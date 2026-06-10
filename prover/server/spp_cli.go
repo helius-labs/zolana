@@ -21,13 +21,15 @@ func sppCommand() *cli.Command {
 				&cli.IntFlag{Name: "outputs", Usage: "fixed output slots", Required: true},
 				&cli.StringFlag{Name: "output", Usage: "proving system output", Required: true},
 				&cli.StringFlag{Name: "output-vkey", Usage: "text verifying key output", Required: false},
+				&cli.BoolFlag{Name: "solana", Usage: "build the Solana-only circuit variant (no P256 ECDSA gadget, ~7x smaller); omit for the P256-capable circuit", Required: false},
 			},
 			Action: func(context *cli.Context) error {
 				shape, err := protocol.NewShape(context.Int("inputs"), context.Int("outputs"))
 				if err != nil {
 					return err
 				}
-				system, err := txprover.Setup(shape)
+				requiresP256 := !context.Bool("solana")
+				system, err := txprover.Setup(shape, requiresP256)
 				if err != nil {
 					return err
 				}
