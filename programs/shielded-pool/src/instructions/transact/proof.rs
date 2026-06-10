@@ -31,41 +31,61 @@ pub fn verify_transact_proof(
 ) -> ProgramResult {
     let proof = bsb22_proof(&data.proof)?;
 
+    // Select the verifying key by (shape, ownership rail). The P256-capable and
+    // Solana-only circuits are distinct R1CS, so each shape has two keys; the
+    // Solana rail is ~7x cheaper. data.requires_p256 picks the rail, and a
+    // mismatch with the proof's actual circuit fails verification.
+    let rail = |p256, solana| if data.requires_p256 { p256 } else { solana };
     match canonical_shape(data)? {
         (2, 2) => verify_shape::<2, 2>(
             pool_tree_bytes,
             data,
             settlement,
             &proof,
-            &verifying_keys::spp_2_2::VERIFYINGKEY,
+            rail(
+                &verifying_keys::spp_2_2::VERIFYINGKEY,
+                &verifying_keys::spp_2_2_solana::VERIFYINGKEY,
+            ),
         ),
         (1, 2) => verify_shape::<1, 2>(
             pool_tree_bytes,
             data,
             settlement,
             &proof,
-            &verifying_keys::spp_1_2::VERIFYINGKEY,
+            rail(
+                &verifying_keys::spp_1_2::VERIFYINGKEY,
+                &verifying_keys::spp_1_2_solana::VERIFYINGKEY,
+            ),
         ),
         (3, 3) => verify_shape::<3, 3>(
             pool_tree_bytes,
             data,
             settlement,
             &proof,
-            &verifying_keys::spp_3_3::VERIFYINGKEY,
+            rail(
+                &verifying_keys::spp_3_3::VERIFYINGKEY,
+                &verifying_keys::spp_3_3_solana::VERIFYINGKEY,
+            ),
         ),
         (5, 3) => verify_shape::<5, 3>(
             pool_tree_bytes,
             data,
             settlement,
             &proof,
-            &verifying_keys::spp_5_3::VERIFYINGKEY,
+            rail(
+                &verifying_keys::spp_5_3::VERIFYINGKEY,
+                &verifying_keys::spp_5_3_solana::VERIFYINGKEY,
+            ),
         ),
         (1, 8) => verify_shape::<1, 8>(
             pool_tree_bytes,
             data,
             settlement,
             &proof,
-            &verifying_keys::spp_1_8::VERIFYINGKEY,
+            rail(
+                &verifying_keys::spp_1_8::VERIFYINGKEY,
+                &verifying_keys::spp_1_8_solana::VERIFYINGKEY,
+            ),
         ),
         _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
     }
@@ -145,7 +165,13 @@ fn public_input_hash_from_data<const N: usize, const M: usize>(
         utxo_tree_roots: &utxo_tree_roots,
         nullifier_roots: &nullifier_roots,
         private_tx_hash: data.private_tx_hash,
-        p256_message_hash: p256_message_hash(&data.private_tx_hash),
+        // P256 rail binds the ECDSA message digest; the Solana-only rail has no
+        // signature, so the circuit pins it to 0 — match that here.
+        p256_message_hash: if data.requires_p256 {
+            p256_message_hash(&data.private_tx_hash)
+        } else {
+            EMPTY_FIELD
+        },
         external_data_hash,
         public_sol_amount,
         public_spl_amount,

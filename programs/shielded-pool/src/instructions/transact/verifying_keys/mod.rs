@@ -1,5 +1,10 @@
 pub mod spp_1_2;
+pub mod spp_1_2_solana;
 pub mod spp_1_8;
+pub mod spp_1_8_solana;
 pub mod spp_2_2;
+pub mod spp_2_2_solana;
 pub mod spp_3_3;
+pub mod spp_3_3_solana;
 pub mod spp_5_3;
+pub mod spp_5_3_solana;
