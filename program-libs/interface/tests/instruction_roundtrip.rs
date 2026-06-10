@@ -245,13 +245,13 @@ fn reserved_unimplemented_tags_are_not_dispatchable() {
     // Spec-reserved tags with no handler must not decode to an InstructionTag;
     // the program dispatch treats them like any unknown byte.
     for tag in [
-        tag::POCKET_TRANSACT,
-        tag::POCKET_AUTHORITY_TRANSACT,
-        tag::MERGE_TRANSACT,
-        tag::ENABLE_MERGE_AUTHORITY,
-        tag::DISABLE_MERGE_AUTHORITY,
-        tag::CREATE_MERGE_AUTHORITY_TREE,
-        tag::MERGE_POCKET,
+        tag::reserved::POCKET_TRANSACT,
+        tag::reserved::POCKET_AUTHORITY_TRANSACT,
+        tag::reserved::MERGE_TRANSACT,
+        tag::reserved::ENABLE_MERGE_AUTHORITY,
+        tag::reserved::DISABLE_MERGE_AUTHORITY,
+        tag::reserved::CREATE_MERGE_AUTHORITY_TREE,
+        tag::reserved::MERGE_POCKET,
     ] {
         assert_eq!(InstructionTag::try_from(tag), Err(()));
     }
