@@ -2,8 +2,8 @@ use shielded_pool_program::process_instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        InsertAddressesData, TransactData, PUBLIC_AMOUNT_NONE,
+        encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData, TransactData,
+        PUBLIC_AMOUNT_NONE,
     },
     CPI_AUTHORITY_PDA_SEED, LIGHT_REGISTRY_CPI_AUTHORITY, LIGHT_REGISTRY_PROGRAM_ID,
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
@@ -21,34 +21,15 @@ fn rejects_create_pool_tree_without_accounts() {
 }
 
 #[test]
-fn rejects_empty_insert_batch() {
-    let data = encode_instruction(
-        tag::INSERT_ADDRESSES,
-        &InsertAddressesData { addresses: vec![] },
-    );
-    assert!(process_instruction(&program_id(), &mut [], &data).is_err());
-}
-
-#[test]
 fn rejects_malformed_payload() {
-    let data = vec![tag::INSERT_ADDRESSES, 1, 2, 3];
+    // A known tag with a too-short payload must fail borsh decode.
+    let data = vec![tag::TRANSACT, 1, 2, 3];
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 
 #[test]
 fn rejects_unknown_instruction_tag() {
     let data = vec![255];
-    assert!(process_instruction(&program_id(), &mut [], &data).is_err());
-}
-
-#[test]
-fn non_empty_insert_without_accounts_does_not_succeed() {
-    let data = encode_instruction(
-        tag::INSERT_ADDRESSES,
-        &InsertAddressesData {
-            addresses: vec![[1u8; 32]],
-        },
-    );
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 

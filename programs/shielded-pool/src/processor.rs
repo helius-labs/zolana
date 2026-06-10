@@ -2,9 +2,8 @@ use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
     tag, BatchUpdateAddressTreeData, CreatePocketConfigData, CreatePoolTreeData,
-    CreateProtocolConfigData, CreateSplInterfaceData, InsertAddressesData, PauseTreeData,
-    ProoflessShieldData, TransactData, UpdatePocketConfigData, UpdatePocketConfigOwnerData,
-    UpdateProtocolConfigData,
+    CreateProtocolConfigData, CreateSplInterfaceData, PauseTreeData, ProoflessShieldData,
+    TransactData, UpdatePocketConfigData, UpdatePocketConfigOwnerData, UpdateProtocolConfigData,
 };
 
 use crate::{
@@ -13,7 +12,6 @@ use crate::{
         batch_update_address_tree::processor::process_batch_update_address_tree,
         create_pool_tree::processor::process_create_pool_tree,
         create_spl_interface::processor::process_create_spl_interface,
-        insert_addresses::processor::process_insert_addresses,
         pocket_config::processor::{
             process_create_pocket_config, process_update_pocket_config,
             process_update_pocket_config_owner,
@@ -60,7 +58,6 @@ pub fn process_instruction(
 
     dispatch!(*ix_tag, payload, program_id, accounts, {
         tag::CREATE_POOL_TREE => (CreatePoolTreeData, process_create_pool_tree),
-        tag::INSERT_ADDRESSES => (InsertAddressesData, process_insert_addresses),
         tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),
         tag::TRANSACT => (TransactData, process_transact),
         tag::PROOFLESS_SHIELD => (ProoflessShieldData, process_proofless_shield),
