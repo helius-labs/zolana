@@ -42,8 +42,8 @@ use solana_transaction::Transaction;
 use spl_token::state::Account as TokenAccount;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, InputUtxoSignerIndex, TransactData, PUBLIC_AMOUNT_DEPOSIT,
-        PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
+        encode_instruction, tag, InputUtxoSignerIndex, ProoflessShieldData, TransactData,
+        PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
     },
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -1238,6 +1238,9 @@ fn run_pocket(args: &[String]) -> Result<()> {
             pocket_init_pool_tree(parse_pocket_init_pool_tree_args(&args[1..])?)
         }
         Some("shield") => pocket_submit("shield", parse_pocket_submit_args("shield", &args[1..])?),
+        Some("proofless-shield") => {
+            pocket_proofless_shield(parse_pocket_submit_opts("proofless-shield", &args[1..])?)
+        }
         Some("transfer") => pocket_submit(
             "transfer",
             parse_pocket_submit_args("transfer", &args[1..])?,
@@ -1401,7 +1404,11 @@ fn parse_pocket_init_pool_tree_args(args: &[String]) -> Result<PocketInitPoolTre
     Ok(opts)
 }
 
-fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
+// Parses the shared submit flags (used by shield/transfer/unshield and
+// proofless-shield) without imposing any proving-mode requirements. Proving
+// commands layer validate_direct_proving_opts on top via
+// parse_pocket_submit_args; proofless-shield self-validates in its handler.
+fn parse_pocket_submit_opts(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
     let mut opts = PocketSubmitOptions {
         rpc_url: DEFAULT_RPC_URL.to_string(),
         tx_name: default_tx_name.to_string(),
@@ -1556,6 +1563,14 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
     if opts.tree == Pubkey::default() {
         bail!("{default_tx_name} requires --tree");
     }
+    Ok(opts)
+}
+
+// Parses submit flags for a proving command and enforces what direct proving
+// (no pre-built --bundle) needs: a proving key, prover binary, state, amount,
+// and per-command recipient/asset flags.
+fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
+    let opts = parse_pocket_submit_opts(default_tx_name, args)?;
     if opts.bundle.is_none() {
         if opts.state.is_none() {
             bail!("{default_tx_name} direct proving requires --state");
@@ -1902,6 +1917,121 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
             "command": command,
             "tx": tx.name,
             "proof_bundle": bundle_path,
+            "signature": signature.to_string(),
+        }))?
+    );
+    Ok(())
+}
+
+/// `pocket proofless-shield`: a public SOL deposit with no ZK proof. The
+/// recipient is the payer's own Solana owner; it is still hidden on-chain
+/// because the commitment carries only `owner_utxo_hash = Poseidon(owner,
+/// blinding)`. The deposit's UTXO is byte-identical to a proven shield output
+/// (same `utxo_hash`), so it is later spendable by an ordinary transfer/unshield
+/// proof. Recipient targeting would mirror `transfer` (store the note under
+/// `--recipient-state`); kept to self here.
+fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
+    let payer = read_keypair_file(&opts.payer)
+        .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
+    let amount = opts
+        .amount
+        .ok_or_else(|| anyhow!("proofless-shield requires --amount"))?;
+    if amount == 0 {
+        bail!("proofless-shield requires a non-zero --amount");
+    }
+    let state_path = opts
+        .state
+        .clone()
+        .ok_or_else(|| anyhow!("proofless-shield requires --state"))?;
+    let prover_bin = opts
+        .prover_bin
+        .clone()
+        .ok_or_else(|| anyhow!("proofless-shield requires --prover-bin"))?;
+    if opts.has_spl_settlement() {
+        bail!("proofless-shield currently supports SOL deposits only");
+    }
+
+    let mut state = read_pocket_state(&state_path)?;
+    normalize_pocket_state(&mut state);
+
+    let nullifier_secret = ed25519_nullifier_secret_hex(&payer)?;
+    let owner = PocketOwner::Solana {
+        pubkey: payer.pubkey(),
+        nullifier_secret: nullifier_secret.clone(),
+    };
+    let asset_id = pocket_sol_asset_field();
+    let (utxo, _) = pocket_new_utxo_for_owner(&owner, &asset_id, amount);
+
+    // Derive owner_utxo_hash (committed on-chain) + the spendable utxo_hash via
+    // the prover's no-keys, no-proof hashing path, so the deposit's leaf matches
+    // exactly what a proof would have produced.
+    let work_dir = state_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = state_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("pocket");
+    let utxo_request_path = work_dir.join(format!("{stem}.proofless-utxo.json"));
+    let commitment_path = work_dir.join(format!("{stem}.proofless-commitment.json"));
+    write_json_file(&utxo_request_path, &utxo)?;
+    invoke_spp_proofless_commitment(&prover_bin, &utxo_request_path, &commitment_path)?;
+    let commitment = read_pocket_proofless_commitment(&commitment_path)?;
+
+    let data = ProoflessShieldData {
+        owner_utxo_hash: field_hex_to_bytes32(&commitment.owner_utxo_hash)?,
+        data_hash: [0u8; 32],
+        zone_data_hash: [0u8; 32],
+        zone_program_id: [0u8; 32],
+        bootstrap_view_tag: field_hex_to_bytes32(&random_field_hex())?,
+        public_sol_amount: Some(amount),
+        public_spl_amount: None,
+        cleartext_utxo: Vec::new(),
+    };
+
+    // SOL deposit account layout matches a transact shield (load_transact_accounts):
+    // [tree(w), signer, system_program, cpi_authority(w), user_sol_account(w)].
+    let user_sol_account = opts.user_sol_account.unwrap_or_else(|| payer.pubkey());
+    let accounts = vec![
+        AccountMeta::new(opts.tree, false),
+        AccountMeta::new_readonly(payer.pubkey(), true),
+        AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY), false),
+        AccountMeta::new(user_sol_account, false),
+    ];
+    let ix = Instruction {
+        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        accounts,
+        data: encode_instruction(tag::PROOFLESS_SHIELD, &data),
+    };
+    let client = pocket_rpc_client(&opts.rpc_url);
+    let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let signature = send_pocket_instructions(&client, &payer, &[compute_budget_ix, ix])?;
+
+    // Record the spendable note (leaf = utxo_hash) and advance the UTXO root like
+    // a shield: one leaf was appended.
+    let leaf_index = state.next_leaf_index;
+    let note = PocketNote {
+        id: format!("{}:{leaf_index}", opts.tree),
+        owner_pubkey: owner.label(),
+        leaf_index,
+        utxo,
+        nullifier_secret,
+        hash: commitment.utxo_hash.clone(),
+        spent: false,
+    };
+    insert_known_leaf(&mut state, leaf_index, commitment.utxo_hash.clone());
+    state.notes.push(note);
+    state.utxo_root_index = (state.utxo_root_index + 1) % POCKET_UTXO_ROOT_HISTORY_CAPACITY;
+    write_json_file(&state_path, &state)?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "command": "proofless-shield",
+            "tree": opts.tree.to_string(),
+            "amount": amount,
+            "leaf_index": leaf_index,
+            "owner_utxo_hash": commitment.owner_utxo_hash,
+            "utxo_hash": commitment.utxo_hash,
             "signature": signature.to_string(),
         }))?
     );
@@ -2832,6 +2962,29 @@ fn invoke_spp_prover(
     Ok(())
 }
 
+fn invoke_spp_proofless_commitment(
+    prover_bin: &Path,
+    utxo_request_path: &Path,
+    commitment_path: &Path,
+) -> Result<()> {
+    let output = Command::new(prover_bin)
+        .args(["spp", "proofless-commitment", "--input"])
+        .arg(utxo_request_path)
+        .arg("--output")
+        .arg(commitment_path)
+        .output()
+        .with_context(|| format!("run prover {}", prover_bin.display()))?;
+    if !output.status.success() {
+        bail!(
+            "prover proofless-commitment failed with status {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
 fn invoke_spp_signing_payload(
     prover_bin: &Path,
     keys_file: &Path,
@@ -2911,6 +3064,35 @@ fn read_pocket_proof_bundle(path: &Path) -> Result<PocketProofBundle> {
 fn read_pocket_signing_payload(path: &Path) -> Result<PocketSigningPayloadBundle> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PocketProoflessCommitment {
+    owner_utxo_hash: String,
+    utxo_hash: String,
+}
+
+fn read_pocket_proofless_commitment(path: &Path) -> Result<PocketProoflessCommitment> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
+}
+
+/// Decodes a 32-byte field element from its big-endian hex string (the prover's
+/// FieldHex form, with or without a `0x` prefix) into the bytes the on-chain
+/// instruction data carries.
+fn field_hex_to_bytes32(value: &str) -> Result<[u8; 32]> {
+    let trimmed = value.trim();
+    let trimmed = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    let bytes = hex::decode(trimmed).with_context(|| format!("decode field hex {value}"))?;
+    let mut out = [0u8; 32];
+    if bytes.len() != out.len() {
+        bail!("expected 32-byte field element, got {} bytes", bytes.len());
+    }
+    out.copy_from_slice(&bytes);
+    Ok(out)
 }
 
 fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
@@ -3048,6 +3230,7 @@ fn print_pocket_help() {
     println!("  create-shielded-wallet    Create a P256 shielded wallet");
     println!("  init-pool-tree            Create and initialize a shielded-pool tree account");
     println!("  shield                    Submit a shield proof bundle transaction");
+    println!("  proofless-shield          Submit a public SOL deposit with no proof (owner-hiding)");
     println!("  transfer                  Submit a shielded transfer proof bundle transaction");
     println!("  unshield                  Submit an unshield proof bundle transaction");
     println!("  balance                   Query SOL or SPL-token account balance");
