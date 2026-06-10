@@ -2,8 +2,7 @@ use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::CreatePoolTreeData;
 
 use super::{init::init_pool_tree_account, verify::verify};
-use crate::instructions::loader;
-use crate::error::ShieldedPoolError;
+use crate::{error::ShieldedPoolError, instructions::loader};
 
 pub fn process_create_pool_tree(
     program_id: &Address,

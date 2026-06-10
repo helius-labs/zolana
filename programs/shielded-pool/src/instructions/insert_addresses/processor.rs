@@ -6,9 +6,9 @@ use pinocchio::{
 use zolana_interface::instruction::InsertAddressesData;
 
 use super::verify::verify;
-use crate::instructions::loader;
 use crate::{
-    error::ShieldedPoolError, instructions::create_pool_tree::init::address_sub_tree_slice_mut,
+    error::ShieldedPoolError,
+    instructions::{create_pool_tree::init::address_sub_tree_slice_mut, loader},
     log::log,
 };
 

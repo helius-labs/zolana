@@ -1,4 +1,5 @@
 use groth16_solana_bsb22::{decompression, groth16::Groth16Verifier};
+use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use solana_sha256_hasher::hashv as sha256_hashv;
@@ -6,14 +7,16 @@ use zolana_interface::instruction::{
     tag, TransactData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
 };
 
-use super::settlement::{spl_asset_pubkey, SettlementAccounts};
-use super::verifying_keys;
+use super::{
+    settlement::{spl_asset_pubkey, SettlementAccounts},
+    verifying_keys,
+};
 use crate::{
     error::ShieldedPoolError,
-    instructions::create_pool_tree::init::{
-        current_nullifier_root_index, nullifier_root_by_index, state_root_by_index,
+    instructions::{
+        create_pool_tree::init::{self, state_root_by_index},
+        hash::{field_from_u64, hash_chain, EMPTY_FIELD},
     },
-    instructions::hash::{field_from_u64, hash_chain, EMPTY_FIELD},
     log::log,
 };
 
@@ -29,10 +32,15 @@ const BN254_FR_MODULUS: [u8; 32] = [
 
 pub fn verify_transact_proof(
     pool_tree_bytes: &mut [u8],
+    tree_pubkey: &pinocchio::Address,
     data: &TransactData,
     settlement: &SettlementAccounts<'_>,
 ) -> ProgramResult {
     let proof = bsb22_proof(&data.proof)?;
+    // Resolve every input's nullifier root from the Light batched address
+    // tree's own root_history before the shape dispatch (the Light parse
+    // mutably borrows the buffer, the state-root reads below do not).
+    let nullifier_roots = resolve_nullifier_roots(pool_tree_bytes, tree_pubkey, data)?;
 
     // Select the verifying key by (shape, ownership rail). The P256-capable and
     // Solana-only circuits are distinct R1CS, so each shape has two keys; the
@@ -42,6 +50,7 @@ pub fn verify_transact_proof(
     match canonical_shape(data)? {
         (2, 2) => verify_shape::<2, 2>(
             pool_tree_bytes,
+            &nullifier_roots,
             data,
             settlement,
             &proof,
@@ -52,6 +61,7 @@ pub fn verify_transact_proof(
         ),
         (1, 2) => verify_shape::<1, 2>(
             pool_tree_bytes,
+            &nullifier_roots,
             data,
             settlement,
             &proof,
@@ -62,6 +72,7 @@ pub fn verify_transact_proof(
         ),
         (3, 3) => verify_shape::<3, 3>(
             pool_tree_bytes,
+            &nullifier_roots,
             data,
             settlement,
             &proof,
@@ -72,6 +83,7 @@ pub fn verify_transact_proof(
         ),
         (5, 3) => verify_shape::<5, 3>(
             pool_tree_bytes,
+            &nullifier_roots,
             data,
             settlement,
             &proof,
@@ -82,6 +94,7 @@ pub fn verify_transact_proof(
         ),
         (1, 8) => verify_shape::<1, 8>(
             pool_tree_bytes,
+            &nullifier_roots,
             data,
             settlement,
             &proof,
@@ -96,12 +109,18 @@ pub fn verify_transact_proof(
 
 fn verify_shape<const N: usize, const M: usize>(
     pool_tree_bytes: &mut [u8],
+    resolved_nullifier_roots: &[[u8; 32]],
     data: &TransactData,
     settlement: &SettlementAccounts<'_>,
     proof: &Bsb22Proof,
     verifying_key: &groth16_solana_bsb22::groth16::Groth16Verifyingkey,
 ) -> ProgramResult {
-    let public_input_hash = public_input_hash_from_data::<N, M>(pool_tree_bytes, data, settlement)?;
+    let public_input_hash = public_input_hash_from_data::<N, M>(
+        pool_tree_bytes,
+        resolved_nullifier_roots,
+        data,
+        settlement,
+    )?;
     let public_inputs = [public_input_hash];
     let mut verifier = Groth16Verifier::new_with_commitment(
         &proof.a,
@@ -145,6 +164,7 @@ pub fn canonical_shape(data: &TransactData) -> Result<(usize, usize), ProgramErr
 
 fn public_input_hash_from_data<const N: usize, const M: usize>(
     pool_tree_bytes: &mut [u8],
+    resolved_nullifier_roots: &[[u8; 32]],
     data: &TransactData,
     settlement: &SettlementAccounts<'_>,
 ) -> Result<[u8; 32], ProgramError> {
@@ -155,7 +175,7 @@ fn public_input_hash_from_data<const N: usize, const M: usize>(
     let nullifiers = padded_values::<N>(&data.nullifiers);
     let output_utxo_hashes = padded_values::<M>(&data.output_utxo_hashes);
     let utxo_tree_roots = input_roots::<N>(pool_tree_bytes, data)?;
-    let nullifier_roots = nullifier_roots::<N>(pool_tree_bytes, data)?;
+    let nullifier_roots = padded_values::<N>(resolved_nullifier_roots);
     let external_data_hash = external_data_hash(data, settlement)?;
     let public_sol_amount = signed_public_sol_amount(data)?;
     let public_spl_amount = signed_public_amount(data.public_amount_mode, data.public_spl_amount)?;
@@ -298,37 +318,35 @@ fn input_roots<const N: usize>(
     Ok(roots)
 }
 
-fn nullifier_roots<const N: usize>(
-    pool_tree_bytes: &[u8],
+fn resolve_nullifier_roots(
+    pool_tree_bytes: &mut [u8],
+    tree_pubkey: &pinocchio::Address,
     data: &TransactData,
-) -> Result<[[u8; 32]; N], ProgramError> {
-    // Non-inclusion must be proven against the CURRENT nullifier root only.
-    //
-    // The nullifier root history is a ring of past roots, but unlike Light's
-    // batched tree it is never invalidated when a queue bloom filter is zeroed.
-    // A spent nullifier's bloom is wiped ~1-2 forester rounds after it lands,
-    // while a pre-spend root stays selectable for ~200 batches — so proving
-    // non-inclusion against a stale root (where the nullifier was still absent)
-    // while its bloom is gone would let the same UTXO be spent twice. Forcing
-    // the current root closes that window: the latest root includes every
-    // applied nullifier, and anything still only in the queue is caught by its
-    // live bloom on insert.
-    //
-    // TODO(nullifier-root-grace-window): restore a bounded grace window by
-    // mirroring Light's zero_out_roots — zero stale SPP nullifier roots when the
-    // corresponding queue bloom is wiped — so concurrent proofs against a
-    // recent-but-not-latest root still verify. Requires per-root coverage
-    // tracking and validating the Light-queue/SPP-tree index mapping under a
-    // batch-update repro test.
-    let current = current_nullifier_root_index(pool_tree_bytes)
-        .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
-    let mut roots = [[0u8; 32]; N];
-    for (i, root_index) in data.nullifier_tree_root_index.iter().enumerate() {
-        if *root_index != current {
+) -> Result<Vec<[u8; 32]>, ProgramError> {
+    // The nullifier tree IS the Light batched address tree; its root_history
+    // is the root cache the spec's nullifier_tree_root_index references. A
+    // root index is non-stale iff its slot holds a non-zero value: Light
+    // zeroes every cached root that predates a wiped bloom filter
+    // (zero_out_roots, keeping the first safe root), so proofs against roots
+    // whose non-inclusion guarantee is gone fail here, while every other
+    // cached root stays valid — the grace window that lets a proof built just
+    // before a forester batch-update still verify.
+    if data.nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let address_slice = init::address_sub_tree_slice_mut(pool_tree_bytes)
+        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
+    let tree = BatchedMerkleTreeAccount::address_from_bytes(address_slice, tree_pubkey)
+        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
+    let mut roots = Vec::with_capacity(data.nullifier_tree_root_index.len());
+    for root_index in &data.nullifier_tree_root_index {
+        let root = tree
+            .get_root_by_index(*root_index as usize)
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        if root.iter().all(|byte| *byte == 0) {
             return Err(ShieldedPoolError::StaleNullifierRoot.into());
         }
-        roots[i] = nullifier_root_by_index(pool_tree_bytes, *root_index)
-            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        roots.push(*root);
     }
     Ok(roots)
 }
@@ -530,33 +548,49 @@ mod tests {
     }
 
     #[test]
-    fn nullifier_roots_require_current_root_index() {
-        use crate::instructions::create_pool_tree::init::{
-            init_pool_tree_account, pool_tree_account_size, push_nullifier_root,
-        };
+    fn nullifier_roots_resolve_from_light_root_history() {
         use pinocchio::Address;
+
+        use crate::instructions::create_pool_tree::init::{
+            init_pool_tree_account, pool_tree_account_size,
+        };
+
+        // ADDRESS_TREE_INIT_ROOT_40 (privacy-program-libs constants.rs): the
+        // root the Light batched address tree starts with; pinned on the Go
+        // side by TestNullifierTreeInitRootMatchesLightAddressTree.
+        const LIGHT_INIT_ROOT: [u8; 32] = [
+            28, 65, 107, 255, 208, 234, 51, 3, 131, 95, 62, 130, 202, 177, 176, 26, 216, 81, 64,
+            184, 200, 25, 95, 124, 248, 129, 44, 109, 229, 146, 106, 76,
+        ];
 
         let mut buf = vec![0u8; pool_tree_account_size()];
         let owner = Address::new_from_array([1u8; 32]);
         let tree_pubkey = Address::new_from_array([2u8; 32]);
         init_pool_tree_account(&mut buf, &owner, &tree_pubkey).expect("init pool tree");
-        // Seed root is at index 0. Advance the ring so the current index is 1
-        // and index 0 is a valid-but-stale historical root.
-        push_nullifier_root(&mut buf, [7u8; 32]).expect("push root");
-        assert_eq!(current_nullifier_root_index(&buf).unwrap(), 1);
 
-        // A stale (non-current) root index is rejected even though it still
-        // resolves to a real root in the ring — this is the double-spend guard.
+        // Index 0 holds the init root: valid, non-stale.
         let mut data = transact_data_shape(1, 2);
         data.nullifier_tree_root_index = vec![0];
-        assert!(
-            nullifier_roots::<1>(&buf, &data).is_err(),
-            "stale nullifier root index must be rejected"
+        assert_eq!(
+            resolve_nullifier_roots(&mut buf, &tree_pubkey, &data).unwrap()[0],
+            LIGHT_INIT_ROOT
         );
 
-        // The current root index is accepted and resolves to the latest root.
-        data.nullifier_tree_root_index = vec![1];
-        assert_eq!(nullifier_roots::<1>(&buf, &data).unwrap()[0], [7u8; 32]);
+        // Any other slot is zero (never written, or zeroed by zero_out_roots
+        // after a bloom wipe): non-inclusion is no longer guaranteed there, so
+        // the proof is rejected as stale — the double-spend guard.
+        data.nullifier_tree_root_index = vec![5];
+        assert_eq!(
+            resolve_nullifier_roots(&mut buf, &tree_pubkey, &data),
+            Err(ShieldedPoolError::StaleNullifierRoot.into())
+        );
+
+        // An index past the root-history capacity is malformed.
+        data.nullifier_tree_root_index = vec![500];
+        assert_eq!(
+            resolve_nullifier_roots(&mut buf, &tree_pubkey, &data),
+            Err(ShieldedPoolError::InvalidTransactShape.into())
+        );
     }
 
     #[test]

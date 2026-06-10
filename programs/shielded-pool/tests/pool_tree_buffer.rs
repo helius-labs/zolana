@@ -6,12 +6,9 @@ use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::SparseMerkleTree;
 use shielded_pool_program::instructions::create_pool_tree::init::{
-    address_sub_tree_slice_mut, append_state_leaves, current_nullifier_next_index,
-    current_nullifier_root_index, current_state_root_index, init_pool_tree_account,
-    nullifier_root_by_index, pool_tree_account_size, push_nullifier_root,
-    push_nullifier_root_with_next_index, state_next_index_offset, state_root_by_index,
-    state_root_offset, ADDRESS_SUB_TREE_OFFSET, DISCRIMINATOR_OFFSET, INITIAL_NULLIFIER_ROOT,
-    STATE_HEIGHT,
+    address_sub_tree_slice_mut, append_state_leaves, current_state_root_index,
+    init_pool_tree_account, pool_tree_account_size, state_next_index_offset, state_root_by_index,
+    state_root_offset, ADDRESS_SUB_TREE_OFFSET, DISCRIMINATOR_OFFSET, STATE_HEIGHT,
 };
 
 const OWNER: pinocchio::Address = pinocchio::Address::new_from_array([1u8; 32]);
@@ -60,14 +57,9 @@ fn init_writes_combined_layout() {
     assert_eq!(read_state_root(&buf), expected_zero_root);
     assert_eq!(current_state_root_index(&buf).unwrap(), 0);
     assert_eq!(state_root_by_index(&buf, 0).unwrap(), expected_zero_root);
-    assert_eq!(current_nullifier_root_index(&buf).unwrap(), 0);
-    assert_eq!(current_nullifier_next_index(&buf).unwrap(), 1);
-    assert_eq!(
-        nullifier_root_by_index(&buf, 0).unwrap(),
-        INITIAL_NULLIFIER_ROOT
-    );
-
-    // Address sub-tree slice openable via upstream's loader.
+    // Address sub-tree slice openable via upstream's loader. It IS the
+    // nullifier tree: Light seeds its root_history with the init root at
+    // index 0 and next_index = 1 (one materialized init leaf).
     let address_slice = address_sub_tree_slice_mut(&mut buf).unwrap();
     let tree = BatchedMerkleTreeAccount::address_from_bytes(address_slice, &TREE).unwrap();
     let owner_bytes: [u8; 32] = tree
@@ -77,6 +69,16 @@ fn init_writes_combined_layout() {
         .owner
         .to_bytes();
     assert_eq!(owner_bytes, [1u8; 32]);
+
+    // ADDRESS_TREE_INIT_ROOT_40: pinned on the Go side against the witness
+    // tree (TestNullifierTreeInitRootMatchesLightAddressTree).
+    const LIGHT_INIT_ROOT: [u8; 32] = [
+        28, 65, 107, 255, 208, 234, 51, 3, 131, 95, 62, 130, 202, 177, 176, 26, 216, 81, 64, 184,
+        200, 25, 95, 124, 248, 129, 44, 109, 229, 146, 106, 76,
+    ];
+    assert_eq!(tree.get_root_by_index(0), Some(&LIGHT_INIT_ROOT));
+    assert_eq!(tree.get_root_by_index(1), Some(&[0u8; 32]));
+    assert_eq!(tree.get_metadata().next_index, 1);
 }
 
 #[test]
@@ -113,28 +115,6 @@ fn state_root_history_rejects_unknown_indices() {
     append_state_leaves(&mut buf, &[[1u8; 32]]).unwrap();
 
     assert!(state_root_by_index(&buf, 2).is_err());
-}
-
-#[test]
-fn nullifier_root_history_updates_and_rejects_unknown_indices() {
-    let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
-
-    let next_root = [9u8; 32];
-    push_nullifier_root(&mut buf, next_root).unwrap();
-    assert_eq!(current_nullifier_root_index(&buf).unwrap(), 1);
-    assert_eq!(
-        nullifier_root_by_index(&buf, 0).unwrap(),
-        INITIAL_NULLIFIER_ROOT
-    );
-    assert_eq!(nullifier_root_by_index(&buf, 1).unwrap(), next_root);
-    assert_eq!(current_nullifier_next_index(&buf).unwrap(), 1);
-    push_nullifier_root_with_next_index(&mut buf, [8u8; 32], 11).unwrap();
-    assert_eq!(current_nullifier_root_index(&buf).unwrap(), 2);
-    assert_eq!(current_nullifier_next_index(&buf).unwrap(), 11);
-    assert_eq!(nullifier_root_by_index(&buf, 2).unwrap(), [8u8; 32]);
-    assert!(nullifier_root_by_index(&buf, 3).is_err());
-    assert!(push_nullifier_root(&mut buf, [0u8; 32]).is_err());
 }
 
 #[test]

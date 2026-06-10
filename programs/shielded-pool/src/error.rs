@@ -48,11 +48,11 @@ pub enum ShieldedPoolError {
     PoolTreePaused = 17,
     #[error("pocket config account is invalid")]
     InvalidPocketConfig = 18,
-    #[error("nullifier batch update is invalid")]
-    InvalidNullifierBatchUpdate = 19,
-    #[error("nullifier batch proof verification failed")]
-    NullifierBatchProofVerificationFailed = 20,
-    #[error("nullifier non-inclusion must use the current nullifier root")]
+    // Codes 19 (InvalidNullifierBatchUpdate) and 20
+    // (NullifierBatchProofVerificationFailed) are retired, not reusable: the
+    // SPP nullifier batch-update instruction was removed when the nullifier
+    // tree collapsed into the Light batched address tree.
+    #[error("nullifier root index references a zeroed (stale) root-history slot")]
     StaleNullifierRoot = 21,
 }
 
@@ -91,8 +91,7 @@ mod tests {
             (InvalidProtocolConfig as u32, 16),
             (PoolTreePaused as u32, 17),
             (InvalidPocketConfig as u32, 18),
-            (InvalidNullifierBatchUpdate as u32, 19),
-            (NullifierBatchProofVerificationFailed as u32, 20),
+            // 19 and 20 retired (nullifier batch update removed).
             (StaleNullifierRoot as u32, 21),
         ];
         for (got, want) in table {

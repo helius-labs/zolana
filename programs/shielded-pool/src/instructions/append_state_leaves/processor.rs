@@ -2,10 +2,10 @@ use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::AppendStateLeavesData;
 
 use super::verify::verify;
-use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError,
-    instructions::create_pool_tree::init::append_state_leaves as append_to_pool, log::log,
+    instructions::{create_pool_tree::init::append_state_leaves as append_to_pool, loader},
+    log::log,
 };
 
 pub fn process_append_state_leaves(

@@ -43,11 +43,6 @@ use zolana_interface::state::discriminator::POOL_TREE_HEADER;
 
 pub const STATE_HEIGHT: usize = 26;
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
-pub const NULLIFIER_ROOT_HISTORY_CAPACITY: usize = 200;
-pub const INITIAL_NULLIFIER_ROOT: [u8; 32] = [
-    0x1d, 0x8e, 0x71, 0xa6, 0x01, 0xb3, 0xe8, 0xde, 0xbb, 0xba, 0x9b, 0x55, 0x7b, 0x83, 0x69, 0xc7,
-    0xf4, 0x04, 0xae, 0x57, 0xbe, 0xbf, 0x08, 0x52, 0x23, 0x6b, 0x07, 0x28, 0x20, 0x95, 0x42, 0x77,
-];
 
 pub const DISCRIMINATOR_LEN: usize = 8;
 pub const DISCRIMINATOR_OFFSET: usize = 0;
@@ -116,20 +111,11 @@ pub fn state_root_history_offset() -> usize {
     state_root_history_meta_offset() + 4
 }
 
-pub fn nullifier_root_history_meta_offset() -> usize {
-    state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
-}
-
-pub fn nullifier_root_history_offset() -> usize {
-    nullifier_root_history_meta_offset() + 4
-}
-
-pub fn nullifier_next_index_offset() -> usize {
-    nullifier_root_history_offset() + NULLIFIER_ROOT_HISTORY_CAPACITY * 32
-}
-
+// The nullifier tree keeps no SPP-side state here: it IS the Light batched
+// address tree in the address sub-tree, whose own root_history is the
+// nullifier-root cache referenced by transact's nullifier_tree_root_index.
 pub fn pool_tree_account_size() -> usize {
-    nullifier_next_index_offset() + 8
+    state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
 }
 
 pub fn pool_tree_discriminator() -> u8 {
@@ -190,14 +176,6 @@ fn init_state_sub_tree(state: &mut [u8]) {
         .copy_from_slice(&1u16.to_le_bytes());
     let history = state_root_history_relative_offset();
     state[history..history + 32].copy_from_slice(&root);
-
-    let nullifier_meta = nullifier_root_history_meta_relative_offset();
-    state[nullifier_meta..nullifier_meta + 2].copy_from_slice(&0u16.to_le_bytes());
-    state[nullifier_meta + 2..nullifier_meta + 4].copy_from_slice(&1u16.to_le_bytes());
-    let nullifier_history = nullifier_root_history_relative_offset();
-    state[nullifier_history..nullifier_history + 32].copy_from_slice(&INITIAL_NULLIFIER_ROOT);
-    let nullifier_next_index = nullifier_next_index_relative_offset();
-    state[nullifier_next_index..nullifier_next_index + 8].copy_from_slice(&1u64.to_le_bytes());
 }
 
 pub fn append_state_leaves(
@@ -261,64 +239,6 @@ pub fn current_state_root_index(bytes: &[u8]) -> Result<u16, PoolTreeError> {
     }
     check_discriminator(bytes)?;
     Ok(read_state_root_history_meta(bytes).0)
-}
-
-pub fn nullifier_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
-    }
-    check_discriminator(bytes)?;
-    root_history_value_by_index(
-        bytes,
-        nullifier_root_history_offset(),
-        NULLIFIER_ROOT_HISTORY_CAPACITY,
-        read_nullifier_root_history_meta(bytes),
-        index,
-    )
-}
-
-pub fn current_nullifier_root_index(bytes: &[u8]) -> Result<u16, PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
-    }
-    check_discriminator(bytes)?;
-    Ok(read_nullifier_root_history_meta(bytes).0)
-}
-
-pub fn current_nullifier_next_index(bytes: &[u8]) -> Result<u64, PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
-    }
-    check_discriminator(bytes)?;
-    Ok(read_nullifier_next_index(bytes))
-}
-
-pub fn push_nullifier_root(bytes: &mut [u8], root: [u8; 32]) -> Result<(), PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
-    }
-    check_discriminator(bytes)?;
-    if root.iter().all(|byte| *byte == 0) {
-        return Err(PoolTreeError::InvalidRootIndex);
-    }
-
-    let (cursor, len) = read_nullifier_root_history_meta(bytes);
-    let next = (usize::from(cursor) + 1) % NULLIFIER_ROOT_HISTORY_CAPACITY;
-    let next_len = (usize::from(len) + 1).min(NULLIFIER_ROOT_HISTORY_CAPACITY) as u16;
-    let base = nullifier_root_history_offset() + next * 32;
-    bytes[base..base + 32].copy_from_slice(&root);
-    write_nullifier_root_history_meta(bytes, next as u16, next_len);
-    Ok(())
-}
-
-pub fn push_nullifier_root_with_next_index(
-    bytes: &mut [u8],
-    root: [u8; 32],
-    next_index: u64,
-) -> Result<(), PoolTreeError> {
-    push_nullifier_root(bytes, root)?;
-    write_nullifier_next_index(bytes, next_index);
-    Ok(())
 }
 
 pub fn is_pool_tree_paused(bytes: &[u8]) -> Result<bool, PoolTreeError> {
@@ -395,41 +315,10 @@ fn read_state_root_history_meta(bytes: &[u8]) -> (u16, u16) {
 }
 
 #[inline]
-fn read_nullifier_root_history_meta(bytes: &[u8]) -> (u16, u16) {
-    let offset = nullifier_root_history_meta_offset();
-    let mut cursor = [0u8; 2];
-    let mut len = [0u8; 2];
-    cursor.copy_from_slice(&bytes[offset..offset + 2]);
-    len.copy_from_slice(&bytes[offset + 2..offset + 4]);
-    (u16::from_le_bytes(cursor), u16::from_le_bytes(len))
-}
-
-#[inline]
 fn write_state_root_history_meta(bytes: &mut [u8], cursor: u16, len: u16) {
     let offset = state_root_history_meta_offset();
     bytes[offset..offset + 2].copy_from_slice(&cursor.to_le_bytes());
     bytes[offset + 2..offset + 4].copy_from_slice(&len.to_le_bytes());
-}
-
-#[inline]
-fn write_nullifier_root_history_meta(bytes: &mut [u8], cursor: u16, len: u16) {
-    let offset = nullifier_root_history_meta_offset();
-    bytes[offset..offset + 2].copy_from_slice(&cursor.to_le_bytes());
-    bytes[offset + 2..offset + 4].copy_from_slice(&len.to_le_bytes());
-}
-
-#[inline]
-fn read_nullifier_next_index(bytes: &[u8]) -> u64 {
-    let offset = nullifier_next_index_offset();
-    let mut value = [0u8; 8];
-    value.copy_from_slice(&bytes[offset..offset + 8]);
-    u64::from_le_bytes(value)
-}
-
-#[inline]
-fn write_nullifier_next_index(bytes: &mut [u8], next_index: u64) {
-    let offset = nullifier_next_index_offset();
-    bytes[offset..offset + 8].copy_from_slice(&next_index.to_le_bytes());
 }
 
 fn root_history_value_by_index(
@@ -482,21 +371,6 @@ fn state_root_history_relative_offset() -> usize {
 }
 
 #[inline]
-fn nullifier_root_history_meta_relative_offset() -> usize {
-    nullifier_root_history_meta_offset() - state_sub_tree_offset()
-}
-
-#[inline]
-fn nullifier_root_history_relative_offset() -> usize {
-    nullifier_root_history_offset() - state_sub_tree_offset()
-}
-
-#[inline]
-fn nullifier_next_index_relative_offset() -> usize {
-    nullifier_next_index_offset() - state_sub_tree_offset()
-}
-
-#[inline]
 fn write_subtrees_to(
     state: &mut [u8],
     subtrees_offset: usize,
@@ -505,25 +379,5 @@ fn write_subtrees_to(
     for (i, src) in subtrees.iter().enumerate() {
         let start = subtrees_offset + i * 32;
         state[start..start + 32].copy_from_slice(src);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::INITIAL_NULLIFIER_ROOT;
-
-    // Parity tripwire: this is the seed root of an empty height-40 indexed
-    // nullifier tree. It MUST equal protocol.NewNullifierTree().Root() on the
-    // Go side, which is pinned to the same value by
-    // TestInitialNullifierRootMatchesProgramConstant. If either side drifts the
-    // first batch_update fails on an old_root mismatch, so both pin this hex.
-    #[test]
-    fn initial_nullifier_root_is_pinned() {
-        let expected: [u8; 32] = [
-            0x1d, 0x8e, 0x71, 0xa6, 0x01, 0xb3, 0xe8, 0xde, 0xbb, 0xba, 0x9b, 0x55, 0x7b, 0x83,
-            0x69, 0xc7, 0xf4, 0x04, 0xae, 0x57, 0xbe, 0xbf, 0x08, 0x52, 0x23, 0x6b, 0x07, 0x28,
-            0x20, 0x95, 0x42, 0x77,
-        ];
-        assert_eq!(INITIAL_NULLIFIER_ROOT, expected);
     }
 }

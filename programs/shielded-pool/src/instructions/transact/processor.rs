@@ -5,14 +5,14 @@ use pinocchio::{
 };
 use zolana_interface::instruction::TransactData;
 
-use super::proof::verify_transact_proof;
-use super::settlement::settle_public_amounts;
-use super::verify::verify;
-use crate::instructions::loader;
+use super::{proof::verify_transact_proof, settlement::settle_public_amounts, verify::verify};
 use crate::{
     error::ShieldedPoolError,
-    instructions::create_pool_tree::init::{
-        address_sub_tree_slice_mut, append_state_leaves as append_to_pool,
+    instructions::{
+        create_pool_tree::init::{
+            address_sub_tree_slice_mut, append_state_leaves as append_to_pool,
+        },
+        loader,
     },
     log::log,
 };
@@ -30,7 +30,7 @@ pub fn process_transact(
     // needs a mutable byte slice even though proof verification does not mutate it.
     {
         let bytes = loader::account_data_mut(verified.tree);
-        verify_transact_proof(bytes, &data, &verified.settlement)?;
+        verify_transact_proof(bytes, &tree_pubkey, &data, &verified.settlement)?;
     }
 
     settle_public_amounts(program_id, &verified.settlement, &data)?;
@@ -74,12 +74,12 @@ pub(crate) fn insert_queue_entries(
 
     for entry in entries {
         // Every queued value (nullifiers and the view tag) is later inserted
-        // into the indexed nullifier tree, which only admits 0 < value < p-1
-        // (p-1 is the reserved sentinel next-value, 0 is the seed leaf). A 0 or
-        // >= p-1 value can never be batch-proven, so it would permanently wedge
-        // the forester's queue. The view tag is attacker-controlled instruction
-        // data, so reject out-of-range values here rather than queueing an
-        // unprovable entry.
+        // into the nullifier tree, which only admits 0 < value < 2^248 - 1
+        // (the Light AddressV2 domain; see NULLIFIER_TREE_SENTINEL). A 0 or
+        // >= 2^248 - 1 value can never be batch-proven, so it would permanently
+        // wedge the forester's queue. The view tag is attacker-controlled
+        // instruction data, so reject out-of-range values here rather than
+        // queueing an unprovable entry.
         if !is_insertable_nullifier(entry) {
             log("transact: queued value out of nullifier-tree range (0, p-1)");
             return Err(ShieldedPoolError::AddressQueueInsertFailed.into());
@@ -99,11 +99,15 @@ fn is_zero_32(value: &[u8; 32]) -> bool {
     value.iter().all(|b| *b == 0)
 }
 
-// The indexed nullifier tree reserves p-1 as the sentinel next-value and the
-// zero leaf as the seed, so insertable values must satisfy 0 < value < p-1.
+// The nullifier tree is a light-batched-merkle-tree (AddressV2): its indexed
+// value domain is 0 < value < 2^248 - 1, where 0 is the seed leaf and
+// 2^248 - 1 (Light's HIGHEST_ADDRESS_PLUS_ONE) is the init sentinel
+// next-value. Nullifiers and view tags are derived 248-bit (spec
+// truncate_248 / L=31), so honest values always fit; reject the rest here
+// rather than queueing an entry the batch-append circuit could never prove.
 const NULLIFIER_TREE_SENTINEL: [u8; 32] = [
-    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
-    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00,
+    0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ];
 
 fn is_insertable_nullifier(value: &[u8; 32]) -> bool {

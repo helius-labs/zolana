@@ -1,9 +1,9 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, AppendStateLeavesData, BatchUpdateAddressTreeData, BatchUpdateNullifierTreeData,
-    CreatePocketConfigData, CreatePoolTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
-    InsertAddressesData, PauseTreeData, ProoflessShieldData, TransactData, UpdatePocketConfigData,
+    tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePocketConfigData,
+    CreatePoolTreeData, CreateProtocolConfigData, CreateSplInterfaceData, InsertAddressesData,
+    PauseTreeData, ProoflessShieldData, TransactData, UpdatePocketConfigData,
     UpdatePocketConfigOwnerData, UpdateProtocolConfigData,
 };
 
@@ -12,7 +12,6 @@ use crate::{
     instructions::{
         append_state_leaves::processor::process_append_state_leaves,
         batch_update_address_tree::processor::process_batch_update_address_tree,
-        batch_update_nullifier_tree::processor::process_batch_update_nullifier_tree,
         create_pool_tree::processor::process_create_pool_tree,
         create_spl_interface::processor::process_create_spl_interface,
         insert_addresses::processor::process_insert_addresses,
@@ -23,8 +22,7 @@ use crate::{
         protocol_config::processor::{
             process_create_protocol_config, process_pause_tree, process_update_protocol_config,
         },
-        transact::processor::process_transact,
-        transact::proofless::process_proofless_shield,
+        transact::{processor::process_transact, proofless::process_proofless_shield},
     },
 };
 
@@ -65,7 +63,6 @@ pub fn process_instruction(
         tag::CREATE_POOL_TREE => (CreatePoolTreeData, process_create_pool_tree),
         tag::INSERT_ADDRESSES => (InsertAddressesData, process_insert_addresses),
         tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),
-        tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
         tag::APPEND_STATE_LEAVES => (AppendStateLeavesData, process_append_state_leaves),
         tag::TRANSACT => (TransactData, process_transact),
         tag::PROOFLESS_SHIELD => (ProoflessShieldData, process_proofless_shield),

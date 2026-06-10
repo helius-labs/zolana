@@ -2,14 +2,15 @@ use light_hasher::{Hasher, Poseidon};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{ProoflessShieldData, TransactData, PUBLIC_AMOUNT_DEPOSIT};
 
-use super::proof::solana_pk_hash;
-use super::settlement::{settle_public_amounts, spl_asset_pubkey};
-use super::verify::load_transact_accounts;
-use crate::instructions::loader;
+use super::{
+    proof::solana_pk_hash,
+    settlement::{settle_public_amounts, spl_asset_pubkey},
+    verify::load_transact_accounts,
+};
 use crate::{
     error::ShieldedPoolError,
     instructions::{
-        create_pool_tree::init::append_state_leaves as append_to_pool, hash::field_from_u64,
+        create_pool_tree::init::append_state_leaves as append_to_pool, hash::field_from_u64, loader,
     },
     log::log,
 };
