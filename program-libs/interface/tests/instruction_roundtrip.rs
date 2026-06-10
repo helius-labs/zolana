@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
     encode_instruction, tag, BatchUpdateAddressTreeData, CreatePocketConfigData, CreatePoolTreeData,
-    CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex, InsertAddressesData,
+    CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
     InstructionTag, PauseTreeData, TransactData, UpdatePocketConfigData,
     UpdatePocketConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
 };
@@ -16,22 +16,6 @@ fn create_pool_tree_roundtrip() {
     assert_eq!(
         InstructionTag::try_from(bytes[0]),
         Ok(InstructionTag::CreatePoolTree)
-    );
-    assert_eq!(decoded, payload);
-}
-
-#[test]
-fn insert_addresses_roundtrip() {
-    let payload = InsertAddressesData {
-        addresses: vec![[7u8; 32], [8u8; 32]],
-    };
-    let bytes = encode_instruction(tag::INSERT_ADDRESSES, &payload);
-    let decoded = InsertAddressesData::try_from_slice(&bytes[1..]).unwrap();
-
-    assert_eq!(bytes[0], tag::INSERT_ADDRESSES);
-    assert_eq!(
-        InstructionTag::try_from(bytes[0]),
-        Ok(InstructionTag::InsertAddresses)
     );
     assert_eq!(decoded, payload);
 }

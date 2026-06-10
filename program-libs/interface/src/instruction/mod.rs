@@ -7,7 +7,7 @@ use borsh::BorshSerialize;
 
 pub use instruction_data::{
     BatchUpdateAddressTreeData, CpiSignerData, CreatePocketConfigData, CreatePoolTreeData,
-    CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex, InsertAddressesData,
+    CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
     PauseTreeData, ProoflessShieldData, TransactData, UpdatePocketConfigData,
     UpdatePocketConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
     PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
