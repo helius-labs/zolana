@@ -147,6 +147,18 @@ func (c *Circuit) Define(api frontend.API) error {
 		api.AssertIsEqual(c.P256MessageHash, 0)
 		env.p256OwnerKeyHash = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
+		// The P256 rail's emulated-ECDSA gadget induces the bsb22 polynomial
+		// commitment the on-chain Groth16Verifier (and the proof encoding)
+		// require. The Solana rail has no such gadget, so add one explicit
+		// commitment to keep the proof in the same bsb22 format — same verifier,
+		// vkey tooling, and proof layout.
+		committer, ok := api.(frontend.Committer)
+		if !ok {
+			return fmt.Errorf("spp: frontend does not support commitments")
+		}
+		if _, err := committer.Commit(nullifierPkFromSecret); err != nil {
+			return err
+		}
 	}
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
