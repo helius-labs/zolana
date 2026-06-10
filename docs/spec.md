@@ -357,13 +357,15 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 **Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
+**Tree domain.** The two tree-inserted tags (`sender_view_tag`, `merge_view_tag`) must fit the nullifier tree's 248-bit value domain (see [Nullifier](#nullifier)), so they are derived with `L=31` (248 bits) and encoded on the wire as 32 bytes left-padded with `0x00`. Tags that are never inserted into the tree (`recipient_*`) remain full 32-byte values.
+
 ### Sender View Tag
 
 1. **`sender_view_tag`**
   - Derived by: the sender, to index her change utxos.
   - Tx sent by: the sender
   - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=32)`.
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` — 248 bits; see **Tree domain** above.
 
 ### Recipient view tag
 
@@ -401,7 +403,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Indexed by: the owner.
     - Counter: per-service `merge_count` keyed by the merge service's Solana account `merge_authority` (`wallet.merge_services[merge_authority]`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
     - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_transact`, same as `sender_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority || u64_be(merge_count), L=32)`. Including `merge_authority` in the info gives each service its own counter namespace; secrecy rests on the secret `merge_view_tag_secret`, so the public `merge_authority` value acts only as a domain separator.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority || u64_be(merge_count), L=31)` — 248 bits; see **Tree domain** above. Including `merge_authority` in the info gives each service its own counter namespace; secrecy rests on the secret `merge_view_tag_secret`, so the public `merge_authority` value acts only as a domain separator.
 
 ### View Tag Selection
 
@@ -491,11 +493,15 @@ The SPP proof commits to `utxo_hash` for every input and output. `owner` is the 
 A nullifier deterministically derives from a UTXO and the recipient's [NullifierKey](#nullifierkey). Insertion into the nullifier tree must succeed only once.
 
 ```
-nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
+nullifier    := truncate_248(Poseidon(utxo_hash, utxo_blinding, nullifier_secret))
 ```
 
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
 utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
+
+`truncate_248(x)` keeps the low 248 bits (31 bytes) of the **canonical** (mod-p-reduced) big-endian encoding of `x`. The nullifier tree is a `light-batched-merkle-tree` (see [Accounts](#accounts)), whose indexed-tree domain is `0 < value < 2^248 - 1`: `0` is the pre-inserted seed leaf and `2^248 - 1` is the init sentinel next-value, so full-field values cannot be inserted or batch-proven. Truncating to 248 bits keeps every honestly derived nullifier in-domain. The SPP rejects queue insertions outside `(0, 2^248 - 1)`; honest derivations hit the boundary values only with negligible probability (~2^-248).
+
+**Canonical decomposition (circuit soundness).** The circuit computes the Poseidon image and truncates in-circuit, so the bit decomposition MUST be canonical (constrained to be `< p`). A non-canonical decomposition admits the alias `x + p`, whose low 248 bits differ from those of `x` — i.e. two distinct valid nullifiers for the same UTXO, which is a double spend. Implementations must use a strict/canonical decomposition gadget and carry a negative test for the alias.
 
 ## Empty UTXO
 
@@ -995,7 +1001,7 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 
 | Account | Description |
 | --- | --- |
-| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=26). |
+| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=26). The nullifier tree is a **single** tree: its built-in `root_history` is the nullifier-tree root cache referenced by `nullifier_tree_root_index` (there is no separate SPP-maintained nullifier tree or root ring), its input queue is the nullifier queue, and its 248-bit indexed-tree value domain is why nullifiers and tree-inserted view tags are truncated to 248 bits (see [Nullifier](#nullifier)). |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
@@ -1141,6 +1147,8 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
+
+**Non-stale root (definition).** A root index is non-stale iff the indexed slot of the tree's circular root cache holds a non-zero value. For the nullifier tree the cache is the `light-batched-merkle-tree`'s own `root_history`, which provides this property natively: when a batch's bloom filter is wiped (once the next queue batch is half full), the tree zeroes every cached root that predates that batch's final root (`zero_out_roots`), keeping the first safe root. A zeroed slot can never satisfy a Merkle opening, so proofs against invalidated roots fail; every other cached root remains valid — this is the grace window that lets a proof built shortly before a forester update still verify. Roots also expire by ring overwrite after `root_history_capacity` updates.
 
 ### `merge_transact`
 
