@@ -40,10 +40,6 @@ pub mod reserved {
 pub const INSERT_ADDRESSES: u8 = 50;
 pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 pub const APPEND_STATE_LEAVES: u8 = 52;
-// Tag 53 (BATCH_UPDATE_NULLIFIER_TREE) is retired, not reusable: the SPP
-// nullifier tree IS the Light batched address tree, so BATCH_UPDATE_ADDRESS_TREE
-// is the single forester update path (one Light batch-append proof advances
-// the one tree). The dual-proof instruction no longer exists.
 
 /// Typed view of an *implemented* instruction tag.
 ///
