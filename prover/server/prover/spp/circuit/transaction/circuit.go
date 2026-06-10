@@ -288,18 +288,11 @@ func (c *Circuit) validateLayout() error {
 
 	for i := 0; i < in; i++ {
 		input := c.Inputs[i]
-		heights := []struct {
-			name string
-			got  int
-			want int
-		}{
-			{"state path elements", len(input.StatePathElements), protocol.StateTreeHeight},
-			{"nullifier low path elements", len(input.NullifierLowPathElements), protocol.NullifierTreeHeight},
+		if got := len(input.StatePathElements); got != protocol.StateTreeHeight {
+			return fmt.Errorf("spp: input %d state path height: got %d want %d", i, got, protocol.StateTreeHeight)
 		}
-		for _, h := range heights {
-			if h.got != h.want {
-				return fmt.Errorf("spp: %s %d height mismatch: got %d want %d", h.name, i, h.got, h.want)
-			}
+		if got := len(input.NullifierLowPathElements); got != protocol.NullifierTreeHeight {
+			return fmt.Errorf("spp: input %d nullifier path height: got %d want %d", i, got, protocol.NullifierTreeHeight)
 		}
 	}
 	return nil

@@ -23,7 +23,7 @@ func indexedLeafHash(value, nextValue *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("indexed leaf next value", nextValue); err != nil {
 		return nil, err
 	}
-	return poseidon.HashWithT(3, []*big.Int{value, nextValue})
+	return poseidon.Hash([]*big.Int{value, nextValue})
 }
 
 type NonInclusionWitness struct {

@@ -51,7 +51,7 @@ type Utxo struct {
 // recipient without revealing the owner. The spend circuit re-derives it from
 // the (private) owner and blinding witnesses.
 func OwnerUtxoHash(owner, blinding *big.Int) (*big.Int, error) {
-	h, err := poseidon.HashWithT(3, []*big.Int{owner, blinding})
+	h, err := poseidon.Hash([]*big.Int{owner, blinding})
 	if err != nil {
 		return nil, fmt.Errorf("spp: owner utxo hash: %w", err)
 	}
@@ -63,7 +63,7 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	h, err := poseidon.HashWithT(8, []*big.Int{
+	h, err := poseidon.Hash([]*big.Int{
 		u.Domain,
 		u.AssetID,
 		u.AssetAmount,
@@ -91,7 +91,7 @@ func Truncate248(x *big.Int) *big.Int {
 }
 
 func NullifierHash(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {
-	h, err := poseidon.HashWithT(4, []*big.Int{utxoHash, blinding, nullifierSecret})
+	h, err := poseidon.Hash([]*big.Int{utxoHash, blinding, nullifierSecret})
 	if err != nil {
 		return nil, fmt.Errorf("spp: nullifier hash: %w", err)
 	}

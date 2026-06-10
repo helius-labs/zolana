@@ -26,7 +26,11 @@ type proofBuildOptions struct {
 	AllowMissingP256Signature bool
 }
 
-type assignmentDebug struct {
+// assignmentTranscript holds values computed while building the witness that
+// the bundle/payload need beyond the circuit: the input/output hash chains and
+// nullifiers (some surface as real public outputs, see BuildProofBundle), plus
+// the ownership metadata. These are production values, not debug-only.
+type assignmentTranscript struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int
 	nullifiers               []*big.Int
@@ -40,42 +44,54 @@ type stateWitnesses struct {
 	proofs  map[uint64]protocol.StateTreeWitness
 }
 
+// proofAssignment bundles everything buildProofAssignment produces: the circuit
+// witness, the public inputs and their hash, the output-UTXO responses, and the
+// transcript. Returning a struct keeps callers from positionally
+// unpacking six values.
+type proofAssignment struct {
+	circuit         *txcircuit.Circuit
+	publicInputs    protocol.PublicInputs
+	publicInputHash *big.Int
+	outputUtxos     []ProofUtxoResponse
+	transcript      assignmentTranscript
+}
+
 func buildProofAssignment(
 	shape protocol.Shape,
 	tx ProofTransactionRequest,
 	signerHash *big.Int,
 	options proofBuildOptions,
-) (*txcircuit.Circuit, protocol.PublicInputs, *big.Int, []ProofUtxoResponse, assignmentDebug, error) {
+) (proofAssignment, error) {
 	if err := validateProofShape(shape, tx); err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	state, err := buildProofStateTree(tx.StateEntries)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	nullifierTree, err := buildProofNullifierTree(tx.NullifierEntries)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	outputs, err := buildOutputWitnesses(shape, tx.Outputs)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	external, err := buildExternalData(tx)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.hashes, external.hash, external.expiry)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	p256MessageHash, err := protocol.P256MessageHash(privateTxHash)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	// Ownership rail: a transaction with any P256 input uses the P256-capable
 	// circuit; otherwise the Solana-only variant, which omits the P256 gadget
@@ -92,12 +108,12 @@ func buildProofAssignment(
 		options.AllowMissingP256Signature,
 	)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 	publicInputs := buildPublicInputs(signerHash, inputs, outputs, external, privateTxHash, p256MessageHash)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
-		return nil, protocol.PublicInputs{}, nil, nil, assignmentDebug{}, err
+		return proofAssignment{}, err
 	}
 
 	assignment := &txcircuit.Circuit{
@@ -121,14 +137,20 @@ func buildProofAssignment(
 		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
 	}
-	debug := assignmentDebug{
+	transcript := assignmentTranscript{
 		inputHashes:              inputs.hashes,
 		outputHashes:             outputs.hashes,
 		nullifiers:               inputs.nullifiers,
 		solanaOwnerInputIndices:  inputs.solanaOwnerInputIndices,
 		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
 	}
-	return assignment, publicInputs, publicInputHash, outputs.responses, debug, nil
+	return proofAssignment{
+		circuit:         assignment,
+		publicInputs:    publicInputs,
+		publicInputHash: publicInputHash,
+		outputUtxos:     outputs.responses,
+		transcript:      transcript,
+	}, nil
 }
 
 func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error {

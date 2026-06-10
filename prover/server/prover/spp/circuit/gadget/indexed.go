@@ -7,5 +7,5 @@ import (
 )
 
 func IndexedLeafHash(api frontend.API, value, nextValue frontend.Variable) frontend.Variable {
-	return poseidon.HashCircuitWithT(api, 3, []frontend.Variable{value, nextValue})
+	return poseidon.HashCircuit(api, []frontend.Variable{value, nextValue})
 }

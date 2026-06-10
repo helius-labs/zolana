@@ -14,7 +14,7 @@ func stateNodeHash(left, right *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("right", right); err != nil {
 		return nil, err
 	}
-	return poseidon.HashWithT(3, []*big.Int{left, right})
+	return poseidon.Hash([]*big.Int{left, right})
 }
 
 func MerkleRoot(leaf *big.Int, pathElements []*big.Int, pathIndex uint64) (*big.Int, error) {

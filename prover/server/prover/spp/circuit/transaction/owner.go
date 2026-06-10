@@ -17,7 +17,7 @@ const (
 )
 
 func NullifierPkCircuit(api frontend.API, nullifierSecret frontend.Variable) frontend.Variable {
-	return poseidon.HashCircuitWithT(api, 2, []frontend.Variable{nullifierSecret})
+	return poseidon.HashCircuit(api, []frontend.Variable{nullifierSecret})
 }
 
 func OwnerHashCircuit(
@@ -25,7 +25,7 @@ func OwnerHashCircuit(
 	ownerKeyHash frontend.Variable,
 	nullifierPk frontend.Variable,
 ) frontend.Variable {
-	return poseidon.HashCircuitWithT(api, 3, []frontend.Variable{ownerKeyHash, nullifierPk})
+	return poseidon.HashCircuit(api, []frontend.Variable{ownerKeyHash, nullifierPk})
 }
 
 func P256OwnerKeyHashCircuit(
@@ -34,8 +34,8 @@ func P256OwnerKeyHashCircuit(
 	xLow128 frontend.Variable,
 	xHigh128 frontend.Variable,
 ) frontend.Variable {
-	xHash := poseidon.HashCircuitWithT(api, 3, []frontend.Variable{xLow128, xHigh128})
-	return poseidon.HashCircuitWithT(api, 3, []frontend.Variable{yIsOdd, xHash})
+	xHash := poseidon.HashCircuit(api, []frontend.Variable{xLow128, xHigh128})
+	return poseidon.HashCircuit(api, []frontend.Variable{yIsOdd, xHash})
 }
 
 func P256OwnerKeyHashFromPubkeyCircuit(

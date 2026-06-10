@@ -27,10 +27,11 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	assignment, _, _, _, _, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}
+	assignment := built.circuit
 
 	b.ReportAllocs()
 	b.ResetTimer()

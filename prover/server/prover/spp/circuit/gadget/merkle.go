@@ -22,7 +22,7 @@ func MerkleRoot(
 	for i := 0; i < len(pathElements); i++ {
 		left := api.Select(pathIndexBits[i], pathElements[i], h)
 		right := api.Sub(api.Add(h, pathElements[i]), left)
-		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{left, right})
+		h = poseidon.HashCircuit(api, []frontend.Variable{left, right})
 	}
 	return h
 }

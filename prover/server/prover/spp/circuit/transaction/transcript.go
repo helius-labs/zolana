@@ -16,7 +16,7 @@ func PrivateTxHashCircuit(
 ) frontend.Variable {
 	inputChain := gadget.HashChain(api, inputUtxoHashes)
 	outputChain := gadget.HashChain(api, outputUtxoHashes)
-	return poseidon.HashCircuitWithT(api, 5, []frontend.Variable{
+	return poseidon.HashCircuit(api, []frontend.Variable{
 		inputChain,
 		outputChain,
 		externalDataHash,

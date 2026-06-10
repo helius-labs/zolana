@@ -13,7 +13,7 @@ func HashChain(api frontend.API, inputs []frontend.Variable) frontend.Variable {
 
 	h := inputs[0]
 	for i := 1; i < len(inputs); i++ {
-		h = poseidon.HashCircuitWithT(api, 3, []frontend.Variable{h, inputs[i]})
+		h = poseidon.HashCircuit(api, []frontend.Variable{h, inputs[i]})
 	}
 	return h
 }

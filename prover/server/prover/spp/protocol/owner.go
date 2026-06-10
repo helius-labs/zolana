@@ -9,7 +9,7 @@ import (
 )
 
 func NullifierPk(nullifierSecret *big.Int) (*big.Int, error) {
-	h, err := poseidon.HashWithT(2, []*big.Int{nullifierSecret})
+	h, err := poseidon.Hash([]*big.Int{nullifierSecret})
 	if err != nil {
 		return nil, fmt.Errorf("spp: nullifier pk: %w", err)
 	}
@@ -17,7 +17,7 @@ func NullifierPk(nullifierSecret *big.Int) (*big.Int, error) {
 }
 
 func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
-	h, err := poseidon.HashWithT(3, []*big.Int{ownerKeyHash, nullifierPk})
+	h, err := poseidon.Hash([]*big.Int{ownerKeyHash, nullifierPk})
 	if err != nil {
 		return nil, fmt.Errorf("spp: owner hash: %w", err)
 	}
@@ -25,7 +25,7 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 }
 
 func SolanaPkHash(pubkey [32]byte) (*big.Int, error) {
-	h, err := poseidon.HashWithT(3, []*big.Int{
+	h, err := poseidon.Hash([]*big.Int{
 		fieldFromU128BE(pubkey[16:]),
 		fieldFromU128BE(pubkey[:16]),
 	})
@@ -48,14 +48,14 @@ func P256OwnerKeyHash(compressed []byte) (*big.Int, error) {
 	}
 	var xBytes [32]byte
 	x.FillBytes(xBytes[:])
-	xHash, err := poseidon.HashWithT(3, []*big.Int{
+	xHash, err := poseidon.Hash([]*big.Int{
 		fieldFromU128BE(xBytes[16:]),
 		fieldFromU128BE(xBytes[:16]),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: P256 x hash: %w", err)
 	}
-	h, err := poseidon.HashWithT(3, []*big.Int{
+	h, err := poseidon.Hash([]*big.Int{
 		new(big.Int).SetUint64(uint64(compressed[0] & 1)),
 		xHash,
 	})

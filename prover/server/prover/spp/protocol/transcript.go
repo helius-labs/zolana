@@ -24,7 +24,7 @@ func HashChain(inputs []*big.Int) (*big.Int, error) {
 
 	h := new(big.Int).Set(inputs[0])
 	for i := 1; i < len(inputs); i++ {
-		next, err := poseidon.HashWithT(3, []*big.Int{h, inputs[i]})
+		next, err := poseidon.Hash([]*big.Int{h, inputs[i]})
 		if err != nil {
 			return nil, fmt.Errorf("spp: hash chain step %d: %w", i, err)
 		}
@@ -48,7 +48,7 @@ func PrivateTxHash(
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
 
-	h, err := poseidon.HashWithT(5, []*big.Int{
+	h, err := poseidon.Hash([]*big.Int{
 		inputChain,
 		outputChain,
 		externalDataHash,

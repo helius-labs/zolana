@@ -17,7 +17,7 @@ func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 
 	// Fewer inputs/outputs than the shape are allowed (padded with dummies); only
 	// exceeding the shape's capacity is an error.
-	_, _, _, _, _, err := buildProofAssignment(shape, ProofTransactionRequest{
+	_, err := buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs+1),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs),
 	}, signerHash, proofBuildOptions{})
@@ -25,7 +25,7 @@ func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 		t.Fatalf("input arity error = %v", err)
 	}
 
-	_, _, _, _, _, err = buildProofAssignment(shape, ProofTransactionRequest{
+	_, err = buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs+1),
 	}, signerHash, proofBuildOptions{})
@@ -38,7 +38,7 @@ func TestBuildProofAssignmentRejectsNonCanonicalShape(t *testing.T) {
 	// 1 input / 2 outputs fits a 2-2 shape, but SPP derives the vkey from the
 	// real counts and would verify with 1-2 — the proof could never pass
 	// on-chain, so the build must fail.
-	_, _, _, _, _, err := buildProofAssignment(protocol.Shape{NInputs: 2, NOutputs: 2}, ProofTransactionRequest{
+	_, err := buildProofAssignment(protocol.Shape{NInputs: 2, NOutputs: 2}, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, 1),
 		Outputs: make([]ProofUtxoRequest, 2),
 	}, big.NewInt(0), proofBuildOptions{})
@@ -68,7 +68,7 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.mutate(&tx)
-			_, _, _, _, _, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), "must be zero") {
 				t.Fatalf("error = %v", err)
 			}
@@ -84,7 +84,7 @@ func TestBuildProofAssignmentRejectsMixedNullifierSecrets(t *testing.T) {
 	}
 	tx.Inputs[1].NullifierSecret = proofFieldInput(big.NewInt(999))
 
-	_, _, _, _, _, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+	_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "nullifier_secret differs from input 0") {
 		t.Fatalf("error = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestBuildProofAssignmentRejectsBadPublicAmountRequests(t *testing.T) {
 			}
 			tt.mutate(&tx)
 
-			_, _, _, _, _, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}

@@ -218,10 +218,12 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 			ps.RequiresP256, TransactionRequiresP256(tx),
 		)
 	}
-	assignment, publicInputs, publicInputHash, outputUtxos, debug, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
+	assignment, publicInputs, publicInputHash, outputUtxos, transcript :=
+		built.circuit, built.publicInputs, built.publicInputHash, built.outputUtxos, built.transcript
 	proof, err := Prove(ps, assignment)
 	if err != nil {
 		return ProofTransaction{}, err
@@ -257,15 +259,15 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		SenderViewTag: parse.HexString(tx.SenderViewTag),
 		Proof:         &common.Proof{Proof: proof},
 		RelayerFee:    tx.RelayerFee,
-		// Real-length public transcript. debug.{nullifiers,outputHashes} are
+		// Real-length public transcript. transcript.{nullifiers,outputHashes} are
 		// padded to the circuit shape (reals first, then dummy slots), but the
 		// on-chain TransactData wants the real-length arrays (it pads
 		// internally) and requires the nullifier count to match the
 		// root-index counts, which are already real-length. Slicing at the
 		// source makes every bundle consumer correct instead of each one
 		// re-slicing (the e2e fixture builder did the latter).
-		Nullifiers:              proofBigIntHexes(debug.nullifiers[:len(tx.Inputs)]),
-		OutputUtxoHashes:        proofBigIntHexes(debug.outputHashes[:len(tx.Outputs)]),
+		Nullifiers:              proofBigIntHexes(transcript.nullifiers[:len(tx.Inputs)]),
+		OutputUtxoHashes:        proofBigIntHexes(transcript.outputHashes[:len(tx.Outputs)]),
 		UtxoTreeRootIndex:       utxoRootIndices,
 		NullifierTreeRootIndex:  nullifierRootIndices,
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
@@ -274,23 +276,23 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		PublicSplAmount:         tx.PublicSplAmount,
 		PublicSplAssetPubkey:    parse.HexString(tx.PublicSplAssetPubkey),
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
-		RequiresP256:            debug.requiresP256OwnerWitness,
+		RequiresP256:            transcript.requiresP256OwnerWitness,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
 		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
 		UserSolAccount:          parse.BytesHex(userSolAccount[:]),
 		UserSplTokenAccount:     parse.BytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:       parse.BytesHex(splTokenInterface[:]),
-		SolanaOwnerInputIndices: debug.solanaOwnerInputIndices,
+		SolanaOwnerInputIndices: transcript.solanaOwnerInputIndices,
 		OutputUtxos:             outputUtxos,
-		DebugInputUtxoHashes:    proofBigIntHexes(debug.inputHashes),
-		DebugOutputUtxoHashes:   proofBigIntHexes(debug.outputHashes),
+		DebugInputUtxoHashes:    proofBigIntHexes(transcript.inputHashes),
+		DebugOutputUtxoHashes:   proofBigIntHexes(transcript.outputHashes),
 		DebugUtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
 		DebugNullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
 	}, nil
 }
 
 func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, signerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	_, publicInputs, _, _, debug, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{
+	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{
 		AllowMissingP256Signature: true,
 	})
 	if err != nil {
@@ -298,9 +300,9 @@ func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransacti
 	}
 	return ProofSigningPayloadTransaction{
 		Name:                  tx.Name,
-		PrivateTxHash:         parse.FieldHex(publicInputs.PrivateTxHash),
-		P256MessageHash:       parse.FieldHex(publicInputs.P256MessageHash),
-		RequiresP256Signature: debug.requiresP256OwnerWitness,
+		PrivateTxHash:         parse.FieldHex(built.publicInputs.PrivateTxHash),
+		P256MessageHash:       parse.FieldHex(built.publicInputs.P256MessageHash),
+		RequiresP256Signature: built.transcript.requiresP256OwnerWitness,
 	}, nil
 }
 
