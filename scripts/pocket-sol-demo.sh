@@ -31,6 +31,7 @@ TREE_KEY="${WORKDIR}/pool-tree.json"
 A_AIRDROP_SOL="${A_AIRDROP_SOL:-20}"
 B_AIRDROP_SOL="${B_AIRDROP_SOL:-20}"
 A_SHIELD_LAMPORTS="${A_SHIELD_LAMPORTS:-1000000000}"
+PROOFLESS_LAMPORTS="${PROOFLESS_LAMPORTS:-300000000}"
 TRANSFER_LAMPORTS="${TRANSFER_LAMPORTS:-400000000}"
 P256_A_SHIELD_LAMPORTS="${P256_A_SHIELD_LAMPORTS:-800000000}"
 P256_TRANSFER_LAMPORTS="${P256_TRANSFER_LAMPORTS:-700000000}"
@@ -210,6 +211,34 @@ TREE="$("$POCKET" init-pool-tree \
     --force \
     --pubkey-only)"
 echo "Pool tree: $TREE"
+
+echo
+echo "== Proofless-shield A SOL (no proof) =="
+# A public deposit with no ZK proof. Run first, while A holds no other notes,
+# so the unshield below unambiguously spends this exact deposit (note selection
+# picks the first note >= amount).
+PROOFLESS_A_JSON="$("$POCKET" proofless-shield \
+    --rpc-url "$RPC_URL" \
+    --payer "$A_KEY" \
+    --state "$A_STATE" \
+    --tree "$TREE" \
+    --prover-bin "$PROVER" \
+    --amount "$PROOFLESS_LAMPORTS")"
+printf '%s\n' "$PROOFLESS_A_JSON"
+print_signature "proofless-shield A" "$PROOFLESS_A_JSON"
+
+echo
+echo "== Unshield A SOL (spend the proofless deposit) =="
+PROOFLESS_UNSHIELD_A_JSON="$("$POCKET" unshield \
+    --rpc-url "$RPC_URL" \
+    --payer "$A_KEY" \
+    --state "$A_STATE" \
+    --tree "$TREE" \
+    --prover-bin "$PROVER" \
+    --keys-file "$SOLANA_KEYS_FILE" \
+    --amount "$PROOFLESS_LAMPORTS")"
+printf '%s\n' "$PROOFLESS_UNSHIELD_A_JSON"
+print_signature "unshield A (proofless)" "$PROOFLESS_UNSHIELD_A_JSON"
 
 echo
 echo "== Shield A SOL =="
