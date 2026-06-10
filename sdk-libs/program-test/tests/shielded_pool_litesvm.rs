@@ -2,7 +2,6 @@ use borsh::BorshSerialize;
 use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};
 use light_program_test::{PoolTestRig, RigError};
-use light_sparse_merkle_tree::SparseMerkleTree;
 use shielded_pool_program::instructions::create_pool_tree::init::{
     address_sub_tree_slice_mut, pool_tree_account_size, state_next_index_offset, state_root_offset,
     STATE_HEIGHT,
@@ -170,94 +169,6 @@ fn create_pool_tree_rejects_bad_account_shapes() {
 }
 
 #[test]
-fn append_state_leaves_persists_sparse_tree_state() {
-    let Some(mut rig) = rig() else {
-        return;
-    };
-    let tree = rig
-        .create_pool_tree(tree_account_size())
-        .expect("create_pool_tree");
-    let mut reference = SparseMerkleTree::<Poseidon, STATE_HEIGHT>::new_empty();
-
-    let first_batch = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
-    rig.append_state_leaves(&tree, first_batch.clone())
-        .expect("append first batch");
-    for leaf in first_batch {
-        reference.append(leaf);
-    }
-    let data = rig.account_data(&tree.pubkey()).expect("account data");
-    assert_eq!(read_u64(&data, state_next_index_offset()), 3);
-    assert_eq!(read_state_root(&data), reference.root());
-
-    let second_batch = vec![[4u8; 32], [5u8; 32]];
-    rig.append_state_leaves(&tree, second_batch.clone())
-        .expect("append second batch");
-    for leaf in second_batch {
-        reference.append(leaf);
-    }
-    let data = rig.account_data(&tree.pubkey()).expect("account data");
-    assert_eq!(read_u64(&data, state_next_index_offset()), 5);
-    assert_eq!(read_state_root(&data), reference.root());
-}
-
-#[test]
-fn append_state_leaves_rejects_empty_and_uninitialized_accounts() {
-    let Some(mut rig) = rig() else {
-        return;
-    };
-    let tree = rig
-        .create_pool_tree(tree_account_size())
-        .expect("create_pool_tree");
-    let before = rig.account_data(&tree.pubkey()).expect("account data");
-    assert_err_contains(rig.append_state_leaves(&tree, vec![]), "Custom(3)");
-    assert_eq!(
-        rig.account_data(&tree.pubkey()).expect("account data"),
-        before,
-        "failed empty append must not mutate the tree"
-    );
-
-    let uninitialized = rig
-        .create_program_owned_account(tree_account_size())
-        .expect("create uninitialized account");
-    assert_err_contains(
-        rig.append_state_leaves(&uninitialized, vec![[9u8; 32]]),
-        "Custom(6)",
-    );
-}
-
-#[test]
-fn insert_addresses_persists_queue_and_rejects_bad_batches() {
-    let Some(mut rig) = rig() else {
-        return;
-    };
-    let tree = rig
-        .create_pool_tree(tree_account_size())
-        .expect("create_pool_tree");
-
-    let before = rig.account_data(&tree.pubkey()).expect("account data");
-    assert_err_contains(rig.insert_addresses(&tree, vec![]), "Custom(2)");
-    assert_eq!(
-        rig.account_data(&tree.pubkey()).expect("account data"),
-        before,
-        "failed empty insert must not mutate the tree"
-    );
-
-    rig.insert_addresses(&tree, vec![[30u8; 32], [10u8; 32]])
-        .expect("insert addresses");
-    let data = rig.account_data(&tree.pubkey()).expect("account data");
-    assert_eq!(address_queue_next_index(data, tree.pubkey()), 2);
-
-    let err = rig
-        .insert_addresses(&tree, vec![[30u8; 32]])
-        .expect_err("duplicate address must fail");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("Custom(7)") || msg.contains("AddressQueueInsertFailed"),
-        "expected queue insert failure for duplicate address, got: {msg}"
-    );
-}
-
-#[test]
 fn batch_update_address_tree_rejects_zero_root_before_auth() {
     let Some(mut rig) = rig() else {
         return;
@@ -297,7 +208,8 @@ fn runtime_rejects_malformed_payloads_and_unknown_tags() {
     let malformed = Instruction {
         program_id: rig.program_id,
         accounts: accounts.clone(),
-        data: vec![tag::INSERT_ADDRESSES, 1, 2, 3],
+        // A known tag with a too-short payload must fail borsh decode.
+        data: vec![tag::TRANSACT, 1, 2, 3],
     };
     assert_err_contains(rig.send_instructions(&[malformed], &[&payer]), "Custom(0)");
 

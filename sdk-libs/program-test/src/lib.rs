@@ -28,8 +28,7 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         tag, BatchUpdateAddressTreeData, CreatePoolTreeData, CreateProtocolConfigData,
-        InsertAddressesData, PauseTreeData, ProoflessShieldData, TransactData,
-        UpdateProtocolConfigData,
+        PauseTreeData, ProoflessShieldData, TransactData, UpdateProtocolConfigData,
     },
     state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
@@ -198,26 +197,6 @@ impl PoolTestRig {
             ],
             data: create_data,
         }
-    }
-
-    pub fn insert_addresses(
-        &mut self,
-        tree: &Keypair,
-        addresses: Vec<[u8; 32]>,
-    ) -> Result<(), RigError> {
-        let mut data = vec![tag::INSERT_ADDRESSES];
-        InsertAddressesData { addresses }
-            .serialize(&mut data)
-            .expect("infallible");
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), false),
-            ],
-            data,
-        };
-        self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
     /// Load `light_registry.so` into this rig in addition to shielded-pool.

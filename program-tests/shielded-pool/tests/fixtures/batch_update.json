@@ -1,37 +1,481 @@
 {
   "height": 40,
+  "transacts": [
+    {
+      "name": "batch_seed_0",
+      "shape": {
+        "NInputs": 1,
+        "NOutputs": 2
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b59",
+      "proof": {
+        "ar": [
+          "0x020711e2ec9bb926df0c5f35e73fef879024f649f70ef8b2fbeb584ac1744618",
+          "0x29c9465072ef7fb1074f81474b26f78d981e0979fc7f2c519d991d83c4b5fcd0"
+        ],
+        "bs": [
+          [
+            "0x1de9cbbfd2de6881e7b3a062d6351fab711612efe3f88d12a1d84577455a53c5",
+            "0x2e7f9845bcf4eee073d3df53cf68a6db140d719a4da3d1e6092d4040c892ddd2"
+          ],
+          [
+            "0x04ed10c2400fe9bd23a4529d440e64ef81e87b3b366e72fdbf604b0c6818123f",
+            "0x22ff719c6eb9bd54501b3dc539ed37f4356f01a94e6827b30573e85c012ae0f6"
+          ]
+        ],
+        "krs": [
+          "0x0b2908854250d6c30b410acf1406c9c09c50ace94d378a84e0093cbcbcc0cdf8",
+          "0x2a3e8dc4cb75d5462583c5f4dcca74cfd2cc19c612889d29acc520bcd47f5c8a"
+        ],
+        "proof_commitment": [
+          "0x2d7d7435c72885a44b2f7c97834a138bc25309d7e0075c0d13c71e705b55c1ed",
+          "0x16c19343879d66d8869739dd1e47a271752c8fc743abb5740dc057a8aa7a68f2"
+        ],
+        "proof_commitment_pok": [
+          "0x0cc631eee7bbbf4ff0dce8114aee63b1c270570853b0f08a2a3b5134e260f261",
+          "0x0c51b93782bed5d8873c461211c27f849c2d1d8d02da6d1691d90feee06cfedb"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [],
+      "output_utxo_hashes": [
+        "22bbc17cb15a6f8d8c82767355846f09a995e575090488f217e9956869cbaf63"
+      ],
+      "utxo_tree_root_index": [],
+      "nullifier_tree_root_index": [],
+      "private_tx_hash": "15d0c6d7ac32742d03854c596c6cbbbc02bf8e9cb0fef444ca9e3edcb2374d80",
+      "public_amount_mode": 1,
+      "public_sol_amount": 30,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "ba00",
+      "expected_state_next_index": 1,
+      "expected_queue_next_index": 1,
+      "expected_state_root": "26602083c261cf1b974de03cb34aa656e11f5986b47f8b970618c3f5b6a0dda0",
+      "public_input_hash": "1d8ee630733daf83642db5cf256455a0da059ea05f8a671b67f43250e681e0a9",
+      "external_data_hash": "008fb963b25a931effa16edd0fe874f6014d284d61881dc5d0c48aecced0b137",
+      "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [],
+      "debug_input_utxo_hashes": [],
+      "debug_output_utxo_hashes": [
+        "22bbc17cb15a6f8d8c82767355846f09a995e575090488f217e9956869cbaf63"
+      ],
+      "debug_utxo_tree_roots": [],
+      "debug_nullifier_tree_roots": []
+    },
+    {
+      "name": "batch_seed_1",
+      "shape": {
+        "NInputs": 1,
+        "NOutputs": 2
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b5a",
+      "proof": {
+        "ar": [
+          "0x296ce70920d82055e9c6e6aa75c26dd4f789bb5b05e4e1a734fa704a2af434db",
+          "0x14629682a9075b27e4c4e627f9ed34cff8180e56b83cad3cd221c9aca6516b5a"
+        ],
+        "bs": [
+          [
+            "0x132d47536d67587b685b93a6fb0044e7cf5864e1b965b86bb2aa2f1d6f0cd5e0",
+            "0x262ff7e40559f0bc332821539127a655635c61c49a36a54f69ad1fee6aa13751"
+          ],
+          [
+            "0x019778bad0eb562193a7de2315f2458e96658f54048dcf09a3c63dfd9f67697b",
+            "0x27ac8f03ac80962b2428095c149b2d6ae23ed054af02bb8b092d89001c3ae90d"
+          ]
+        ],
+        "krs": [
+          "0x25e52124b3e711d27fd83dc7f34d47093e62a3c5085d0fa2dbe1c940417de338",
+          "0x106e5353fee61d9254c2f3d93df53234c83a726c455ef5442741af229a2c73bb"
+        ],
+        "proof_commitment": [
+          "0x26f9e8b6e46bb1fb77b229b1ee6827d0821428a6afc8425193ff620bac7fc423",
+          "0x2ca49838f145fe5ffaa56477dd2e08021ca015dbfccf6b16cb526c0823184098"
+        ],
+        "proof_commitment_pok": [
+          "0x0b28947b0b18e4c17434f2b39d87bb164424753209952d2b8c4f00c2a4567743",
+          "0x23341d3eac60e844416b5d383b2899b7ec8c028a39c5446d6eb922d517cd352e"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [],
+      "output_utxo_hashes": [
+        "2d850c3223ffd3b10f44ec182608cb9e5742442c3e75e525500f12de32a00185"
+      ],
+      "utxo_tree_root_index": [],
+      "nullifier_tree_root_index": [],
+      "private_tx_hash": "059db6f41876b2365897b321106656ac107d4b6b20338bd0264de787b5f8f2bf",
+      "public_amount_mode": 1,
+      "public_sol_amount": 30,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "ba01",
+      "expected_state_next_index": 2,
+      "expected_queue_next_index": 2,
+      "expected_state_root": "191b91f97288de2ca7145a3391445e8f9932656ecbc75d6763d26f6d869bbe12",
+      "public_input_hash": "0c9fcb7c81cb3a03696f1142c047974ea4216f6ca19022c0cf21dd0df981bebe",
+      "external_data_hash": "00ddb5929352c47bd0d1dfcf1e223e0b52aad3c1837e28fd06db55b4c36b75cc",
+      "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [],
+      "debug_input_utxo_hashes": [],
+      "debug_output_utxo_hashes": [
+        "2d850c3223ffd3b10f44ec182608cb9e5742442c3e75e525500f12de32a00185"
+      ],
+      "debug_utxo_tree_roots": [],
+      "debug_nullifier_tree_roots": []
+    },
+    {
+      "name": "batch_seed_2",
+      "shape": {
+        "NInputs": 1,
+        "NOutputs": 2
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b5b",
+      "proof": {
+        "ar": [
+          "0x1f83340cc613b15a7d02317313c239e62d8f5dd5b4b6f09430793629a740042d",
+          "0x0158d09e17966a2e02ead7c660a5f4e097897034a8b9cbc7cce68b424370b461"
+        ],
+        "bs": [
+          [
+            "0x162a31516440ef1625c8711bd563b48939355106fb303a3183990a88ee3827ca",
+            "0x2083419ec64bdc56831941cd3fc114bcf6e8e5654a9c330b002a8ef2337172df"
+          ],
+          [
+            "0x2e9f895cd1c1942699bbbfcc1008f2465752423eeeeb94802d721d3d58d47631",
+            "0x2d3a7d5ef29a9fd51be9f74713f376761440d8d33ffe240390aa0b53a51d285c"
+          ]
+        ],
+        "krs": [
+          "0x0d48271de4e6c18cba8b6384b3a1304835fe0b547ef4971c0eb0e16a47d9edb5",
+          "0x2e88d334a5c183942e8c1ee51946676321e5e46bf9ae18f8951d72eb734009ed"
+        ],
+        "proof_commitment": [
+          "0x0ce623dbe7212fe7fd6cf448711606acf14b4b715bb1d585eb502b22ff53dd08",
+          "0x20f71b4ca9c08c7f9468ede5fc7149891c231a3860cec9eb91f9c2027407f9d2"
+        ],
+        "proof_commitment_pok": [
+          "0x2b8a160692cc29fe441878bdb1ca8e958c4fcd9c34b5cad6ecae5c35fc61b734",
+          "0x29b43b1d09fe83e62494d44ff15d598fb2029399fc487d57a311e7ebb501ef49"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [],
+      "output_utxo_hashes": [
+        "0a9c26bee7e49168f7e9bf6411ce7039c22a2d453415f335c917b7e95d7f5d20"
+      ],
+      "utxo_tree_root_index": [],
+      "nullifier_tree_root_index": [],
+      "private_tx_hash": "0eb0ee475bab84e6d674225ac92624f288dbc9b1bf5f2a29e57667ecd5f569fa",
+      "public_amount_mode": 1,
+      "public_sol_amount": 30,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "ba02",
+      "expected_state_next_index": 3,
+      "expected_queue_next_index": 3,
+      "expected_state_root": "126419fcc00d331e6d0b1a4c1b1111165e2e20dfbab99841a97096f0559c7d95",
+      "public_input_hash": "09648b87a98bd47ff8773f823a8076eeaaaa33c4320db4c0016deaa1572b8510",
+      "external_data_hash": "00b9d1d5b0c8fae48c2ec8580c8ceadd0972f7f66d89996c0879815c494a02dd",
+      "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [],
+      "debug_input_utxo_hashes": [],
+      "debug_output_utxo_hashes": [
+        "0a9c26bee7e49168f7e9bf6411ce7039c22a2d453415f335c917b7e95d7f5d20"
+      ],
+      "debug_utxo_tree_roots": [],
+      "debug_nullifier_tree_roots": []
+    },
+    {
+      "name": "batch_seed_3",
+      "shape": {
+        "NInputs": 1,
+        "NOutputs": 2
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b5c",
+      "proof": {
+        "ar": [
+          "0x2ff1478e7397143f75ddce4a0e260731528ee35edbfa3896ff879ba2cb6120ef",
+          "0x26bdaaa34d4e8c19246a3efb5df76f1e5fe7aa0c426e7f1e0684d191be0f84e1"
+        ],
+        "bs": [
+          [
+            "0x2e1a443872f17d9e8123a2fb7f374deebebd2da0802571421573f821f2503015",
+            "0x011259c74a15aa020bb82b30b82a213eebbea932582408072e6a01cf4852d8ae"
+          ],
+          [
+            "0x11a6853693aa582f79a69eea2f6623633f3e0b07b7c9b9f97f14ee748b1806ea",
+            "0x1b2dd30f2cb01db62a17ec7a2430768dfd60276640a1870d38bf2d1a869048d7"
+          ]
+        ],
+        "krs": [
+          "0x11c4710cb77b3f7c1d19b48da1fceeee120d5540f1216183bcfdb6e7de2771cb",
+          "0x00b2d13dd50c31e04c1914ae04e6f4c13dcff0a2fbf18ed0a3d3806dd147dc24"
+        ],
+        "proof_commitment": [
+          "0x2fe4e174148f72b3cc691f17a52ef365c8d0d77b486ab4e6c02f8cb347c9f78f",
+          "0x106c13fb5fcf5720a460cbffa4fcfc2f0bb2bd46ec534d91eff132694858df9f"
+        ],
+        "proof_commitment_pok": [
+          "0x17a7604c5b6608c3f0f91d9e7655a9694f99552c9b085ea3d63f041e59703373",
+          "0x1b347dce2c9d93b2363c676023cebb1e1cf348e024f17a6990390600b7c71cdc"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [],
+      "output_utxo_hashes": [
+        "0b29c7fcfa0073687f2028a083fba157a128b78e95846ed88ad2f6e200f8f2f0"
+      ],
+      "utxo_tree_root_index": [],
+      "nullifier_tree_root_index": [],
+      "private_tx_hash": "04e5c5ea16051cabb3f4ba75fef811cea48f04fc1cb2962bb103baa8e999e9b0",
+      "public_amount_mode": 1,
+      "public_sol_amount": 30,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "ba03",
+      "expected_state_next_index": 4,
+      "expected_queue_next_index": 4,
+      "expected_state_root": "201b1526cd995d7ccb12d3478b81bd98d48ff8d6c1bb6e03bf4a066b9317ce33",
+      "public_input_hash": "0a3026e0c07f1e68a00a1cf47c14a993d5f37d0f384404dfa1ab48db74e26de5",
+      "external_data_hash": "00976813ae454a68710a2f979d18f325fbb312baef5aeb70b5e50a604c0b2ac3",
+      "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [],
+      "debug_input_utxo_hashes": [],
+      "debug_output_utxo_hashes": [
+        "0b29c7fcfa0073687f2028a083fba157a128b78e95846ed88ad2f6e200f8f2f0"
+      ],
+      "debug_utxo_tree_roots": [],
+      "debug_nullifier_tree_roots": []
+    },
+    {
+      "name": "batch_seed_4",
+      "shape": {
+        "NInputs": 1,
+        "NOutputs": 2
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b5d",
+      "proof": {
+        "ar": [
+          "0x015ece0378d1e83d5f5d988d6b771c95038db7e74947f81009876aea2e1bb841",
+          "0x07f6ab07f64e59df10e6638c3892ef94a4531a14bdb9b3256f53b2230f679ff5"
+        ],
+        "bs": [
+          [
+            "0x0b90b0a81b6f3058e7c10f062a12ffeb39c056b5514c01e5250a6ceb14a13b94",
+            "0x1fb0247a048b4333b7cb668f4d5f0bcbf9c38c2e15b308d056b17f4de4ca4edc"
+          ],
+          [
+            "0x1845fb23191488a70fe3445008da4ca1db644214d04b76f4ddc3988f707e48df",
+            "0x138b4ddbe781d1082a1805ddcbb6d304b7aa4c986e72275d1bae7dc9a5fc54a9"
+          ]
+        ],
+        "krs": [
+          "0x01e24924d77b9316e215fd27177519502ffb953bd7686a7dd4a55f252f015039",
+          "0x26f31ff35823497cb988d631b455904bb8cefde4fb9d744c60be991aaaee1293"
+        ],
+        "proof_commitment": [
+          "0x1a3c998b5dd429216599ab8a15fa91bc2242dc9c9b9495d20957a9277d041deb",
+          "0x1f9aabbf340777e05f64e6eb2987ae76e21efaa5577b6922379649cfa0f02aca"
+        ],
+        "proof_commitment_pok": [
+          "0x04a16c3f3f77b79797504dc79037419d995be0728f22e1c68343de852bb2d884",
+          "0x07829bb0734d992005a59c2703380a340952de3fe597175b13dcb846d13f4279"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [],
+      "output_utxo_hashes": [
+        "1494778ea040c74f0d08d2aa5c7aab019763365a12b2313a99921664ec4d51ca"
+      ],
+      "utxo_tree_root_index": [],
+      "nullifier_tree_root_index": [],
+      "private_tx_hash": "051518d67300ab8abbc187b2b9e40bb44376c89fecc99f55e04d5fd02a125852",
+      "public_amount_mode": 1,
+      "public_sol_amount": 30,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "ba04",
+      "expected_state_next_index": 5,
+      "expected_queue_next_index": 5,
+      "expected_state_root": "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0",
+      "public_input_hash": "2612363bc8e7e53ec7aa620becba4e91578f804fcb7d80bc304abe98dbdfc1bb",
+      "external_data_hash": "0054867d7b629d30a23b1f1fb7c4f8e1fdf93b5d8517e5529fdc501bb33419f9",
+      "user_sol_account": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [],
+      "debug_input_utxo_hashes": [],
+      "debug_output_utxo_hashes": [
+        "1494778ea040c74f0d08d2aa5c7aab019763365a12b2313a99921664ec4d51ca"
+      ],
+      "debug_utxo_tree_roots": [],
+      "debug_nullifier_tree_roots": []
+    },
+    {
+      "name": "batch_spend",
+      "shape": {
+        "NInputs": 5,
+        "NOutputs": 3
+      },
+      "requires_p256": false,
+      "expiry_unix_ts": 1000000000,
+      "sender_view_tag": "0000000000000000000000000000000000000000000000000000000000001b58",
+      "proof": {
+        "ar": [
+          "0x0e6ecc09cb4d23e10827816ca30efe119c9b987bb6301f5c6e6fb39057ec1afa",
+          "0x2822bf7ae7ec2feb74feb38978b2a670cb4294c51a6aa3ea317e074aabac566a"
+        ],
+        "bs": [
+          [
+            "0x1ae1622a3c5029783244e41bd24d8867255061b083e294bd3e32eb19b0c3dda9",
+            "0x0009af5b515344298227c519156b5eeec8c5f4aec2acd384055b3a753b936405"
+          ],
+          [
+            "0x1730f17f2765bf23d72c3eac184a555d0da7ea0f055ce0d3d06c53a89077d98d",
+            "0x2a42ec2784517978f9dc4c8a01a5215eacdcb9293c8fa590e5abfe1cfb4e3918"
+          ]
+        ],
+        "krs": [
+          "0x0bd8e763f174e9e63927b4984d44fc3c0629ed37f0999da3452354b0f19943e8",
+          "0x1dfe1159832943d35e776fc9cd7a2eb38b2a4a19911b4ad9ee8c0a7dac1ef5fa"
+        ],
+        "proof_commitment": [
+          "0x2d4936c644d4e8271627d3f4871f088ae3d35885c860bbff7d122e74de6e9802",
+          "0x1fa0171fcabb1d26e4e705fa6c8fd78a3a531ab53ef2c29c915a034e21268481"
+        ],
+        "proof_commitment_pok": [
+          "0x1484ea99a51cfeb6128b3a8e2c3b9cc4f8d61dba4fa355a2843be2e653c5500b",
+          "0x26a085583bc20a061ca0a19bd6f50fb1d49ab26fa291818fd0a2553dc8d2dc4c"
+        ]
+      },
+      "relayer_fee": 0,
+      "nullifiers": [
+        "0075d6a6861c385b1cff56b70e75cea4eff7a48360e6d2d246cc864b05542500",
+        "00ce88514eaf238b563342dfe862c1a29df4bc1549f96390ba3fb6897d5721a8",
+        "004a2009a406f94d86c33cd087247a1a322deca4bb591bd6cb500c8aa1ad2f01",
+        "00761e1156d55ea9fbc2271b0431b410bb43e6fd4fc4e63add15ac83a955755a",
+        "009f88e2369d72857ffef43190f1c6f1514414330c3ea76ca51e2f518cd8eea3"
+      ],
+      "output_utxo_hashes": [
+        "0b5a9f648d8ff3f23899f7091e4e07603a43ab236dc9a338d7083b90bdd0917e",
+        "1b54315fe2222c4a303d7d0a2c2968d11af8b6ac31f9aa035fd50a9b4a67485d",
+        "2a8d725dd980b778342ef6175a8e810e9e1fdfb0297a296118070370b05f615d"
+      ],
+      "utxo_tree_root_index": [
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      "nullifier_tree_root_index": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "private_tx_hash": "29eb12659f1f65f8cf0bec68ab9e830e11cbc37aa9007161331bb678299a2c8a",
+      "public_amount_mode": 0,
+      "public_sol_amount": null,
+      "public_spl_amount": null,
+      "public_spl_asset_pubkey": "",
+      "encrypted_utxos": "bb",
+      "expected_state_next_index": 8,
+      "expected_queue_next_index": 11,
+      "expected_state_root": "170f1a50eeaa00bc39d9e1c5fdb1e55a0eb46b8dc04a6f222b45c46c8bd7336e",
+      "public_input_hash": "24196bc358e9203e7435dfdf32312bfc62d53dea093559045323b02da3fc3f85",
+      "external_data_hash": "00bfc1f53932fe3cc2de4665750a681f55f67aeb7d857eadcda38941d3b99ace",
+      "user_sol_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "user_spl_token_account": "0000000000000000000000000000000000000000000000000000000000000000",
+      "spl_token_interface": "0000000000000000000000000000000000000000000000000000000000000000",
+      "solana_owner_input_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "debug_input_utxo_hashes": [
+        "22bbc17cb15a6f8d8c82767355846f09a995e575090488f217e9956869cbaf63",
+        "2d850c3223ffd3b10f44ec182608cb9e5742442c3e75e525500f12de32a00185",
+        "0a9c26bee7e49168f7e9bf6411ce7039c22a2d453415f335c917b7e95d7f5d20",
+        "0b29c7fcfa0073687f2028a083fba157a128b78e95846ed88ad2f6e200f8f2f0",
+        "1494778ea040c74f0d08d2aa5c7aab019763365a12b2313a99921664ec4d51ca"
+      ],
+      "debug_output_utxo_hashes": [
+        "0b5a9f648d8ff3f23899f7091e4e07603a43ab236dc9a338d7083b90bdd0917e",
+        "1b54315fe2222c4a303d7d0a2c2968d11af8b6ac31f9aa035fd50a9b4a67485d",
+        "2a8d725dd980b778342ef6175a8e810e9e1fdfb0297a296118070370b05f615d"
+      ],
+      "debug_utxo_tree_roots": [
+        "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0",
+        "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0",
+        "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0",
+        "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0",
+        "23081265674f22f18af5b6718b0fe2eab02a8bb3560b49dfd87f4796def137a0"
+      ],
+      "debug_nullifier_tree_roots": [
+        "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c",
+        "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c",
+        "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c",
+        "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c",
+        "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c"
+      ]
+    }
+  ],
   "values": [
-    "0000000000000100000000000000000000000000000000000000000000000000",
-    "0000000000000200000000000000000000000000000000000000000000000000",
-    "0000000000000300000000000000000000000000000000000000000000000000",
-    "0000000000000400000000000000000000000000000000000000000000000000",
-    "0000000000000500000000000000000000000000000000000000000000000000",
-    "0000000000000600000000000000000000000000000000000000000000000000",
-    "0000000000000700000000000000000000000000000000000000000000000000",
-    "0000000000000800000000000000000000000000000000000000000000000000",
-    "0000000000000900000000000000000000000000000000000000000000000000",
-    "0000000000000a00000000000000000000000000000000000000000000000000"
+    "0000000000000000000000000000000000000000000000000000000000001b59",
+    "0000000000000000000000000000000000000000000000000000000000001b5a",
+    "0000000000000000000000000000000000000000000000000000000000001b5b",
+    "0000000000000000000000000000000000000000000000000000000000001b5c",
+    "0000000000000000000000000000000000000000000000000000000000001b5d",
+    "0075d6a6861c385b1cff56b70e75cea4eff7a48360e6d2d246cc864b05542500",
+    "00ce88514eaf238b563342dfe862c1a29df4bc1549f96390ba3fb6897d5721a8",
+    "004a2009a406f94d86c33cd087247a1a322deca4bb591bd6cb500c8aa1ad2f01",
+    "00761e1156d55ea9fbc2271b0431b410bb43e6fd4fc4e63add15ac83a955755a",
+    "009f88e2369d72857ffef43190f1c6f1514414330c3ea76ca51e2f518cd8eea3"
   ],
   "old_root": "1c416bffd0ea3303835f3e82cab1b01ad85140b8c8195f7cf8812c6de5926a4c",
-  "new_root": "2c9260f3a2c5c2e93b4f06d8e689899b3a25d52bea6493465ff285868dc47768",
+  "new_root": "041950da72b8ca32f288c06ae21f1df3ecbdcbf4984b3d37eadaf0e113b0a4ad",
   "proof": {
     "ar": [
-      "0x09f36c3cb07e81005ae6acce509bc8f6ff1277fac5e78a18c4cc13b4ef206af5",
-      "0x295ea22dae9af5263a66989cb96b2a23f2f468beb417ab87ae18db06f1a9b39a"
+      "0x02bcded17d95629a82f3de74dc9ef761d94956c29496bc561e8efca80c215bf3",
+      "0x1074c5303fb2598d3d628d9911adcffbc112aaf7b067d28d9bbd66731241bd2a"
     ],
     "bs": [
       [
-        "0x1ad5a4586ecad76c8230346533a76049eca0c359eea87aff411c387e6273eb85",
-        "0x0a9b73b03dbe787885c533f2953e4ac8d56165077a71ce4cea9508d32c974420"
+        "0x2e38cb25ad6d3e8de0441b3e2dfc33a125e3a68ee0828608d4bbcf54e27895a5",
+        "0x0ff175749f4040f8e2d172dd44622755199e8f2b314640b893ec33c75a0162a2"
       ],
       [
-        "0x0c427d577feadc16c96480b1b964f727f9081c545db8d0ca67be462a39d00589",
-        "0x18075e9297779af66402f7e2f115a63c6cc8dbc4a9adc216099152c74c9cc87a"
+        "0x183e3b14fd9206274934aaf239984b1426b11e2ef5ed15644f1073f8bbddbe40",
+        "0x2795cb2a3e360d89c1c761fc585c295262baa07ec0786328e40ac4a666aafb99"
       ]
     ],
     "krs": [
-      "0x0fd88d367de7d536bf230b9fd472609ad79771719d35608b316e13786b4b5625",
-      "0x1b856829641794c2728893d8c93683992577731cdf8bdd8f84c95048df9d8946"
+      "0x1c57e3971ddf85a472151a07c5183e1da48737cbff95224120ac9a7f92c7abb6",
+      "0x1fb2b4e422af3c459cf527418ad2b96af843eb099bf2532ece3f9a3999c6373a"
     ]
   }
 }

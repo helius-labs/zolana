@@ -1,6 +1,6 @@
 //! End-to-end happy-path coverage of the shielded-pool program against a
-//! real .so loaded by litesvm. Exercises the three forester-independent
-//! instructions: create_pool_tree, append_state_leaves, insert_addresses.
+//! real .so loaded by litesvm. Exercises create_pool_tree and the
+//! forester-gated batch_update_address_tree authorization checks.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced
 //! `target/deploy/shielded_pool_program.so`. The PoolTestRig returns
@@ -46,43 +46,6 @@ fn create_pool_tree_succeeds() {
     let mut disc = [0u8; 8];
     disc.copy_from_slice(&data[..8]);
     assert_eq!(u64::from_le_bytes(disc), 1, "combined discriminator");
-}
-
-#[test]
-fn append_state_leaves_grows_root() {
-    let Some(mut rig) = rig() else {
-        return;
-    };
-    let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE)
-        .expect("create_pool_tree");
-
-    // Empty-tree zero root.
-    let data_before = rig.account_data(&tree.pubkey()).expect("account data");
-
-    rig.append_state_leaves(&tree, vec![[7u8; 32]])
-        .expect("append_state_leaves");
-
-    let data_after = rig.account_data(&tree.pubkey()).expect("account data");
-
-    assert_eq!(data_before.len(), data_after.len(), "size unchanged");
-    assert_ne!(
-        data_before, data_after,
-        "appending a leaf must change the on-disk root + next_index"
-    );
-}
-
-#[test]
-fn insert_addresses_advances_queue() {
-    let Some(mut rig) = rig() else {
-        return;
-    };
-    let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE)
-        .expect("create_pool_tree");
-
-    rig.insert_addresses(&tree, vec![[3u8; 32], [4u8; 32]])
-        .expect("insert_addresses");
 }
 
 #[test]
