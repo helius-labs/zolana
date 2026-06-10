@@ -10,7 +10,6 @@
 //!
 //! let mut rig = PoolTestRig::new()?;
 //! let tree = rig.create_pool_tree()?;
-//! rig.append_state_leaves(&tree, vec![[1u8; 32]])?;
 //! let root = rig.state_root(&tree.pubkey())?;
 //! ```
 
@@ -28,9 +27,9 @@ use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
     instruction::{
-        tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        CreateProtocolConfigData, InsertAddressesData, PauseTreeData, ProoflessShieldData,
-        TransactData, UpdateProtocolConfigData,
+        tag, BatchUpdateAddressTreeData, CreatePoolTreeData, CreateProtocolConfigData,
+        InsertAddressesData, PauseTreeData, ProoflessShieldData, TransactData,
+        UpdateProtocolConfigData,
     },
     state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
@@ -199,26 +198,6 @@ impl PoolTestRig {
             ],
             data: create_data,
         }
-    }
-
-    pub fn append_state_leaves(
-        &mut self,
-        tree: &Keypair,
-        leaves: Vec<[u8; 32]>,
-    ) -> Result<(), RigError> {
-        let mut data = vec![tag::APPEND_STATE_LEAVES];
-        AppendStateLeavesData { leaves }
-            .serialize(&mut data)
-            .expect("infallible");
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), false),
-            ],
-            data,
-        };
-        self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
     pub fn insert_addresses(
