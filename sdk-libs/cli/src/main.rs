@@ -1571,26 +1571,26 @@ fn parse_pocket_submit_opts(default_tx_name: &str, args: &[String]) -> Result<Po
 // and per-command recipient/asset flags.
 fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
     let opts = parse_pocket_submit_opts(default_tx_name, args)?;
-    if opts.bundle.is_none() {
-        if opts.state.is_none() {
-            bail!("{default_tx_name} direct proving requires --state");
-        }
-        if opts.keys_file.is_none() {
-            bail!("{default_tx_name} direct proving requires --keys-file");
-        }
-        if opts.prover_bin.is_none() {
-            bail!("{default_tx_name} direct proving requires --prover-bin");
-        }
-        if opts.amount.is_none() {
-            bail!("{default_tx_name} direct proving requires --amount");
-        }
-        if default_tx_name != "transfer"
-            && opts.spl_asset_pubkey.is_none()
-            && opts.has_spl_settlement()
-        {
-            bail!("{default_tx_name} direct proving requires --asset-pubkey/--spl-mint for SPL settlement");
-        }
-        if default_tx_name == "transfer" {
+    // A pre-built --bundle skips proving entirely, so it needs none of the
+    // proving inputs below.
+    if opts.bundle.is_some() {
+        return Ok(opts);
+    }
+    if opts.state.is_none() {
+        bail!("{default_tx_name} direct proving requires --state");
+    }
+    if opts.keys_file.is_none() {
+        bail!("{default_tx_name} direct proving requires --keys-file");
+    }
+    if opts.prover_bin.is_none() {
+        bail!("{default_tx_name} direct proving requires --prover-bin");
+    }
+    if opts.amount.is_none() {
+        bail!("{default_tx_name} direct proving requires --amount");
+    }
+    // Per-command requirements, dispatched once on the command name.
+    match default_tx_name {
+        "transfer" => {
             if opts.recipient_state.is_none()
                 || (opts.recipient_wallet.is_none() && opts.recipient_p256_wallet.is_none())
             {
@@ -1598,6 +1598,12 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
             }
             if opts.recipient_wallet.is_some() && opts.recipient_p256_wallet.is_some() {
                 bail!("transfer direct proving accepts only one of --recipient-wallet or --recipient-p256-wallet");
+            }
+        }
+        // shield / unshield: a public SPL settlement needs the asset pubkey.
+        _ => {
+            if opts.spl_asset_pubkey.is_none() && opts.has_spl_settlement() {
+                bail!("{default_tx_name} direct proving requires --asset-pubkey/--spl-mint for SPL settlement");
             }
         }
     }
