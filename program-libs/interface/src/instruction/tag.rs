@@ -15,19 +15,24 @@ pub const CREATE_POCKET_CONFIG: u8 = 12;
 pub const UPDATE_POCKET_CONFIG_OWNER: u8 = 13;
 pub const UPDATE_POCKET_CONFIG: u8 = 14;
 
-// === Spec-reserved, NOT yet implemented ===
-// These tag values are reserved by the SPP spec but have no handler: the
-// program dispatch rejects them with InvalidInstructionData, and there are no
-// instruction-data types for them. They live here only to keep the wire
-// numbering stable and reserved; they are intentionally absent from
-// `InstructionTag` (which describes the dispatchable surface) until implemented.
-pub const POCKET_TRANSACT: u8 = 2;
-pub const POCKET_AUTHORITY_TRANSACT: u8 = 3;
-pub const MERGE_TRANSACT: u8 = 15;
-pub const ENABLE_MERGE_AUTHORITY: u8 = 16;
-pub const DISABLE_MERGE_AUTHORITY: u8 = 17;
-pub const CREATE_MERGE_AUTHORITY_TREE: u8 = 18;
-pub const MERGE_POCKET: u8 = 19;
+/// Spec-reserved instruction tags that have **no handler** in the program.
+///
+/// These values are reserved by the SPP spec but are not dispatchable: the
+/// program rejects them with `InvalidInstructionData` exactly like any unknown
+/// byte, and there are no instruction-data types for them. They live in this
+/// separate `reserved` namespace — rather than alongside the crate-level `tag::`
+/// constants — so the top-level tag surface is exactly the shipped,
+/// dispatchable instruction set. These only reserve their wire numbers so a
+/// future implementation keeps the numbering stable.
+pub mod reserved {
+    pub const POCKET_TRANSACT: u8 = 2;
+    pub const POCKET_AUTHORITY_TRANSACT: u8 = 3;
+    pub const MERGE_TRANSACT: u8 = 15;
+    pub const ENABLE_MERGE_AUTHORITY: u8 = 16;
+    pub const DISABLE_MERGE_AUTHORITY: u8 = 17;
+    pub const CREATE_MERGE_AUTHORITY_TREE: u8 = 18;
+    pub const MERGE_POCKET: u8 = 19;
+}
 
 // === Legacy/internal tree maintenance ===
 // Outside the SPP spec dispatch table; intentionally above the reserved
