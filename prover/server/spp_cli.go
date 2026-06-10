@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"light/light-prover/prover/common"
 	"light/light-prover/prover/spp/protocol"
-	nullifierbatchupdate "light/light-prover/prover/spp/prover/nullifier_batch_update"
 	txprover "light/light-prover/prover/spp/prover/transaction"
 	"os"
 	"path/filepath"
@@ -59,81 +56,6 @@ func sppCommand() *cli.Command {
 					return err
 				}
 				return txprover.WriteVerifyingKeyText(system.VerifyingKey, context.String("output"))
-			},
-		},
-		{
-			Name: "export-nullifier-update-vk",
-			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "keys-file", Usage: "SPP nullifier update proving system file", Required: true},
-				&cli.StringFlag{Name: "output", Usage: "text verifying key output", Required: true},
-			},
-			Action: func(context *cli.Context) error {
-				system, err := common.ReadSystemFromFile(context.String("keys-file"))
-				if err != nil {
-					return err
-				}
-				batchSystem, ok := system.(*common.BatchProofSystem)
-				if !ok || batchSystem.CircuitType != common.SppNullifierUpdateCircuitType {
-					return fmt.Errorf("expected %s proving system", common.SppNullifierUpdateCircuitType)
-				}
-				if err := os.MkdirAll(filepath.Dir(context.String("output")), 0755); err != nil {
-					return err
-				}
-				return txprover.WriteVerifyingKeyText(batchSystem.VerifyingKey, context.String("output"))
-			},
-		},
-		{
-			Name: "setup-nullifier-update",
-			Flags: []cli.Flag{
-				&cli.UintFlag{Name: "tree-height", Usage: "SPP nullifier indexed-tree height", Value: 40, Required: false},
-				&cli.UintFlag{Name: "batch-size", Usage: "queued nullifiers per proof", Value: 10, Required: false},
-				&cli.StringFlag{Name: "output", Usage: "proving system output", Required: true},
-				&cli.StringFlag{Name: "output-vkey", Usage: "text verifying key output", Required: false},
-			},
-			Action: func(context *cli.Context) error {
-				system, err := nullifierbatchupdate.SetupNullifierBatchUpdate(
-					uint32(context.Uint("tree-height")),
-					uint32(context.Uint("batch-size")),
-				)
-				if err != nil {
-					return err
-				}
-				if err := os.MkdirAll(filepath.Dir(context.String("output")), 0755); err != nil {
-					return err
-				}
-				if vkey := context.String("output-vkey"); vkey != "" {
-					if err := os.MkdirAll(filepath.Dir(vkey), 0755); err != nil {
-						return err
-					}
-				}
-				return common.WriteProvingSystem(system, context.String("output"), context.String("output-vkey"))
-			},
-		},
-		{
-			Name:  "prove-nullifier-update",
-			Usage: "prove an SPP nullifier indexed-tree batch update from explicit witness JSON",
-			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "keys-file", Usage: "SPP nullifier update proving system file", Required: true},
-				&cli.StringFlag{Name: "input", Usage: "nullifier update request JSON input", Required: true},
-				&cli.StringFlag{Name: "output", Usage: "nullifier update proof bundle JSON output", Required: true},
-			},
-			Action: func(context *cli.Context) error {
-				system, err := common.ReadSystemFromFile(context.String("keys-file"))
-				if err != nil {
-					return err
-				}
-				batchSystem, ok := system.(*common.BatchProofSystem)
-				if !ok || batchSystem.CircuitType != common.SppNullifierUpdateCircuitType {
-					return fmt.Errorf("expected %s proving system", common.SppNullifierUpdateCircuitType)
-				}
-				if err := os.MkdirAll(filepath.Dir(context.String("output")), 0755); err != nil {
-					return err
-				}
-				return nullifierbatchupdate.WriteNullifierBatchUpdateBundle(
-					batchSystem,
-					context.String("input"),
-					context.String("output"),
-				)
 			},
 		},
 		{

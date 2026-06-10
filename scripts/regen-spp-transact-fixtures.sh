@@ -12,8 +12,8 @@
 # Run from anywhere inside the repo on the tip branch (spp/7-demo), where both
 # output paths exist. The transact circuit is bsb22 (commitment) groth16,
 # verified on-chain by Groth16Verifier; vkeys are emitted by
-# `xtask generate-vkey-rs` WITHOUT --standard (that flag is for the nullifier
-# tree's standard-groth16 key; see regen-spp-nullifier-vkey.sh).
+# `xtask generate-vkey-rs` WITHOUT --standard (that flag emits standard
+# groth16 keys, kept for future light_verifier-style circuits).
 #
 # The e2e-proof-bundle argument values mirror the litesvm test's hardcoded
 # keypairs in program-tests/shielded-pool/tests/transact_e2e.rs:

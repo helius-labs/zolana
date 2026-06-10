@@ -225,23 +225,10 @@ build-spp-spec-keys: build-prover-server
         fi
     done
 
-build-spp-nullifier-keys: build-prover-server
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p target/spp
-    stem="target/spp/spp-nullifier-update_40_10"
-    if [[ ! -f "${stem}.key" ]]; then
-        target/prover-server spp setup-nullifier-update --tree-height 40 --batch-size 10 --output "${stem}.key" --output-vkey "${stem}.vkey"
-    fi
-
 # Regenerate transact vkeys + e2e fixtures after a transaction-circuit change
 # (run from the tip branch). See the script header for what each arg means.
 regen-spp-transact-fixtures:
     scripts/regen-spp-transact-fixtures.sh
-
-# Regenerate the nullifier batch-update verifying key after a circuit change.
-regen-spp-nullifier-vkey:
-    scripts/regen-spp-nullifier-vkey.sh
 
 # === Formatting and linting ===
 
