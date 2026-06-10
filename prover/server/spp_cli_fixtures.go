@@ -72,6 +72,21 @@ func sppFixtureCommands() []*cli.Command {
 				return nil
 			},
 		},
+		{
+			Name:  "batch-update-fixture",
+			Usage: "generate the forester batch-update (address-append) e2e fixture",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "proving-key", Usage: "Light batch_address-append_40_10.key path", Required: true},
+				&cli.StringFlag{Name: "output", Usage: "batch-update fixture JSON output", Required: true},
+			},
+			Action: func(context *cli.Context) error {
+				if err := spp.WriteBatchUpdateFixture(context.String("proving-key"), context.String("output")); err != nil {
+					return err
+				}
+				fmt.Printf("wrote %s\n", context.String("output"))
+				return nil
+			},
+		},
 	}
 }
 

@@ -230,6 +230,10 @@ build-spp-spec-keys: build-prover-server
 regen-spp-transact-fixtures:
     scripts/regen-spp-transact-fixtures.sh
 
+# Regenerate the forester batch-update (address-append) e2e fixture.
+regen-spp-batch-update-fixture:
+    scripts/regen-spp-batch-update-fixture.sh
+
 # === Formatting and linting ===
 
 fmt:
