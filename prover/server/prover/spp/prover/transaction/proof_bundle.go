@@ -252,13 +252,20 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 	}
 
 	return ProofTransaction{
-		Name:                    tx.Name,
-		ExpiryUnixTs:            tx.ExpiryUnixTs,
-		SenderViewTag:           parse.HexString(tx.SenderViewTag),
-		Proof:                   &common.Proof{Proof: proof},
-		RelayerFee:              tx.RelayerFee,
-		Nullifiers:              proofBigIntHexes(debug.nullifiers),
-		OutputUtxoHashes:        proofBigIntHexes(debug.outputHashes),
+		Name:          tx.Name,
+		ExpiryUnixTs:  tx.ExpiryUnixTs,
+		SenderViewTag: parse.HexString(tx.SenderViewTag),
+		Proof:         &common.Proof{Proof: proof},
+		RelayerFee:    tx.RelayerFee,
+		// Real-length public transcript. debug.{nullifiers,outputHashes} are
+		// padded to the circuit shape (reals first, then dummy slots), but the
+		// on-chain TransactData wants the real-length arrays (it pads
+		// internally) and requires the nullifier count to match the
+		// root-index counts, which are already real-length. Slicing at the
+		// source makes every bundle consumer correct instead of each one
+		// re-slicing (the e2e fixture builder did the latter).
+		Nullifiers:              proofBigIntHexes(debug.nullifiers[:len(tx.Inputs)]),
+		OutputUtxoHashes:        proofBigIntHexes(debug.outputHashes[:len(tx.Outputs)]),
 		UtxoTreeRootIndex:       utxoRootIndices,
 		NullifierTreeRootIndex:  nullifierRootIndices,
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
