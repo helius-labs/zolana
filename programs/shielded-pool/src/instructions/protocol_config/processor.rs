@@ -4,7 +4,10 @@ use zolana_interface::{
     state::{discriminator::PROTOCOL_CONFIG, PROTOCOL_CONFIG_ACCOUNT_LEN},
 };
 
-use crate::{error::ShieldedPoolError, instructions::create_pool_tree::init::set_pool_tree_paused};
+use crate::{
+    error::ShieldedPoolError,
+    instructions::{create_pool_tree::init::set_pool_tree_paused, loader},
+};
 
 pub fn process_create_protocol_config(
     program_id: &Address,
@@ -16,8 +19,7 @@ pub fn process_create_protocol_config(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    // SAFETY: `config` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { config.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(config);
     if bytes[..PROTOCOL_CONFIG_ACCOUNT_LEN]
         .iter()
         .any(|byte| *byte != 0)
@@ -39,8 +41,7 @@ pub fn process_update_protocol_config(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    // SAFETY: `config` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { config.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(config);
     write_protocol_config(bytes, &data.new_authority);
     Ok(())
 }
@@ -71,8 +72,7 @@ pub fn process_pause_tree(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    // SAFETY: `tree` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(tree);
     set_pool_tree_paused(bytes, data.paused)
         .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
     Ok(())

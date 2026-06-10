@@ -12,7 +12,8 @@ use zolana_interface::{
 };
 
 use crate::{
-    error::ShieldedPoolError, instructions::protocol_config::processor::read_protocol_config,
+    error::ShieldedPoolError,
+    instructions::{loader, protocol_config::processor::read_protocol_config},
     log::log,
 };
 
@@ -177,8 +178,7 @@ fn write_asset_registry(
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
 
-    // SAFETY: the registry account is writable and uniquely borrowed by the caller.
-    let registry_data = unsafe { registry.borrow_unchecked_mut() };
+    let registry_data = loader::account_data_mut(registry);
     if registry_data[..SPL_ASSET_REGISTRY_ACCOUNT_LEN]
         .iter()
         .any(|byte| *byte != 0)

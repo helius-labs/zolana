@@ -6,6 +6,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 
 use super::{verify::verify, verifying_key};
+use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError,
     instructions::create_pool_tree::init::{
@@ -26,9 +27,7 @@ pub fn process_batch_update_nullifier_tree(
     let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
 
-    // SAFETY: tree is the writable account passed by the caller and not
-    // aliased with any other borrowed account.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     let old_nullifier_root_index = current_nullifier_root_index(bytes)
         .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
     let old_nullifier_root = nullifier_root_by_index(bytes, old_nullifier_root_index)

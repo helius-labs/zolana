@@ -5,7 +5,7 @@ use zolana_interface::{
     POCKET_AUTH_PDA_SEED, SPP_POCKET_CONFIG_PDA_SEED,
 };
 
-use crate::error::ShieldedPoolError;
+use crate::{error::ShieldedPoolError, instructions::loader};
 
 pub fn process_create_pocket_config(
     program_id: &Address,
@@ -32,8 +32,7 @@ pub fn process_create_pocket_config(
     validate_pocket_auth(pocket_auth, &data)?;
     validate_pocket_config_address(config, program_id, &data)?;
 
-    // SAFETY: `config` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { config.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(config);
     if bytes[..POCKET_CONFIG_ACCOUNT_LEN]
         .iter()
         .any(|byte| *byte != 0)
@@ -59,8 +58,7 @@ pub fn process_update_pocket_config_owner(
     if authority.address().as_ref() != current.authority {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
-    // SAFETY: `config` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { config.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(config);
     write_pocket_config(
         bytes,
         &data.new_authority,
@@ -80,8 +78,7 @@ pub fn process_update_pocket_config(
     if authority.address().as_ref() != current.authority || current.authority == [0u8; 32] {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
-    // SAFETY: `config` is writable and uniquely borrowed from `accounts`.
-    let bytes = unsafe { config.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(config);
     write_pocket_config(
         bytes,
         &current.authority,

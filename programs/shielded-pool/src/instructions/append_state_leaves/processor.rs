@@ -2,6 +2,7 @@ use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::AppendStateLeavesData;
 
 use super::verify::verify;
+use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError,
     instructions::create_pool_tree::init::append_state_leaves as append_to_pool, log::log,
@@ -13,9 +14,7 @@ pub fn process_append_state_leaves(
     data: AppendStateLeavesData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
-    // SAFETY: `MutablePoolTreeAccounts::tree` is the writable account passed
-    // by the caller and not aliased with any other borrowed account.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     if append_to_pool(bytes, &data.leaves).is_err() {
         log("append_state_leaves: state sub-tree append failed");
         return Err(ShieldedPoolError::StateAppendFailed.into());

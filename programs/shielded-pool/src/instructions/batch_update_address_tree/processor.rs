@@ -6,6 +6,7 @@ use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
 use super::verify::verify;
+use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError, instructions::create_pool_tree::init::address_sub_tree_slice_mut,
     log::log,
@@ -19,9 +20,7 @@ pub fn process_batch_update_address_tree(
     let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
 
-    // SAFETY: tree is the writable account passed by the caller and not
-    // aliased with any other borrowed account.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     let address_slice = address_sub_tree_slice_mut(bytes)
         .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
     let mut tree = BatchedMerkleTreeAccount::address_from_bytes(address_slice, &tree_pubkey)

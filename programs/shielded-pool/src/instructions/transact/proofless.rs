@@ -5,6 +5,7 @@ use zolana_interface::instruction::{ProoflessShieldData, TransactData, PUBLIC_AM
 use super::proof::solana_pk_hash;
 use super::settlement::{settle_public_amounts, spl_asset_pubkey};
 use super::verify::load_transact_accounts;
+use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError,
     instructions::{
@@ -78,18 +79,7 @@ pub fn process_proofless_shield(
 
     settle_public_amounts(program_id, &verified.settlement, &tx)?;
 
-    // Do NOT insert bootstrap_view_tag into the nullifier queue. Only
-    // sender_view_tag / merge_view_tag are single-use and belong in the
-    // nullifier tree (spec "View tags"); bootstrap_view_tag is the recipient's
-    // viewing_pk — constant per recipient and reused on every first-contact
-    // deposit — so queueing it would make the bloom dedup reject the recipient's
-    // second proofless shield forever. The indexer discovers proofless shields
-    // by scanning instruction data (bootstrap_view_tag + cleartext_utxo), which
-    // is the documented handling for reusable tags.
-    //
-    // SAFETY: `tree` is the writable account passed by the caller and is not
-    // aliased with the settlement accounts borrowed above.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     if append_to_pool(bytes, &[utxo_hash]).is_err() {
         log("proofless_shield: state sub-tree append failed");
         return Err(ShieldedPoolError::StateAppendFailed.into());

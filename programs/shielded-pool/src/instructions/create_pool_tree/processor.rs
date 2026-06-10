@@ -2,6 +2,7 @@ use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::CreatePoolTreeData;
 
 use super::{init::init_pool_tree_account, verify::verify};
+use crate::instructions::loader;
 use crate::error::ShieldedPoolError;
 
 pub fn process_create_pool_tree(
@@ -11,9 +12,7 @@ pub fn process_create_pool_tree(
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
-    // SAFETY: `MutablePoolTreeAccounts::tree` is the writable account passed
-    // by the caller and not aliased with any other borrowed account.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     init_pool_tree_account(bytes, program_id, &tree_pubkey)
         .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
     Ok(())

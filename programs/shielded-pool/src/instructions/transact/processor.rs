@@ -8,6 +8,7 @@ use zolana_interface::instruction::TransactData;
 use super::proof::verify_transact_proof;
 use super::settlement::settle_public_amounts;
 use super::verify::verify;
+use crate::instructions::loader;
 use crate::{
     error::ShieldedPoolError,
     instructions::create_pool_tree::init::{
@@ -28,7 +29,7 @@ pub fn process_transact(
     // settlement and the later state mutation. The root-history loader currently
     // needs a mutable byte slice even though proof verification does not mutate it.
     {
-        let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+        let bytes = loader::account_data_mut(verified.tree);
         verify_transact_proof(bytes, &data, &verified.settlement)?;
     }
 
@@ -49,9 +50,7 @@ pub fn process_transact(
         }
     }
 
-    // SAFETY: `MutablePoolTreeAccounts::tree` is the writable account passed
-    // by the caller and not aliased with any other borrowed account.
-    let bytes = unsafe { verified.tree.borrow_unchecked_mut() };
+    let bytes = loader::account_data_mut(verified.tree);
     insert_queue_entries(bytes, tree_pubkey, &queue_entries)?;
 
     if !output_leaves.is_empty() && append_to_pool(bytes, &output_leaves).is_err() {
