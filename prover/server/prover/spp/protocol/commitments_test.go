@@ -120,9 +120,13 @@ func TestNullifierMatchesSpecFormula(t *testing.T) {
 	}
 
 	nullifier := mustNullifierHash(t, utxoHash, utxo.Blinding, secret)
-	wantNullifier := mustPoseidon(t, 4, []*big.Int{utxoHash, utxo.Blinding, secret})
+	// spec: nullifier := truncate_248(Poseidon(utxo_hash, utxo_blinding, nullifier_secret))
+	wantNullifier := Truncate248(mustPoseidon(t, 4, []*big.Int{utxoHash, utxo.Blinding, secret}))
 	if nullifier.Cmp(wantNullifier) != 0 {
 		t.Fatalf("nullifier mismatch: got %s want %s", nullifier, wantNullifier)
+	}
+	if nullifier.BitLen() > 248 {
+		t.Fatalf("nullifier exceeds the 248-bit tree domain: %d bits", nullifier.BitLen())
 	}
 
 	other := mustNullifierFromSecret(t, utxo, fe(100))

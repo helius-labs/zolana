@@ -49,15 +49,24 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	})
 }
 
+// NullifierHashCircuit mirrors protocol.NullifierHash: the Poseidon image
+// truncated to the nullifier tree's 248-bit indexed value domain
+// (light-batched-merkle-tree; values >= 2^248 could never be batch-proven).
+// gnark's full-width ToBinary emits the canonical (< p) decomposition check,
+// which is soundness-critical: a non-canonical decomposition would admit the
+// alias x + p, whose low 248 bits differ — a second valid nullifier for the
+// same UTXO, i.e. a double spend.
 func NullifierHashCircuit(
 	api frontend.API,
 	utxoHash frontend.Variable,
 	blinding frontend.Variable,
 	nullifierSecret frontend.Variable,
 ) frontend.Variable {
-	return poseidon.HashCircuitWithT(api, 4, []frontend.Variable{
+	full := poseidon.HashCircuitWithT(api, 4, []frontend.Variable{
 		utxoHash,
 		blinding,
 		nullifierSecret,
 	})
+	bits := api.ToBinary(full)
+	return api.FromBinary(bits[:nullifierDomainBits]...)
 }

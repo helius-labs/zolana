@@ -7,8 +7,14 @@ import (
 	"light/light-prover/prover/poseidon"
 )
 
-// nullifierUpperBound is both the exclusive upper bound and the final next-value sentinel.
-var nullifierUpperBound = new(big.Int).Sub(poseidon.Modulus, big.NewInt(1))
+// nullifierUpperBound is both the exclusive upper bound and the final
+// next-value sentinel: 2^248 - 1, Light's HIGHEST_ADDRESS_PLUS_ONE. The SPP
+// nullifier tree IS a light-batched-merkle-tree (AddressV2, H=40), so it
+// inherits Light's 248-bit indexed value domain — the init leaf is
+// Poseidon2(0, 2^248-1) and the batch-append circuit range-checks values to
+// 248 bits. Nullifiers are truncated to this domain at derivation
+// (see Truncate248).
+var nullifierUpperBound = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
 
 func indexedLeafHash(value, nextValue *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("indexed leaf value", value); err != nil {

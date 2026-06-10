@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"testing"
 
+	"light/light-prover/prover/poseidon"
 	"light/light-prover/prover/spp/internal/spptest"
 	"light/light-prover/prover/spp/protocol"
 
@@ -718,11 +719,11 @@ func twoOutputUtxos(output protocol.Utxo) []protocol.Utxo {
 
 func sampleUtxo(base int) protocol.Utxo {
 	return protocol.Utxo{
-		Domain:        spptest.Fe(protocol.UtxoDomain),
-		Owner:         testOwnerHashForNullifierSecret(spptest.Fe(99)),
-		AssetID:       spptest.Fe(int64(base + 3)),
-		AssetAmount:   spptest.Fe(int64(base + 4)),
-		Blinding:      spptest.Fe(int64(base + 5)),
+		Domain:      spptest.Fe(protocol.UtxoDomain),
+		Owner:       testOwnerHashForNullifierSecret(spptest.Fe(99)),
+		AssetID:     spptest.Fe(int64(base + 3)),
+		AssetAmount: spptest.Fe(int64(base + 4)),
+		Blinding:    spptest.Fe(int64(base + 5)),
 		// Default transact requires bare UTXOs (no program/policy/zone data).
 		DataHash:      spptest.Fe(0),
 		ZoneDataHash:  spptest.Fe(0),
@@ -863,4 +864,37 @@ func circuitFieldsToUtxo(fields UtxoCircuitFields) protocol.Utxo {
 		ZoneDataHash:  spptest.AsBigInt(fields.ZoneDataHash),
 		ZoneProgramID: spptest.AsBigInt(fields.ZoneProgramID),
 	}
+}
+
+// The nullifier is the Poseidon image truncated to the tree's 248-bit domain
+// with a canonical (< p) decomposition. Two values an attacker might try to
+// substitute must both fail: the untruncated full image, and the low 248 bits
+// of the alias full+p (what a NON-canonical decomposition would yield — the
+// double-spend vector the canonical check exists to block).
+func TestCircuitRejectsUntruncatedAndAliasNullifier(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+
+	inputUtxos, _ := defaultBalancedUtxos(t, shape)
+	inputHash := spptest.MustUtxoHash(t, inputUtxos[0])
+	full, err := poseidon.HashWithT(4, []*big.Int{inputHash, inputUtxos[0].Blinding, spptest.Fe(99)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.BitLen() <= 248 {
+		// The fixture's full image happens to fit 248 bits, which would make
+		// the untruncated case vacuous. Deterministic fixtures make this a
+		// stable property — fail loudly so the fixture gets adjusted.
+		t.Fatal("fixture nullifier image fits 248 bits; pick a different fixture")
+	}
+
+	untruncated := buildCircuitAssignment(t, shape)
+	untruncated.Inputs[0].Nullifier = new(big.Int).Set(full)
+	assert.SolvingFailed(circuit, untruncated, test.WithCurves(ecc.BN254))
+
+	alias := buildCircuitAssignment(t, shape)
+	aliasFull := new(big.Int).Add(full, poseidon.Modulus)
+	alias.Inputs[0].Nullifier = protocol.Truncate248(aliasFull)
+	assert.SolvingFailed(circuit, alias, test.WithCurves(ecc.BN254))
 }
