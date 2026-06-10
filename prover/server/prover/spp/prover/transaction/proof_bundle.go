@@ -91,6 +91,7 @@ type ProofTransaction struct {
 	PublicSplAmount         *uint64             `json:"public_spl_amount"`
 	PublicSplAssetPubkey    string              `json:"public_spl_asset_pubkey"`
 	EncryptedUtxos          string              `json:"encrypted_utxos"`
+	RequiresP256            bool                `json:"requires_p256"`
 	PublicInputHash         string              `json:"public_input_hash"`
 	ExternalDataHash        string              `json:"external_data_hash"`
 	UserSolAccount          string              `json:"user_sol_account"`
@@ -266,6 +267,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		PublicSplAmount:         tx.PublicSplAmount,
 		PublicSplAssetPubkey:    parse.HexString(tx.PublicSplAssetPubkey),
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
+		RequiresP256:            debug.requiresP256OwnerWitness,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
 		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
 		UserSolAccount:          parse.BytesHex(userSolAccount[:]),
