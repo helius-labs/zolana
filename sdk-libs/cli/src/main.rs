@@ -1075,6 +1075,10 @@ struct PocketProofTx {
     spl_token_interface: String,
     #[serde(default)]
     solana_owner_input_indices: Option<Vec<u8>>,
+    // Ownership rail (P256-capable vs Solana-only circuit). Defaults to the
+    // Solana rail for older bundles that predate the field.
+    #[serde(default)]
+    requires_p256: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -2929,6 +2933,7 @@ fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
             tx.solana_owner_input_indices.as_deref(),
         ),
         encrypted_utxos: hex_bytes(&tx.encrypted_utxos)?,
+        requires_p256: tx.requires_p256,
     })
 }
 
