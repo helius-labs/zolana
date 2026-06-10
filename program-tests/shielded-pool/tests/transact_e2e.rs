@@ -1092,14 +1092,15 @@ fn transact_rejects_stale_nullifier_root_index_without_mutating() {
     let mut data = transact_data(&transfer);
     data.nullifier_tree_root_index[0] = 199;
 
-    // Non-inclusion must be proven against the CURRENT nullifier root only;
-    // any other index (here a stale/unknown 199) is rejected as
-    // StaleNullifierRoot before any proof check or state mutation. This is the
-    // double-spend guard against proving non-inclusion at a pre-spend root
-    // once the nullifier's queue bloom filter has been zeroed.
+    // Nullifier roots resolve from the Light tree's root_history; a zeroed
+    // slot (never written, or invalidated by zero_out_roots after a bloom
+    // wipe) is rejected as StaleNullifierRoot before any proof check or state
+    // mutation. Index 199 was never written here, so its slot is zero — the
+    // same check that blocks proving non-inclusion at a pre-spend root once
+    // the nullifier's queue bloom filter has been zeroed.
     let err = submit_data(&mut rig, &tree, data, None)
-        .expect_err("non-current nullifier root index must fail before proof/state mutation");
-    assert_error_contains(err, "Custom(21)"); // ShieldedPoolError::StaleNullifierRoot
+        .expect_err("zeroed nullifier root slot must fail before proof/state mutation");
+    assert_error_contains(err, "Custom(19)"); // ShieldedPoolError::StaleNullifierRoot
     assert_eq!(
         rig.account_data(&tree.pubkey()).expect("account data"),
         before

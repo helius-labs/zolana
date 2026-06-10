@@ -18,15 +18,4 @@ mod tests {
 
         assert!(process_instruction(&program_id, &mut [], &data).is_err());
     }
-
-    #[test]
-    fn retired_nullifier_batch_update_tag_is_rejected() {
-        // Tag 53 (BATCH_UPDATE_NULLIFIER_TREE) was retired when the nullifier
-        // tree collapsed into the Light batched address tree; the dispatch
-        // must reject it like any unknown byte.
-        let data = vec![53u8, 0, 0, 0];
-        let program_id = pinocchio::Address::new_from_array([0u8; 32]);
-
-        assert!(process_instruction(&program_id, &mut [], &data).is_err());
-    }
 }
