@@ -40,7 +40,10 @@ pub mod reserved {
 pub const INSERT_ADDRESSES: u8 = 50;
 pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 pub const APPEND_STATE_LEAVES: u8 = 52;
-pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 53;
+// Tag 53 (BATCH_UPDATE_NULLIFIER_TREE) is retired, not reusable: the SPP
+// nullifier tree IS the Light batched address tree, so BATCH_UPDATE_ADDRESS_TREE
+// is the single forester update path (one Light batch-append proof advances
+// the one tree). The dual-proof instruction no longer exists.
 
 /// Typed view of an *implemented* instruction tag.
 ///
@@ -54,7 +57,6 @@ pub enum InstructionTag {
     CreatePoolTree = CREATE_POOL_TREE,
     InsertAddresses = INSERT_ADDRESSES,
     BatchUpdateAddressTree = BATCH_UPDATE_ADDRESS_TREE,
-    BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     AppendStateLeaves = APPEND_STATE_LEAVES,
     Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
@@ -75,7 +77,6 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_POOL_TREE => Ok(Self::CreatePoolTree),
             INSERT_ADDRESSES => Ok(Self::InsertAddresses),
             BATCH_UPDATE_ADDRESS_TREE => Ok(Self::BatchUpdateAddressTree),
-            BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             APPEND_STATE_LEAVES => Ok(Self::AppendStateLeaves),
             TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),

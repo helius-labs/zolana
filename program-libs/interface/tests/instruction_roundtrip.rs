@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
     encode_instruction, tag, AppendStateLeavesData, BatchUpdateAddressTreeData,
-    BatchUpdateNullifierTreeData, CreatePocketConfigData, CreatePoolTreeData,
+    CreatePocketConfigData, CreatePoolTreeData,
     CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex, InsertAddressesData,
     InstructionTag, PauseTreeData, TransactData, UpdatePocketConfigData,
     UpdatePocketConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
@@ -68,29 +68,6 @@ fn batch_update_address_tree_roundtrip() {
     assert_eq!(
         InstructionTag::try_from(bytes[0]),
         Ok(InstructionTag::BatchUpdateAddressTree)
-    );
-    assert_eq!(decoded, payload);
-}
-
-#[test]
-fn batch_update_nullifier_tree_roundtrip() {
-    let payload = BatchUpdateNullifierTreeData {
-        address_new_root: [3u8; 32],
-        address_compressed_proof_a: [4u8; 32],
-        address_compressed_proof_b: [5u8; 64],
-        address_compressed_proof_c: [6u8; 32],
-        nullifier_new_root: [7u8; 32],
-        nullifier_compressed_proof_a: [8u8; 32],
-        nullifier_compressed_proof_b: [9u8; 64],
-        nullifier_compressed_proof_c: [10u8; 32],
-    };
-    let bytes = encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &payload);
-    let decoded = BatchUpdateNullifierTreeData::try_from_slice(&bytes[1..]).unwrap();
-
-    assert_eq!(bytes[0], tag::BATCH_UPDATE_NULLIFIER_TREE);
-    assert_eq!(
-        InstructionTag::try_from(bytes[0]),
-        Ok(InstructionTag::BatchUpdateNullifierTree)
     );
     assert_eq!(decoded, payload);
 }
