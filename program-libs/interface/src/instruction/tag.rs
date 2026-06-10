@@ -39,7 +39,6 @@ pub mod reserved {
 // proof/pocket tag range so they never collide with spec tags.
 pub const INSERT_ADDRESSES: u8 = 50;
 pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
-pub const APPEND_STATE_LEAVES: u8 = 52;
 
 /// Typed view of an *implemented* instruction tag.
 ///
@@ -53,7 +52,6 @@ pub enum InstructionTag {
     CreatePoolTree = CREATE_POOL_TREE,
     InsertAddresses = INSERT_ADDRESSES,
     BatchUpdateAddressTree = BATCH_UPDATE_ADDRESS_TREE,
-    AppendStateLeaves = APPEND_STATE_LEAVES,
     Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
     CreateSplInterface = CREATE_SPL_INTERFACE,
@@ -73,7 +71,6 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_POOL_TREE => Ok(Self::CreatePoolTree),
             INSERT_ADDRESSES => Ok(Self::InsertAddresses),
             BATCH_UPDATE_ADDRESS_TREE => Ok(Self::BatchUpdateAddressTree),
-            APPEND_STATE_LEAVES => Ok(Self::AppendStateLeaves),
             TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),
