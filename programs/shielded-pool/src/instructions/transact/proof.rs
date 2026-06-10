@@ -17,8 +17,11 @@ use crate::{
     log::log,
 };
 
-const SPP_MAX_INPUTS: usize = 5;
-const SPP_MAX_OUTPUTS: usize = 8;
+/// Largest input/output counts any supported transact shape can hold (the
+/// `(5, 3)` and `(1, 8)` shapes). Used to bound instruction-data lengths and
+/// to size fixed `[_; SPP_MAX_INPUTS]` scratch buffers.
+pub(crate) const SPP_MAX_INPUTS: usize = 5;
+pub(crate) const SPP_MAX_OUTPUTS: usize = 8;
 const BN254_FR_MODULUS: [u8; 32] = [
     0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,

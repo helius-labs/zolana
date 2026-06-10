@@ -11,10 +11,8 @@ use zolana_interface::{
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
 };
 
+use super::proof::{SPP_MAX_INPUTS, SPP_MAX_OUTPUTS};
 use crate::{error::ShieldedPoolError, instructions::transact::settlement::SettlementAccounts};
-
-const SPP_MAX_INPUTS: usize = 5;
-const SPP_MAX_OUTPUTS: usize = 8;
 
 pub struct TransactAccounts<'a> {
     pub tree: &'a mut AccountView,
