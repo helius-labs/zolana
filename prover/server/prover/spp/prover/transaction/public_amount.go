@@ -21,17 +21,24 @@ type publicAmounts struct {
 }
 
 func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
-	if tx.PublicAmountMode > publicAmountUnshield {
-		return publicAmounts{}, fmt.Errorf("spp: invalid public_amount_mode %d", tx.PublicAmountMode)
-	}
-
 	sol := u64OrZero(tx.PublicSolAmount)
 	spl := u64OrZero(tx.PublicSplAmount)
-	if tx.PublicAmountMode == publicAmountTransfer && (sol != 0 || spl != 0 || tx.RelayerFee != 0) {
-		return publicAmounts{}, fmt.Errorf("spp: transfer mode carries public settlement")
-	}
-	if tx.PublicAmountMode == publicAmountShield && tx.RelayerFee != 0 {
-		return publicAmounts{}, fmt.Errorf("spp: shield mode carries relayer fee")
+	// Validate the per-mode invariants with one switch on the mode (mirrors the
+	// switch in signedSolAmount/signedSplAmount), so the invalid-mode guard and
+	// the mode-specific checks live in one place.
+	switch tx.PublicAmountMode {
+	case publicAmountTransfer:
+		if sol != 0 || spl != 0 || tx.RelayerFee != 0 {
+			return publicAmounts{}, fmt.Errorf("spp: transfer mode carries public settlement")
+		}
+	case publicAmountShield:
+		if tx.RelayerFee != 0 {
+			return publicAmounts{}, fmt.Errorf("spp: shield mode carries relayer fee")
+		}
+	case publicAmountUnshield:
+		// Withdraws may carry a relayer fee and public settlement.
+	default:
+		return publicAmounts{}, fmt.Errorf("spp: invalid public_amount_mode %d", tx.PublicAmountMode)
 	}
 
 	asset := big.NewInt(0)
