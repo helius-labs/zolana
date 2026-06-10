@@ -25,9 +25,11 @@ pub fn process_transact(
     let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
 
-    // SAFETY: this borrow is scoped to proof verification and ends before
-    // settlement and the later state mutation. The root-history loader currently
-    // needs a mutable byte slice even though proof verification does not mutate it.
+    // Scope the mutable account borrow to proof verification so it ends before
+    // settlement and the later state mutation (no overlapping borrow). The
+    // root-history loader currently needs a mutable byte slice even though
+    // proof verification does not mutate it. (account_data_mut's own unsafe
+    // contract is documented at its definition.)
     {
         let bytes = loader::account_data_mut(verified.tree);
         verify_transact_proof(bytes, &tree_pubkey, &data, &verified.settlement)?;
