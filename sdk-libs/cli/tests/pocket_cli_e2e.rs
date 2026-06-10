@@ -94,12 +94,14 @@ fn pocket_cli_creates_spec_p256_wallet() -> Result<()> {
             .len(),
         66
     );
+    // 0x + 31-byte (248-bit) field element = 64 chars. The 0x prefix is
+    // required: the prover's field parser reads un-prefixed hex as decimal.
     assert_eq!(
         wallet["nullifier_secret"]
             .as_str()
             .ok_or_else(|| anyhow!("wallet missing nullifier_secret"))?
             .len(),
-        62
+        64
     );
     Ok(())
 }

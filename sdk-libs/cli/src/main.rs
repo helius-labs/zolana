@@ -2472,20 +2472,24 @@ fn p256_signing_key(wallet: &PocketP256Wallet) -> Result<P256SigningKey> {
 }
 
 fn p256_nullifier_secret_hex(signing_key: &P256SigningKey) -> Result<String> {
-    // Bare hex, consistent with the wallet's p256_secret_key / p256_public_key.
-    Ok(hex::encode(p256_nullifier_secret_bytes_from_key(
-        signing_key,
-    )?))
+    // 0x-prefixed: nullifier_secret is a field element fed straight into the
+    // prover, whose field parser reads a bare (un-prefixed) hex string as
+    // decimal. Matches random_field_hex and the other request fields.
+    Ok(format!(
+        "0x{}",
+        hex::encode(p256_nullifier_secret_bytes_from_key(signing_key)?)
+    ))
 }
 
 // Wallet-wide nullifier secret for a Solana/Ed25519 owner, derived from the
 // signing key per spec ("Nullifier Key"): HKDF-SHA256(IKM=signing_sk). Used so
 // every UTXO of one Solana owner shares a nullifier_pk (multi-input spends).
 fn ed25519_nullifier_secret_hex(keypair: &Keypair) -> Result<String> {
-    // Bare hex, consistent with the p256 wallet fields.
-    Ok(hex::encode(nullifier_secret_bytes_from_ikm(
-        keypair.secret_bytes(),
-    )?))
+    // 0x-prefixed for the same reason as p256_nullifier_secret_hex.
+    Ok(format!(
+        "0x{}",
+        hex::encode(nullifier_secret_bytes_from_ikm(keypair.secret_bytes())?)
+    ))
 }
 
 fn p256_nullifier_secret_bytes_from_key(signing_key: &P256SigningKey) -> Result<[u8; 31]> {
