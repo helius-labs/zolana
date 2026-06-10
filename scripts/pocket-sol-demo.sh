@@ -17,6 +17,7 @@ VALIDATOR_LOG="${WORKDIR}/validator.log"
 POCKET="${ROOT}/target/debug/pocket"
 PROVER="${ROOT}/target/prover-server"
 KEYS_FILE="${ROOT}/target/spp/spp_1_2.key"
+SOLANA_KEYS_FILE="${ROOT}/target/spp/spp_1_2_solana.key"
 PROGRAM_SO="${ROOT}/target/deploy/shielded_pool_program.so"
 
 A_KEY="${WORKDIR}/wallet-a.json"
@@ -147,6 +148,15 @@ mkdir -p "$WORKDIR"
 
 echo "Building pocket CLI, prover keys, and shielded-pool SBF"
 just build-zolana-cli build-spp-keys
+# The 1-2 shape has two circuits: the P256-capable one (spp_1_2.key, used for
+# P256-owned spends) and the cheaper Solana-only one (spp_1_2_solana.key, used
+# for shields and Solana-owned spends — it omits the emulated-ECDSA gadget).
+# Proving a Solana/shield transaction with the P256 circuit feeds a zero P256
+# witness into that gadget and panics, so each operation below uses its rail.
+if [[ ! -f "$SOLANA_KEYS_FILE" ]]; then
+    "$PROVER" spp setup --inputs 1 --outputs 2 --solana \
+        --output "$SOLANA_KEYS_FILE" --output-vkey "${SOLANA_KEYS_FILE%.key}.vkey"
+fi
 cargo build-sbf --tools-version "${SBF_TOOLS_VERSION:-v1.54}" \
     --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
 
@@ -209,7 +219,7 @@ SHIELD_A_JSON="$("$POCKET" shield \
     --state "$A_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$SOLANA_KEYS_FILE" \
     --amount "$A_SHIELD_LAMPORTS")"
 printf '%s\n' "$SHIELD_A_JSON"
 print_signature "shield A" "$SHIELD_A_JSON"
@@ -224,7 +234,7 @@ TRANSFER_JSON="$("$POCKET" transfer \
     --recipient-state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$SOLANA_KEYS_FILE" \
     --amount "$TRANSFER_LAMPORTS")"
 printf '%s\n' "$TRANSFER_JSON"
 print_signature "transfer A to B" "$TRANSFER_JSON"
@@ -238,7 +248,7 @@ P256_SHIELD_A_JSON="$("$POCKET" shield \
     --owner-p256-wallet "$A_P256_WALLET" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$SOLANA_KEYS_FILE" \
     --amount "$P256_A_SHIELD_LAMPORTS")"
 printf '%s\n' "$P256_SHIELD_A_JSON"
 print_signature "shield A P256" "$P256_SHIELD_A_JSON"
@@ -281,7 +291,7 @@ SHIELD_B_JSON="$("$POCKET" shield \
     --state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$SOLANA_KEYS_FILE" \
     --amount "$B_SHIELD_LAMPORTS")"
 printf '%s\n' "$SHIELD_B_JSON"
 print_signature "shield B" "$SHIELD_B_JSON"
@@ -294,7 +304,7 @@ UNSHIELD_B_JSON="$("$POCKET" unshield \
     --state "$B_STATE" \
     --tree "$TREE" \
     --prover-bin "$PROVER" \
-    --keys-file "$KEYS_FILE" \
+    --keys-file "$SOLANA_KEYS_FILE" \
     --amount "$B_UNSHIELD_LAMPORTS")"
 printf '%s\n' "$UNSHIELD_B_JSON"
 print_signature "unshield B" "$UNSHIELD_B_JSON"
