@@ -82,6 +82,8 @@ struct FixtureShape {
 struct Fixture {
     name: String,
     shape: FixtureShape,
+    #[serde(default)]
+    requires_p256: bool,
     expiry_unix_ts: u64,
     sender_view_tag: String,
     proof: serde_json::Value,
@@ -167,6 +169,7 @@ fn transact_data(fixture: &Fixture) -> TransactData {
         cpi_signer: None,
         in_utxo_signer_indices: input_signer_indices(&fixture.solana_owner_input_indices),
         encrypted_utxos: bytes_from_hex(&fixture.encrypted_utxos),
+        requires_p256: fixture.requires_p256,
     }
 }
 
@@ -731,13 +734,22 @@ fn fixture_proofs_verify_against_committed_verifying_key() {
         let commitment = decompression::decompress_g1(&commitment).unwrap();
         let commitment_pok = decompression::decompress_g1(&commitment_pok).unwrap();
         let public_inputs = [public_input_hash];
-        let verifying_key = match (fixture.shape.n_inputs, fixture.shape.n_outputs) {
-            (1, 2) => &verifying_keys::spp_1_2::VERIFYINGKEY,
-            (2, 2) => &verifying_keys::spp_2_2::VERIFYINGKEY,
-            (3, 3) => &verifying_keys::spp_3_3::VERIFYINGKEY,
-            (5, 3) => &verifying_keys::spp_5_3::VERIFYINGKEY,
-            (1, 8) => &verifying_keys::spp_1_8::VERIFYINGKEY,
-            other => panic!("fixture {} has unsupported shape {other:?}", fixture.name),
+        let verifying_key = match (
+            fixture.shape.n_inputs,
+            fixture.shape.n_outputs,
+            fixture.requires_p256,
+        ) {
+            (1, 2, true) => &verifying_keys::spp_1_2::VERIFYINGKEY,
+            (1, 2, false) => &verifying_keys::spp_1_2_solana::VERIFYINGKEY,
+            (2, 2, true) => &verifying_keys::spp_2_2::VERIFYINGKEY,
+            (2, 2, false) => &verifying_keys::spp_2_2_solana::VERIFYINGKEY,
+            (3, 3, true) => &verifying_keys::spp_3_3::VERIFYINGKEY,
+            (3, 3, false) => &verifying_keys::spp_3_3_solana::VERIFYINGKEY,
+            (5, 3, true) => &verifying_keys::spp_5_3::VERIFYINGKEY,
+            (5, 3, false) => &verifying_keys::spp_5_3_solana::VERIFYINGKEY,
+            (1, 8, true) => &verifying_keys::spp_1_8::VERIFYINGKEY,
+            (1, 8, false) => &verifying_keys::spp_1_8_solana::VERIFYINGKEY,
+            other => panic!("fixture {} has unsupported shape/rail {other:?}", fixture.name),
         };
         let mut verifier = Groth16Verifier::new_with_commitment(
             &proof_a,
