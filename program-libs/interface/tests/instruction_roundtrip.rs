@@ -209,14 +209,9 @@ fn pocket_config_update_roundtrips() {
 }
 
 #[test]
-fn spec_reserved_tags_are_recognized() {
+fn implemented_tags_map_to_instruction_tag() {
     let tags = [
         (tag::PROOFLESS_SHIELD, InstructionTag::ProoflessShield),
-        (tag::POCKET_TRANSACT, InstructionTag::PocketTransact),
-        (
-            tag::POCKET_AUTHORITY_TRANSACT,
-            InstructionTag::PocketAuthorityTransact,
-        ),
         (
             tag::CREATE_PROTOCOL_CONFIG,
             InstructionTag::CreateProtocolConfig,
@@ -238,23 +233,26 @@ fn spec_reserved_tags_are_recognized() {
             tag::UPDATE_POCKET_CONFIG,
             InstructionTag::UpdatePocketConfig,
         ),
-        (tag::MERGE_TRANSACT, InstructionTag::MergeTransact),
-        (
-            tag::ENABLE_MERGE_AUTHORITY,
-            InstructionTag::EnableMergeAuthority,
-        ),
-        (
-            tag::DISABLE_MERGE_AUTHORITY,
-            InstructionTag::DisableMergeAuthority,
-        ),
-        (
-            tag::CREATE_MERGE_AUTHORITY_TREE,
-            InstructionTag::CreateMergeAuthorityTree,
-        ),
-        (tag::MERGE_POCKET, InstructionTag::MergePocket),
     ];
 
     for (tag, expected) in tags {
         assert_eq!(InstructionTag::try_from(tag), Ok(expected));
+    }
+}
+
+#[test]
+fn reserved_unimplemented_tags_are_not_dispatchable() {
+    // Spec-reserved tags with no handler must not decode to an InstructionTag;
+    // the program dispatch treats them like any unknown byte.
+    for tag in [
+        tag::POCKET_TRANSACT,
+        tag::POCKET_AUTHORITY_TRANSACT,
+        tag::MERGE_TRANSACT,
+        tag::ENABLE_MERGE_AUTHORITY,
+        tag::DISABLE_MERGE_AUTHORITY,
+        tag::CREATE_MERGE_AUTHORITY_TREE,
+        tag::MERGE_POCKET,
+    ] {
+        assert_eq!(InstructionTag::try_from(tag), Err(()));
     }
 }
