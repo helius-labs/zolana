@@ -1182,7 +1182,11 @@ struct PocketSigningPayloadBundle {
 #[derive(Clone, Debug, Deserialize)]
 struct PocketSigningPayloadTx {
     name: String,
-    private_tx_hash: String,
+    // The digest the circuit's ECDSA gadget verifies against
+    // (Sha256BE(private_tx_hash)); this is what a P256 owner signs. The payload
+    // also carries private_tx_hash (a proof public input), but the CLI takes
+    // that from the proof bundle for the instruction, so it isn't needed here.
+    p256_message_hash: String,
     requires_p256_signature: bool,
 }
 
@@ -2156,7 +2160,7 @@ fn pocket_build_direct_proof(
             bail!("signing payload did not request a P256 signature for a P256-owned input");
         }
         let (signature_r, signature_s) =
-            sign_p256_private_tx_hash(wallet, &tx_payload.private_tx_hash)?;
+            sign_p256_message_hash(wallet, &tx_payload.p256_message_hash)?;
         request_tx.p256_owner_pubkey = wallet.p256_public_key.clone();
         request_tx.p256_signature_r = signature_r;
         request_tx.p256_signature_s = signature_s;
@@ -2525,15 +2529,15 @@ fn p256_nullifier_secret_bytes(value: &str) -> Result<[u8; 31]> {
     Ok(out)
 }
 
-fn sign_p256_private_tx_hash(
+fn sign_p256_message_hash(
     wallet: &PocketP256Wallet,
-    private_tx_hash: &str,
+    p256_message_hash: &str,
 ) -> Result<(String, String)> {
-    let message = hex_field(private_tx_hash)?;
+    let message = hex_field(p256_message_hash)?;
     let signing_key = p256_signing_key(wallet)?;
     let signature: P256Signature = signing_key
         .sign_prehash(&message)
-        .map_err(|error| anyhow!("sign P256 private_tx_hash: {error}"))?;
+        .map_err(|error| anyhow!("sign P256 message hash: {error}"))?;
     let signature_bytes = signature.to_bytes();
     Ok((
         format!("0x{}", hex::encode(&signature_bytes[..32])),
