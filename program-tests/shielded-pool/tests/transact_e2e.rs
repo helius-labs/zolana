@@ -551,7 +551,7 @@ fn transact_fixture_wire_sizes_are_golden() {
                 spl_accounts,
                 spl_ix_accounts,
             ),
-            705,
+            706,
         ),
         (
             "transfer",
@@ -560,7 +560,7 @@ fn transact_fixture_wire_sizes_are_golden() {
                 transfer_accounts,
                 transfer_ix_accounts,
             ),
-            607,
+            608,
         ),
         (
             "spl_unshield",
@@ -569,7 +569,7 @@ fn transact_fixture_wire_sizes_are_golden() {
                 spl_accounts,
                 spl_ix_accounts,
             ),
-            714,
+            715,
         ),
         (
             "sol_shield",
@@ -578,7 +578,7 @@ fn transact_fixture_wire_sizes_are_golden() {
                 sol_accounts,
                 sol_ix_accounts,
             ),
-            639,
+            640,
         ),
         (
             "sol_unshield",
@@ -587,7 +587,7 @@ fn transact_fixture_wire_sizes_are_golden() {
                 sol_accounts,
                 sol_ix_accounts,
             ),
-            648,
+            649,
         ),
     ];
 
