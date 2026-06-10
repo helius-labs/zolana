@@ -20,8 +20,8 @@ import (
 
 // ProofSystem holds keys and constraints for one transaction circuit shape and
 // ownership rail. RequiresP256 selects the P256-capable circuit (true) or the
-// Solana-only variant (false, ~7x fewer constraints). It is not serialized;
-// callers set it from which key they loaded.
+// Solana-only variant (false, ~7x fewer constraints). It is serialized in the
+// key-file header so a loaded system self-describes its rail.
 type ProofSystem struct {
 	Shape            protocol.Shape
 	RequiresP256     bool
@@ -144,10 +144,20 @@ func WriteVerifyingKeyText(vk groth16.VerifyingKey, path string) error {
 	return err
 }
 
+func boolToU32(b bool) uint32 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	var buf [4]byte
-	fields := []uint32{uint32(ps.Shape.NInputs), uint32(ps.Shape.NOutputs)}
+	// Header: NInputs, NOutputs, RequiresP256. Serializing the ownership rail
+	// makes the key self-describing — the prover binds the matching circuit
+	// without inferring the rail from the filename.
+	fields := []uint32{uint32(ps.Shape.NInputs), uint32(ps.Shape.NOutputs), boolToU32(ps.RequiresP256)}
 	for _, field := range fields {
 		binary.BigEndian.PutUint32(buf[:], field)
 		n, err := w.Write(buf[:])
@@ -178,8 +188,8 @@ func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var total int64
 	var buf [4]byte
-	var nInputs, nOutputs uint32
-	fields := []*uint32{&nInputs, &nOutputs}
+	var nInputs, nOutputs, requiresP256 uint32
+	fields := []*uint32{&nInputs, &nOutputs, &requiresP256}
 	for _, field := range fields {
 		n, err := io.ReadFull(r, buf[:])
 		total += int64(n)
@@ -193,6 +203,7 @@ func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		return total, err
 	}
 	ps.Shape = shape
+	ps.RequiresP256 = requiresP256 != 0
 
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
 	n, err := ps.ProvingKey.UnsafeReadFrom(r)
