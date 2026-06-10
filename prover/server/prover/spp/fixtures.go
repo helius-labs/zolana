@@ -71,32 +71,32 @@ type E2EFixture struct {
 	Shape                   protocol.Shape `json:"shape"`
 	RequiresP256            bool           `json:"requires_p256"`
 	ExpiryUnixTs            uint64         `json:"expiry_unix_ts"`
-	SenderViewTag           string        `json:"sender_view_tag"`
-	Proof                   *common.Proof `json:"proof"`
-	RelayerFee              uint16        `json:"relayer_fee"`
-	Nullifiers              []string      `json:"nullifiers"`
-	OutputUtxoHashes        []string      `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex       []uint16      `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex  []uint16      `json:"nullifier_tree_root_index"`
-	PrivateTxHash           string        `json:"private_tx_hash"`
-	PublicAmountMode        uint8         `json:"public_amount_mode"`
-	PublicSolAmount         *uint64       `json:"public_sol_amount"`
-	PublicSplAmount         *uint64       `json:"public_spl_amount"`
-	PublicSplAssetPubkey    string        `json:"public_spl_asset_pubkey"`
-	EncryptedUtxos          string        `json:"encrypted_utxos"`
-	ExpectedStateNextIndex  uint64        `json:"expected_state_next_index"`
-	ExpectedQueueNextIndex  uint64        `json:"expected_queue_next_index"`
-	ExpectedStateRoot       string        `json:"expected_state_root"`
-	PublicInputHash         string        `json:"public_input_hash"`
-	ExternalDataHash        string        `json:"external_data_hash"`
-	UserSolAccount          string        `json:"user_sol_account"`
-	UserSplTokenAccount     string        `json:"user_spl_token_account"`
-	SplTokenInterface       string        `json:"spl_token_interface"`
-	SolanaOwnerInputIndices []int         `json:"solana_owner_input_indices"`
-	DebugInputUtxoHashes    []string      `json:"debug_input_utxo_hashes"`
-	DebugOutputUtxoHashes   []string      `json:"debug_output_utxo_hashes"`
-	DebugUtxoTreeRoots      []string      `json:"debug_utxo_tree_roots"`
-	DebugNullifierTreeRoots []string      `json:"debug_nullifier_tree_roots"`
+	SenderViewTag           string         `json:"sender_view_tag"`
+	Proof                   *common.Proof  `json:"proof"`
+	RelayerFee              uint16         `json:"relayer_fee"`
+	Nullifiers              []string       `json:"nullifiers"`
+	OutputUtxoHashes        []string       `json:"output_utxo_hashes"`
+	UtxoTreeRootIndex       []uint16       `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex  []uint16       `json:"nullifier_tree_root_index"`
+	PrivateTxHash           string         `json:"private_tx_hash"`
+	PublicAmountMode        uint8          `json:"public_amount_mode"`
+	PublicSolAmount         *uint64        `json:"public_sol_amount"`
+	PublicSplAmount         *uint64        `json:"public_spl_amount"`
+	PublicSplAssetPubkey    string         `json:"public_spl_asset_pubkey"`
+	EncryptedUtxos          string         `json:"encrypted_utxos"`
+	ExpectedStateNextIndex  uint64         `json:"expected_state_next_index"`
+	ExpectedQueueNextIndex  uint64         `json:"expected_queue_next_index"`
+	ExpectedStateRoot       string         `json:"expected_state_root"`
+	PublicInputHash         string         `json:"public_input_hash"`
+	ExternalDataHash        string         `json:"external_data_hash"`
+	UserSolAccount          string         `json:"user_sol_account"`
+	UserSplTokenAccount     string         `json:"user_spl_token_account"`
+	SplTokenInterface       string         `json:"spl_token_interface"`
+	SolanaOwnerInputIndices []int          `json:"solana_owner_input_indices"`
+	DebugInputUtxoHashes    []string       `json:"debug_input_utxo_hashes"`
+	DebugOutputUtxoHashes   []string       `json:"debug_output_utxo_hashes"`
+	DebugUtxoTreeRoots      []string       `json:"debug_utxo_tree_roots"`
+	DebugNullifierTreeRoots []string       `json:"debug_nullifier_tree_roots"`
 }
 
 // scenario is one transaction in the e2e sequence, expressed in protocol terms.
@@ -177,9 +177,11 @@ func (c *proofSystemCache) forShapeRail(shape protocol.Shape, requiresP256 bool)
 	if ps.Shape != shape {
 		return nil, fmt.Errorf("spp: key %s has shape %s, want %s", path, ps.Shape, shape)
 	}
-	// RequiresP256 is not serialized; set it from which key was loaded so the
-	// prover binds the matching rail.
-	ps.RequiresP256 = requiresP256
+	// The rail is serialized in the key header; the file must match the rail we
+	// loaded it for (the rail-specific filename).
+	if ps.RequiresP256 != requiresP256 {
+		return nil, fmt.Errorf("spp: key %s has requiresP256=%v, want %v", path, ps.RequiresP256, requiresP256)
+	}
 	c.systems[key] = ps
 	return ps, nil
 }
@@ -236,20 +238,20 @@ func BuildE2EFixtures(keyDir string, options E2EFixtureOptions) (*E2EFixtureSet,
 // scenarioBuilder holds the owner material and sample UTXOs shared by the
 // scenarios.
 type scenarioBuilder struct {
-	options       E2EFixtureOptions
-	splAsset      *big.Int
-	solAsset      *big.Int
-	signerHash    *big.Int
-	solanaOwner   *big.Int
-	p256Owner     *big.Int
-	p256Priv      *ecdsa.PrivateKey
-	p256Pubkey    []byte
-	utxoA, utxoB  protocol.Utxo
-	utxoC, solU   protocol.Utxo
-	p256A, p256B  protocol.Utxo
-	hashA, hashB  *big.Int
-	hashC, solH   *big.Int
-	p256HashA     *big.Int
+	options      E2EFixtureOptions
+	splAsset     *big.Int
+	solAsset     *big.Int
+	signerHash   *big.Int
+	solanaOwner  *big.Int
+	p256Owner    *big.Int
+	p256Priv     *ecdsa.PrivateKey
+	p256Pubkey   []byte
+	utxoA, utxoB protocol.Utxo
+	utxoC, solU  protocol.Utxo
+	p256A, p256B protocol.Utxo
+	hashA, hashB *big.Int
+	hashC, solH  *big.Int
+	p256HashA    *big.Int
 }
 
 func newScenarioBuilder(options E2EFixtureOptions) (*scenarioBuilder, error) {
@@ -313,7 +315,7 @@ func (b *scenarioBuilder) scenarios() []scenario {
 		{
 			name: "shield", senderTag: 1001, outputs: []protocol.Utxo{b.utxoA},
 			mode: modeShield, publicSpl: 100, encrypted: []byte{1, 0, 10, 11},
-			state: map[uint64]*big.Int{},
+			state:        map[uint64]*big.Int{},
 			expStateNext: 1, expQueueNext: 1, expState: stateAfterShield,
 		},
 		{
@@ -342,7 +344,7 @@ func (b *scenarioBuilder) scenarios() []scenario {
 		{
 			name: "sol_shield", senderTag: 2001, outputs: []protocol.Utxo{b.solU},
 			mode: modeShield, publicSol: 80, encrypted: []byte{6, 0, 60, 61},
-			state: map[uint64]*big.Int{},
+			state:        map[uint64]*big.Int{},
 			expStateNext: 1, expQueueNext: 1, expState: solAfterShield,
 		},
 		{
@@ -363,7 +365,7 @@ func (b *scenarioBuilder) scenarios() []scenario {
 		{
 			name: "p256_shield", senderTag: 3001, outputs: []protocol.Utxo{b.p256A},
 			mode: modeShield, publicSpl: 25, encrypted: []byte{8, 0, 80, 81},
-			state: map[uint64]*big.Int{},
+			state:        map[uint64]*big.Int{},
 			expStateNext: 1, expQueueNext: 1, expState: p256AfterShield,
 		},
 		{
@@ -413,14 +415,14 @@ func (b *scenarioBuilder) shapeFlow(name string, shape protocol.Shape, base, sen
 		seedState := copyState(tree)
 		tree[uint64(i)] = mustHash(u)
 		flow = append(flow, scenario{
-			name:      fmt.Sprintf("%s_seed_%d", name, i),
-			senderTag: senderTag + 1 + int64(i),
-			outputs:   []protocol.Utxo{u},
-			mode:      modeShield,
-			publicSpl: uint64(amt),
-			encrypted: []byte{0xac, byte(base), byte(i)},
-			state:     seedState,
-			shape:     fixtureShape,
+			name:         fmt.Sprintf("%s_seed_%d", name, i),
+			senderTag:    senderTag + 1 + int64(i),
+			outputs:      []protocol.Utxo{u},
+			mode:         modeShield,
+			publicSpl:    uint64(amt),
+			encrypted:    []byte{0xac, byte(base), byte(i)},
+			state:        seedState,
+			shape:        fixtureShape,
 			expStateNext: uint64(i) + 1,
 			expQueueNext: uint64(i) + 1,
 			expState:     copyState(tree),
