@@ -34,10 +34,9 @@ pub mod reserved {
     pub const MERGE_POCKET: u8 = 19;
 }
 
-// === Legacy/internal tree maintenance ===
+// === Forester tree maintenance ===
 // Outside the SPP spec dispatch table; intentionally above the reserved
 // proof/pocket tag range so they never collide with spec tags.
-pub const INSERT_ADDRESSES: u8 = 50;
 pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 
 /// Typed view of an *implemented* instruction tag.
@@ -50,7 +49,6 @@ pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 #[repr(u8)]
 pub enum InstructionTag {
     CreatePoolTree = CREATE_POOL_TREE,
-    InsertAddresses = INSERT_ADDRESSES,
     BatchUpdateAddressTree = BATCH_UPDATE_ADDRESS_TREE,
     Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
@@ -69,7 +67,6 @@ impl TryFrom<u8> for InstructionTag {
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
             CREATE_POOL_TREE => Ok(Self::CreatePoolTree),
-            INSERT_ADDRESSES => Ok(Self::InsertAddresses),
             BATCH_UPDATE_ADDRESS_TREE => Ok(Self::BatchUpdateAddressTree),
             TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),

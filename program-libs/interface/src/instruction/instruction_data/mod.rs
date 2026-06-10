@@ -1,7 +1,6 @@
 pub mod batch_update_address_tree;
 pub mod create_pool_tree;
 pub mod create_spl_interface;
-pub mod insert_addresses;
 pub mod pocket_config;
 pub mod proofless_shield;
 pub mod protocol_config;
@@ -10,7 +9,6 @@ pub mod transact;
 pub use batch_update_address_tree::BatchUpdateAddressTreeData;
 pub use create_pool_tree::CreatePoolTreeData;
 pub use create_spl_interface::CreateSplInterfaceData;
-pub use insert_addresses::InsertAddressesData;
 pub use proofless_shield::ProoflessShieldData;
 pub use pocket_config::{
     CreatePocketConfigData, UpdatePocketConfigData, UpdatePocketConfigOwnerData,
