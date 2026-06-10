@@ -28,6 +28,30 @@ use crate::{
     },
 };
 
+/// Table-driven instruction dispatch.
+///
+/// Every arm shares the same shape — borsh-decode the payload into the
+/// instruction's data type (mapping a decode failure to InvalidInstructionData)
+/// and call its handler — so express it once here instead of repeating it per
+/// instruction. Unknown/reserved tags fall through to InvalidInstructionData.
+macro_rules! dispatch {
+    (
+        $tag:expr, $payload:expr, $program_id:expr, $accounts:expr,
+        { $($const:path => ($data:ty, $handler:path)),+ $(,)? }
+    ) => {
+        match $tag {
+            $(
+                $const => {
+                    let data = <$data>::try_from_slice($payload)
+                        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+                    $handler($program_id, $accounts, data)
+                }
+            )+
+            _ => Err(ProgramError::InvalidInstructionData),
+        }
+    };
+}
+
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -37,77 +61,20 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
-    match *ix_tag {
-        tag::CREATE_POOL_TREE => {
-            let data = CreatePoolTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_pool_tree(program_id, accounts, data)
-        }
-        tag::INSERT_ADDRESSES => {
-            let data = InsertAddressesData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_insert_addresses(program_id, accounts, data)
-        }
-        tag::BATCH_UPDATE_ADDRESS_TREE => {
-            let data = BatchUpdateAddressTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_batch_update_address_tree(program_id, accounts, data)
-        }
-        tag::BATCH_UPDATE_NULLIFIER_TREE => {
-            let data = BatchUpdateNullifierTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_batch_update_nullifier_tree(program_id, accounts, data)
-        }
-        tag::APPEND_STATE_LEAVES => {
-            let data = AppendStateLeavesData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_append_state_leaves(program_id, accounts, data)
-        }
-        tag::TRANSACT => {
-            let data = TransactData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_transact(program_id, accounts, data)
-        }
-        tag::PROOFLESS_SHIELD => {
-            let data = ProoflessShieldData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_proofless_shield(program_id, accounts, data)
-        }
-        tag::CREATE_SPL_INTERFACE => {
-            let data = CreateSplInterfaceData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_spl_interface(program_id, accounts, data)
-        }
-        tag::CREATE_PROTOCOL_CONFIG => {
-            let data = CreateProtocolConfigData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_protocol_config(program_id, accounts, data)
-        }
-        tag::UPDATE_PROTOCOL_CONFIG => {
-            let data = UpdateProtocolConfigData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_update_protocol_config(program_id, accounts, data)
-        }
-        tag::PAUSE_TREE => {
-            let data = PauseTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_pause_tree(program_id, accounts, data)
-        }
-        tag::CREATE_POCKET_CONFIG => {
-            let data = CreatePocketConfigData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_pocket_config(program_id, accounts, data)
-        }
-        tag::UPDATE_POCKET_CONFIG_OWNER => {
-            let data = UpdatePocketConfigOwnerData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_update_pocket_config_owner(program_id, accounts, data)
-        }
-        tag::UPDATE_POCKET_CONFIG => {
-            let data = UpdatePocketConfigData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_update_pocket_config(program_id, accounts, data)
-        }
-        _ => Err(ProgramError::InvalidInstructionData),
-    }
+    dispatch!(*ix_tag, payload, program_id, accounts, {
+        tag::CREATE_POOL_TREE => (CreatePoolTreeData, process_create_pool_tree),
+        tag::INSERT_ADDRESSES => (InsertAddressesData, process_insert_addresses),
+        tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),
+        tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
+        tag::APPEND_STATE_LEAVES => (AppendStateLeavesData, process_append_state_leaves),
+        tag::TRANSACT => (TransactData, process_transact),
+        tag::PROOFLESS_SHIELD => (ProoflessShieldData, process_proofless_shield),
+        tag::CREATE_SPL_INTERFACE => (CreateSplInterfaceData, process_create_spl_interface),
+        tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
+        tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),
+        tag::PAUSE_TREE => (PauseTreeData, process_pause_tree),
+        tag::CREATE_POCKET_CONFIG => (CreatePocketConfigData, process_create_pocket_config),
+        tag::UPDATE_POCKET_CONFIG_OWNER => (UpdatePocketConfigOwnerData, process_update_pocket_config_owner),
+        tag::UPDATE_POCKET_CONFIG => (UpdatePocketConfigData, process_update_pocket_config),
+    })
 }
