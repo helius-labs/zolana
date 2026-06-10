@@ -1,6 +1,5 @@
 pub mod instruction;
 pub mod state;
-pub mod verifying_keys;
 
 /// Placeholder program id for the initial shielded-pool program scaffold.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
@@ -54,12 +53,6 @@ pub const SPL_TOKEN_PROGRAM_ID: [u8; 32] = [
 /// Poseidon hash of the mint pubkey, not the reserved bytes.
 pub const SPL_ASSET_REGISTRY_MAGIC: [u8; 8] = *b"SPASSET1";
 pub const SPL_ASSET_REGISTRY_ACCOUNT_LEN: usize = 48;
-/// Deprecated compatibility PDA. SPL identity is mint-derived.
-pub const SPL_ASSET_COUNTER_MAGIC: [u8; 8] = *b"SPCOUNT1";
-pub const SPL_ASSET_COUNTER_ACCOUNT_LEN: usize = 16;
-/// Deprecated compatibility value. Native SOL remains asset id 1; SPL assets
-/// are mint-derived field elements.
-pub const FIRST_SPL_ASSET_ID: u64 = 2;
 
 /// Canonical registry CPI authority PDA — `find_program_address(&[b"cpi_authority"], LIGHT_REGISTRY_PROGRAM_ID)`.
 /// Hardcoded so shielded-pool can do a single equality check on the signer
