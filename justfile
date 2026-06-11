@@ -38,9 +38,10 @@ build-release:
 check:
     cargo check
 
-# Check the entire workspace.
+# Check the entire workspace. global-shared-viewkey is excluded because its
+# cgo build.rs needs a Go toolchain; it has its own recipe and CI job.
 check-all:
-    cargo check --workspace --all-targets
+    cargo check --workspace --exclude zolana-global-shared-viewkey --all-targets
 
 # Default test target. Tests for the surviving slice (interface, registry,
 # shielded-pool program). Forester e2e tests will be reintroduced when the
@@ -199,7 +200,12 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --exclude zolana-global-shared-viewkey --all-targets -- -D warnings
+
+# Build and test the global-shared-viewkey crate. Requires a Go toolchain and
+# clang for its cgo Shamir bridge; kept out of the workspace-wide recipes.
+global-shared-viewkey-test:
+    cargo test -p zolana-global-shared-viewkey
 
 # === Prover server ===
 
