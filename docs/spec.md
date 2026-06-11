@@ -497,7 +497,7 @@ nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 ```
 
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
-utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.q
+utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
 ## Empty UTXO
 
