@@ -1783,23 +1783,43 @@ fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
         account_size as u64,
         &program_id,
     );
-    let init_ix = Instruction {
+
+    // Tree creation is admin-gated on the canonical protocol config. Bootstrap
+    // the config (payer becomes the protocol authority) on first init, then pass
+    // it to create_pool_tree.
+    let (protocol_config, _) =
+        Pubkey::find_program_address(&[zolana_interface::SPP_PROTOCOL_CONFIG_PDA_SEED], &program_id);
+    let mut instructions = vec![create_ix];
+    if client.get_account(&protocol_config).is_err() {
+        instructions.push(Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new(protocol_config, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+            ],
+            data: encode_instruction(
+                tag::CREATE_PROTOCOL_CONFIG,
+                &zolana_interface::instruction::CreateProtocolConfigData {
+                    authority: payer.pubkey().to_bytes(),
+                },
+            ),
+        });
+    }
+    instructions.push(Instruction {
         program_id,
         accounts: vec![
             AccountMeta::new_readonly(payer.pubkey(), true),
+            AccountMeta::new_readonly(protocol_config, false),
             AccountMeta::new(tree.pubkey(), false),
         ],
         data: encode_instruction(
             tag::CREATE_POOL_TREE,
             &zolana_interface::instruction::CreatePoolTreeData,
         ),
-    };
-    let signature = send_pocket_instructions_with_extra_signers(
-        &client,
-        &payer,
-        &[create_ix, init_ix],
-        &[&tree],
-    )?;
+    });
+    let signature =
+        send_pocket_instructions_with_extra_signers(&client, &payer, &instructions, &[&tree])?;
     write_keypair_file(&tree, &opts.output)
         .map_err(|error| anyhow!("write tree keypair {}: {error}", opts.output.display()))?;
     if opts.pubkey_only {

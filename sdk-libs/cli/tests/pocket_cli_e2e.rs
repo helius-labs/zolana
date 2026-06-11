@@ -27,9 +27,8 @@ use zolana_interface::{
         encode_instruction, tag, CreatePoolTreeData, CreateProtocolConfigData,
         CreateSplInterfaceData,
     },
-    state::PROTOCOL_CONFIG_ACCOUNT_LEN,
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
-    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 const AIRDROP_LAMPORTS: u64 = 25_000_000_000;
@@ -629,9 +628,38 @@ fn wait_for_validator(validator: &mut ValidatorGuard, client: &RpcClient) -> Res
     }
 }
 
+/// Create the canonical protocol-config PDA (payer = authority) if it does not
+/// already exist, returning its address. Admin instructions (create_pool_tree,
+/// create_spl_interface) are gated on it.
+fn ensure_protocol_config(client: &RpcClient, payer: &Keypair) -> Result<Pubkey> {
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let (config, _) =
+        Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &program_id);
+    if client.get_account(&config).is_ok() {
+        return Ok(config);
+    }
+    let ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(config, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ],
+        data: encode_instruction(
+            tag::CREATE_PROTOCOL_CONFIG,
+            &CreateProtocolConfigData {
+                authority: payer.pubkey().to_bytes(),
+            },
+        ),
+    };
+    send_instructions(client, payer, &[ix], &[])?;
+    Ok(config)
+}
+
 fn create_pool_tree(client: &RpcClient, payer: &Keypair) -> Result<Keypair> {
     let tree = Keypair::new();
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let protocol_config = ensure_protocol_config(client, payer)?;
     let size = pool_tree_account_size();
     let rent = client.get_minimum_balance_for_rent_exemption(size)?;
     let create_ix = system_instruction::create_account(
@@ -645,6 +673,7 @@ fn create_pool_tree(client: &RpcClient, payer: &Keypair) -> Result<Keypair> {
         program_id,
         accounts: vec![
             AccountMeta::new_readonly(payer.pubkey(), true),
+            AccountMeta::new_readonly(protocol_config, false),
             AccountMeta::new(tree.pubkey(), false),
         ],
         data: encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData),
@@ -662,12 +691,11 @@ fn setup_spl_settlement(
     let mint = Keypair::new();
     let payer_token = Keypair::new();
     let recipient_token = Keypair::new();
-    let protocol_config = Keypair::new();
+    // The protocol config is the canonical PDA the program creates itself.
+    let protocol_config = ensure_protocol_config(client, payer)?;
     let token_program = spl_token::id();
     let mint_rent = client.get_minimum_balance_for_rent_exemption(Mint::LEN)?;
     let token_rent = client.get_minimum_balance_for_rent_exemption(TokenAccount::LEN)?;
-    let protocol_config_rent =
-        client.get_minimum_balance_for_rent_exemption(PROTOCOL_CONFIG_ACCOUNT_LEN)?;
     let cpi_authority = Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
     let (asset_counter, _) =
         Pubkey::find_program_address(&[SPL_ASSET_COUNTER_PDA_SEED], &program_id);
@@ -729,31 +757,11 @@ fn setup_spl_settlement(
             &[],
             1_000,
         )?,
-        system_instruction::create_account(
-            &payer.pubkey(),
-            &protocol_config.pubkey(),
-            protocol_config_rent,
-            PROTOCOL_CONFIG_ACCOUNT_LEN as u64,
-            &program_id,
-        ),
         Instruction {
             program_id,
             accounts: vec![
                 AccountMeta::new_readonly(payer.pubkey(), true),
-                AccountMeta::new(protocol_config.pubkey(), false),
-            ],
-            data: encode_instruction(
-                tag::CREATE_PROTOCOL_CONFIG,
-                &CreateProtocolConfigData {
-                    authority: payer.pubkey().to_bytes(),
-                },
-            ),
-        },
-        Instruction {
-            program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(payer.pubkey(), true),
-                AccountMeta::new_readonly(protocol_config.pubkey(), false),
+                AccountMeta::new_readonly(protocol_config, false),
                 AccountMeta::new(asset_counter, false),
                 AccountMeta::new(registry, false),
                 AccountMeta::new_readonly(mint.pubkey(), false),
@@ -769,7 +777,7 @@ fn setup_spl_settlement(
         client,
         payer,
         &instructions,
-        &[&mint, &payer_token, &recipient_token, &protocol_config],
+        &[&mint, &payer_token, &recipient_token],
     )?;
 
     Ok(SplSettlement {
