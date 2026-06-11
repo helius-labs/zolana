@@ -1399,9 +1399,10 @@ struct GetShieldedTransactionsByTagsResponse {
 struct ShieldedTransaction {
     slot: u64,
     tx_signature: Signature,
-    tx_viewing_pk: P256Pubkey,
+    /// `None` when `proofless` (no ciphertext to decrypt).
+    tx_viewing_pk: Option<P256Pubkey>,
     /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
-    /// each slot's `payload` is the cleartext `ProoflessShieldEvent`.
+    /// each slot's `payload` is the `ProoflessShieldEvent` bytes as emitted.
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
