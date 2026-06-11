@@ -34,7 +34,7 @@ impl TryFrom<u8> for SignatureType {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct P256Pubkey([u8; P256_PUBKEY_LEN]);
 
 impl P256Pubkey {
@@ -64,12 +64,12 @@ impl P256Pubkey {
         self.0[0] == 0x03
     }
 
-    pub fn to_p256(&self) -> Result<P256PublicKey, KeypairError> {
-        P256PublicKey::from_sec1_bytes(&self.0).map_err(|_| KeypairError::InvalidPublicKey)
+    pub fn to_p256(&self) -> P256PublicKey {
+        P256PublicKey::from_sec1_bytes(&self.0).expect("validated on construction")
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 
 impl PublicKey {
@@ -95,17 +95,13 @@ impl PublicKey {
                 P256Pubkey::from_bytes(body)?;
                 Ok(Self(bytes))
             }
-            SignatureType::Ed25519 => {
-                if bytes[PUBLIC_KEY_LEN - 1] != 0 {
-                    return Err(KeypairError::InvalidPublicKey);
-                }
-                Ok(Self(bytes))
-            }
+            SignatureType::Ed25519 => Ok(Self(bytes)),
         }
     }
 
-    pub fn signature_type(&self) -> Result<SignatureType, KeypairError> {
+    pub fn signature_type(&self) -> SignatureType {
         SignatureType::try_from(self.0[0])
+            .expect("public key has a validated signature-type prefix")
     }
 
     pub fn as_bytes(&self) -> &[u8; PUBLIC_KEY_LEN] {
@@ -113,7 +109,7 @@ impl PublicKey {
     }
 
     pub fn as_p256(&self) -> Result<P256Pubkey, KeypairError> {
-        if self.signature_type()? != SignatureType::P256 {
+        if self.signature_type() != SignatureType::P256 {
             return Err(KeypairError::InvalidSignatureType(self.0[0]));
         }
         let mut body = [0u8; P256_PUBKEY_LEN];
@@ -122,22 +118,11 @@ impl PublicKey {
     }
 
     pub fn as_ed25519(&self) -> Result<[u8; ED25519_PUBKEY_LEN], KeypairError> {
-        if self.signature_type()? != SignatureType::Ed25519 {
+        if self.signature_type() != SignatureType::Ed25519 {
             return Err(KeypairError::InvalidSignatureType(self.0[0]));
         }
         let mut body = [0u8; ED25519_PUBKEY_LEN];
         body.copy_from_slice(&self.0[1..1 + ED25519_PUBKEY_LEN]);
         Ok(body)
-    }
-
-    pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
-        match self.signature_type()? {
-            SignatureType::P256 => {
-                let p = self.as_p256()?;
-                let x_hash = crate::hash::hash_field(&p.x())?;
-                crate::hash::poseidon(&[&crate::hash::bool_fe(p.y_is_odd()), &x_hash])
-            }
-            SignatureType::Ed25519 => crate::hash::hash_field(&self.as_ed25519()?),
-        }
     }
 }

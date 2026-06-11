@@ -6,8 +6,8 @@ use crate::KeypairWorld;
 #[then(expr = "{string} and {string} agree on a shared secret")]
 fn ecdh_symmetric(world: &mut KeypairWorld, a: String, b: String) {
     assert_eq!(
-        world.vk(&a).ecdh(&world.vk(&b).pubkey()).unwrap(),
-        world.vk(&b).ecdh(&world.vk(&a).pubkey()).unwrap()
+        world.vk(&a).ecdh(&world.vk(&b).pubkey()),
+        world.vk(&b).ecdh(&world.vk(&a).pubkey())
     );
 }
 
@@ -60,7 +60,7 @@ fn shared_tag_symmetric(world: &mut KeypairWorld, sender: String, recipient: Str
         .unwrap();
     let recv = world
         .vk(&recipient)
-        .get_recipient_shared_view_tag(&world.vk(&sender).pubkey(), i)
+        .get_shared_view_tag(&world.vk(&sender).pubkey(), i)
         .unwrap();
     assert_eq!(send, recv);
 }

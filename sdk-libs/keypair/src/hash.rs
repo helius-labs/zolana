@@ -2,15 +2,10 @@ use light_hasher::{Hasher, Poseidon};
 use sha2::{Digest, Sha256};
 
 use crate::error::KeypairError;
-use crate::pubkey::PublicKey;
+use crate::pubkey::{PublicKey, SignatureType};
 
 pub fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], KeypairError> {
     Poseidon::hashv(inputs).map_err(|e| KeypairError::Poseidon(e.into()))
-}
-
-pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], KeypairError> {
-    let (low, high) = split_be_128(value);
-    poseidon(&[&low, &high])
 }
 
 pub(crate) fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
@@ -44,10 +39,28 @@ pub fn sha256_be(preimage: &[u8]) -> [u8; 32] {
     digest
 }
 
+pub fn pubkey_field(pubkey: &PublicKey) -> Result<[u8; 32], KeypairError> {
+    match pubkey.signature_type() {
+        SignatureType::P256 => {
+            let p = pubkey.as_p256()?;
+            let x = p.x();
+            let (low, high) = split_be_128(&x);
+            let x_hash = poseidon(&[&low, &high])?;
+            let parity = bool_fe(p.y_is_odd());
+            poseidon(&[&parity, &x_hash])
+        }
+        SignatureType::Ed25519 => {
+            let ed = pubkey.as_ed25519()?;
+            let (low, high) = split_be_128(&ed);
+            poseidon(&[&low, &high])
+        }
+    }
+}
+
 pub fn owner_hash(
     signing_pubkey: &PublicKey,
     nullifier_pubkey: &[u8; 32],
 ) -> Result<[u8; 32], KeypairError> {
-    let pf = signing_pubkey.hash()?;
+    let pf = pubkey_field(signing_pubkey)?;
     poseidon(&[&pf, nullifier_pubkey])
 }

@@ -58,18 +58,12 @@ fn tag_ed25519(world: &mut KeypairWorld, fill: u8, dst: String) {
 
 #[then(expr = "public key {string} has scheme P256")]
 fn scheme_is_p256(world: &mut KeypairWorld, name: String) {
-    assert_eq!(
-        world.tag(&name).signature_type().unwrap(),
-        SignatureType::P256
-    );
+    assert_eq!(world.tag(&name).signature_type(), SignatureType::P256);
 }
 
 #[then(expr = "public key {string} has scheme Ed25519")]
 fn scheme_is_ed25519(world: &mut KeypairWorld, name: String) {
-    assert_eq!(
-        world.tag(&name).signature_type().unwrap(),
-        SignatureType::Ed25519
-    );
+    assert_eq!(world.tag(&name).signature_type(), SignatureType::Ed25519);
 }
 
 #[then(expr = "public key {string} reads back as P256 key {string}")]
@@ -99,14 +93,6 @@ fn last_byte_zero(world: &mut KeypairWorld, name: String) {
 fn parse_public_key_bad_prefix(world: &mut KeypairWorld, prefix: u8) {
     let mut bytes = [0u8; PUBLIC_KEY_LEN];
     bytes[0] = prefix;
-    world.last_error = PublicKey::from_bytes(bytes).is_err();
-}
-
-#[when(expr = "I parse an Ed25519 public key with a nonzero pad byte")]
-fn parse_ed25519_nonzero_pad(world: &mut KeypairWorld) {
-    let mut bytes = *PublicKey::from_ed25519(&[7u8; 32]).as_bytes();
-    assert!(PublicKey::from_bytes(bytes).is_ok());
-    bytes[PUBLIC_KEY_LEN - 1] = 1;
     world.last_error = PublicKey::from_bytes(bytes).is_err();
 }
 

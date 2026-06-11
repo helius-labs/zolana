@@ -34,7 +34,8 @@ impl SigningKey {
     }
 
     pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
-        let signing = EcdsaSigningKey::from(&self.secret);
+        let signing = EcdsaSigningKey::from_bytes(&self.secret.to_bytes())
+            .expect("valid scalar from a valid secret key");
         let sig: EcdsaSig = signing.sign(msg);
         let mut out = [0u8; 64];
         out.copy_from_slice(sig.to_bytes().as_slice());

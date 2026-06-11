@@ -37,7 +37,7 @@ fn signs_identically(world: &mut KeypairWorld, key: String, msg: String) {
 #[then(expr = "signing key {string} has scheme P256")]
 fn signing_scheme_p256(world: &mut KeypairWorld, key: String) {
     assert_eq!(
-        world.sig_key(&key).pubkey().signature_type().unwrap(),
+        world.sig_key(&key).pubkey().signature_type(),
         SignatureType::P256
     );
 }

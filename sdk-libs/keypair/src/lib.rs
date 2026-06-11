@@ -24,7 +24,7 @@
 //!   keys: P-256 for shielded owners, Ed25519 for Solana-only owners.
 //!
 //! # Hashing
-//! - [`hash`] — Poseidon helpers plus [`PublicKey::hash`] and
+//! - [`hash`] — Poseidon helpers plus [`hash::pubkey_field`] and
 //!   [`hash::owner_hash`], which compress an address into its `owner_hash`.
 //!
 //! # Wallet flow
@@ -34,8 +34,8 @@
 //!  Nullifier ───┘   └─ nullifier(utxo) spends a UTXO, inserted into the
 //!  Key                  nullifier tree
 //!
-//!  Viewing Key ── encrypt_slot ──→ ciphertexts + view tags
-//!             └── decrypt_utxo  ←── scan view tags at the indexer
+//!  Viewing Key ── encrypt_transaction ──→ ciphertexts + view tags
+//!             └── decrypt_utxo        ←── scan view tags at the indexer
 //! ```
 
 pub mod constants;
@@ -53,7 +53,7 @@ pub use nullifier_key::NullifierKey;
 pub use pubkey::{P256Pubkey, PublicKey, SignatureType};
 pub use shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair};
 pub use signing_key::SigningKey;
-pub use viewing_key::{random_salt, ViewingKey};
+pub use viewing_key::{EncryptedTransaction, ViewingKey};
 
 pub type Signature = [u8; 64];
 

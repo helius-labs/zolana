@@ -1,10 +1,10 @@
-use crate::constants::{BLINDING_LEN, SALT_LEN};
+use crate::constants::BLINDING_LEN;
 use crate::error::KeypairError;
 use crate::hash::owner_hash;
 use crate::nullifier_key::NullifierKey;
 use crate::pubkey::{P256Pubkey, PublicKey};
 use crate::signing_key::SigningKey;
-use crate::viewing_key::ViewingKey;
+use crate::viewing_key::{EncryptedTransaction, ViewingKey};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -114,11 +114,30 @@ impl ShieldedKeypair {
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
-        salt: [u8; SALT_LEN],
+        salt: u64,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
+    }
+
+    pub fn encrypt_transaction(
+        &self,
+        first_nullifier: &[u8; 32],
+        plaintexts: &[&[u8]],
+    ) -> Result<EncryptedTransaction, KeypairError> {
+        self.viewing_key
+            .encrypt_transaction(first_nullifier, plaintexts)
+    }
+
+    pub fn decrypt_transaction(
+        &self,
+        first_nullifier: &[u8; 32],
+        ciphertexts: &[&[u8]],
+        salt: u64,
+    ) -> Result<Vec<Vec<u8>>, KeypairError> {
+        self.viewing_key
+            .decrypt_transaction(first_nullifier, ciphertexts, salt)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {
@@ -141,13 +160,12 @@ impl ShieldedKeypair {
         self.viewing_key.get_send_shared_view_tag(counterparty, i)
     }
 
-    pub fn get_recipient_shared_view_tag(
+    pub fn get_shared_view_tag(
         &self,
         counterparty: &P256Pubkey,
         i: u64,
     ) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key
-            .get_recipient_shared_view_tag(counterparty, i)
+        self.viewing_key.get_shared_view_tag(counterparty, i)
     }
 
     pub fn get_merge_view_tag(

@@ -8,8 +8,6 @@ pub(crate) const ED25519_PUBKEY_LEN: usize = 32;
 
 pub(crate) const GCM_NONCE_LEN: usize = 12;
 
-pub const SALT_LEN: usize = 16;
-
 pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
 
 pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = [
@@ -39,7 +37,7 @@ pub(crate) const INFO_PAIR_DOMAIN_PREFIX: &[u8] = b"TSPP/pair-domain/";
 
 pub(crate) const INFO_PAIR_HINT_PREFIX: &[u8] = b"TSPP/pair-hint/";
 
-pub const VIEW_TAG_LEN: usize = 32;
+pub(crate) const VIEW_TAG_LEN: usize = 32;
 
 pub(crate) const HPKE_PREFIX: &[u8] = b"TSPP/hpke/";
 
