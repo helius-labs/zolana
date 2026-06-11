@@ -6,3 +6,4 @@ mod split;
 mod transfer;
 mod utxo;
 mod utxo_encryption;
+mod wallet;

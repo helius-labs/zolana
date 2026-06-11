@@ -59,7 +59,7 @@ fn facade_shared_tags(world: &mut KeypairWorld, sender: String, recipient: Strin
         .unwrap();
     let recv = world
         .keypair(&recipient)
-        .get_shared_view_tag(&world.keypair(&sender).viewing_pubkey(), 0)
+        .get_recipient_shared_view_tag(&world.keypair(&sender).viewing_pubkey(), 0)
         .unwrap();
     assert_eq!(send, recv);
 }

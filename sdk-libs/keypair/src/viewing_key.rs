@@ -226,7 +226,7 @@ impl ViewingKey {
 
     /// Recipient-side `recipient_shared_view_tag`: scans transfers from a known
     /// `counterparty` at `i` (recipient direction: `r_pubkey = self`).
-    pub fn get_shared_view_tag(
+    pub fn get_recipient_shared_view_tag(
         &self,
         counterparty: &P256Pubkey,
         i: u64,

@@ -12,12 +12,22 @@ wincode = { workspace = true }
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
 solana-address = { workspace = true }
+rayon = { workspace = true, optional = true }
+
+[features]
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
+criterion = { workspace = true }
 cucumber = { workspace = true }
 tokio = { workspace = true }
 hex = { workspace = true }
+proptest = { workspace = true }
 
 [[test]]
 name = "bdd"
+harness = false
+
+[[bench]]
+name = "wallet_ops"
 harness = false

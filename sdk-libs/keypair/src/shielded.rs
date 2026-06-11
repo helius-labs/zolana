@@ -141,12 +141,13 @@ impl ShieldedKeypair {
         self.viewing_key.get_send_shared_view_tag(counterparty, i)
     }
 
-    pub fn get_shared_view_tag(
+    pub fn get_recipient_shared_view_tag(
         &self,
         counterparty: &P256Pubkey,
         i: u64,
     ) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key.get_shared_view_tag(counterparty, i)
+        self.viewing_key
+            .get_recipient_shared_view_tag(counterparty, i)
     }
 
     pub fn get_merge_view_tag(

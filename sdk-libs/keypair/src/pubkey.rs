@@ -34,7 +34,7 @@ impl TryFrom<u8> for SignatureType {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct P256Pubkey([u8; P256_PUBKEY_LEN]);
 
 impl P256Pubkey {
@@ -69,7 +69,7 @@ impl P256Pubkey {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct PublicKey([u8; PUBLIC_KEY_LEN]);
 
 impl PublicKey {

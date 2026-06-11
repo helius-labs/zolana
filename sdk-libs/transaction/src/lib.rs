@@ -14,6 +14,7 @@ pub mod error;
 pub mod split;
 pub mod transfer;
 pub mod utxo;
+pub mod wallet;
 
 pub use asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
@@ -21,6 +22,10 @@ pub use encryption::TransactionEncryption;
 pub use error::TransactionError;
 pub use solana_address::Address;
 pub use utxo::{derive_blinding, Utxo};
+pub use wallet::{
+    AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletUtxo,
+    DEFAULT_TAG_WINDOW,
+};
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
 pub const TRANSFER: u8 = 1;
