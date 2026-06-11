@@ -875,7 +875,7 @@ external_data_hash := Sha256BE(
 <a id="circuit-variants"></a>
 **Circuit Combinations**
 
-Each shape compiles into two circuits, one per ownership scheme: P256 (P256-owned real inputs, `solana_pk_hashes[i] = 0`, `private_tx_hash_digest = Sha256BE(private_tx_hash)`) and Solana-only.
+Each circuit is instantiated twice, one per ownership pubkey type: P256 and Ed25519 (Solana). The Ed25519 instance outsources signature verification to the SPP thus has ~7× fewer constraints.
 
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
