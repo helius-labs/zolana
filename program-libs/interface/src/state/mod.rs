@@ -3,7 +3,7 @@ pub mod discriminator;
 pub mod pool;
 pub mod pool_tree;
 
-pub use config::{POCKET_CONFIG_ACCOUNT_LEN, PROTOCOL_CONFIG_ACCOUNT_LEN};
+pub use config::{ZONE_CONFIG_ACCOUNT_LEN, PROTOCOL_CONFIG_ACCOUNT_LEN};
 
 pub use pool::ShieldedPoolConfig;
 pub use pool_tree::PoolTreeHeader;
