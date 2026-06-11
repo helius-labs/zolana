@@ -71,6 +71,14 @@ pub fn process_forest_address_tree<'info>(
         return err!(RegistryError::InvalidForester);
     }
 
+    // 1b. Enforce the active-phase + per-slot lottery eligibility, keyed on the
+    //     pool tree's address queue. Without this an authority check alone lets
+    //     any registered forester advance the canonical tree in any slot.
+    let current_slot = Clock::get()?.slot;
+    ctx.accounts
+        .forester_epoch_pda
+        .check_eligibility(current_slot, &ctx.accounts.pool_tree.key())?;
+
     // 2. Build the shielded-pool batch_update_address_tree instruction.
     let cpi_data = encode_instruction(tag::BATCH_UPDATE_ADDRESS_TREE, &data);
     let cpi_ix = Instruction {
