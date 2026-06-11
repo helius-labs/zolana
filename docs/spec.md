@@ -1208,7 +1208,7 @@ struct ProoflessShieldEvent {
     asset: Address,
     amount: u64,
     /// From `cpi_signer`; `Address::default()` if none.
-    zone_program_id: Address,
+    zone_program_id: Option<Address>,
     owner_utxo_hash: [u8; 32],
     salt: [u8; 16],
 }
