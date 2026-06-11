@@ -30,8 +30,7 @@ use zolana_interface::{
         tag, BatchUpdateAddressTreeData, CreatePoolTreeData, CreateProtocolConfigData,
         PauseTreeData, ProoflessShieldData, TransactData, UpdateProtocolConfigData,
     },
-    state::PROTOCOL_CONFIG_ACCOUNT_LEN,
-    LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
+    LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 pub mod registry_sdk;
@@ -119,7 +118,22 @@ impl PoolTestRig {
         self.create_pool_tree_with_size(account_size)
     }
 
+    /// Create a pool tree gated on the canonical protocol config, with the rig
+    /// payer as the protocol authority (bootstrapping the config if needed).
     pub fn create_pool_tree_with_size(&mut self, account_size: u64) -> Result<Keypair, RigError> {
+        let payer = self.payer.insecure_clone();
+        self.create_pool_tree_with_authority(account_size, &payer)
+    }
+
+    /// Like `create_pool_tree_with_size`, but the named `authority` is the
+    /// protocol authority that signs tree creation (and the bootstrapped config
+    /// is created naming it). Used by tests that exercise a non-payer authority.
+    pub fn create_pool_tree_with_authority(
+        &mut self,
+        account_size: u64,
+        authority: &Keypair,
+    ) -> Result<Keypair, RigError> {
+        let config = self.ensure_protocol_config(authority)?;
         let tree = Keypair::new();
         let create_ix = self.create_account_instruction(
             &self.payer.pubkey(),
@@ -128,7 +142,6 @@ impl PoolTestRig {
             &self.program_id,
         );
 
-        // 2. Call create_pool_tree.
         let mut create_pool_data = vec![tag::CREATE_POOL_TREE];
         CreatePoolTreeData
             .serialize(&mut create_pool_data)
@@ -136,14 +149,20 @@ impl PoolTestRig {
         let pool_ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new_readonly(config, false),
                 AccountMeta::new(tree.pubkey(), false),
             ],
             data: create_pool_data,
         };
 
         let payer = self.payer.insecure_clone();
-        self.send(&[create_ix, pool_ix], &[&payer, &tree])?;
+        let mut signers: Vec<&Keypair> = vec![&payer];
+        if authority.pubkey() != payer.pubkey() {
+            signers.push(authority);
+        }
+        signers.push(&tree);
+        self.send(&[create_ix, pool_ix], &signers)?;
         Ok(tree)
     }
 
@@ -152,8 +171,26 @@ impl PoolTestRig {
         self.create_account_with_owner(account_size, program_id)
     }
 
-    pub fn create_protocol_config_account(&mut self) -> Result<Keypair, RigError> {
-        self.create_program_owned_account(PROTOCOL_CONFIG_ACCOUNT_LEN as u64)
+    /// Canonical protocol-config PDA `[SPP_PROTOCOL_CONFIG_PDA_SEED]`.
+    pub fn protocol_config_pda(&self) -> Pubkey {
+        Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &self.program_id).0
+    }
+
+    /// Create the canonical protocol-config PDA naming `authority`, if absent.
+    pub fn ensure_protocol_config(&mut self, authority: &Keypair) -> Result<Pubkey, RigError> {
+        let config = self.protocol_config_pda();
+        if self
+            .account_data(&config)
+            .is_some_and(|data| !data.is_empty())
+        {
+            return Ok(config);
+        }
+        self.create_shielded_pool_protocol_config(
+            authority,
+            CreateProtocolConfigData {
+                authority: authority.pubkey().to_bytes(),
+            },
+        )
     }
 
     pub fn create_account_with_owner(
@@ -381,63 +418,83 @@ impl PoolTestRig {
         self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
+    /// Create the canonical protocol-config PDA. `authority` is the rent payer
+    /// for the PDA (funded here) and the named protocol authority.
     pub fn create_shielded_pool_protocol_config(
         &mut self,
-        config: &Keypair,
         authority: &Keypair,
         data: CreateProtocolConfigData,
-    ) -> Result<(), RigError> {
+    ) -> Result<Pubkey, RigError> {
+        let config = self.protocol_config_pda();
+        self.airdrop(&authority.pubkey(), 1_000_000_000)?;
         let mut payload = vec![tag::CREATE_PROTOCOL_CONFIG];
         data.serialize(&mut payload).expect("infallible");
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new(config.pubkey(), false),
+                AccountMeta::new(authority.pubkey(), true),
+                AccountMeta::new(config, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
             ],
             data: payload,
         };
-        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+        let payer = self.payer.insecure_clone();
+        let mut signers: Vec<&Keypair> = vec![&payer];
+        if authority.pubkey() != payer.pubkey() {
+            signers.push(authority);
+        }
+        self.send(&[ix], &signers)?;
+        Ok(config)
     }
 
     pub fn update_shielded_pool_protocol_config(
         &mut self,
-        config: &Keypair,
         authority: &Keypair,
         data: UpdateProtocolConfigData,
     ) -> Result<(), RigError> {
+        let config = self.protocol_config_pda();
         let mut payload = vec![tag::UPDATE_PROTOCOL_CONFIG];
         data.serialize(&mut payload).expect("infallible");
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new(config.pubkey(), false),
+                AccountMeta::new(config, false),
             ],
             data: payload,
         };
-        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+        let payer = self.payer.insecure_clone();
+        let mut signers: Vec<&Keypair> = vec![&payer];
+        if authority.pubkey() != payer.pubkey() {
+            signers.push(authority);
+        }
+        self.send(&[ix], &signers)
     }
 
     pub fn pause_tree(
         &mut self,
-        config: &Keypair,
         tree: &Keypair,
         authority: &Keypair,
         data: PauseTreeData,
     ) -> Result<(), RigError> {
+        let config = self.protocol_config_pda();
         let mut payload = vec![tag::PAUSE_TREE];
         data.serialize(&mut payload).expect("infallible");
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
                 AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new_readonly(config.pubkey(), false),
+                AccountMeta::new_readonly(config, false),
                 AccountMeta::new(tree.pubkey(), false),
             ],
             data: payload,
         };
-        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+        let payer = self.payer.insecure_clone();
+        let mut signers: Vec<&Keypair> = vec![&payer];
+        if authority.pubkey() != payer.pubkey() {
+            signers.push(authority);
+        }
+        self.send(&[ix], &signers)
     }
 
     pub fn transact(&mut self, tree: &Keypair, data: TransactData) -> Result<(), RigError> {

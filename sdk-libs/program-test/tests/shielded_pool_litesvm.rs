@@ -105,10 +105,14 @@ fn create_pool_tree_rejects_bad_account_shapes() {
     rig.airdrop(&payer_pubkey, 50_000_000_000)
         .expect("top up payer");
 
+    // An undersized account is rejected (and bootstraps the canonical config
+    // naming the payer, which the manual cases below reuse).
     assert_err_contains(
         rig.create_pool_tree_with_size(tree_account_size() - 1),
         "Custom(1)",
     );
+    // create_pool_tree is admin-gated: [authority(signer), protocol_config, tree].
+    let config = rig.protocol_config_pda();
 
     let readonly_tree = rig
         .create_program_owned_account(tree_account_size())
@@ -118,6 +122,7 @@ fn create_pool_tree_rejects_bad_account_shapes() {
         &rig,
         vec![
             AccountMeta::new_readonly(payer.pubkey(), true),
+            AccountMeta::new_readonly(config, false),
             AccountMeta::new_readonly(readonly_tree.pubkey(), false),
         ],
         tag::CREATE_POOL_TREE,
@@ -136,6 +141,7 @@ fn create_pool_tree_rejects_bad_account_shapes() {
         &rig,
         vec![
             AccountMeta::new_readonly(payer.pubkey(), true),
+            AccountMeta::new_readonly(config, false),
             AccountMeta::new(wrong_owner.pubkey(), false),
         ],
         tag::CREATE_POOL_TREE,
@@ -157,6 +163,7 @@ fn create_pool_tree_rejects_bad_account_shapes() {
         &rig,
         vec![
             AccountMeta::new_readonly(nonsigner.pubkey(), false),
+            AccountMeta::new_readonly(config, false),
             AccountMeta::new(missing_signer_tree.pubkey(), false),
         ],
         tag::CREATE_POOL_TREE,
@@ -164,7 +171,7 @@ fn create_pool_tree_rejects_bad_account_shapes() {
     );
     assert_err_contains(
         rig.send_instructions(&[missing_signer_ix], &[&payer]),
-        "Custom(1)",
+        "MissingRequiredSignature",
     );
 }
 

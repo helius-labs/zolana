@@ -19,9 +19,8 @@ use solana_system_interface::instruction as system_instruction;
 use spl_token::state::{Account as TokenAccount, Mint};
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CreateProtocolConfigData, CreateSplInterfaceData,
-        InputUtxoSignerIndex, PauseTreeData, ProoflessShieldData, TransactData,
-        UpdateProtocolConfigData,
+        encode_instruction, tag, CreateSplInterfaceData, InputUtxoSignerIndex, PauseTreeData,
+        ProoflessShieldData, TransactData, UpdateProtocolConfigData,
     },
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
@@ -421,21 +420,13 @@ fn setup_spl_settlement(rig: &mut PoolTestRig) -> SplSettlement {
         .expect("create token settlement accounts");
 
     let protocol_config = rig
-        .create_protocol_config_account()
-        .expect("create protocol config account");
-    rig.create_shielded_pool_protocol_config(
-        &protocol_config,
-        &payer,
-        CreateProtocolConfigData {
-            authority: payer_pubkey.to_bytes(),
-        },
-    )
-    .expect("create protocol config");
+        .ensure_protocol_config(&payer)
+        .expect("ensure protocol config");
     let create_registry_ix = Instruction {
         program_id,
         accounts: vec![
             AccountMeta::new_readonly(payer_pubkey, true),
-            AccountMeta::new_readonly(protocol_config.pubkey(), false),
+            AccountMeta::new_readonly(protocol_config, false),
             AccountMeta::new(asset_counter, false),
             AccountMeta::new(registry, false),
             AccountMeta::new_readonly(mint.pubkey(), false),
@@ -451,7 +442,7 @@ fn setup_spl_settlement(rig: &mut PoolTestRig) -> SplSettlement {
 
     SplSettlement {
         cpi_authority,
-        protocol_config: protocol_config.pubkey(),
+        protocol_config,
         asset_counter,
         mint: mint.pubkey(),
         user_token: user_token.pubkey(),
@@ -632,23 +623,14 @@ fn protocol_config_can_pause_and_unpause_tree() {
     let Some(mut rig) = rig() else {
         return;
     };
+    // create_pool_tree bootstraps the canonical protocol config naming the rig
+    // payer as the protocol authority, so pause/unpause are signed by it.
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let config = rig
-        .create_protocol_config_account()
-        .expect("create protocol config account");
-    let authority = Keypair::new_from_array([0x31; 32]);
-    rig.create_shielded_pool_protocol_config(
-        &config,
-        &authority,
-        CreateProtocolConfigData {
-            authority: authority.pubkey().to_bytes(),
-        },
-    )
-    .expect("create protocol config");
+    let authority = rig.payer.insecure_clone();
 
-    rig.pause_tree(&config, &tree, &authority, PauseTreeData { paused: true })
+    rig.pause_tree(&tree, &authority, PauseTreeData { paused: true })
         .expect("pause tree");
     let before = rig.account_data(&tree.pubkey()).expect("tree account data");
     let settlement = setup_spl_settlement(&mut rig);
@@ -663,7 +645,7 @@ fn protocol_config_can_pause_and_unpause_tree() {
     assert_eq!(token_amount(&rig, &settlement.vault), 0);
 
     rig.svm.expire_blockhash();
-    rig.pause_tree(&config, &tree, &authority, PauseTreeData { paused: false })
+    rig.pause_tree(&tree, &authority, PauseTreeData { paused: false })
         .expect("unpause tree");
     submit_fixture(&mut rig, &tree, &fixture("shield"), Some(&settlement))
         .expect("unpaused tree accepts transact");
@@ -674,25 +656,15 @@ fn protocol_config_authority_can_rotate() {
     let Some(mut rig) = rig() else {
         return;
     };
+    // The bootstrapped config names the rig payer as authority; rotate it to a
+    // fresh key and confirm the old authority loses pause rights.
     let tree = rig
         .create_pool_tree(tree_account_size())
         .expect("create_pool_tree");
-    let config = rig
-        .create_protocol_config_account()
-        .expect("create protocol config account");
-    let old_authority = Keypair::new_from_array([0x32; 32]);
+    let old_authority = rig.payer.insecure_clone();
     let new_authority = Keypair::new_from_array([0x33; 32]);
 
-    rig.create_shielded_pool_protocol_config(
-        &config,
-        &old_authority,
-        CreateProtocolConfigData {
-            authority: old_authority.pubkey().to_bytes(),
-        },
-    )
-    .expect("create protocol config");
     rig.update_shielded_pool_protocol_config(
-        &config,
         &old_authority,
         UpdateProtocolConfigData {
             new_authority: new_authority.pubkey().to_bytes(),
@@ -701,21 +673,11 @@ fn protocol_config_authority_can_rotate() {
     .expect("rotate protocol config authority");
 
     let err = rig
-        .pause_tree(
-            &config,
-            &tree,
-            &old_authority,
-            PauseTreeData { paused: true },
-        )
+        .pause_tree(&tree, &old_authority, PauseTreeData { paused: true })
         .expect_err("old authority must not pause after rotation");
     assert_error_contains(err, "Custom(5)");
-    rig.pause_tree(
-        &config,
-        &tree,
-        &new_authority,
-        PauseTreeData { paused: true },
-    )
-    .expect("new authority pauses");
+    rig.pause_tree(&tree, &new_authority, PauseTreeData { paused: true })
+        .expect("new authority pauses");
 }
 
 #[test]
