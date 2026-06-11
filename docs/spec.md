@@ -1198,7 +1198,7 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 
 **Event**
 
-The mint reaches `proofless_shield` via accounts, so it cannot be indexed from instruction data; the event makes the full UTXO body indexable from inner-instruction data.
+The event allows an indexer to index the created UTXO since the utxo hash and the mint address do not exist in the instruction data.
 
 ```rust
 struct ProoflessShieldEvent {
