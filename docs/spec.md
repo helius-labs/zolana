@@ -501,10 +501,6 @@ utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
 `truncate_248(x)` reduces `x` mod p, encodes the result big-endian, and keeps the low 248 bits (31 bytes).
 
-The nullifier tree holds values strictly between `0` and `2^248 - 1`. `0` is the pre-inserted seed leaf and `2^248 - 1` is its initial next-value; neither can be inserted or batch-proven. A full field element could exceed `2^248 - 1`, so nullifiers are truncated to fit the tree's domain. The SPP rejects queue insertions outside the range.
-
-Queue insertion checks only the bloom filters of batches not yet in the tree, never the tree itself. The in-circuit non-inclusion check is what rejects against the cached roots, so the invariant must hold: every inserted nullifier is blocked by a live bloom filter or is present in every live cached root.
-
 ## Empty UTXO
 
 Fixed-size circuits pad unused output slots with empty UTXOs, most often a
