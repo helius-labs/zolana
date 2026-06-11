@@ -129,8 +129,7 @@ func buildCircuitAssignmentExact(
 	}
 
 	externalDataHash := spptest.Fe(300)
-	expiry := spptest.Fe(400)
-	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, outputHashes, externalDataHash, expiry)
+	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, outputHashes, externalDataHash)
 	p256MessageHash := spptest.MustP256MessageHash(t, privateTxHash)
 	p256MessageBytes := spptest.MustFieldBytes(t, p256MessageHash)
 	p256Pub, p256Sig, err := spptest.UnusedP256Witness(p256MessageBytes[:])
@@ -190,7 +189,6 @@ func buildCircuitAssignmentExact(
 		Inputs:               inputs,
 		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
-		ExpiryUnixTs:         expiry,
 		NullifierSecret:      nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
@@ -357,7 +355,6 @@ func rewriteInputAsP256(
 		inputHashes,
 		outputHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.ExpiryUnixTs),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	p256MessageHash := spptest.MustP256MessageHash(t, privateTxHash)

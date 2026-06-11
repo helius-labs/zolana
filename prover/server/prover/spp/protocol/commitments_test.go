@@ -70,9 +70,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs []*big.Int, externalDataHash, expiry *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs []*big.Int, externalDataHash *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, externalDataHash, expiry)
+	value, err := PrivateTxHash(inputs, outputs, externalDataHash)
 	return mustHash(t, value, err)
 }
 
@@ -238,24 +238,19 @@ func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	inputs := []*big.Int{fe(11), fe(12)}
 	outputs := []*big.Int{fe(21), fe(22)}
 	externalDataHash := fe(31)
-	expiry := fe(41)
 
-	got := mustPrivateTxHash(t, inputs, outputs, externalDataHash, expiry)
+	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
+	// external_data_hash (tested in the prover's external_data tests).
+	got := mustPrivateTxHash(t, inputs, outputs, externalDataHash)
 	inputChain := mustHashChain(t, inputs)
 	outputChain := mustHashChain(t, outputs)
-	want := mustPoseidon(t, 5, []*big.Int{
+	want := mustPoseidon(t, 4, []*big.Int{
 		inputChain,
 		outputChain,
 		externalDataHash,
-		expiry,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("private tx hash mismatch: got %s want %s", got, want)
-	}
-
-	changedExpiry := mustPrivateTxHash(t, inputs, outputs, externalDataHash, fe(42))
-	if got.Cmp(changedExpiry) == 0 {
-		t.Fatal("private tx hash did not change when expiry changed")
 	}
 }
 

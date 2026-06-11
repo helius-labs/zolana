@@ -259,9 +259,17 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	}
 
 	got := externalDataFieldHash(data)
-	const want = "004c9c75e10a9c259dd09496430d20f31465326a9d8c33ace8b49b1ff8908a73"
+	const want = "003cee91f18bdad1f50991823f95d10e840ab34792721e22dbda3eea4c014742"
 	if parse.FieldHex(got) != want {
 		t.Fatalf("external data hash = %s, want %s", parse.FieldHex(got), want)
+	}
+
+	// expiry_unix_ts is bound in external_data_hash (not private_tx_hash), so
+	// changing it must change the hash.
+	withDifferentExpiry := data
+	withDifferentExpiry.ExpiryUnixTs ^= 1
+	if parse.FieldHex(externalDataFieldHash(withDifferentExpiry)) == want {
+		t.Fatal("external_data_hash did not change when expiry_unix_ts changed")
 	}
 }
 

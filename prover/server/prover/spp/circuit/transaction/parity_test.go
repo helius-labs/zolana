@@ -24,7 +24,6 @@ type hashParityCircuit struct {
 	InputUtxoHashes      []frontend.Variable
 	OutputUtxoHashes     []frontend.Variable
 	ExternalDataHash     frontend.Variable
-	ExpiryUnixTs         frontend.Variable
 	ExpectedUtxoHash     frontend.Variable `gnark:",public"`
 	ExpectedNullifier    frontend.Variable `gnark:",public"`
 	ExpectedPrivateTx    frontend.Variable `gnark:",public"`
@@ -65,7 +64,6 @@ func (c *hashParityCircuit) Define(api frontend.API) error {
 		c.InputUtxoHashes,
 		c.OutputUtxoHashes,
 		c.ExternalDataHash,
-		c.ExpiryUnixTs,
 	)
 	api.AssertIsEqual(privateTx, c.ExpectedPrivateTx)
 	return nil
@@ -94,10 +92,9 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	inputs := []*big.Int{utxoHash}
 	outputs := []*big.Int{spptest.Fe(21), spptest.Fe(22)}
 	externalDataHash := spptest.Fe(31)
-	expiry := spptest.Fe(41)
 	inputChain := spptest.MustHashChain(t, inputs)
 	outputChain := spptest.MustHashChain(t, outputs)
-	privateTx := spptest.MustPrivateTxHash(t, inputs, outputs, externalDataHash, expiry)
+	privateTx := spptest.MustPrivateTxHash(t, inputs, outputs, externalDataHash)
 
 	circuit := &hashParityCircuit{
 		InputUtxoHashes:     make([]frontend.Variable, len(inputs)),
@@ -123,7 +120,6 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 		InputUtxoHashes:     []frontend.Variable{utxoHash},
 		OutputUtxoHashes:    []frontend.Variable{outputs[0], outputs[1]},
 		ExternalDataHash:    externalDataHash,
-		ExpiryUnixTs:        expiry,
 		ExpectedUtxoHash:    utxoHash,
 		ExpectedNullifier:   nullifier,
 		ExpectedPrivateTx:   privateTx,

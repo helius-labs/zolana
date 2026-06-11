@@ -55,7 +55,6 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		[]*big.Int{big.NewInt(0)},
 		outputHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.ExpiryUnixTs),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	assignment.P256MessageHash = spptest.MustP256MessageHash(t, privateTxHash)

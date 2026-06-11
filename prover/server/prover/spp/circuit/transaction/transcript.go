@@ -7,12 +7,13 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
+// PrivateTxHashCircuit mirrors protocol.PrivateTxHash. expiry_unix_ts is bound
+// through external_data_hash, not as a separate input (spec: SPP Proof).
 func PrivateTxHashCircuit(
 	api frontend.API,
 	inputUtxoHashes []frontend.Variable,
 	outputUtxoHashes []frontend.Variable,
 	externalDataHash frontend.Variable,
-	expiryUnixTs frontend.Variable,
 ) frontend.Variable {
 	inputChain := gadget.HashChain(api, inputUtxoHashes)
 	outputChain := gadget.HashChain(api, outputUtxoHashes)
@@ -20,6 +21,5 @@ func PrivateTxHashCircuit(
 		inputChain,
 		outputChain,
 		externalDataHash,
-		expiryUnixTs,
 	})
 }

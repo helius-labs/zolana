@@ -11,9 +11,9 @@ import (
 
 type externalDataPreimage struct {
 	InstructionDiscriminator uint8
+	ExpiryUnixTs             uint64
 	SenderViewTag            [32]byte
 	RelayerFee               uint16
-	ExpiryUnixTs             uint64
 	PublicSolAmount          uint64
 	PublicSplAmount          uint64
 	UserSolAccount           [32]byte
@@ -24,7 +24,6 @@ type externalDataPreimage struct {
 
 type externalValues struct {
 	hash               *big.Int
-	expiry             *big.Int
 	publicSolAmount    *big.Int
 	publicSplAmount    *big.Int
 	publicSplAsset     *big.Int
@@ -110,7 +109,6 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 			SplTokenInterface:        splTokenInterface,
 			EncryptedUtxos:           encryptedUtxos,
 		}),
-		expiry:             new(big.Int).SetUint64(tx.ExpiryUnixTs),
 		publicSolAmount:    publicAmounts.sol,
 		publicSplAmount:    publicAmounts.spl,
 		publicSplAsset:     publicAmounts.asset,
@@ -129,17 +127,16 @@ func externalDataFieldHash(data externalDataPreimage) *big.Int {
 	binary.BigEndian.PutUint64(sol[:], data.PublicSolAmount)
 	var spl [8]byte
 	binary.BigEndian.PutUint64(spl[:], data.PublicSplAmount)
-	// Field order is part of the transcript; it must match the on-chain
-	// external_data_hash byte-for-byte (spec §SPP Proof). expiry_unix_ts is in
-	// the preimage so the on-chain clock check enforces the value the owner
-	// committed to: SPP cannot recompute private_tx_hash (it covers private
-	// input hashes), so binding expiry only through private_tx_hash would let a
-	// relayer submit with an arbitrary data.expiry_unix_ts.
+	// Field order must match the on-chain external_data_hash byte-for-byte
+	// (spec: SPP Proof). expiry_unix_ts is bound ONLY here, not in
+	// private_tx_hash: SPP can't recompute private_tx_hash (it covers private
+	// input hashes), so external_data_hash is what lets SPP confirm the expiry it
+	// clock-checks is the one the owner signed.
 	return protocol.Sha256BEField(
 		[]byte{data.InstructionDiscriminator},
+		expiry[:],
 		data.SenderViewTag[:],
 		fee[:],
-		expiry[:],
 		sol[:],
 		spl[:],
 		data.UserSolAccount[:],

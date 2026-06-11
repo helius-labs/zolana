@@ -85,7 +85,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.hashes, external.hash, external.expiry)
+	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.hashes, external.hash)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -122,7 +122,6 @@ func buildProofAssignment(
 		Inputs:               inputs.inputs,
 		Outputs:              outputs.outputs,
 		ExternalDataHash:     external.hash,
-		ExpiryUnixTs:         external.expiry,
 		NullifierSecret:      inputs.nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
