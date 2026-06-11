@@ -1363,6 +1363,56 @@ fn transact_one_in_eight_out_shape_on_chain() {
     run_shape_flow(&mut rig, &tree, &settlement, "transfer_1_8", 1);
 }
 
+// The same shapes on the P256 rail: an ECDSA-signed spend per shape, so every
+// P256-capable verifying key (not just shape 1-2) is exercised on-chain.
+#[test]
+fn transact_two_in_two_out_p256_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "p256_transfer_2_2", 2);
+}
+
+#[test]
+fn transact_three_in_three_out_p256_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "p256_transfer_3_3", 3);
+}
+
+#[test]
+fn transact_five_in_three_out_p256_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "p256_transfer_5_3", 5);
+}
+
+#[test]
+fn transact_one_in_eight_out_p256_shape_on_chain() {
+    let Some(mut rig) = rig() else {
+        return;
+    };
+    let tree = rig
+        .create_pool_tree(tree_account_size())
+        .expect("create_pool_tree");
+    let settlement = setup_spl_settlement(&mut rig);
+    run_shape_flow(&mut rig, &tree, &settlement, "p256_transfer_1_8", 1);
+}
+
 // A proofless shield (tag 1) creates a UTXO with no proof; the proof-based
 // `transfer` then spends it. The transfer succeeding proves the program's
 // proofless UTXO hash exactly matches the circuit's — i.e. proofless deposits
