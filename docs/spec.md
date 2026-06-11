@@ -378,7 +378,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
                            info = "TSPP/pair-domain/" || R_pubkey, L = 32)
       return    HKDF-SHA256(salt = ∅, IKM = domain,
-                           info = "TSPP/pair-hint/"   || u64_be(i), L = 32)
+                           info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
       ```
 
       `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
