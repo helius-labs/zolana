@@ -14,17 +14,11 @@ type Shape struct {
 	NOutputs int
 }
 
+// SupportedShapes lists every fixed-size circuit, smallest-capacity first so
+// the order doubles as the smallest-fit search order for CanonicalShape and
+// mirrors SHAPES in the on-chain verifier (transact/proof.rs canonical_shape).
+// This is the single source of truth for the shape set; do not duplicate it.
 var SupportedShapes = []Shape{
-	{NInputs: 2, NOutputs: 2},
-	{NInputs: 1, NOutputs: 2},
-	{NInputs: 3, NOutputs: 3},
-	{NInputs: 5, NOutputs: 3},
-	{NInputs: 1, NOutputs: 8},
-}
-
-// canonicalShapeOrder lists SupportedShapes smallest-capacity first, mirroring
-// SHAPES in the on-chain verifier (transact/proof.rs canonical_shape).
-var canonicalShapeOrder = []Shape{
 	{NInputs: 1, NOutputs: 2},
 	{NInputs: 2, NOutputs: 2},
 	{NInputs: 3, NOutputs: 3},
@@ -40,7 +34,7 @@ func CanonicalShape(nInputs, nOutputs int) (Shape, error) {
 	if nInputs < 0 || nOutputs < 0 {
 		return Shape{}, fmt.Errorf("spp: negative arity %d inputs / %d outputs", nInputs, nOutputs)
 	}
-	for _, shape := range canonicalShapeOrder {
+	for _, shape := range SupportedShapes {
 		if nInputs <= shape.NInputs && nOutputs <= shape.NOutputs {
 			return shape, nil
 		}

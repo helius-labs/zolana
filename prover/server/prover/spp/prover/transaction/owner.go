@@ -33,6 +33,16 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 		if err != nil {
 			return ownerFields{}, err
 		}
+		// The circuit constrains owner == OwnerHash(key_hash, nullifier_pk), so an
+		// explicit owner that disagrees with the supplied key components can only
+		// build an unprovable witness. Reject it here with a clear error.
+		expected, err := protocol.OwnerHash(key.keyHash, key.nullifierPk)
+		if err != nil {
+			return ownerFields{}, err
+		}
+		if owner.Cmp(expected) != 0 {
+			return ownerFields{}, fmt.Errorf("owner: explicit owner does not match OwnerHash(key_hash, nullifier_pk)")
+		}
 		return ownerFields{owner: owner, ownerKey: key}, nil
 	}
 	key, err := ownerComponents(input, inputNullifierSecret)

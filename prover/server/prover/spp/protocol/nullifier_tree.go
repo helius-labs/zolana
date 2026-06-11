@@ -16,6 +16,14 @@ import (
 // (see Truncate248).
 var nullifierUpperBound = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
 
+// InNullifierDomain reports whether v is an insertable indexed-tree value:
+// 0 < v < 2^248 - 1. This mirrors the on-chain queue range check
+// (is_insertable_nullifier), which both nullifiers and the sender view tag
+// must satisfy or the batch-append could never prove them.
+func InNullifierDomain(v *big.Int) bool {
+	return v.Sign() > 0 && v.Cmp(nullifierUpperBound) < 0
+}
+
 func indexedLeafHash(value, nextValue *big.Int) (*big.Int, error) {
 	if err := validateFieldElement("indexed leaf value", value); err != nil {
 		return nil, err
@@ -125,7 +133,7 @@ func (t *NullifierTree) Insert(value *big.Int) error {
 	if value == nil {
 		return fmt.Errorf("spp: nullifier tree value is nil")
 	}
-	if value.Sign() <= 0 || value.Cmp(nullifierUpperBound) >= 0 {
+	if !InNullifierDomain(value) {
 		return fmt.Errorf("spp: nullifier tree value out of range: %s", value)
 	}
 	var low indexedElement
@@ -177,7 +185,7 @@ func (t *NullifierTree) InsertWithWitness(value *big.Int, height int) (Nullifier
 	if value == nil {
 		return NullifierInsertWitness{}, fmt.Errorf("spp: nullifier tree value is nil")
 	}
-	if value.Sign() <= 0 || value.Cmp(nullifierUpperBound) >= 0 {
+	if !InNullifierDomain(value) {
 		return NullifierInsertWitness{}, fmt.Errorf("spp: nullifier tree value out of range: %s", value)
 	}
 	newIndex := uint64(len(t.elements))
@@ -246,7 +254,7 @@ func (t *NullifierTree) NonInclusionWitness(target *big.Int) (NonInclusionWitnes
 	if target == nil {
 		return NonInclusionWitness{}, fmt.Errorf("spp: non-inclusion target is nil")
 	}
-	if target.Sign() <= 0 || target.Cmp(nullifierUpperBound) >= 0 {
+	if !InNullifierDomain(target) {
 		return NonInclusionWitness{}, fmt.Errorf("spp: non-inclusion target out of range: %s", target)
 	}
 

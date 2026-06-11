@@ -136,9 +136,10 @@ func newInputWitness() txcircuit.Input {
 }
 
 // dummyInputWitness fills an unused input slot. Every spend check is skipped for
-// it in-circuit; it folds nullifier 0, SolanaPkHash 0, and zero roots into the
-// public transcript. Zero roots match the on-chain verifier, which reconstructs
-// a slot's root as zero when no root index is supplied for it (a dummy slot).
+// it in-circuit; it contributes nullifier 0, SolanaPkHash 0, and zero roots to
+// the public transcript. Zero roots match the on-chain verifier, which
+// reconstructs a slot's root as zero when no root index is supplied for it (a
+// dummy slot).
 func dummyInputWitness() txcircuit.Input {
 	witness := newInputWitness()
 	witness.IsDummy = big.NewInt(1)

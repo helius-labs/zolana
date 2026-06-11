@@ -79,15 +79,17 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 	}
 }
 
-// Every canonical shape must be a supported shape and vice versa, so the
-// smallest-fit list cannot drift from SupportedShapes.
-func TestCanonicalShapeOrderCoversSupportedShapes(t *testing.T) {
-	if len(canonicalShapeOrder) != len(SupportedShapes) {
-		t.Fatalf("canonicalShapeOrder has %d shapes, SupportedShapes has %d", len(canonicalShapeOrder), len(SupportedShapes))
-	}
-	for _, shape := range canonicalShapeOrder {
-		if !shape.IsSupported() {
-			t.Fatalf("canonical shape %s is not in SupportedShapes", shape)
+// SupportedShapes is the single source of truth, and CanonicalShape relies on
+// it being ordered smallest-fit-first: if a later shape fits inside an earlier
+// one (NInputs and NOutputs both <=), the smallest-fit search would return an
+// oversized shape whose proof can't verify on-chain. Pin the ordering invariant.
+func TestSupportedShapesAreSmallestFitOrdered(t *testing.T) {
+	for i := range SupportedShapes {
+		for j := i + 1; j < len(SupportedShapes); j++ {
+			earlier, later := SupportedShapes[i], SupportedShapes[j]
+			if later.NInputs <= earlier.NInputs && later.NOutputs <= earlier.NOutputs {
+				t.Fatalf("shape %s fits inside earlier %s; smallest-fit order violated", later, earlier)
+			}
 		}
 	}
 }

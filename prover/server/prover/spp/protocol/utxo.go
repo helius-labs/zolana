@@ -78,16 +78,14 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	return h, nil
 }
 
-// nullifier248Mask keeps the low 248 bits (31 bytes) of a field element.
-var nullifier248Mask = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
-
 // Truncate248 keeps the low 248 bits of the canonical (mod-p-reduced)
 // encoding of x. Nullifiers (and tree-inserted view tags) are truncated to
 // the nullifier tree's 248-bit indexed value domain — the tree is a
 // light-batched-merkle-tree whose batch-append circuit range-checks values
-// to 248 bits, so full-field values could never be batch-proven.
+// to 248 bits, so full-field values could never be batch-proven. The low
+// 248-bit mask is exactly nullifierUpperBound (2^248 - 1).
 func Truncate248(x *big.Int) *big.Int {
-	return new(big.Int).And(x, nullifier248Mask)
+	return new(big.Int).And(x, nullifierUpperBound)
 }
 
 func NullifierHash(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {

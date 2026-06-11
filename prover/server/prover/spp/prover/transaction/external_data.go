@@ -38,6 +38,13 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 	if err != nil {
 		return externalValues{}, fmt.Errorf("sender_view_tag: %w", err)
 	}
+	// The proved transact path queues the view tag alongside the nullifiers, so
+	// it must be in the same 248-bit indexed-tree domain (0 < v < 2^248 - 1) the
+	// on-chain queue insert enforces. Reject out-of-domain values here rather
+	// than emitting a bundle that proves but is rejected at queue insert.
+	if !protocol.InNullifierDomain(senderViewTag) {
+		return externalValues{}, fmt.Errorf("sender_view_tag must be in the 248-bit domain 0 < v < 2^248-1")
+	}
 	senderViewTagBytes, err := parse.FieldBytes(senderViewTag)
 	if err != nil {
 		return externalValues{}, fmt.Errorf("sender_view_tag: %w", err)
