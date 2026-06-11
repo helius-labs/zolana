@@ -11,9 +11,9 @@ pub const CREATE_POOL_TREE: u8 = 7;
 pub const CREATE_PROTOCOL_CONFIG: u8 = 9;
 pub const UPDATE_PROTOCOL_CONFIG: u8 = 10;
 pub const PAUSE_TREE: u8 = 11;
-pub const CREATE_POCKET_CONFIG: u8 = 12;
-pub const UPDATE_POCKET_CONFIG_OWNER: u8 = 13;
-pub const UPDATE_POCKET_CONFIG: u8 = 14;
+pub const CREATE_ZONE_CONFIG: u8 = 12;
+pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 13;
+pub const UPDATE_ZONE_CONFIG: u8 = 14;
 
 /// Spec-reserved instruction tags that have **no handler** in the program.
 ///
@@ -25,23 +25,23 @@ pub const UPDATE_POCKET_CONFIG: u8 = 14;
 /// dispatchable instruction set. These only reserve their tag numbers so a
 /// future implementation keeps the numbering stable.
 pub mod reserved {
-    pub const POCKET_TRANSACT: u8 = 2;
-    pub const POCKET_AUTHORITY_TRANSACT: u8 = 3;
+    pub const ZONE_TRANSACT: u8 = 2;
+    pub const ZONE_AUTHORITY_TRANSACT: u8 = 3;
     pub const MERGE_TRANSACT: u8 = 15;
     pub const ENABLE_MERGE_AUTHORITY: u8 = 16;
     pub const DISABLE_MERGE_AUTHORITY: u8 = 17;
     pub const CREATE_MERGE_AUTHORITY_TREE: u8 = 18;
-    pub const MERGE_POCKET: u8 = 19;
+    pub const MERGE_ZONE: u8 = 19;
 }
 
 // === Forester tree maintenance ===
 // Outside the SPP spec dispatch table; intentionally above the reserved
-// proof/pocket tag range so they never collide with spec tags.
+// proof/zone tag range so they never collide with spec tags.
 pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 
 /// Typed view of an *implemented* instruction tag.
 ///
-/// Reserved-but-unimplemented spec tags (POCKET_TRANSACT, MERGE_*) are
+/// Reserved-but-unimplemented spec tags (ZONE_TRANSACT, MERGE_*) are
 /// deliberately not variants: they have no handler, so `try_from` returns `Err`
 /// for them exactly like any unknown byte. This keeps the public surface to
 /// what the program can actually dispatch.
@@ -56,9 +56,9 @@ pub enum InstructionTag {
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
     UpdateProtocolConfig = UPDATE_PROTOCOL_CONFIG,
     PauseTree = PAUSE_TREE,
-    CreatePocketConfig = CREATE_POCKET_CONFIG,
-    UpdatePocketConfigOwner = UPDATE_POCKET_CONFIG_OWNER,
-    UpdatePocketConfig = UPDATE_POCKET_CONFIG,
+    CreateZoneConfig = CREATE_ZONE_CONFIG,
+    UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
+    UpdateZoneConfig = UPDATE_ZONE_CONFIG,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -74,9 +74,9 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
             UPDATE_PROTOCOL_CONFIG => Ok(Self::UpdateProtocolConfig),
             PAUSE_TREE => Ok(Self::PauseTree),
-            CREATE_POCKET_CONFIG => Ok(Self::CreatePocketConfig),
-            UPDATE_POCKET_CONFIG_OWNER => Ok(Self::UpdatePocketConfigOwner),
-            UPDATE_POCKET_CONFIG => Ok(Self::UpdatePocketConfig),
+            CREATE_ZONE_CONFIG => Ok(Self::CreateZoneConfig),
+            UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
+            UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
             _ => Err(()),
         }
     }

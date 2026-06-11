@@ -1,20 +1,20 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct CreatePocketConfigData {
+pub struct CreateZoneConfigData {
     pub policy_program_id: [u8; 32],
-    pub pocket_auth_bump: u8,
+    pub zone_auth_bump: u8,
     pub authority: [u8; 32],
-    pub pocket_authority_transact_is_enabled: bool,
-    pub pocket_config_bump: u8,
+    pub zone_authority_transact_is_enabled: bool,
+    pub zone_config_bump: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct UpdatePocketConfigOwnerData {
+pub struct UpdateZoneConfigOwnerData {
     pub new_authority: [u8; 32],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct UpdatePocketConfigData {
-    pub pocket_authority_transact_is_enabled: bool,
+pub struct UpdateZoneConfigData {
+    pub zone_authority_transact_is_enabled: bool,
 }

@@ -1,9 +1,9 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
-    encode_instruction, tag, BatchUpdateAddressTreeData, CreatePocketConfigData, CreatePoolTreeData,
+    encode_instruction, tag, BatchUpdateAddressTreeData, CreateZoneConfigData, CreatePoolTreeData,
     CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
-    InstructionTag, PauseTreeData, TransactData, UpdatePocketConfigData,
-    UpdatePocketConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
+    InstructionTag, PauseTreeData, TransactData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 #[test]
@@ -116,38 +116,38 @@ fn protocol_config_roundtrips() {
 }
 
 #[test]
-fn pocket_config_update_roundtrips() {
-    let create = CreatePocketConfigData {
+fn zone_config_update_roundtrips() {
+    let create = CreateZoneConfigData {
         policy_program_id: [9u8; 32],
-        pocket_auth_bump: 255,
+        zone_auth_bump: 255,
         authority: [4u8; 32],
-        pocket_authority_transact_is_enabled: true,
-        pocket_config_bump: 254,
+        zone_authority_transact_is_enabled: true,
+        zone_config_bump: 254,
     };
-    let bytes = encode_instruction(tag::CREATE_POCKET_CONFIG, &create);
-    assert_eq!(bytes[0], tag::CREATE_POCKET_CONFIG);
+    let bytes = encode_instruction(tag::CREATE_ZONE_CONFIG, &create);
+    assert_eq!(bytes[0], tag::CREATE_ZONE_CONFIG);
     assert_eq!(
-        CreatePocketConfigData::try_from_slice(&bytes[1..]).unwrap(),
+        CreateZoneConfigData::try_from_slice(&bytes[1..]).unwrap(),
         create
     );
 
-    let owner = UpdatePocketConfigOwnerData {
+    let owner = UpdateZoneConfigOwnerData {
         new_authority: [3u8; 32],
     };
-    let bytes = encode_instruction(tag::UPDATE_POCKET_CONFIG_OWNER, &owner);
-    assert_eq!(bytes[0], tag::UPDATE_POCKET_CONFIG_OWNER);
+    let bytes = encode_instruction(tag::UPDATE_ZONE_CONFIG_OWNER, &owner);
+    assert_eq!(bytes[0], tag::UPDATE_ZONE_CONFIG_OWNER);
     assert_eq!(
-        UpdatePocketConfigOwnerData::try_from_slice(&bytes[1..]).unwrap(),
+        UpdateZoneConfigOwnerData::try_from_slice(&bytes[1..]).unwrap(),
         owner
     );
 
-    let update = UpdatePocketConfigData {
-        pocket_authority_transact_is_enabled: true,
+    let update = UpdateZoneConfigData {
+        zone_authority_transact_is_enabled: true,
     };
-    let bytes = encode_instruction(tag::UPDATE_POCKET_CONFIG, &update);
-    assert_eq!(bytes[0], tag::UPDATE_POCKET_CONFIG);
+    let bytes = encode_instruction(tag::UPDATE_ZONE_CONFIG, &update);
+    assert_eq!(bytes[0], tag::UPDATE_ZONE_CONFIG);
     assert_eq!(
-        UpdatePocketConfigData::try_from_slice(&bytes[1..]).unwrap(),
+        UpdateZoneConfigData::try_from_slice(&bytes[1..]).unwrap(),
         update
     );
 }
@@ -166,16 +166,16 @@ fn implemented_tags_map_to_instruction_tag() {
         ),
         (tag::PAUSE_TREE, InstructionTag::PauseTree),
         (
-            tag::CREATE_POCKET_CONFIG,
-            InstructionTag::CreatePocketConfig,
+            tag::CREATE_ZONE_CONFIG,
+            InstructionTag::CreateZoneConfig,
         ),
         (
-            tag::UPDATE_POCKET_CONFIG_OWNER,
-            InstructionTag::UpdatePocketConfigOwner,
+            tag::UPDATE_ZONE_CONFIG_OWNER,
+            InstructionTag::UpdateZoneConfigOwner,
         ),
         (
-            tag::UPDATE_POCKET_CONFIG,
-            InstructionTag::UpdatePocketConfig,
+            tag::UPDATE_ZONE_CONFIG,
+            InstructionTag::UpdateZoneConfig,
         ),
     ];
 
@@ -189,13 +189,13 @@ fn reserved_unimplemented_tags_are_not_dispatchable() {
     // Spec-reserved tags with no handler must not decode to an InstructionTag;
     // the program dispatch treats them like any unknown byte.
     for tag in [
-        tag::reserved::POCKET_TRANSACT,
-        tag::reserved::POCKET_AUTHORITY_TRANSACT,
+        tag::reserved::ZONE_TRANSACT,
+        tag::reserved::ZONE_AUTHORITY_TRANSACT,
         tag::reserved::MERGE_TRANSACT,
         tag::reserved::ENABLE_MERGE_AUTHORITY,
         tag::reserved::DISABLE_MERGE_AUTHORITY,
         tag::reserved::CREATE_MERGE_AUTHORITY_TREE,
-        tag::reserved::MERGE_POCKET,
+        tag::reserved::MERGE_ZONE,
     ] {
         assert_eq!(InstructionTag::try_from(tag), Err(()));
     }

@@ -4,61 +4,61 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        encode_instruction, tag, CreatePocketConfigData, UpdatePocketConfigData,
-        UpdatePocketConfigOwnerData,
+        encode_instruction, tag, CreateZoneConfigData, UpdateZoneConfigData,
+        UpdateZoneConfigOwnerData,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
 
-pub fn create_pocket_config(
+pub fn create_zone_config(
     payer: Pubkey,
-    pocket_config: Pubkey,
-    pocket_auth: Pubkey,
-    data: CreatePocketConfigData,
+    zone_config: Pubkey,
+    zone_auth: Pubkey,
+    data: CreateZoneConfigData,
 ) -> Instruction {
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new_readonly(payer, true),
-            AccountMeta::new(pocket_config, false),
-            AccountMeta::new_readonly(pocket_auth, true),
+            AccountMeta::new(zone_config, false),
+            AccountMeta::new_readonly(zone_auth, true),
         ],
-        data: encode_instruction(tag::CREATE_POCKET_CONFIG, &data),
+        data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
     }
 }
 
-pub fn update_pocket_config_owner(
+pub fn update_zone_config_owner(
     authority: Pubkey,
-    pocket_config: Pubkey,
-    data: UpdatePocketConfigOwnerData,
+    zone_config: Pubkey,
+    data: UpdateZoneConfigOwnerData,
 ) -> Instruction {
     build_update_ix(
-        tag::UPDATE_POCKET_CONFIG_OWNER,
+        tag::UPDATE_ZONE_CONFIG_OWNER,
         authority,
-        pocket_config,
+        zone_config,
         data,
     )
 }
 
-pub fn update_pocket_config(
+pub fn update_zone_config(
     authority: Pubkey,
-    pocket_config: Pubkey,
-    data: UpdatePocketConfigData,
+    zone_config: Pubkey,
+    data: UpdateZoneConfigData,
 ) -> Instruction {
-    build_update_ix(tag::UPDATE_POCKET_CONFIG, authority, pocket_config, data)
+    build_update_ix(tag::UPDATE_ZONE_CONFIG, authority, zone_config, data)
 }
 
 fn build_update_ix<T: BorshSerialize>(
     tag: u8,
     authority: Pubkey,
-    pocket_config: Pubkey,
+    zone_config: Pubkey,
     data: T,
 ) -> Instruction {
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new_readonly(authority, true),
-            AccountMeta::new(pocket_config, false),
+            AccountMeta::new(zone_config, false),
         ],
         data: encode_instruction(tag, &data),
     }

@@ -6,10 +6,10 @@ pub mod tag;
 use borsh::BorshSerialize;
 
 pub use instruction_data::{
-    BatchUpdateAddressTreeData, CpiSignerData, CreatePocketConfigData, CreatePoolTreeData,
+    BatchUpdateAddressTreeData, CpiSignerData, CreateZoneConfigData, CreatePoolTreeData,
     CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
-    PauseTreeData, ProoflessShieldData, TransactData, UpdatePocketConfigData,
-    UpdatePocketConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
+    PauseTreeData, ProoflessShieldData, TransactData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
     PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
 };
 pub use tag::InstructionTag;
