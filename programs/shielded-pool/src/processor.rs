@@ -1,9 +1,9 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, BatchUpdateAddressTreeData, CreatePocketConfigData, CreatePoolTreeData,
+    tag, BatchUpdateAddressTreeData, CreateZoneConfigData, CreatePoolTreeData,
     CreateProtocolConfigData, CreateSplInterfaceData, PauseTreeData, ProoflessShieldData,
-    TransactData, UpdatePocketConfigData, UpdatePocketConfigOwnerData, UpdateProtocolConfigData,
+    TransactData, UpdateZoneConfigData, UpdateZoneConfigOwnerData, UpdateProtocolConfigData,
 };
 
 use crate::{
@@ -12,9 +12,9 @@ use crate::{
         batch_update_address_tree::processor::process_batch_update_address_tree,
         create_pool_tree::processor::process_create_pool_tree,
         create_spl_interface::processor::process_create_spl_interface,
-        pocket_config::processor::{
-            process_create_pocket_config, process_update_pocket_config,
-            process_update_pocket_config_owner,
+        zone_config::processor::{
+            process_create_zone_config, process_update_zone_config,
+            process_update_zone_config_owner,
         },
         protocol_config::processor::{
             process_create_protocol_config, process_pause_tree, process_update_protocol_config,
@@ -65,8 +65,8 @@ pub fn process_instruction(
         tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
         tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),
         tag::PAUSE_TREE => (PauseTreeData, process_pause_tree),
-        tag::CREATE_POCKET_CONFIG => (CreatePocketConfigData, process_create_pocket_config),
-        tag::UPDATE_POCKET_CONFIG_OWNER => (UpdatePocketConfigOwnerData, process_update_pocket_config_owner),
-        tag::UPDATE_POCKET_CONFIG => (UpdatePocketConfigData, process_update_pocket_config),
+        tag::CREATE_ZONE_CONFIG => (CreateZoneConfigData, process_create_zone_config),
+        tag::UPDATE_ZONE_CONFIG_OWNER => (UpdateZoneConfigOwnerData, process_update_zone_config_owner),
+        tag::UPDATE_ZONE_CONFIG => (UpdateZoneConfigData, process_update_zone_config),
     })
 }

@@ -46,8 +46,8 @@ pub enum ShieldedPoolError {
     InvalidProtocolConfig = 16,
     #[error("pool tree is paused")]
     PoolTreePaused = 17,
-    #[error("pocket config account is invalid")]
-    InvalidPocketConfig = 18,
+    #[error("zone config account is invalid")]
+    InvalidZoneConfig = 18,
     #[error("nullifier root index references a zeroed (stale) root-history slot")]
     StaleNullifierRoot = 19,
 }
@@ -86,7 +86,7 @@ mod tests {
             (InvalidSplAssetRegistry as u32, 15),
             (InvalidProtocolConfig as u32, 16),
             (PoolTreePaused as u32, 17),
-            (InvalidPocketConfig as u32, 18),
+            (InvalidZoneConfig as u32, 18),
             (StaleNullifierRoot as u32, 19),
         ];
         for (got, want) in table {
