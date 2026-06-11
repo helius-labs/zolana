@@ -852,8 +852,6 @@ external_data_hash := Sha256BE(
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
-`expiry_unix_ts` is bound only in `external_data_hash`. SPP cannot recompute `private_tx_hash` (the input UTXO hashes are private), so `external_data_hash` is what lets SPP confirm the `expiry_unix_ts` it enforces in check 1 (`current_unix_ts <= expiry_unix_ts`) is the one the owner signed — the owner's signature commits to `external_data_hash` through `private_tx_hash`.
-
 **Checks**
 
 | Check | Description |
@@ -866,7 +864,7 @@ external_data_hash := Sha256BE(
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
-| Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash)`.<br>The owner signs this value; the ECDSA message digest `Sha256BE(private_tx_hash)` is computed outside the circuit and passed in as the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). `expiry_unix_ts` is covered through `external_data_hash`, not as a separate input. SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
+| Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash)`.<br>The owner signs this value; the ECDSA message digest `Sha256BE(private_tx_hash)` is computed outside the circuit and passed in as the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | Program ownership | UTXOs owned by a zone program must be authorized by a PDA signer of that program. Policy proofs are checked by the zone program before CPI into SPP. |
 | Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. |
 
