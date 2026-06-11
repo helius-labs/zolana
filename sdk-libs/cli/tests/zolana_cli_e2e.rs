@@ -60,7 +60,7 @@ impl TempWorkspace {
             .as_millis();
         let counter = TEMP_WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pocket-cli-e2e-{}-{millis}-{counter}",
+            "zolana-cli-e2e-{}-{millis}-{counter}",
             std::process::id()
         ));
         fs::create_dir_all(&path)?;
@@ -75,10 +75,10 @@ impl Drop for TempWorkspace {
 }
 
 #[test]
-fn pocket_cli_creates_spec_p256_wallet() -> Result<()> {
+fn zone_cli_creates_spec_p256_wallet() -> Result<()> {
     let temp = TempWorkspace::new()?;
     let wallet_path = temp.path.join("wallet.p256.json");
-    let output = run_pocket_json(&[
+    let output = run_zone_json(&[
         "create-shielded-wallet",
         "--output",
         path_str(&wallet_path)?,
@@ -107,7 +107,7 @@ fn pocket_cli_creates_spec_p256_wallet() -> Result<()> {
 
 #[test]
 #[ignore = "starts solana-test-validator and runs real Groth16 proving"]
-fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
+fn zone_cli_drives_real_validator_and_prover() -> Result<()> {
     let root = workspace_root()?;
     let program_so = require_path(root.join("target/deploy/shielded_pool_program.so"))?;
     let prover_bin = require_path(root.join("target/prover-server"))?;
@@ -136,7 +136,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
 
     let payer_path = temp.path.join("payer.json");
     let recipient_path = temp.path.join("recipient.json");
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-wallet",
         "--rpc-url",
         &rpc_url,
@@ -145,7 +145,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         "--airdrop-lamports",
         &AIRDROP_LAMPORTS.to_string(),
     ])?;
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-wallet",
         "--rpc-url",
         &rpc_url,
@@ -170,7 +170,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
     assert_eq!(token_amount(&client, &settlement.vault)?, 0);
     assert_eq!(token_amount(&client, &settlement.recipient_token)?, 0);
     assert_eq!(
-        run_pocket_json(&[
+        run_zone_json(&[
             "balance",
             "--rpc-url",
             &rpc_url,
@@ -182,7 +182,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
 
     let payer_state = temp.path.join("payer.state.json");
     let recipient_state = temp.path.join("recipient.state.json");
-    run_pocket_json(&[
+    run_zone_json(&[
         "shield",
         "--rpc-url",
         &rpc_url,
@@ -210,7 +210,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
     assert_eq!(token_amount(&client, &settlement.payer_token)?, 900);
     assert_eq!(token_amount(&client, &settlement.vault)?, 100);
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "transfer",
         "--rpc-url",
         &rpc_url,
@@ -234,7 +234,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
     assert_eq!(token_amount(&client, &settlement.payer_token)?, 900);
     assert_eq!(token_amount(&client, &settlement.vault)?, 100);
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "unshield",
         "--rpc-url",
         &rpc_url,
@@ -260,7 +260,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
         &settlement.registry.to_string(),
     ])?;
 
-    let recipient_balance = run_pocket_json(&[
+    let recipient_balance = run_zone_json(&[
         "balance",
         "--rpc-url",
         &rpc_url,
@@ -276,7 +276,7 @@ fn pocket_cli_drives_real_validator_and_prover() -> Result<()> {
 
 #[test]
 #[ignore = "starts solana-test-validator and runs real Groth16 proving"]
-fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
+fn zone_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
     let root = workspace_root()?;
     let program_so = require_path(root.join("target/deploy/shielded_pool_program.so"))?;
     let prover_bin = require_path(root.join("target/prover-server"))?;
@@ -305,7 +305,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
 
     let wallet_a = temp.path.join("wallet-a.json");
     let wallet_b = temp.path.join("wallet-b.json");
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-wallet",
         "--rpc-url",
         &rpc_url,
@@ -314,7 +314,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         "--airdrop-lamports",
         "25000000000",
     ])?;
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-wallet",
         "--rpc-url",
         &rpc_url,
@@ -332,7 +332,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
     wait_for_lamports(&client, &wallet_b_keypair.pubkey(), 5_000_000_000)?;
 
     let tree_keypair = temp.path.join("pool-tree.json");
-    let tree_json = run_pocket_json(&[
+    let tree_json = run_zone_json(&[
         "init-pool-tree",
         "--rpc-url",
         &rpc_url,
@@ -350,17 +350,17 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
     let state_b = temp.path.join("wallet-b.state.json");
     let p256_wallet_a = temp.path.join("wallet-a.p256.json");
     let p256_wallet_b = temp.path.join("wallet-b.p256.json");
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-shielded-wallet",
         "--output",
         path_str(&p256_wallet_a)?,
     ])?;
-    run_pocket_json(&[
+    run_zone_json(&[
         "create-shielded-wallet",
         "--output",
         path_str(&p256_wallet_b)?,
     ])?;
-    run_pocket_json(&[
+    run_zone_json(&[
         "shield",
         "--rpc-url",
         &rpc_url,
@@ -382,7 +382,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         1_000_000_000
     );
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "transfer",
         "--rpc-url",
         &rpc_url,
@@ -414,7 +414,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         400_000_000
     );
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "shield",
         "--rpc-url",
         &rpc_url,
@@ -438,7 +438,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         1_400_000_000
     );
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "transfer",
         "--rpc-url",
         &rpc_url,
@@ -472,7 +472,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         1_100_000_000
     );
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "unshield",
         "--rpc-url",
         &rpc_url,
@@ -498,7 +498,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
         400_000_000
     );
 
-    run_pocket_json(&[
+    run_zone_json(&[
         "shield",
         "--rpc-url",
         &rpc_url,
@@ -521,7 +521,7 @@ fn pocket_cli_drives_sol_shield_transfer_unshield() -> Result<()> {
     );
 
     let wallet_a_public_before = client.get_balance(&payer.pubkey())?;
-    run_pocket_json(&[
+    run_zone_json(&[
         "unshield",
         "--rpc-url",
         &rpc_url,
@@ -831,14 +831,15 @@ fn send_instructions(
     Ok(())
 }
 
-fn run_pocket_json(args: &[&str]) -> Result<Value> {
-    let output = Command::new(env!("CARGO_BIN_EXE_pocket"))
+fn run_zone_json(args: &[&str]) -> Result<Value> {
+    let output = Command::new(env!("CARGO_BIN_EXE_zolana"))
+        .arg("zone")
         .args(args)
         .output()
-        .context("run pocket CLI")?;
+        .context("run zolana CLI")?;
     if !output.status.success() {
         bail!(
-            "pocket {:?} failed with status {}\nstdout:\n{}\nstderr:\n{}",
+            "zolana zone {:?} failed with status {}\nstdout:\n{}\nstderr:\n{}",
             args,
             output.status,
             String::from_utf8_lossy(&output.stdout),
@@ -847,7 +848,7 @@ fn run_pocket_json(args: &[&str]) -> Result<Value> {
     }
     serde_json::from_slice(&output.stdout).with_context(|| {
         format!(
-            "decode pocket stdout: {}",
+            "decode zone stdout: {}",
             String::from_utf8_lossy(&output.stdout)
         )
     })
@@ -859,7 +860,7 @@ fn private_balance(rpc_url: &str, state: &Path, asset_id: Option<u64>) -> Result
     if let Some(asset_id_string) = asset_id_string.as_deref() {
         args.extend(["--asset-id", asset_id_string]);
     }
-    let value = run_pocket_json(&args)?;
+    let value = run_zone_json(&args)?;
     value["private_amount"]
         .as_u64()
         .ok_or_else(|| anyhow!("balance output missing private_amount"))
@@ -881,7 +882,7 @@ fn require_path(path: PathBuf) -> Result<PathBuf> {
         Ok(path)
     } else {
         bail!(
-            "missing {}; run `just test-pocket-cli-e2e` to build required artifacts",
+            "missing {}; run `just test-zolana-cli-e2e` to build required artifacts",
             path.display()
         )
     }

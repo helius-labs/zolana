@@ -57,11 +57,11 @@ const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 // UTXO commitment domain separator; must equal protocol::UtxoDomain (Go) and
 // UTXO_DOMAIN (program). The circuit asserts every real UTXO's domain == 2.
-const POCKET_UTXO_DOMAIN: u64 = 2;
-const POCKET_UTXO_ROOT_HISTORY_CAPACITY: u16 = 200;
+const ZONE_UTXO_DOMAIN: u64 = 2;
+const ZONE_UTXO_ROOT_HISTORY_CAPACITY: u16 = 200;
 // HKDF `info` for the nullifier secret; must match the spec (spec.md "Nullifier
 // Key": nullifier_secret = HKDF-SHA256(IKM=signing_sk, info="TSPP/nullifier")).
-const POCKET_NULLIFIER_HKDF_INFO: &[u8] = b"TSPP/nullifier";
+const ZONE_NULLIFIER_HKDF_INFO: &[u8] = b"TSPP/nullifier";
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 const LIGHT_REGISTRY_ID: &str = "Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX";
@@ -155,14 +155,10 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let argv0 = env::args().next().unwrap_or_default();
     let args = env::args().skip(1).collect::<Vec<_>>();
-    if Path::new(&argv0).file_stem().and_then(|name| name.to_str()) == Some("pocket") {
-        return run_pocket(&args);
-    }
 
     match args.first().map(String::as_str) {
-        Some("pocket") => run_pocket(&args[1..]),
+        Some("zone") => run_zone(&args[1..]),
         Some("test-validator")
             if args
                 .get(1)
@@ -975,7 +971,7 @@ fn path_string_with_trailing_separator(path: &Path) -> Result<String> {
 }
 
 #[derive(Debug, Default)]
-struct PocketCreateWalletOptions {
+struct ZoneCreateWalletOptions {
     output: PathBuf,
     force: bool,
     rpc_url: String,
@@ -983,13 +979,13 @@ struct PocketCreateWalletOptions {
 }
 
 #[derive(Debug, Default)]
-struct PocketCreateShieldedWalletOptions {
+struct ZoneCreateShieldedWalletOptions {
     output: PathBuf,
     force: bool,
 }
 
 #[derive(Debug, Default)]
-struct PocketBalanceOptions {
+struct ZoneBalanceOptions {
     rpc_url: String,
     wallet: Option<PathBuf>,
     pubkey: Option<Pubkey>,
@@ -999,7 +995,7 @@ struct PocketBalanceOptions {
 }
 
 #[derive(Debug, Default)]
-struct PocketInitPoolTreeOptions {
+struct ZoneInitPoolTreeOptions {
     rpc_url: String,
     payer: PathBuf,
     output: PathBuf,
@@ -1008,7 +1004,7 @@ struct PocketInitPoolTreeOptions {
 }
 
 #[derive(Debug, Default)]
-struct PocketSubmitOptions {
+struct ZoneSubmitOptions {
     rpc_url: String,
     payer: PathBuf,
     tree: Pubkey,
@@ -1034,7 +1030,7 @@ struct PocketSubmitOptions {
     token_program: Pubkey,
 }
 
-impl PocketSubmitOptions {
+impl ZoneSubmitOptions {
     fn has_spl_settlement(&self) -> bool {
         self.user_spl_token.is_some()
             || self.spl_vault.is_some()
@@ -1043,14 +1039,14 @@ impl PocketSubmitOptions {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketProofBundle {
+struct ZoneProofBundle {
     solana_signer_pubkey: String,
     #[serde(default, alias = "fixtures")]
-    transactions: Vec<PocketProofTx>,
+    transactions: Vec<ZoneProofTx>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketProofTx {
+struct ZoneProofTx {
     name: String,
     expiry_unix_ts: u64,
     sender_view_tag: String,
@@ -1068,7 +1064,7 @@ struct PocketProofTx {
     public_spl_asset_pubkey: String,
     encrypted_utxos: String,
     #[serde(default)]
-    output_utxos: Vec<PocketProofOutputUtxo>,
+    output_utxos: Vec<ZoneProofOutputUtxo>,
     #[serde(default)]
     user_sol_account: String,
     user_spl_token_account: String,
@@ -1082,35 +1078,35 @@ struct PocketProofTx {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketProofOutputUtxo {
-    utxo: PocketUtxo,
+struct ZoneProofOutputUtxo {
+    utxo: ZoneUtxo,
     hash: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct PocketState {
+struct ZoneState {
     #[serde(default)]
     utxo_root_index: u16,
     #[serde(default)]
     next_leaf_index: u64,
     #[serde(default)]
-    known_leaves: Vec<PocketKnownLeaf>,
+    known_leaves: Vec<ZoneKnownLeaf>,
     #[serde(default)]
-    notes: Vec<PocketNote>,
+    notes: Vec<ZoneNote>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct PocketKnownLeaf {
+struct ZoneKnownLeaf {
     index: u64,
     hash: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct PocketNote {
+struct ZoneNote {
     id: String,
     owner_pubkey: String,
     leaf_index: u64,
-    utxo: PocketUtxo,
+    utxo: ZoneUtxo,
     nullifier_secret: String,
     hash: String,
     #[serde(default)]
@@ -1118,7 +1114,7 @@ struct PocketNote {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct PocketUtxo {
+struct ZoneUtxo {
     domain: String,
     owner: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -1138,13 +1134,13 @@ struct PocketUtxo {
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct PocketProofRequest {
+struct ZoneProofRequest {
     solana_signer_pubkey: String,
-    transactions: Vec<PocketProofRequestTx>,
+    transactions: Vec<ZoneProofRequestTx>,
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct PocketProofRequestTx {
+struct ZoneProofRequestTx {
     name: String,
     instruction_discriminator: u8,
     expiry_unix_ts: u64,
@@ -1158,9 +1154,9 @@ struct PocketProofRequestTx {
     user_sol_account: String,
     user_spl_token_account: String,
     spl_token_interface: String,
-    state_entries: Vec<PocketStateEntry>,
-    inputs: Vec<PocketProofInput>,
-    outputs: Vec<PocketUtxo>,
+    state_entries: Vec<ZoneStateEntry>,
+    inputs: Vec<ZoneProofInput>,
+    outputs: Vec<ZoneUtxo>,
     utxo_tree_root_index: Vec<u16>,
     nullifier_tree_root_index: Vec<u16>,
     program_id_hashchain: String,
@@ -1175,12 +1171,12 @@ struct PocketProofRequestTx {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketSigningPayloadBundle {
-    transactions: Vec<PocketSigningPayloadTx>,
+struct ZoneSigningPayloadBundle {
+    transactions: Vec<ZoneSigningPayloadTx>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketSigningPayloadTx {
+struct ZoneSigningPayloadTx {
     name: String,
     // The digest the circuit's ECDSA gadget verifies against
     // (Sha256BE(private_tx_hash)); this is what a P256 owner signs. The payload
@@ -1191,7 +1187,7 @@ struct PocketSigningPayloadTx {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct PocketP256Wallet {
+struct ZoneP256Wallet {
     version: u8,
     scheme: String,
     p256_secret_key: String,
@@ -1200,67 +1196,67 @@ struct PocketP256Wallet {
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct PocketStateEntry {
+struct ZoneStateEntry {
     index: u64,
     hash: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct PocketProofInput {
-    utxo: PocketUtxo,
+struct ZoneProofInput {
+    utxo: ZoneUtxo,
     leaf_index: u64,
     nullifier_secret: String,
 }
 
 #[derive(Debug)]
-struct PocketDirectProof {
+struct ZoneDirectProof {
     bundle_path: PathBuf,
     tx_name: String,
-    state_updates: PocketStateUpdates,
+    state_updates: ZoneStateUpdates,
 }
 
 #[derive(Debug, Default)]
-struct PocketStateUpdates {
+struct ZoneStateUpdates {
     sender_state_path: Option<PathBuf>,
-    sender_state: PocketState,
+    sender_state: ZoneState,
     recipient_state_path: Option<PathBuf>,
-    recipient_state: Option<PocketState>,
+    recipient_state: Option<ZoneState>,
 }
 
-fn run_pocket(args: &[String]) -> Result<()> {
+fn run_zone(args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
-        Some("create-wallet") => pocket_create_wallet(parse_pocket_create_wallet_args(&args[1..])?),
+        Some("create-wallet") => zone_create_wallet(parse_zone_create_wallet_args(&args[1..])?),
         Some("create-shielded-wallet") => {
-            pocket_create_shielded_wallet(parse_pocket_create_shielded_wallet_args(&args[1..])?)
+            zone_create_shielded_wallet(parse_zone_create_shielded_wallet_args(&args[1..])?)
         }
-        Some("balance") => pocket_balance(parse_pocket_balance_args(&args[1..])?),
+        Some("balance") => zone_balance(parse_zone_balance_args(&args[1..])?),
         Some("init-pool-tree") => {
-            pocket_init_pool_tree(parse_pocket_init_pool_tree_args(&args[1..])?)
+            zone_init_pool_tree(parse_zone_init_pool_tree_args(&args[1..])?)
         }
-        Some("shield") => pocket_submit("shield", parse_pocket_submit_args("shield", &args[1..])?),
+        Some("shield") => zone_submit("shield", parse_zone_submit_args("shield", &args[1..])?),
         Some("proofless-shield") => {
-            pocket_proofless_shield(parse_pocket_submit_opts("proofless-shield", &args[1..])?)
+            zone_proofless_shield(parse_zone_submit_opts("proofless-shield", &args[1..])?)
         }
-        Some("transfer") => pocket_submit(
+        Some("transfer") => zone_submit(
             "transfer",
-            parse_pocket_submit_args("transfer", &args[1..])?,
+            parse_zone_submit_args("transfer", &args[1..])?,
         ),
-        Some("unshield") => pocket_submit(
+        Some("unshield") => zone_submit(
             "unshield",
-            parse_pocket_submit_args("unshield", &args[1..])?,
+            parse_zone_submit_args("unshield", &args[1..])?,
         ),
         Some("--help") | Some("-h") | None => {
-            print_pocket_help();
+            print_zone_help();
             Ok(())
         }
-        Some(command) => bail!("unknown pocket command: {command}"),
+        Some(command) => bail!("unknown zone command: {command}"),
     }
 }
 
-fn parse_pocket_create_shielded_wallet_args(
+fn parse_zone_create_shielded_wallet_args(
     args: &[String],
-) -> Result<PocketCreateShieldedWalletOptions> {
-    let mut opts = PocketCreateShieldedWalletOptions::default();
+) -> Result<ZoneCreateShieldedWalletOptions> {
+    let mut opts = ZoneCreateShieldedWalletOptions::default();
     let mut index = 0;
 
     while index < args.len() {
@@ -1281,10 +1277,10 @@ fn parse_pocket_create_shielded_wallet_args(
     Ok(opts)
 }
 
-fn parse_pocket_create_wallet_args(args: &[String]) -> Result<PocketCreateWalletOptions> {
-    let mut opts = PocketCreateWalletOptions {
+fn parse_zone_create_wallet_args(args: &[String]) -> Result<ZoneCreateWalletOptions> {
+    let mut opts = ZoneCreateWalletOptions {
         rpc_url: DEFAULT_RPC_URL.to_string(),
-        ..PocketCreateWalletOptions::default()
+        ..ZoneCreateWalletOptions::default()
     };
     let mut index = 0;
 
@@ -1317,10 +1313,10 @@ fn parse_pocket_create_wallet_args(args: &[String]) -> Result<PocketCreateWallet
     Ok(opts)
 }
 
-fn parse_pocket_balance_args(args: &[String]) -> Result<PocketBalanceOptions> {
-    let mut opts = PocketBalanceOptions {
+fn parse_zone_balance_args(args: &[String]) -> Result<ZoneBalanceOptions> {
+    let mut opts = ZoneBalanceOptions {
         rpc_url: DEFAULT_RPC_URL.to_string(),
-        ..PocketBalanceOptions::default()
+        ..ZoneBalanceOptions::default()
     };
     let mut index = 0;
 
@@ -1367,10 +1363,10 @@ fn parse_pocket_balance_args(args: &[String]) -> Result<PocketBalanceOptions> {
     Ok(opts)
 }
 
-fn parse_pocket_init_pool_tree_args(args: &[String]) -> Result<PocketInitPoolTreeOptions> {
-    let mut opts = PocketInitPoolTreeOptions {
+fn parse_zone_init_pool_tree_args(args: &[String]) -> Result<ZoneInitPoolTreeOptions> {
+    let mut opts = ZoneInitPoolTreeOptions {
         rpc_url: DEFAULT_RPC_URL.to_string(),
-        ..PocketInitPoolTreeOptions::default()
+        ..ZoneInitPoolTreeOptions::default()
     };
     let mut index = 0;
 
@@ -1407,13 +1403,13 @@ fn parse_pocket_init_pool_tree_args(args: &[String]) -> Result<PocketInitPoolTre
 // Parses the shared submit flags (used by shield/transfer/unshield and
 // proofless-shield) without imposing any proving-mode requirements. Proving
 // commands layer validate_direct_proving_opts on top via
-// parse_pocket_submit_args; proofless-shield self-validates in its handler.
-fn parse_pocket_submit_opts(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
-    let mut opts = PocketSubmitOptions {
+// parse_zone_submit_args; proofless-shield self-validates in its handler.
+fn parse_zone_submit_opts(default_tx_name: &str, args: &[String]) -> Result<ZoneSubmitOptions> {
+    let mut opts = ZoneSubmitOptions {
         rpc_url: DEFAULT_RPC_URL.to_string(),
         tx_name: default_tx_name.to_string(),
         token_program: spl_token::id(),
-        ..PocketSubmitOptions::default()
+        ..ZoneSubmitOptions::default()
     };
     let mut index = 0;
 
@@ -1569,8 +1565,8 @@ fn parse_pocket_submit_opts(default_tx_name: &str, args: &[String]) -> Result<Po
 // Parses submit flags for a proving command and enforces what direct proving
 // (no pre-built --bundle) needs: a proving key, prover binary, state, amount,
 // and per-command recipient/asset flags.
-fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<PocketSubmitOptions> {
-    let opts = parse_pocket_submit_opts(default_tx_name, args)?;
+fn parse_zone_submit_args(default_tx_name: &str, args: &[String]) -> Result<ZoneSubmitOptions> {
+    let opts = parse_zone_submit_opts(default_tx_name, args)?;
     // A pre-built --bundle skips proving entirely, so it needs none of the
     // proving inputs below.
     if opts.bundle.is_some() {
@@ -1610,7 +1606,7 @@ fn parse_pocket_submit_args(default_tx_name: &str, args: &[String]) -> Result<Po
     Ok(opts)
 }
 
-fn pocket_create_wallet(opts: PocketCreateWalletOptions) -> Result<()> {
+fn zone_create_wallet(opts: ZoneCreateWalletOptions) -> Result<()> {
     if opts.output.exists() && !opts.force {
         bail!(
             "{} already exists; pass --force to overwrite",
@@ -1635,7 +1631,7 @@ fn pocket_create_wallet(opts: PocketCreateWalletOptions) -> Result<()> {
         "keypair": opts.output,
     });
     if let Some(lamports) = opts.airdrop_lamports {
-        let client = pocket_rpc_client(&opts.rpc_url);
+        let client = zone_rpc_client(&opts.rpc_url);
         let signature = client
             .request_airdrop(&keypair.pubkey(), lamports)
             .context("request airdrop")?;
@@ -1649,7 +1645,7 @@ fn pocket_create_wallet(opts: PocketCreateWalletOptions) -> Result<()> {
     Ok(())
 }
 
-fn pocket_create_shielded_wallet(opts: PocketCreateShieldedWalletOptions) -> Result<()> {
+fn zone_create_shielded_wallet(opts: ZoneCreateShieldedWalletOptions) -> Result<()> {
     if opts.output.exists() && !opts.force {
         bail!(
             "{} already exists; pass --force to overwrite",
@@ -1659,7 +1655,7 @@ fn pocket_create_shielded_wallet(opts: PocketCreateShieldedWalletOptions) -> Res
     let signing_key = random_p256_signing_key()?;
     let public_key = signing_key.verifying_key().to_encoded_point(true);
     let nullifier_secret = p256_nullifier_secret_hex(&signing_key)?;
-    let wallet = PocketP256Wallet {
+    let wallet = ZoneP256Wallet {
         version: 1,
         scheme: "p256".to_string(),
         p256_secret_key: hex::encode(signing_key.to_bytes()),
@@ -1678,18 +1674,18 @@ fn pocket_create_shielded_wallet(opts: PocketCreateShieldedWalletOptions) -> Res
     Ok(())
 }
 
-fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
+fn zone_balance(opts: ZoneBalanceOptions) -> Result<()> {
     if let Some(state_path) = opts.state {
-        let state = read_pocket_state(&state_path)?;
+        let state = read_zone_state(&state_path)?;
         let asset_id = opts
             .asset_id
             .as_deref()
-            .map(normalize_pocket_field)
+            .map(normalize_zone_field)
             .transpose()?;
         let mut private_amount = 0u64;
         let mut note_count = 0usize;
         for note in state.notes.iter().filter(|note| !note.spent) {
-            let note_asset_id = pocket_note_asset_id(note)?;
+            let note_asset_id = zone_note_asset_id(note)?;
             if asset_id
                 .as_deref()
                 .is_some_and(|asset_id| asset_id != note_asset_id)
@@ -1697,7 +1693,7 @@ fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
                 continue;
             }
             private_amount = private_amount
-                .checked_add(pocket_note_amount(note)?)
+                .checked_add(zone_note_amount(note)?)
                 .ok_or_else(|| anyhow!("private balance overflow"))?;
             note_count += 1;
         }
@@ -1713,7 +1709,7 @@ fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
         return Ok(());
     }
 
-    let client = pocket_rpc_client(&opts.rpc_url);
+    let client = zone_rpc_client(&opts.rpc_url);
     if let Some(token_account) = opts.token_account {
         let account = client
             .get_account(&token_account)
@@ -1751,7 +1747,7 @@ fn pocket_balance(opts: PocketBalanceOptions) -> Result<()> {
     Ok(())
 }
 
-fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
+fn zone_init_pool_tree(opts: ZoneInitPoolTreeOptions) -> Result<()> {
     if opts.output.exists() && !opts.force {
         bail!(
             "{} already exists; pass --force to overwrite",
@@ -1771,7 +1767,7 @@ fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
         .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
     let tree = Keypair::new();
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let client = pocket_rpc_client(&opts.rpc_url);
+    let client = zone_rpc_client(&opts.rpc_url);
     let account_size = pool_tree_account_size();
     let lamports = client
         .get_minimum_balance_for_rent_exemption(account_size)
@@ -1819,7 +1815,7 @@ fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
         ),
     });
     let signature =
-        send_pocket_instructions_with_extra_signers(&client, &payer, &instructions, &[&tree])?;
+        send_zone_instructions_with_extra_signers(&client, &payer, &instructions, &[&tree])?;
     write_keypair_file(&tree, &opts.output)
         .map_err(|error| anyhow!("write tree keypair {}: {error}", opts.output.display()))?;
     if opts.pubkey_only {
@@ -1838,11 +1834,11 @@ fn pocket_init_pool_tree(opts: PocketInitPoolTreeOptions) -> Result<()> {
     Ok(())
 }
 
-fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
+fn zone_submit(command: &str, opts: ZoneSubmitOptions) -> Result<()> {
     let payer = read_keypair_file(&opts.payer)
         .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
     let direct = if opts.bundle.is_none() {
-        Some(pocket_build_direct_proof(command, &opts, &payer)?)
+        Some(zone_build_direct_proof(command, &opts, &payer)?)
     } else {
         None
     };
@@ -1856,7 +1852,7 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
         .as_ref()
         .map(|direct| direct.tx_name.as_str())
         .unwrap_or(&opts.tx_name);
-    let bundle = read_pocket_proof_bundle(&bundle_path)?;
+    let bundle = read_zone_proof_bundle(&bundle_path)?;
     let tx = bundle
         .transactions
         .iter()
@@ -1873,7 +1869,7 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
         );
     }
 
-    let data = pocket_transact_data(&tx)?;
+    let data = zone_transact_data(&tx)?;
     let signer_receives_relayer_fee =
         data.public_amount_mode == PUBLIC_AMOUNT_WITHDRAW && data.relayer_fee != 0;
     let mut accounts = vec![
@@ -1931,11 +1927,11 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
         accounts,
         data: encode_instruction(tag::TRANSACT, &data),
     };
-    let client = pocket_rpc_client(&opts.rpc_url);
+    let client = zone_rpc_client(&opts.rpc_url);
     let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    let signature = send_pocket_instructions(&client, &payer, &[compute_budget_ix, ix])?;
+    let signature = send_zone_instructions(&client, &payer, &[compute_budget_ix, ix])?;
     if let Some(direct) = direct {
-        pocket_apply_state_updates(direct.state_updates)?;
+        zone_apply_state_updates(direct.state_updates)?;
     }
     println!(
         "{}",
@@ -1949,14 +1945,14 @@ fn pocket_submit(command: &str, opts: PocketSubmitOptions) -> Result<()> {
     Ok(())
 }
 
-/// `pocket proofless-shield`: a public SOL deposit with no ZK proof. The
+/// `zone proofless-shield`: a public SOL deposit with no ZK proof. The
 /// recipient is the payer's own Solana owner; it is still hidden on-chain
 /// because the commitment carries only `owner_utxo_hash = Poseidon(owner,
 /// blinding)`. The deposit's UTXO is byte-identical to a proven shield output
 /// (same `utxo_hash`), so it is later spendable by an ordinary transfer/unshield
 /// proof. Recipient targeting would mirror `transfer` (store the note under
 /// `--recipient-state`); kept to self here.
-fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
+fn zone_proofless_shield(opts: ZoneSubmitOptions) -> Result<()> {
     let payer = read_keypair_file(&opts.payer)
         .map_err(|error| anyhow!("read payer keypair {}: {error}", opts.payer.display()))?;
     let amount = opts
@@ -1977,16 +1973,16 @@ fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
         bail!("proofless-shield currently supports SOL deposits only");
     }
 
-    let mut state = read_pocket_state(&state_path)?;
-    normalize_pocket_state(&mut state);
+    let mut state = read_zone_state(&state_path)?;
+    normalize_zone_state(&mut state);
 
     let nullifier_secret = ed25519_nullifier_secret_hex(&payer)?;
-    let owner = PocketOwner::Solana {
+    let owner = ZoneOwner::Solana {
         pubkey: payer.pubkey(),
         nullifier_secret: nullifier_secret.clone(),
     };
-    let asset_id = pocket_sol_asset_field();
-    let (utxo, _) = pocket_new_utxo_for_owner(&owner, &asset_id, amount);
+    let asset_id = zone_sol_asset_field();
+    let (utxo, _) = zone_new_utxo_for_owner(&owner, &asset_id, amount);
 
     // Derive owner_utxo_hash (committed on-chain) + the spendable utxo_hash via
     // the prover's no-keys, no-proof hashing path, so the deposit's leaf matches
@@ -1995,12 +1991,12 @@ fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
     let stem = state_path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("pocket");
+        .unwrap_or("zone");
     let utxo_request_path = work_dir.join(format!("{stem}.proofless-utxo.json"));
     let commitment_path = work_dir.join(format!("{stem}.proofless-commitment.json"));
     write_json_file(&utxo_request_path, &utxo)?;
     invoke_spp_proofless_commitment(&prover_bin, &utxo_request_path, &commitment_path)?;
-    let commitment = read_pocket_proofless_commitment(&commitment_path)?;
+    let commitment = read_zone_proofless_commitment(&commitment_path)?;
 
     let data = ProoflessShieldData {
         owner_utxo_hash: field_hex_to_bytes32(&commitment.owner_utxo_hash)?,
@@ -2028,14 +2024,14 @@ fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
         accounts,
         data: encode_instruction(tag::PROOFLESS_SHIELD, &data),
     };
-    let client = pocket_rpc_client(&opts.rpc_url);
+    let client = zone_rpc_client(&opts.rpc_url);
     let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    let signature = send_pocket_instructions(&client, &payer, &[compute_budget_ix, ix])?;
+    let signature = send_zone_instructions(&client, &payer, &[compute_budget_ix, ix])?;
 
     // Record the spendable note (leaf = utxo_hash) and advance the UTXO root like
     // a shield: one leaf was appended.
     let leaf_index = state.next_leaf_index;
-    let note = PocketNote {
+    let note = ZoneNote {
         id: format!("{}:{leaf_index}", opts.tree),
         owner_pubkey: owner.label(),
         leaf_index,
@@ -2046,7 +2042,7 @@ fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
     };
     insert_known_leaf(&mut state, leaf_index, commitment.utxo_hash.clone());
     state.notes.push(note);
-    state.utxo_root_index = (state.utxo_root_index + 1) % POCKET_UTXO_ROOT_HISTORY_CAPACITY;
+    state.utxo_root_index = (state.utxo_root_index + 1) % ZONE_UTXO_ROOT_HISTORY_CAPACITY;
     write_json_file(&state_path, &state)?;
 
     println!(
@@ -2064,11 +2060,11 @@ fn pocket_proofless_shield(opts: PocketSubmitOptions) -> Result<()> {
     Ok(())
 }
 
-fn pocket_build_direct_proof(
+fn zone_build_direct_proof(
     command: &str,
-    opts: &PocketSubmitOptions,
+    opts: &ZoneSubmitOptions,
     payer: &Keypair,
-) -> Result<PocketDirectProof> {
+) -> Result<ZoneDirectProof> {
     let state_path = opts
         .state
         .as_ref()
@@ -2088,25 +2084,25 @@ fn pocket_build_direct_proof(
     if opts.relayer_fee != 0 && command != "unshield" {
         bail!("--relayer-fee is only supported for SOL unshield");
     }
-    let mut sender_state = read_pocket_state(&state_path)?;
-    normalize_pocket_state(&mut sender_state);
+    let mut sender_state = read_zone_state(&state_path)?;
+    normalize_zone_state(&mut sender_state);
 
     let signer_hex = pubkey_hex(&payer.pubkey());
     let owner_p256_wallet = opts
         .owner_p256_wallet
         .as_ref()
-        .map(|path| read_pocket_p256_wallet(path))
+        .map(|path| read_zone_p256_wallet(path))
         .transpose()?;
     let sender_output_owner = match owner_p256_wallet.clone() {
-        Some(wallet) => PocketOwner::P256(wallet),
-        None => PocketOwner::Solana {
+        Some(wallet) => ZoneOwner::P256(wallet),
+        None => ZoneOwner::Solana {
             pubkey: payer.pubkey(),
             nullifier_secret: ed25519_nullifier_secret_hex(payer)?,
         },
     };
     let mut recipient_state_path = None;
     let mut recipient_state = None;
-    let mut output_targets = Vec::<PocketOutputTarget>::new();
+    let mut output_targets = Vec::<ZoneOutputTarget>::new();
     let mut spent_note_id = None;
     let sender_next_leaf_index = sender_state.next_leaf_index;
 
@@ -2114,19 +2110,19 @@ fn pocket_build_direct_proof(
         "shield" => {
             let is_spl = opts.has_spl_settlement();
             let (asset_id, public_spl_asset_pubkey) = if is_spl {
-                pocket_spl_asset_identity(opts, "shield")?
+                zone_spl_asset_identity(opts, "shield")?
             } else {
                 validate_sol_asset_id(opts.asset_id.as_deref(), "shield")?;
-                (pocket_sol_asset_field(), String::new())
+                (zone_sol_asset_field(), String::new())
             };
             let (utxo, nullifier_secret) =
-                pocket_new_utxo_for_owner(&sender_output_owner, &asset_id, amount);
-            output_targets.push(PocketOutputTarget {
-                recipient: PocketOutputRecipient::Sender,
+                zone_new_utxo_for_owner(&sender_output_owner, &asset_id, amount);
+            output_targets.push(ZoneOutputTarget {
+                recipient: ZoneOutputRecipient::Sender,
                 nullifier_secret,
                 owner: sender_output_owner.clone(),
             });
-            pocket_request_tx(PocketRequestTxParams {
+            zone_request_tx(ZoneRequestTxParams {
                 name: opts.tx_name.clone(),
                 state: &sender_state,
                 inputs: Vec::new(),
@@ -2151,7 +2147,7 @@ fn pocket_build_direct_proof(
         }
         "transfer" => {
             let recipient_owner = if let Some(path) = opts.recipient_p256_wallet.as_ref() {
-                PocketOwner::P256(read_pocket_p256_wallet(path)?)
+                ZoneOwner::P256(read_zone_p256_wallet(path)?)
             } else {
                 let recipient_wallet = opts
                     .recipient_wallet
@@ -2163,7 +2159,7 @@ fn pocket_build_direct_proof(
                         recipient_wallet.display()
                     )
                 })?;
-                PocketOwner::Solana {
+                ZoneOwner::Solana {
                     pubkey: recipient_keypair.pubkey(),
                     nullifier_secret: ed25519_nullifier_secret_hex(&recipient_keypair)?,
                 }
@@ -2173,14 +2169,14 @@ fn pocket_build_direct_proof(
                 .as_ref()
                 .cloned()
                 .ok_or_else(|| anyhow!("transfer requires --recipient-state"))?;
-            let mut loaded_recipient_state = read_pocket_state(&recipient_state_file)?;
-            normalize_pocket_state(&mut loaded_recipient_state);
+            let mut loaded_recipient_state = read_zone_state(&recipient_state_file)?;
+            normalize_zone_state(&mut loaded_recipient_state);
             merge_known_leaves(&mut loaded_recipient_state, &sender_state);
             recipient_state_path = Some(recipient_state_file);
 
-            let selected = select_pocket_note(&sender_state, opts.asset_id.as_deref(), amount)?;
+            let selected = select_zone_note(&sender_state, opts.asset_id.as_deref(), amount)?;
             validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
-            let input_amount = pocket_note_amount(&selected.note)?;
+            let input_amount = zone_note_amount(&selected.note)?;
             let change_amount = opts.change_amount.unwrap_or(input_amount - amount);
             if amount
                 .checked_add(change_amount)
@@ -2191,31 +2187,31 @@ fn pocket_build_direct_proof(
                     "transfer amount plus change ({amount} + {change_amount}) must equal input note amount {input_amount}"
                 );
             }
-            let asset_id = pocket_note_asset_id(&selected.note)?;
+            let asset_id = zone_note_asset_id(&selected.note)?;
             let (recipient_utxo, recipient_nullifier_secret) =
-                pocket_new_utxo_for_owner(&recipient_owner, &asset_id, amount);
+                zone_new_utxo_for_owner(&recipient_owner, &asset_id, amount);
             let mut outputs = vec![recipient_utxo];
-            output_targets.push(PocketOutputTarget {
-                recipient: PocketOutputRecipient::Recipient,
+            output_targets.push(ZoneOutputTarget {
+                recipient: ZoneOutputRecipient::Recipient,
                 nullifier_secret: recipient_nullifier_secret,
                 owner: recipient_owner,
             });
             if change_amount > 0 {
                 let (change_utxo, change_nullifier_secret) =
-                    pocket_new_utxo_for_owner(&sender_output_owner, &asset_id, change_amount);
+                    zone_new_utxo_for_owner(&sender_output_owner, &asset_id, change_amount);
                 outputs.push(change_utxo);
-                output_targets.push(PocketOutputTarget {
-                    recipient: PocketOutputRecipient::Sender,
+                output_targets.push(ZoneOutputTarget {
+                    recipient: ZoneOutputRecipient::Sender,
                     nullifier_secret: change_nullifier_secret,
                     owner: sender_output_owner.clone(),
                 });
             }
             spent_note_id = Some(selected.note.id.clone());
             recipient_state = Some(loaded_recipient_state);
-            pocket_request_tx(PocketRequestTxParams {
+            zone_request_tx(ZoneRequestTxParams {
                 name: opts.tx_name.clone(),
                 state: &sender_state,
-                inputs: vec![PocketProofInput {
+                inputs: vec![ZoneProofInput {
                     utxo: selected.note.utxo.clone(),
                     leaf_index: selected.note.leaf_index,
                     nullifier_secret: selected.note.nullifier_secret.clone(),
@@ -2234,10 +2230,10 @@ fn pocket_build_direct_proof(
         "unshield" => {
             let is_spl = opts.has_spl_settlement();
             let (asset_id, public_spl_asset_pubkey) = if is_spl {
-                pocket_spl_asset_identity(opts, "unshield")?
+                zone_spl_asset_identity(opts, "unshield")?
             } else {
                 validate_sol_asset_id(opts.asset_id.as_deref(), "unshield")?;
-                (pocket_sol_asset_field(), String::new())
+                (zone_sol_asset_field(), String::new())
             };
             if is_spl && opts.relayer_fee != 0 {
                 bail!("--relayer-fee is only supported for SOL unshield");
@@ -2246,9 +2242,9 @@ fn pocket_build_direct_proof(
                 .checked_add(opts.relayer_fee as u64)
                 .ok_or_else(|| anyhow!("unshield amount plus relayer fee overflow"))?;
             let selected =
-                select_pocket_note(&sender_state, Some(asset_id.as_str()), total_private_amount)?;
+                select_zone_note(&sender_state, Some(asset_id.as_str()), total_private_amount)?;
             validate_p256_input_owner(&selected.note, owner_p256_wallet.as_ref())?;
-            let input_amount = pocket_note_amount(&selected.note)?;
+            let input_amount = zone_note_amount(&selected.note)?;
             if input_amount != total_private_amount {
                 bail!(
                     "unshield currently requires an exact note amount including relayer fee: selected {input_amount}, requested {amount} plus fee {}",
@@ -2256,10 +2252,10 @@ fn pocket_build_direct_proof(
                 );
             }
             spent_note_id = Some(selected.note.id.clone());
-            pocket_request_tx(PocketRequestTxParams {
+            zone_request_tx(ZoneRequestTxParams {
                 name: opts.tx_name.clone(),
                 state: &sender_state,
-                inputs: vec![PocketProofInput {
+                inputs: vec![ZoneProofInput {
                     utxo: selected.note.utxo.clone(),
                     leaf_index: selected.note.leaf_index,
                     nullifier_secret: selected.note.nullifier_secret.clone(),
@@ -2287,26 +2283,26 @@ fn pocket_build_direct_proof(
                 },
             })
         }
-        other => bail!("unsupported pocket command for direct proving: {other}"),
+        other => bail!("unsupported zone command for direct proving: {other}"),
     }?;
 
     let bundle_path = opts
         .output_proof_bundle
         .clone()
-        .unwrap_or_else(|| default_pocket_bundle_path(&state_path, command));
+        .unwrap_or_else(|| default_zone_bundle_path(&state_path, command));
     let request_path = bundle_path.with_extension("request.json");
-    if pocket_request_has_p256_inputs(&request_tx) {
+    if zone_request_has_p256_inputs(&request_tx) {
         let wallet = owner_p256_wallet.as_ref().ok_or_else(|| {
             anyhow!("{command} spends a P256-owned note and requires --owner-p256-wallet")
         })?;
-        let unsigned_request = PocketProofRequest {
+        let unsigned_request = ZoneProofRequest {
             solana_signer_pubkey: signer_hex.clone(),
             transactions: vec![request_tx.clone()],
         };
         write_json_file(&request_path, &unsigned_request)?;
         let signing_payload_path = bundle_path.with_extension("signing-payload.json");
         invoke_spp_signing_payload(prover_bin, keys_file, &request_path, &signing_payload_path)?;
-        let payload = read_pocket_signing_payload(&signing_payload_path)?;
+        let payload = read_zone_signing_payload(&signing_payload_path)?;
         let tx_payload = payload
             .transactions
             .iter()
@@ -2321,14 +2317,14 @@ fn pocket_build_direct_proof(
         request_tx.p256_signature_r = signature_r;
         request_tx.p256_signature_s = signature_s;
     }
-    let request = PocketProofRequest {
+    let request = ZoneProofRequest {
         solana_signer_pubkey: signer_hex,
         transactions: vec![request_tx],
     };
     write_json_file(&request_path, &request)?;
     invoke_spp_prover(prover_bin, keys_file, &request_path, &bundle_path)?;
 
-    let bundle = read_pocket_proof_bundle(&bundle_path)?;
+    let bundle = read_zone_proof_bundle(&bundle_path)?;
     let tx = bundle
         .transactions
         .iter()
@@ -2343,20 +2339,20 @@ fn pocket_build_direct_proof(
     }
 
     if let Some(id) = spent_note_id {
-        mark_pocket_note_spent(&mut sender_state, &id)?;
+        mark_zone_note_spent(&mut sender_state, &id)?;
     }
     let mut next_root_index = sender_state.utxo_root_index;
     if !tx.output_utxos.is_empty() {
-        next_root_index = (next_root_index + 1) % POCKET_UTXO_ROOT_HISTORY_CAPACITY;
+        next_root_index = (next_root_index + 1) % ZONE_UTXO_ROOT_HISTORY_CAPACITY;
     }
     for (offset, (proved, target)) in tx.output_utxos.iter().zip(output_targets).enumerate() {
-        let PocketOutputTarget {
+        let ZoneOutputTarget {
             recipient,
             nullifier_secret,
             owner,
         } = target;
         let leaf_index = sender_next_leaf_index + offset as u64;
-        let note = PocketNote {
+        let note = ZoneNote {
             id: format!("{}:{leaf_index}", opts.tree),
             owner_pubkey: owner.label(),
             leaf_index,
@@ -2367,8 +2363,8 @@ fn pocket_build_direct_proof(
         };
         insert_known_leaf(&mut sender_state, leaf_index, proved.hash.clone());
         match recipient {
-            PocketOutputRecipient::Sender => sender_state.notes.push(note),
-            PocketOutputRecipient::Recipient => {
+            ZoneOutputRecipient::Sender => sender_state.notes.push(note),
+            ZoneOutputRecipient::Recipient => {
                 let recipient = recipient_state
                     .as_mut()
                     .ok_or_else(|| anyhow!("missing recipient state for transfer output"))?;
@@ -2386,10 +2382,10 @@ fn pocket_build_direct_proof(
         recipient.utxo_root_index = sender_state.utxo_root_index;
     }
 
-    Ok(PocketDirectProof {
+    Ok(ZoneDirectProof {
         bundle_path,
         tx_name: opts.tx_name.clone(),
-        state_updates: PocketStateUpdates {
+        state_updates: ZoneStateUpdates {
             sender_state_path: Some(state_path),
             sender_state,
             recipient_state_path,
@@ -2398,7 +2394,7 @@ fn pocket_build_direct_proof(
     })
 }
 
-fn pocket_apply_state_updates(updates: PocketStateUpdates) -> Result<()> {
+fn zone_apply_state_updates(updates: ZoneStateUpdates) -> Result<()> {
     if let Some(path) = updates.sender_state_path {
         write_json_file(&path, &updates.sender_state)?;
     }
@@ -2409,11 +2405,11 @@ fn pocket_apply_state_updates(updates: PocketStateUpdates) -> Result<()> {
 }
 
 #[derive(Clone, Debug)]
-struct PocketRequestTxParams<'a> {
+struct ZoneRequestTxParams<'a> {
     name: String,
-    state: &'a PocketState,
-    inputs: Vec<PocketProofInput>,
-    outputs: Vec<PocketUtxo>,
+    state: &'a ZoneState,
+    inputs: Vec<ZoneProofInput>,
+    outputs: Vec<ZoneUtxo>,
     public_amount_mode: u8,
     public_sol_amount: Option<u64>,
     public_spl_amount: Option<u64>,
@@ -2425,20 +2421,20 @@ struct PocketRequestTxParams<'a> {
 }
 
 #[derive(Clone, Debug)]
-struct PocketOutputTarget {
-    recipient: PocketOutputRecipient,
+struct ZoneOutputTarget {
+    recipient: ZoneOutputRecipient,
     nullifier_secret: String,
-    owner: PocketOwner,
+    owner: ZoneOwner,
 }
 
 #[derive(Clone, Debug)]
-enum PocketOutputRecipient {
+enum ZoneOutputRecipient {
     Sender,
     Recipient,
 }
 
 #[derive(Clone, Debug)]
-enum PocketOwner {
+enum ZoneOwner {
     // nullifier_secret is wallet-wide (derived from the Ed25519 signing key),
     // so every UTXO for this owner shares one nullifier_pk — required for
     // multi-input spends, which the circuit forces to share one nullifier_secret.
@@ -2446,29 +2442,29 @@ enum PocketOwner {
         pubkey: Pubkey,
         nullifier_secret: String,
     },
-    P256(PocketP256Wallet),
+    P256(ZoneP256Wallet),
 }
 
-impl PocketOwner {
+impl ZoneOwner {
     fn label(&self) -> String {
         match self {
-            PocketOwner::Solana { pubkey, .. } => pubkey.to_string(),
-            PocketOwner::P256(wallet) => format!("p256:{}", wallet.p256_public_key),
+            ZoneOwner::Solana { pubkey, .. } => pubkey.to_string(),
+            ZoneOwner::P256(wallet) => format!("p256:{}", wallet.p256_public_key),
         }
     }
 }
 
 #[derive(Clone, Debug)]
-struct SelectedPocketNote {
-    note: PocketNote,
+struct SelectedZoneNote {
+    note: ZoneNote,
 }
 
-fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofRequestTx> {
+fn zone_request_tx(params: ZoneRequestTxParams<'_>) -> Result<ZoneProofRequestTx> {
     let input_count = params.inputs.len();
-    Ok(PocketProofRequestTx {
+    Ok(ZoneProofRequestTx {
         name: params.name,
         instruction_discriminator: tag::TRANSACT,
-        expiry_unix_ts: pocket_expiry_unix_ts()?,
+        expiry_unix_ts: zone_expiry_unix_ts()?,
         sender_view_tag: random_field_hex(),
         relayer_fee: params.relayer_fee,
         public_amount_mode: params.public_amount_mode,
@@ -2488,7 +2484,7 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
             .spl_token_interface
             .map(|pubkey| pubkey_hex(&pubkey))
             .unwrap_or_default(),
-        state_entries: pocket_state_entries(params.state),
+        state_entries: zone_state_entries(params.state),
         inputs: params.inputs,
         outputs: params.outputs,
         utxo_tree_root_index: vec![params.state.utxo_root_index; input_count],
@@ -2502,15 +2498,15 @@ fn pocket_request_tx(params: PocketRequestTxParams<'_>) -> Result<PocketProofReq
     })
 }
 
-fn pocket_new_utxo(
+fn zone_new_utxo(
     owner: &Pubkey,
     nullifier_secret: &str,
     asset_id: &str,
     asset_amount: u64,
-) -> (PocketUtxo, String) {
+) -> (ZoneUtxo, String) {
     (
-        PocketUtxo {
-            domain: pocket_field_hex_from_u64(POCKET_UTXO_DOMAIN),
+        ZoneUtxo {
+            domain: zone_field_hex_from_u64(ZONE_UTXO_DOMAIN),
             owner: String::new(),
             owner_solana_pubkey: pubkey_hex(owner),
             owner_p256_pubkey: String::new(),
@@ -2526,14 +2522,14 @@ fn pocket_new_utxo(
     )
 }
 
-fn pocket_new_p256_utxo(
-    wallet: &PocketP256Wallet,
+fn zone_new_p256_utxo(
+    wallet: &ZoneP256Wallet,
     asset_id: &str,
     asset_amount: u64,
-) -> (PocketUtxo, String) {
+) -> (ZoneUtxo, String) {
     (
-        PocketUtxo {
-            domain: pocket_field_hex_from_u64(POCKET_UTXO_DOMAIN),
+        ZoneUtxo {
+            domain: zone_field_hex_from_u64(ZONE_UTXO_DOMAIN),
             owner: String::new(),
             owner_solana_pubkey: String::new(),
             owner_p256_pubkey: wallet.p256_public_key.clone(),
@@ -2549,17 +2545,17 @@ fn pocket_new_p256_utxo(
     )
 }
 
-fn pocket_new_utxo_for_owner(
-    owner: &PocketOwner,
+fn zone_new_utxo_for_owner(
+    owner: &ZoneOwner,
     asset_id: &str,
     asset_amount: u64,
-) -> (PocketUtxo, String) {
+) -> (ZoneUtxo, String) {
     match owner {
-        PocketOwner::Solana {
+        ZoneOwner::Solana {
             pubkey,
             nullifier_secret,
-        } => pocket_new_utxo(pubkey, nullifier_secret, asset_id, asset_amount),
-        PocketOwner::P256(wallet) => pocket_new_p256_utxo(wallet, asset_id, asset_amount),
+        } => zone_new_utxo(pubkey, nullifier_secret, asset_id, asset_amount),
+        ZoneOwner::P256(wallet) => zone_new_p256_utxo(wallet, asset_id, asset_amount),
     }
 }
 
@@ -2574,9 +2570,9 @@ fn random_p256_signing_key() -> Result<P256SigningKey> {
     }
 }
 
-fn read_pocket_p256_wallet(path: &Path) -> Result<PocketP256Wallet> {
+fn read_zone_p256_wallet(path: &Path) -> Result<ZoneP256Wallet> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    let wallet: PocketP256Wallet =
+    let wallet: ZoneP256Wallet =
         serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))?;
     if wallet.version != 1 {
         bail!(
@@ -2621,7 +2617,7 @@ fn read_pocket_p256_wallet(path: &Path) -> Result<PocketP256Wallet> {
     Ok(wallet)
 }
 
-fn p256_signing_key(wallet: &PocketP256Wallet) -> Result<P256SigningKey> {
+fn p256_signing_key(wallet: &ZoneP256Wallet) -> Result<P256SigningKey> {
     let secret = hex_bytes(&wallet.p256_secret_key)?;
     if secret.len() != 32 {
         bail!("p256_secret_key must be 32 bytes, got {}", secret.len());
@@ -2656,7 +2652,7 @@ fn p256_nullifier_secret_bytes_from_key(signing_key: &P256SigningKey) -> Result<
     nullifier_secret_bytes_from_ikm(signing_key.to_bytes().as_slice())
 }
 
-// HKDF-SHA256 with empty salt, info=POCKET_NULLIFIER_HKDF_INFO, L=31, per spec.
+// HKDF-SHA256 with empty salt, info=ZONE_NULLIFIER_HKDF_INFO, L=31, per spec.
 fn nullifier_secret_bytes_from_ikm(ikm: &[u8]) -> Result<[u8; 31]> {
     let mut extract =
         Hmac::<Sha256>::new_from_slice(&[0u8; 32]).context("initialize HKDF extract")?;
@@ -2664,7 +2660,7 @@ fn nullifier_secret_bytes_from_ikm(ikm: &[u8]) -> Result<[u8; 31]> {
     let prk = extract.finalize().into_bytes();
 
     let mut expand = Hmac::<Sha256>::new_from_slice(&prk).context("initialize HKDF expand")?;
-    expand.update(POCKET_NULLIFIER_HKDF_INFO);
+    expand.update(ZONE_NULLIFIER_HKDF_INFO);
     expand.update(&[1]);
     let okm = expand.finalize().into_bytes();
     let mut out = [0u8; 31];
@@ -2686,7 +2682,7 @@ fn p256_nullifier_secret_bytes(value: &str) -> Result<[u8; 31]> {
 }
 
 fn sign_p256_message_hash(
-    wallet: &PocketP256Wallet,
+    wallet: &ZoneP256Wallet,
     p256_message_hash: &str,
 ) -> Result<(String, String)> {
     let message = hex_field(p256_message_hash)?;
@@ -2701,7 +2697,7 @@ fn sign_p256_message_hash(
     ))
 }
 
-fn validate_p256_input_owner(note: &PocketNote, wallet: Option<&PocketP256Wallet>) -> Result<()> {
+fn validate_p256_input_owner(note: &ZoneNote, wallet: Option<&ZoneP256Wallet>) -> Result<()> {
     if note.utxo.owner_p256_pubkey.is_empty() {
         return Ok(());
     }
@@ -2728,17 +2724,17 @@ fn validate_p256_input_owner(note: &PocketNote, wallet: Option<&PocketP256Wallet
     Ok(())
 }
 
-fn pocket_request_has_p256_inputs(tx: &PocketProofRequestTx) -> bool {
+fn zone_request_has_p256_inputs(tx: &ZoneProofRequestTx) -> bool {
     tx.inputs
         .iter()
         .any(|input| !input.utxo.owner_p256_pubkey.is_empty())
 }
 
-fn read_pocket_state(path: &Path) -> Result<PocketState> {
+fn read_zone_state(path: &Path) -> Result<ZoneState> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("decode pocket state {}", path.display())),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(PocketState::default()),
+            .with_context(|| format!("decode zone state {}", path.display())),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(ZoneState::default()),
         Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
     }
 }
@@ -2756,14 +2752,14 @@ fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     fs::write(path, bytes).with_context(|| format!("write {}", path.display()))
 }
 
-fn normalize_pocket_state(state: &mut PocketState) {
+fn normalize_zone_state(state: &mut ZoneState) {
     let mut leaves = BTreeMap::<u64, String>::new();
     for leaf in state.known_leaves.drain(..) {
         leaves.insert(leaf.index, leaf.hash);
     }
     state.known_leaves = leaves
         .iter()
-        .map(|(index, hash)| PocketKnownLeaf {
+        .map(|(index, hash)| ZoneKnownLeaf {
             index: *index,
             hash: hash.clone(),
         })
@@ -2773,7 +2769,7 @@ fn normalize_pocket_state(state: &mut PocketState) {
     }
 }
 
-fn merge_known_leaves(dst: &mut PocketState, src: &PocketState) {
+fn merge_known_leaves(dst: &mut ZoneState, src: &ZoneState) {
     let mut leaves = dst
         .known_leaves
         .iter()
@@ -2784,13 +2780,13 @@ fn merge_known_leaves(dst: &mut PocketState, src: &PocketState) {
     }
     dst.known_leaves = leaves
         .into_iter()
-        .map(|(index, hash)| PocketKnownLeaf { index, hash })
+        .map(|(index, hash)| ZoneKnownLeaf { index, hash })
         .collect();
     dst.next_leaf_index = dst.next_leaf_index.max(src.next_leaf_index);
     dst.utxo_root_index = dst.utxo_root_index.max(src.utxo_root_index);
 }
 
-fn insert_known_leaf(state: &mut PocketState, index: u64, hash: String) {
+fn insert_known_leaf(state: &mut ZoneState, index: u64, hash: String) {
     if let Some(existing) = state
         .known_leaves
         .iter_mut()
@@ -2798,17 +2794,17 @@ fn insert_known_leaf(state: &mut PocketState, index: u64, hash: String) {
     {
         existing.hash = hash;
     } else {
-        state.known_leaves.push(PocketKnownLeaf { index, hash });
+        state.known_leaves.push(ZoneKnownLeaf { index, hash });
         state.known_leaves.sort_by_key(|leaf| leaf.index);
     }
     state.next_leaf_index = state.next_leaf_index.max(index + 1);
 }
 
-fn pocket_state_entries(state: &PocketState) -> Vec<PocketStateEntry> {
+fn zone_state_entries(state: &ZoneState) -> Vec<ZoneStateEntry> {
     state
         .known_leaves
         .iter()
-        .map(|leaf| PocketStateEntry {
+        .map(|leaf| ZoneStateEntry {
             index: leaf.index,
             hash: prover_field(&leaf.hash),
         })
@@ -2824,29 +2820,29 @@ fn prover_field(value: &str) -> String {
     }
 }
 
-fn select_pocket_note(
-    state: &PocketState,
+fn select_zone_note(
+    state: &ZoneState,
     asset_id: Option<&str>,
     min_amount: u64,
-) -> Result<SelectedPocketNote> {
-    let asset_id = asset_id.map(normalize_pocket_field).transpose()?;
+) -> Result<SelectedZoneNote> {
+    let asset_id = asset_id.map(normalize_zone_field).transpose()?;
     for note in &state.notes {
         if note.spent {
             continue;
         }
-        let note_asset_id = pocket_note_asset_id(note)?;
+        let note_asset_id = zone_note_asset_id(note)?;
         if asset_id
             .as_deref()
             .is_some_and(|asset_id| asset_id != note_asset_id)
         {
             continue;
         }
-        if pocket_note_amount(note)? >= min_amount {
-            return Ok(SelectedPocketNote { note: note.clone() });
+        if zone_note_amount(note)? >= min_amount {
+            return Ok(SelectedZoneNote { note: note.clone() });
         }
     }
     bail!(
-        "no unspent pocket note found for asset {:?} with at least {} units",
+        "no unspent zone note found for asset {:?} with at least {} units",
         asset_id,
         min_amount
     )
@@ -2854,8 +2850,8 @@ fn select_pocket_note(
 
 fn validate_sol_asset_id(asset_id: Option<&str>, command: &str) -> Result<()> {
     if let Some(asset_id) = asset_id {
-        let asset_id = normalize_pocket_field(asset_id)?;
-        let sol_asset_id = pocket_sol_asset_field();
+        let asset_id = normalize_zone_field(asset_id)?;
+        let sol_asset_id = zone_sol_asset_field();
         if asset_id != sol_asset_id {
             bail!("{command} SOL settlement uses reserved asset id {sol_asset_id}, got {asset_id}");
         }
@@ -2863,17 +2859,17 @@ fn validate_sol_asset_id(asset_id: Option<&str>, command: &str) -> Result<()> {
     Ok(())
 }
 
-fn pocket_spl_asset_identity(
-    opts: &PocketSubmitOptions,
+fn zone_spl_asset_identity(
+    opts: &ZoneSubmitOptions,
     command: &str,
 ) -> Result<(String, String)> {
     let asset_pubkey = opts.spl_asset_pubkey.ok_or_else(|| {
         anyhow!("{command} requires --asset-pubkey/--spl-mint for SPL settlement")
     })?;
-    let asset_id = pocket_canonical_asset_field(&asset_pubkey)?;
-    let normalized_asset_id = normalize_pocket_field(&asset_id)?;
+    let asset_id = zone_canonical_asset_field(&asset_pubkey)?;
+    let normalized_asset_id = normalize_zone_field(&asset_id)?;
     if let Some(requested) = opts.asset_id.as_deref() {
-        let requested = normalize_pocket_field(requested)?;
+        let requested = normalize_zone_field(requested)?;
         if requested != normalized_asset_id {
             bail!(
                 "{command} SPL settlement uses canonical mint-derived asset id {normalized_asset_id}, got {requested}"
@@ -2883,30 +2879,30 @@ fn pocket_spl_asset_identity(
     Ok((asset_id, pubkey_hex(&asset_pubkey)))
 }
 
-fn pocket_sol_asset_field() -> String {
+fn zone_sol_asset_field() -> String {
     // SOL's asset id is the canonical encoding of Address::default() —
     // Poseidon(0, 0) — matching protocol.SolAsset() (Go) and the program, which
     // the circuit's balance check pins public SOL movement to. (A literal id
     // would never satisfy balance conservation.)
-    pocket_canonical_asset_field(&Pubkey::default()).expect("canonical SOL asset hash")
+    zone_canonical_asset_field(&Pubkey::default()).expect("canonical SOL asset hash")
 }
 
-fn pocket_canonical_asset_field(pubkey: &Pubkey) -> Result<String> {
+fn zone_canonical_asset_field(pubkey: &Pubkey) -> Result<String> {
     let pubkey = pubkey.to_bytes();
-    let low = pocket_field_from_u128_be(&pubkey[16..]);
-    let high = pocket_field_from_u128_be(&pubkey[..16]);
+    let low = zone_field_from_u128_be(&pubkey[16..]);
+    let high = zone_field_from_u128_be(&pubkey[..16]);
     let hash = Poseidon::hashv(&[low.as_slice(), high.as_slice()])
         .map_err(|error| anyhow!("hash canonical SPL asset pubkey: {error:?}"))?;
     Ok(format!("0x{}", hex::encode(hash)))
 }
 
-fn pocket_field_from_u128_be(value: &[u8]) -> [u8; 32] {
+fn zone_field_from_u128_be(value: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out[16..32].copy_from_slice(value);
     out
 }
 
-fn mark_pocket_note_spent(state: &mut PocketState, id: &str) -> Result<()> {
+fn mark_zone_note_spent(state: &mut ZoneState, id: &str) -> Result<()> {
     let note = state
         .notes
         .iter_mut()
@@ -2916,31 +2912,31 @@ fn mark_pocket_note_spent(state: &mut PocketState, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn pocket_note_amount(note: &PocketNote) -> Result<u64> {
-    parse_pocket_u64_field(&note.utxo.asset_amount)
+fn zone_note_amount(note: &ZoneNote) -> Result<u64> {
+    parse_zone_u64_field(&note.utxo.asset_amount)
         .with_context(|| format!("note {} asset_amount", note.id))
 }
 
-fn pocket_note_asset_id(note: &PocketNote) -> Result<String> {
-    normalize_pocket_field(&note.utxo.asset_id)
+fn zone_note_asset_id(note: &ZoneNote) -> Result<String> {
+    normalize_zone_field(&note.utxo.asset_id)
         .with_context(|| format!("note {} asset_id", note.id))
 }
 
-fn parse_pocket_u64_field(value: &str) -> Result<u64> {
-    let out = parse_pocket_biguint(value)?;
+fn parse_zone_u64_field(value: &str) -> Result<u64> {
+    let out = parse_zone_biguint(value)?;
     out.to_u64()
         .ok_or_else(|| anyhow!("field {value} does not fit into u64"))
 }
 
-fn normalize_pocket_field(value: &str) -> Result<String> {
-    Ok(format!("{:064x}", parse_pocket_biguint(value)?))
+fn normalize_zone_field(value: &str) -> Result<String> {
+    Ok(format!("{:064x}", parse_zone_biguint(value)?))
 }
 
-fn pocket_field_hex_from_u64(value: u64) -> String {
+fn zone_field_hex_from_u64(value: u64) -> String {
     format!("{value:064x}")
 }
 
-fn parse_pocket_biguint(value: &str) -> Result<BigUint> {
+fn parse_zone_biguint(value: &str) -> Result<BigUint> {
     let trimmed = value.trim().trim_start_matches("0x");
     if trimmed.is_empty() {
         bail!("empty numeric field");
@@ -3037,12 +3033,12 @@ fn invoke_spp_signing_payload(
     Ok(())
 }
 
-fn default_pocket_bundle_path(state_path: &Path, command: &str) -> PathBuf {
+fn default_zone_bundle_path(state_path: &Path, command: &str) -> PathBuf {
     let parent = state_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = state_path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("pocket");
+        .unwrap_or("zone");
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -3050,7 +3046,7 @@ fn default_pocket_bundle_path(state_path: &Path, command: &str) -> PathBuf {
     parent.join(format!("{stem}.{command}.{millis}.proof.json"))
 }
 
-fn pocket_expiry_unix_ts() -> Result<u64> {
+fn zone_expiry_unix_ts() -> Result<u64> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system time is before unix epoch")?
@@ -3082,23 +3078,23 @@ fn pubkey_hex(pubkey: &Pubkey) -> String {
     hex::encode(pubkey.to_bytes())
 }
 
-fn read_pocket_proof_bundle(path: &Path) -> Result<PocketProofBundle> {
+fn read_zone_proof_bundle(path: &Path) -> Result<ZoneProofBundle> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
 }
 
-fn read_pocket_signing_payload(path: &Path) -> Result<PocketSigningPayloadBundle> {
+fn read_zone_signing_payload(path: &Path) -> Result<ZoneSigningPayloadBundle> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct PocketProoflessCommitment {
+struct ZoneProoflessCommitment {
     owner_utxo_hash: String,
     utxo_hash: String,
 }
 
-fn read_pocket_proofless_commitment(path: &Path) -> Result<PocketProoflessCommitment> {
+fn read_zone_proofless_commitment(path: &Path) -> Result<ZoneProoflessCommitment> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))
 }
@@ -3121,11 +3117,11 @@ fn field_hex_to_bytes32(value: &str) -> Result<[u8; 32]> {
     Ok(out)
 }
 
-fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
+fn zone_transact_data(tx: &ZoneProofTx) -> Result<TransactData> {
     Ok(TransactData {
         expiry_unix_ts: tx.expiry_unix_ts,
         sender_view_tag: hex_field(&tx.sender_view_tag)?,
-        proof: pocket_proof_bytes(&tx.proof)?,
+        proof: zone_proof_bytes(&tx.proof)?,
         relayer_fee: tx.relayer_fee,
         public_amount_mode: tx.public_amount_mode,
         nullifiers: tx
@@ -3144,7 +3140,7 @@ fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
         public_sol_amount: tx.public_sol_amount,
         public_spl_amount: tx.public_spl_amount,
         cpi_signer: None,
-        in_utxo_signer_indices: pocket_input_signer_indices(
+        in_utxo_signer_indices: zone_input_signer_indices(
             tx.nullifiers.len(),
             tx.solana_owner_input_indices.as_deref(),
         ),
@@ -3153,7 +3149,7 @@ fn pocket_transact_data(tx: &PocketProofTx) -> Result<TransactData> {
     })
 }
 
-fn pocket_input_signer_indices(
+fn zone_input_signer_indices(
     input_count: usize,
     solana_indices: Option<&[u8]>,
 ) -> Option<Vec<InputUtxoSignerIndex>> {
@@ -3178,21 +3174,21 @@ fn pocket_input_signer_indices(
     )
 }
 
-fn pocket_proof_bytes(value: &serde_json::Value) -> Result<[u8; 192]> {
+fn zone_proof_bytes(value: &serde_json::Value) -> Result<[u8; 192]> {
     let proof: GnarkProofJson =
         serde_json::from_value(value.clone()).context("decode gnark proof")?;
     bsb22_proof_bytes_from_json_struct(proof).context("encode BSB22 proof")
 }
 
-fn send_pocket_instructions(
+fn send_zone_instructions(
     client: &RpcClient,
     payer: &Keypair,
     instructions: &[Instruction],
 ) -> Result<solana_signature::Signature> {
-    send_pocket_instructions_with_extra_signers(client, payer, instructions, &[])
+    send_zone_instructions_with_extra_signers(client, payer, instructions, &[])
 }
 
-fn send_pocket_instructions_with_extra_signers(
+fn send_zone_instructions_with_extra_signers(
     client: &RpcClient,
     payer: &Keypair,
     instructions: &[Instruction],
@@ -3214,7 +3210,7 @@ fn send_pocket_instructions_with_extra_signers(
         .context("send and confirm transaction")
 }
 
-fn pocket_rpc_client(rpc_url: &str) -> RpcClient {
+fn zone_rpc_client(rpc_url: &str) -> RpcClient {
     RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed())
 }
 
@@ -3248,8 +3244,8 @@ fn hex_bytes(value: &str) -> Result<Vec<u8>> {
     hex::decode(value.trim_start_matches("0x")).map_err(|error| anyhow!("invalid hex: {error}"))
 }
 
-fn print_pocket_help() {
-    println!("pocket <command>");
+fn print_zone_help() {
+    println!("zolana zone <command>");
     println!();
     println!("Commands:");
     println!("  create-wallet             Create a Solana wallet keypair");
@@ -3266,7 +3262,7 @@ fn print_help() {
     println!("zolana <command>");
     println!();
     println!("Commands:");
-    println!("  pocket            Run pocket wallet and shielded-pool commands");
+    println!("  zone            Run zone wallet and shielded-pool commands");
     println!("  test-validator    Start the local Light Protocol test validator");
     println!("  start-prover      Start the local prover server");
 }
