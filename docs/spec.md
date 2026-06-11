@@ -1064,7 +1064,7 @@ Usage by instruction:
 | update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
 | merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted Solana signer; SPP checks the signer against `protocol_config.merge_authorities`. Input and output UTXOs are default-zone; extension slots are zero. |
 | zone_merge_transact | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
-| emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only (the event authority PDA must sign). Indexers read events from inner-instruction data; program logs truncate. |
+| emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
 
 ### `transact`
 
