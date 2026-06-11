@@ -9,6 +9,9 @@ import (
 	"light/light-prover/prover/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/constraint/solver"
+	"github.com/consensys/gnark/frontend"
+	gnarkbits "github.com/consensys/gnark/std/math/bits"
 	"github.com/consensys/gnark/test"
 )
 
@@ -56,12 +59,17 @@ func TestCircuitRejectsDuplicateInputWithinTransaction(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// The nullifier is the Poseidon image truncated to the tree's 248-bit domain
-// with a canonical (< p) decomposition. Two values an attacker might try to
-// substitute must both fail: the untruncated full image, and the low 248 bits
-// of the alias full+p (what a NON-canonical decomposition would yield — the
-// double-spend vector the canonical check exists to block).
-func TestCircuitRejectsUntruncatedAndAliasNullifier(t *testing.T) {
+// Output binding: the public Nullifier must equal the in-circuit
+// canonicalTruncate248 of the Poseidon image. Two substituted witnesses must
+// fail — the untruncated full image, and the low 248 bits of the alias full+p.
+//
+// NOTE: this only pins the OUTPUT (Nullifier == computed), and both cases fail
+// on that equality. It does NOT exercise the canonical (< p) decomposition that
+// blocks the double-spend alias, because the in-circuit bits come from gnark's
+// honest nBits hint (always canonical) regardless of the substituted witness.
+// The < p soundness is pinned by TestCanonicalTruncate248RejectsAliasBits, which
+// overrides the hint to force the non-canonical x+p bits.
+func TestCircuitRejectsNonCanonicalNullifierWitness(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
@@ -87,4 +95,66 @@ func TestCircuitRejectsUntruncatedAndAliasNullifier(t *testing.T) {
 	aliasFull := new(big.Int).Add(full, poseidon.Modulus)
 	alias.Inputs[0].Nullifier = protocol.Truncate248(aliasFull)
 	assert.SolvingFailed(circuit, alias, test.WithCurves(ecc.BN254))
+}
+
+// truncate248Circuit exercises ONLY canonicalTruncate248, so a bit-decomposition
+// hint override targets exactly its full-width ToBinary (the < p modulus check).
+// The full transact circuit has many ToBinary calls; a global hint override
+// would corrupt unrelated ones.
+type truncate248Circuit struct {
+	X         frontend.Variable
+	Truncated frontend.Variable `gnark:",public"`
+}
+
+func (c *truncate248Circuit) Define(api frontend.API) error {
+	api.AssertIsEqual(canonicalTruncate248(api, c.X), c.Truncated)
+	return nil
+}
+
+// TestCanonicalTruncate248RejectsAliasBits is the genuine pin for the spec's
+// double-spend negative vector (spec.md:506): canonicalTruncate248 must reject
+// the non-canonical bit decomposition of x+p.
+//
+// It overrides gnark's nBits hint to emit the bits of x+p (≡ x mod p but ≥ p) —
+// the only way to feed non-canonical bits, since the honest hint always returns
+// canonical bits regardless of the witness. The witness Truncated is set to the
+// alias truncation Truncate248(x+p), so the recomposition (x+p ≡ x mod p) and
+// the output equality both hold; the SOLE remaining constraint that can reject
+// is the full-width ToBinary's < p modulus check. So:
+//   - with the check (current canonicalTruncate248): x+p ≥ p fails it -> SolvingFailed.
+//   - without it (e.g. bits.OmitModulusCheck): the alias bits are accepted and
+//     the circuit solves -> this assertion fails, catching the regression.
+func TestCanonicalTruncate248RejectsAliasBits(t *testing.T) {
+	assert := test.NewAssert(t)
+
+	// A 248-bit value: x+p stays below 2^254 so the alias is representable in the
+	// 254-bit decomposition (for x near the modulus, x+p would overflow 254 bits
+	// and the alias attack could not be encoded at all).
+	x := new(big.Int).Lsh(big.NewInt(0x9abcdef), 220)
+	if x.BitLen() > 252 {
+		t.Fatalf("x must stay below ~2^252 so x+p fits 254 bits, got %d bits", x.BitLen())
+	}
+	aliasTruncated := protocol.Truncate248(new(big.Int).Add(x, poseidon.Modulus))
+	if aliasTruncated.Cmp(protocol.Truncate248(x)) == 0 {
+		t.Fatal("alias truncation must differ from the canonical truncation")
+	}
+
+	// nBits is GetHints()[1] (order: ithBit, nBits, nTrits). Force its bits to be
+	// those of value+p instead of value.
+	nBitsID := solver.GetHintID(gnarkbits.GetHints()[1])
+	aliasBitsHint := func(field *big.Int, inputs []*big.Int, outputs []*big.Int) error {
+		vp := new(big.Int).Add(inputs[0], field)
+		for i := range outputs {
+			outputs[i].SetUint64(uint64(vp.Bit(i)))
+		}
+		return nil
+	}
+
+	assignment := &truncate248Circuit{X: x, Truncated: aliasTruncated}
+	assert.SolvingFailed(
+		&truncate248Circuit{},
+		assignment,
+		test.WithCurves(ecc.BN254),
+		test.WithSolverOpts(solver.OverrideHint(nBitsID, aliasBitsHint)),
+	)
 }
