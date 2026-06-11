@@ -499,9 +499,11 @@ nullifier    := truncate_248(Poseidon(utxo_hash, utxo_blinding, nullifier_secret
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
 utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
-`truncate_248(x)` keeps the low 248 bits (31 bytes) of the **canonical** (mod-p-reduced) big-endian encoding of `x`. The nullifier tree domain is `0 < value < 2^248 - 1`: `0` is the pre-inserted seed leaf and `2^248 - 1` is the init sentinel next-value, so full-field values cannot be inserted or batch-proven. Truncating to 248 bits keeps every honestly derived nullifier in-domain. The SPP rejects queue insertions outside `(0, 2^248 - 1)`; honest derivations hit the boundary values only with negligible probability (~2^-248).
+`truncate_248(x)` reduces `x` mod p, encodes the result big-endian, and keeps the low 248 bits (31 bytes).
 
-**In-circuit truncation and non-inclusion.** The tree stores truncated values, so the non-inclusion check at `nullifier_tree_roots[i]` runs on truncated values: the circuit MUST compute `truncate_248` itself. Truncating on-chain instead is rejected — it drops the in-circuit check, and nothing else catches a double spend in time. Outputs enter the UTXO tree at `transact` time; nullifiers enter the tree later (queue → forester). Queue insertion only checks bloom filters of batches not yet in the tree; it never checks the tree itself. Invariant (MUST preserve): every inserted nullifier is blocked by a live bloom filter or is in every live cached root; the in-circuit check is the part that rejects against those roots.
+The nullifier tree holds values strictly between `0` and `2^248 - 1`. `0` is the pre-inserted seed leaf and `2^248 - 1` is its initial next-value; neither can be inserted or batch-proven. A full field element could exceed `2^248 - 1`, so nullifiers are truncated to fit the tree's domain. The SPP rejects queue insertions outside the range.
+
+Queue insertion checks only the bloom filters of batches not yet in the tree, never the tree itself. The in-circuit non-inclusion check is what rejects against the cached roots, so the invariant must hold: every inserted nullifier is blocked by a live bloom filter or is present in every live cached root.
 
 ## Empty UTXO
 
