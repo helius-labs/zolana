@@ -1,7 +1,13 @@
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{
+    cpi::{Seed, Signer},
+    error::ProgramError,
+    sysvars::rent::{ACCOUNT_STORAGE_OVERHEAD, DEFAULT_LAMPORTS_PER_BYTE},
+    AccountView, Address, ProgramResult,
+};
 use zolana_interface::{
     instruction::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData},
     state::{discriminator::PROTOCOL_CONFIG, PROTOCOL_CONFIG_ACCOUNT_LEN},
+    SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 use crate::{
@@ -14,18 +20,33 @@ pub fn process_create_protocol_config(
     accounts: &mut [AccountView],
     data: CreateProtocolConfigData,
 ) -> ProgramResult {
-    let (authority, config) = load_authority_and_config(program_id, accounts, true)?;
+    // [authority(signer+payer), protocol_config(PDA, created here), system_program].
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (head, tail) = accounts.split_at_mut(1);
+    let authority = &head[0];
+    let (config_slice, _) = tail.split_at_mut(1);
+    let config = &mut config_slice[0];
+
+    if !authority.is_signer() || !config.is_writable() {
+        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+    // The creator names the initial authority and must sign as it.
     if !authority_matches(authority, &data.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    let bytes = loader::account_data_mut(config);
-    if bytes[..PROTOCOL_CONFIG_ACCOUNT_LEN]
-        .iter()
-        .any(|byte| *byte != 0)
-    {
+    // The config is the singleton authority oracle, so it lives at a canonical
+    // PDA the program creates itself — a caller can't substitute a config that
+    // names a different authority.
+    let (expected, bump) = protocol_config_pda(program_id)?;
+    if *config.address() != expected {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
+    create_config_pda(authority, config, program_id, bump)?;
+
+    let bytes = loader::account_data_mut(config);
     write_protocol_config(bytes, &data.authority);
     Ok(())
 }
@@ -36,7 +57,7 @@ pub fn process_update_protocol_config(
     data: UpdateProtocolConfigData,
 ) -> ProgramResult {
     let (authority, config) = load_authority_and_config(program_id, accounts, true)?;
-    let current = read_protocol_config(config)?;
+    let current = read_protocol_config(program_id, config)?;
     if !authority_matches(authority, &current.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
@@ -60,14 +81,10 @@ pub fn process_pause_tree(
     let config = &head[1];
     let tree = &mut tail[0];
 
-    if !authority.is_signer()
-        || !config.owned_by(program_id)
-        || !tree.is_writable()
-        || !tree.owned_by(program_id)
-    {
+    if !authority.is_signer() || !tree.is_writable() || !tree.owned_by(program_id) {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
-    let current = read_protocol_config(config)?;
+    let current = read_protocol_config(program_id, config)?;
     if !authority_matches(authority, &current.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
@@ -95,6 +112,38 @@ pub struct ProtocolConfigState {
     pub authority: [u8; 32],
 }
 
+/// Canonical protocol-config PDA + bump: `[SPP_PROTOCOL_CONFIG_PDA_SEED]`.
+fn protocol_config_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {
+    Address::derive_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], program_id)
+        .ok_or_else(|| ShieldedPoolError::InvalidProtocolConfig.into())
+}
+
+fn create_config_pda(
+    payer: &AccountView,
+    config: &AccountView,
+    program_id: &Address,
+    bump: u8,
+) -> ProgramResult {
+    if config.data_len() != 0 {
+        // The singleton already exists; do not reinitialize it.
+        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+    let bump = [bump];
+    let space = PROTOCOL_CONFIG_ACCOUNT_LEN as u64;
+    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
+    let seeds = [Seed::from(SPP_PROTOCOL_CONFIG_PDA_SEED), Seed::from(&bump)];
+    let signer = Signer::from(&seeds);
+    pinocchio_system::instructions::CreateAccount {
+        from: payer,
+        to: config,
+        lamports,
+        space,
+        owner: program_id,
+    }
+    .invoke_signed(core::slice::from_ref(&signer))
+    .map_err(|_| ShieldedPoolError::InvalidProtocolConfig.into())
+}
+
 fn load_authority_and_config<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
@@ -116,8 +165,17 @@ fn load_authority_and_config<'a>(
     Ok((authority, config))
 }
 
-pub fn read_protocol_config(account: &AccountView) -> Result<ProtocolConfigState, ProgramError> {
-    if account.data_len() < PROTOCOL_CONFIG_ACCOUNT_LEN {
+pub fn read_protocol_config(
+    program_id: &Address,
+    account: &AccountView,
+) -> Result<ProtocolConfigState, ProgramError> {
+    // Pin the authority oracle to the canonical PDA: a substituted config that
+    // names a different authority is rejected here, wherever the config is read.
+    let (expected, _) = protocol_config_pda(program_id)?;
+    if *account.address() != expected
+        || !account.owned_by(program_id)
+        || account.data_len() < PROTOCOL_CONFIG_ACCOUNT_LEN
+    {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
     let bytes = account

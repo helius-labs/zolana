@@ -58,7 +58,7 @@ pub fn process_create_spl_interface(
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
 
-    let config = read_protocol_config(protocol_config)?;
+    let config = read_protocol_config(program_id, protocol_config)?;
     if authority.address().as_ref() != config.authority {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
