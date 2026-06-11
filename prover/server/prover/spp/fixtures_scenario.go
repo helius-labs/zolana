@@ -172,23 +172,41 @@ func (b *scenarioBuilder) scenarios() []scenario {
 			[]int64{30, 30, 30, 30, 30}, []int64{50, 50, 50}),
 		b.shapeFlow("transfer_1_8", protocol.Shape{NInputs: 1, NOutputs: 8}, 500, 6101,
 			[]int64{80}, []int64{10, 10, 10, 10, 10, 10, 10, 10}),
+		// P256 rail per shape, so every P256-capable verifying key is also
+		// exercised on-chain by a real ECDSA-signed spend (not just shape 1-2).
+		b.ownedShapeFlow("p256_transfer_2_2", protocol.Shape{NInputs: 2, NOutputs: 2}, 2000, 7001,
+			[]int64{60, 40}, []int64{70, 30}, b.p256Owner, true),
+		b.ownedShapeFlow("p256_transfer_3_3", protocol.Shape{NInputs: 3, NOutputs: 3}, 2100, 7101,
+			[]int64{40, 40, 40}, []int64{50, 40, 30}, b.p256Owner, true),
+		b.ownedShapeFlow("p256_transfer_5_3", protocol.Shape{NInputs: 5, NOutputs: 3}, 2200, 7201,
+			[]int64{30, 30, 30, 30, 30}, []int64{50, 50, 50}, b.p256Owner, true),
+		b.ownedShapeFlow("p256_transfer_1_8", protocol.Shape{NInputs: 1, NOutputs: 8}, 2300, 7301,
+			[]int64{80}, []int64{10, 10, 10, 10, 10, 10, 10, 10}, b.p256Owner, true),
 	} {
 		scenarios = append(scenarios, flow...)
 	}
 	return scenarios
 }
 
-// shapeFlow builds an on-chain-submittable SPL transfer for one shape: each
-// input UTXO is first created by a single-asset shield (`<name>_seed_<i>`, a
-// 0-in/1-out deposit), then the transfer (`<name>`) spends all of them. The
-// transfer references the state root after the N seed appends (root index N).
-// Returns the seed fixtures followed by the transfer.
+// shapeFlow builds an on-chain-submittable SPL transfer for one shape on the
+// Solana rail. See ownedShapeFlow.
 func (b *scenarioBuilder) shapeFlow(name string, shape protocol.Shape, base, senderTag int64, inAmts, outAmts []int64) []scenario {
+	return b.ownedShapeFlow(name, shape, base, senderTag, inAmts, outAmts, b.solanaOwner, false)
+}
+
+// ownedShapeFlow builds an on-chain-submittable SPL transfer for one shape: each
+// input UTXO is first created by a single-asset shield (`<name>_seed_<i>`, a
+// 0-in/1-out deposit) owned by `owner`, then the transfer (`<name>`) spends all
+// of them. With `p256` true the spend is proven on the P256 rail (the seeds are
+// shields, so they need no signature), exercising that shape's P256 verifying
+// key on-chain. The transfer references the state root after the N seed appends
+// (root index N). Returns the seed fixtures followed by the transfer.
+func (b *scenarioBuilder) ownedShapeFlow(name string, shape protocol.Shape, base, senderTag int64, inAmts, outAmts []int64, owner *big.Int, p256 bool) []scenario {
 	var flow []scenario
 	inputs := make([]scenarioInput, len(inAmts))
 	tree := map[uint64]*big.Int{}
 	for i, amt := range inAmts {
-		u := sampleUtxo(base+int64(i)*10, b.solanaOwner, b.splAsset, amt)
+		u := sampleUtxo(base+int64(i)*10, owner, b.splAsset, amt)
 		seedState := copyState(tree)
 		tree[uint64(i)] = mustHash(u)
 		flow = append(flow, scenario{
@@ -210,14 +228,14 @@ func (b *scenarioBuilder) shapeFlow(name string, shape protocol.Shape, base, sen
 	spentState := copyState(tree)
 	outputs := make([]protocol.Utxo, len(outAmts))
 	for i, amt := range outAmts {
-		o := sampleUtxo(base+1000+int64(i)*10, b.solanaOwner, b.splAsset, amt)
+		o := sampleUtxo(base+1000+int64(i)*10, owner, b.splAsset, amt)
 		outputs[i] = o
 		tree[uint64(len(inAmts))+uint64(i)] = mustHash(o)
 	}
 	flow = append(flow, scenario{
 		name: name, senderTag: senderTag, inputs: inputs, outputs: outputs,
 		mode: modeTransfer, encrypted: []byte{0xab, byte(base)},
-		state: spentState, rootIndex: uint16(len(inAmts)), shape: shape,
+		state: spentState, rootIndex: uint16(len(inAmts)), shape: shape, p256: p256,
 		expStateNext: uint64(len(inAmts)) + uint64(len(outAmts)),
 		expQueueNext: 2*uint64(len(inAmts)) + 1,
 		expState:     tree,
