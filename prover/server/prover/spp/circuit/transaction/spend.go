@@ -81,8 +81,8 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
 	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
-	statePathIndex := api.ToBinary(in.StatePathIndex, protocol.StateTreeHeight)
-	stateRoot := gadget.MerkleRoot(api, utxoHash, in.StatePathElements, statePathIndex)
+	statePathIndices := api.ToBinary(in.StatePathIndex, protocol.StateTreeHeight)
+	stateRoot := gadget.MerkleRoot(api, utxoHash, in.StatePathElements, statePathIndices)
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
 	// A dummy slot's root is meaningless; pin it to 0 so the public transcript
 	// is canonical (matches the on-chain zero-padded reconstruction) rather than
@@ -118,8 +118,8 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
 	lowLeafHash := gadget.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
-	nfPathIndex := api.ToBinary(in.NullifierLowPathIndex, protocol.NullifierTreeHeight)
-	nfRoot := gadget.MerkleRoot(api, lowLeafHash, in.NullifierLowPathElements, nfPathIndex)
+	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, protocol.NullifierTreeHeight)
+	nfRoot := gadget.MerkleRoot(api, lowLeafHash, in.NullifierLowPathElements, nfPathIndices)
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierRoot)
 	assertZeroWhen(api, in.IsDummy, in.NullifierRoot)
 	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
