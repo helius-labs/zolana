@@ -351,11 +351,13 @@ TODO: evaluate to adapt derivation so that the viewing key can never repeat even
 
 ## View Tags
 
-A view tag is a 31-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
+A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
 **Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
+
+**Encoding.** A derived tag is the 31-byte HKDF output with a zero byte in front: `tag := 0x00 || hkdf_output`. The zero byte is the most significant byte, so as a big-endian integer the tag is always below `2^248` — small enough for the nullifier tree, which only accepts values strictly between `0` and `2^248 - 1`. The boundary values `0` and `2^248 - 1` themselves are not accepted, but the chance of deriving one is about `2^-247`, so this case is ignored. `recipient_bootstrap_view_tag` is the one exception: it is the full 32-byte x-coordinate, can be larger than the BN254 modulus, is compared as plain bytes, and never goes into the tree. The zero prefix makes derived tags look different from the bootstrap tag; this is fine because the bootstrap tag is public anyway.
 
 ### Sender View Tag
 
@@ -363,7 +365,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
   - Derived by: the sender, to index her change utxos.
   - Tx sent by: the sender
   - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` .
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)`.
 
 ### Recipient view tag
 
@@ -386,7 +388,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
     - Tx sent by: the sender.
     - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="TSPP/recipient_request_view_tag/" || u64_be(request_count), L=32)`.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="TSPP/recipient_request_view_tag/" || u64_be(request_count), L=31)`.
 4. **`recipient_bootstrap_view_tag`**
     - Derived by: anyone — `recipient.viewing_pk` 32-byte X-coordinate of the SEC1-compressed encoding (the 33-byte form with its 1-byte sign prefix dropped).
     - Tx sent by: the sender.
