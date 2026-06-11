@@ -24,7 +24,7 @@ exist at once.
 ```sh
 just regen-spp-transact-fixtures      # setup all 10 circuits → vkeys (.rs) + spp_e2e.json
 just regen-spp-batch-update-fixture   # the forester batch-update (address-append) fixture
-just build-spp-keys                   # just the 1-2 proving key, for the pocket demo
+just build-spp-keys                   # just the 1-2 proving key, for the zolana demo
 ```
 
 `regen-spp-transact-fixtures` runs Groth16 setup for all 10 (shape, rail)
