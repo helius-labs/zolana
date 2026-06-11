@@ -1807,7 +1807,7 @@ sequenceDiagram
     Wallet->>Merge: (plaintext inputs, merge_view_tag, merge_count)<br/>nullifier_secret already held by the service as sync delegate
 
     Note over Merge: Build witness + proof
-    Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier per input (see Nullifier)<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)
+    Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier = Poseidon(utxo_hash, blinding, nullifier_secret) per input<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)
     Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)<br/>signed by merge_authority
 
     Note over SPP: Verify and apply
