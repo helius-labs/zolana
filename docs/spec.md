@@ -875,7 +875,7 @@ external_data_hash := Sha256BE(
 <a id="circuit-variants"></a>
 **Circuit Combinations**
 
-Each circuit is instantiated twice, one per ownership pubkey type: P256 and Ed25519 (Solana). The Ed25519 instance outsources signature verification to the SPP thus has ~7× fewer constraints.
+Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solana) only. The second instance omits the expensive P256 signature verification. The Ed25519 signature verification is always outsourced signature to the SPP. Therfore instance 2 has ~7× fewer constraints.
 
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
