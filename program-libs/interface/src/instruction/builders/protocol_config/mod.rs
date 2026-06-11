@@ -3,22 +3,29 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData},
+    instruction::{encode_instruction, tag, CreateProtocolConfigData, PauseTreeData,
+        UpdateProtocolConfigData},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
+/// Initialize the canonical protocol-config PDA. The program creates the PDA via
+/// CPI, so the authority is the rent payer (writable signer) and the system
+/// program must be present. `protocol_config` must be the
+/// `[SPP_PROTOCOL_CONFIG_PDA_SEED]` PDA or the program rejects it.
 pub fn create_protocol_config(
     authority: Pubkey,
     protocol_config: Pubkey,
     data: CreateProtocolConfigData,
 ) -> Instruction {
-    build_config_ix(
-        tag::CREATE_PROTOCOL_CONFIG,
-        authority,
-        protocol_config,
-        None,
-        data,
-    )
+    Instruction {
+        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        accounts: vec![
+            AccountMeta::new(authority, true),
+            AccountMeta::new(protocol_config, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ],
+        data: encode_instruction(tag::CREATE_PROTOCOL_CONFIG, &data),
+    }
 }
 
 pub fn update_protocol_config(
@@ -57,10 +64,6 @@ fn build_config_ix<T: BorshSerialize>(
     tree: Option<Pubkey>,
     data: T,
 ) -> Instruction {
-    let mut instruction_data = vec![tag];
-    data.serialize(&mut instruction_data)
-        .expect("shielded-pool instruction serialization is infallible");
-
     let mut accounts = vec![
         AccountMeta::new_readonly(authority, true),
         AccountMeta::new(protocol_config, false),
@@ -72,6 +75,6 @@ fn build_config_ix<T: BorshSerialize>(
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts,
-        data: instruction_data,
+        data: encode_instruction(tag, &data),
     }
 }
