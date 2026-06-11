@@ -236,12 +236,12 @@ regen-spp-batch-update-fixture:
 
 # === Demo ===
 
-# Run the local pocket SOL demo: builds the CLI/prover/keys/SBF, boots a
+# Run the local zolana SOL demo: builds the CLI/prover/keys/SBF, boots a
 # solana-test-validator, and runs shield -> private transfer -> unshield
 # (Solana + P256 shielded wallets). Requires solana, solana-test-validator,
 # lsof, go, and cargo-build-sbf on PATH.
 demo:
-    scripts/pocket-sol-demo.sh
+    scripts/zolana-sol-demo.sh
 
 # === Formatting and linting ===
 

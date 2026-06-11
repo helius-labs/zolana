@@ -4,17 +4,17 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-RPC_PORT="${POCKET_SOL_RPC_PORT:-8899}"
-FAUCET_PORT="${POCKET_SOL_FAUCET_PORT:-9900}"
-GOSSIP_PORT="${POCKET_SOL_GOSSIP_PORT:-9901}"
-DYNAMIC_RANGE="${POCKET_SOL_DYNAMIC_PORT_RANGE:-9902-9952}"
+RPC_PORT="${ZOLANA_SOL_RPC_PORT:-8899}"
+FAUCET_PORT="${ZOLANA_SOL_FAUCET_PORT:-9900}"
+GOSSIP_PORT="${ZOLANA_SOL_GOSSIP_PORT:-9901}"
+DYNAMIC_RANGE="${ZOLANA_SOL_DYNAMIC_PORT_RANGE:-9902-9952}"
 RPC_URL="http://127.0.0.1:${RPC_PORT}"
 PROGRAM_ID="${SHIELDED_POOL_PROGRAM_ID:-S7exd9VLhvwVWK9wqRGQrg87616fGnyYEvrsuA1D2LG}"
-WORKDIR="${POCKET_SOL_WORKDIR:-$(mktemp -d "${TMPDIR:-/tmp}/pocket-sol-demo.XXXXXX")}"
+WORKDIR="${ZOLANA_SOL_WORKDIR:-$(mktemp -d "${TMPDIR:-/tmp}/zolana-sol-demo.XXXXXX")}"
 LEDGER_DIR="${WORKDIR}/ledger"
 VALIDATOR_LOG="${WORKDIR}/validator.log"
 
-POCKET="${ROOT}/target/debug/pocket"
+ZOLANA="${ROOT}/target/debug/zolana"
 PROVER="${ROOT}/target/prover-server"
 KEYS_FILE="${ROOT}/target/spp/spp_1_2.key"
 SOLANA_KEYS_FILE="${ROOT}/target/spp/spp_1_2_solana.key"
@@ -132,11 +132,11 @@ print_balances() {
     local title="$1"
     echo
     echo "== ${title}: wallet SOL balances =="
-    "$POCKET" balance --rpc-url "$RPC_URL" --wallet "$A_KEY"
-    "$POCKET" balance --rpc-url "$RPC_URL" --wallet "$B_KEY"
+    "$ZOLANA" zone balance --rpc-url "$RPC_URL" --wallet "$A_KEY"
+    "$ZOLANA" zone balance --rpc-url "$RPC_URL" --wallet "$B_KEY"
     echo "== ${title}: private SOL note balances =="
-    "$POCKET" balance --state "$A_STATE"
-    "$POCKET" balance --state "$B_STATE"
+    "$ZOLANA" zone balance --state "$A_STATE"
+    "$ZOLANA" zone balance --state "$B_STATE"
 }
 
 require_cmd solana
@@ -147,7 +147,7 @@ echo "Local solana-test-validator demo only. Do not use these defaults or the SH
 echo "Workdir: $WORKDIR"
 mkdir -p "$WORKDIR"
 
-echo "Building pocket CLI, prover keys, and shielded-pool SBF"
+echo "Building zolana CLI, prover keys, and shielded-pool SBF"
 just build-zolana-cli build-spp-keys
 # The 1-2 shape has two circuits: the P256-capable one (spp_1_2.key, used for
 # P256-owned spends) and the cheaper Solana-only one (spp_1_2_solana.key, used
@@ -178,8 +178,8 @@ wait_for_validator
 
 echo
 echo "== Creating wallets =="
-A_JSON="$(run_json "$POCKET" create-wallet --rpc-url "$RPC_URL" --output "$A_KEY" --force)"
-B_JSON="$(run_json "$POCKET" create-wallet --rpc-url "$RPC_URL" --output "$B_KEY" --force)"
+A_JSON="$(run_json "$ZOLANA" zone create-wallet --rpc-url "$RPC_URL" --output "$A_KEY" --force)"
+B_JSON="$(run_json "$ZOLANA" zone create-wallet --rpc-url "$RPC_URL" --output "$B_KEY" --force)"
 echo "Wallet A:"
 printf '%s\n' "$A_JSON"
 echo "Wallet B:"
@@ -188,8 +188,8 @@ A_PUBKEY="$(printf '%s\n' "$A_JSON" | json_field pubkey)"
 B_PUBKEY="$(printf '%s\n' "$B_JSON" | json_field pubkey)"
 echo
 echo "== Creating P256 shielded wallets =="
-A_P256_JSON="$(run_json "$POCKET" create-shielded-wallet --output "$A_P256_WALLET" --force)"
-B_P256_JSON="$(run_json "$POCKET" create-shielded-wallet --output "$B_P256_WALLET" --force)"
+A_P256_JSON="$(run_json "$ZOLANA" zone create-shielded-wallet --output "$A_P256_WALLET" --force)"
+B_P256_JSON="$(run_json "$ZOLANA" zone create-shielded-wallet --output "$B_P256_WALLET" --force)"
 echo "P256 wallet A:"
 printf '%s\n' "$A_P256_JSON"
 echo "P256 wallet B:"
@@ -204,7 +204,7 @@ print_balances "Before operations"
 
 echo
 echo "== Initializing pool tree =="
-TREE="$("$POCKET" init-pool-tree \
+TREE="$("$ZOLANA" zone init-pool-tree \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --output "$TREE_KEY" \
@@ -217,7 +217,7 @@ echo "== Proofless-shield A SOL (no proof) =="
 # A public deposit with no ZK proof. Run first, while A holds no other notes,
 # so the unshield below unambiguously spends this exact deposit (note selection
 # picks the first note >= amount).
-PROOFLESS_A_JSON="$("$POCKET" proofless-shield \
+PROOFLESS_A_JSON="$("$ZOLANA" zone proofless-shield \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -229,7 +229,7 @@ print_signature "proofless-shield A" "$PROOFLESS_A_JSON"
 
 echo
 echo "== Unshield A SOL (spend the proofless deposit) =="
-PROOFLESS_UNSHIELD_A_JSON="$("$POCKET" unshield \
+PROOFLESS_UNSHIELD_A_JSON="$("$ZOLANA" zone unshield \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -242,7 +242,7 @@ print_signature "unshield A (proofless)" "$PROOFLESS_UNSHIELD_A_JSON"
 
 echo
 echo "== Shield A SOL =="
-SHIELD_A_JSON="$("$POCKET" shield \
+SHIELD_A_JSON="$("$ZOLANA" zone shield \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -255,7 +255,7 @@ print_signature "shield A" "$SHIELD_A_JSON"
 
 echo
 echo "== Private transfer A -> B =="
-TRANSFER_JSON="$("$POCKET" transfer \
+TRANSFER_JSON="$("$ZOLANA" zone transfer \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -270,7 +270,7 @@ print_signature "transfer A to B" "$TRANSFER_JSON"
 
 echo
 echo "== Shield A SOL to P256 wallet =="
-P256_SHIELD_A_JSON="$("$POCKET" shield \
+P256_SHIELD_A_JSON="$("$ZOLANA" zone shield \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -284,7 +284,7 @@ print_signature "shield A P256" "$P256_SHIELD_A_JSON"
 
 echo
 echo "== P256 private transfer A -> B =="
-P256_TRANSFER_JSON="$("$POCKET" transfer \
+P256_TRANSFER_JSON="$("$ZOLANA" zone transfer \
     --rpc-url "$RPC_URL" \
     --payer "$A_KEY" \
     --state "$A_STATE" \
@@ -300,7 +300,7 @@ print_signature "P256 transfer A to B" "$P256_TRANSFER_JSON"
 
 echo
 echo "== Unshield B P256 SOL =="
-P256_UNSHIELD_B_JSON="$("$POCKET" unshield \
+P256_UNSHIELD_B_JSON="$("$ZOLANA" zone unshield \
     --rpc-url "$RPC_URL" \
     --payer "$B_KEY" \
     --state "$B_STATE" \
@@ -314,7 +314,7 @@ print_signature "unshield B P256" "$P256_UNSHIELD_B_JSON"
 
 echo
 echo "== Shield B SOL =="
-SHIELD_B_JSON="$("$POCKET" shield \
+SHIELD_B_JSON="$("$ZOLANA" zone shield \
     --rpc-url "$RPC_URL" \
     --payer "$B_KEY" \
     --state "$B_STATE" \
@@ -327,7 +327,7 @@ print_signature "shield B" "$SHIELD_B_JSON"
 
 echo
 echo "== Unshield B SOL =="
-UNSHIELD_B_JSON="$("$POCKET" unshield \
+UNSHIELD_B_JSON="$("$ZOLANA" zone unshield \
     --rpc-url "$RPC_URL" \
     --payer "$B_KEY" \
     --state "$B_STATE" \
