@@ -1191,7 +1191,7 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`; no Asset registry account needed), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
 4. Append the hash to the UTXO tree.
 5. Transfer the deposit: SOL `payer → pool`, or CPI the token program `depositor → vault`.
 6. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
