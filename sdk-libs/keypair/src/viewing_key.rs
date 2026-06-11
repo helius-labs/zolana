@@ -46,12 +46,6 @@ fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     out
 }
 
-/// Draws a fresh per-transaction salt from the OS CSPRNG. It is folded into the
-/// per-slot AEAD key derivation (not the nonce), so each `(first_nullifier,
-/// salt, slot)` yields a unique single-use key. Under correct operation
-/// `first_nullifier` uniqueness alone prevents key reuse; the 16-byte salt is a
-/// defense-in-depth backstop against accidental `first_nullifier` reuse and must
-/// stay CSPRNG-sourced to retain that property.
 pub fn random_salt() -> Salt {
     let mut salt = [0u8; SALT_LEN];
     OsRng.fill_bytes(&mut salt);
