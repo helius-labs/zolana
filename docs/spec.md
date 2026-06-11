@@ -1214,7 +1214,6 @@ struct ProoflessShieldEvent {
 }
 ```
 
-**Indexing.** No ciphertext is published; the indexer serves the `ProoflessShieldEvent` fields under `view_tag` (see [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags)). A self-shield uses the depositor's own sender tag. The recipient derives `blinding` from the event's `salt` (see [Blinding derivation](#blinding-derivation)) and accepts the UTXO if the recomputed `owner_utxo_hash` matches.
 
 ### `merge_transact`
 
