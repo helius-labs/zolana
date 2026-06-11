@@ -1064,6 +1064,7 @@ Usage by instruction:
 | update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
 | merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted Solana signer; SPP checks the signer against `protocol_config.merge_authorities`. Input and output UTXOs are default-zone; extension slots are zero. |
 | zone_merge_transact | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
+| emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only (the event authority PDA must sign). Indexers read events from inner-instruction data; program logs truncate. |
 
 ### `transact`
 
@@ -1168,6 +1169,8 @@ struct ProoflessShieldIxData {
     view_tag: [u8; 32],
     /// Precomputed by the depositor; see [UTXO Hash](#utxo-hash).
     owner_utxo_hash: [u8; 32],
+    /// Fresh CSPRNG per deposit; see [Blinding derivation](#blinding-derivation).
+    salt: [u8; 16],
     /// `Some` for a SOL deposit.
     public_sol_amount: Option<u64>,
     /// `Some` for an SPL deposit.
@@ -1177,15 +1180,41 @@ struct ProoflessShieldIxData {
 }
 ```
 
+<a id="blinding-derivation"></a>
+**Blinding derivation**
+
+```
+blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding" || salt, L=31)
+```
+
 **Checks**
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset_id` from the per-mint Asset registry), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`; no Asset registry account needed), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
 4. Append the hash to the UTXO tree.
 5. Transfer the deposit: SOL `payer → pool`, or CPI the token program `depositor → vault`.
+6. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
 
-**Indexing.** No ciphertext is published; the indexer serves the cleartext body under `view_tag` (see [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags)). A self-shield uses the depositor's own sender tag. For a deposit to a third party the depositor shares `blinding` out of band.
+**Event**
+
+The mint reaches `proofless_shield` via accounts, so it cannot be indexed from instruction data; the event makes the full UTXO body indexable from inner-instruction data.
+
+```rust
+struct ProoflessShieldEvent {
+    view_tag: [u8; 32],
+    utxo_hash: [u8; 32],
+    /// Deposited mint; reaches the instruction via accounts only.
+    asset: Address,
+    amount: u64,
+    /// From `cpi_signer`; `Address::default()` if none.
+    zone_program_id: Address,
+    owner_utxo_hash: [u8; 32],
+    salt: [u8; 16],
+}
+```
+
+**Indexing.** No ciphertext is published; the indexer serves the `ProoflessShieldEvent` fields under `view_tag` (see [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags)). A self-shield uses the depositor's own sender tag. The recipient derives `blinding` from the event's `salt` (see [Blinding derivation](#blinding-derivation)) and accepts the UTXO if the recomputed `owner_utxo_hash` matches.
 
 ### `merge_transact`
 
@@ -1372,7 +1401,7 @@ struct ShieldedTransaction {
     tx_signature: Signature,
     tx_viewing_pk: P256Pubkey,
     /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
-    /// each slot's `payload` is a cleartext UTXO body.
+    /// each slot's `payload` is the cleartext `ProoflessShieldEvent`.
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
