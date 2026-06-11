@@ -357,7 +357,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 **Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
-**Encoding.** A derived tag is the 31-byte HKDF output with a zero byte in front: `tag := 0x00 || hkdf_output`. The zero byte is the most significant byte, so as a big-endian integer the tag is always below `2^248` — small enough for the nullifier tree, which only accepts values strictly between `0` and `2^248 - 1`. The boundary values `0` and `2^248 - 1` themselves are not accepted, but the chance of deriving one is about `2^-247`, so this case is ignored. `recipient_bootstrap_view_tag` is the one exception: it is the full 32-byte x-coordinate, can be larger than the BN254 modulus, is compared as plain bytes, and never goes into the tree. The zero prefix makes derived tags look different from the bootstrap tag; this is fine because the bootstrap tag is public anyway.
+**Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
 
 ### Sender View Tag
 
