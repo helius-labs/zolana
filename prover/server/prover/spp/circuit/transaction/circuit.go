@@ -14,11 +14,10 @@ import (
 
 type Circuit struct {
 	Shape protocol.Shape `gnark:"-"`
-	// RequiresP256 selects the ownership rail at compile time. When true the
-	// circuit includes the emulated-P256 ECDSA gadget (~86% of constraints) for
-	// P256/passkey owners. When false it is a Solana-only circuit: the gadget is
-	// omitted (~7x smaller) and every real input must be Solana-owned. Both
-	// rails are homogeneous because the circuit enforces a single owner.
+	// RequiresP256 picks the rail at compile time. True: include the emulated
+	// P256 ECDSA gadget (most of the constraints) for P256 owners. False:
+	// Solana-only, no gadget (~7x smaller), every real input must be
+	// Solana-owned. The single-owner rule keeps each proof on one rail.
 	RequiresP256 bool `gnark:"-"`
 
 	Inputs  []Input
@@ -140,18 +139,15 @@ func (c *Circuit) Define(api frontend.API) error {
 			&c.P256Sig,
 		)
 	} else {
-		// Solana-only rail: no P256 gadget. p256OwnerKeyHash is never selected
-		// (constrainInput forces every real input to be Solana-owned), and there
-		// is no P256 signature, so pin the message hash to 0. p256SigValid is
-		// unused (set to a constant for the gated checks that are never active).
+		// Solana-only rail: no P256 gadget. Pin the message hash to 0 and set
+		// p256OwnerKeyHash/p256SigValid to constants — constrainInput forces every
+		// real input Solana-owned, so the P256 checks never fire.
 		api.AssertIsEqual(c.P256MessageHash, 0)
 		env.p256OwnerKeyHash = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
-		// The P256 rail's emulated-ECDSA gadget induces the bsb22 polynomial
-		// commitment the on-chain Groth16Verifier (and the proof encoding)
-		// require. The Solana rail has no such gadget, so add one explicit
-		// commitment to keep the proof in the same bsb22 format — same verifier,
-		// vkey tooling, and proof layout.
+		// The P256 gadget adds a bsb22 commitment the on-chain Groth16Verifier
+		// expects. The Solana rail has no gadget, so add one explicit commitment
+		// to keep the same proof format and verifier.
 		committer, ok := api.(frontend.Committer)
 		if !ok {
 			return fmt.Errorf("spp: frontend does not support commitments")
@@ -181,9 +177,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
-	// Default transact carries no program/zone authorization: the tx-level
-	// program/policy fields must be zero (SPP also reconstructs them as zero
-	// on-chain). Zone flows would set these via zone_transact.
+	// Default transact has no program/zone authorization: these tx-level fields
+	// must be zero (SPP reconstructs them as zero on-chain). Zone flows set them
+	// via zone_transact.
 	api.AssertIsEqual(c.ProgramIDHashchain, 0)
 	api.AssertIsEqual(c.DataHash, 0)
 	api.AssertIsEqual(c.ZoneDataHash, 0)

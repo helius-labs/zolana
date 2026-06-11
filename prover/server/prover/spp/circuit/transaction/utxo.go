@@ -34,9 +34,9 @@ func FieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 }
 
 func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
-	// owner_utxo_hash = Poseidon(owner, blinding) nests the owner so the
-	// commitment preimage never exposes it (enables owner-hiding proofless
-	// shields). Must match protocol.UtxoHash / OwnerUtxoHash.
+	// owner_utxo_hash = Poseidon(owner, blinding) hides the owner inside the
+	// commitment (needed for owner-hiding proofless shields). Must match
+	// protocol.UtxoHash / OwnerUtxoHash.
 	ownerUtxoHash := poseidon.HashCircuit(api, []frontend.Variable{u.Owner, u.Blinding})
 	return poseidon.HashCircuit(api, []frontend.Variable{
 		u.Domain,
@@ -49,14 +49,11 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	})
 }
 
-// canonicalTruncate248 returns the low 248 bits of x using a CANONICAL bit
-// decomposition. This is the one soundness-critical step of nullifier
-// derivation, kept in a single named place the alias test
-// (TestCircuitRejectsUntruncatedAndAliasNullifier) pins: gnark's full-width
-// ToBinary (NbDigits == FieldBitLen) constrains the bits to be < p, the only
-// thing stopping the x vs x+p alias — whose low 248 bits differ — from yielding
-// a second valid nullifier for the same UTXO, i.e. a double spend. Do NOT pass
-// a reduced WithNbDigits: that drops the < p check and reintroduces the alias.
+// canonicalTruncate248 returns the low 248 bits of x. The full-width ToBinary
+// is load-bearing: it constrains the bits < p, so x and x+p (equal mod p, but
+// different low 248 bits) can't both pass. That alias would be a second
+// nullifier for one UTXO, i.e. a double spend. Don't pass a smaller NbDigits;
+// it drops the < p check. Pinned by TestCanonicalTruncate248RejectsAliasBits.
 func canonicalTruncate248(api frontend.API, x frontend.Variable) frontend.Variable {
 	bits := api.ToBinary(x)
 	return api.FromBinary(bits[:nullifierDomainBits]...)
