@@ -872,27 +872,20 @@ external_data_hash := Sha256BE(
 1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. The SHA-256 message digest is computed **outside** the circuit: SPP recomputes `private_tx_hash_digest = Sha256BE(private_tx_hash)` on-chain from the `private_tx_hash` public input and feeds it to the proof, which verifies the ECDSA signature against the digest using only EC arithmetic. Binding holds across the public inputs — the proof recomputes `private_tx_hash` from the private input/output hash chains and asserts it equals the `private_tx_hash` public input, SPP asserts `private_tx_hash_digest = Sha256BE(private_tx_hash)`, and the proof asserts the signature verifies against `private_tx_hash_digest`.
 2. Ed25519 Solana signer checked by SPP. The non-zero entry in the public `solana_pk_hashes` array tells the circuit to skip the P256 signature check on the input and bind the input's owner to the SPP-derived `pk_field`; SPP separately reads `in_utxo_signer_indices` from instruction data and verifies the named 32-byte Solana account is a signer of the transaction. The nullifier-secret binding is still checked by the proof for these inputs.
 
+<a id="circuit-variants"></a>
 **Circuit Combinations**
 
-| Circuit | Use | Shape |
-| --- | --- | --- |
-| 2 in 2 out | Shield with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output |
-| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the relayer |
-| 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output |
-| 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output |
-| 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data |
+Each shape compiles into two circuits, one per ownership scheme: P256 (P256-owned real inputs, `solana_pk_hashes[i] = 0`, `private_tx_hash_digest = Sha256BE(private_tx_hash)`) and Solana-only.
 
-<a id="circuit-variants"></a>
-**Circuit Variants**
+| Circuit | Use | Shape | Variants |
+| --- | --- | --- | --- |
+| 2 in 2 out | Shield with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | P256, Solana-only |
+| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the relayer | P256, Solana-only |
+| 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
+| 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
+| 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
 
-Each shape compiles into two circuits, one per ownership scheme. All real inputs share one owner (see Checks: nullifier secret binding), so every transaction matches exactly one variant.
-
-| Variant | Real inputs | `private_tx_hash_digest` |
-| --- | --- | --- |
-| P256 | P256-owned (`solana_pk_hashes[i] = 0`) | `Sha256BE(private_tx_hash)` |
-| Solana-only | Solana-owned (`solana_pk_hashes[i] ≠ 0`) | `0` |
-
-The P256 variant carries the emulated P256 ECDSA gadget, most of its constraints. The Solana-only variant omits the gadget (~7× fewer constraints) and must force every real input onto the Solana path. Each variant has its own verifying key per shape. SPP selects the key from the instruction — any `in_utxo_signer_indices` entry → Solana-only, none → P256 — and reconstructs `private_tx_hash_digest` per the table.
+The P256 variant carries the emulated P256 ECDSA gadget, most of its constraints. The Solana-only variant omits the gadget (~7× fewer constraints) and must force every real input onto the Solana path. Each variant has its own verifying key per shape. SPP selects the key from the instruction — any `in_utxo_signer_indices` entry → Solana-only, none → P256 — and reconstructs `private_tx_hash_digest` per the variant.
 
 # Merge Proof - Merge ZK Proof
 
