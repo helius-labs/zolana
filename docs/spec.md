@@ -499,7 +499,7 @@ nullifier    := truncate_248(Poseidon(utxo_hash, utxo_blinding, nullifier_secret
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
 utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
-`truncate_248(x)` reduces `x` mod p, encodes the result big-endian, and keeps the low 248 bits (31 bytes).
+`truncate_248(x)` truncates values to fit into the nullifier tree. The nullifier tree holds values strictly between `0` and `2^248 - 1`.
 
 ## Empty UTXO
 
