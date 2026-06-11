@@ -365,7 +365,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
   - Derived by: the sender, to index her change utxos.
   - Tx sent by: the sender
   - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` — 248 bits; see **Tree domain** above.
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` — 248 bits;
 
 ### Recipient view tag
 
@@ -403,7 +403,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Indexed by: the owner.
     - Counter: per-service `merge_count` keyed by the merge service's Solana account `merge_authority` (`wallet.merge_services[merge_authority]`), advanced on every `merge_transact` for that service. Concurrent merge services therefore have disjoint tag streams.
     - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_transact`, same as `sender_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority || u64_be(merge_count), L=31)` — 248 bits; see **Tree domain** above. Including `merge_authority` in the info gives each service its own counter namespace; secrecy rests on the secret `merge_view_tag_secret`, so the public `merge_authority` value acts only as a domain separator.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority || u64_be(merge_count), L=31)` — 248 bits. Including `merge_authority` in the info gives each service its own counter namespace; secrecy rests on the secret `merge_view_tag_secret`, so the public `merge_authority` value acts only as a domain separator.
 
 ### View Tag Selection
 
@@ -945,7 +945,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Inclusion | Each input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding | The recomputed `nullifier_pk` (see [Nullifier Key](#nullifier-key)) must equal `user_nullifier_pk`. Together with the Owner hash binding, this pins `nullifier_secret` per UTXO. |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
-| Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier), including its in-circuit truncation and canonical-decomposition requirements. |
+| Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_zone`. |
 | Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `policy_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `policy_data` is constrained by the zone program's own logic, not by SPP. |
 | Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `policy_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `policy_data` is the value the zone program sets (constrained by its own proof). |
@@ -1001,7 +1001,7 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 
 | Account | Description |
 | --- | --- |
-| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=26). The nullifier tree is a **single** tree: its built-in `root_history` is the nullifier-tree root cache referenced by `nullifier_tree_root_index` (there is no separate SPP-maintained nullifier tree or root ring), its input queue is the nullifier queue, and its 248-bit indexed-tree value domain is why nullifiers and tree-inserted view tags are truncated to 248 bits (see [Nullifier](#nullifier)). |
+| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=26). |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
@@ -1147,8 +1147,6 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
-
-**Non-stale root (definition).** A root index is non-stale iff the indexed slot of the tree's circular root cache holds a non-zero value. For the nullifier tree the cache is the `light-batched-merkle-tree`'s own `root_history`, which provides this property natively: when a batch's bloom filter is wiped (once that batch is `Inserted` into the tree and the current queue batch is ≥ 50% full and not itself `Inserted`), the tree zeroes every cached root that predates that batch's final root (`zero_out_roots`), keeping the first safe root. A zeroed slot can never satisfy a Merkle opening, so proofs against invalidated roots fail; every other cached root remains valid — this is the grace window that lets a proof built shortly before a forester update still verify. Roots also expire by ring overwrite after `root_history_capacity` updates.
 
 ### `merge_transact`
 
