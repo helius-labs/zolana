@@ -368,7 +368,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 ### Recipient view tag
 
 2. **`recipient_shared_view_tag`**
-    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_shared_view_tag` to index the tx.
+    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_recipient_shared_view_tag` to index the tx.
     - Tx sent by: the sender.
     - Indexed by: the recipient.
     - Derivation: two chained HKDFs over the ECDH shared secret.
@@ -381,7 +381,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
                            info = "TSPP/pair-hint/"   || u64_be(i), L = 32)
       ```
 
-      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
 3. **`recipient_request_view_tag`**
     - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
     - Tx sent by: the sender.
@@ -423,7 +423,7 @@ The merge service always uses merge view tags.
 2. `get_sender_view_tag(tx_count)` — used on every outgoing transaction to tag the sender's own change UTXOs.
 3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
 4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
 6. `get_merge_view_tag(merge_authority, merge_count)` — used by the merge service when submitting `merge_transact` and by the owner during sync to find merged outputs. `merge_authority` is the service's Solana account.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> P256Keypair` — per-transaction P-256 keypair for ECDH encryption to recipients.
 
@@ -467,8 +467,8 @@ struct Utxo {
     blinding: [u8; 31],
     /// Arbitrary program data.
     program_data: Option<Vec<u8>>,
-    /// Arbitrary policy data.
-    policy_data: Option<Vec<u8>>,
+    /// Arbitrary zone data.
+    zone_data: Option<Vec<u8>>,
     /// The zone program that authorizes spends of this UTXO.
     zone_program_id: Option<Address>,
 }
@@ -478,7 +478,7 @@ struct Utxo {
 
 ```
 utxo_hash = Poseidon(domain, asset, amount,
-                     program_data_hash, policy_data_hash,
+                     program_data_hash, zone_data_hash,
                      zone_program_id, owner_utxo_hash)
 
 owner_utxo_hash = Poseidon(owner, blinding)
@@ -504,7 +504,7 @@ sender's absent SPL or SOL change. Every field is zero except `blinding`:
 
 ```
 owner = asset = amount = 0
-program_data = policy_data = zone_program_id = None
+program_data = zone_data = zone_program_id = None
 blinding = Sha256BE(blinding_seed || u8(position))
 ```
 
@@ -527,27 +527,35 @@ Schemes:
 
 ## AES Nonce derivation
 
-AES-GCM breaks if a `(key, nonce)` pair repeats. Every transaction encryption key is deterministically derived and single use. 
-In case that a transaction encryption key is derived multiple times because a transaction failed or was not sent we use a random u64 nonce.
+AES-GCM breaks if a `(key, nonce)` pair repeats. Key and nonce both derive from the single-use transaction viewing key, a per-transaction 16-byte CSPRNG `salt`, and the slot index. `first_nullifier` uniqueness alone prevents reuse; the salt covers the case where a transaction viewing key is derived twice (e.g. a failed transaction rebuilt with the same first nullifier).
 
-Transfer and split use `salt || slot_index` directly as the AES-GCM nonce; the key is derived from the ECDH shared secret, per ciphertext slot `i`:
+Per ciphertext slot `i` (slot `0` = sender bundle, slot `i + 1` = recipient slot `i`):
 
 ```
-nonce      = u64_be(salt) || u32_be(i)                      // 12 B, the AES-GCM nonce
 ikm        = ECDH_x(tx_viewing_sk, recipient_viewing_pk) || tx_viewing_pk || recipient_viewing_pk
-key        = HKDF-SHA256(salt = ∅, IKM = ikm, info = "TSPP/hpke/" || "TSPP/tx", L = 32)
+okm        = HKDF-SHA256(salt = ∅, IKM = ikm,
+                         info = "TSPP/hpke/" || "TSPP/tx" || salt || u32_be(i), L = 44)
+key        = okm[0..32]
+nonce      = okm[32..44]                                    // 12 B, the AES-GCM nonce
 ciphertext = AES-256-GCM(key, nonce, plaintext)
 ```
 
 
 ## Program Data
 
-Program-specific bytes can optionally be appended to the base UTXO fields as type-length-value (TLV) prefixed with `tag: u8 || len: u16_le || bytes: [u8; len]`. TLV is omitted if not set.
+Each plaintext stores zone- and program-specific bytes in a `data` field of type `Data`: a record count followed by type-length-value records.
 
-| Tag | Field | UTXO field | Description |
+```
+Data   = count: u8 || records[count]
+record = tag: u8 || len: u16_le || bytes: [u8; len]
+```
+
+An empty `data` field is the single byte `count = 0`. Each populated record adds `3 + len` bytes to its plaintext and the same to the AES-GCM ciphertext.
+
+| Tag | Record | UTXO field | Description |
 | --- | --- | --- | --- |
-| `0x01` | `zone_data` | `policy_data` | store policy utxo data |
-| `0x02` | `app_data` | `program_data` | store program utxo data |
+| `0x01` | `zone_data` | `zone_data` | store zone utxo data |
+| `0x02` | `program_data` | `program_data` | store program utxo data |
 
 ## Transfer
 
@@ -555,14 +563,14 @@ One ciphertext for the sender's SOL and SPL change UTXOs, and one ciphertext for
 
 ### Plaintext Layout
 
-Fields packed in declaration order with no length prefixes (the variable-length tail in the sender bundle is sized from `N`, known from the [transact](#transact) instruction).
+Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` length, every other vector with a `u8` count.
 
 #### Recipient
 
 ```rust
-/// 114 B plaintext → 130 B ciphertext (after the 16-byte GCM tag), assuming
-/// both program-data slots absent. See [Program Data](#program-data) for the size
-/// when slots are populated.
+/// 115 B plaintext → 131 B ciphertext (after the 16-byte GCM tag) with an
+/// empty `data` field. See [Program Data](#program-data) for the growth per
+/// populated record.
 struct TransferRecipientPlaintext {
     /// Recipient `signing_pk` (UTXO owner, controls spend).
     owner_pubkey: PublicKey,
@@ -575,11 +583,10 @@ struct TransferRecipientPlaintext {
     amount: u64,
     /// Random blinding for the single output.
     blinding: [u8; 31],
-    /// Arbitrary data the zone program defines. Parsed if the wallet supports the zone.
-    zone_data: Option<Vec<u8>>,
-    /// bytes; the application program's client SDK does.
-    /// Arbitrary data the app program defines. The wallet does not parse these
-    app_data: Option<Vec<u8>>,
+    /// Zone and program records for the output UTXO. The wallet parses
+    /// `zone_data` if it supports the zone; `program_data` is parsed by the
+    /// application program's client SDK. See [Program Data](#program-data).
+    data: Data,
 }
 ```
 
@@ -594,10 +601,10 @@ blinding_i = Sha256BE(blinding_seed || u8(position_i))
 with `position = 0` for the SPL output and `position = 1` for the SOL output.
 
 ```rust
-/// `89 + 33·R` B plaintext → `105 + 33·R` B ciphertext (after the 16-byte GCM
-/// tag), where `R = num_recipients` from the enclosing `TransferEncryptedUtxos`. Assumes both
-/// program-data slots absent. See [Program Data](#program-data) for the size
-/// when slots are populated.
+/// `92 + 33·R` B plaintext → `108 + 33·R` B ciphertext (after the 16-byte GCM
+/// tag), where `R = recipient_viewing_pks.len()`, with both `data` fields
+/// empty. See [Program Data](#program-data) for the growth per populated
+/// record.
 struct TransferSenderPlaintext {
     /// Sender's `signing_pk` (UTXO owner for the change outputs).
     owner_pubkey: PublicKey,
@@ -612,44 +619,40 @@ struct TransferSenderPlaintext {
     /// Recipient `viewing_pk`s for the R recipient slots that follow this
     /// bundle, in slot order. Lets the sender re-derive each slot's AES key on
     /// restore (`ECDH(tx_viewing_sk, recipient.viewing_pk)`) to rebuild
-    /// `known_recipients`. Length = `num_recipients` from the enclosing `TransferEncryptedUtxos`.
-    recipient_viewing_pks: [P256Pubkey; R],
-    /// Bytes that populate the `policy_data` field of the SPL change UTXO
-    /// (position 0). Hashed via the zone program's scheme into the
-    /// `policy_data_hash` slot of `utxo_hash`. The SOL change UTXO (position 1)
-    /// is always bare — `zone_program_id = 0`, `policy_data = None`,
-    /// `program_data = None`, no extensions — regardless of this field. See
-    /// [Program Data](#program-data).
-    zone_data: Option<Vec<u8>>,
-    /// Bytes that populate the `program_data` field of the SPL change UTXO
-    /// (position 0). Hashed via the app program's scheme into the
-    /// `program_data_hash` slot of `utxo_hash`.
-    app_data: Option<Vec<u8>>,
+    /// `known_recipients`. Length equals the `recipient_slots` count in the
+    /// enclosing `TransferEncryptedUtxos`.
+    recipient_viewing_pks: Vec<P256Pubkey>,
+    /// Records for the SPL change UTXO (position 0): `zone_data` hashed via
+    /// the zone program's scheme into the `zone_data_hash` slot of
+    /// `utxo_hash`, `program_data` via the app program's scheme into the
+    /// `program_data_hash` slot. See [Program Data](#program-data).
+    spl_data: Data,
+    /// Records for the SOL change UTXO (position 1), same scheme as
+    /// `spl_data`.
+    sol_data: Data,
 }
 ```
 
 ### Instruction Data Layout
 
-The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order with no length prefixes.
+The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order; byte vectors are prefixed with a `u16_le` length, every other vector with a `u8` count.
 
 ```rust
-/// Total size: 148 + 195*R bytes when every plaintext has both program-data slots
-/// absent (sender grows by `33·R` from `recipient_viewing_pks`; each recipient slot
-/// is 162 B). Each populated program-data slot grows its ciphertext (and thus the
-/// blob) by `3 + len` bytes. See [Program Data](#program-data).
+/// Total size: `161 + 198·R` bytes when every `data` field is empty (sender
+/// ciphertext grows by `33·R` from `recipient_viewing_pks`; each recipient
+/// slot is 165 B). Each populated data record grows its ciphertext (and thus
+/// the blob) by `3 + len` bytes. See [Program Data](#program-data).
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
-    salt: u64,
-    /// Number of recipient_slots that follow ciphertext_sender. Equals R.
-    num_recipients: u8,
-    /// Sender change bundle ciphertext: `89 + 33·R`-byte plaintext (when
-    /// program-data slots are absent) + 16-byte GCM tag; grows with populated
-    /// program-data slots. View tag for this ciphertext is `sender_view_tag` from
-    /// the transact instruction data, not included in this blob.
-    ciphertext_sender: Vec<u8>,
+    salt: [u8; 16],
+    /// Sender change bundle ciphertext: `92 + 33·R`-byte plaintext (when data
+    /// fields are empty) + 16-byte GCM tag. View tag for this ciphertext is
+    /// `sender_view_tag` from the transact instruction data, not included in
+    /// this blob.
+    sender_ciphertext: Vec<u8>,
     /// R recipient slots packed back-to-back.
     recipient_slots: Vec<RecipientSlot>,
 }
@@ -658,38 +661,38 @@ struct TransferEncryptedUtxos {
 #### Recipient slot
 
 ```rust
-/// 162 bytes when both program-data slots are absent on the recipient plaintext;
-/// populated slots grow `ciphertext` by `3 + len` bytes each (and thus the
-/// slot total by the same).
+/// 165 bytes when the recipient `data` field is empty; populated records grow
+/// `ciphertext` by `3 + len` bytes each (and thus the slot total by the
+/// same).
 struct RecipientSlot {
     /// View tag value; see View Tags chapter for the four variants and selection rules.
     view_tag: [u8; 32],
-    /// Variable-length: 114-byte recipient plaintext + program-data records
-    /// (each populated slot adds `3 + len` bytes) + 16-byte GCM tag.
+    /// Variable-length: 115-byte recipient plaintext (plus `3 + len` per
+    /// populated data record) + 16-byte GCM tag.
     ciphertext: Vec<u8>,
 }
 ```
 
 #### Sender
 
-The sender ciphertext sits inline at offset 43 with no slot wrapper. Its view tag is `sender_view_tag`, included in the [transact](#transact) instruction data, not in `encrypted_utxos`.
+The sender ciphertext sits inline at offset 50 with no slot wrapper. Its view tag is `sender_view_tag`, included in the [transact](#transact) instruction data, not in `encrypted_utxos`.
 
 #### Sizes
 
 `R` = number of recipients.
 
-Total: `148 + 195·R` bytes. Standard single-recipient transfer: `R = 1`, total `343`.
+Total: `161 + 198·R` bytes. Standard single-recipient transfer: `R = 1`, total `359`.
 
 Blob size by recipient count:
 
 | R | Bytes |
 | --- | --- |
-| 1 | 343 |
-| 2 | 538 |
-| 4 | 928 |
-| 8 | 1708 |
+| 1 | 359 |
+| 2 | 557 |
+| 4 | 953 |
+| 8 | 1745 |
 
-Sizes assume `zone_data = None` and `app_data = None` on every recipient and the sender. Each populated slot adds `3 + len` bytes (1u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
+Sizes assume every `data` field is empty (`count = 0`) on every recipient and the sender. Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
 
 ## UTXO Split
 
@@ -704,9 +707,9 @@ for `i = 0 .. M-1`.
 ### Plaintext Layout
 
 ```rust
-/// 82 B plaintext → 98 B ciphertext (after the 16-byte GCM tag), assuming
-/// both program-data slots absent. See [Program Data](#program-data) for the size
-/// when slots are populated.
+/// 83 B plaintext → 99 B ciphertext (after the 16-byte GCM tag) with an empty
+/// `data` field. See [Program Data](#program-data) for the growth per
+/// populated record.
 struct SplitBundlePlaintext {
     /// Shared owner of all M outputs.
     owner_pubkey: PublicKey,
@@ -718,22 +721,18 @@ struct SplitBundlePlaintext {
     asset_amount: u64,
     /// Seed for the M per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// Arbitrary data the zone program defines. Applied uniformly to all M
-    /// outputs (they share every other base field). See [Program
-    /// Data](#program-data).
-    zone_data: Option<Vec<u8>>,
-    /// Arbitrary data the app program defines. Applied uniformly to all M
-    /// outputs.
-    app_data: Option<Vec<u8>>,
+    /// Zone and program records, applied uniformly to all M outputs (they
+    /// share every other base field). See [Program Data](#program-data).
+    data: Data,
 }
 ```
 
 ### Instruction Data Layout
 
 ```rust
-/// 140 bytes total when both program-data slots are absent on the plaintext; populated
-/// slots grow the ciphertext by `3 + len` bytes each. Packed, no length
-/// prefixes.
+/// 151 bytes total when the plaintext `data` field is empty; populated
+/// records grow the ciphertext by `3 + len` bytes each. Packed; the
+/// ciphertext is prefixed with a `u16_le` length.
 /// Owner-side view tag is `sender_view_tag` from the transact instruction data
 /// (all M outputs share the sender as owner).
 struct SplitEncryptedUtxos {
@@ -741,9 +740,9 @@ struct SplitEncryptedUtxos {
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
-    salt: u64,
-    /// 82-byte plaintext + 16-byte GCM tag.
-    ciphertext: [u8; 98],
+    salt: [u8; 16],
+    /// 83-byte plaintext + 16-byte GCM tag.
+    ciphertext: Vec<u8>,
 }
 ```
 
@@ -804,7 +803,7 @@ struct MergeEncryptedUtxo {
 | ProgramIDHashchain | instruction data |
 | SolanaPubkeyHash | `Sha256BE(solana_signer)` derived by SPP from `payer` |
 | program_data_hash | instruction data |
-| policy_data_hash | instruction data |
+| zone_data_hash | instruction data |
 | solana_pk_hashes (one per input UTXO) | `pk_field(solana_signer)` (see [Shielded Address](#shielded-address)) for Solana / Ed25519 inputs; `0` for P256 inputs. SPP derives this from the signer account. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
@@ -815,7 +814,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | --- | --- |
 | owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). Solana / Ed25519 inputs use the public `solana_pk_hashes[i]`. |
 | `nullifier_pk` | owner's [Shielded Address](#shielded-address) nullifier commitment, a 32-byte field element |
-| `blinding`, `asset`, `amount`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
+| `blinding`, `asset`, `amount`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
 | `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519). The proof checks it against the public `private_tx_hash_digest`; the SHA-256 that produces that digest is computed outside the circuit (see [UTXO Ownership Check](#utxo-ownership-check)). |
 
@@ -830,7 +829,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | Input | Description |
 | --- | --- |
 | `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components |
-| `asset`, `amount`, `blinding`, `program_data_hash`, `policy_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
+| `asset`, `amount`, `blinding`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
 
@@ -941,8 +940,8 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_zone`. |
-| Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `policy_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `policy_data` is constrained by the zone program's own logic, not by SPP. |
-| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `policy_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `policy_data` is the value the zone program sets (constrained by its own proof). |
+| Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `zone_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `zone_data` is constrained by the zone program's own logic, not by SPP. |
+| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `zone_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `zone_data` is the value the zone program sets (constrained by its own proof). |
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, the external-data hash, and `expiry_unix_ts`, so the proof cannot be replayed with different state. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
@@ -1120,13 +1119,13 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 
 | Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 148 | 206 | 774 | — |
-| 1 in 2 out | 1 | 2 | 343 | 206 | 965 | 883 |
-| 3 in 3 out | 3 | 3 | 343 | 206 | 1001 | 919 |
-| 5 in 3 out | 5 | 3 | 343 | 206 | 1005 | 923 |
-| 1 in 8 out | 1 | 8 | 140 | 206 | 954 | 872 |
+| 2 in 2 out | 2 | 2 | 161 | 206 | 787 | — |
+| 1 in 2 out | 1 | 2 | 359 | 206 | 981 | 899 |
+| 3 in 3 out | 3 | 3 | 359 | 206 | 1017 | 935 |
+| 5 in 3 out | 5 | 3 | 359 | 206 | 1021 | 939 |
+| 1 in 8 out | 1 | 8 | 151 | 206 | 965 | 883 |
 
-\* `private_tx_hash` is 32 B. Transfer ciphertext sizes follow the [Output UTXO Serialization § Transfer](#transfer-2) layout: 148 B at `R = 0` (shield-with-merge: 2 sender change outputs, no recipient slot), 343 B at `R = 1`, and `+195 B` per extra recipient (162 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
+\* `private_tx_hash` is 32 B. Transfer ciphertext sizes follow the [Output UTXO Serialization § Transfer](#transfer-2) layout: 161 B at `R = 0` (shield-with-merge: 2 sender change outputs, no recipient slot), 359 B at `R = 1`, and `+198 B` per extra recipient (165 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
 \*\* assumes ALT for `tree_account`, `payer` and `program_id` inline; overhead = 64 (signature) + 3 (message header) + 65 (inline account keys: compact-u16 count + 2 × 32-byte pubkeys for `payer` and `program_id`) + 32 (recent blockhash) + 36 (ALT section: compact-u16 count + 32-byte ALT pubkey + writable count + writable index + readonly count) + 6 (instruction body: program_id_index + account_indices + data_len_varint). Shield/unshield totals add 66 B (`+64` for inline `user_spl_token_account` and `spl_token_interface` pubkeys, `+2` for their indices in the instruction body) because these accounts vary per transaction and cannot be served from the ALT.
 
 **Checks**
@@ -1198,7 +1197,7 @@ struct MergeTransactIxData {
 
 **Discriminator:** 13
 
-**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching the CPI caller) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `policy_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_auth` signer); SPP does **not** check `protocol_config.merge_authorities` for `merge_zone`.
+**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching the CPI caller) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `zone_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_auth` signer); SPP does **not** check `protocol_config.merge_authorities` for `merge_zone`.
 
 **Accounts**
 
@@ -1247,7 +1246,7 @@ A zone program is free to implement the following instructions, a subset or supe
 
 **Policy data.**
 
-UTXOs can include a `policy_data` field interpreted by the zone program, hashed into the `policy_data_hash` slot of [UTXO Hash](#utxo-hash). The zone program defines the schema and the hashing scheme.
+UTXOs can include a `zone_data` field interpreted by the zone program, hashed into the `zone_data_hash` slot of [UTXO Hash](#utxo-hash). The zone program defines the schema and the hashing scheme.
 
 # ZK Program Interface
 
@@ -1750,7 +1749,7 @@ Wallet {
             3. **Decrypt and store.** Decrypt each ciphertext via the `k`-th viewing key. Store the UTXOs along with the transaction's `nullifiers` array. Track `max(observed index)` per stream.
         2. **Phase 2 — scan `known_senders` and `known_recipients` view tags.** Depends on Phase 1 (the maps are populated from decrypted ciphertexts there).
             1. **Fetch loop** in batches of 10 000 until first empty batch:
-                1. for each known sender `s`, derive `wallet.get_shared_view_tag(s, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
+                1. for each known sender `s`, derive `wallet.get_recipient_shared_view_tag(s, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
                 2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
             2. **Decrypt and store.** Decrypt and store UTXOs.
 

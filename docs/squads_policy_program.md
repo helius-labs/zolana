@@ -1113,7 +1113,7 @@ struct MergeTransactIxData {
 
 
 # Open Question:
-1. check whether we can use an instruction data eddsa signature with smart accounts then we could eliminate the round trip for the sync smart account user flow
+1. check whether we can use an instruction data eddsa signature with smart accounts then we could eliminate the round trip for the sync smart account user flow, no
 
 # Notes:
 1. Viewing key accounts are compatible with multiple auditors. `ZoneConfig.auditor_keys` is a vec, but create/update enforce length 1 for now. Open: when we allow more than one, should every viewing key account be encrypted to all auditors or only one? (we could let the co-signer enforce this dynamically or assign based on slots.)
