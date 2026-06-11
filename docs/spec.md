@@ -357,8 +357,6 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 **Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
-**Tree domain.** The two tree-inserted tags (`sender_view_tag`, `merge_view_tag`) must be insertable nullifier tree values (see [Nullifier](#nullifier)). A 32-byte HKDF output can exceed the BN254 field modulus, so these tags are derived with `L=31` (248 bits) and encoded in instruction data as 32 bytes left-padded with `0x00`. Tags that are never inserted into the tree (`recipient_*`) remain full 32-byte values.
-
 ### Sender View Tag
 
 1. **`sender_view_tag`**
