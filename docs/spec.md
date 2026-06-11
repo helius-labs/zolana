@@ -885,7 +885,6 @@ Each circuit is instantiated twice, one per ownership pubkey type: P256 and Ed25
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
 
-The P256 variant carries the emulated P256 ECDSA gadget, most of its constraints. The Solana-only variant omits the gadget (~7× fewer constraints) and must force every real input onto the Solana path. Each variant has its own verifying key per shape. SPP selects the key from the instruction — any `in_utxo_signer_indices` entry → Solana-only, none → P256 — and reconstructs `private_tx_hash_digest` per the variant.
 
 # Merge Proof - Merge ZK Proof
 
