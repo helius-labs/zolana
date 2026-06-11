@@ -1175,6 +1175,8 @@ struct ProoflessShieldIxData {
     public_sol_amount: Option<u64>,
     /// `Some` for an SPL deposit.
     public_spl_amount: Option<u64>,
+    /// Zone-defined policy data hash; requires `cpi_signer`.
+    policy_data_hash: Option<[u8; 32]>,
     /// See [`transact`](#transact).
     cpi_signer: Option<(program_id, bump)>,
 }
@@ -1191,10 +1193,11 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
-4. Append the hash to the UTXO tree.
-5. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `depositor → spl interface`.
-6. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
+3. `policy_data_hash` is `Some` only if `cpi_signer` is `Some`.
+4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash = 0`, `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+5. Append the hash to the UTXO tree.
+6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `depositor → spl interface`.
+7. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
 
 **Event**
 
@@ -1207,12 +1210,15 @@ struct ProoflessShieldEvent {
     /// Deposited mint; reaches the instruction via accounts only.
     asset: Address,
     amount: u64,
-    /// From `cpi_signer`; `Address::default()` if none.
+    /// From `cpi_signer`.
     zone_program_id: Option<Address>,
+    policy_data_hash: Option<[u8; 32]>,
     owner_utxo_hash: [u8; 32],
     salt: [u8; 16],
 }
 ```
+
+`program_data_hash` is omitted: it is always `0` since without a proof nothing binds the hidden owner to the invoking program ([`transact`](#transact) check 10). As in [`merge_zone`](#merge_zone), `policy_data` is constrained by the zone program, not by SPP; the recipient reads `policy_data_hash` from the event and obtains the preimage from the zone program.
 
 
 ### `merge_transact`
