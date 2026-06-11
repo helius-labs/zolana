@@ -224,22 +224,7 @@ func (ps *MerkleProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	if strings.Contains(strings.ToLower(path), "spp-nullifier-update") ||
-		strings.Contains(strings.ToLower(path), "nullifier-update") {
-		ps := new(BatchProofSystem)
-		ps.CircuitType = SppNullifierUpdateCircuitType
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
-		}
-		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "address-append") {
+	if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
 		file, err := os.Open(path)
