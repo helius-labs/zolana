@@ -8,27 +8,23 @@
 //! 8-byte-aligned offset (offset 8, immediately after the 8-byte
 //! combined-account discriminator). State sub-tree follows.
 //!
-//! Byte layout:
+//! Regions, in order (offsets are computed by the helpers below):
 //!
-//! ```text
-//! offset                size                          field
-//! --------------------  ----------------------------  ------------------------------
-//! 0                     8                             combined discriminator (u64 LE)
-//! 1                     1                             flags (bit 0 = paused)
-//! 8                     address_sub_tree_size()       address sub-tree (BatchedMerkleTreeAccount)
-//! STATE_OFFSET          8                             state sub-tree next_index (u64 LE)
-//! STATE_OFFSET + 8      32                            state sub-tree current root
-//! STATE_OFFSET + 40     HEIGHT * 32 = 832             state sub-tree subtrees
-//! STATE_ROOT_HISTORY    4                             root history cursor + len (u16 LE)
-//! STATE_ROOT_HISTORY+4  ROOT_HISTORY_CAPACITY * 32    state root history
-//! NULLIFIER_ROOT_HISTORY 4                             root history cursor + len (u16 LE)
-//! NULLIFIER_ROOT_HISTORY+4 ROOT_HISTORY_CAPACITY * 32   nullifier indexed-tree root history
-//! NULLIFIER_NEXT_INDEX 8                               next indexed-tree insertion index
-//! ```
+//! - combined discriminator: 8 bytes (u64 LE)
+//! - address sub-tree: `address_sub_tree_size()` bytes
+//! - state sub-tree: next_index (8), current root (32), subtrees
+//!   (`STATE_HEIGHT * 32`), root-history meta (4) + root history
+//!   (`STATE_ROOT_HISTORY_CAPACITY * 32`)
+//! - flags: 1 byte (bit 0 = paused), at `pool_tree_flags_offset()`
 //!
-//! The combined discriminator is a single byte stored as u64 LE; the high bits
-//! are zero so it's transparent to both `discriminator[0]`-style reads and
-//! 8-byte-aligned reads.
+//! The nullifier tree keeps no separate region: it IS the address sub-tree, and
+//! its own root_history is the nullifier-root cache.
+//!
+//! The flags byte is the LAST region, outside the discriminator word: storing it
+//! at byte 1 (inside bytes[0..8]) would corrupt a u64-LE read of the
+//! discriminator once paused. The combined discriminator is a single byte stored
+//! as u64 LE; its high bits stay zero so it reads identically as `bytes[0]` and
+//! as an 8-byte-aligned u64.
 
 use light_batched_merkle_tree::{
     initialize_address_tree::{
@@ -46,8 +42,8 @@ pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
 
 pub const DISCRIMINATOR_LEN: usize = 8;
 pub const DISCRIMINATOR_OFFSET: usize = 0;
-pub const FLAGS_OFFSET: usize = 1;
 pub const PAUSED_FLAG: u8 = 1;
+pub const FLAGS_LEN: usize = 1;
 pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,8 +110,16 @@ pub fn state_root_history_offset() -> usize {
 // The nullifier tree keeps no SPP-side state here: it IS the Light batched
 // address tree in the address sub-tree, whose own root_history is the
 // nullifier-root cache referenced by transact's nullifier_tree_root_index.
-pub fn pool_tree_account_size() -> usize {
+
+/// Offset of the 1-byte flags region (bit 0 = paused). It lives at the END of
+/// the account, OUTSIDE the discriminator word, so toggling paused never
+/// corrupts a u64-LE read of the combined discriminator.
+pub fn pool_tree_flags_offset() -> usize {
     state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
+}
+
+pub fn pool_tree_account_size() -> usize {
+    pool_tree_flags_offset() + FLAGS_LEN
 }
 
 pub fn pool_tree_discriminator() -> u8 {
@@ -141,6 +145,16 @@ pub fn init_pool_tree_account(
 ) -> Result<(), PoolTreeError> {
     if bytes.len() < pool_tree_account_size() {
         return Err(PoolTreeError::BufferTooSmall);
+    }
+    // Refuse to re-initialize: a fresh account is zeroed, so a non-zero
+    // discriminator means the tree already exists (mirrors create_spl_interface's
+    // zeroed-check). Without this a second create_pool_tree would clobber a live
+    // tree's roots and subtrees.
+    if bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + DISCRIMINATOR_LEN]
+        .iter()
+        .any(|byte| *byte != 0)
+    {
+        return Err(PoolTreeError::InvalidDiscriminator);
     }
     write_discriminator(bytes);
 
@@ -206,18 +220,6 @@ pub fn append_state_leaves(
     Ok(new_root)
 }
 
-pub fn current_state_root(bytes: &[u8]) -> Result<[u8; 32], PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
-    }
-    check_discriminator(bytes)?;
-
-    let root_offset = state_root_offset();
-    let mut root = [0u8; 32];
-    root.copy_from_slice(&bytes[root_offset..root_offset + 32]);
-    Ok(root)
-}
-
 pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], PoolTreeError> {
     if bytes.len() < pool_tree_account_size() {
         return Err(PoolTreeError::BufferTooSmall);
@@ -246,7 +248,7 @@ pub fn is_pool_tree_paused(bytes: &[u8]) -> Result<bool, PoolTreeError> {
         return Err(PoolTreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
-    Ok(bytes[FLAGS_OFFSET] & PAUSED_FLAG != 0)
+    Ok(bytes[pool_tree_flags_offset()] & PAUSED_FLAG != 0)
 }
 
 pub fn set_pool_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), PoolTreeError> {
@@ -254,10 +256,11 @@ pub fn set_pool_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), PoolTr
         return Err(PoolTreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
+    let flags_offset = pool_tree_flags_offset();
     if paused {
-        bytes[FLAGS_OFFSET] |= PAUSED_FLAG;
+        bytes[flags_offset] |= PAUSED_FLAG;
     } else {
-        bytes[FLAGS_OFFSET] &= !PAUSED_FLAG;
+        bytes[flags_offset] &= !PAUSED_FLAG;
     }
     Ok(())
 }

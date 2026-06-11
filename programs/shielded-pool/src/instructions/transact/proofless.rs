@@ -21,11 +21,13 @@ const UTXO_DOMAIN: u64 = 2;
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
 /// The deposited amount is settled into the pool exactly like a transact
-/// deposit, the recipient UTXO is hashed from the public fields plus the settled
-/// amount/asset, appended to the UTXO tree, and the recipient bootstrap view tag
-/// is inserted into the queue for discovery. No proof: every field of the
-/// commitment is public, and the amount is taken from the actual deposit so a
-/// depositor cannot mint a UTXO worth more than they paid in.
+/// deposit, and the recipient UTXO is hashed from the public fields plus the
+/// settled amount/asset and appended to the UTXO tree. It does NOT queue a view
+/// tag: a proofless shield spends nothing, so there are no nullifiers to insert,
+/// and the bootstrap UTXO is discovered from the public commitment itself. No
+/// proof: every field of the commitment is public, and the amount is taken from
+/// the actual deposit so a depositor cannot mint a UTXO worth more than they
+/// paid in.
 pub fn process_proofless_shield(
     program_id: &Address,
     accounts: &mut [AccountView],

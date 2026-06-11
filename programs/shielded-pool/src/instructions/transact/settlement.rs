@@ -9,7 +9,7 @@ use zolana_interface::{
         TransactData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
     },
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
-    SPL_TOKEN_PROGRAM_ID,
+    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{error::ShieldedPoolError, log::log};
@@ -199,6 +199,18 @@ fn settle_spl(
         || registry_state.mint != vault_state.mint
         || vault_state.owner != *cpi_authority.address()
     {
+        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+    }
+
+    // Pin the vault to its canonical per-mint PDA. owner+mint alone would accept
+    // any cpi-authority-owned token account of the right mint, so deposits and
+    // withdrawals for a mint could hit different accounts and split liquidity.
+    let (expected_vault, _) = Address::derive_program_address(
+        &[SPL_ASSET_VAULT_PDA_SEED, registry_state.mint.as_ref()],
+        program_id,
+    )
+    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    if *vault.address() != expected_vault {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
