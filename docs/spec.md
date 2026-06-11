@@ -46,6 +46,7 @@
     - [Zone Accounts](#zone-accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
+    - [proofless_shield](#proofless_shield)
     - [merge_transact](#merge_transact)
     - [merge_zone](#merge_zone)
 - [Zone Program Interface](#zone-program-interface)
@@ -124,7 +125,7 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or `pro
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
 | 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient hidden |
-| 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | fully public |
+| 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | sender + amount visible; recipient hidden |
 | 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender hidden (relayer); recipient + amount visible |
 | 4 | shielded transfer | Transfer value between shielded balances. | fully shielded (sender, recipient, amount) |
 
@@ -485,6 +486,10 @@ owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+
+The nesting is what lets [`proofless_shield`](#proofless_shield) hide the owner. The depositor computes `owner_utxo_hash` in their wallet and submits only the hash, so `owner` never appears in instruction data. SPP cannot verify that the hash was built correctly, and it does not need to: the SPP proof accepts arbitrary `owner` and `blinding` values for output UTXOs, so a proof-carrying transaction can already create an output with any `owner_utxo_hash`. An unchecked deposit is no weaker. A depositor who submits a malformed hash only creates a UTXO that nobody can spend.
+
+Because the preimage is unchecked, a depositor can also submit a hash over more than two inputs, e.g. `Poseidon(owner, blinding, extra)`. Under the current layout such a UTXO is unspendable, since spending recomputes `owner_utxo_hash` from exactly `(owner, blinding)`. But if a future layout adds `extra` as a third input and keeps the same `domain`, the planted hash becomes a spendable UTXO whose `extra` field was never checked by the rules it was created under. Any change to the hash input lists must therefore come with a new `domain`.
 
 ## Nullifier
 
@@ -1048,7 +1053,7 @@ Usage by instruction:
 | Instruction | Description |
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
-| proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree. Indexed under the recipient's bootstrap tag. |
+| proofless_shield | Tag 1; public deposit without a proof; hides the recipient behind `owner_utxo_hash`. See [`proofless_shield`](#proofless_shield). |
 | zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
@@ -1141,6 +1146,48 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
+
+### `proofless_shield`
+
+**Discriminator:** 1
+
+**Description.** Public deposit without a proof; shields dynamic amounts and assets, e.g. the output of a swap. The depositor precomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)); `owner` and `blinding` never enter instruction data, so the recipient stays hidden.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | tree_account | x |   | UTXO tree |
+| 2 | payer |   | x | depositor |
+| 3 | cpi_signer |   | x | invoking zone program pda, optional |
+
+**Instruction data**
+
+```rust
+struct ProoflessShieldIxData {
+    /// Indexing tag for the single output slot; chosen per
+    /// [View Tag Selection](#view-tag-selection).
+    view_tag: [u8; 32],
+    /// Precomputed by the depositor; see [UTXO Hash](#utxo-hash).
+    owner_utxo_hash: [u8; 32],
+    /// `Some` for a SOL deposit.
+    public_sol_amount: Option<u64>,
+    /// `Some` for an SPL deposit.
+    public_spl_amount: Option<u64>,
+    /// See [`transact`](#transact).
+    cpi_signer: Option<(program_id, bump)>,
+}
+```
+
+**Checks**
+
+1. `tree_account` is not paused.
+2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
+3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset_id` from the per-mint Asset registry), `program_data_hash = policy_data_hash = 0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+4. Append the hash to the UTXO tree.
+5. Transfer the deposit: SOL `payer → pool`, or CPI the token program `depositor → vault`.
+
+**Indexing.** No ciphertext is published; the indexer serves the cleartext body under `view_tag` (see [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags)). A self-shield uses the depositor's own sender tag. For a deposit to a third party the depositor shares `blinding` out of band.
 
 ### `merge_transact`
 
