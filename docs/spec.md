@@ -357,7 +357,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 **Uniqueness.** View tags should not be reused. `sender_view_tag` and `merge_view_tag` are inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
-**Tree domain.** The two tree-inserted tags (`sender_view_tag`, `merge_view_tag`) must fit the nullifier tree's 248-bit value domain (see [Nullifier](#nullifier)), so they are derived with `L=31` (248 bits) and encoded on the wire as 32 bytes left-padded with `0x00`. Tags that are never inserted into the tree (`recipient_*`) remain full 32-byte values.
+**Tree domain.** The two tree-inserted tags (`sender_view_tag`, `merge_view_tag`) must be insertable nullifier tree values (see [Nullifier](#nullifier)). A 32-byte HKDF output can exceed the BN254 field modulus, so these tags are derived with `L=31` (248 bits) and encoded in instruction data as 32 bytes left-padded with `0x00`. Tags that are never inserted into the tree (`recipient_*`) remain full 32-byte values.
 
 ### Sender View Tag
 
@@ -365,7 +365,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
   - Derived by: the sender, to index her change utxos.
   - Tx sent by: the sender
   - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` — 248 bits;
+  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)` — 248 bits.
 
 ### Recipient view tag
 
@@ -493,13 +493,11 @@ The SPP proof commits to `utxo_hash` for every input and output. `owner` is the 
 A nullifier deterministically derives from a UTXO and the recipient's [NullifierKey](#nullifierkey). Insertion into the nullifier tree must succeed only once.
 
 ```
-nullifier    := truncate_248(Poseidon(utxo_hash, utxo_blinding, nullifier_secret))
+nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 ```
 
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
-utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
-
-`truncate_248(x)` truncates values to fit into the nullifier tree. The nullifier tree holds values strictly between `0` and `2^248 - 1`.
+utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.q
 
 ## Empty UTXO
 
@@ -1809,7 +1807,7 @@ sequenceDiagram
     Wallet->>Merge: (plaintext inputs, merge_view_tag, merge_count)<br/>nullifier_secret already held by the service as sync delegate
 
     Note over Merge: Build witness + proof
-    Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier = truncate_248(Poseidon(utxo_hash, blinding, nullifier_secret)) per input<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)
+    Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier per input (see Nullifier)<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)
     Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)<br/>signed by merge_authority
 
     Note over SPP: Verify and apply
