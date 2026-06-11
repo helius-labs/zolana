@@ -795,7 +795,7 @@ struct MergeEncryptedUtxo {
 | utxo_tree_roots (one per input UTXO) | resolved from `utxo_tree_root_index[i]` against the root cache of the input's UTXO tree |
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
-| private_tx_hash_digest | `Sha256BE(private_tx_hash)`, recomputed by SPP on-chain from the `private_tx_hash` public input. The ECDSA message digest the proof checks the P256 `owner_signature` against. Computing the SHA-256 outside the circuit keeps the costly hash out of the constraint system; the proof performs only the EC arithmetic of ECDSA verification against this digest. |
+| private_tx_hash_digest | `Sha256BE(private_tx_hash)`, recomputed by SPP on-chain from the `private_tx_hash` public input. The ECDSA message digest the proof checks the P256 `owner_signature` against. Computing the SHA-256 outside the circuit keeps the costly hash out of the constraint system; the proof performs only the EC arithmetic of ECDSA verification against this digest. `0` on the Solana-only variant, which has no ECDSA gadget (see [Circuit Variants](#circuit-variants)). |
 | external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different `encrypted_utxos`, accounts, or fee). |
 | public_sol_amount | instruction data |
 | public_spl_amount | instruction data |
@@ -856,7 +856,7 @@ external_data_hash := Sha256BE(
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The per-input `solana_pk_hashes` public input selects the path: `0` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and binds the input's owner to the signer-derived `pk_field`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The per-input `solana_pk_hashes` public input selects the path: `0` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof skips the P256 check and binds the input's owner to the signer-derived `pk_field`, while SPP separately reads `in_utxo_signer_indices` and verifies the named Solana account is a transaction signer. The Solana-only [variant](#circuit-variants) forces every real input onto the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | The recomputed `nullifier_pk` (see [Nullifier Key](#nullifier-key)) must equal each input's `nullifier_pk` witness. Implication: all non-dummy inputs share `nullifier_pk`, and therefore the same owner. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
@@ -881,6 +881,18 @@ external_data_hash := Sha256BE(
 | 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output |
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data |
+
+<a id="circuit-variants"></a>
+**Circuit Variants**
+
+Each shape compiles into two circuits, one per ownership scheme. All real inputs share one owner (see Checks: nullifier secret binding), so every transaction matches exactly one variant.
+
+| Variant | Real inputs | `private_tx_hash_digest` |
+| --- | --- | --- |
+| P256 | P256-owned (`solana_pk_hashes[i] = 0`) | `Sha256BE(private_tx_hash)` |
+| Solana-only | Solana-owned (`solana_pk_hashes[i] ≠ 0`) | `0` |
+
+The P256 variant carries the emulated P256 ECDSA gadget, most of its constraints. The Solana-only variant omits the gadget (~7× fewer constraints) and must force every real input onto the Solana path. Each variant has its own verifying key per shape. SPP selects the key from the instruction — any `in_utxo_signer_indices` entry → Solana-only, none → P256 — and reconstructs `private_tx_hash_digest` per the table.
 
 # Merge Proof - Merge ZK Proof
 
