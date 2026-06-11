@@ -1,13 +1,13 @@
 # Wallet Sync Benchmarks
 
-Wall-clock cost of the wallet sync primitives, composed decrypt operations, and
+Benchmarks of the wallet sync primitives, composed decrypt operations, and
 a full first-time sync scenario. Regenerate the operation benches with
 `cargo bench -p zolana-transaction --bench wallet_ops` and the scenario with
-`cargo test --release -p zolana-transaction --test bench_scenarios -- --ignored --nocapture`.
+`cargo test --release -p zolana-transaction --test bench_scenarios --features parallel -- --ignored --nocapture`.
 
-Operation times are criterion medians (bench profile). The scenario time is a
-single measured `Wallet::sync` call over a pre-built transaction history
-(release profile); generation of the history is excluded.
+Operation times are criterion medians (bench profile). The scenario times are
+single measured `Wallet::sync` / `Wallet::sync_parallel` calls over a pre-built
+transaction history (release profile); generation of the history is excluded.
 
 Host: `Darwin 25.4.0 arm64`  
 CPU: `Apple M5 Pro`  
@@ -65,13 +65,4 @@ First-time sync of a fresh wallet over ~1 year of activity
 | Measurement              | Value      |
 |--------------------------|------------|
 | `Wallet::sync`           | `9.19 s`   |
-| Spec target (sequential) | `~1.4 s`   |
-| Spec target (parallel)   | `~0.5 s`   |
-
-The gap to the spec's Sync Time Estimates decomposes into cost terms the
-spec's model assumes free: ~27k shared-tag probe derivations at one ECDH each
-(plus the recipient-side `pubkey()` recompute), own-transaction decrypts at ~3
-EC operations instead of the modeled one, single-threaded execution, and ~1.8 s
-of Poseidon hashing for spent-marking (`utxo_hash` + `nullifier` per stored
-UTXO). The asserted time window in `tests/bench_scenarios.rs` pins the current
-baseline and fails low once these are optimized.
+| `Wallet::sync_parallel`  | `0.74 s`   |
