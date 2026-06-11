@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "forester",
-    "global-shared-viewkey",
     "program-libs/interface",
     "program-tests/shielded-pool",
     "programs/registry",
