@@ -4,7 +4,8 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        tag, CreatePocketConfigData, UpdatePocketConfigData, UpdatePocketConfigOwnerData,
+        encode_instruction, tag, CreatePocketConfigData, UpdatePocketConfigData,
+        UpdatePocketConfigOwnerData,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -15,10 +16,6 @@ pub fn create_pocket_config(
     pocket_auth: Pubkey,
     data: CreatePocketConfigData,
 ) -> Instruction {
-    let mut instruction_data = vec![tag::CREATE_POCKET_CONFIG];
-    data.serialize(&mut instruction_data)
-        .expect("shielded-pool instruction serialization is infallible");
-
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
@@ -26,7 +23,7 @@ pub fn create_pocket_config(
             AccountMeta::new(pocket_config, false),
             AccountMeta::new_readonly(pocket_auth, true),
         ],
-        data: instruction_data,
+        data: encode_instruction(tag::CREATE_POCKET_CONFIG, &data),
     }
 }
 
@@ -57,16 +54,12 @@ fn build_update_ix<T: BorshSerialize>(
     pocket_config: Pubkey,
     data: T,
 ) -> Instruction {
-    let mut instruction_data = vec![tag];
-    data.serialize(&mut instruction_data)
-        .expect("shielded-pool instruction serialization is infallible");
-
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new_readonly(authority, true),
             AccountMeta::new(pocket_config, false),
         ],
-        data: instruction_data,
+        data: encode_instruction(tag, &data),
     }
 }

@@ -1,7 +1,7 @@
 //! First-byte instruction dispatch tags for the shielded-pool program.
 //!
-//! Tag values are the on-chain wire format and MUST stay stable. They follow
-//! the SPP spec's instruction table.
+//! Tag values are the on-chain instruction encoding and MUST stay stable. They
+//! follow the SPP spec's instruction table.
 
 // === Implemented instructions (have a handler in the program dispatch) ===
 pub const TRANSACT: u8 = 0;
@@ -22,7 +22,7 @@ pub const UPDATE_POCKET_CONFIG: u8 = 14;
 /// byte, and there are no instruction-data types for them. They live in this
 /// separate `reserved` namespace — rather than alongside the crate-level `tag::`
 /// constants — so the top-level tag surface is exactly the shipped,
-/// dispatchable instruction set. These only reserve their wire numbers so a
+/// dispatchable instruction set. These only reserve their tag numbers so a
 /// future implementation keeps the numbering stable.
 pub mod reserved {
     pub const POCKET_TRANSACT: u8 = 2;
