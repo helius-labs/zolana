@@ -487,9 +487,7 @@ owner_utxo_hash = Poseidon(owner, blinding)
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
 
-The nesting is what lets [`proofless_shield`](#proofless_shield) hide the owner. The depositor computes `owner_utxo_hash` in their wallet and submits only the hash, so `owner` never appears in instruction data. SPP cannot verify that the hash was built correctly, and it does not need to: the SPP proof accepts arbitrary `owner` and `blinding` values for output UTXOs, so a proof-carrying transaction can already create an output with any `owner_utxo_hash`. An unchecked deposit is no weaker. A depositor who submits a malformed hash only creates a UTXO that nobody can spend.
-
-Because the preimage is unchecked, a depositor can also submit a hash over more than two inputs, e.g. `Poseidon(owner, blinding, extra)`. Under the current layout such a UTXO is unspendable, since spending recomputes `owner_utxo_hash` from exactly `(owner, blinding)`. But if a future layout adds `extra` as a third input and keeps the same `domain`, the planted hash becomes a spendable UTXO whose `extra` field was never checked by the rules it was created under. Any change to the hash input lists must therefore come with a new `domain`.
+Nesting owner_utxo_hash keeps the owner the funds are shielded to private  when using proofless_shield deposits.
 
 ## Nullifier
 
