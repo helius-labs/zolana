@@ -232,7 +232,7 @@ func proofField(value *big.Int) string {
 }
 
 func fieldHex(value *big.Int) string {
-	return fmt.Sprintf("%064x", value)
+	return parse.FieldHex(value)
 }
 
 func bytesHex(value []byte) string {
