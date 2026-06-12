@@ -33,6 +33,7 @@
   - [Transfer](#transfer-2)
     - [Plaintext Layout](#plaintext-layout)
     - [Instruction Data Layout](#instruction-data-layout)
+  - [Plaintext Transfer](#plaintext-transfer)
   - [UTXO Split](#utxo-split)
     - [Plaintext Layout](#plaintext-layout-1)
     - [Instruction Data Layout](#instruction-data-layout-1)
@@ -394,6 +395,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Derived by: anyone — `recipient.viewing_pk` 32-byte X-coordinate of the SEC1-compressed encoding (the 33-byte form with its 1-byte sign prefix dropped).
     - Tx sent by: the sender.
     - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
+    - [Plaintext Transfer](#plaintext-transfer): sender bundles and recipient slots are indexed by `owner_pubkey` in place of `viewing_pk` (P256: the X-coordinate as above; Ed25519: the 32-byte key). The slot contains no `sender_pubkey`, so `known_senders` / `known_recipients` are not updated and the next encrypted transfer between the pair is again a first transfer.
 
 
 ### Merge view tag
@@ -522,13 +524,14 @@ the output hash nor the ciphertext reveals whether the sender kept change.
 # Output UTXO Serialization
 
 Output UTXO serialization the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-zone convention. Policy zones can define their own.
-UTXOs are encrypted with ECDH AES-GCM. One `tx_viewing_pk` is shared across all ciphertexts in a transaction. Ciphertexts are prefixed with (`view_tags`); see [View Tags](#view-tags).
+UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme. One `tx_viewing_pk` is shared across all ciphertexts in a transaction. Ciphertexts are prefixed with (`view_tags`); see [View Tags](#view-tags).
 
 Schemes:
 
 1. Transfer — one sender and `0<=` recipient ciphertexts.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — one ciphertext for the single merged output.
+4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
 
 ## AES Nonce derivation
 
@@ -698,6 +701,39 @@ Blob size by recipient count:
 | 8 | 1745 |
 
 Sizes assume every `data` field is empty (`count = 0`) on every recipient and the sender. Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
+
+## Plaintext Transfer
+
+The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the GCM tags are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey` as [`recipient_bootstrap_view_tag`](#recipient-view-tag).
+
+```rust
+/// Total size: `96 + 51·R` bytes with both change outputs and every `data`
+/// field empty; each populated data record adds `3 + len` bytes. See
+/// [Program Data](#program-data).
+struct TransferPlaintextUtxos {
+    /// Discriminator (TRANSFER_PLAINTEXT).
+    type_prefix: u8,
+    blinding_seed: [u8; 31],
+    sender: Option<TransferPlaintextSender>,
+    recipient_slots: Vec<TransferPlaintextRecipient>,
+}
+
+struct TransferPlaintextSender {
+    owner_pubkey: PublicKey,
+    /// SPL change `(amount, asset_id)`.
+    spl: Option<(u64, u64)>,
+    sol_amount: Option<u64>,
+    spl_data: Data,
+    sol_data: Data,
+}
+
+struct TransferPlaintextRecipient {
+    owner_pubkey: PublicKey,
+    asset_id: u64,
+    amount: u64,
+    data: Data,
+}
+```
 
 ## UTXO Split
 
@@ -1053,6 +1089,7 @@ Usage by instruction:
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
 | proofless_shield | Tag 1; public deposit without a proof; hides the recipient behind `owner_utxo_hash`. See [`proofless_shield`](#proofless_shield). |
 | zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
+| zone_proofless_shield | Tag 1; public deposit without a proof; hides the recipient behind `owner_utxo_hash`. See [`proofless_shield`](#proofless_shield). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; admin; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
@@ -1114,8 +1151,8 @@ struct TransactIxData {
     /// (account index, input utxo index); names an input UTXO's Ed25519
     /// owner-signer. `None` when all inputs are P256-owned.
     in_utxo_signer_indices: Option<Vec<(u8, u8)>>,
-    /// Opaque ciphertext blob; not checked by the program.
-    /// Layout per Output UTXO Serialization.
+    /// Not parsed by the program. Layout per Output UTXO Serialization,
+    /// encrypted or [Plaintext Transfer](#plaintext-transfer).
     encrypted_utxos: Vec<u8>,
 }
 ```
@@ -1388,7 +1425,9 @@ struct EncryptedUtxoMatch {
     slot: u64,
     tx_signature: Signature,
     view_tag: [u8; 32],
-    tx_viewing_pk: P256Pubkey,
+    /// `None` when there is nothing to decrypt; see `ShieldedTransaction`.
+    tx_viewing_pk: Option<P256Pubkey>,
+    /// Plaintext payload bytes when `tx_viewing_pk` is `None`.
     ciphertext: Vec<u8>,
 }
 ```
@@ -1413,10 +1452,12 @@ struct GetShieldedTransactionsByTagsResponse {
 struct ShieldedTransaction {
     slot: u64,
     tx_signature: Signature,
-    /// `None` when `proofless` (no ciphertext to decrypt).
+    /// `None` when there is nothing to decrypt: `proofless`, or a
+    /// [Plaintext Transfer](#plaintext-transfer) blob.
     tx_viewing_pk: Option<P256Pubkey>,
-    /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
-    /// each slot's `payload` is the `ProoflessShieldEvent` bytes as emitted.
+    /// Output slots in UTXO-tree-append order. For `proofless_shield`,
+    /// each slot's `payload` is the `ProoflessShieldEvent` bytes as emitted;
+    /// for [Plaintext Transfer](#plaintext-transfer), the plaintext bytes.
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
@@ -1827,7 +1868,7 @@ Wallet {
     3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
     4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)).
 
-2. **Main sync and merge sync run as independent parallel branches.**
+2. **Main sync, merge sync, and plaintext sync run as independent parallel branches.**
 
     1. **Main sync — for each viewing key `k` in parallel:**
         1. **Phase 1 — scan own view tags (concurrent within `k`).**
@@ -1847,6 +1888,8 @@ Wallet {
         1. Read `protocol_config.merge_authorities` (the global whitelist of merge service Solana accounts).
         2. For each authority `s`, fetch loop in batches of 10 000 until first empty batch: derive `wallet.get_merge_view_tag(s, n)` for `n in [i, i+10_000)`; call `indexer.get_shielded_transactions_by_tags(tags)`.
         3. **Decrypt and store.** Decrypt merged-output ciphertexts with `k`; store UTXOs along with the transaction's `nullifiers`. Track `max(observed n)` per service; the per-service `merge_count` is `max(observed n) + 1`. Services that never merged for this wallet yield an empty first batch and are skipped.
+
+    3. **Plaintext sync.** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag ([Plaintext Transfer](#plaintext-transfer)); matches sender bundles and recipient slots. Store the UTXOs and each transaction's `nullifiers`. The tag derives from the signing key, which does not rotate, so the scan is independent of `viewing_history`.
 
 3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
 
