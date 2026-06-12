@@ -18,8 +18,6 @@ type UtxoCircuitFields struct {
 	ZoneProgramID frontend.Variable
 }
 
-// FieldsFromUtxo maps a native protocol.Utxo to its in-circuit field layout.
-// Shared by the prover witness builder and tests so the two cannot drift.
 func FieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 	return UtxoCircuitFields{
 		Domain:        u.Domain,
@@ -34,9 +32,6 @@ func FieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 }
 
 func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
-	// owner_utxo_hash = Poseidon(owner, blinding) hides the owner inside the
-	// commitment (needed for owner-hiding proofless shields). Must match
-	// protocol.UtxoHash / OwnerUtxoHash.
 	ownerUtxoHash := poseidon.HashCircuit(api, []frontend.Variable{u.Owner, u.Blinding})
 	return poseidon.HashCircuit(api, []frontend.Variable{
 		u.Domain,
@@ -49,10 +44,6 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	})
 }
 
-// NullifierHashCircuit mirrors protocol.NullifierHash: the Poseidon image
-// itself, a canonical field element. The nullifier tree's indexed-value
-// domain spans the whole field (init sentinel p-1), so no truncation is
-// needed.
 func NullifierHashCircuit(
 	api frontend.API,
 	utxoHash frontend.Variable,
