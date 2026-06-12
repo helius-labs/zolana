@@ -39,6 +39,8 @@ fn tags_advance(world: &mut KeypairWorld, name: String) {
         vk.get_sender_view_tag(0).unwrap(),
         vk.get_recipient_request_view_tag(0).unwrap()
     );
+    assert_eq!(vk.get_sender_view_tag(0).unwrap()[0], 0);
+    assert_eq!(vk.get_recipient_request_view_tag(0).unwrap()[0], 0);
 }
 
 #[then(expr = "merge view tags for {string} are namespaced by authority and counter")]
@@ -50,6 +52,7 @@ fn merge_tags_namespaced(world: &mut KeypairWorld, name: String) {
     assert_eq!(base, vk.get_merge_view_tag(&auth_a, 0).unwrap());
     assert_ne!(base, vk.get_merge_view_tag(&auth_a, 1).unwrap());
     assert_ne!(base, vk.get_merge_view_tag(&auth_b, 0).unwrap());
+    assert_eq!(base[0], 0);
 }
 
 #[then(expr = "{string} and {string} derive the same shared view tag at index {int}")]
@@ -63,6 +66,7 @@ fn shared_tag_symmetric(world: &mut KeypairWorld, sender: String, recipient: Str
         .get_recipient_shared_view_tag(&world.vk(&sender).pubkey(), i)
         .unwrap();
     assert_eq!(send, recv);
+    assert_eq!(send[0], 0);
 }
 
 #[then(

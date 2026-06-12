@@ -80,15 +80,15 @@ impl Utxo {
         let amount = right_align(&self.amount.to_be_bytes());
         let blinding = right_align(&self.blinding);
         let zone_program_id = zone_program_id_field(&self.zone_program_id)?;
+        let owner_utxo_hash = poseidon(&[&owner_hash, &blinding])?;
         poseidon(&[
             &domain,
-            &owner_hash,
             self.asset.as_array(),
             &amount,
-            &blinding,
             program_data_hash,
             zone_data_hash,
             &zone_program_id,
+            &owner_utxo_hash,
         ])
     }
 

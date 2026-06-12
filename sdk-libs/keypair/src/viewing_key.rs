@@ -63,6 +63,12 @@ pub(crate) fn hkdf_expand(
         .map_err(|_| KeypairError::Hkdf)
 }
 
+fn expand_view_tag(ikm: &[u8], info: &[&[u8]]) -> Result<ViewTag, KeypairError> {
+    let mut out = ViewTag::default();
+    hkdf_expand(None, ikm, info, &mut out[1..])?;
+    Ok(out)
+}
+
 impl ViewingKey {
     /// Generates a viewing key from the OS RNG.
     pub fn new() -> Self {
@@ -131,14 +137,10 @@ impl ViewingKey {
     /// the sender both tags and indexes it.
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
         let secret = self.sender_view_tag_secret()?;
-        let mut out = ViewTag::default();
-        hkdf_expand(
-            None,
+        expand_view_tag(
             &secret,
             &[INFO_SENDER_VIEW_TAG_PREFIX, &tx_count.to_be_bytes()],
-            &mut out,
-        )?;
-        Ok(out)
+        )
     }
 
     /// Recipient view tag for a `PaymentRequest` shared out-of-band.
@@ -147,17 +149,13 @@ impl ViewingKey {
         request_count: u64,
     ) -> Result<ViewTag, KeypairError> {
         let secret = self.recipient_view_tag_secret()?;
-        let mut out = ViewTag::default();
-        hkdf_expand(
-            None,
+        expand_view_tag(
             &secret,
             &[
                 INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
                 &request_count.to_be_bytes(),
             ],
-            &mut out,
-        )?;
-        Ok(out)
+        )
     }
 
     /// Merge view tag for the merged output at `merge_count`, namespaced by the
@@ -169,18 +167,14 @@ impl ViewingKey {
         merge_count: u64,
     ) -> Result<ViewTag, KeypairError> {
         let secret = self.merge_view_tag_secret()?;
-        let mut out = ViewTag::default();
-        hkdf_expand(
-            None,
+        expand_view_tag(
             &secret,
             &[
                 INFO_MERGE_VIEW_TAG_PREFIX,
                 merge_authority_pubkey,
                 &merge_count.to_be_bytes(),
             ],
-            &mut out,
-        )?;
-        Ok(out)
+        )
     }
 
     fn shared_view_tag(
@@ -190,7 +184,7 @@ impl ViewingKey {
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
         let shared = self.ecdh(counterparty)?;
-        let mut domain = ViewTag::default();
+        let mut domain = [0u8; 32];
         hkdf_expand(
             None,
             &shared,
@@ -198,14 +192,7 @@ impl ViewingKey {
             &mut domain,
         )?;
 
-        let mut out = ViewTag::default();
-        hkdf_expand(
-            None,
-            &domain,
-            &[INFO_PAIR_HINT_PREFIX, &i.to_be_bytes()],
-            &mut out,
-        )?;
-        Ok(out)
+        expand_view_tag(&domain, &[INFO_PAIR_HINT_PREFIX, &i.to_be_bytes()])
     }
 
     /// Sender-side `recipient_shared_view_tag` for transfer `i` to a paired
