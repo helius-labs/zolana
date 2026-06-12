@@ -3,8 +3,6 @@ set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
-solana-bin := env_var_or_default("SOLANA_BIN", justfile_directory() / ".tools/solana/bin")
-export PATH := solana-bin + ":" + env_var("PATH")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 
