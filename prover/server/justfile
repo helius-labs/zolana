@@ -56,6 +56,12 @@ test-integration: test-lightweight test-lightweight-lazy
 # Note: test-full excluded to avoid slow CI runs
 test: test-no-redis test-with-redis test-integration
 
+# === Benchmarks ===
+
+# SPP proving benchmark (solana + p256 rails, every shape); appends to BENCHMARKS.md.
+bench-spp benchtime="5x":
+    scripts/bench_spp.sh {{benchtime}}
+
 # === Formal Verification ===
 extract-circuit: build-binary
     ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --address-tree-height 40 --compressed-accounts 8 --state-tree-height 32
