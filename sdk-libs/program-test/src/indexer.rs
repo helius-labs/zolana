@@ -10,7 +10,7 @@
 
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::SparseMerkleTree;
-use shielded_pool_program::instructions::create_pool_tree::init::STATE_HEIGHT;
+use shielded_pool_program::instructions::create_tree::init::STATE_HEIGHT;
 use zolana_interface::instruction::ProoflessShieldEvent;
 
 /// Domain separator for UTXO commitments (spec: UTXO Hash).

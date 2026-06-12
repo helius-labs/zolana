@@ -15,7 +15,7 @@
 //! - state sub-tree: next_index (8), current root (32), subtrees
 //!   (`STATE_HEIGHT * 32`), root-history meta (4) + root history
 //!   (`STATE_ROOT_HISTORY_CAPACITY * 32`)
-//! - flags: 1 byte (bit 0 = paused), at `pool_tree_flags_offset()`
+//! - flags: 1 byte (bit 0 = paused), at `tree_flags_offset()`
 //!
 //! The nullifier tree keeps no separate region: it IS the address sub-tree, and
 //! its own root_history is the nullifier-root cache.
@@ -35,7 +35,7 @@ use light_batched_merkle_tree::{
 use light_hasher::Poseidon;
 use light_sparse_merkle_tree::SparseMerkleTree;
 use pinocchio::Address;
-use zolana_interface::state::discriminator::POOL_TREE_HEADER;
+use zolana_interface::state::discriminator::TREE_HEADER;
 
 pub const STATE_HEIGHT: usize = 26;
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
@@ -47,7 +47,7 @@ pub const FLAGS_LEN: usize = 1;
 pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PoolTreeError {
+pub enum TreeError {
     BufferTooSmall,
     InvalidDiscriminator,
     StateAppendFailed,
@@ -114,47 +114,47 @@ pub fn state_root_history_offset() -> usize {
 /// Offset of the 1-byte flags region (bit 0 = paused). It lives at the END of
 /// the account, OUTSIDE the discriminator word, so toggling paused never
 /// corrupts a u64-LE read of the combined discriminator.
-pub fn pool_tree_flags_offset() -> usize {
+pub fn tree_flags_offset() -> usize {
     state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
 }
 
-pub fn pool_tree_account_size() -> usize {
-    pool_tree_flags_offset() + FLAGS_LEN
+pub fn tree_account_size() -> usize {
+    tree_flags_offset() + FLAGS_LEN
 }
 
-pub fn pool_tree_discriminator() -> u8 {
-    POOL_TREE_HEADER
+pub fn tree_discriminator() -> u8 {
+    TREE_HEADER
 }
 
 fn write_discriminator(bytes: &mut [u8]) {
-    let value = pool_tree_discriminator() as u64;
+    let value = tree_discriminator() as u64;
     bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + 8].copy_from_slice(&value.to_le_bytes());
 }
 
-fn check_discriminator(bytes: &[u8]) -> Result<(), PoolTreeError> {
-    if bytes[DISCRIMINATOR_OFFSET] != pool_tree_discriminator() {
-        return Err(PoolTreeError::InvalidDiscriminator);
+fn check_discriminator(bytes: &[u8]) -> Result<(), TreeError> {
+    if bytes[DISCRIMINATOR_OFFSET] != tree_discriminator() {
+        return Err(TreeError::InvalidDiscriminator);
     }
     Ok(())
 }
 
-pub fn init_pool_tree_account(
+pub fn init_tree_account(
     bytes: &mut [u8],
     owner: &Address,
     tree_pubkey: &Address,
-) -> Result<(), PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+) -> Result<(), TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     // Refuse to re-initialize: a fresh account is zeroed, so a non-zero
     // discriminator means the tree already exists (mirrors create_spl_interface's
-    // zeroed-check). Without this a second create_pool_tree would clobber a live
+    // zeroed-check). Without this a second create_tree would clobber a live
     // tree's roots and subtrees.
     if bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + DISCRIMINATOR_LEN]
         .iter()
         .any(|byte| *byte != 0)
     {
-        return Err(PoolTreeError::InvalidDiscriminator);
+        return Err(TreeError::InvalidDiscriminator);
     }
     write_discriminator(bytes);
 
@@ -169,7 +169,7 @@ pub fn init_pool_tree_account(
         *tree_pubkey,
     )
     .map(|_| ())
-    .map_err(|_| PoolTreeError::AddressInitFailed)?;
+    .map_err(|_| TreeError::AddressInitFailed)?;
 
     init_state_sub_tree(state);
     Ok(())
@@ -195,9 +195,9 @@ fn init_state_sub_tree(state: &mut [u8]) {
 pub fn append_state_leaves(
     bytes: &mut [u8],
     leaves: &[[u8; 32]],
-) -> Result<[u8; 32], PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+) -> Result<[u8; 32], TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
 
@@ -220,9 +220,9 @@ pub fn append_state_leaves(
     Ok(new_root)
 }
 
-pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
 
@@ -235,28 +235,28 @@ pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], PoolTre
     )
 }
 
-pub fn current_state_root_index(bytes: &[u8]) -> Result<u16, PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+pub fn current_state_root_index(bytes: &[u8]) -> Result<u16, TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
     Ok(read_state_root_history_meta(bytes).0)
 }
 
-pub fn is_pool_tree_paused(bytes: &[u8]) -> Result<bool, PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+pub fn is_tree_paused(bytes: &[u8]) -> Result<bool, TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
-    Ok(bytes[pool_tree_flags_offset()] & PAUSED_FLAG != 0)
+    Ok(bytes[tree_flags_offset()] & PAUSED_FLAG != 0)
 }
 
-pub fn set_pool_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+pub fn set_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
-    let flags_offset = pool_tree_flags_offset();
+    let flags_offset = tree_flags_offset();
     if paused {
         bytes[flags_offset] |= PAUSED_FLAG;
     } else {
@@ -265,9 +265,9 @@ pub fn set_pool_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), PoolTr
     Ok(())
 }
 
-pub fn address_sub_tree_slice_mut(bytes: &mut [u8]) -> Result<&mut [u8], PoolTreeError> {
-    if bytes.len() < pool_tree_account_size() {
-        return Err(PoolTreeError::BufferTooSmall);
+pub fn address_sub_tree_slice_mut(bytes: &mut [u8]) -> Result<&mut [u8], TreeError> {
+    if bytes.len() < tree_account_size() {
+        return Err(TreeError::BufferTooSmall);
     }
     check_discriminator(bytes)?;
     Ok(&mut bytes[ADDRESS_SUB_TREE_OFFSET..state_sub_tree_offset()])
@@ -330,25 +330,25 @@ fn root_history_value_by_index(
     capacity: usize,
     meta: (u16, u16),
     index: u16,
-) -> Result<[u8; 32], PoolTreeError> {
+) -> Result<[u8; 32], TreeError> {
     let index = index as usize;
     let (cursor, len) = meta;
     let len = len as usize;
     if len == 0 || index >= capacity {
-        return Err(PoolTreeError::InvalidRootIndex);
+        return Err(TreeError::InvalidRootIndex);
     }
     if len < capacity && index >= len {
-        return Err(PoolTreeError::InvalidRootIndex);
+        return Err(TreeError::InvalidRootIndex);
     }
     if len == 1 && index != cursor as usize {
-        return Err(PoolTreeError::InvalidRootIndex);
+        return Err(TreeError::InvalidRootIndex);
     }
 
     let base = base_offset + index * 32;
     let mut root = [0u8; 32];
     root.copy_from_slice(&bytes[base..base + 32]);
     if root.iter().all(|byte| *byte == 0) {
-        return Err(PoolTreeError::InvalidRootIndex);
+        return Err(TreeError::InvalidRootIndex);
     }
     Ok(root)
 }

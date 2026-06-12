@@ -1,5 +1,5 @@
 //! End-to-end happy-path coverage of the shielded-pool program against a
-//! real .so loaded by litesvm: create_pool_tree plus the
+//! real .so loaded by litesvm: create_tree plus the
 //! batch_update_address_tree authorization guard. Tree appends and queue
 //! insertions happen only inside value-moving instructions
 //! (proofless_shield, transact), which carry their own tests.
@@ -16,7 +16,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 /// 1.16 MB — big enough for the combined account; the program ignores any
-/// caller-supplied size and uses `pool_tree_account_size()` internally.
+/// caller-supplied size and uses `tree_account_size()` internally.
 const TREE_ACCOUNT_SIZE: u64 = 1_200_000;
 
 /// Boot a rig with the canonical protocol config and one pool tree, returning
@@ -27,8 +27,8 @@ fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
     rig.create_protocol_config(&authority)
         .expect("create_protocol_config");
     let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE, &authority)
-        .expect("create_pool_tree");
+        .create_tree(TREE_ACCOUNT_SIZE, &authority)
+        .expect("create_tree");
     Some((rig, authority, tree))
 }
 
@@ -47,7 +47,7 @@ fn rig() -> Option<PoolTestRig> {
 }
 
 #[test]
-fn create_pool_tree_succeeds() {
+fn create_tree_succeeds() {
     let Some((rig, _authority, tree)) = rig_with_tree() else {
         return;
     };

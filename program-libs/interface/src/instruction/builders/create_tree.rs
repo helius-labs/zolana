@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{encode_instruction, tag, CreatePoolTreeData},
+    instruction::{encode_instruction, tag, CreateTreeData},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -11,11 +11,11 @@ use crate::{
 /// be the signer named by the canonical `protocol_config`, otherwise anyone
 /// could stand up a rogue tree and drain the shared vault against roots they
 /// control.
-pub fn create_pool_tree(
+pub fn create_tree(
     authority: Pubkey,
     protocol_config: Pubkey,
     tree: Pubkey,
-    data: CreatePoolTreeData,
+    data: CreateTreeData,
 ) -> Instruction {
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
@@ -24,6 +24,6 @@ pub fn create_pool_tree(
             AccountMeta::new_readonly(protocol_config, false),
             AccountMeta::new(tree, false),
         ],
-        data: encode_instruction(tag::CREATE_POOL_TREE, &data),
+        data: encode_instruction(tag::CREATE_TREE, &data),
     }
 }

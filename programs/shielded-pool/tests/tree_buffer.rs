@@ -5,9 +5,9 @@
 use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::SparseMerkleTree;
-use shielded_pool_program::instructions::create_pool_tree::init::{
-    address_sub_tree_slice_mut, append_state_leaves, init_pool_tree_account,
-    pool_tree_account_size, state_next_index_offset, state_root_offset, ADDRESS_SUB_TREE_OFFSET,
+use shielded_pool_program::instructions::create_tree::init::{
+    address_sub_tree_slice_mut, append_state_leaves, init_tree_account,
+    tree_account_size, state_next_index_offset, state_root_offset, ADDRESS_SUB_TREE_OFFSET,
     DISCRIMINATOR_OFFSET, STATE_HEIGHT,
 };
 
@@ -17,7 +17,7 @@ const TREE: pinocchio::Address = pinocchio::Address::new_from_array([2u8; 32]);
 /// Allocate an 8-byte-aligned buffer (Solana account data is always aligned;
 /// Vec<u8> isn't guaranteed to be).
 fn allocate_buffer() -> Vec<u8> {
-    let size = pool_tree_account_size();
+    let size = tree_account_size();
     let words = size.div_ceil(8);
     // Vec<u64> is 8-byte aligned; reinterpret its allocation as Vec<u8>.
     let mut v: Vec<u64> = vec![0u64; words];
@@ -44,7 +44,7 @@ fn read_state_root(bytes: &[u8]) -> [u8; 32] {
 #[test]
 fn init_writes_combined_layout() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
     // Combined discriminator written as u64 LE.
     let mut disc = [0u8; 8];
@@ -71,7 +71,7 @@ fn init_writes_combined_layout() {
 #[test]
 fn append_state_leaf_matches_reference() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
     let new_root = append_state_leaves(&mut buf, &[[7u8; 32]]).unwrap();
     assert_eq!(read_state_next_index(&buf), 1);
@@ -85,7 +85,7 @@ fn append_state_leaf_matches_reference() {
 #[test]
 fn append_state_batch_advances_next_index() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
     let leaves: Vec<[u8; 32]> = (0..4u8).map(|i| [i + 1; 32]).collect();
     append_state_leaves(&mut buf, &leaves).unwrap();
@@ -95,7 +95,7 @@ fn append_state_batch_advances_next_index() {
 #[test]
 fn address_queue_inserts_persist() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
     let slot: u64 = 11;
     {
@@ -113,7 +113,7 @@ fn address_queue_inserts_persist() {
 #[test]
 fn state_and_address_dont_clobber() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
     append_state_leaves(&mut buf, &[[1u8; 32], [2u8; 32]]).unwrap();
     let slot: u64 = 1;
@@ -131,13 +131,13 @@ fn state_and_address_dont_clobber() {
 #[test]
 fn init_rejects_undersized_buffer() {
     let mut buf = vec![0u8; 16];
-    assert!(init_pool_tree_account(&mut buf, &OWNER, &TREE).is_err());
+    assert!(init_tree_account(&mut buf, &OWNER, &TREE).is_err());
 }
 
 #[test]
 fn append_rejects_wrong_discriminator() {
     let mut buf = allocate_buffer();
-    init_pool_tree_account(&mut buf, &OWNER, &TREE).unwrap();
+    init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
     buf[DISCRIMINATOR_OFFSET] ^= 0xff;
     assert!(append_state_leaves(&mut buf, &[[1u8; 32]]).is_err());
 }

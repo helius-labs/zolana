@@ -9,7 +9,7 @@
 //! use light_program_test::PoolTestRig;
 //!
 //! let mut rig = PoolTestRig::new()?;
-//! let tree = rig.create_pool_tree()?;
+//! let tree = rig.create_tree()?;
 //! let root = rig.state_root(&tree.pubkey())?;
 //! ```
 
@@ -26,8 +26,8 @@ use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        CreateProtocolConfigData, ProoflessShieldData, ProoflessShieldEvent,
+        encode_instruction, tag, BatchUpdateAddressTreeData, CreateTreeData,
+        CreateProtocolConfigData, ProoflessShieldIxData, ProoflessShieldEvent,
     },
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPP_PROTOCOL_CONFIG_PDA_SEED,
@@ -139,11 +139,11 @@ impl PoolTestRig {
 
     /// Allocate a fresh pool-tree account at the right size, fund it for
     /// rent-exemption, assign ownership to the shielded-pool program, then
-    /// call `create_pool_tree` signed by the protocol-config authority.
+    /// call `create_tree` signed by the protocol-config authority.
     /// Allocation is a top-level system_program instruction (NOT a CPI from
     /// inside shielded-pool) because Solana caps CPI reallocs at 10 KB and our
     /// combined account is ~1.16 MB.
-    pub fn create_pool_tree(
+    pub fn create_tree(
         &mut self,
         account_size: u64,
         authority: &Keypair,
@@ -167,9 +167,9 @@ impl PoolTestRig {
             data: create_data,
         };
 
-        // 2. Call create_pool_tree: [authority(signer), protocol_config, tree].
-        let mut create_pool_data = vec![tag::CREATE_POOL_TREE];
-        CreatePoolTreeData
+        // 2. Call create_tree: [authority(signer), protocol_config, tree].
+        let mut create_pool_data = vec![tag::CREATE_TREE];
+        CreateTreeData
             .serialize(&mut create_pool_data)
             .expect("infallible");
         let pool_ix = Instruction {
@@ -189,9 +189,9 @@ impl PoolTestRig {
         Ok(tree)
     }
 
-    /// A SOL-deposit `ProoflessShieldData` with bare commitment fields.
-    pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldData {
-        ProoflessShieldData {
+    /// A SOL-deposit `ProoflessShieldIxData` with bare commitment fields.
+    pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldIxData {
+        ProoflessShieldIxData {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
@@ -215,7 +215,7 @@ impl PoolTestRig {
         &mut self,
         tree: &Keypair,
         depositor: &Keypair,
-        data: &ProoflessShieldData,
+        data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, RigError> {
         let encoded = encode_instruction(tag::PROOFLESS_SHIELD, data);
         let ix = Instruction {
@@ -351,12 +351,12 @@ impl PoolTestRig {
     pub fn forest_address_tree(
         &mut self,
         forester: &Keypair,
-        pool_tree: &Pubkey,
+        tree: &Pubkey,
         epoch: u64,
         data: BatchUpdateAddressTreeData,
     ) -> Result<(), RigError> {
         let ix =
-            registry_sdk::build_forest_address_tree_ix(&forester.pubkey(), pool_tree, epoch, data);
+            registry_sdk::build_forest_address_tree_ix(&forester.pubkey(), tree, epoch, data);
         let payer = forester.pubkey();
         self.send_with_payer(&[ix], &[forester], &payer)
     }
@@ -395,7 +395,7 @@ impl PoolTestRig {
     /// The on-chain state sub-tree root of a pool tree account.
     pub fn state_root(&self, tree: &Pubkey) -> Option<[u8; 32]> {
         let data = self.account_data(tree)?;
-        let offset = shielded_pool_program::instructions::create_pool_tree::init::state_root_offset();
+        let offset = shielded_pool_program::instructions::create_tree::init::state_root_offset();
         let slice = data.get(offset..offset + 32)?;
         let mut root = [0u8; 32];
         root.copy_from_slice(slice);

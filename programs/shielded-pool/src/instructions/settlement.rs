@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use zolana_interface::{
     instruction::{
-        TransactData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
+        TransactIxData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
     },
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
     SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
@@ -27,7 +27,7 @@ pub struct SettlementAccounts<'a> {
     pub cpi_authority_bump: Option<u8>,
     pub user_sol_account: Option<&'a AccountView>,
     pub user_spl_token_account: Option<&'a AccountView>,
-    pub spl_vault: Option<&'a AccountView>,
+    pub spl_token_interface: Option<&'a AccountView>,
     pub spl_asset_registry: Option<&'a AccountView>,
     pub token_program: Option<&'a AccountView>,
 }
@@ -42,7 +42,7 @@ impl<'a> SettlementAccounts<'a> {
             cpi_authority_bump: None,
             user_sol_account: None,
             user_spl_token_account: None,
-            spl_vault: None,
+            spl_token_interface: None,
             spl_asset_registry: None,
             token_program: None,
         }
@@ -52,7 +52,7 @@ impl<'a> SettlementAccounts<'a> {
 pub fn settle_public_amounts(
     program_id: &Address,
     accounts: &SettlementAccounts<'_>,
-    data: &TransactData,
+    data: &TransactIxData,
 ) -> ProgramResult {
     let sol_amount = data.public_sol_amount.unwrap_or(0);
     let spl_amount = data.public_spl_amount.unwrap_or(0);
@@ -178,7 +178,7 @@ fn settle_spl(
 ) -> ProgramResult {
     let cpi_authority = required(accounts.cpi_authority)?;
     let user_token = required(accounts.user_spl_token_account)?;
-    let vault = required(accounts.spl_vault)?;
+    let vault = required(accounts.spl_token_interface)?;
     let registry = required(accounts.spl_asset_registry)?;
     let token_program = required(accounts.token_program)?;
     let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID);

@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct TransactData {
+pub struct TransactIxData {
     pub expiry_unix_ts: u64,
     pub sender_view_tag: [u8; 32],
     pub proof: [u8; 192],

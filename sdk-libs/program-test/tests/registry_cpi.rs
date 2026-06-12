@@ -67,8 +67,8 @@ fn registry_cpi_authority_passes_shielded_pool_auth_check() {
 
     // 1. Allocate the pool tree (this stays a top-level system_program ix).
     let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE)
-        .expect("create_pool_tree");
+        .create_tree(TREE_ACCOUNT_SIZE)
+        .expect("create_tree");
 
     // 2. Set up the registry: protocol_config → register forester → register
     //    forester for epoch 0 → finalize.

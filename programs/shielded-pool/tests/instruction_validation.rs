@@ -1,7 +1,7 @@
 use shielded_pool_program::process_instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData},
+    instruction::{encode_instruction, tag, BatchUpdateAddressTreeData, CreateTreeData},
     CPI_AUTHORITY_PDA_SEED, LIGHT_REGISTRY_CPI_AUTHORITY, LIGHT_REGISTRY_PROGRAM_ID,
 };
 
@@ -10,8 +10,8 @@ fn program_id() -> pinocchio::Address {
 }
 
 #[test]
-fn rejects_create_pool_tree_without_accounts() {
-    let data = encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData);
+fn rejects_create_tree_without_accounts() {
+    let data = encode_instruction(tag::CREATE_TREE, &CreateTreeData);
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 
@@ -29,8 +29,8 @@ fn rejects_unknown_instruction_tag() {
 
 #[test]
 fn encodes_first_byte_tags() {
-    let data = encode_instruction(tag::CREATE_POOL_TREE, &CreatePoolTreeData);
-    assert_eq!(data[0], tag::CREATE_POOL_TREE);
+    let data = encode_instruction(tag::CREATE_TREE, &CreateTreeData);
+    assert_eq!(data[0], tag::CREATE_TREE);
 }
 
 #[test]

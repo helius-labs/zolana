@@ -1,15 +1,15 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, BatchUpdateAddressTreeData, CreatePoolTreeData, CreateProtocolConfigData,
-    CreateSplInterfaceData, PauseTreeData, ProoflessShieldData, UpdateProtocolConfigData,
+    tag, BatchUpdateAddressTreeData, CreateTreeData, CreateProtocolConfigData,
+    CreateSplInterfaceData, PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData,
 };
 
 use crate::{
     error::ShieldedPoolError,
     instructions::{
         batch_update_address_tree::processor::process_batch_update_address_tree,
-        create_pool_tree::processor::process_create_pool_tree,
+        create_tree::processor::process_create_tree,
         create_spl_interface::processor::process_create_spl_interface,
         proofless_shield::process_proofless_shield,
         protocol_config::processor::{
@@ -59,9 +59,9 @@ pub fn process_instruction(
     }
 
     dispatch!(*ix_tag, payload, program_id, accounts, {
-        tag::CREATE_POOL_TREE => (CreatePoolTreeData, process_create_pool_tree),
+        tag::CREATE_TREE => (CreateTreeData, process_create_tree),
         tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),
-        tag::PROOFLESS_SHIELD => (ProoflessShieldData, process_proofless_shield),
+        tag::PROOFLESS_SHIELD => (ProoflessShieldIxData, process_proofless_shield),
         tag::CREATE_SPL_INTERFACE => (CreateSplInterfaceData, process_create_spl_interface),
         tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
         tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),

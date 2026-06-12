@@ -7,7 +7,7 @@
 pub const TRANSACT: u8 = 0;
 pub const PROOFLESS_SHIELD: u8 = 1;
 pub const CREATE_SPL_INTERFACE: u8 = 4;
-pub const CREATE_POOL_TREE: u8 = 5;
+pub const CREATE_TREE: u8 = 5;
 pub const CREATE_PROTOCOL_CONFIG: u8 = 6;
 pub const UPDATE_PROTOCOL_CONFIG: u8 = 7;
 pub const PAUSE_TREE: u8 = 8;
@@ -49,7 +49,7 @@ pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {
-    CreatePoolTree = CREATE_POOL_TREE,
+    CreateTree = CREATE_TREE,
     BatchUpdateAddressTree = BATCH_UPDATE_ADDRESS_TREE,
     Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
@@ -68,7 +68,7 @@ impl TryFrom<u8> for InstructionTag {
 
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
-            CREATE_POOL_TREE => Ok(Self::CreatePoolTree),
+            CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_ADDRESS_TREE => Ok(Self::BatchUpdateAddressTree),
             TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),

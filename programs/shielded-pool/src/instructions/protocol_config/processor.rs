@@ -12,7 +12,7 @@ use zolana_interface::{
 
 use crate::{
     error::ShieldedPoolError,
-    instructions::{create_pool_tree::init::set_pool_tree_paused, loader},
+    instructions::{create_tree::init::set_tree_paused, loader},
 };
 
 pub fn process_create_protocol_config(
@@ -90,19 +90,19 @@ pub fn process_pause_tree(
     }
 
     let bytes = loader::account_data_mut(tree);
-    set_pool_tree_paused(bytes, data.paused)
-        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
+    set_tree_paused(bytes, data.paused)
+        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
     Ok(())
 }
 
 pub fn assert_tree_not_paused(tree: &AccountView) -> ProgramResult {
     let bytes = tree
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
-    if crate::instructions::create_pool_tree::init::is_pool_tree_paused(&bytes)
-        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?
+        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+    if crate::instructions::create_tree::init::is_tree_paused(&bytes)
+        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?
     {
-        return Err(ShieldedPoolError::PoolTreePaused.into());
+        return Err(ShieldedPoolError::TreePaused.into());
     }
     Ok(())
 }

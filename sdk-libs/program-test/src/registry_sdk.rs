@@ -210,7 +210,7 @@ pub fn build_finalize_registration_ix(authority: &Pubkey, epoch: u64) -> Instruc
 
 pub fn build_forest_address_tree_ix(
     authority: &Pubkey,
-    pool_tree: &Pubkey,
+    tree: &Pubkey,
     epoch: u64,
     data: BatchUpdateAddressTreeData,
 ) -> Instruction {
@@ -225,7 +225,7 @@ pub fn build_forest_address_tree_ix(
             AccountMeta::new(*authority, true),
             AccountMeta::new_readonly(forester_pda_key, false),
             AccountMeta::new(forester_epoch_pda_key, false),
-            AccountMeta::new(*pool_tree, false),
+            AccountMeta::new(*tree, false),
             AccountMeta::new_readonly(cpi_authority, false),
             AccountMeta::new_readonly(shielded_pool_program_id(), false),
         ],

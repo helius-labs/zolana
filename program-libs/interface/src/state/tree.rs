@@ -6,9 +6,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 ///
 /// This header is the client-side representation; the actual on-chain bytes
 /// are written by the shielded-pool program in a fixed layout described in
-/// `programs/shielded-pool/src/instructions/create_pool_tree/init.rs`.
+/// `programs/shielded-pool/src/instructions/create_tree/init.rs`.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct PoolTreeHeader {
+pub struct TreeHeader {
     pub authority: [u8; 32],
     pub merkle_tree: [u8; 32],
 }

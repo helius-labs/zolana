@@ -1,21 +1,21 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
-    encode_instruction, tag, BatchUpdateAddressTreeData, CreateZoneConfigData, CreatePoolTreeData,
+    encode_instruction, tag, BatchUpdateAddressTreeData, CreateZoneConfigData, CreateTreeData,
     CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
-    InstructionTag, PauseTreeData, TransactData, UpdateZoneConfigData,
+    InstructionTag, PauseTreeData, TransactIxData, UpdateZoneConfigData,
     UpdateZoneConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 #[test]
-fn create_pool_tree_roundtrip() {
-    let payload = CreatePoolTreeData;
-    let bytes = encode_instruction(tag::CREATE_POOL_TREE, &payload);
-    let decoded = CreatePoolTreeData::try_from_slice(&bytes[1..]).unwrap();
+fn create_tree_roundtrip() {
+    let payload = CreateTreeData;
+    let bytes = encode_instruction(tag::CREATE_TREE, &payload);
+    let decoded = CreateTreeData::try_from_slice(&bytes[1..]).unwrap();
 
-    assert_eq!(bytes[0], tag::CREATE_POOL_TREE);
+    assert_eq!(bytes[0], tag::CREATE_TREE);
     assert_eq!(
         InstructionTag::try_from(bytes[0]),
-        Ok(InstructionTag::CreatePoolTree)
+        Ok(InstructionTag::CreateTree)
     );
     assert_eq!(decoded, payload);
 }
@@ -41,7 +41,7 @@ fn batch_update_address_tree_roundtrip() {
 
 #[test]
 fn transact_roundtrip() {
-    let payload = TransactData {
+    let payload = TransactIxData {
         expiry_unix_ts: 123,
         sender_view_tag: [1u8; 32],
         proof: [2u8; 192],
@@ -63,7 +63,7 @@ fn transact_roundtrip() {
         requires_p256: true,
     };
     let bytes = encode_instruction(tag::TRANSACT, &payload);
-    let decoded = TransactData::try_from_slice(&bytes[1..]).unwrap();
+    let decoded = TransactIxData::try_from_slice(&bytes[1..]).unwrap();
 
     assert_eq!(bytes[0], tag::TRANSACT);
     assert_eq!(

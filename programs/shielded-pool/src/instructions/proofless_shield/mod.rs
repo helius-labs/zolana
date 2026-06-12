@@ -5,7 +5,7 @@ use pinocchio::{
     ProgramResult,
 };
 use zolana_interface::instruction::{
-    tag, ProoflessShieldData, ProoflessShieldEvent, TransactData, PUBLIC_AMOUNT_DEPOSIT,
+    tag, ProoflessShieldIxData, ProoflessShieldEvent, TransactIxData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 use crate::instructions::{
@@ -15,7 +15,7 @@ use crate::instructions::{
 };
 use crate::{
     error::ShieldedPoolError,
-    instructions::{create_pool_tree::init::append_state_leaves as append_to_pool, loader},
+    instructions::{create_tree::init::append_state_leaves as append_to_pool, loader},
     log::log,
 };
 
@@ -37,7 +37,7 @@ const UTXO_DOMAIN: u64 = 2;
 pub fn process_proofless_shield(
     program_id: &Address,
     accounts: &mut [AccountView],
-    data: ProoflessShieldData,
+    data: ProoflessShieldIxData,
 ) -> ProgramResult {
     let sol = data.public_sol_amount.unwrap_or(0);
     let spl = data.public_spl_amount.unwrap_or(0);
@@ -69,7 +69,7 @@ pub fn process_proofless_shield(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    // A TransactData view of the deposit drives the shared account-loading and
+    // A TransactIxData view of the deposit drives the shared account-loading and
     // settlement paths (mode = DEPOSIT, no proof / nullifiers / outputs).
     let tx = deposit_view(&data);
     let verified = load_transact_accounts(program_id, head, &tx, needs_sol, needs_spl)?;
@@ -139,8 +139,8 @@ fn emit_event(program_id: &Address, event: &ProoflessShieldEvent) -> ProgramResu
     invoke(&instruction, no_accounts)
 }
 
-fn deposit_view(data: &ProoflessShieldData) -> TransactData {
-    TransactData {
+fn deposit_view(data: &ProoflessShieldIxData) -> TransactIxData {
+    TransactIxData {
         expiry_unix_ts: 0,
         sender_view_tag: [0u8; 32],
         proof: [0u8; 192],

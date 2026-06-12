@@ -8,7 +8,7 @@ use zolana_interface::instruction::BatchUpdateAddressTreeData;
 use super::verify::verify;
 use crate::{
     error::ShieldedPoolError,
-    instructions::{create_pool_tree::init::address_sub_tree_slice_mut, loader},
+    instructions::{create_tree::init::address_sub_tree_slice_mut, loader},
     log::log,
 };
 
@@ -22,9 +22,9 @@ pub fn process_batch_update_address_tree(
 
     let bytes = loader::account_data_mut(verified.tree);
     let address_slice = address_sub_tree_slice_mut(bytes)
-        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
+        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
     let mut tree = BatchedMerkleTreeAccount::address_from_bytes(address_slice, &tree_pubkey)
-        .map_err(|_| ShieldedPoolError::InvalidPoolTreeAccounts)?;
+        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
 
     let instruction = InstructionDataBatchNullifyInputs {
         new_root: data.new_root,

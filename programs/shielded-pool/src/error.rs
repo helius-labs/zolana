@@ -13,7 +13,7 @@ pub enum ShieldedPoolError {
     #[error("invalid instruction data")]
     InvalidInstructionData = 0,
     #[error("pool tree accounts are invalid")]
-    InvalidPoolTreeAccounts = 1,
+    InvalidTreeAccounts = 1,
     #[error("insert addresses requires at least one address")]
     EmptyAddressBatch = 2,
     #[error("append state leaves requires at least one leaf")]
@@ -45,7 +45,7 @@ pub enum ShieldedPoolError {
     #[error("protocol config account is invalid")]
     InvalidProtocolConfig = 16,
     #[error("pool tree is paused")]
-    PoolTreePaused = 17,
+    TreePaused = 17,
     #[error("zone config account is invalid")]
     InvalidZoneConfig = 18,
     #[error("nullifier root index references a zeroed (stale) root-history slot")]
@@ -69,7 +69,7 @@ mod tests {
     fn error_codes_are_stable() {
         let table = [
             (InvalidInstructionData as u32, 0),
-            (InvalidPoolTreeAccounts as u32, 1),
+            (InvalidTreeAccounts as u32, 1),
             (EmptyAddressBatch as u32, 2),
             (EmptyStateLeafBatch as u32, 3),
             (EmptyBatchUpdateRoot as u32, 4),
@@ -85,7 +85,7 @@ mod tests {
             (PublicSettlementFailed as u32, 14),
             (InvalidSplAssetRegistry as u32, 15),
             (InvalidProtocolConfig as u32, 16),
-            (PoolTreePaused as u32, 17),
+            (TreePaused as u32, 17),
             (InvalidZoneConfig as u32, 18),
             (StaleNullifierRoot as u32, 19),
         ];

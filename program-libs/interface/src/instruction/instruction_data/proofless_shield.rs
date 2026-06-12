@@ -13,7 +13,7 @@ use super::transact::CpiSignerData;
 /// The amount is taken from the actual public deposit, so a depositor cannot
 /// mint a UTXO worth more than they deposited.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct ProoflessShieldData {
+pub struct ProoflessShieldIxData {
     /// Indexing tag for the single output slot; chosen per the spec's View
     /// Tag Selection.
     pub view_tag: [u8; 32],

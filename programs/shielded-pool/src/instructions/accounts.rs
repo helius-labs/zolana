@@ -1,6 +1,6 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
-    instruction::{InputUtxoSignerIndex, TransactData},
+    instruction::{InputUtxoSignerIndex, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
 };
 
@@ -18,7 +18,7 @@ pub struct TransactAccounts<'a> {
 pub(crate) fn load_transact_accounts<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
-    data: &TransactData,
+    data: &TransactIxData,
     needs_sol: bool,
     needs_spl: bool,
 ) -> Result<TransactAccounts<'a>, ProgramError> {
@@ -44,7 +44,7 @@ pub(crate) fn load_transact_accounts<'a>(
         return Err(ProgramError::MissingRequiredSignature);
     }
     if !tree.is_writable() || !tree.owned_by(program_id) {
-        return Err(ShieldedPoolError::InvalidPoolTreeAccounts.into());
+        return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
     crate::instructions::protocol_config::processor::assert_tree_not_paused(tree)?;
 
@@ -74,7 +74,7 @@ pub(crate) fn load_transact_accounts<'a>(
             return Err(ProgramError::NotEnoughAccountKeys);
         }
         settlement.user_spl_token_account = Some(&settlement_slice[cursor]);
-        settlement.spl_vault = Some(&settlement_slice[cursor + 1]);
+        settlement.spl_token_interface = Some(&settlement_slice[cursor + 1]);
         settlement.spl_asset_registry = Some(&settlement_slice[cursor + 2]);
         settlement.token_program = Some(&settlement_slice[cursor + 3]);
         cursor += 4;
@@ -113,7 +113,7 @@ fn account_snapshot(accounts: &[AccountView]) -> Vec<AccountSnapshot> {
 
 fn validate_cpi_signer(
     accounts: &[AccountSnapshot],
-    data: &TransactData,
+    data: &TransactIxData,
 ) -> Result<(), ProgramError> {
     let Some(cpi_signer) = data.cpi_signer else {
         return Ok(());
@@ -132,7 +132,7 @@ fn validate_cpi_signer(
 
 fn validate_input_signer_indices(
     accounts: &[AccountSnapshot],
-    data: &TransactData,
+    data: &TransactIxData,
 ) -> Result<Vec<[u8; 32]>, ProgramError> {
     let mut owner_pubkeys = vec![[0u8; 32]; data.nullifiers.len()];
     if data.nullifiers.is_empty() {

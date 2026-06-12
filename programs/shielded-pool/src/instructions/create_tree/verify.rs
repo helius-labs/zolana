@@ -1,10 +1,10 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
-use zolana_interface::instruction::CreatePoolTreeData;
+use zolana_interface::instruction::CreateTreeData;
 
 use crate::{
     error::ShieldedPoolError,
     instructions::{
-        loader::MutablePoolTreeAccounts, protocol_config::processor::read_protocol_config,
+        loader::MutableTreeAccounts, protocol_config::processor::read_protocol_config,
     },
 };
 
@@ -17,8 +17,8 @@ use crate::{
 pub fn verify<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
-    _data: &CreatePoolTreeData,
-) -> Result<MutablePoolTreeAccounts<'a>, ProgramError> {
+    _data: &CreateTreeData,
+) -> Result<MutableTreeAccounts<'a>, ProgramError> {
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
@@ -35,10 +35,10 @@ pub fn verify<'a>(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     if !tree.is_writable() || !tree.owned_by(program_id) {
-        return Err(ShieldedPoolError::InvalidPoolTreeAccounts.into());
+        return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
 
-    Ok(MutablePoolTreeAccounts {
+    Ok(MutableTreeAccounts {
         signer: authority,
         tree,
     })
