@@ -10,7 +10,6 @@
 //!
 //! let mut rig = PoolTestRig::new()?;
 //! let tree = rig.create_pool_tree()?;
-//! rig.append_state_leaves(&tree, vec![[1u8; 32]])?;
 //! let root = rig.state_root(&tree.pubkey())?;
 //! ```
 
@@ -26,10 +25,7 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
-    instruction::{
-        tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        InsertAddressesData,
-    },
+    instruction::{tag, BatchUpdateAddressTreeData, CreatePoolTreeData},
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -145,46 +141,6 @@ impl PoolTestRig {
             &[&self.payer.insecure_clone(), &tree],
         )?;
         Ok(tree)
-    }
-
-    pub fn append_state_leaves(
-        &mut self,
-        tree: &Keypair,
-        leaves: Vec<[u8; 32]>,
-    ) -> Result<(), RigError> {
-        let mut data = vec![tag::APPEND_STATE_LEAVES];
-        AppendStateLeavesData { leaves }
-            .serialize(&mut data)
-            .expect("infallible");
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), false),
-            ],
-            data,
-        };
-        self.send(&[ix], &[&self.payer.insecure_clone()])
-    }
-
-    pub fn insert_addresses(
-        &mut self,
-        tree: &Keypair,
-        addresses: Vec<[u8; 32]>,
-    ) -> Result<(), RigError> {
-        let mut data = vec![tag::INSERT_ADDRESSES];
-        InsertAddressesData { addresses }
-            .serialize(&mut data)
-            .expect("infallible");
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), false),
-            ],
-            data,
-        };
-        self.send(&[ix], &[&self.payer.insecure_clone()])
     }
 
     /// Load `light_registry.so` into this rig in addition to shielded-pool.
