@@ -1,5 +1,3 @@
-//! User registry program interface: account state, 1-byte instruction tags,
-//! borsh payloads, and (behind the `solana` feature) instruction builders.
 pub mod instruction;
 pub mod state;
 
