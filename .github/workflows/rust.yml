@@ -10,6 +10,7 @@ on:
       - ".gitignore"
       - ".gitmodules"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "prover/server/**"
       - "**/*.md"
@@ -31,6 +32,7 @@ jobs:
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
       - name: Configure git auth for private cargo git deps
@@ -46,6 +48,7 @@ jobs:
   machete:
     name: cargo-machete
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
@@ -61,6 +64,7 @@ jobs:
   clippy:
     name: clippy
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +78,7 @@ jobs:
   check:
     name: cargo check (workspace)
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,6 +91,7 @@ jobs:
   test-scaffold:
     name: tests / scaffold
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
