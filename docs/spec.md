@@ -47,6 +47,7 @@
   - [Instructions](#instructions)
     - [transact](#transact)
     - [proofless_shield](#proofless_shield)
+    - [zone_proofless_shield](#zone_proofless_shield)
     - [merge_transact](#merge_transact)
     - [merge_zone](#merge_zone)
 - [Zone Program Interface](#zone-program-interface)
@@ -120,7 +121,7 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 ### User
 
-Operations 1-4 run against the default zone via [`transact`](#transact) (or `proofless_shield`), or against a policy zone via the zone program's CPI into `zone_transact`.
+Operations 1-4 run against the default zone via [`transact`](#transact) (or [`proofless_shield`](#proofless_shield)), or against a policy zone via the zone program's CPI into `zone_transact` (or [`zone_proofless_shield`](#zone_proofless_shield) for proofless deposits).
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
@@ -1065,6 +1066,7 @@ Usage by instruction:
 | merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted Solana signer; SPP checks the signer against `protocol_config.merge_authorities`. Input and output UTXOs are default-zone; extension slots are zero. |
 | zone_merge_transact | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
 | emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
+| zone_proofless_shield | Tag 15; policy-zone analog of `proofless_shield`; public deposit creating a zone-owned UTXO, authorized by the zone program's `zone_auth` signer. See [`zone_proofless_shield`](#zone_proofless_shield). |
 
 ### `transact`
 
@@ -1158,7 +1160,6 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
 | 2 | payer |   | x | depositor |
-| 3 | cpi_signer |   | x | invoking zone program pda, optional |
 
 **Instruction data**
 
@@ -1175,16 +1176,6 @@ struct ProoflessShieldIxData {
     public_sol_amount: Option<u64>,
     /// `Some` for an SPL deposit.
     public_spl_amount: Option<u64>,
-    /// Zone-defined policy data hash; requires `cpi_signer`.
-    policy_data_hash: Option<[u8; 32]>,
-    /// Preimage of `policy_data_hash`.
-    zone_data: Option<Vec<u8>>,
-    /// Program-defined data hash; requires `cpi_signer`.
-    program_data_hash: Option<[u8; 32]>,
-    /// Preimage of `program_data_hash`.
-    program_data: Option<Vec<u8>>,
-    /// See [`transact`](#transact).
-    cpi_signer: Option<(program_id, bump)>,
 }
 ```
 
@@ -1199,12 +1190,10 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `policy_data_hash`, `zone_data`, `program_data_hash`, and `program_data` are `Some` only if `cpi_signer` is `Some`.
-4. If `cpi_signer` is `Some`, the `cpi_signer` account must be its [`zone_auth`](#zone-accounts) PDA — re-derived from `(program_id, bump)` — and must sign. `zone_program_id` then binds to `program_id`.
-5. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
-6. Append the hash to the UTXO tree.
-7. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-8. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
+3. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`); `program_data_hash`, `policy_data_hash`, and `zone_program_id` are `0` (default zone); `owner_utxo_hash` from instruction data.
+4. Append the hash to the UTXO tree.
+5. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+6. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
 
 **Event**
 
@@ -1217,7 +1206,7 @@ struct ProoflessShieldEvent {
     /// Deposited mint; reaches the instruction via accounts only.
     asset: Address,
     amount: u64,
-    /// From `cpi_signer`.
+    /// Set by [`zone_proofless_shield`](#zone_proofless_shield); `None` here.
     zone_program_id: Option<Address>,
     policy_data_hash: Option<[u8; 32]>,
     owner_utxo_hash: [u8; 32],
@@ -1228,7 +1217,59 @@ struct ProoflessShieldEvent {
 }
 ```
 
-Data fields require `cpi_signer`: only UTXOs owned by the invoking program hold data ([`transact`](#transact) check 10). As in [`merge_zone`](#merge_zone), `policy_data` and `program_data` are constrained by the zone program, not by SPP; SPP copies the hashes and preimages from instruction data into the event unchecked.
+The zone fields (`zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, `zone_data`) are `None` for default-zone deposits; [`zone_proofless_shield`](#zone_proofless_shield) sets them.
+
+
+### `zone_proofless_shield`
+
+**Discriminator:** 15
+
+**Description.** Policy-zone analog of [`proofless_shield`](#proofless_shield): a public deposit without a proof that creates a UTXO owned by the calling zone program. The zone program CPIs into SPP with its [`zone_auth`](#zone-accounts) signer; the UTXO carries the program's `zone_program_id` and any policy/program data the program attaches.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | tree_account | x |   | UTXO tree |
+| 2 | payer |   | x | depositor |
+| 3 | zone_auth |   | x | calling zone program pda; see [Zone Accounts](#zone-accounts) |
+
+**Instruction data**
+
+```rust
+struct ZoneProoflessShieldIxData {
+    /// As in [`proofless_shield`](#proofless_shield).
+    view_tag: [u8; 32],
+    owner_utxo_hash: [u8; 32],
+    salt: [u8; 16],
+    public_sol_amount: Option<u64>,
+    public_spl_amount: Option<u64>,
+    /// Calling zone program; `zone_auth` is re-derived from it (see Checks).
+    cpi_signer: (program_id, bump),
+    /// Zone-defined policy data hash.
+    policy_data_hash: Option<[u8; 32]>,
+    /// Preimage of `policy_data_hash`.
+    zone_data: Option<Vec<u8>>,
+    /// Program-defined data hash.
+    program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    program_data: Option<Vec<u8>>,
+}
+```
+
+`blinding` is derived as in [`proofless_shield`](#blinding-derivation).
+
+**Checks**
+
+1. `tree_account` is not paused.
+2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
+3. The `zone_auth` account must be the PDA re-derived from `cpi_signer`'s `(program_id, bump)` (see [Zone Accounts](#zone-accounts)) and must sign.
+4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer.program_id`, `owner_utxo_hash` from instruction data.
+5. Append the hash to the UTXO tree.
+6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+7. Emit a [`ProoflessShieldEvent`](#proofless_shield) via [`emit_event`](#instructions) self-CPI, with `zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, and `zone_data` set.
+
+As in [`merge_zone`](#merge_zone), `policy_data` and `program_data` are constrained by the zone program, not by SPP; SPP copies the hashes and preimages from instruction data into the event unchecked.
 
 
 ### `merge_transact`
