@@ -8,9 +8,9 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-// The on-chain nullifier tree is a Light AddressV2 tree at height 40, batch
-// size 10. Replay an explicit batch of 248-bit values (as the SPP queue holds
-// nullifiers/view tags) through the witness builder and assert the circuit is
+// The Light AddressV2 tree is height 40, batch size 10, and this circuit
+// range-checks inserted values to 248 bits. Replay an explicit batch of
+// 248-bit values through the witness builder and assert the circuit is
 // satisfied — this is the Go-side gate that the witness matches the circuit
 // before we prove it with the committed key and submit it on-chain.
 func TestBuildAddressAppendParamsFromExplicitValues(t *testing.T) {

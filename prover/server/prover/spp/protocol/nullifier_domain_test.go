@@ -8,7 +8,7 @@ import (
 )
 
 // nullifierTreeInitRootDecimal pins the init root of the general nullifier
-// tree (H=40): one leaf Poseidon2(0, p-1) at index 0, next_index = 1. The
+// tree (H=40): one leaf Poseidon(0, p-1) at index 0, next_index = 1. The
 // on-chain batched tree must initialize with the same sentinel and root, or
 // every non-inclusion witness the prover builds opens against a root the
 // on-chain tree never had.

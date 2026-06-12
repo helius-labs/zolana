@@ -10,7 +10,7 @@ import (
 // nullifierUpperBound is both the exclusive upper bound and the final
 // next-value sentinel: p - 1, the largest field element. The tree's
 // indexed-value domain spans the whole field — the init leaf is
-// Poseidon2(0, p-1) — so nullifiers (Poseidon images) insert untruncated.
+// Poseidon(0, p-1) — so nullifiers (Poseidon images) insert untruncated.
 // The on-chain tree and its batch-append circuit must use the same sentinel
 // and accept any canonical field element.
 var nullifierUpperBound = new(big.Int).Sub(poseidon.Modulus, big.NewInt(1))
