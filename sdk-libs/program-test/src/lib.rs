@@ -25,8 +25,12 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
-    instruction::{tag, BatchUpdateAddressTreeData, CreatePoolTreeData},
-    LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{
+        encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData,
+        CreateProtocolConfigData, ProoflessShieldData,
+    },
+    LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+    SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 pub mod registry_sdk;
@@ -97,12 +101,51 @@ impl PoolTestRig {
         })
     }
 
+    /// The canonical protocol-config PDA for the shielded-pool program.
+    pub fn protocol_config_pda(&self) -> Pubkey {
+        Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &self.program_id).0
+    }
+
+    /// The shielded-pool CPI authority PDA — also the pool's SOL vault.
+    pub fn cpi_authority(&self) -> Pubkey {
+        Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)
+    }
+
+    /// Create the canonical protocol config naming `authority`. The authority
+    /// signs and pays the PDA rent, so it is funded here.
+    pub fn create_protocol_config(&mut self, authority: &Keypair) -> Result<Pubkey, RigError> {
+        self.airdrop(&authority.pubkey(), 1_000_000_000)?;
+        let config = self.protocol_config_pda();
+        let data = encode_instruction(
+            tag::CREATE_PROTOCOL_CONFIG,
+            &CreateProtocolConfigData {
+                authority: authority.pubkey().to_bytes(),
+            },
+        );
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(authority.pubkey(), true),
+                AccountMeta::new(config, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])?;
+        Ok(config)
+    }
+
     /// Allocate a fresh pool-tree account at the right size, fund it for
     /// rent-exemption, assign ownership to the shielded-pool program, then
-    /// call `create_pool_tree`. Allocation is a top-level system_program
-    /// instruction (NOT a CPI from inside shielded-pool) because Solana caps
-    /// CPI reallocs at 10 KB and our combined account is ~1.16 MB.
-    pub fn create_pool_tree(&mut self, account_size: u64) -> Result<Keypair, RigError> {
+    /// call `create_pool_tree` signed by the protocol-config authority.
+    /// Allocation is a top-level system_program instruction (NOT a CPI from
+    /// inside shielded-pool) because Solana caps CPI reallocs at 10 KB and our
+    /// combined account is ~1.16 MB.
+    pub fn create_pool_tree(
+        &mut self,
+        account_size: u64,
+        authority: &Keypair,
+    ) -> Result<Keypair, RigError> {
         let tree = Keypair::new();
         let rent = self
             .svm
@@ -122,7 +165,7 @@ impl PoolTestRig {
             data: create_data,
         };
 
-        // 2. Call create_pool_tree.
+        // 2. Call create_pool_tree: [authority(signer), protocol_config, tree].
         let mut create_pool_data = vec![tag::CREATE_POOL_TREE];
         CreatePoolTreeData
             .serialize(&mut create_pool_data)
@@ -130,7 +173,8 @@ impl PoolTestRig {
         let pool_ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
-                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new_readonly(self.protocol_config_pda(), false),
                 AccountMeta::new(tree.pubkey(), false),
             ],
             data: create_pool_data,
@@ -138,9 +182,48 @@ impl PoolTestRig {
 
         self.send(
             &[create_ix, pool_ix],
-            &[&self.payer.insecure_clone(), &tree],
+            &[&self.payer.insecure_clone(), &tree, authority],
         )?;
         Ok(tree)
+    }
+
+    /// Deposit `lamports` of SOL without a proof (`proofless_shield`). The
+    /// depositor signs and is the SOL source; the UTXO commits to the opaque
+    /// `owner_utxo_hash`.
+    pub fn proofless_shield_sol(
+        &mut self,
+        tree: &Keypair,
+        depositor: &Keypair,
+        lamports: u64,
+        owner_utxo_hash: [u8; 32],
+    ) -> Result<(), RigError> {
+        let data = encode_instruction(
+            tag::PROOFLESS_SHIELD,
+            &ProoflessShieldData {
+                owner_utxo_hash,
+                data_hash: [0u8; 32],
+                zone_data_hash: [0u8; 32],
+                zone_program_id: [0u8; 32],
+                bootstrap_view_tag: [0u8; 32],
+                public_sol_amount: Some(lamports),
+                public_spl_amount: None,
+                cleartext_utxo: Vec::new(),
+            },
+        );
+        // [tree, signer, system_program, cpi_authority, user_sol_account];
+        // for a deposit the SOL source must be the signer itself.
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(tree.pubkey(), false),
+                AccountMeta::new(depositor.pubkey(), true),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new(self.cpi_authority(), false),
+                AccountMeta::new(depositor.pubkey(), false),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), depositor])
     }
 
     /// Load `light_registry.so` into this rig in addition to shielded-pool.

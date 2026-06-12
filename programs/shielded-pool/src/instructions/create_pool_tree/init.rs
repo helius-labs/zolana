@@ -8,21 +8,23 @@
 //! 8-byte-aligned offset (offset 8, immediately after the 8-byte
 //! combined-account discriminator). State sub-tree follows.
 //!
-//! Byte layout:
+//! Regions, in order (offsets are computed by the helpers below):
 //!
-//! ```text
-//! offset                size                          field
-//! --------------------  ----------------------------  ------------------------------
-//! 0                     8                             combined discriminator (u64 LE)
-//! 8                     address_sub_tree_size()       address sub-tree (BatchedMerkleTreeAccount)
-//! STATE_OFFSET          8                             state sub-tree next_index (u64 LE)
-//! STATE_OFFSET + 8      32                            state sub-tree current root
-//! STATE_OFFSET + 40     HEIGHT * 32 = 832             state sub-tree subtrees
-//! ```
+//! - combined discriminator: 8 bytes (u64 LE)
+//! - address sub-tree: `address_sub_tree_size()` bytes
+//! - state sub-tree: next_index (8), current root (32), subtrees
+//!   (`STATE_HEIGHT * 32`), root-history meta (4) + root history
+//!   (`STATE_ROOT_HISTORY_CAPACITY * 32`)
+//! - flags: 1 byte (bit 0 = paused), at `pool_tree_flags_offset()`
 //!
-//! The combined discriminator is a single byte stored as u64 LE; the high bits
-//! are zero so it's transparent to both `discriminator[0]`-style reads and
-//! 8-byte-aligned reads.
+//! The nullifier tree keeps no separate region: it IS the address sub-tree, and
+//! its own root_history is the nullifier-root cache.
+//!
+//! The flags byte is the LAST region, outside the discriminator word: storing it
+//! at byte 1 (inside bytes[0..8]) would corrupt a u64-LE read of the
+//! discriminator once paused. The combined discriminator is a single byte stored
+//! as u64 LE; its high bits stay zero so it reads identically as `bytes[0]` and
+//! as an 8-byte-aligned u64.
 
 use light_batched_merkle_tree::{
     initialize_address_tree::{
@@ -36,9 +38,12 @@ use pinocchio::Address;
 use zolana_interface::state::discriminator::POOL_TREE_HEADER;
 
 pub const STATE_HEIGHT: usize = 26;
+pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
 
 pub const DISCRIMINATOR_LEN: usize = 8;
 pub const DISCRIMINATOR_OFFSET: usize = 0;
+pub const PAUSED_FLAG: u8 = 1;
+pub const FLAGS_LEN: usize = 1;
 pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,15 +52,23 @@ pub enum PoolTreeError {
     InvalidDiscriminator,
     StateAppendFailed,
     AddressInitFailed,
+    InvalidRootIndex,
 }
 
 pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
     InitAddressTreeAccountsInstructionData {
-        rollover_threshold: None,
-        network_fee: None,
-        forester: None,
+        index: 0,
         program_owner: None,
-        ..Default::default()
+        forester: None,
+        bloom_filter_num_iters: 3,
+        input_queue_batch_size: 10,
+        input_queue_zkp_batch_size: 10,
+        height: 40,
+        root_history_capacity: 200,
+        bloom_filter_capacity: 20_000 * 8,
+        network_fee: None,
+        rollover_threshold: None,
+        close_threshold: None,
     }
 }
 
@@ -86,8 +99,27 @@ pub fn state_subtrees_offset() -> usize {
     state_sub_tree_offset() + 8 + 32
 }
 
-pub fn pool_tree_account_size() -> usize {
+pub fn state_root_history_meta_offset() -> usize {
     state_subtrees_offset() + STATE_HEIGHT * 32
+}
+
+pub fn state_root_history_offset() -> usize {
+    state_root_history_meta_offset() + 4
+}
+
+// The nullifier tree keeps no SPP-side state here: it IS the Light batched
+// address tree in the address sub-tree, whose own root_history is the
+// nullifier-root cache referenced by transact's nullifier_tree_root_index.
+
+/// Offset of the 1-byte flags region (bit 0 = paused). It lives at the END of
+/// the account, OUTSIDE the discriminator word, so toggling paused never
+/// corrupts a u64-LE read of the combined discriminator.
+pub fn pool_tree_flags_offset() -> usize {
+    state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
+}
+
+pub fn pool_tree_account_size() -> usize {
+    pool_tree_flags_offset() + FLAGS_LEN
 }
 
 pub fn pool_tree_discriminator() -> u8 {
@@ -100,9 +132,7 @@ fn write_discriminator(bytes: &mut [u8]) {
 }
 
 fn check_discriminator(bytes: &[u8]) -> Result<(), PoolTreeError> {
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + 8]);
-    if u64::from_le_bytes(buf) != pool_tree_discriminator() as u64 {
+    if bytes[DISCRIMINATOR_OFFSET] != pool_tree_discriminator() {
         return Err(PoolTreeError::InvalidDiscriminator);
     }
     Ok(())
@@ -115,6 +145,16 @@ pub fn init_pool_tree_account(
 ) -> Result<(), PoolTreeError> {
     if bytes.len() < pool_tree_account_size() {
         return Err(PoolTreeError::BufferTooSmall);
+    }
+    // Refuse to re-initialize: a fresh account is zeroed, so a non-zero
+    // discriminator means the tree already exists (mirrors create_spl_interface's
+    // zeroed-check). Without this a second create_pool_tree would clobber a live
+    // tree's roots and subtrees.
+    if bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + DISCRIMINATOR_LEN]
+        .iter()
+        .any(|byte| *byte != 0)
+    {
+        return Err(PoolTreeError::InvalidDiscriminator);
     }
     write_discriminator(bytes);
 
@@ -140,8 +180,16 @@ fn init_state_sub_tree(state: &mut [u8]) {
     // Offsets below are relative to `state`.
     state[0..8].copy_from_slice(&0u64.to_le_bytes());
     let smt = SparseMerkleTree::<Poseidon, STATE_HEIGHT>::new_empty();
-    state[8..40].copy_from_slice(&smt.root());
+    let root = smt.root();
+    state[8..40].copy_from_slice(&root);
     write_subtrees_to(state, 40, &smt.get_subtrees());
+    state[state_root_history_meta_relative_offset()..state_root_history_meta_relative_offset() + 2]
+        .copy_from_slice(&0u16.to_le_bytes());
+    state[state_root_history_meta_relative_offset() + 2
+        ..state_root_history_meta_relative_offset() + 4]
+        .copy_from_slice(&1u16.to_le_bytes());
+    let history = state_root_history_relative_offset();
+    state[history..history + 32].copy_from_slice(&root);
 }
 
 pub fn append_state_leaves(
@@ -167,8 +215,54 @@ pub fn append_state_leaves(
     let root_offset = state_root_offset();
     bytes[root_offset..root_offset + 32].copy_from_slice(&new_root);
     write_state_subtrees(bytes, &smt.get_subtrees());
+    push_state_root(bytes, new_root);
 
     Ok(new_root)
+}
+
+pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], PoolTreeError> {
+    if bytes.len() < pool_tree_account_size() {
+        return Err(PoolTreeError::BufferTooSmall);
+    }
+    check_discriminator(bytes)?;
+
+    root_history_value_by_index(
+        bytes,
+        state_root_history_offset(),
+        STATE_ROOT_HISTORY_CAPACITY,
+        read_state_root_history_meta(bytes),
+        index,
+    )
+}
+
+pub fn current_state_root_index(bytes: &[u8]) -> Result<u16, PoolTreeError> {
+    if bytes.len() < pool_tree_account_size() {
+        return Err(PoolTreeError::BufferTooSmall);
+    }
+    check_discriminator(bytes)?;
+    Ok(read_state_root_history_meta(bytes).0)
+}
+
+pub fn is_pool_tree_paused(bytes: &[u8]) -> Result<bool, PoolTreeError> {
+    if bytes.len() < pool_tree_account_size() {
+        return Err(PoolTreeError::BufferTooSmall);
+    }
+    check_discriminator(bytes)?;
+    Ok(bytes[pool_tree_flags_offset()] & PAUSED_FLAG != 0)
+}
+
+pub fn set_pool_tree_paused(bytes: &mut [u8], paused: bool) -> Result<(), PoolTreeError> {
+    if bytes.len() < pool_tree_account_size() {
+        return Err(PoolTreeError::BufferTooSmall);
+    }
+    check_discriminator(bytes)?;
+    let flags_offset = pool_tree_flags_offset();
+    if paused {
+        bytes[flags_offset] |= PAUSED_FLAG;
+    } else {
+        bytes[flags_offset] &= !PAUSED_FLAG;
+    }
+    Ok(())
 }
 
 pub fn address_sub_tree_slice_mut(bytes: &mut [u8]) -> Result<&mut [u8], PoolTreeError> {
@@ -211,6 +305,72 @@ fn write_state_subtrees(bytes: &mut [u8], subtrees: &[[u8; 32]; STATE_HEIGHT]) {
         let start = base + i * 32;
         bytes[start..start + 32].copy_from_slice(src);
     }
+}
+
+#[inline]
+fn read_state_root_history_meta(bytes: &[u8]) -> (u16, u16) {
+    let offset = state_root_history_meta_offset();
+    let mut cursor = [0u8; 2];
+    let mut len = [0u8; 2];
+    cursor.copy_from_slice(&bytes[offset..offset + 2]);
+    len.copy_from_slice(&bytes[offset + 2..offset + 4]);
+    (u16::from_le_bytes(cursor), u16::from_le_bytes(len))
+}
+
+#[inline]
+fn write_state_root_history_meta(bytes: &mut [u8], cursor: u16, len: u16) {
+    let offset = state_root_history_meta_offset();
+    bytes[offset..offset + 2].copy_from_slice(&cursor.to_le_bytes());
+    bytes[offset + 2..offset + 4].copy_from_slice(&len.to_le_bytes());
+}
+
+fn root_history_value_by_index(
+    bytes: &[u8],
+    base_offset: usize,
+    capacity: usize,
+    meta: (u16, u16),
+    index: u16,
+) -> Result<[u8; 32], PoolTreeError> {
+    let index = index as usize;
+    let (cursor, len) = meta;
+    let len = len as usize;
+    if len == 0 || index >= capacity {
+        return Err(PoolTreeError::InvalidRootIndex);
+    }
+    if len < capacity && index >= len {
+        return Err(PoolTreeError::InvalidRootIndex);
+    }
+    if len == 1 && index != cursor as usize {
+        return Err(PoolTreeError::InvalidRootIndex);
+    }
+
+    let base = base_offset + index * 32;
+    let mut root = [0u8; 32];
+    root.copy_from_slice(&bytes[base..base + 32]);
+    if root.iter().all(|byte| *byte == 0) {
+        return Err(PoolTreeError::InvalidRootIndex);
+    }
+    Ok(root)
+}
+
+#[inline]
+fn push_state_root(bytes: &mut [u8], root: [u8; 32]) {
+    let (cursor, len) = read_state_root_history_meta(bytes);
+    let next = (usize::from(cursor) + 1) % STATE_ROOT_HISTORY_CAPACITY;
+    let next_len = (usize::from(len) + 1).min(STATE_ROOT_HISTORY_CAPACITY) as u16;
+    let base = state_root_history_offset() + next * 32;
+    bytes[base..base + 32].copy_from_slice(&root);
+    write_state_root_history_meta(bytes, next as u16, next_len);
+}
+
+#[inline]
+fn state_root_history_meta_relative_offset() -> usize {
+    state_root_history_meta_offset() - state_sub_tree_offset()
+}
+
+#[inline]
+fn state_root_history_relative_offset() -> usize {
+    state_root_history_offset() - state_sub_tree_offset()
 }
 
 #[inline]

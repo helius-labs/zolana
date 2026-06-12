@@ -12,11 +12,25 @@
 //! `registry_cpi.rs` once the prover wiring lands.
 
 use light_program_test::{PoolTestRig, RigError};
+use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 /// 1.16 MB — big enough for the combined account; the program ignores any
 /// caller-supplied size and uses `pool_tree_account_size()` internally.
 const TREE_ACCOUNT_SIZE: u64 = 1_200_000;
+
+/// Boot a rig with the canonical protocol config and one pool tree, returning
+/// (rig, authority, tree).
+fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
+    let mut rig = rig()?;
+    let authority = Keypair::new();
+    rig.create_protocol_config(&authority)
+        .expect("create_protocol_config");
+    let tree = rig
+        .create_pool_tree(TREE_ACCOUNT_SIZE, &authority)
+        .expect("create_pool_tree");
+    Some((rig, authority, tree))
+}
 
 fn rig() -> Option<PoolTestRig> {
     match PoolTestRig::new() {
@@ -34,12 +48,9 @@ fn rig() -> Option<PoolTestRig> {
 
 #[test]
 fn create_pool_tree_succeeds() {
-    let Some(mut rig) = rig() else {
+    let Some((rig, _authority, tree)) = rig_with_tree() else {
         return;
     };
-    let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE)
-        .expect("create_pool_tree");
 
     // The on-chain program allocated the account and wrote the combined
     // discriminator (1) into the first 8 bytes.
@@ -51,15 +62,45 @@ fn create_pool_tree_succeeds() {
 }
 
 #[test]
+fn proofless_shield_sol_deposits_into_pool() {
+    let Some((mut rig, _authority, tree)) = rig_with_tree() else {
+        return;
+    };
+    let depositor = Keypair::new();
+    rig.airdrop(&depositor.pubkey(), 5_000_000_000)
+        .expect("airdrop");
+
+    let vault_before = rig.account_data(&rig.cpi_authority());
+    let tree_before = rig.account_data(&tree.pubkey()).expect("tree data");
+
+    let amount = 1_000_000_000u64;
+    rig.proofless_shield_sol(&tree, &depositor, amount, [42u8; 32])
+        .expect("proofless_shield_sol");
+
+    // The deposit landed in the pool's SOL vault (the CPI authority PDA).
+    let vault_lamports = rig
+        .svm
+        .get_account(&rig.cpi_authority())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let vault_before_lamports = vault_before.map(|_| 0u64).unwrap_or(0);
+    assert!(
+        vault_lamports >= vault_before_lamports + amount,
+        "vault must grow by the deposit"
+    );
+
+    // The UTXO was appended: the state sub-tree root / next_index changed.
+    let tree_after = rig.account_data(&tree.pubkey()).expect("tree data");
+    assert_ne!(tree_before, tree_after, "tree must record the new leaf");
+}
+
+#[test]
 fn batch_update_address_tree_rejects_non_registry_signer() {
     use zolana_interface::instruction::BatchUpdateAddressTreeData;
 
-    let Some(mut rig) = rig() else {
+    let Some((mut rig, _authority, tree)) = rig_with_tree() else {
         return;
     };
-    let tree = rig
-        .create_pool_tree(TREE_ACCOUNT_SIZE)
-        .expect("create_pool_tree");
 
     // Payer is just a random keypair, not the registry's CPI authority PDA.
     // Shielded-pool's verify() must reject this — UnauthorizedCaller.
