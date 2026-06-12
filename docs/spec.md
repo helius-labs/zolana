@@ -805,7 +805,7 @@ struct MergeEncryptedUtxo {
 | public_sol_amount | instruction data |
 | public_spl_amount | instruction data |
 | public_spl_asset_pubkey | derived by SPP from the vault token account's mint |
-| ProgramIDHashchain | instruction data |
+| program_id_hashchain | instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | program_data_hash | instruction data |
 | zone_data_hash | instruction data |
