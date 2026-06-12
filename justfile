@@ -3,6 +3,8 @@ set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
+solana-bin := env_var_or_default("SOLANA_BIN", justfile_directory() / ".tools/solana/bin")
+export PATH := solana-bin + ":" + env_var("PATH")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 
@@ -37,6 +39,11 @@ test-shielded-pool:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
+    cargo test -p zolana-user-registry --lib
+
+# User-registry litesvm tests only (no Light fixture bundle required).
+test-user-registry-litesvm: build-programs
+    cargo test -p light-program-test --test user_registry_bdd
 
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:
@@ -66,6 +73,35 @@ build-cli:
 
 test-cli:
     cargo test -p zolana-cli
+
+# Download and verify the Light test-validator fixtures pinned in
+# .fixtures-version into ${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/<tag>.
+# Idempotent: no-op when the cache already has a verified bundle.
+fetch-fixtures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=$(tr -d '[:space:]' < .fixtures-version)
+    cache_root="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}"
+    dest="${cache_root}/fixtures/${tag}"
+    if [[ -f "${dest}/SHA256SUMS" ]] && (cd "$dest" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); then
+        echo "fixtures ${tag} already cached at ${dest}"
+        exit 0
+    fi
+    url="https://github.com/helius-labs/zolana/releases/download/${tag}/light-fixtures.tar.gz"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    echo "fetching ${url}"
+    if curl -sSfL "$url" -o "$tmp/light-fixtures.tar.gz"; then
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
+        cd "$dest" && shasum -a 256 -c SHA256SUMS
+        echo "fixtures ${tag} ready at ${dest}"
+    else
+        echo "GitHub release ${tag} missing; build the bundle manually." >&2
+        echo "See README.md > 'Light fixtures (manual build)'." >&2
+        exit 1
+    fi
 
 # === Local validator helpers ===
 

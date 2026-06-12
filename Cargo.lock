@@ -2993,7 +2993,9 @@ dependencies = [
 name = "light-program-test"
 version = "0.23.0"
 dependencies = [
+ "anchor-lang",
  "borsh",
+ "cucumber",
  "litesvm",
  "serial_test",
  "solana-instruction",
@@ -3003,7 +3005,9 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "thiserror 2.0.18",
+ "tokio",
  "zolana-interface",
+ "zolana-user-registry",
 ]
 
 [[package]]
@@ -8385,6 +8389,13 @@ dependencies = [
  "tokio",
  "wincode",
  "zolana-keypair",
+]
+
+[[package]]
+name = "zolana-user-registry"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
 ]
 
 [[package]]
