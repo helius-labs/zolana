@@ -69,8 +69,8 @@ func buildCircuitAssignmentExact(
 		t.Fatalf("output UTXO count mismatch: got %d want %d", len(outputUtxos), shape.NOutputs)
 	}
 
-	nullifierSecret := spptest.Fe(99)
-	inputOwnerKeyHashValue := testSolanaPkField(t)
+	nullifierSecrets := make([]*big.Int, shape.NInputs)
+	solanaOwnerPkHashes := make([]*big.Int, shape.NInputs)
 	inputCircuitUtxos := make([]UtxoCircuitFields, shape.NInputs)
 	inputHashes := make([]*big.Int, shape.NInputs)
 	nullifiers := make([]frontend.Variable, shape.NInputs)
@@ -79,10 +79,12 @@ func buildCircuitAssignmentExact(
 
 	for i := 0; i < shape.NInputs; i++ {
 		utxo := inputUtxos[i]
+		nullifierSecrets[i] = spptest.Fe(99)
+		solanaOwnerPkHashes[i] = testSolanaPkField(t)
 		inputCircuitUtxos[i] = FieldsFromUtxo(utxo)
 		inputHash := spptest.MustUtxoHash(t, utxo)
 		inputHashes[i] = inputHash
-		nullifier := spptest.MustNullifier(t, inputHash, utxo.Blinding, nullifierSecret)
+		nullifier := spptest.MustNullifier(t, inputHash, utxo.Blinding, nullifierSecrets[i])
 		nullifiers[i] = nullifier
 		stateLeafIndices[i] = defaultStateLeafIndex(i)
 		stateEntries[stateLeafIndices[i]] = inputHash
@@ -149,7 +151,7 @@ func buildCircuitAssignmentExact(
 		PublicSplAssetPubkey: publicSplAssetPubkey,
 		ProgramIDHashchain:   spptest.Fe(0),
 		PayerPubkeyHash:      payerPubkeyHash,
-		SolanaOwnerPkHash:    inputOwnerKeyHashValue,
+		SolanaOwnerPkHashes:  solanaOwnerPkHashes,
 		DataHash:             spptest.Fe(0),
 		ZoneDataHash:         spptest.Fe(0),
 	}
@@ -170,6 +172,8 @@ func buildCircuitAssignmentExact(
 			UtxoTreeRoot:             utxoTreeRoots[i],
 			NullifierTreeRoot:        nullifierTreeRoots[i],
 			Nullifier:                nullifiers[i],
+			SolanaOwnerPkHash:        solanaOwnerPkHashes[i],
+			NullifierSecret:          nullifierSecrets[i],
 		}
 	}
 	outputs := make([]Output, shape.NOutputs)
@@ -186,7 +190,6 @@ func buildCircuitAssignmentExact(
 		Inputs:               inputs,
 		Outputs:              outputs,
 		ExternalDataHash:     externalDataHash,
-		NullifierSecret:      nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
 		PrivateTxHash:        privateTxHash,
@@ -196,7 +199,6 @@ func buildCircuitAssignmentExact(
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
 		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
 		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		SolanaOwnerPkHash:    publicInputs.SolanaOwnerPkHash,
 		DataHash:             publicInputs.DataHash,
 		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
@@ -231,7 +233,7 @@ func refreshPublicInputHash(t testing.TB, assignment *Circuit) {
 		PublicSplAssetPubkey: spptest.AsBigInt(assignment.PublicSplAssetPubkey),
 		ProgramIDHashchain:   spptest.AsBigInt(assignment.ProgramIDHashchain),
 		PayerPubkeyHash:      spptest.AsBigInt(assignment.PayerPubkeyHash),
-		SolanaOwnerPkHash:    spptest.AsBigInt(assignment.SolanaOwnerPkHash),
+		SolanaOwnerPkHashes:  spptest.ToBigInts(assignment.inputSolanaOwnerPkHashes()),
 		DataHash:             spptest.AsBigInt(assignment.DataHash),
 		ZoneDataHash:         spptest.AsBigInt(assignment.ZoneDataHash),
 	}
@@ -308,7 +310,7 @@ func rewriteInputAsP256(
 		t.Fatalf("P256 input index %d out of range", inputIndex)
 	}
 
-	nullifierSecret := spptest.AsBigInt(assignment.NullifierSecret)
+	nullifierSecret := spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
 	compressed := elliptic.MarshalCompressed(elliptic.P256(), ownerPriv.PublicKey.X, ownerPriv.PublicKey.Y)
 	ownerKeyHash, err := protocol.P256PkField(compressed)
@@ -320,8 +322,46 @@ func rewriteInputAsP256(
 		t.Fatalf("P256 owner hash: %v", err)
 	}
 	assignment.Inputs[inputIndex].Utxo.Owner = owner
-	assignment.SolanaOwnerPkHash = spptest.Fe(0)
+	assignment.Inputs[inputIndex].SolanaOwnerPkHash = spptest.Fe(0)
 
+	rebuildAfterOwnerChange(t, assignment)
+	msg := spptest.MustFieldBytes(t, spptest.AsBigInt(assignment.P256MessageHash))
+	r, s, err := ecdsa.Sign(rand.Reader, signingPriv, msg[:])
+	if err != nil {
+		t.Fatalf("sign P256 private tx hash: %v", err)
+	}
+	assignment.P256Pub = spptest.P256PubkeyAssignment(ownerPriv)
+	assignment.P256Sig = gnarkecdsa.Signature[emulated.P256Fr]{
+		R: emulated.ValueOf[emulated.P256Fr](r),
+		S: emulated.ValueOf[emulated.P256Fr](s),
+	}
+}
+
+func rewriteInputAsSolanaOwner(
+	t testing.TB,
+	assignment *Circuit,
+	inputIndex int,
+	seed byte,
+	nullifierSecret *big.Int,
+) {
+	t.Helper()
+	if inputIndex < 0 || inputIndex >= len(assignment.Inputs) {
+		t.Fatalf("Solana owner input index %d out of range", inputIndex)
+	}
+	pkField := testSolanaPkFieldSeed(t, seed)
+	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
+	owner, err := protocol.OwnerHash(pkField, nullifierPk)
+	if err != nil {
+		t.Fatalf("owner hash: %v", err)
+	}
+	assignment.Inputs[inputIndex].Utxo.Owner = owner
+	assignment.Inputs[inputIndex].SolanaOwnerPkHash = pkField
+	assignment.Inputs[inputIndex].NullifierSecret = nullifierSecret
+	rebuildAfterOwnerChange(t, assignment)
+}
+
+func rebuildAfterOwnerChange(t testing.TB, assignment *Circuit) {
+	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	stateEntries := make(map[uint64]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
@@ -337,7 +377,12 @@ func rewriteInputAsP256(
 		assignment.Inputs[i].StatePathIndex = new(big.Int).SetUint64(stateProof.PathIndex)
 		assignment.Inputs[i].UtxoTreeRoot = stateRoot
 
-		nullifier := spptest.MustNullifier(t, inputHashes[i], spptest.AsBigInt(assignment.Inputs[i].Utxo.Blinding), nullifierSecret)
+		nullifier := spptest.MustNullifier(
+			t,
+			inputHashes[i],
+			spptest.AsBigInt(assignment.Inputs[i].Utxo.Blinding),
+			spptest.AsBigInt(assignment.Inputs[i].NullifierSecret),
+		)
 		assignment.Inputs[i].Nullifier = nullifier
 		nfWitness := spptest.MustNonInclusion(t, nullifierTree, nullifier)
 		assignment.Inputs[i].NullifierLowValue = nfWitness.LowValue
@@ -355,18 +400,7 @@ func rewriteInputAsP256(
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	p256MessageHash := spptest.MustP256MessageHash(t, privateTxHash)
-	assignment.P256MessageHash = p256MessageHash
-	msg := spptest.MustFieldBytes(t, p256MessageHash)
-	r, s, err := ecdsa.Sign(rand.Reader, signingPriv, msg[:])
-	if err != nil {
-		t.Fatalf("sign P256 private tx hash: %v", err)
-	}
-	assignment.P256Pub = spptest.P256PubkeyAssignment(ownerPriv)
-	assignment.P256Sig = gnarkecdsa.Signature[emulated.P256Fr]{
-		R: emulated.ValueOf[emulated.P256Fr](r),
-		S: emulated.ValueOf[emulated.P256Fr](s),
-	}
+	assignment.P256MessageHash = spptest.MustP256MessageHash(t, privateTxHash)
 	refreshPublicInputHash(t, assignment)
 }
 
@@ -387,7 +421,11 @@ func testPayerPubkeyHash() *big.Int {
 }
 
 func testSolanaPkField(t testing.TB) *big.Int {
-	pubkey := testSolanaPubkey()
+	return testSolanaPkFieldSeed(t, 0x42)
+}
+
+func testSolanaPkFieldSeed(t testing.TB, seed byte) *big.Int {
+	pubkey := testSolanaPubkeySeed(seed)
 	var bytes [32]byte
 	copy(bytes[:], pubkey)
 	hash, err := protocol.SolanaPkField(bytes)
@@ -401,9 +439,13 @@ func testSolanaPkField(t testing.TB) *big.Int {
 }
 
 func testSolanaPubkey() []byte {
+	return testSolanaPubkeySeed(0x42)
+}
+
+func testSolanaPubkeySeed(seedByte byte) []byte {
 	seed := make([]byte, ed25519.SeedSize)
 	for i := range seed {
-		seed[i] = 0x42
+		seed[i] = seedByte
 	}
 	key := ed25519.NewKeyFromSeed(seed)
 	return key[32:]

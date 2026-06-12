@@ -20,7 +20,7 @@ var publicInputNames = [...]string{
 	"payer_pubkey_hash",
 	"data_hash",
 	"zone_data_hash",
-	"solana_owner_pk_hash",
+	"solana_owner_pk_hashes",
 }
 
 // PublicInputNames returns the PublicInputHash preimage order.
@@ -43,7 +43,7 @@ type PublicInputs struct {
 	PublicSplAssetPubkey *big.Int
 	ProgramIDHashchain   *big.Int
 	PayerPubkeyHash      *big.Int
-	SolanaOwnerPkHash    *big.Int
+	SolanaOwnerPkHashes  []*big.Int
 	DataHash             *big.Int
 	ZoneDataHash         *big.Int
 }
@@ -65,6 +65,10 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier root chain: %w", err)
 	}
+	solanaOwnerChain, err := HashChain(inputs.SolanaOwnerPkHashes)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
+	}
 	return HashChain([]*big.Int{
 		nullifierChain,
 		outputChain,
@@ -80,6 +84,6 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PayerPubkeyHash,
 		inputs.DataHash,
 		inputs.ZoneDataHash,
-		inputs.SolanaOwnerPkHash,
+		solanaOwnerChain,
 	})
 }

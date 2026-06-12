@@ -41,7 +41,7 @@ func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.SolanaOwnerPkHash = spptest.Fe(12345)
+	assignment.Inputs[0].SolanaOwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -71,10 +71,10 @@ func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Soundness guard: the Solana-only variant must reject a P256-owned
-// transaction (SolanaOwnerPkHash == 0), since it skips the signature gadget.
-// Otherwise a UTXO owned by OwnerHash(0, nullifier_pk) could be spent with no
-// signature.
+// Soundness guard: the Solana-only variant must reject a P256-owned input
+// (solana_owner_pk_hashes[i] == 0 on a real slot), since it skips the
+// signature gadget. Otherwise a UTXO owned by OwnerHash(0, nullifier_pk)
+// could be spent with no signature.
 func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -88,9 +88,8 @@ func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Spec single-owner rule: all non-dummy inputs must share one owner. Mixing a
-// P256-owned input with a Solana-owned input in one transaction is rejected.
-func TestCircuitRejectsMixedP256AndSolanaInputs(t *testing.T) {
+// Spec UTXO Ownership: each input's solana_owner_pk_hashes entry selects its own path
+func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
@@ -98,12 +97,39 @@ func TestCircuitRejectsMixedP256AndSolanaInputs(t *testing.T) {
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, priv, priv)
 
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Spec UTXO Ownership: Ed25519 owners may differ per input — each entry binds
+// its own input, each with its own nullifier secret.
+func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// An input's entry must match the key committed in that input's owner hash:
+// swapping in a sibling's (or any foreign) key fails the owner binding even
+// though every entry is individually a valid pk_field.
+func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
+	assignment.Inputs[1].SolanaOwnerPkHash = testSolanaPkField(t)
+	refreshPublicInputHash(t, assignment)
+
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// The owner key selects the ownership path for the whole proof: non-zero
-// forces the Solana path, so a P256-owned transaction carrying a stray
-// non-zero SolanaOwnerPkHash cannot bind its inputs' owners.
+// A non-zero entry binds the input's owner to the entry, never to the P256
+// witness key: a P256-owned input carrying a stray non-zero entry cannot bind
+// its owner.
 func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -111,7 +137,7 @@ func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.SolanaOwnerPkHash = testSolanaPkField(t)
+	assignment.Inputs[0].SolanaOwnerPkHash = testSolanaPkField(t)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))

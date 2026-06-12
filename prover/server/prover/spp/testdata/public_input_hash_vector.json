@@ -29,6 +29,10 @@
   "payer_pubkey_hash": "0x14",
   "data_hash": "0x15",
   "zone_data_hash": "0x16",
-  "solana_owner_pk_hash": "0x17",
-  "public_input_hash": "0x10f1f0e40c774697c3f78386f56666a3f0c3414ff383cf74689e441308bfe6a1"
+  "solana_owner_pk_hashes": [
+    "0x17",
+    "0x18",
+    "0x00"
+  ],
+  "public_input_hash": "0x2746c42d50caf016eae4b30d35d0ef7e0360ab9f0836e1ffc66b83832502c3fe"
 }

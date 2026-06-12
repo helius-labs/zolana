@@ -25,10 +25,9 @@ type inputWitnesses struct {
 	utxoRoots                []*big.Int
 	nullifierTreeRoots       []*big.Int
 	nullifiers               []*big.Int
-	solanaOwnerPkHash        *big.Int
-	solanaOwnerPubkey        string
+	solanaOwnerPkHashes      []*big.Int
+	solanaOwnerPubkeys       []string
 	requiresP256OwnerWitness bool
-	nullifierSecret          *big.Int
 }
 
 func buildInputWitnesses(
@@ -38,24 +37,19 @@ func buildInputWitnesses(
 	nullifierTree *protocol.NullifierTree,
 ) (inputWitnesses, error) {
 	inputs := inputWitnesses{
-		inputs:             make([]txcircuit.Input, shape.NInputs),
-		hashes:             make([]*big.Int, shape.NInputs),
-		utxoRoots:          make([]*big.Int, shape.NInputs),
-		nullifierTreeRoots: make([]*big.Int, shape.NInputs),
-		nullifiers:         make([]*big.Int, shape.NInputs),
-		solanaOwnerPkHash:  big.NewInt(0),
-		nullifierSecret:    big.NewInt(0),
+		inputs:              make([]txcircuit.Input, shape.NInputs),
+		hashes:              make([]*big.Int, shape.NInputs),
+		utxoRoots:           make([]*big.Int, shape.NInputs),
+		nullifierTreeRoots:  make([]*big.Int, shape.NInputs),
+		nullifiers:          make([]*big.Int, shape.NInputs),
+		solanaOwnerPkHashes: make([]*big.Int, shape.NInputs),
+		solanaOwnerPubkeys:  make([]string, len(requests)),
 	}
 
 	for i, request := range requests {
 		input, err := parseProofInput(request)
 		if err != nil {
 			return inputWitnesses{}, fmt.Errorf("input %d: %w", i, err)
-		}
-		if i == 0 {
-			inputs.nullifierSecret = input.nullifierSecret
-		} else if inputs.nullifierSecret.Cmp(input.nullifierSecret) != 0 {
-			return inputWitnesses{}, fmt.Errorf("input %d nullifier_secret differs from input 0", i)
 		}
 
 		inputHash, err := protocol.UtxoHash(input.utxo)
@@ -72,20 +66,15 @@ func buildInputWitnesses(
 
 		witness := newInputWitness()
 		witness.Utxo = toProofCircuitFields(input.utxo)
-		// The circuit binds every real input to one owner key (single-owner
-		// rule), so the witnesses carry a single tx-level owner key hash:
-		// 0 selects the P256 witness key, non-zero is the shared Solana owner.
-		// Reject violations here with a readable error instead of failing in
-		// the constraint solver.
+		witness.NullifierSecret = input.nullifierSecret
 		if input.isP256 {
 			inputs.requiresP256OwnerWitness = true
+			witness.SolanaOwnerPkHash = big.NewInt(0)
+			inputs.solanaOwnerPkHashes[i] = big.NewInt(0)
 		} else {
-			if inputs.solanaOwnerPkHash.Sign() == 0 {
-				inputs.solanaOwnerPkHash = input.ownerKeyHash
-				inputs.solanaOwnerPubkey = input.ownerSolanaPubkey
-			} else if inputs.solanaOwnerPkHash.Cmp(input.ownerKeyHash) != 0 {
-				return inputWitnesses{}, fmt.Errorf("input %d Solana owner differs from earlier inputs: transactions spend a single owner", i)
-			}
+			witness.SolanaOwnerPkHash = input.ownerKeyHash
+			inputs.solanaOwnerPkHashes[i] = input.ownerKeyHash
+			inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
 		}
 		utxoRoot := state.root
 		nullifierTreeRoot := nullifierTree.Root()
@@ -116,16 +105,13 @@ func buildInputWitnesses(
 		inputs.nullifiers[i] = nullifier
 	}
 
-	if inputs.requiresP256OwnerWitness && inputs.solanaOwnerPkHash.Sign() != 0 {
-		return inputWitnesses{}, fmt.Errorf("transaction mixes P256-owned and Solana-owned inputs: transactions spend a single owner")
-	}
-
 	for i := len(requests); i < shape.NInputs; i++ {
 		inputs.inputs[i] = dummyInputWitness()
 		inputs.hashes[i] = big.NewInt(0)
 		inputs.utxoRoots[i] = big.NewInt(0)
 		inputs.nullifierTreeRoots[i] = big.NewInt(0)
 		inputs.nullifiers[i] = big.NewInt(0)
+		inputs.solanaOwnerPkHashes[i] = big.NewInt(0)
 	}
 	return inputs, nil
 }
@@ -141,6 +127,8 @@ func newInputWitness() txcircuit.Input {
 		NullifierNextValue:       big.NewInt(0),
 		UtxoTreeRoot:             big.NewInt(0),
 		NullifierTreeRoot:        big.NewInt(0),
+		SolanaOwnerPkHash:        big.NewInt(0),
+		NullifierSecret:          big.NewInt(0),
 	}
 }
 

@@ -34,7 +34,7 @@ type assignmentTranscript struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int
 	nullifiers               []*big.Int
-	solanaOwnerPubkey        string
+	solanaOwnerPubkeys       []string
 	requiresP256OwnerWitness bool
 }
 
@@ -122,7 +122,6 @@ func buildProofAssignment(
 		Inputs:               inputs.inputs,
 		Outputs:              outputs.outputs,
 		ExternalDataHash:     external.hash,
-		NullifierSecret:      inputs.nullifierSecret,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
 		PrivateTxHash:        privateTxHash,
@@ -132,7 +131,6 @@ func buildProofAssignment(
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
 		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
 		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		SolanaOwnerPkHash:    publicInputs.SolanaOwnerPkHash,
 		DataHash:             publicInputs.DataHash,
 		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
@@ -141,7 +139,7 @@ func buildProofAssignment(
 		inputHashes:              inputs.hashes,
 		outputHashes:             outputs.hashes,
 		nullifiers:               inputs.nullifiers,
-		solanaOwnerPubkey:        inputs.solanaOwnerPubkey,
+		solanaOwnerPubkeys:       inputs.solanaOwnerPubkeys,
 		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
 	}
 	return proofAssignment{
@@ -239,7 +237,7 @@ func buildPublicInputs(
 		PublicSplAssetPubkey: external.publicSplAsset,
 		ProgramIDHashchain:   external.programIDHashchain,
 		PayerPubkeyHash:      new(big.Int).Set(payerHash),
-		SolanaOwnerPkHash:    inputs.solanaOwnerPkHash,
+		SolanaOwnerPkHashes:  inputs.solanaOwnerPkHashes,
 		DataHash:             external.dataHash,
 		ZoneDataHash:         external.zoneDataHash,
 	}

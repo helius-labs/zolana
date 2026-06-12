@@ -24,7 +24,7 @@ type publicInputHashVector struct {
 	PayerPubkeyHash      string   `json:"payer_pubkey_hash"`
 	DataHash             string   `json:"data_hash"`
 	ZoneDataHash         string   `json:"zone_data_hash"`
-	SolanaOwnerPkHash    string   `json:"solana_owner_pk_hash"`
+	SolanaOwnerPkHashes  []string `json:"solana_owner_pk_hashes"`
 	PublicInputHash      string   `json:"public_input_hash"`
 }
 
@@ -45,7 +45,7 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		PayerPubkeyHash:      parseField(t, vector.PayerPubkeyHash),
 		DataHash:             parseField(t, vector.DataHash),
 		ZoneDataHash:         parseField(t, vector.ZoneDataHash),
-		SolanaOwnerPkHash:    parseField(t, vector.SolanaOwnerPkHash),
+		SolanaOwnerPkHashes:  parseFields(t, vector.SolanaOwnerPkHashes),
 	})
 	if err != nil {
 		t.Fatalf("public input hash: %v", err)

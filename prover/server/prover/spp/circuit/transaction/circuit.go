@@ -17,14 +17,13 @@ type Circuit struct {
 	// RequiresP256 picks the rail at compile time. True: include the emulated
 	// P256 ECDSA gadget (most of the constraints) for P256 owners. False:
 	// Solana-only, no gadget (~7x smaller), every real input must be
-	// Solana-owned. The single-owner rule keeps each proof on one rail.
+	// Solana-owned (SolanaOwnerPkHash != 0).
 	RequiresP256 bool `gnark:"-"`
 
 	Inputs  []Input
 	Outputs []Output
 
 	ExternalDataHash frontend.Variable
-	NullifierSecret  frontend.Variable
 	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
 	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
 
@@ -35,7 +34,6 @@ type Circuit struct {
 	PublicSplAssetPubkey frontend.Variable
 	ProgramIDHashchain   frontend.Variable
 	PayerPubkeyHash      frontend.Variable
-	SolanaOwnerPkHash    frontend.Variable
 	DataHash             frontend.Variable
 	ZoneDataHash         frontend.Variable
 
@@ -56,6 +54,9 @@ type Input struct {
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
 	Nullifier         frontend.Variable
+
+	SolanaOwnerPkHash frontend.Variable
+	NullifierSecret   frontend.Variable
 }
 
 type Output struct {
@@ -115,12 +116,12 @@ func (c *Circuit) Define(api frontend.API) error {
 		return err
 	}
 
-	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
-	env := spendEnv{
-		nullifierSecret: c.NullifierSecret,
-		requiresP256:    c.RequiresP256,
+	nullifierPks := make([]frontend.Variable, c.Shape.NInputs)
+	for i := 0; i < c.Shape.NInputs; i++ {
+		nullifierPks[i] = NullifierPkCircuit(api, c.Inputs[i].NullifierSecret)
 	}
-	p256PkField := frontend.Variable(0)
+
+	env := spendEnv{requiresP256: c.RequiresP256}
 	if c.RequiresP256 {
 		ownerKeyHash, err := P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
 		if err != nil {
@@ -130,7 +131,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		if err != nil {
 			return err
 		}
-		p256PkField = ownerKeyHash
+		env.p256PkField = ownerKeyHash
 		env.p256SigValid = c.P256Pub.IsValid(
 			api,
 			sw_emulated.GetCurveParams[emulated.P256Fp](),
@@ -139,9 +140,10 @@ func (c *Circuit) Define(api frontend.API) error {
 		)
 	} else {
 		// Solana-only rail: no P256 gadget. Pin the message hash to 0 and set
-		// p256SigValid to a constant — constrainInput forces the transaction
+		// p256SigValid to a constant — constrainInput forces every real input
 		// Solana-owned, so the P256 checks never fire.
 		api.AssertIsEqual(c.P256MessageHash, 0)
+		env.p256PkField = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
 		// The P256 gadget adds a bsb22 commitment the on-chain Groth16Verifier
 		// expects. The Solana rail has no gadget, so add one explicit commitment
@@ -150,21 +152,14 @@ func (c *Circuit) Define(api frontend.API) error {
 		if !ok {
 			return fmt.Errorf("spp: frontend does not support commitments")
 		}
-		if _, err := committer.Commit(nullifierPkFromSecret); err != nil {
+		if _, err := committer.Commit(c.PublicInputHash); err != nil {
 			return err
 		}
 	}
-	// Single owner (spec: nullifier secret binding): the transaction carries one
-	// public owner key — SolanaOwnerPkHash, or 0 to select the P256 witness key.
-	// Every real input binds its UTXO owner to this one owner hash in
-	// constrainInput, so distinct owners cannot mix in one proof.
-	env.isP256 = api.IsZero(c.SolanaOwnerPkHash)
-	ownerKeyHash := api.Select(env.isP256, p256PkField, c.SolanaOwnerPkHash)
-	env.ownerHash = OwnerHashCircuit(api, ownerKeyHash, nullifierPkFromSecret)
 
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
-		inputHashes[i] = constrainInput(api, c.Inputs[i], env)
+		inputHashes[i] = constrainInput(api, c.Inputs[i], nullifierPks[i], env)
 	}
 	c.assertDistinctNullifiers(api)
 
@@ -217,8 +212,16 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PayerPubkeyHash,
 		c.DataHash,
 		c.ZoneDataHash,
-		c.SolanaOwnerPkHash,
+		gadget.HashChain(api, c.inputSolanaOwnerPkHashes()),
 	})
+}
+
+func (c *Circuit) inputSolanaOwnerPkHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Inputs))
+	for i := range c.Inputs {
+		out[i] = c.Inputs[i].SolanaOwnerPkHash
+	}
+	return out
 }
 
 func (c *Circuit) inputUtxos() []UtxoCircuitFields {

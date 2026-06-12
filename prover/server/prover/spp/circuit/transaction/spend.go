@@ -33,19 +33,14 @@ func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Varia
 	api.AssertIsEqual(isLessLimbs(api, midLimbs, hiLimbs), 1)
 }
 
-// spendEnv holds values shared by every input-spend check. They are computed
-// once per proof from the wallet secret and the transaction's single owner key.
+// spendEnv holds the per-proof values shared by every input-spend check: the
+// one witnessed P256 key and the one signature over private_tx_hash that
+// authorize all P256-owned inputs.
 type spendEnv struct {
-	// ownerHash is the transaction's one owner hash: OwnerHash(owner key,
-	// nullifier_pk), where the owner key is the public SolanaOwnerPkHash or,
-	// when that is 0 (isP256 == 1), the P256 witness key. Binding every real
-	// input to it enforces the single-owner rule structurally.
-	ownerHash       frontend.Variable
-	isP256          frontend.Variable
-	p256SigValid    frontend.Variable
-	nullifierSecret frontend.Variable
+	p256PkField  frontend.Variable
+	p256SigValid frontend.Variable
 	// requiresP256 is false for the Solana-only circuit variant, which omits the
-	// P256 gadget and must therefore reject a P256-owned transaction.
+	// P256 gadget and must therefore reject P256-owned inputs.
 	requiresP256 bool
 }
 
@@ -53,12 +48,13 @@ type spendEnv struct {
 // binding, nullifier derivation, and nullifier-tree non-inclusion. Every check
 // is gated on the slot being real; a dummy slot skips all of them. It returns
 // the input's UTXO hash (0 for a dummy) for the transaction-hash chain.
-func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable {
+func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) frontend.Variable {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
 	// A dummy slot must be inert: zero amount and zero public-input material.
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
+	assertZeroWhen(api, in.IsDummy, in.SolanaOwnerPkHash)
 	assertEqualWhen(api, notDummy, in.Utxo.Domain, protocol.UtxoDomain)
 	// Default transact handles only bare UTXOs: program/policy data and zone
 	// program id must be zero. Program-owned UTXOs (zone_program_id != 0) are
@@ -79,24 +75,29 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	// relying on that reducer alone to canonicalize it.
 	assertZeroWhen(api, in.IsDummy, in.UtxoTreeRoot)
 
-	// Owner check: every real input's UTXO owner must equal the transaction's
-	// single owner hash (see Define).
+	// Owner check: the input's SolanaOwnerPkHash selects its path —
+	// 0 binds the owner to the shared witnessed P256 key,
+	// non-zero binds it to the entry itself
+	isP256 := api.IsZero(in.SolanaOwnerPkHash)
 	if !env.requiresP256 {
 		// Solana-only variant: the P256 gadget (incl. the signature check) is
-		// absent, so the transaction MUST be Solana-owned (SolanaOwnerPkHash != 0).
+		// absent, so every real input MUST be Solana-owned (entry != 0).
 		// Otherwise the owner key is 0 and p256SigValid is forced 1, which would
 		// let a UTXO crafted with owner = OwnerHash(0, nullifier_pk) be spent
 		// here with no signature. This restricts the variant to its rail.
-		assertZeroWhen(api, notDummy, env.isP256)
+		assertZeroWhen(api, notDummy, isP256)
 	}
-	assertEqualWhen(api, notDummy, env.ownerHash, in.Utxo.Owner)
-	// A P256-owned transaction must carry a valid signature for each real input;
-	// Solana ownership is verified by SPP out of circuit.
-	assertZeroWhen(api, api.Mul(notDummy, env.isP256), api.Sub(1, env.p256SigValid))
+	ownerKeyHash := api.Select(isP256, env.p256PkField, in.SolanaOwnerPkHash)
+	ownerHash := OwnerHashCircuit(api, ownerKeyHash, nullifierPk)
+	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
+	// A real P256-owned input requires the valid shared signature; Solana
+	// ownership is verified by SPP out of circuit.
+	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
 
-	// Nullifier: Poseidon over the UTXO hash, blinding, and shared secret — a
-	// canonical field element, inserted into the nullifier tree untruncated.
-	nullifier := NullifierCircuit(api, utxoHash, in.Utxo.Blinding, env.nullifierSecret)
+	// Nullifier: Poseidon over the UTXO hash, blinding, and the input's own
+	// secret — a canonical field element, inserted into the nullifier tree
+	// untruncated.
+	nullifier := NullifierCircuit(api, utxoHash, in.Utxo.Blinding, in.NullifierSecret)
 	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
 	assertZeroWhen(api, in.IsDummy, in.Nullifier)
 

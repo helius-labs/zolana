@@ -97,9 +97,8 @@ type ProofTransaction struct {
 	UserSolAccount         string        `json:"user_sol_account"`
 	UserSplTokenAccount    string        `json:"user_spl_token_account"`
 	SplTokenInterface      string        `json:"spl_token_interface"`
-	// 32-byte pubkey of the Solana owner-signer the relayer must include as a
-	// Solana transaction signer; empty for a P256 owner.
-	SolanaOwnerPubkey       string              `json:"solana_owner_pubkey"`
+
+	SolanaOwnerPubkeys      []string            `json:"solana_owner_pubkeys"`
 	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
 	DebugInputUtxoHashes    []string            `json:"debug_input_utxo_hashes"`
 	DebugOutputUtxoHashes   []string            `json:"debug_output_utxo_hashes"`
@@ -284,7 +283,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		UserSolAccount:          parse.BytesHex(userSolAccount[:]),
 		UserSplTokenAccount:     parse.BytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:       parse.BytesHex(splTokenInterface[:]),
-		SolanaOwnerPubkey:       transcript.solanaOwnerPubkey,
+		SolanaOwnerPubkeys:      transcript.solanaOwnerPubkeys,
 		OutputUtxos:             outputUtxos,
 		DebugInputUtxoHashes:    proofBigIntHexes(transcript.inputHashes),
 		DebugOutputUtxoHashes:   proofBigIntHexes(transcript.outputHashes),

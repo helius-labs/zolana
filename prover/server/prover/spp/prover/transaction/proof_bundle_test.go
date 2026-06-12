@@ -76,18 +76,27 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 	}
 }
 
-func TestBuildProofAssignmentRejectsMixedNullifierSecrets(t *testing.T) {
+func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tx.Inputs[1].NullifierSecret = proofFieldInput(big.NewInt(999))
+	refreshStateEntry(t, &tx, 1)
 
-	_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
-	if err == nil || !strings.Contains(err.Error(), "nullifier_secret differs from input 0") {
-		t.Fatalf("error = %v", err)
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	if err != nil {
+		t.Fatalf("distinct nullifier secrets must build: %v", err)
 	}
+	nullifiers := built.publicInputs.Nullifiers
+	if nullifiers[0].Sign() == 0 || nullifiers[1].Sign() == 0 {
+		t.Fatal("both inputs must publish real nullifiers")
+	}
+	if nullifiers[0].Cmp(nullifiers[1]) == 0 {
+		t.Fatal("nullifiers must differ across inputs")
+	}
+	solveAssignment(t, shape, built)
 }
 
 func TestBuildProofAssignmentRejectsBadPublicAmountRequests(t *testing.T) {

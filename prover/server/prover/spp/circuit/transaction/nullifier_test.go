@@ -44,7 +44,19 @@ func TestCircuitRejectsBadNullifierSecret(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.NullifierSecret = spptest.Fe(998)
+	assignment.Inputs[0].NullifierSecret = spptest.Fe(998)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// A corrupted secret on one input must not be maskable by its siblings: with
+// two inputs, only input 1's secret is wrong and the proof still fails.
+func TestCircuitRejectsBadNullifierSecretOnOneInput(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	assignment.Inputs[1].NullifierSecret = spptest.Fe(998)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
