@@ -52,9 +52,11 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
-	// A dummy slot must be inert: zero amount and zero public-input material.
+	// A dummy slot must be inert: zero amount. Its public transcript columns
+	// (nullifier, roots, owner entry) are deliberately unpinned so a dummy can
+	// mimic a real slot and hide the transaction's real arity; the on-chain
+	// reconstruction decides what values it accepts there.
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
-	assertZeroWhen(api, in.IsDummy, in.SolanaOwnerPkHash)
 	assertEqualWhen(api, notDummy, in.Utxo.Domain, protocol.UtxoDomain)
 	// Default transact handles only bare UTXOs: program/policy data and zone
 	// program id must be zero. Program-owned UTXOs (zone_program_id != 0) are
@@ -70,10 +72,6 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	statePathIndices := api.ToBinary(in.StatePathIndex, protocol.StateTreeHeight)
 	stateRoot := gadget.MerkleRoot(api, utxoHash, in.StatePathElements, statePathIndices)
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
-	// A dummy slot's root is meaningless; pin it to 0 so the public transcript
-	// is canonical (matches the on-chain zero-padded reconstruction) rather than
-	// relying on that reducer alone to canonicalize it.
-	assertZeroWhen(api, in.IsDummy, in.UtxoTreeRoot)
 
 	// Owner check: the input's SolanaOwnerPkHash selects its path —
 	// 0 binds the owner to the shared witnessed P256 key,
@@ -99,7 +97,6 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	// untruncated.
 	nullifier := NullifierCircuit(api, utxoHash, in.Utxo.Blinding, in.NullifierSecret)
 	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
-	assertZeroWhen(api, in.IsDummy, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -107,7 +104,6 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, protocol.NullifierTreeHeight)
 	nfRoot := gadget.MerkleRoot(api, lowLeafHash, in.NullifierLowPathElements, nfPathIndices)
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
-	assertZeroWhen(api, in.IsDummy, in.NullifierTreeRoot)
 	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 
 	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
@@ -135,7 +131,7 @@ func constrainOutput(api frontend.API, out Output) frontend.Variable {
 
 // assertDistinctNullifiers rejects spending the same input twice in one
 // transaction: every pair of real inputs must carry distinct nullifiers. Dummy
-// inputs all carry nullifier 0 and are excluded from the check.
+// inputs are excluded from the check.
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 	for i := range c.Inputs {
 		for j := i + 1; j < len(c.Inputs); j++ {

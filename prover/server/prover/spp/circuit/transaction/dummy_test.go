@@ -34,10 +34,10 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		spptest.Fe(0),
 	)
 
-	// Turn input[0] into an inert dummy slot: IsDummy=1 with zero amount, zero
-	// nullifier, zero roots, and a zero solana_owner_pk_hashes entry (the
-	// exact fields the inertness constraints pin). The remaining witness
-	// fields are gated on notDummy and so are ignored.
+	// Turn input[0] into an inert dummy slot: IsDummy=1 with zero amount (the
+	// only pinned field). The public columns are zeroed to match the on-chain
+	// zero-padded reconstruction; the remaining witness fields are gated on
+	// notDummy and so are ignored.
 	in := &assignment.Inputs[0]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Amount = spptest.Fe(0)
@@ -72,16 +72,22 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, buildDummyInputShield(t, 125), test.WithCurves(ecc.BN254))
 }
 
-// A dummy slot's solana_owner_pk_hashes entry must be 0; a non-zero entry on a dummy is
-// rejected even though the public input hash is refreshed to match.
-func TestDummyInputRejectsNonZeroOwnerKeyEntry(t *testing.T) {
+// A dummy slot's public columns are unpinned so dummies can mimic real slots
+// (arity hiding): a non-zero owner entry, nullifier, and roots on a dummy all
+// solve once the public input hash matches. The dummy stays inert — the
+// amount pin and the notDummy gating keep it out of the balance and the
+// spend checks.
+func TestDummyInputAcceptsMimickedPublicColumns(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].SolanaOwnerPkHash = testSolanaPkField(t)
+	assignment.Inputs[0].Nullifier = spptest.Fe(7)
+	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
+	assignment.Inputs[0].NullifierTreeRoot = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 // TestDummyInputRejectsNonZeroAmount pins the dummy-slot inertness constraint
@@ -95,17 +101,5 @@ func TestDummyInputRejectsNonZeroAmount(t *testing.T) {
 	circuit := MustNewCircuit(shape)
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Utxo.Amount = spptest.Fe(1)
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// TestDummyInputRejectsNonZeroNullifier pins assertZeroWhen(IsDummy, Nullifier):
-// a dummy slot must publish nullifier 0 so it cannot smuggle a spend into the
-// queue.
-func TestDummyInputRejectsNonZeroNullifier(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(shape)
-	assignment := buildDummyInputShield(t, 125)
-	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
