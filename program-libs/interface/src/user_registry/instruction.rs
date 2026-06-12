@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::state::{NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN};
 
-/// First-byte instruction dispatch tags for the user-registry program.
-pub mod tag {
+/// First-byte instruction discriminators for the user-registry program.
+pub mod discriminator {
     pub const REGISTER: u8 = 0;
     pub const SET_SYNC_DELEGATE: u8 = 1;
     pub const ROTATE_SYNC_DELEGATE: u8 = 2;
@@ -39,7 +39,7 @@ mod builders {
     use solana_instruction::{AccountMeta, Instruction};
     use solana_pubkey::Pubkey;
 
-    use super::{tag, RegisterData, RotateSyncDelegateData, SetSyncDelegateData};
+    use super::{discriminator, RegisterData, RotateSyncDelegateData, SetSyncDelegateData};
     use crate::instruction::encode_instruction;
 
     const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
@@ -57,7 +57,7 @@ mod builders {
                 AccountMeta::new(owner, true),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
-            data: encode_instruction(tag::REGISTER, &data),
+            data: encode_instruction(discriminator::REGISTER, &data),
         }
     }
 
@@ -74,7 +74,7 @@ mod builders {
                 AccountMeta::new(owner, true),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
-            data: encode_instruction(tag::SET_SYNC_DELEGATE, &data),
+            data: encode_instruction(discriminator::SET_SYNC_DELEGATE, &data),
         }
     }
 
@@ -91,7 +91,7 @@ mod builders {
                 AccountMeta::new(sync_delegate, true),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
-            data: encode_instruction(tag::ROTATE_SYNC_DELEGATE, &data),
+            data: encode_instruction(discriminator::ROTATE_SYNC_DELEGATE, &data),
         }
     }
 
@@ -103,7 +103,7 @@ mod builders {
                 AccountMeta::new(user_record, false),
                 AccountMeta::new_readonly(signer, true),
             ],
-            data: vec![tag::REVOKE],
+            data: vec![discriminator::REVOKE],
         }
     }
 
@@ -115,7 +115,7 @@ mod builders {
                 AccountMeta::new(user_record, false),
                 AccountMeta::new(owner, true),
             ],
-            data: vec![tag::CLOSE],
+            data: vec![discriminator::CLOSE],
         }
     }
 }

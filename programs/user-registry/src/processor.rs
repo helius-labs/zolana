@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::user_registry::instruction::{
-    tag, RegisterData, RotateSyncDelegateData, SetSyncDelegateData,
+    discriminator, RegisterData, RotateSyncDelegateData, SetSyncDelegateData,
 };
 
 use crate::{
@@ -18,33 +18,33 @@ pub fn process_instruction(
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let (ix_tag, payload) = instruction_data
+    let (ix_discriminator, payload) = instruction_data
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
-    match *ix_tag {
-        tag::REGISTER => {
+    match *ix_discriminator {
+        discriminator::REGISTER => {
             let data = RegisterData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
             process_register(program_id, accounts, data)
         }
-        tag::SET_SYNC_DELEGATE => {
+        discriminator::SET_SYNC_DELEGATE => {
             let data = SetSyncDelegateData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
             process_set_sync_delegate(program_id, accounts, data)
         }
-        tag::ROTATE_SYNC_DELEGATE => {
+        discriminator::ROTATE_SYNC_DELEGATE => {
             let data = RotateSyncDelegateData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
             process_rotate_sync_delegate(program_id, accounts, data)
         }
-        tag::REVOKE => {
+        discriminator::REVOKE => {
             if !payload.is_empty() {
                 return Err(fail(UserRegistryError::InvalidInstructionData));
             }
             process_revoke(program_id, accounts)
         }
-        tag::CLOSE => {
+        discriminator::CLOSE => {
             if !payload.is_empty() {
                 return Err(fail(UserRegistryError::InvalidInstructionData));
             }

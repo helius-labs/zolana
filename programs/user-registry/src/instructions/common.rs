@@ -19,9 +19,7 @@ pub fn check_system_program(account: &AccountView) -> Result<(), ProgramError> {
     Ok(())
 }
 
-/// Verify that `record` is the canonical PDA for `owner` and return the bump.
-/// Only used at register; later instructions use the stored bump via
-/// [`check_record_pda_with_bump`].
+/// CHECK that `record` is the canonical PDA for `owner` and return the bump.
 pub fn check_record_pda(
     record: &AccountView,
     owner: &Address,
@@ -35,11 +33,8 @@ pub fn check_record_pda(
     Ok(bump)
 }
 
-/// Verify `record` against the single-hash derivation with a stored bump,
-/// avoiding the `find_program_address` bump search. The bump MUST come from a
-/// record this program wrote: register stores the canonical bump, so the
-/// derived address is off-curve by construction and `derive_address` skipping
-/// the on-curve check is sound.
+/// CHECK `record` against a stored bump. Note that the bump MUST come from a
+/// record this program wrote.
 pub fn check_record_pda_with_bump(
     record: &AccountView,
     owner: &[u8; 32],
@@ -54,9 +49,8 @@ pub fn check_record_pda_with_bump(
     Ok(())
 }
 
-/// Deserialize the record after checking program ownership, writability and
-/// the 1-byte discriminator. Trailing zero padding after the borsh body is
-/// expected: accounts are sized for the `Some` length of optional fields.
+/// Deserialize record
+/// Checks ownership, is_writable, discriminator
 pub fn read_record(record: &AccountView, program_id: &Address) -> Result<UserRecord, ProgramError> {
     if !record.owned_by(program_id) || !record.is_writable() {
         return Err(fail(UserRegistryError::InvalidRecordAccount));
@@ -81,10 +75,6 @@ pub fn write_record(record: &mut AccountView, state: &UserRecord) -> ProgramResu
     Ok(())
 }
 
-/// Create the record account at its rent-exempt minimum, signing for the PDA.
-/// Single code path for both fresh and pre-funded addresses: top-up `transfer`
-/// + `allocate` + `assign`. This is what `create_account` does internally,
-/// minus its zero-lamport precondition.
 pub fn create_record_account(
     record: &AccountView,
     payer: &AccountView,
@@ -146,7 +136,6 @@ pub fn system_transfer(from: &AccountView, to: &AccountView, lamports: u64) -> P
     invoke::<2, _>(&instruction, &[from, to])
 }
 
-/// Grow the record to `new_space`, topping up rent from `payer` first.
 pub fn grow_record(
     record: &mut AccountView,
     payer: &AccountView,
@@ -165,8 +154,7 @@ mod tests {
     use super::*;
     use zolana_interface::user_registry::USER_REGISTRY_PROGRAM_ID;
 
-    /// Pins the assumption behind `check_record_pda_with_bump`: deriving with
-    /// the bump returned by the canonical search yields the canonical address.
+    /// Verify that `check_record_pda_with_bump` is sound.
     #[test]
     fn stored_bump_derivation_matches_canonical_search() {
         let program_id = Address::new_from_array(USER_REGISTRY_PROGRAM_ID);
