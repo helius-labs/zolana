@@ -107,10 +107,10 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"public_spl_amount",
 		"public_spl_asset_pubkey",
 		"program_id_hashchain",
-		"solana_pubkey_hash",
+		"payer_pubkey_hash",
 		"data_hash",
 		"zone_data_hash",
-		"solana_pk_hashes",
+		"solana_owner_pk_hash",
 	}
 
 	names := PublicInputNames()

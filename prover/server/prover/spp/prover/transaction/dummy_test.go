@@ -10,13 +10,13 @@ import (
 
 // proveTestOwner builds the Solana-signer owner material shared by the dummy
 // padding tests.
-func proveTestOwner(t *testing.T) (signerPubkey [32]byte, signerHash, owner, nullifierSecret *big.Int) {
+func proveTestOwner(t *testing.T) (payerPubkey [32]byte, payerHash, owner, nullifierSecret *big.Int) {
 	t.Helper()
-	for i := range signerPubkey {
-		signerPubkey[i] = byte(i + 1)
+	for i := range payerPubkey {
+		payerPubkey[i] = byte(i + 1)
 	}
-	signerHash = protocol.Sha256BEField(signerPubkey[:])
-	ownerKeyHash, err := protocol.SolanaPkHash(signerPubkey)
+	payerHash = protocol.Sha256BEField(payerPubkey[:])
+	ownerKeyHash, err := protocol.SolanaPkField(payerPubkey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,15 +29,15 @@ func proveTestOwner(t *testing.T) (signerPubkey [32]byte, signerHash, owner, nul
 	if err != nil {
 		t.Fatal(err)
 	}
-	return signerPubkey, signerHash, owner, nullifierSecret
+	return payerPubkey, payerHash, owner, nullifierSecret
 }
 
 func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 	return ProofUtxoRequest{
 		Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
 		Owner:         proofFieldInput(owner),
-		AssetID:       proofFieldInput(protocol.SolAsset()),
-		AssetAmount:   proofFieldInput(big.NewInt(amount)),
+		Asset:         proofFieldInput(protocol.SolAsset()),
+		Amount:        proofFieldInput(big.NewInt(amount)),
 		Blinding:      proofFieldInput(big.NewInt(blinding)),
 		DataHash:      proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:  proofFieldInput(big.NewInt(0)),
@@ -45,13 +45,13 @@ func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 	}
 }
 
-func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionRequest, signerHash *big.Int) {
+func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) {
 	t.Helper()
 	ps, err := Setup(shape, TransactionRequiresP256(tx))
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		t.Fatalf("build assignment: %v", err)
 	}
@@ -73,13 +73,13 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 // derives the vkey from the real counts.)
 func TestProveTransferWithDummyPadding(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	signerPubkey, signerHash, owner, nullifierSecret := proveTestOwner(t)
+	payerPubkey, payerHash, owner, nullifierSecret := proveTestOwner(t)
 
 	input := protocol.Utxo{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		Owner:         owner,
-		AssetID:       protocol.SolAsset(),
-		AssetAmount:   big.NewInt(100),
+		Asset:         protocol.SolAsset(),
+		Amount:        big.NewInt(100),
 		Blinding:      big.NewInt(1000),
 		DataHash:      big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
@@ -106,9 +106,9 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 			{
 				Utxo: ProofUtxoRequest{
 					Domain:            proofFieldInput(input.Domain),
-					OwnerSolanaPubkey: parse.BytesHex(signerPubkey[:]),
-					AssetID:           proofFieldInput(input.AssetID),
-					AssetAmount:       proofFieldInput(input.AssetAmount),
+					OwnerSolanaPubkey: parse.BytesHex(payerPubkey[:]),
+					Asset:             proofFieldInput(input.Asset),
+					Amount:            proofFieldInput(input.Amount),
 					Blinding:          proofFieldInput(input.Blinding),
 					DataHash:          proofFieldInput(input.DataHash),
 					ZoneDataHash:      proofFieldInput(input.ZoneDataHash),
@@ -123,7 +123,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		},
 	}
 
-	proveAndVerify(t, shape, tx, signerHash)
+	proveAndVerify(t, shape, tx, payerHash)
 }
 
 // TestProveShieldWithAllDummyInputs proves a deposit (shield) inside a 1-2 shape
@@ -132,7 +132,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 // express; dummy support is what makes it provable.
 func TestProveShieldWithAllDummyInputs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	_, signerHash, owner, _ := proveTestOwner(t)
+	_, payerHash, owner, _ := proveTestOwner(t)
 
 	deposit := uint64(100)
 	tx := ProofTransactionRequest{
@@ -151,5 +151,5 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 		},
 	}
 
-	proveAndVerify(t, shape, tx, signerHash)
+	proveAndVerify(t, shape, tx, payerHash)
 }

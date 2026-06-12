@@ -28,7 +28,7 @@ func OwnerHashCircuit(
 	return poseidon.HashCircuit(api, []frontend.Variable{ownerKeyHash, nullifierPk})
 }
 
-func P256OwnerKeyHashCircuit(
+func P256PkFieldCircuit(
 	api frontend.API,
 	yIsOdd frontend.Variable,
 	xLow128 frontend.Variable,
@@ -38,7 +38,7 @@ func P256OwnerKeyHashCircuit(
 	return poseidon.HashCircuit(api, []frontend.Variable{yIsOdd, xHash})
 }
 
-func P256OwnerKeyHashFromPubkeyCircuit(
+func P256PkFieldFromPubkeyCircuit(
 	api frontend.API,
 	pub gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr],
 ) (frontend.Variable, error) {
@@ -62,7 +62,7 @@ func P256OwnerKeyHashFromPubkeyCircuit(
 	xBits := fp.ToBits(x)
 	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
 	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:p256ScalarBits])
-	return P256OwnerKeyHashCircuit(api, yBits[0], xLow128, xHigh128), nil
+	return P256PkFieldCircuit(api, yBits[0], xLow128, xHigh128), nil
 }
 
 func p256MessageHashToP256Fr(api frontend.API, messageHash frontend.Variable) (*emulated.Element[emulated.P256Fr], error) {

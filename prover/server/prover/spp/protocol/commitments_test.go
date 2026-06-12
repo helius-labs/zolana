@@ -46,15 +46,15 @@ func mustOwnerHash(t *testing.T, ownerKeyHash, nullifierPk *big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustSolanaPkHash(t *testing.T, pubkey [32]byte) *big.Int {
+func mustSolanaPkField(t *testing.T, pubkey [32]byte) *big.Int {
 	t.Helper()
-	value, err := SolanaPkHash(pubkey)
+	value, err := SolanaPkField(pubkey)
 	return mustHash(t, value, err)
 }
 
-func mustNullifierHash(t *testing.T, utxoHash, blinding, secret *big.Int) *big.Int {
+func mustNullifier(t *testing.T, utxoHash, blinding, secret *big.Int) *big.Int {
 	t.Helper()
-	value, err := NullifierHash(utxoHash, blinding, secret)
+	value, err := Nullifier(utxoHash, blinding, secret)
 	return mustHash(t, value, err)
 }
 
@@ -80,8 +80,8 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 	utxo := Utxo{
 		Domain:        fe(1),
 		Owner:         fe(2),
-		AssetID:       fe(3),
-		AssetAmount:   fe(4),
+		Asset:         fe(3),
+		Amount:        fe(4),
 		Blinding:      fe(5),
 		DataHash:      fe(6),
 		ZoneDataHash:  fe(7),
@@ -119,7 +119,7 @@ func TestNullifierMatchesSpecFormula(t *testing.T) {
 		t.Fatalf("nullifier pk mismatch: got %s want %s", nullifierPk, wantNullifierPk)
 	}
 
-	nullifier := mustNullifierHash(t, utxoHash, utxo.Blinding, secret)
+	nullifier := mustNullifier(t, utxoHash, utxo.Blinding, secret)
 	// spec: nullifier := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 	wantNullifier := mustPoseidon(t, 4, []*big.Int{utxoHash, utxo.Blinding, secret})
 	if nullifier.Cmp(wantNullifier) != 0 {
@@ -145,12 +145,12 @@ func TestOwnerHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-func TestSolanaPkHashMatchesSpecFormula(t *testing.T) {
+func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 	var pubkey [32]byte
 	for i := range pubkey {
 		pubkey[i] = byte(i + 1)
 	}
-	got := mustSolanaPkHash(t, pubkey)
+	got := mustSolanaPkField(t, pubkey)
 	want := mustPoseidon(t, 3, []*big.Int{
 		new(big.Int).SetBytes(pubkey[16:]),
 		new(big.Int).SetBytes(pubkey[:16]),
@@ -160,13 +160,13 @@ func TestSolanaPkHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-func TestP256OwnerKeyHashMatchesSpecFormula(t *testing.T) {
+func TestP256PkFieldMatchesSpecFormula(t *testing.T) {
 	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(11))
 	if err != nil {
 		t.Fatal(err)
 	}
 	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
-	got, err := P256OwnerKeyHash(compressed)
+	got, err := P256PkField(compressed)
 	if err != nil {
 		t.Fatal(err)
 	}

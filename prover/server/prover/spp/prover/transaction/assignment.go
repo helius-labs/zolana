@@ -34,7 +34,7 @@ type assignmentTranscript struct {
 	inputHashes              []*big.Int
 	outputHashes             []*big.Int
 	nullifiers               []*big.Int
-	solanaOwnerInputIndices  []int
+	solanaOwnerPubkey        string
 	requiresP256OwnerWitness bool
 }
 
@@ -59,7 +59,7 @@ type proofAssignment struct {
 func buildProofAssignment(
 	shape protocol.Shape,
 	tx ProofTransactionRequest,
-	signerHash *big.Int,
+	payerHash *big.Int,
 	options proofBuildOptions,
 ) (proofAssignment, error) {
 	if err := validateProofShape(shape, tx); err != nil {
@@ -110,7 +110,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	publicInputs := buildPublicInputs(signerHash, inputs, outputs, external, privateTxHash, p256MessageHash)
+	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, p256MessageHash)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
@@ -131,7 +131,8 @@ func buildProofAssignment(
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
 		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
-		SolanaPubkeyHash:     publicInputs.SolanaPubkeyHash,
+		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
+		SolanaOwnerPkHash:    publicInputs.SolanaOwnerPkHash,
 		DataHash:             publicInputs.DataHash,
 		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
@@ -140,7 +141,7 @@ func buildProofAssignment(
 		inputHashes:              inputs.hashes,
 		outputHashes:             outputs.hashes,
 		nullifiers:               inputs.nullifiers,
-		solanaOwnerInputIndices:  inputs.solanaOwnerInputIndices,
+		solanaOwnerPubkey:        inputs.solanaOwnerPubkey,
 		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
 	}
 	return proofAssignment{
@@ -218,7 +219,7 @@ func buildProofNullifierTree(entries []string) (*protocol.NullifierTree, error) 
 }
 
 func buildPublicInputs(
-	signerHash *big.Int,
+	payerHash *big.Int,
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	external externalValues,
@@ -229,7 +230,7 @@ func buildPublicInputs(
 		Nullifiers:           inputs.nullifiers,
 		OutputUtxoHashes:     outputs.hashes,
 		UtxoTreeRoots:        inputs.utxoRoots,
-		NullifierRoots:       inputs.nullifierRoots,
+		NullifierTreeRoots:   inputs.nullifierTreeRoots,
 		PrivateTxHash:        privateTxHash,
 		P256MessageHash:      p256MessageHash,
 		ExternalDataHash:     external.hash,
@@ -237,8 +238,8 @@ func buildPublicInputs(
 		PublicSplAmount:      external.publicSplAmount,
 		PublicSplAssetPubkey: external.publicSplAsset,
 		ProgramIDHashchain:   external.programIDHashchain,
-		SolanaPubkeyHash:     new(big.Int).Set(signerHash),
-		SolanaPkHashes:       inputs.solanaPkHashes,
+		PayerPubkeyHash:      new(big.Int).Set(payerHash),
+		SolanaOwnerPkHash:    inputs.solanaOwnerPkHash,
 		DataHash:             external.dataHash,
 		ZoneDataHash:         external.zoneDataHash,
 	}

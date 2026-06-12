@@ -16,13 +16,13 @@ func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := spptest.Fe(7)
+	asset := spptest.Fe(7)
 	inputs := []protocol.Utxo{
-		sampleUtxoWithAssetAndAmount(10, assetID, spptest.Fe(100)),
+		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100)),
 	}
 	outputs := []protocol.Utxo{
-		sampleUtxoWithAssetAndAmount(100, assetID, spptest.Fe(40)),
-		sampleUtxoWithAssetAndAmount(110, assetID, spptest.Fe(70)),
+		sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(40)),
+		sampleUtxoWithAssetAndAmount(110, asset, spptest.Fe(70)),
 	}
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -75,7 +75,7 @@ func TestSignedAmountRangeBoundary(t *testing.T) {
 
 func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	solAssetID := protocol.SolAsset()
+	solAsset := protocol.SolAsset()
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
@@ -83,8 +83,8 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
-			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, spptest.Fe(100))},
-			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAssetID, spptest.Fe(125))),
+			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
+			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(125))),
 			big.NewInt(25),
 			big.NewInt(0),
 			spptest.Fe(0),
@@ -99,8 +99,8 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 		assignment := buildCircuitAssignmentFromUtxos(
 			t,
 			shape,
-			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, spptest.Fe(100))},
-			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAssetID, spptest.Fe(75))),
+			[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
+			twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(75))),
 			big.NewInt(-25),
 			big.NewInt(0),
 			spptest.Fe(0),
@@ -132,12 +132,12 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	privateAssetID := spptest.Fe(77)
+	privateAsset := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAssetID, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAssetID, spptest.Fe(125))),
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAsset, spptest.Fe(125))),
 		big.NewInt(0),
 		big.NewInt(25),
 		spptest.Fe(88),
@@ -150,15 +150,15 @@ func TestCircuitRejectsPublicSplMovementOnSolAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	solAssetID := protocol.SolAsset()
+	solAsset := protocol.SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAssetID, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAssetID, spptest.Fe(125))),
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(125))),
 		big.NewInt(0),
 		big.NewInt(25),
-		solAssetID,
+		solAsset,
 	)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -168,12 +168,12 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	privateAssetID := spptest.Fe(77)
+	privateAsset := spptest.Fe(77)
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
-		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAssetID, spptest.Fe(100))},
-		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAssetID, spptest.Fe(100))),
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, privateAsset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, privateAsset, spptest.Fe(100))),
 		big.NewInt(0),
 		big.NewInt(25),
 		spptest.Fe(88),

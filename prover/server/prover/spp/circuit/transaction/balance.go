@@ -34,12 +34,12 @@ func assertBalanceConservation(
 	// Check every private asset plus SOL and the public SPL asset.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {
-		rangeCheck64(api, input.AssetAmount)
-		keys = append(keys, input.AssetID)
+		rangeCheck64(api, input.Amount)
+		keys = append(keys, input.Asset)
 	}
 	for _, output := range outputs {
-		rangeCheck64(api, output.AssetAmount)
-		keys = append(keys, output.AssetID)
+		rangeCheck64(api, output.Amount)
+		keys = append(keys, output.Asset)
 	}
 	// Asset IDs are witness values; Go cannot dedup them safely.
 	keys = append(keys, frontend.Variable(solAsset), publicSplAssetPubkey)
@@ -47,14 +47,14 @@ func assertBalanceConservation(
 	for _, key := range keys {
 		inSum := frontend.Variable(0)
 		for _, input := range inputs {
-			match := api.IsZero(api.Sub(key, input.AssetID))
-			inSum = api.Add(inSum, api.Mul(match, input.AssetAmount))
+			match := api.IsZero(api.Sub(key, input.Asset))
+			inSum = api.Add(inSum, api.Mul(match, input.Amount))
 		}
 
 		outSum := frontend.Variable(0)
 		for _, output := range outputs {
-			match := api.IsZero(api.Sub(key, output.AssetID))
-			outSum = api.Add(outSum, api.Mul(match, output.AssetAmount))
+			match := api.IsZero(api.Sub(key, output.Asset))
+			outSum = api.Add(outSum, api.Mul(match, output.Amount))
 		}
 
 		solMatch := api.IsZero(api.Sub(key, solAsset))

@@ -13,7 +13,7 @@ type publicInputHashVector struct {
 	Nullifiers           []string `json:"nullifiers"`
 	OutputUtxoHashes     []string `json:"output_utxo_hashes"`
 	UtxoTreeRoots        []string `json:"utxo_tree_roots"`
-	NullifierRoots       []string `json:"nullifier_roots"`
+	NullifierTreeRoots   []string `json:"nullifier_tree_roots"`
 	PrivateTxHash        string   `json:"private_tx_hash"`
 	P256MessageHash      string   `json:"p256_message_hash"`
 	ExternalDataHash     string   `json:"external_data_hash"`
@@ -21,10 +21,10 @@ type publicInputHashVector struct {
 	PublicSplAmount      string   `json:"public_spl_amount"`
 	PublicSplAssetPubkey string   `json:"public_spl_asset_pubkey"`
 	ProgramIDHashchain   string   `json:"program_id_hashchain"`
-	SolanaPubkeyHash     string   `json:"solana_pubkey_hash"`
+	PayerPubkeyHash      string   `json:"payer_pubkey_hash"`
 	DataHash             string   `json:"data_hash"`
 	ZoneDataHash         string   `json:"zone_data_hash"`
-	SolanaPkHashes       []string `json:"solana_pk_hashes"`
+	SolanaOwnerPkHash    string   `json:"solana_owner_pk_hash"`
 	PublicInputHash      string   `json:"public_input_hash"`
 }
 
@@ -34,7 +34,7 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		Nullifiers:           parseFields(t, vector.Nullifiers),
 		OutputUtxoHashes:     parseFields(t, vector.OutputUtxoHashes),
 		UtxoTreeRoots:        parseFields(t, vector.UtxoTreeRoots),
-		NullifierRoots:       parseFields(t, vector.NullifierRoots),
+		NullifierTreeRoots:   parseFields(t, vector.NullifierTreeRoots),
 		PrivateTxHash:        parseField(t, vector.PrivateTxHash),
 		P256MessageHash:      parseField(t, vector.P256MessageHash),
 		ExternalDataHash:     parseField(t, vector.ExternalDataHash),
@@ -42,10 +42,10 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		PublicSplAmount:      parseField(t, vector.PublicSplAmount),
 		PublicSplAssetPubkey: parseField(t, vector.PublicSplAssetPubkey),
 		ProgramIDHashchain:   parseField(t, vector.ProgramIDHashchain),
-		SolanaPubkeyHash:     parseField(t, vector.SolanaPubkeyHash),
+		PayerPubkeyHash:      parseField(t, vector.PayerPubkeyHash),
 		DataHash:             parseField(t, vector.DataHash),
 		ZoneDataHash:         parseField(t, vector.ZoneDataHash),
-		SolanaPkHashes:       parseFields(t, vector.SolanaPkHashes),
+		SolanaOwnerPkHash:    parseField(t, vector.SolanaOwnerPkHash),
 	})
 	if err != nil {
 		t.Fatalf("public input hash: %v", err)

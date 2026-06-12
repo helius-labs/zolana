@@ -51,7 +51,7 @@ func (c *hashParityCircuit) Define(api frontend.API) error {
 	ownerHash := OwnerHashCircuit(api, c.OwnerKeyHash, c.NullifierPk)
 	api.AssertIsEqual(ownerHash, c.OwnerHash)
 
-	nullifier := NullifierHashCircuit(api, utxoHash, c.Utxo.Blinding, c.NullifierSecret)
+	nullifier := NullifierCircuit(api, utxoHash, c.Utxo.Blinding, c.NullifierSecret)
 	api.AssertIsEqual(nullifier, c.ExpectedNullifier)
 
 	inputChain := gadget.HashChain(api, c.InputUtxoHashes)
@@ -75,8 +75,8 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	utxo := protocol.Utxo{
 		Domain:        spptest.Fe(1),
 		Owner:         spptest.Fe(2),
-		AssetID:       spptest.Fe(3),
-		AssetAmount:   spptest.Fe(4),
+		Asset:         spptest.Fe(3),
+		Amount:        spptest.Fe(4),
 		Blinding:      spptest.Fe(5),
 		DataHash:      spptest.Fe(6),
 		ZoneDataHash:  spptest.Fe(7),
@@ -87,7 +87,7 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
 	ownerKeyHash := spptest.Fe(45)
 	ownerHash := spptest.MustOwnerHash(t, ownerKeyHash, nullifierPk)
-	nullifier := spptest.MustNullifierHash(t, utxoHash, utxo.Blinding, nullifierSecret)
+	nullifier := spptest.MustNullifier(t, utxoHash, utxo.Blinding, nullifierSecret)
 
 	inputs := []*big.Int{utxoHash}
 	outputs := []*big.Int{spptest.Fe(21), spptest.Fe(22)}
@@ -106,8 +106,8 @@ func TestHashCircuitMatchesNative(t *testing.T) {
 		Utxo: UtxoCircuitFields{
 			Domain:        utxo.Domain,
 			Owner:         utxo.Owner,
-			AssetID:       utxo.AssetID,
-			AssetAmount:   utxo.AssetAmount,
+			Asset:         utxo.Asset,
+			Amount:        utxo.Amount,
 			Blinding:      utxo.Blinding,
 			DataHash:      utxo.DataHash,
 			ZoneDataHash:  utxo.ZoneDataHash,

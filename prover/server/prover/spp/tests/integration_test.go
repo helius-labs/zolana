@@ -104,7 +104,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 	}
 	p256Pubkey := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
 	nullifierSecret := big.NewInt(19)
-	ownerKeyHash, err := protocol.P256OwnerKeyHash(p256Pubkey)
+	ownerKeyHash, err := protocol.P256PkField(p256Pubkey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +119,8 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 	utxo := protocol.Utxo{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		Owner:         owner,
-		AssetID:       big.NewInt(1),
-		AssetAmount:   big.NewInt(5),
+		Asset:         big.NewInt(1),
+		Amount:        big.NewInt(5),
 		Blinding:      big.NewInt(23),
 		DataHash:      big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
@@ -132,7 +132,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 	}
 
 	return txprover.ProofBundleRequest{
-		SolanaSignerPubkey: parse.BytesHex(make([]byte, 32)),
+		PayerPubkey: parse.BytesHex(make([]byte, 32)),
 		Transactions: []txprover.ProofTransactionRequest{{
 			Name:                     "unsigned-p256",
 			InstructionDiscriminator: 1,
@@ -148,8 +148,8 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 				Utxo: txprover.ProofUtxoRequest{
 					Domain:          fieldInput(utxo.Domain),
 					OwnerP256Pubkey: parse.BytesHex(p256Pubkey),
-					AssetID:         fieldInput(utxo.AssetID),
-					AssetAmount:     fieldInput(utxo.AssetAmount),
+					Asset:           fieldInput(utxo.Asset),
+					Amount:          fieldInput(utxo.Amount),
 					Blinding:        fieldInput(utxo.Blinding),
 					DataHash:        fieldInput(utxo.DataHash),
 					ZoneDataHash:    fieldInput(utxo.ZoneDataHash),
@@ -162,8 +162,8 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 				{
 					Domain:        fieldInput(big.NewInt(protocol.UtxoDomain)),
 					Owner:         fieldInput(owner),
-					AssetID:       fieldInput(utxo.AssetID),
-					AssetAmount:   fieldInput(big.NewInt(5)),
+					Asset:         fieldInput(utxo.Asset),
+					Amount:        fieldInput(big.NewInt(5)),
 					Blinding:      fieldInput(big.NewInt(31)),
 					DataHash:      fieldInput(big.NewInt(0)),
 					ZoneDataHash:  fieldInput(big.NewInt(0)),
@@ -172,8 +172,8 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 				{
 					Domain:        fieldInput(big.NewInt(protocol.UtxoDomain)),
 					Owner:         fieldInput(owner),
-					AssetID:       fieldInput(utxo.AssetID),
-					AssetAmount:   fieldInput(big.NewInt(0)),
+					Asset:         fieldInput(utxo.Asset),
+					Amount:        fieldInput(big.NewInt(0)),
 					Blinding:      fieldInput(big.NewInt(37)),
 					DataHash:      fieldInput(big.NewInt(0)),
 					ZoneDataHash:  fieldInput(big.NewInt(0)),

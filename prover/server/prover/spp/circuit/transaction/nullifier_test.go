@@ -53,15 +53,15 @@ func TestCircuitRejectsDuplicateInputWithinTransaction(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := spptest.Fe(7)
-	input := sampleUtxoWithAssetAndAmount(10, assetID, spptest.Fe(100))
+	asset := spptest.Fe(7)
+	input := sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
 		shape,
 		[]protocol.Utxo{input, input},
 		[]protocol.Utxo{
-			sampleUtxoWithAssetAndAmount(100, assetID, spptest.Fe(125)),
-			sampleUtxoWithAssetAndAmount(110, assetID, spptest.Fe(75)),
+			sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(125)),
+			sampleUtxoWithAssetAndAmount(110, asset, spptest.Fe(75)),
 		},
 		big.NewInt(0),
 		big.NewInt(0),

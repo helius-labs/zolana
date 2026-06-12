@@ -59,9 +59,9 @@ func MustOwnerHash(t testing.TB, ownerKeyHash, nullifierPk *big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
-func MustNullifierHash(t testing.TB, utxoHash, blinding, secret *big.Int) *big.Int {
+func MustNullifier(t testing.TB, utxoHash, blinding, secret *big.Int) *big.Int {
 	t.Helper()
-	value, err := protocol.NullifierHash(utxoHash, blinding, secret)
+	value, err := protocol.Nullifier(utxoHash, blinding, secret)
 	return MustHash(t, value, err)
 }
 

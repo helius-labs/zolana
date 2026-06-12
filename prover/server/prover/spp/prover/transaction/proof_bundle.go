@@ -12,8 +12,8 @@ import (
 )
 
 type ProofBundleRequest struct {
-	SolanaSignerPubkey string                    `json:"solana_signer_pubkey"`
-	Transactions       []ProofTransactionRequest `json:"transactions"`
+	PayerPubkey  string                    `json:"payer_pubkey"`
+	Transactions []ProofTransactionRequest `json:"transactions"`
 }
 
 type ProofTransactionRequest struct {
@@ -61,8 +61,8 @@ type ProofUtxoRequest struct {
 	OwnerSolanaPubkey    string `json:"owner_solana_pubkey"`
 	OwnerP256Pubkey      string `json:"owner_p256_pubkey,omitempty"`
 	OwnerNullifierSecret string `json:"owner_nullifier_secret,omitempty"`
-	AssetID              string `json:"asset_id"`
-	AssetAmount          string `json:"asset_amount"`
+	Asset                string `json:"asset"`
+	Amount               string `json:"amount"`
 	Blinding             string `json:"blinding"`
 	DataHash             string `json:"data_hash"`
 	ZoneDataHash         string `json:"zone_data_hash"`
@@ -70,34 +70,36 @@ type ProofUtxoRequest struct {
 }
 
 type ProofBundle struct {
-	Shape                 protocol.Shape     `json:"shape"`
-	SolanaSignerPubkeyHex string             `json:"solana_signer_pubkey"`
-	Transactions          []ProofTransaction `json:"transactions"`
+	Shape          protocol.Shape     `json:"shape"`
+	PayerPubkeyHex string             `json:"payer_pubkey"`
+	Transactions   []ProofTransaction `json:"transactions"`
 }
 
 type ProofTransaction struct {
-	Name                    string              `json:"name"`
-	ExpiryUnixTs            uint64              `json:"expiry_unix_ts"`
-	SenderViewTag           string              `json:"sender_view_tag"`
-	Proof                   *common.Proof       `json:"proof"`
-	RelayerFee              uint16              `json:"relayer_fee"`
-	Nullifiers              []string            `json:"nullifiers"`
-	OutputUtxoHashes        []string            `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex       []uint16            `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex  []uint16            `json:"nullifier_tree_root_index"`
-	PrivateTxHash           string              `json:"private_tx_hash"`
-	PublicAmountMode        uint8               `json:"public_amount_mode"`
-	PublicSolAmount         *uint64             `json:"public_sol_amount"`
-	PublicSplAmount         *uint64             `json:"public_spl_amount"`
-	PublicSplAssetPubkey    string              `json:"public_spl_asset_pubkey"`
-	EncryptedUtxos          string              `json:"encrypted_utxos"`
-	RequiresP256            bool                `json:"requires_p256"`
-	PublicInputHash         string              `json:"public_input_hash"`
-	ExternalDataHash        string              `json:"external_data_hash"`
-	UserSolAccount          string              `json:"user_sol_account"`
-	UserSplTokenAccount     string              `json:"user_spl_token_account"`
-	SplTokenInterface       string              `json:"spl_token_interface"`
-	SolanaOwnerInputIndices []int               `json:"solana_owner_input_indices"`
+	Name                   string        `json:"name"`
+	ExpiryUnixTs           uint64        `json:"expiry_unix_ts"`
+	SenderViewTag          string        `json:"sender_view_tag"`
+	Proof                  *common.Proof `json:"proof"`
+	RelayerFee             uint16        `json:"relayer_fee"`
+	Nullifiers             []string      `json:"nullifiers"`
+	OutputUtxoHashes       []string      `json:"output_utxo_hashes"`
+	UtxoTreeRootIndex      []uint16      `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex []uint16      `json:"nullifier_tree_root_index"`
+	PrivateTxHash          string        `json:"private_tx_hash"`
+	PublicAmountMode       uint8         `json:"public_amount_mode"`
+	PublicSolAmount        *uint64       `json:"public_sol_amount"`
+	PublicSplAmount        *uint64       `json:"public_spl_amount"`
+	PublicSplAssetPubkey   string        `json:"public_spl_asset_pubkey"`
+	EncryptedUtxos         string        `json:"encrypted_utxos"`
+	RequiresP256           bool          `json:"requires_p256"`
+	PublicInputHash        string        `json:"public_input_hash"`
+	ExternalDataHash       string        `json:"external_data_hash"`
+	UserSolAccount         string        `json:"user_sol_account"`
+	UserSplTokenAccount    string        `json:"user_spl_token_account"`
+	SplTokenInterface      string        `json:"spl_token_interface"`
+	// 32-byte pubkey of the Solana owner-signer the relayer must include as a
+	// Solana transaction signer; empty for a P256 owner.
+	SolanaOwnerPubkey       string              `json:"solana_owner_pubkey"`
 	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
 	DebugInputUtxoHashes    []string            `json:"debug_input_utxo_hashes"`
 	DebugOutputUtxoHashes   []string            `json:"debug_output_utxo_hashes"`
@@ -106,9 +108,9 @@ type ProofTransaction struct {
 }
 
 type ProofSigningPayloadBundle struct {
-	Shape                 protocol.Shape                   `json:"shape"`
-	SolanaSignerPubkeyHex string                           `json:"solana_signer_pubkey"`
-	Transactions          []ProofSigningPayloadTransaction `json:"transactions"`
+	Shape          protocol.Shape                   `json:"shape"`
+	PayerPubkeyHex string                           `json:"payer_pubkey"`
+	Transactions   []ProofSigningPayloadTransaction `json:"transactions"`
 }
 
 type ProofSigningPayloadTransaction struct {
@@ -169,17 +171,17 @@ func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle
 	if err := ps.Shape.Validate(); err != nil {
 		return nil, err
 	}
-	signerPubkey, err := parse.Hex32(request.SolanaSignerPubkey)
+	payerPubkey, err := parse.Hex32(request.PayerPubkey)
 	if err != nil {
-		return nil, fmt.Errorf("spp: signer pubkey: %w", err)
+		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	signerHash := protocol.Sha256BEField(signerPubkey[:])
+	payerHash := protocol.Sha256BEField(payerPubkey[:])
 	out := &ProofBundle{
-		Shape:                 ps.Shape,
-		SolanaSignerPubkeyHex: parse.BytesHex(signerPubkey[:]),
+		Shape:          ps.Shape,
+		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
 	}
 	for _, tx := range request.Transactions {
-		proved, err := buildProofTransaction(ps, tx, signerHash)
+		proved, err := buildProofTransaction(ps, tx, payerHash)
 		if err != nil {
 			return nil, fmt.Errorf("spp: transaction %q: %w", tx.Name, err)
 		}
@@ -192,17 +194,17 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	if err := ps.Shape.Validate(); err != nil {
 		return nil, err
 	}
-	signerPubkey, err := parse.Hex32(request.SolanaSignerPubkey)
+	payerPubkey, err := parse.Hex32(request.PayerPubkey)
 	if err != nil {
-		return nil, fmt.Errorf("spp: signer pubkey: %w", err)
+		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	signerHash := protocol.Sha256BEField(signerPubkey[:])
+	payerHash := protocol.Sha256BEField(payerPubkey[:])
 	out := &ProofSigningPayloadBundle{
-		Shape:                 ps.Shape,
-		SolanaSignerPubkeyHex: parse.BytesHex(signerPubkey[:]),
+		Shape:          ps.Shape,
+		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
 	}
 	for _, tx := range request.Transactions {
-		payload, err := buildProofSigningPayloadTransaction(ps.Shape, tx, signerHash)
+		payload, err := buildProofSigningPayloadTransaction(ps.Shape, tx, payerHash)
 		if err != nil {
 			return nil, fmt.Errorf("spp: transaction %q: %w", tx.Name, err)
 		}
@@ -211,14 +213,14 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	return out, nil
 }
 
-func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHash *big.Int) (ProofTransaction, error) {
+func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
 	if ps.RequiresP256 != TransactionRequiresP256(tx) {
 		return ProofTransaction{}, fmt.Errorf(
 			"spp: proving system rail mismatch: system requiresP256=%v, transaction requiresP256=%v",
 			ps.RequiresP256, TransactionRequiresP256(tx),
 		)
 	}
-	built, err := buildProofAssignment(ps.Shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
@@ -236,7 +238,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	nullifierRootIndices, err := proofRootIndices(tx.NullifierTreeRootIndex, len(tx.Inputs), "nullifier_tree_root_index")
+	nullifierTreeRootIndices, err := proofRootIndices(tx.NullifierTreeRootIndex, len(tx.Inputs), "nullifier_tree_root_index")
 	if err != nil {
 		return ProofTransaction{}, err
 	}
@@ -269,7 +271,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		Nullifiers:              proofBigIntHexes(transcript.nullifiers[:len(tx.Inputs)]),
 		OutputUtxoHashes:        proofBigIntHexes(transcript.outputHashes[:len(tx.Outputs)]),
 		UtxoTreeRootIndex:       utxoRootIndices,
-		NullifierTreeRootIndex:  nullifierRootIndices,
+		NullifierTreeRootIndex:  nullifierTreeRootIndices,
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
 		PublicAmountMode:        tx.PublicAmountMode,
 		PublicSolAmount:         tx.PublicSolAmount,
@@ -282,17 +284,17 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, signerHa
 		UserSolAccount:          parse.BytesHex(userSolAccount[:]),
 		UserSplTokenAccount:     parse.BytesHex(userSplTokenAccount[:]),
 		SplTokenInterface:       parse.BytesHex(splTokenInterface[:]),
-		SolanaOwnerInputIndices: transcript.solanaOwnerInputIndices,
+		SolanaOwnerPubkey:       transcript.solanaOwnerPubkey,
 		OutputUtxos:             outputUtxos,
 		DebugInputUtxoHashes:    proofBigIntHexes(transcript.inputHashes),
 		DebugOutputUtxoHashes:   proofBigIntHexes(transcript.outputHashes),
 		DebugUtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
-		DebugNullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierRoots),
+		DebugNullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierTreeRoots),
 	}, nil
 }
 
-func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, signerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{
+func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) (ProofSigningPayloadTransaction, error) {
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{
 		AllowMissingP256Signature: true,
 	})
 	if err != nil {

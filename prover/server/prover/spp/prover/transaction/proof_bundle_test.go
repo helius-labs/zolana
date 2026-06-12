@@ -13,14 +13,14 @@ import (
 
 func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	signerHash := big.NewInt(0)
+	payerHash := big.NewInt(0)
 
 	// Fewer inputs/outputs than the shape are allowed (padded with dummies); only
 	// exceeding the shape's capacity is an error.
 	_, err := buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs+1),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs),
-	}, signerHash, proofBuildOptions{})
+	}, payerHash, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "allows at most 1 inputs, got 2") {
 		t.Fatalf("input arity error = %v", err)
 	}
@@ -28,7 +28,7 @@ func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
 	_, err = buildProofAssignment(shape, ProofTransactionRequest{
 		Inputs:  make([]ProofInputRequest, shape.NInputs),
 		Outputs: make([]ProofUtxoRequest, shape.NOutputs+1),
-	}, signerHash, proofBuildOptions{})
+	}, payerHash, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "allows at most 2 outputs, got 3") {
 		t.Fatalf("output arity error = %v", err)
 	}
@@ -63,12 +63,12 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tx, signerHash, err := benchmarkTransaction(shape)
+			tx, payerHash, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
 			tc.mutate(&tx)
-			_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), "must be zero") {
 				t.Fatalf("error = %v", err)
 			}
@@ -78,13 +78,13 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 
 func TestBuildProofAssignmentRejectsMixedNullifierSecrets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, signerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tx.Inputs[1].NullifierSecret = proofFieldInput(big.NewInt(999))
 
-	_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+	_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "nullifier_secret differs from input 0") {
 		t.Fatalf("error = %v", err)
 	}
@@ -142,13 +142,13 @@ func TestBuildProofAssignmentRejectsBadPublicAmountRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tx, signerHash, err := benchmarkTransaction(shape)
+			tx, payerHash, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
 			tt.mutate(&tx)
 
-			_, err = buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+			_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}
@@ -161,8 +161,8 @@ func TestParseProofInputRequiresOwnerComponents(t *testing.T) {
 		Utxo: ProofUtxoRequest{
 			Domain:        proofFieldInput(big.NewInt(1)),
 			Owner:         proofFieldInput(big.NewInt(2)),
-			AssetID:       proofFieldInput(big.NewInt(3)),
-			AssetAmount:   proofFieldInput(big.NewInt(4)),
+			Asset:         proofFieldInput(big.NewInt(3)),
+			Amount:        proofFieldInput(big.NewInt(4)),
 			Blinding:      proofFieldInput(big.NewInt(5)),
 			DataHash:      proofFieldInput(big.NewInt(0)),
 			ZoneDataHash:  proofFieldInput(big.NewInt(0)),
@@ -179,8 +179,8 @@ func TestParseProofUtxoNormalizesRequestFieldsAsPrefixedHex(t *testing.T) {
 	parsed, err := parseProofUtxo(ProofUtxoRequest{
 		Domain:        "0x0a",
 		Owner:         "0x01",
-		AssetID:       "0x02",
-		AssetAmount:   "0x03",
+		Asset:         "0x02",
+		Amount:        "0x03",
 		Blinding:      "0x04",
 		DataHash:      "0x00",
 		ZoneDataHash:  "0x00",
@@ -206,8 +206,8 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 	const baseJSON = `{
 		"domain":"0x01",
 		"owner":"0x02",
-		"asset_id":"0x03",
-		"asset_amount":"0x04",
+		"asset":"0x03",
+		"amount":"0x04",
 		"blinding":"0x05",
 		"data_hash":"%s",
 		"zone_data_hash":"%s",

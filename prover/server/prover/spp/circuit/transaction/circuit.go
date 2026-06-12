@@ -34,7 +34,8 @@ type Circuit struct {
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
 	ProgramIDHashchain   frontend.Variable
-	SolanaPubkeyHash     frontend.Variable
+	PayerPubkeyHash      frontend.Variable
+	SolanaOwnerPkHash    frontend.Variable
 	DataHash             frontend.Variable
 	ZoneDataHash         frontend.Variable
 
@@ -52,10 +53,9 @@ type Input struct {
 	NullifierLowPathElements []frontend.Variable
 	NullifierLowPathIndex    frontend.Variable
 
-	UtxoTreeRoot  frontend.Variable
-	NullifierRoot frontend.Variable
-	Nullifier     frontend.Variable
-	SolanaPkHash  frontend.Variable
+	UtxoTreeRoot      frontend.Variable
+	NullifierTreeRoot frontend.Variable
+	Nullifier         frontend.Variable
 }
 
 type Output struct {
@@ -117,12 +117,12 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	nullifierPkFromSecret := NullifierPkCircuit(api, c.NullifierSecret)
 	env := spendEnv{
-		nullifierPkFromSecret: nullifierPkFromSecret,
-		nullifierSecret:       c.NullifierSecret,
-		requiresP256:          c.RequiresP256,
+		nullifierSecret: c.NullifierSecret,
+		requiresP256:    c.RequiresP256,
 	}
+	p256PkField := frontend.Variable(0)
 	if c.RequiresP256 {
-		p256OwnerKeyHash, err := P256OwnerKeyHashFromPubkeyCircuit(api, c.P256Pub)
+		ownerKeyHash, err := P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
 		if err != nil {
 			return err
 		}
@@ -130,7 +130,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		if err != nil {
 			return err
 		}
-		env.p256OwnerKeyHash = p256OwnerKeyHash
+		p256PkField = ownerKeyHash
 		env.p256SigValid = c.P256Pub.IsValid(
 			api,
 			sw_emulated.GetCurveParams[emulated.P256Fp](),
@@ -139,10 +139,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		)
 	} else {
 		// Solana-only rail: no P256 gadget. Pin the message hash to 0 and set
-		// p256OwnerKeyHash/p256SigValid to constants — constrainInput forces every
-		// real input Solana-owned, so the P256 checks never fire.
+		// p256SigValid to a constant — constrainInput forces the transaction
+		// Solana-owned, so the P256 checks never fire.
 		api.AssertIsEqual(c.P256MessageHash, 0)
-		env.p256OwnerKeyHash = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
 		// The P256 gadget adds a bsb22 commitment the on-chain Groth16Verifier
 		// expects. The Solana rail has no gadget, so add one explicit commitment
@@ -155,12 +154,19 @@ func (c *Circuit) Define(api frontend.API) error {
 			return err
 		}
 	}
+	// Single owner (spec: nullifier secret binding): the transaction carries one
+	// public owner key — SolanaOwnerPkHash, or 0 to select the P256 witness key.
+	// Every real input binds its UTXO owner to this one owner hash in
+	// constrainInput, so distinct owners cannot mix in one proof.
+	env.isP256 = api.IsZero(c.SolanaOwnerPkHash)
+	ownerKeyHash := api.Select(env.isP256, p256PkField, c.SolanaOwnerPkHash)
+	env.ownerHash = OwnerHashCircuit(api, ownerKeyHash, nullifierPkFromSecret)
+
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
 		inputHashes[i] = constrainInput(api, c.Inputs[i], env)
 	}
 	c.assertDistinctNullifiers(api)
-	c.assertSingleOwner(api)
 
 	outputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
@@ -200,7 +206,7 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		gadget.HashChain(api, c.inputNullifiers()),
 		gadget.HashChain(api, c.outputHashes()),
 		gadget.HashChain(api, c.inputUtxoRoots()),
-		gadget.HashChain(api, c.inputNullifierRoots()),
+		gadget.HashChain(api, c.inputNullifierTreeRoots()),
 		c.PrivateTxHash,
 		c.P256MessageHash,
 		c.ExternalDataHash,
@@ -208,10 +214,10 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
 		c.ProgramIDHashchain,
-		c.SolanaPubkeyHash,
+		c.PayerPubkeyHash,
 		c.DataHash,
 		c.ZoneDataHash,
-		gadget.HashChain(api, c.inputSolanaPkHashes()),
+		c.SolanaOwnerPkHash,
 	})
 }
 
@@ -255,18 +261,10 @@ func (c *Circuit) inputUtxoRoots() []frontend.Variable {
 	return out
 }
 
-func (c *Circuit) inputNullifierRoots() []frontend.Variable {
+func (c *Circuit) inputNullifierTreeRoots() []frontend.Variable {
 	out := make([]frontend.Variable, len(c.Inputs))
 	for i := range c.Inputs {
-		out[i] = c.Inputs[i].NullifierRoot
-	}
-	return out
-}
-
-func (c *Circuit) inputSolanaPkHashes() []frontend.Variable {
-	out := make([]frontend.Variable, len(c.Inputs))
-	for i := range c.Inputs {
-		out[i] = c.Inputs[i].SolanaPkHash
+		out[i] = c.Inputs[i].NullifierTreeRoot
 	}
 	return out
 }

@@ -74,7 +74,7 @@ func TestDerivePublicAmountsSignsAmounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedAsset, err := protocol.SolanaPkHash(mint)
+	expectedAsset, err := protocol.SolanaPkField(mint)
 	if err != nil {
 		t.Fatal(err)
 	}

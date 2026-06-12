@@ -17,10 +17,10 @@ var publicInputNames = [...]string{
 	"public_spl_amount",
 	"public_spl_asset_pubkey",
 	"program_id_hashchain",
-	"solana_pubkey_hash",
+	"payer_pubkey_hash",
 	"data_hash",
 	"zone_data_hash",
-	"solana_pk_hashes",
+	"solana_owner_pk_hash",
 }
 
 // PublicInputNames returns the PublicInputHash preimage order.
@@ -34,7 +34,7 @@ type PublicInputs struct {
 	Nullifiers           []*big.Int
 	OutputUtxoHashes     []*big.Int
 	UtxoTreeRoots        []*big.Int
-	NullifierRoots       []*big.Int
+	NullifierTreeRoots   []*big.Int
 	PrivateTxHash        *big.Int
 	P256MessageHash      *big.Int
 	ExternalDataHash     *big.Int
@@ -42,8 +42,8 @@ type PublicInputs struct {
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
 	ProgramIDHashchain   *big.Int
-	SolanaPubkeyHash     *big.Int
-	SolanaPkHashes       []*big.Int
+	PayerPubkeyHash      *big.Int
+	SolanaOwnerPkHash    *big.Int
 	DataHash             *big.Int
 	ZoneDataHash         *big.Int
 }
@@ -61,19 +61,15 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash UTXO root chain: %w", err)
 	}
-	nullifierRootChain, err := HashChain(inputs.NullifierRoots)
+	nullifierTreeRootChain, err := HashChain(inputs.NullifierTreeRoots)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier root chain: %w", err)
-	}
-	solanaOwnerKeyHashChain, err := HashChain(inputs.SolanaPkHashes)
-	if err != nil {
-		return nil, fmt.Errorf("spp: public input hash solana pk hash chain: %w", err)
 	}
 	return HashChain([]*big.Int{
 		nullifierChain,
 		outputChain,
 		utxoRootChain,
-		nullifierRootChain,
+		nullifierTreeRootChain,
 		inputs.PrivateTxHash,
 		inputs.P256MessageHash,
 		inputs.ExternalDataHash,
@@ -81,9 +77,9 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
 		inputs.ProgramIDHashchain,
-		inputs.SolanaPubkeyHash,
+		inputs.PayerPubkeyHash,
 		inputs.DataHash,
 		inputs.ZoneDataHash,
-		solanaOwnerKeyHashChain,
+		inputs.SolanaOwnerPkHash,
 	})
 }

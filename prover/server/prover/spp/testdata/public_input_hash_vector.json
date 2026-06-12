@@ -14,7 +14,7 @@
     "0x08",
     "0x09"
   ],
-  "nullifier_roots": [
+  "nullifier_tree_roots": [
     "0x0a",
     "0x0b",
     "0x0c"
@@ -26,13 +26,9 @@
   "public_spl_amount": "0x11",
   "public_spl_asset_pubkey": "0x12",
   "program_id_hashchain": "0x13",
-  "solana_pubkey_hash": "0x14",
+  "payer_pubkey_hash": "0x14",
   "data_hash": "0x15",
   "zone_data_hash": "0x16",
-  "solana_pk_hashes": [
-    "0x17",
-    "0x18",
-    "0x19"
-  ],
-  "public_input_hash": "0x189ea55c6eafe507d024bed9622a8698a449fb438aeaae4a75ccd8614f06db95"
+  "solana_owner_pk_hash": "0x17",
+  "public_input_hash": "0x10f1f0e40c774697c3f78386f56666a3f0c3414ff383cf74689e441308bfe6a1"
 }

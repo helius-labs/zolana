@@ -24,7 +24,7 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-func SolanaPkHash(pubkey [32]byte) (*big.Int, error) {
+func SolanaPkField(pubkey [32]byte) (*big.Int, error) {
 	h, err := poseidon.Hash([]*big.Int{
 		fieldFromU128BE(pubkey[16:]),
 		fieldFromU128BE(pubkey[:16]),
@@ -35,7 +35,7 @@ func SolanaPkHash(pubkey [32]byte) (*big.Int, error) {
 	return h, nil
 }
 
-func P256OwnerKeyHash(compressed []byte) (*big.Int, error) {
+func P256PkField(compressed []byte) (*big.Int, error) {
 	if len(compressed) != 33 {
 		return nil, fmt.Errorf("expected 33-byte compressed P256 public key, got %d", len(compressed))
 	}

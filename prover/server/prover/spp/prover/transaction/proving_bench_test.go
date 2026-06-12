@@ -19,7 +19,7 @@ func BenchmarkProveByShape(b *testing.B) {
 }
 
 func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
-	tx, signerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	built, err := buildProofAssignment(shape, tx, signerHash, proofBuildOptions{})
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -44,12 +44,12 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
 }
 
 func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.Int, error) {
-	var signerPubkey [32]byte
-	for i := range signerPubkey {
-		signerPubkey[i] = byte(i + 1)
+	var payerPubkey [32]byte
+	for i := range payerPubkey {
+		payerPubkey[i] = byte(i + 1)
 	}
-	signerHash := protocol.Sha256BEField(signerPubkey[:])
-	ownerKeyHash, err := protocol.SolanaPkHash(signerPubkey)
+	payerHash := protocol.Sha256BEField(payerPubkey[:])
+	ownerKeyHash, err := protocol.SolanaPkField(payerPubkey)
 	if err != nil {
 		return ProofTransactionRequest{}, nil, err
 	}
@@ -81,8 +81,8 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 		utxo := protocol.Utxo{
 			Domain:        big.NewInt(protocol.UtxoDomain),
 			Owner:         owner,
-			AssetID:       protocol.SolAsset(),
-			AssetAmount:   new(big.Int).Set(inputAmount),
+			Asset:         protocol.SolAsset(),
+			Amount:        new(big.Int).Set(inputAmount),
 			Blinding:      big.NewInt(int64(1000 + i)),
 			DataHash:      big.NewInt(0),
 			ZoneDataHash:  big.NewInt(0),
@@ -99,9 +99,9 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 		tx.Inputs = append(tx.Inputs, ProofInputRequest{
 			Utxo: ProofUtxoRequest{
 				Domain:            proofFieldInput(utxo.Domain),
-				OwnerSolanaPubkey: parse.BytesHex(signerPubkey[:]),
-				AssetID:           proofFieldInput(utxo.AssetID),
-				AssetAmount:       proofFieldInput(utxo.AssetAmount),
+				OwnerSolanaPubkey: parse.BytesHex(payerPubkey[:]),
+				Asset:             proofFieldInput(utxo.Asset),
+				Amount:            proofFieldInput(utxo.Amount),
 				Blinding:          proofFieldInput(utxo.Blinding),
 				DataHash:          proofFieldInput(utxo.DataHash),
 				ZoneDataHash:      proofFieldInput(utxo.ZoneDataHash),
@@ -116,13 +116,13 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 		tx.Outputs = append(tx.Outputs, ProofUtxoRequest{
 			Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
 			Owner:         proofFieldInput(owner),
-			AssetID:       proofFieldInput(protocol.SolAsset()),
-			AssetAmount:   proofFieldInput(outputAmount),
+			Asset:         proofFieldInput(protocol.SolAsset()),
+			Amount:        proofFieldInput(outputAmount),
 			Blinding:      proofFieldInput(big.NewInt(int64(2000 + i))),
 			DataHash:      proofFieldInput(big.NewInt(0)),
 			ZoneDataHash:  proofFieldInput(big.NewInt(0)),
 			ZoneProgramID: proofFieldInput(big.NewInt(0)),
 		})
 	}
-	return tx, signerHash, nil
+	return tx, payerHash, nil
 }

@@ -23,8 +23,8 @@ func TestComputeProoflessCommitmentMatchesProvenOutput(t *testing.T) {
 		Domain:               proofFieldInput(big.NewInt(protocol.UtxoDomain)),
 		OwnerSolanaPubkey:    parse.BytesHex(pubkey[:]),
 		OwnerNullifierSecret: proofFieldInput(big.NewInt(424242)),
-		AssetID:              proofFieldInput(protocol.SolAsset()),
-		AssetAmount:          proofFieldInput(big.NewInt(5_000_000)),
+		Asset:                proofFieldInput(protocol.SolAsset()),
+		Amount:               proofFieldInput(big.NewInt(5_000_000)),
 		Blinding:             proofFieldInput(blinding),
 		DataHash:             proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:         proofFieldInput(big.NewInt(0)),
@@ -48,10 +48,10 @@ func TestComputeProoflessCommitmentMatchesProvenOutput(t *testing.T) {
 		t.Fatalf("utxo_hash mismatch: proofless %s vs proven output %s", commitment.UtxoHash, got)
 	}
 
-	// owner = OwnerHash(SolanaPkHash(pubkey), NullifierPk(secret)); the
+	// owner = OwnerHash(SolanaPkField(pubkey), NullifierPk(secret)); the
 	// commitment must expose it and nest it as owner_utxo_hash = Poseidon(owner,
 	// blinding).
-	keyHash, err := protocol.SolanaPkHash(pubkey)
+	keyHash, err := protocol.SolanaPkField(pubkey)
 	if err != nil {
 		t.Fatal(err)
 	}

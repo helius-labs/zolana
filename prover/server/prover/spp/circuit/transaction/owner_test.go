@@ -15,8 +15,8 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
-	assetID := spptest.Fe(7)
-	input := sampleUtxoWithAssetAndAmount(10, assetID, spptest.Fe(100))
+	asset := spptest.Fe(7)
+	input := sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))
 	// A zone-owned input must be spent via zone_transact (zone PDA authorization),
 	// not the default transact. The circuit pins zone fields to zero.
 	input.ZoneProgramID = spptest.Fe(1)
@@ -25,8 +25,8 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 		shape,
 		[]protocol.Utxo{input},
 		[]protocol.Utxo{
-			sampleUtxoWithAssetAndAmount(100, assetID, spptest.Fe(60)),
-			sampleUtxoWithAssetAndAmount(110, assetID, spptest.Fe(40)),
+			sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(60)),
+			sampleUtxoWithAssetAndAmount(110, asset, spptest.Fe(40)),
 		},
 		big.NewInt(0),
 		big.NewInt(0),
@@ -36,12 +36,12 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-func TestCircuitRejectsSolanaSignerOwnerMismatch(t *testing.T) {
+func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(shape)
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.Inputs[0].SolanaPkHash = spptest.Fe(12345)
+	assignment.SolanaOwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -71,9 +71,10 @@ func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Soundness guard: the Solana-only variant must reject a P256-owned input
-// (SolanaPkHash == 0), since it skips the signature gadget. Otherwise a UTXO
-// owned by OwnerHash(0, nullifier_pk) could be spent with no signature.
+// Soundness guard: the Solana-only variant must reject a P256-owned
+// transaction (SolanaOwnerPkHash == 0), since it skips the signature gadget.
+// Otherwise a UTXO owned by OwnerHash(0, nullifier_pk) could be spent with no
+// signature.
 func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -96,6 +97,22 @@ func TestCircuitRejectsMixedP256AndSolanaInputs(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, priv, priv)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// The owner key selects the ownership path for the whole proof: non-zero
+// forces the Solana path, so a P256-owned transaction carrying a stray
+// non-zero SolanaOwnerPkHash cannot bind its inputs' owners.
+func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	assignment := buildCircuitAssignment(t, shape)
+	priv := spptest.FixedP256Key(t, 11)
+	rewriteSingleInputAsP256(t, assignment, priv, priv)
+	assignment.SolanaOwnerPkHash = testSolanaPkField(t)
+	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }

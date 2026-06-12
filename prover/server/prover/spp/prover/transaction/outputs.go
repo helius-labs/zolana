@@ -69,11 +69,11 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	if err != nil {
 		return parsedUtxo{}, err
 	}
-	assetID, err := parse.Field(input.AssetID)
+	asset, err := parse.Field(input.Asset)
 	if err != nil {
 		return parsedUtxo{}, fmt.Errorf("asset_id: %w", err)
 	}
-	assetAmount, err := parse.Field(input.AssetAmount)
+	amount, err := parse.Field(input.Amount)
 	if err != nil {
 		return parsedUtxo{}, fmt.Errorf("asset_amount: %w", err)
 	}
@@ -108,8 +108,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	utxo := protocol.Utxo{
 		Domain:        domain,
 		Owner:         own.owner,
-		AssetID:       assetID,
-		AssetAmount:   assetAmount,
+		Asset:         asset,
+		Amount:        amount,
 		Blinding:      blinding,
 		DataHash:      dataHash,
 		ZoneDataHash:  zoneDataHash,
@@ -120,8 +120,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		Owner:             proofFieldInput(own.owner),
 		OwnerSolanaPubkey: parse.HexString(input.OwnerSolanaPubkey),
 		OwnerP256Pubkey:   parse.HexString(input.OwnerP256Pubkey),
-		AssetID:           proofFieldInput(assetID),
-		AssetAmount:       proofFieldInput(assetAmount),
+		Asset:             proofFieldInput(asset),
+		Amount:            proofFieldInput(amount),
 		Blinding:          proofFieldInput(blinding),
 		DataHash:          proofFieldInput(dataHash),
 		ZoneDataHash:      proofFieldInput(zoneDataHash),

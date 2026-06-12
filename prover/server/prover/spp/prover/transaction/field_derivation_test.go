@@ -12,7 +12,7 @@ import (
 
 type fieldDerivationVector struct {
 	ExternalDataHash     externalDataHashVector `json:"external_data_hash"`
-	SolanaPkHash         solanaPkHashVector     `json:"solana_pk_hash"`
+	SolanaPkField        solanaPkFieldVector    `json:"solana_pk_hash"`
 	P256MessageHash      p256MessageHashVector  `json:"p256_message_hash"`
 	NegativeU64          []u64FieldVector       `json:"negative_u64"`
 	PublicAmounts        []publicAmountVector   `json:"public_amounts"`
@@ -33,7 +33,7 @@ type externalDataHashVector struct {
 	Hash                     string `json:"hash"`
 }
 
-type solanaPkHashVector struct {
+type solanaPkFieldVector struct {
 	Pubkey string `json:"pubkey"`
 	Hash   string `json:"hash"`
 }
@@ -76,11 +76,11 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	})
 	expectField(t, "external_data_hash", gotExternal, external.Hash)
 
-	solanaHash, err := protocol.SolanaPkHash(mustHex32(t, vector.SolanaPkHash.Pubkey))
+	solanaHash, err := protocol.SolanaPkField(mustHex32(t, vector.SolanaPkField.Pubkey))
 	if err != nil {
 		t.Fatalf("solana pk hash: %v", err)
 	}
-	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkHash.Hash)
+	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkField.Hash)
 
 	p256MessageHash, err := protocol.P256MessageHash(mustField(t, vector.P256MessageHash.PrivateTxHash))
 	if err != nil {

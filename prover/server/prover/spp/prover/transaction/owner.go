@@ -72,7 +72,7 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 		if err != nil {
 			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
 		}
-		keyHash, err = protocol.SolanaPkHash(pubkey)
+		keyHash, err = protocol.SolanaPkField(pubkey)
 		if err != nil {
 			return ownerKey{}, fmt.Errorf("owner_solana_pubkey: %w", err)
 		}
@@ -82,7 +82,7 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 		if err != nil {
 			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
 		}
-		keyHash, err = protocol.P256OwnerKeyHash(pubkey)
+		keyHash, err = protocol.P256PkField(pubkey)
 		if err != nil {
 			return ownerKey{}, fmt.Errorf("owner_p256_pubkey: %w", err)
 		}
