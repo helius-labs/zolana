@@ -1,5 +1,6 @@
 pub mod instruction;
 pub mod state;
+pub mod user_registry;
 pub mod verifying_keys;
 
 /// Placeholder program id for the initial shielded-pool program scaffold.

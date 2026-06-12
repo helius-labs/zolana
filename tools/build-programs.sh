@@ -8,6 +8,8 @@ sbf_tools_version="${SBF_TOOLS_VERSION:-v1.54}"
 
 cd "$root"
 cargo build-sbf --tools-version "$sbf_tools_version" \
+    --manifest-path programs/user-registry/Cargo.toml
+cargo build-sbf --tools-version "$sbf_tools_version" \
     --manifest-path programs/shielded-pool/Cargo.toml \
     -- --features bpf-entrypoint
 cargo build-sbf --tools-version "$sbf_tools_version" \
