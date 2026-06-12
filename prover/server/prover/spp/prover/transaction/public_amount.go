@@ -20,6 +20,12 @@ type publicAmounts struct {
 	asset *big.Int
 }
 
+// derivePublicAmounts computes the signed public amounts the balance circuit
+// consumes (`inSum + publicAmount == outSum` per asset). Each is the net
+// external flow as a field element, Tornado-Nova style: deposit is positive,
+// withdrawal is negative and wrapped mod p by SignedToField (so `-x` becomes
+// `p - x`), and the relayer fee is folded into the withdrawal — but only on the
+// SOL leg, since fees are paid in SOL.
 func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
 	sol := u64OrZero(tx.PublicSolAmount)
 	spl := u64OrZero(tx.PublicSplAmount)

@@ -31,6 +31,11 @@ func assertBalanceConservation(
 	splAssetIsSol := api.IsZero(api.Sub(publicSplAssetPubkey, solAsset))
 	api.AssertIsEqual(api.Mul(api.Sub(1, splAmountIsZero), splAssetIsSol), 0)
 
+	// The SPL mint id is public only when it moves; pin it to 0 otherwise so a
+	// SOL-only or pure-private transfer reveals no asset id in the public
+	// transcript (the asset is otherwise a private per-UTXO field).
+	assertZeroWhen(api, splAmountIsZero, publicSplAssetPubkey)
+
 	// Check every private asset plus SOL and the public SPL asset.
 	keys := make([]frontend.Variable, 0, len(inputs)+len(outputs)+2)
 	for _, input := range inputs {

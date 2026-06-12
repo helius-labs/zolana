@@ -181,3 +181,120 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
+
+// Pure private transfer of two distinct SPL assets: each conserved on its own
+// (multiple SPLs per transaction, no public movement).
+func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	a := spptest.Fe(77)
+	b := spptest.Fe(91)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, a, spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(20, b, spptest.Fe(50)),
+		},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, a, spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(50)),
+		},
+		big.NewInt(0),
+		big.NewInt(0),
+		spptest.Fe(0),
+	)
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// Conservation is per-asset, not total: a transaction whose total balances but
+// whose per-asset balance does not (asset a short by 10, asset b over by 10)
+// must be rejected — the cross-asset value-conversion attack.
+func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	a := spptest.Fe(77)
+	b := spptest.Fe(91)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, a, spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(20, b, spptest.Fe(50)),
+		},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, a, spptest.Fe(90)),
+			sampleUtxoWithAssetAndAmount(110, b, spptest.Fe(60)),
+		},
+		big.NewInt(0),
+		big.NewInt(0),
+		spptest.Fe(0),
+	)
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// A public SPL deposit on asset a coexists with a purely private transfer of
+// asset b in one proof: a absorbs the public adjustment, b conserves on its own.
+func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	publicAsset := spptest.Fe(77)
+	privateAsset := spptest.Fe(91)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, publicAsset, spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(20, privateAsset, spptest.Fe(50)),
+		},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, publicAsset, spptest.Fe(125)),
+			sampleUtxoWithAssetAndAmount(110, privateAsset, spptest.Fe(50)),
+		},
+		big.NewInt(0),
+		big.NewInt(25),
+		publicAsset,
+	)
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// SPL unshield (withdraw): the symmetric partner to TestCircuitAcceptsPublicSplDeposit.
+func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	asset := spptest.Fe(77)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(125))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100))),
+		big.NewInt(0),
+		big.NewInt(-25),
+		asset,
+	)
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// The public SPL mint id must be 0 when no SPL amount moves: a balanced,
+// otherwise-valid transfer carrying a stray publicSplAssetPubkey is rejected,
+// so a no-public-SPL transaction cannot leak a mint id into the transcript.
+func TestCircuitRejectsNonZeroPublicSplAssetWithoutAmount(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(shape)
+	asset := spptest.Fe(7)
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100))),
+		big.NewInt(0),
+		big.NewInt(0),
+		spptest.Fe(88),
+	)
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
