@@ -26,11 +26,13 @@ use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, BatchUpdateAddressTreeData, CreateTreeData,
-        CreateProtocolConfigData, ProoflessShieldIxData, ProoflessShieldEvent,
+        encode_instruction, tag, BatchUpdateAddressTreeData, CreateSplInterfaceData,
+        CreateTreeData, CreateProtocolConfigData, PauseTreeData, ProoflessShieldEvent,
+        ProoflessShieldIxData, UpdateProtocolConfigData,
     },
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
+    SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_TOKEN_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
 pub mod indexer;
@@ -113,6 +115,30 @@ impl PoolTestRig {
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)
     }
 
+    /// The SPL token program (litesvm preloads it).
+    pub fn token_program_id() -> Pubkey {
+        Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
+    }
+
+    pub fn spl_asset_counter_pda(&self) -> Pubkey {
+        Pubkey::find_program_address(&[SPL_ASSET_COUNTER_PDA_SEED], &self.program_id).0
+    }
+
+    /// The per-mint asset registry PDA (spec: `spl_asset_registry`).
+    pub fn spl_asset_registry_pda(&self, mint: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(
+            &[SPL_ASSET_REGISTRY_PDA_SEED, mint.as_ref()],
+            &self.program_id,
+        )
+        .0
+    }
+
+    /// The per-mint pool vault PDA (spec: `spl_token_interface`).
+    pub fn spl_asset_vault_pda(&self, mint: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &self.program_id)
+            .0
+    }
+
     /// Create the canonical protocol config naming `authority`. The authority
     /// signs and pays the PDA rent, so it is funded here.
     pub fn create_protocol_config(&mut self, authority: &Keypair) -> Result<Pubkey, RigError> {
@@ -137,6 +163,49 @@ impl PoolTestRig {
         Ok(config)
     }
 
+    /// Rotate the protocol-config authority. Accounts: [authority(signer), config].
+    pub fn update_protocol_config(
+        &mut self,
+        authority: &Keypair,
+        new_authority: &Pubkey,
+    ) -> Result<(), RigError> {
+        let data = encode_instruction(
+            tag::UPDATE_PROTOCOL_CONFIG,
+            &UpdateProtocolConfigData {
+                new_authority: new_authority.to_bytes(),
+            },
+        );
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(self.protocol_config_pda(), false),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    /// Pause or unpause a tree. Accounts: [authority(signer), config, tree].
+    pub fn pause_tree(
+        &mut self,
+        authority: &Keypair,
+        tree: &Keypair,
+        paused: bool,
+    ) -> Result<(), RigError> {
+        let data = encode_instruction(tag::PAUSE_TREE, &PauseTreeData { paused });
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new_readonly(self.protocol_config_pda(), false),
+                AccountMeta::new(tree.pubkey(), false),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
     /// Allocate a fresh pool-tree account at the right size, fund it for
     /// rent-exemption, assign ownership to the shielded-pool program, then
     /// call `create_tree` signed by the protocol-config authority.
@@ -153,19 +222,14 @@ impl PoolTestRig {
             .svm
             .minimum_balance_for_rent_exemption(account_size as usize);
 
-        // 1. Top-level system_program::CreateAccount (discriminator 0).
-        let mut create_data = vec![0u8; 4 + 8 + 8 + 32];
-        create_data[4..12].copy_from_slice(&rent.to_le_bytes());
-        create_data[12..20].copy_from_slice(&account_size.to_le_bytes());
-        create_data[20..52].copy_from_slice(&self.program_id.to_bytes());
-        let create_ix = Instruction {
-            program_id: solana_pubkey::Pubkey::default(),
-            accounts: vec![
-                AccountMeta::new(self.payer.pubkey(), true),
-                AccountMeta::new(tree.pubkey(), true),
-            ],
-            data: create_data,
-        };
+        // 1. Top-level system_program::CreateAccount.
+        let create_ix = system_create_account_ix(
+            &self.payer.pubkey(),
+            &tree.pubkey(),
+            rent,
+            account_size,
+            &self.program_id,
+        );
 
         // 2. Call create_tree: [authority(signer), protocol_config, tree].
         let mut create_pool_data = vec![tag::CREATE_TREE];
@@ -205,6 +269,144 @@ impl PoolTestRig {
         }
     }
 
+    /// An SPL-deposit `ProoflessShieldIxData` with bare commitment fields.
+    pub fn spl_shield_data(amount: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldIxData {
+        ProoflessShieldIxData {
+            view_tag: [0u8; 32],
+            owner_utxo_hash,
+            salt: [0u8; 16],
+            public_sol_amount: None,
+            public_spl_amount: Some(amount),
+            policy_data_hash: None,
+            zone_data: None,
+            program_data_hash: None,
+            program_data: None,
+            cpi_signer: None,
+        }
+    }
+
+    /// Create a mint with the rig payer as mint authority (decimals 9).
+    pub fn create_mint(&mut self) -> Result<Pubkey, RigError> {
+        const MINT_LEN: u64 = 82;
+        const INITIALIZE_MINT2: u8 = 20;
+        let mint = Keypair::new();
+        let rent = self
+            .svm
+            .minimum_balance_for_rent_exemption(MINT_LEN as usize);
+        let create_ix = system_create_account_ix(
+            &self.payer.pubkey(),
+            &mint.pubkey(),
+            rent,
+            MINT_LEN,
+            &Self::token_program_id(),
+        );
+        let mut data = vec![INITIALIZE_MINT2, 9];
+        data.extend_from_slice(&self.payer.pubkey().to_bytes());
+        data.push(0); // no freeze authority
+        let init_ix = Instruction {
+            program_id: Self::token_program_id(),
+            accounts: vec![AccountMeta::new(mint.pubkey(), false)],
+            data,
+        };
+        self.send(&[create_ix, init_ix], &[&self.payer.insecure_clone(), &mint])?;
+        Ok(mint.pubkey())
+    }
+
+    /// Create a token account for `mint` owned by `owner`.
+    pub fn create_token_account(
+        &mut self,
+        mint: &Pubkey,
+        owner: &Pubkey,
+    ) -> Result<Pubkey, RigError> {
+        const TOKEN_ACCOUNT_LEN: u64 = 165;
+        const INITIALIZE_ACCOUNT3: u8 = 18;
+        let account = Keypair::new();
+        let rent = self
+            .svm
+            .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_LEN as usize);
+        let create_ix = system_create_account_ix(
+            &self.payer.pubkey(),
+            &account.pubkey(),
+            rent,
+            TOKEN_ACCOUNT_LEN,
+            &Self::token_program_id(),
+        );
+        let mut data = vec![INITIALIZE_ACCOUNT3];
+        data.extend_from_slice(&owner.to_bytes());
+        let init_ix = Instruction {
+            program_id: Self::token_program_id(),
+            accounts: vec![
+                AccountMeta::new(account.pubkey(), false),
+                AccountMeta::new_readonly(*mint, false),
+            ],
+            data,
+        };
+        self.send(
+            &[create_ix, init_ix],
+            &[&self.payer.insecure_clone(), &account],
+        )?;
+        Ok(account.pubkey())
+    }
+
+    /// Mint `amount` tokens to `account` (the rig payer is the mint authority).
+    pub fn mint_to(
+        &mut self,
+        mint: &Pubkey,
+        account: &Pubkey,
+        amount: u64,
+    ) -> Result<(), RigError> {
+        const MINT_TO: u8 = 7;
+        let mut data = vec![MINT_TO];
+        data.extend_from_slice(&amount.to_le_bytes());
+        let ix = Instruction {
+            program_id: Self::token_program_id(),
+            accounts: vec![
+                AccountMeta::new(*mint, false),
+                AccountMeta::new(*account, false),
+                AccountMeta::new_readonly(self.payer.pubkey(), true),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone()])
+    }
+
+    /// The token-level balance of an SPL token account.
+    pub fn token_balance(&self, account: &Pubkey) -> Option<u64> {
+        let data = self.account_data(account)?;
+        let bytes: [u8; 8] = data.get(64..72)?.try_into().ok()?;
+        Some(u64::from_le_bytes(bytes))
+    }
+
+    /// Register `mint` with the pool: create its asset-registry PDA and
+    /// token vault (spec: `create_spl_interface`). Signed by the protocol
+    /// authority, which also pays the PDA rent. Returns (registry, vault).
+    pub fn create_spl_interface(
+        &mut self,
+        authority: &Keypair,
+        mint: &Pubkey,
+    ) -> Result<(Pubkey, Pubkey), RigError> {
+        let registry = self.spl_asset_registry_pda(mint);
+        let vault = self.spl_asset_vault_pda(mint);
+        let data = encode_instruction(tag::CREATE_SPL_INTERFACE, &CreateSplInterfaceData);
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new(authority.pubkey(), true),
+                AccountMeta::new_readonly(self.protocol_config_pda(), false),
+                AccountMeta::new(self.spl_asset_counter_pda(), false),
+                AccountMeta::new(registry, false),
+                AccountMeta::new_readonly(*mint, false),
+                AccountMeta::new(vault, false),
+                AccountMeta::new_readonly(self.cpi_authority(), false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new_readonly(Self::token_program_id(), false),
+            ],
+            data,
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])?;
+        Ok((registry, vault))
+    }
+
     /// Send a `proofless_shield` carrying `data` and return the
     /// `ProoflessShieldEvent` it emitted via self-CPI — read from the inner
     /// instructions exactly the way an indexer authenticates events. SOL
@@ -217,17 +419,54 @@ impl PoolTestRig {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, RigError> {
+        let accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new(depositor.pubkey(), true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(self.cpi_authority(), false),
+            AccountMeta::new(depositor.pubkey(), false),
+            AccountMeta::new_readonly(self.program_id, false),
+        ];
+        self.proofless_shield_with_accounts(accounts, depositor, data)
+    }
+
+    /// SPL `proofless_shield`: the depositor signs and pays from `user_token`,
+    /// which they must own at the token level. Accounts: [tree, signer,
+    /// cpi_authority, user_token, vault, registry, token_program,
+    /// shielded_pool_program].
+    pub fn proofless_shield_spl(
+        &mut self,
+        tree: &Keypair,
+        depositor: &Keypair,
+        user_token: &Pubkey,
+        mint: &Pubkey,
+        data: &ProoflessShieldIxData,
+    ) -> Result<ProoflessShieldEvent, RigError> {
+        let accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new(depositor.pubkey(), true),
+            AccountMeta::new_readonly(self.cpi_authority(), false),
+            AccountMeta::new(*user_token, false),
+            AccountMeta::new(self.spl_asset_vault_pda(mint), false),
+            AccountMeta::new_readonly(self.spl_asset_registry_pda(mint), false),
+            AccountMeta::new_readonly(Self::token_program_id(), false),
+            AccountMeta::new_readonly(self.program_id, false),
+        ];
+        self.proofless_shield_with_accounts(accounts, depositor, data)
+    }
+
+    /// `proofless_shield` with a caller-supplied account list, for tests that
+    /// mutate the account shape.
+    pub fn proofless_shield_with_accounts(
+        &mut self,
+        accounts: Vec<AccountMeta>,
+        depositor: &Keypair,
+        data: &ProoflessShieldIxData,
+    ) -> Result<ProoflessShieldEvent, RigError> {
         let encoded = encode_instruction(tag::PROOFLESS_SHIELD, data);
         let ix = Instruction {
             program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new(tree.pubkey(), false),
-                AccountMeta::new(depositor.pubkey(), true),
-                AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new(self.cpi_authority(), false),
-                AccountMeta::new(depositor.pubkey(), false),
-                AccountMeta::new_readonly(self.program_id, false),
-            ],
+            accounts,
             data: encoded,
         };
 
@@ -424,6 +663,29 @@ impl PoolTestRig {
             .send_transaction(tx)
             .map(|_| ())
             .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))
+    }
+}
+
+/// Top-level system_program::CreateAccount (discriminator 0); the new
+/// account co-signs.
+fn system_create_account_ix(
+    payer: &Pubkey,
+    new_account: &Pubkey,
+    lamports: u64,
+    space: u64,
+    owner: &Pubkey,
+) -> Instruction {
+    let mut data = vec![0u8; 4 + 8 + 8 + 32];
+    data[4..12].copy_from_slice(&lamports.to_le_bytes());
+    data[12..20].copy_from_slice(&space.to_le_bytes());
+    data[20..52].copy_from_slice(&owner.to_bytes());
+    Instruction {
+        program_id: Pubkey::default(),
+        accounts: vec![
+            AccountMeta::new(*payer, true),
+            AccountMeta::new(*new_account, true),
+        ],
+        data,
     }
 }
 

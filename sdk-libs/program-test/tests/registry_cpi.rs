@@ -65,9 +65,12 @@ fn registry_cpi_authority_passes_shielded_pool_auth_check() {
         return;
     };
 
-    // 1. Allocate the pool tree (this stays a top-level system_program ix).
+    // 1. Create the protocol config and the tree (admin-gated).
+    let pool_authority = Keypair::new();
+    rig.create_protocol_config(&pool_authority)
+        .expect("create_protocol_config");
     let tree = rig
-        .create_tree(TREE_ACCOUNT_SIZE)
+        .create_tree(TREE_ACCOUNT_SIZE, &pool_authority)
         .expect("create_tree");
 
     // 2. Set up the registry: protocol_config → register forester → register

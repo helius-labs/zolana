@@ -47,14 +47,15 @@ fn batch_update_rejects_call_without_accounts() {
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 
-/// Pin the hardcoded `LIGHT_REGISTRY_CPI_AUTHORITY` to what
-/// `Pubkey::find_program_address(b"cpi_authority", LIGHT_REGISTRY_PROGRAM_ID)`
-/// actually returns. A rename of either the seed (in light-registry's
-/// `constants.rs`) or the program id (in `declare_id!`) will trip this.
+/// Pin the hardcoded `LIGHT_REGISTRY_CPI_AUTHORITY` to the PDA derived from
+/// `b"cpi_authority"` under `LIGHT_REGISTRY_PROGRAM_ID`. A rename of either
+/// the seed (in light-registry's `constants.rs`) or the program id (in
+/// `declare_id!`) will trip this.
 #[test]
-fn cpi_authority_constant_matches_find_program_address() {
+fn cpi_authority_constant_matches_derived_pda() {
     let registry = Pubkey::new_from_array(LIGHT_REGISTRY_PROGRAM_ID);
-    let (expected, _bump) = Pubkey::find_program_address(&[CPI_AUTHORITY_PDA_SEED], &registry);
+    let (expected, _bump) =
+        Pubkey::derive_program_address(&[CPI_AUTHORITY_PDA_SEED], &registry).expect("derive");
     assert_eq!(expected.to_bytes(), LIGHT_REGISTRY_CPI_AUTHORITY);
 }
 

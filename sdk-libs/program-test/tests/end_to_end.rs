@@ -11,40 +11,11 @@
 //! `batch_update_address_tree` needs a real Groth16 proof and lives in
 //! `registry_cpi.rs` once the prover wiring lands.
 
-use light_program_test::{PoolTestRig, RigError};
+mod common;
+
+use common::rig_with_tree;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-
-/// 1.16 MB — big enough for the combined account; the program ignores any
-/// caller-supplied size and uses `tree_account_size()` internally.
-const TREE_ACCOUNT_SIZE: u64 = 1_200_000;
-
-/// Boot a rig with the canonical protocol config and one pool tree, returning
-/// (rig, authority, tree).
-fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
-    let mut rig = rig()?;
-    let authority = Keypair::new();
-    rig.create_protocol_config(&authority)
-        .expect("create_protocol_config");
-    let tree = rig
-        .create_tree(TREE_ACCOUNT_SIZE, &authority)
-        .expect("create_tree");
-    Some((rig, authority, tree))
-}
-
-fn rig() -> Option<PoolTestRig> {
-    match PoolTestRig::new() {
-        Ok(r) => Some(r),
-        Err(RigError::MissingProgram(_)) => {
-            eprintln!(
-                "skipping end-to-end test: shielded_pool_program.so missing — \
-                 run `cargo build-sbf -p shielded-pool-program`"
-            );
-            None
-        }
-        Err(e) => panic!("rig boot failed: {e}"),
-    }
-}
 
 #[test]
 fn create_tree_succeeds() {
