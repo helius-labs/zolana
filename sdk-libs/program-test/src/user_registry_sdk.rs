@@ -1,15 +1,15 @@
 //! Minimal SDK for user-registry litesvm tests.
 
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::user_registry::{user_record_pda, USER_REGISTRY_PROGRAM_ID};
+use zolana_interface::user_registry::{
+    instruction::{self as user_registry_instruction, RegisterData, RotateSyncDelegateData, SetSyncDelegateData},
+    user_record_pda,
+};
 
-pub use zolana_user_registry::{state::UserRecord, ID as USER_REGISTRY_PROGRAM};
-
-pub fn user_registry_program_id() -> Pubkey {
-    Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID)
-}
+pub use zolana_interface::user_registry::{
+    user_registry_program_id, SyncDelegateEntry, UserRecord,
+};
 
 pub fn build_register_ix(
     owner: &Pubkey,
@@ -18,21 +18,15 @@ pub fn build_register_ix(
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::Register {
+    user_registry_instruction::register(
         user_record,
-        owner: *owner,
-        system_program: anchor_lang::solana_program::system_program::ID,
-    };
-    Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::Register {
+        *owner,
+        RegisterData {
             owner_p256,
             nullifier_pubkey,
             viewing_pubkey,
-        }
-        .data(),
-    }
+        },
+    )
 }
 
 pub fn build_set_sync_delegate_ix(
@@ -42,21 +36,15 @@ pub fn build_set_sync_delegate_ix(
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::SetSyncDelegate {
+    user_registry_instruction::set_sync_delegate(
         user_record,
-        owner: *owner,
-        system_program: anchor_lang::solana_program::system_program::ID,
-    };
-    Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::SetSyncDelegate {
-            sync_delegate,
+        *owner,
+        SetSyncDelegateData {
+            sync_delegate: sync_delegate.to_bytes(),
             sync_pubkey,
             viewing_pubkey,
-        }
-        .data(),
-    }
+        },
+    )
 }
 
 pub fn build_rotate_sync_delegate_ix(
@@ -66,68 +54,44 @@ pub fn build_rotate_sync_delegate_ix(
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::RotateSyncDelegate {
+    user_registry_instruction::rotate_sync_delegate(
         user_record,
-        sync_delegate: *sync_delegate,
-        system_program: anchor_lang::solana_program::system_program::ID,
-    };
-    Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::RotateSyncDelegate {
+        *sync_delegate,
+        RotateSyncDelegateData {
             sync_pubkey,
             viewing_pubkey,
-        }
-        .data(),
-    }
+        },
+    )
 }
 
 pub fn build_revoke_ix(owner: &Pubkey, signer: &Pubkey) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::Revoke {
-        user_record,
-        signer: *signer,
-    };
-    Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::Revoke {}.data(),
-    }
+    user_registry_instruction::revoke(user_record, *signer)
 }
 
 pub fn build_close_ix(owner: &Pubkey) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::CloseRecord {
-        user_record,
-        owner: *owner,
-    };
-    Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::Close {}.data(),
-    }
+    user_registry_instruction::close(user_record, *owner)
 }
 
 pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserRecord> {
     let (pda, _bump) = user_record_pda(owner);
     let account = svm.get_account(&pda)?;
-    UserRecord::try_deserialize(&mut account.data.as_slice()).ok()
+    UserRecord::from_account_data(&account.data).ok()
 }
 
 #[cfg(test)]
-mod layout_parity {
-    //! Ensures that the `zolana-interface` `UserRecord` matches the onchain account state. Fail loudly if state mismatch.
-    use anchor_lang::prelude::Pubkey as AnchorPubkey;
-    use anchor_lang::AnchorSerialize;
-    use borsh::BorshDeserialize;
-    use zolana_interface::user_registry::{
-        SyncDelegateEntry as IfaceEntry, UserRecord as IfaceRecord,
-    };
-    use zolana_user_registry::state::{SyncDelegateEntry as ChainEntry, UserRecord as ChainRecord};
+mod wire_layout {
+    //! Locks the user-record account layout and instruction encoding so any
+    //! drift between the interface and the on-chain program fails loudly.
+    use borsh::to_vec;
+    use zolana_interface::user_registry::instruction::{tag, RegisterData};
+    use zolana_interface::user_registry::{SyncDelegateEntry, UserRecord};
 
-    fn sample(sync_delegate: Option<AnchorPubkey>, entries: Vec<ChainEntry>) -> ChainRecord {
-        ChainRecord {
-            owner: AnchorPubkey::new_from_array([7u8; 32]),
+    fn sample(sync_delegate: Option<[u8; 32]>, entries: Vec<SyncDelegateEntry>) -> UserRecord {
+        UserRecord {
+            owner: [7u8; 32],
+            bump: 251,
             owner_p256: Some([2u8; 33]),
             nullifier_pubkey: [9u8; 32],
             viewing_pubkey: [3u8; 33],
@@ -136,86 +100,96 @@ mod layout_parity {
         }
     }
 
-
-    fn body_bytes(record: &ChainRecord) -> Vec<u8> {
-        let mut buf = Vec::new();
-        record.serialize(&mut buf).expect("serialize chain record");
-        buf
-    }
-
     #[test]
-    fn interface_layout_matches_onchain() {
-        let chain = sample(
-            Some(AnchorPubkey::new_from_array([5u8; 32])),
-            vec![ChainEntry {
+    fn record_byte_layout_is_locked() {
+        let record = sample(
+            Some([5u8; 32]),
+            vec![SyncDelegateEntry {
                 sync_pubkey: [2u8; 33],
                 viewing_pubkey: [4u8; 33],
                 created_at: 42,
             }],
         );
-        let body = body_bytes(&chain);
+        let body = to_vec(&record).unwrap();
 
-        let parsed = IfaceRecord::try_from_slice(&body).expect("interface parse of body");
-        assert_eq!(parsed.owner, [7u8; 32]);
-        assert_eq!(parsed.owner_p256, Some([2u8; 33]));
-        assert_eq!(parsed.nullifier_pubkey, [9u8; 32]);
-        assert_eq!(parsed.viewing_pubkey, [3u8; 33]);
-        assert_eq!(parsed.sync_delegate, Some([5u8; 32]));
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&[7u8; 32]);
+        expected.push(251);
+        expected.push(1);
+        expected.extend_from_slice(&[2u8; 33]);
+        expected.extend_from_slice(&[9u8; 32]);
+        expected.extend_from_slice(&[3u8; 33]);
+        expected.push(1);
+        expected.extend_from_slice(&[5u8; 32]);
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.extend_from_slice(&[2u8; 33]);
+        expected.extend_from_slice(&[4u8; 33]);
+        expected.extend_from_slice(&42i64.to_le_bytes());
+        assert_eq!(body, expected);
+
         assert_eq!(
-            parsed.entries,
-            vec![IfaceEntry {
-                sync_pubkey: [2u8; 33],
-                viewing_pubkey: [4u8; 33],
-                created_at: 42,
-            }]
+            UserRecord::DISCRIMINATOR_LEN + body.len(),
+            UserRecord::space_for(1)
         );
+    }
 
-        let mut account_data = vec![0u8; IfaceRecord::DISCRIMINATOR_LEN];
+    #[test]
+    fn from_account_data_round_trips_with_trailing_padding() {
+        let record = sample(None, Vec::new());
+        let body = to_vec(&record).unwrap();
+        let mut account_data = vec![UserRecord::DISCRIMINATOR];
         account_data.extend_from_slice(&body);
-        assert_eq!(
-            IfaceRecord::from_account_data(&account_data).expect("accessor parse"),
-            parsed
+        // Accounts are sized for the `Some` length of options, so the live
+        // account carries trailing zeros after a `None` serialization.
+        account_data.resize(UserRecord::space_for(0), 0);
+        assert_eq!(UserRecord::from_account_data(&account_data).unwrap(), record);
+    }
+
+    #[test]
+    fn from_account_data_rejects_bad_discriminator() {
+        assert!(UserRecord::from_account_data(&[]).is_err());
+        let record = sample(None, Vec::new());
+        let mut account_data = vec![0u8];
+        account_data.extend_from_slice(&to_vec(&record).unwrap());
+        assert!(UserRecord::from_account_data(&account_data).is_err());
+    }
+
+    #[test]
+    fn register_instruction_uses_one_byte_tag() {
+        let ix = super::build_register_ix(
+            &solana_pubkey::Pubkey::new_unique(),
+            None,
+            [1u8; 32],
+            [2u8; 33],
         );
+        assert_eq!(ix.data[0], tag::REGISTER);
+        let payload = RegisterData {
+            owner_p256: None,
+            nullifier_pubkey: [1u8; 32],
+            viewing_pubkey: [2u8; 33],
+        };
+        assert_eq!(ix.data[1..], to_vec(&payload).unwrap());
     }
 
     #[test]
-    fn from_account_data_rejects_short_input() {
-        assert!(IfaceRecord::from_account_data(&[0u8; 4]).is_err());
-    }
-
-    #[test]
-    fn sender_viewing_pubkey_parity_active_delegate() {
+    fn sender_viewing_pubkey_active_delegate_and_after_revoke() {
         let entries = vec![
-            ChainEntry {
+            SyncDelegateEntry {
                 sync_pubkey: [2u8; 33],
                 viewing_pubkey: [10u8; 33],
                 created_at: 1,
             },
-            ChainEntry {
+            SyncDelegateEntry {
                 sync_pubkey: [3u8; 33],
                 viewing_pubkey: [11u8; 33],
                 created_at: 2,
             },
         ];
-        let chain = sample(Some(AnchorPubkey::new_from_array([5u8; 32])), entries);
-        let iface = IfaceRecord::try_from_slice(&body_bytes(&chain)).unwrap();
-        assert_eq!(chain.sender_viewing_pubkey(), iface.sender_viewing_pubkey());
-        assert_eq!(iface.sender_viewing_pubkey(), [11u8; 33]);
-    }
+        let active = sample(Some([5u8; 32]), entries.clone());
+        assert_eq!(active.sender_viewing_pubkey(), [11u8; 33]);
 
-    #[test]
-    fn sender_viewing_pubkey_parity_after_revoke() {
-        let chain = sample(
-            None,
-            vec![ChainEntry {
-                sync_pubkey: [2u8; 33],
-                viewing_pubkey: [10u8; 33],
-                created_at: 1,
-            }],
-        );
-        let iface = IfaceRecord::try_from_slice(&body_bytes(&chain)).unwrap();
-        assert_eq!(chain.sender_viewing_pubkey(), iface.sender_viewing_pubkey());
+        let revoked = sample(None, entries);
         // No active delegate means static viewing key, not the entry's.
-        assert_eq!(iface.sender_viewing_pubkey(), [3u8; 33]);
+        assert_eq!(revoked.sender_viewing_pubkey(), [3u8; 33]);
     }
 }

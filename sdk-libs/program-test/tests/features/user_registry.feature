@@ -15,11 +15,17 @@ Feature: User registry program
     When "alice" registers on-chain without an owner p256 key
     Then "alice" has a user record without an owner p256 key
 
+  Scenario: Register succeeds when the record address was pre-funded
+    Given owner "alice" with p256 keys
+    And the record address of "alice" is pre-funded
+    When "alice" registers on-chain
+    Then "alice" has a user record with no sync delegate
+
   Scenario: Registering twice fails
     Given owner "alice" with p256 keys
     And "alice" registers on-chain
     When "alice" tries to register again
-    Then the transaction fails with "already in use"
+    Then the transaction fails with "AccountAlreadyInitialized"
 
   Scenario: Register rejects a zero-prefix viewing key
     Given owner "alice" with p256 keys
@@ -61,7 +67,7 @@ Feature: User registry program
     And "alice" registers on-chain
     And a stranger "mallory"
     When stranger "mallory" tries to appoint herself as sync delegate for "alice"
-    Then the transaction fails with "ConstraintSeeds"
+    Then the transaction fails with "InvalidRecordPda"
 
   Scenario: Set sync delegate rejects a zero-prefix sync key
     Given owner "alice" with p256 keys
@@ -200,7 +206,7 @@ Feature: User registry program
     And "alice" registers on-chain
     And a stranger "mallory"
     When stranger "mallory" tries to close the record of "alice"
-    Then the transaction fails with "ConstraintSeeds"
+    Then the transaction fails with "InvalidRecordPda"
 
   Scenario: Re-register after close succeeds
     Given owner "alice" with p256 keys

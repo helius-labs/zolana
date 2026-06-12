@@ -10,14 +10,20 @@ crate-type = ["cdylib", "lib"]
 name = "zolana_user_registry"
 
 [features]
-no-entrypoint = []
-no-idl = []
-no-log-ix-name = []
-cpi = ["no-entrypoint"]
 default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
 
 [dependencies]
-anchor-lang = { workspace = true, features = ["init-if-needed"] }
+borsh = { workspace = true }
+pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
+# `Address::find_program_address` is syscall-backed on-chain; the `curve25519`
+# feature provides the host implementation for off-chain builds of this lib.
+solana-address = { version = "2.6", features = ["curve25519"] }
+thiserror = { workspace = true }
+zolana-interface = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

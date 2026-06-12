@@ -2993,7 +2993,6 @@ dependencies = [
 name = "light-program-test"
 version = "0.23.0"
 dependencies = [
- "anchor-lang",
  "borsh",
  "cucumber",
  "litesvm",
@@ -8395,7 +8394,11 @@ dependencies = [
 name = "zolana-user-registry"
 version = "0.1.0"
 dependencies = [
- "anchor-lang",
+ "borsh",
+ "pinocchio 0.11.1",
+ "solana-address 2.6.0",
+ "thiserror 2.0.18",
+ "zolana-interface",
 ]
 
 [[package]]
