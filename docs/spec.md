@@ -46,6 +46,7 @@
     - [Zone Accounts](#zone-accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
+    - [proofless_shield](#proofless_shield)
     - [merge_transact](#merge_transact)
     - [merge_zone](#merge_zone)
 - [Zone Program Interface](#zone-program-interface)
@@ -124,7 +125,7 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or `pro
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
 | 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient hidden |
-| 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | fully public |
+| 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | sender + amount visible; recipient hidden |
 | 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender hidden (relayer); recipient + amount visible |
 | 4 | shielded transfer | Transfer value between shielded balances. | fully shielded (sender, recipient, amount) |
 
@@ -487,6 +488,8 @@ owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+
+Nesting owner_utxo_hash keeps the owner the funds are shielded to private  when using proofless_shield deposits.
 
 ## Nullifier
 
@@ -1054,7 +1057,7 @@ Usage by instruction:
 | Instruction | Description |
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
-| proofless_shield | Tag 1; public deposit; hashes UTXO and inserts into UTXO tree. Indexed under the recipient's bootstrap tag. |
+| proofless_shield | Tag 1; public deposit without a proof; hides the recipient behind `owner_utxo_hash`. See [`proofless_shield`](#proofless_shield). |
 | zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
@@ -1067,6 +1070,7 @@ Usage by instruction:
 | update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
 | merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted Solana signer; SPP checks the signer against `protocol_config.merge_authorities`. Input and output UTXOs are default-zone; extension slots are zero. |
 | zone_merge_transact | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
+| emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
 
 ### `transact`
 
@@ -1147,6 +1151,90 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
+
+### `proofless_shield`
+
+**Discriminator:** 1
+
+**Description.** Public deposit without a proof; shields dynamic amounts and assets, e.g. the output of a swap. The depositor precomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)); `owner` and `blinding` never enter instruction data, so the recipient stays hidden.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | tree_account | x |   | UTXO tree |
+| 2 | payer |   | x | depositor |
+| 3 | cpi_signer |   | x | invoking zone program pda, optional |
+
+**Instruction data**
+
+```rust
+struct ProoflessShieldIxData {
+    /// Indexing tag for the single output slot; chosen per
+    /// [View Tag Selection](#view-tag-selection).
+    view_tag: [u8; 32],
+    /// Precomputed by the depositor; see [UTXO Hash](#utxo-hash).
+    owner_utxo_hash: [u8; 32],
+    /// Fresh CSPRNG per deposit; see [Blinding derivation](#blinding-derivation).
+    salt: [u8; 16],
+    /// `Some` for a SOL deposit.
+    public_sol_amount: Option<u64>,
+    /// `Some` for an SPL deposit.
+    public_spl_amount: Option<u64>,
+    /// Zone-defined policy data hash; requires `cpi_signer`.
+    policy_data_hash: Option<[u8; 32]>,
+    /// Preimage of `policy_data_hash`.
+    zone_data: Option<Vec<u8>>,
+    /// Program-defined data hash; requires `cpi_signer`.
+    program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    program_data: Option<Vec<u8>>,
+    /// See [`transact`](#transact).
+    cpi_signer: Option<(program_id, bump)>,
+}
+```
+
+<a id="blinding-derivation"></a>
+**Blinding derivation**
+
+```
+blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding" || salt, L=31)
+```
+
+**Checks**
+
+1. `tree_account` is not paused.
+2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
+3. `policy_data_hash`, `zone_data`, `program_data_hash`, and `program_data` are `Some` only if `cpi_signer` is `Some`.
+4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+5. Append the hash to the UTXO tree.
+6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+7. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
+
+**Event**
+
+The event allows an indexer to index the created UTXO since the utxo hash and the mint address do not exist in the instruction data.
+
+```rust
+struct ProoflessShieldEvent {
+    view_tag: [u8; 32],
+    utxo_hash: [u8; 32],
+    /// Deposited mint; reaches the instruction via accounts only.
+    asset: Address,
+    amount: u64,
+    /// From `cpi_signer`.
+    zone_program_id: Option<Address>,
+    policy_data_hash: Option<[u8; 32]>,
+    owner_utxo_hash: [u8; 32],
+    salt: [u8; 16],
+    program_data_hash: Option<[u8; 32]>,
+    program_data: Option<Vec<u8>>,
+    zone_data: Option<Vec<u8>>,
+}
+```
+
+Data fields require `cpi_signer`: only UTXOs owned by the invoking program hold data ([`transact`](#transact) check 10). As in [`merge_zone`](#merge_zone), `policy_data` and `program_data` are constrained by the zone program, not by SPP; SPP copies the hashes and preimages from instruction data into the event unchecked.
+
 
 ### `merge_transact`
 
@@ -1331,9 +1419,10 @@ struct GetShieldedTransactionsByTagsResponse {
 struct ShieldedTransaction {
     slot: u64,
     tx_signature: Signature,
-    tx_viewing_pk: P256Pubkey,
+    /// `None` when `proofless` (no ciphertext to decrypt).
+    tx_viewing_pk: Option<P256Pubkey>,
     /// Output ciphertext slots in UTXO-tree-append order. For `proofless_shield`,
-    /// each slot's `payload` is a cleartext UTXO body.
+    /// each slot's `payload` is the `ProoflessShieldEvent` bytes as emitted.
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
