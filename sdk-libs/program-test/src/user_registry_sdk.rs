@@ -59,14 +59,14 @@ pub fn build_set_sync_delegate_ix(
     }
 }
 
-pub fn build_sync_delegate_rotate_ix(
+pub fn build_rotate_sync_delegate_ix(
     owner: &Pubkey,
     sync_delegate: &Pubkey,
     sync_pubkey: [u8; 33],
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    let accounts = zolana_user_registry::accounts::SyncDelegateRotate {
+    let accounts = zolana_user_registry::accounts::RotateSyncDelegate {
         user_record,
         sync_delegate: *sync_delegate,
         system_program: anchor_lang::solana_program::system_program::ID,
@@ -74,7 +74,7 @@ pub fn build_sync_delegate_rotate_ix(
     Instruction {
         program_id: user_registry_program_id(),
         accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::SyncDelegateRotate {
+        data: zolana_user_registry::instruction::RotateSyncDelegate {
             sync_pubkey,
             viewing_pubkey,
         }

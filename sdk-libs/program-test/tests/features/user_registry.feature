@@ -69,7 +69,7 @@ Feature: User registry program
     When owner "alice" tries to appoint sync delegate "bob" with sync key prefix 0
     Then the transaction fails with "InvalidP256Prefix"
 
-  # === sync_delegate_rotate ===
+  # === rotate_sync_delegate ===
 
   Scenario: Sync delegate rotate appends without changing sync delegate address
     Given owner "alice" with p256 keys

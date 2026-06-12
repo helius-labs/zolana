@@ -61,8 +61,8 @@ pub mod user_registry {
     }
 
     /// Appends a new sync-delegate entry without changing the sync delegate address.
-    pub fn sync_delegate_rotate(
-        ctx: Context<SyncDelegateRotate>,
+    pub fn rotate_sync_delegate(
+        ctx: Context<RotateSyncDelegate>,
         sync_pubkey: [u8; state::P256_PUBKEY_LEN],
         viewing_pubkey: [u8; state::P256_PUBKEY_LEN],
     ) -> Result<()> {
@@ -137,7 +137,7 @@ pub struct SetSyncDelegate<'info> {
 }
 
 #[derive(Accounts)]
-pub struct SyncDelegateRotate<'info> {
+pub struct RotateSyncDelegate<'info> {
     #[account(
         mut,
         seeds = [USER_RECORD_SEED, user_record.owner.as_ref()],
