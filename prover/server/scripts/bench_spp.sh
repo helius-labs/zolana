@@ -26,13 +26,18 @@ cpu=$(awk '/^cpu: / { sub(/^cpu: /, ""); print; exit }' <<< "$raw")
     echo
     echo "## ${stamp} — ${commit} (${branch}) — ${cpu} — benchtime ${benchtime}"
     echo
-    echo "| Rail / shape | Proving time (ms/op) | Constraints | MB/op | allocs/op |"
-    echo "|---|---|---|---|---|"
+    echo "| Rail / shape | CPUs | Proving time (ms/op) | Constraints | MB/op | allocs/op |"
+    echo "|---|---|---|---|---|---|"
     awk '/^BenchmarkProveByShape\// {
         name = $1
         sub(/^BenchmarkProveByShape\//, "", name)
-        sub(/-[0-9]+$/, "", name)
-        printf "| %s | %.1f | %s | %.1f | %s |\n", name, $3 / 1e6, $5, $7 / 1048576, $9
+        # go test appends GOMAXPROCS as a -N name suffix (omitted when it is 1).
+        cpus = 1
+        if (match(name, /-[0-9]+$/)) {
+            cpus = substr(name, RSTART + 1)
+            name = substr(name, 1, RSTART - 1)
+        }
+        printf "| %s | %s | %.1f | %s | %.1f | %s |\n", name, cpus, $3 / 1e6, $5, $7 / 1048576, $9
     }' <<< "$raw"
 } >> "$out_file"
 
