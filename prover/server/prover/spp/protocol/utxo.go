@@ -27,12 +27,7 @@ func SolAsset() *big.Int {
 	return new(big.Int).Set(solAssetValue)
 }
 
-// UtxoDomain is the constant domain separator for UTXO Poseidon commitments
-// (spec: "Constant separating UTXOs from other Poseidon-hashed records").
-// Every real (non-dummy) UTXO must carry this domain. Bumped to 2 when the
-// commitment preimage changed to the owner-hiding nested form, so old (flat)
-// and new (nested) UTXO hashes can never be confused.
-const UtxoDomain = 2
+const UtxoDomain = 1
 
 type Utxo struct {
 	Domain        *big.Int

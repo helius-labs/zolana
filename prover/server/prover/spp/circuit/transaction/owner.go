@@ -15,6 +15,13 @@ const (
 	p256MessageBits = 248
 )
 
+// P256PublicKey and P256Signature are the gnark ECDSA witness types pinned to
+// the P256 instantiation used by the ownership rail.
+type (
+	P256PublicKey = gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
+	P256Signature = gnarkecdsa.Signature[emulated.P256Fr]
+)
+
 func NullifierPkCircuit(api frontend.API, nullifierSecret frontend.Variable) frontend.Variable {
 	return poseidon.HashCircuit(api, []frontend.Variable{nullifierSecret})
 }
@@ -39,7 +46,7 @@ func P256PkFieldCircuit(
 
 func P256PkFieldFromPubkeyCircuit(
 	api frontend.API,
-	pub gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr],
+	pub P256PublicKey,
 ) (frontend.Variable, error) {
 	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
 		api,

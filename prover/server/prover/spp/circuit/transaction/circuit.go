@@ -9,7 +9,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
-	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
 type Circuit struct {
@@ -24,8 +23,8 @@ type Circuit struct {
 	Outputs []Output
 
 	ExternalDataHash frontend.Variable
-	P256Pub          gnarkecdsa.PublicKey[emulated.P256Fp, emulated.P256Fr]
-	P256Sig          gnarkecdsa.Signature[emulated.P256Fr]
+	P256Pub          P256PublicKey
+	P256Sig          P256Signature
 
 	PrivateTxHash        frontend.Variable
 	P256MessageHash      frontend.Variable

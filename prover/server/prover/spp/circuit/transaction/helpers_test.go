@@ -13,7 +13,6 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"
-	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
 func buildCircuitAssignment(t testing.TB, shape protocol.Shape) *Circuit {
@@ -331,7 +330,7 @@ func rewriteInputAsP256(
 		t.Fatalf("sign P256 private tx hash: %v", err)
 	}
 	assignment.P256Pub = spptest.P256PubkeyAssignment(ownerPriv)
-	assignment.P256Sig = gnarkecdsa.Signature[emulated.P256Fr]{
+	assignment.P256Sig = P256Signature{
 		R: emulated.ValueOf[emulated.P256Fr](r),
 		S: emulated.ValueOf[emulated.P256Fr](s),
 	}
