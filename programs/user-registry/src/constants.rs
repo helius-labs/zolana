@@ -1,7 +1,4 @@
-use anchor_lang::prelude::*;
-
-#[constant]
-pub const USER_RECORD_SEED: &[u8] = b"zolana/registry/v0";
+pub use zolana_interface::user_registry::USER_RECORD_SEED;
 
 /// BN254 scalar field modulus `Fr` (32-byte big-endian).
 pub const BN254_FR_MODULUS: [u8; 32] = [

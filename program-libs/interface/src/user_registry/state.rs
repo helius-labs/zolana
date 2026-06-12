@@ -3,16 +3,29 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub const P256_PUBKEY_LEN: usize = 33;
 pub const NULLIFIER_PUBKEY_LEN: usize = 32;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+/// One published sync-delegate key pair. Appended on appoint or key rotation.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyncDelegateEntry {
     pub sync_pubkey: [u8; P256_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
     pub created_at: i64,
 }
 
+impl SyncDelegateEntry {
+    pub const SERIALIZED_LEN: usize = P256_PUBKEY_LEN + P256_PUBKEY_LEN + 8;
+}
+
+/// On-chain `UserRecord` account body. The account data is a 1-byte
+/// discriminator followed by the borsh-serialized body; the account is sized
+/// with [`UserRecord::space_for`], which budgets options at their `Some`
+/// length, so the serialized body may be shorter than the account data.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct UserRecord {
     pub owner: [u8; 32],
+    /// Canonical PDA bump found at register; later instructions verify the
+    /// record address with a single-hash derivation instead of the
+    /// `find_program_address` bump search.
+    pub bump: u8,
     pub owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
@@ -21,16 +34,29 @@ pub struct UserRecord {
 }
 
 impl UserRecord {
-    pub const DISCRIMINATOR_LEN: usize = 8;
+    pub const DISCRIMINATOR: u8 = 1;
+    pub const DISCRIMINATOR_LEN: usize = 1;
+
+    pub fn space_for(num_entries: usize) -> usize {
+        Self::DISCRIMINATOR_LEN
+            + 32
+            + 1
+            + (1 + P256_PUBKEY_LEN)
+            + NULLIFIER_PUBKEY_LEN
+            + P256_PUBKEY_LEN
+            + (1 + 32)
+            + 4
+            + num_entries * SyncDelegateEntry::SERIALIZED_LEN
+    }
 
     pub fn from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
-        if data.len() < Self::DISCRIMINATOR_LEN {
-            return Err(borsh::io::Error::new(
+        match data.split_first() {
+            Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
+            _ => Err(borsh::io::Error::new(
                 borsh::io::ErrorKind::InvalidData,
-                "account data shorter than the expected discriminator",
-            ));
+                "missing user record discriminator",
+            )),
         }
-        Self::try_from_slice(&data[Self::DISCRIMINATOR_LEN..])
     }
 
     pub fn sender_viewing_pubkey(&self) -> [u8; P256_PUBKEY_LEN] {

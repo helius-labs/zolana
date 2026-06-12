@@ -1,4 +1,6 @@
-//! User registry program interface 
+//! User registry program interface: account state, 1-byte instruction tags,
+//! borsh payloads, and (behind the `solana` feature) instruction builders.
+pub mod instruction;
 pub mod state;
 
 pub use state::{SyncDelegateEntry, UserRecord};
@@ -27,7 +29,7 @@ pub fn user_registry_program_id() -> solana_pubkey::Pubkey {
 mod tests {
     #[test]
     #[cfg(feature = "solana")]
-    fn program_id_matches_declare_id() {
+    fn program_id_matches_known_base58() {
         assert_eq!(
             super::user_registry_program_id().to_string(),
             "9EwHPNdsPHMt7kaUZaXDTaj92HVC8CL4Q16io4Vu87t4"

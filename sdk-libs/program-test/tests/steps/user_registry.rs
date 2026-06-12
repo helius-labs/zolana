@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anchor_lang::{InstructionData, ToAccountMetas};
 use cucumber::{given, then, when, World};
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -117,30 +116,19 @@ fn raw_set_sync_delegate_ix(
     owner: Pubkey,
     sync_delegate: Pubkey,
 ) -> solana_instruction::Instruction {
-    let accounts = zolana_user_registry::accounts::SetSyncDelegate {
+    zolana_interface::user_registry::instruction::set_sync_delegate(
         user_record,
         owner,
-        system_program: anchor_lang::solana_program::system_program::ID,
-    };
-    solana_instruction::Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::SetSyncDelegate {
-            sync_delegate,
+        zolana_interface::user_registry::instruction::SetSyncDelegateData {
+            sync_delegate: sync_delegate.to_bytes(),
             sync_pubkey: test_p256_pubkey(0xEE),
             viewing_pubkey: test_p256_pubkey(0xEF),
-        }
-        .data(),
-    }
+        },
+    )
 }
 
 fn raw_close_ix(user_record: Pubkey, owner: Pubkey) -> solana_instruction::Instruction {
-    let accounts = zolana_user_registry::accounts::CloseRecord { user_record, owner };
-    solana_instruction::Instruction {
-        program_id: user_registry_program_id(),
-        accounts: accounts.to_account_metas(None),
-        data: zolana_user_registry::instruction::Close {}.data(),
-    }
+    zolana_interface::user_registry::instruction::close(user_record, owner)
 }
 
 // === given ===
@@ -191,6 +179,15 @@ fn given_owner_keys(world: &mut UserRegistryWorld, name: String) {
 fn given_stranger(world: &mut UserRegistryWorld, name: String) {
     let kp = fund_new_keypair(world, 5_000_000_000);
     world.strangers.insert(name, kp);
+}
+
+/// Sends lamports to the (not yet created) record PDA so register has to take
+/// the transfer + allocate + assign path instead of plain create_account.
+#[given(regex = r#"the record address of "(.*)" is pre-funded"#)]
+fn given_prefunded_record(world: &mut UserRegistryWorld, name: String) {
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let (pda, _bump) = user_record_pda(&owner);
+    world.fund(&pda, 1_000_000);
 }
 
 // === register ===
@@ -468,7 +465,8 @@ fn then_no_sync_delegate(world: &mut UserRegistryWorld, name: String) {
     let owner = world.owners.get(&name).expect("owner").pubkey();
     let record =
         fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
-    assert_eq!(record.owner, owner);
+    assert_eq!(record.owner, owner.to_bytes());
+    assert_eq!(record.bump, user_record_pda(&owner).1, "stored bump must be canonical");
     assert!(record.sync_delegate.is_none());
     assert!(record.entries.is_empty());
     assert_eq!(record.nullifier_pubkey, world.nullifier_pubkey[&name]);
@@ -498,6 +496,7 @@ fn then_sync_delegate_entries(
     let owner = world.owners.get(&owner_name).expect("owner").pubkey();
     let record =
         fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
+    assert_eq!(record.bump, user_record_pda(&owner).1, "stored bump must survive updates");
     assert_eq!(
         record.sync_delegate,
         Some(
@@ -506,6 +505,7 @@ fn then_sync_delegate_entries(
                 .get(&sync_delegate_name)
                 .expect("sync delegate")
                 .pubkey()
+                .to_bytes()
         )
     );
     assert_eq!(record.entries.len(), count);

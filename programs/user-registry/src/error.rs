@@ -1,17 +1,59 @@
-use anchor_lang::prelude::*;
+use pinocchio::error::ProgramError;
+use thiserror::Error;
 
-#[error_code]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum UserRegistryError {
-    #[msg("P-256 compressed pubkey prefix must be 0x02 or 0x03")]
+    #[error("invalid instruction data")]
+    InvalidInstructionData,
+    #[error("P-256 compressed pubkey prefix must be 0x02 or 0x03")]
     InvalidP256Prefix,
-    #[msg("nullifier_pubkey must be a canonical BN254 field element (< Fr)")]
+    #[error("nullifier_pubkey must be a canonical BN254 field element (< Fr)")]
     NonCanonicalNullifierPubkey,
-    #[msg("no sync delegate is currently set")]
+    #[error("no sync delegate is currently set")]
     SyncDelegateNotSet,
-    #[msg("signer is not the owner or active sync delegate")]
+    #[error("signer is not the owner or active sync delegate")]
     UnauthorizedSigner,
-    #[msg("signer does not match the active sync delegate")]
+    #[error("signer does not match the active sync delegate")]
     InvalidSyncDelegate,
-    #[msg("record cannot be closed while sync delegate entries are non-empty")]
+    #[error("record cannot be closed while sync delegate entries are non-empty")]
     RecordNotEmpty,
+    #[error("user record account does not match the expected PDA")]
+    InvalidRecordPda,
+    #[error("record owner does not match the owner account")]
+    OwnerMismatch,
+    #[error("user record account is invalid")]
+    InvalidRecordAccount,
+    #[error("system program account mismatch")]
+    InvalidSystemProgram,
+}
+
+impl UserRegistryError {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::InvalidInstructionData => "InvalidInstructionData",
+            Self::InvalidP256Prefix => "InvalidP256Prefix",
+            Self::NonCanonicalNullifierPubkey => "NonCanonicalNullifierPubkey",
+            Self::SyncDelegateNotSet => "SyncDelegateNotSet",
+            Self::UnauthorizedSigner => "UnauthorizedSigner",
+            Self::InvalidSyncDelegate => "InvalidSyncDelegate",
+            Self::RecordNotEmpty => "RecordNotEmpty",
+            Self::InvalidRecordPda => "InvalidRecordPda",
+            Self::OwnerMismatch => "OwnerMismatch",
+            Self::InvalidRecordAccount => "InvalidRecordAccount",
+            Self::InvalidSystemProgram => "InvalidSystemProgram",
+        }
+    }
+}
+
+impl From<UserRegistryError> for ProgramError {
+    fn from(error: UserRegistryError) -> Self {
+        ProgramError::Custom(error as u32)
+    }
+}
+
+/// Log the error name (so clients can match on it in transaction logs) and
+/// convert to a `ProgramError`.
+pub fn fail(error: UserRegistryError) -> ProgramError {
+    crate::log::log(error.name());
+    error.into()
 }
