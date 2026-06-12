@@ -809,7 +809,7 @@ struct MergeEncryptedUtxo {
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | program_data_hash | instruction data |
 | zone_data_hash | instruction data |
-| solana_owner_pk_hash | `pk_field` (see [Shielded Address](#shielded-address)) of the Solana / Ed25519 owner; `0` for a P256 owner. One value per proof. SPP derives it from the account at `in_utxo_signer_index`. |
+| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. SPP derives each non-zero entry from the signer account named in `in_utxo_signer_indices`. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
@@ -817,7 +817,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). A Solana / Ed25519 owner uses the public `solana_owner_pk_hash`. |
+| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
 | `nullifier_secret` | owner wallet's symmetric secret (see [Nullifier Key](#nullifier-key)), used to recompute the input's `nullifier_pk`; also feeds the [nullifier](#nullifier) formula. Inputs of the same wallet carry equal values. |
 | `blinding`, `asset`, `amount`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -856,9 +856,9 @@ external_data_hash := Sha256BE(
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Spent input UTXOs must be authorized by their owner. The `solana_owner_pk_hash` public input selects the path: `0` → P256 signature by `signing_pk` over `private_tx_hash`, checked by the proof; non-zero → the proof binds every real input's owner to the signer-derived `pk_field`, while SPP separately reads `in_utxo_signer_index` and verifies the named Solana account is a transaction signer. The Solana-only [variant](#circuit-variants) forces the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Spent input UTXOs must be authorized by their owner. Each `solana_owner_pk_hashes[i]` entry selects that input's path: `0` → the input's owner binds to `pk_field(signing_pk)`, authorized by the P256 signature over `private_tx_hash` checked by the proof; non-zero → the proof binds the input's owner to the entry, while SPP verifies the Solana account named in `in_utxo_signer_indices` is a transaction signer. A proof witnesses one `signing_pk` and one signature, so all P256-owned inputs share one owner; Ed25519 owners may differ per input. The Solana-only [variant](#circuit-variants) forces every real input onto the non-zero path. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
-| Nullifier secret binding (per input) | The input's `nullifier_pk`, recomputed from its `nullifier_secret` witness (see [Nullifier Key](#nullifier-key)), enters the input's recomputed [owner hash](#shielded-address), which must equal the input's UTXO owner. `pk_field` binds every real input to one signing key; per-input secret witnesses keep the layout ready for multi-owner circuit variants. |
+| Nullifier secret binding (per input) | The input's `nullifier_pk`, recomputed from its `nullifier_secret` witness (see [Nullifier Key](#nullifier-key)), enters the input's recomputed [owner hash](#shielded-address), which must equal the input's UTXO owner. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
@@ -870,9 +870,9 @@ external_data_hash := Sha256BE(
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
 1. P256 signature over `private_tx_hash` verified in the SPP proof; the same point recomputes `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). The hash covers every input, every output, and the external-data hash, so the proof cannot be replayed with different state. The SHA-256 message digest is computed **outside** the circuit: SPP recomputes `private_tx_hash_digest = Sha256BE(private_tx_hash)` on-chain from the `private_tx_hash` public input and feeds it to the proof, which verifies the ECDSA signature against the digest using only EC arithmetic. Binding holds across the public inputs — the proof recomputes `private_tx_hash` from the private input/output hash chains and asserts it equals the `private_tx_hash` public input, SPP asserts `private_tx_hash_digest = Sha256BE(private_tx_hash)`, and the proof asserts the signature verifies against `private_tx_hash_digest`.
-2. Ed25519 Solana signer checked by SPP. A non-zero public `solana_owner_pk_hash` tells the circuit to skip the P256 signature check and bind every real input's owner to the SPP-derived `pk_field`; SPP separately reads `in_utxo_signer_index` from instruction data and verifies the named 32-byte Solana account is a signer of the Solana transaction. SPP rejects an out-of-range index, an index naming a non-signer account, `Some` with `solana_owner_pk_hash = 0`, and `None` with it non-zero. The nullifier-secret binding is still checked by the proof.
+2. Ed25519 Solana signers checked by SPP. A non-zero `solana_owner_pk_hashes[i]` tells the circuit to skip the P256 binding for that input and bind its owner to the SPP-derived `pk_field`. SPP builds the array from `in_utxo_signer_indices` in instruction data: for an entry `(a, i)`, it verifies the 32-byte Solana account at index `a` is a signer of the Solana transaction and sets `solana_owner_pk_hashes[i] = pk_field(account)`; inputs without an entry get `0`. Inputs may name different signer accounts. SPP rejects an out-of-range account or input index and duplicate entries for one input. The nullifier-secret binding is still checked by the proof for these inputs.
 
-Ownership checks apply only when the transaction spends inputs. With zero real inputs (an empty `nullifiers` list — shields), `solana_owner_pk_hash` is `0` and `in_utxo_signer_index` is `None`; SPP skips both paths.
+Ownership checks apply only when the transaction spends inputs. With zero real inputs (an empty `nullifiers` list — shields), every `solana_owner_pk_hashes` entry is `0` and `in_utxo_signer_indices` is `None`; SPP skips both paths.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -1113,8 +1113,9 @@ struct TransactIxData {
     public_spl_amount: Option<u64>,
     /// Declares that a program is signer, and checks that the pda derivation matches seed ["auth"] with program id and bump. Passes program as signer into the zk proof verification.
     cpi_signer: Option<(program_id, bump)>,
-    /// Account index of the Ed25519 owner-signer; `None` for a P256 owner.
-    in_utxo_signer_index: Option<u8>,
+    /// (account index, input utxo index); names the Ed25519 owner-signer of an
+    /// input UTXO. Inputs may name different signers. `None` when all inputs are P256-owned.
+    in_utxo_signer_indices: Option<Vec<(u8, u8)>>,
     /// Opaque ciphertext blob; not checked by the program.
     /// Layout per Output UTXO Serialization.
     encrypted_utxos: Vec<u8>,
