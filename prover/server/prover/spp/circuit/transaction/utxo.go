@@ -49,29 +49,19 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	})
 }
 
-// canonicalTruncate248 returns the low 248 bits of x. The full-width ToBinary
-// is load-bearing: it constrains the bits < p, so x and x+p (equal mod p, but
-// different low 248 bits) can't both pass. That alias would be a second
-// nullifier for one UTXO, i.e. a double spend. Don't pass a smaller NbDigits;
-// it drops the < p check. Pinned by TestCanonicalTruncate248RejectsAliasBits.
-func canonicalTruncate248(api frontend.API, x frontend.Variable) frontend.Variable {
-	bits := api.ToBinary(x)
-	return api.FromBinary(bits[:nullifierDomainBits]...)
-}
-
 // NullifierHashCircuit mirrors protocol.NullifierHash: the Poseidon image
-// truncated to the nullifier tree's 248-bit indexed value domain
-// (light-batched-merkle-tree; values >= 2^248 could never be batch-proven).
+// itself, a canonical field element. The nullifier tree's indexed-value
+// domain spans the whole field (init sentinel p-1), so no truncation is
+// needed.
 func NullifierHashCircuit(
 	api frontend.API,
 	utxoHash frontend.Variable,
 	blinding frontend.Variable,
 	nullifierSecret frontend.Variable,
 ) frontend.Variable {
-	full := poseidon.HashCircuit(api, []frontend.Variable{
+	return poseidon.HashCircuit(api, []frontend.Variable{
 		utxoHash,
 		blinding,
 		nullifierSecret,
 	})
-	return canonicalTruncate248(api, full)
 }

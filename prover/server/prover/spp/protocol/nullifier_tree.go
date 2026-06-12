@@ -8,18 +8,16 @@ import (
 )
 
 // nullifierUpperBound is both the exclusive upper bound and the final
-// next-value sentinel: 2^248 - 1, Light's HIGHEST_ADDRESS_PLUS_ONE. The SPP
-// nullifier tree IS a light-batched-merkle-tree (AddressV2, H=40), so it
-// inherits Light's 248-bit indexed value domain — the init leaf is
-// Poseidon2(0, 2^248-1) and the batch-append circuit range-checks values to
-// 248 bits. Nullifiers are truncated to this domain at derivation
-// (see Truncate248).
-var nullifierUpperBound = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
+// next-value sentinel: p - 1, the largest field element. The tree's
+// indexed-value domain spans the whole field — the init leaf is
+// Poseidon2(0, p-1) — so nullifiers (Poseidon images) insert untruncated.
+// The on-chain tree and its batch-append circuit must use the same sentinel
+// and accept any canonical field element.
+var nullifierUpperBound = new(big.Int).Sub(poseidon.Modulus, big.NewInt(1))
 
 // InNullifierDomain reports whether v is an insertable indexed-tree value:
-// 0 < v < 2^248 - 1. This mirrors the on-chain queue range check
-// (is_insertable_nullifier), which both nullifiers and the sender view tag
-// must satisfy or the batch-append could never prove them.
+// 0 < v < p - 1. This mirrors the on-chain queue range check, which both
+// nullifiers and the sender view tag must satisfy.
 func InNullifierDomain(v *big.Int) bool {
 	return v.Sign() > 0 && v.Cmp(nullifierUpperBound) < 0
 }

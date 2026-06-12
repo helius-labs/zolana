@@ -78,24 +78,12 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	return h, nil
 }
 
-// Truncate248 keeps the low 248 bits of the canonical (mod-p-reduced)
-// encoding of x. Nullifiers (and tree-inserted view tags) are truncated to
-// the nullifier tree's 248-bit indexed value domain — the tree is a
-// light-batched-merkle-tree whose batch-append circuit range-checks values
-// to 248 bits, so full-field values could never be batch-proven. The low
-// 248-bit mask is exactly nullifierUpperBound (2^248 - 1).
-func Truncate248(x *big.Int) *big.Int {
-	return new(big.Int).And(x, nullifierUpperBound)
-}
-
 func NullifierHash(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {
 	h, err := poseidon.Hash([]*big.Int{utxoHash, blinding, nullifierSecret})
 	if err != nil {
 		return nil, fmt.Errorf("spp: nullifier hash: %w", err)
 	}
-	// The circuit truncates identically (canonical decomposition, low 248
-	// bits); the two must stay in lockstep.
-	return Truncate248(h), nil
+	return h, nil
 }
 
 func NullifierFromSecret(utxo Utxo, nullifierSecret *big.Int) (*big.Int, error) {

@@ -1,8 +1,6 @@
 package transaction
 
 import (
-	"math/big"
-
 	"light/light-prover/prover/spp/circuit/gadget"
 	"light/light-prover/prover/spp/protocol"
 
@@ -20,31 +18,19 @@ func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
 	api.AssertIsEqual(api.Mul(cond, v), 0)
 }
 
-// nullifierDomainBits is the nullifier tree's indexed value domain width.
-// The tree is a light-batched-merkle-tree (AddressV2): every inserted value
-// is range-checked to 248 bits by Light's batch-append circuit, the init
-// sentinel is 2^248 - 1, and nullifiers are truncated to this width.
-const nullifierDomainBits = 248
-
-// assertLess248 constrains a < b, mirroring Light's AssertIsLess{N: 248}
-// (common/circuit_utils.go): a + 2^248 - b decomposes into 248 bits iff
-// a < b, PROVIDED both operands are < 2^248. That precondition holds here:
-// mid is the in-circuit truncated nullifier, and lo/hi are bound to an
-// existing tree leaf whose values Light's append circuit range-checked to
-// 248 bits at insertion (init leaf is (0, 2^248-1)).
-func assertLess248(api frontend.API, a, b frontend.Variable) {
-	shifted := new(big.Int).Lsh(big.NewInt(1), nullifierDomainBits)
-	api.ToBinary(api.Add(a, api.Sub(shifted, b)), nullifierDomainBits)
-}
-
-// assertStrictlyOrdered constrains lo < mid < hi for a real entry. Dummy entries
-// (isDummy == 1) are remapped to 0 < 1 < 2, so the check always passes for them.
+// assertStrictlyOrdered constrains lo < mid < hi for a real entry, comparing
+// full field values (see compare.go) — the nullifier tree's indexed-value
+// domain spans the whole field. Dummy entries (isDummy == 1) are remapped to
+// 0 < 1 < 2, so the check always passes for them.
 func assertStrictlyOrdered(api frontend.API, isDummy, lo, mid, hi frontend.Variable) {
 	lo = api.Select(isDummy, frontend.Variable(0), lo)
 	mid = api.Select(isDummy, frontend.Variable(1), mid)
 	hi = api.Select(isDummy, frontend.Variable(2), hi)
-	assertLess248(api, lo, mid)
-	assertLess248(api, mid, hi)
+	loLimbs := canonicalLimbs(api, lo)
+	midLimbs := canonicalLimbs(api, mid)
+	hiLimbs := canonicalLimbs(api, hi)
+	api.AssertIsEqual(isLessLimbs(api, loLimbs, midLimbs), 1)
+	api.AssertIsEqual(isLessLimbs(api, midLimbs, hiLimbs), 1)
 }
 
 // spendEnv holds values shared by every input-spend check. They are computed
@@ -108,9 +94,8 @@ func constrainInput(api frontend.API, in Input, env spendEnv) frontend.Variable 
 	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
 	assertZeroWhen(api, in.IsDummy, in.SolanaPkHash)
 
-	// Nullifier: derived from the UTXO hash, blinding, and shared secret;
-	// NullifierHashCircuit truncates to the tree's 248-bit domain with a
-	// canonical decomposition (see its doc for why that is soundness-critical).
+	// Nullifier: Poseidon over the UTXO hash, blinding, and shared secret — a
+	// canonical field element, inserted into the nullifier tree untruncated.
 	nullifier := NullifierHashCircuit(api, utxoHash, in.Utxo.Blinding, env.nullifierSecret)
 	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
 	assertZeroWhen(api, in.IsDummy, in.Nullifier)
