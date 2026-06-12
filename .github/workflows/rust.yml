@@ -92,3 +92,13 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-scaffold
+
+  test-sdk-libs:
+    name: tests / sdk-libs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just test-sdk-libs

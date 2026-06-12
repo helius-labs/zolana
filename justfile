@@ -45,13 +45,18 @@ check-all:
 # Default test target. Tests for the surviving slice (interface, registry,
 # shielded-pool program). Forester e2e tests will be reintroduced when the
 # foresting logic is rebuilt against the new combined tree type.
-test: test-scaffold
+test: test-scaffold test-sdk-libs
 
 # Cheap tests for the initial shielded-pool/interface/registry scaffold.
 test-scaffold:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
+
+# Unit, BDD, and property tests for the client-side SDK crates.
+test-sdk-libs:
+    cargo test -p zolana-keypair
+    cargo test -p zolana-transaction
 
 # End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
 # `.so`s under `target/deploy/`; run `just build-programs` first.
