@@ -85,7 +85,7 @@ mod wire_layout {
     //! Locks the user-record account layout and instruction encoding so any
     //! drift between the interface and the on-chain program fails loudly.
     use borsh::to_vec;
-    use zolana_interface::user_registry::instruction::{tag, RegisterData};
+    use zolana_interface::user_registry::instruction::{discriminator, RegisterData};
     use zolana_interface::user_registry::{SyncDelegateEntry, UserRecord};
 
     fn sample(sync_delegate: Option<[u8; 32]>, entries: Vec<SyncDelegateEntry>) -> UserRecord {
@@ -155,14 +155,14 @@ mod wire_layout {
     }
 
     #[test]
-    fn register_instruction_uses_one_byte_tag() {
+    fn register_instruction_uses_one_byte_discriminator() {
         let ix = super::build_register_ix(
             &solana_pubkey::Pubkey::new_unique(),
             None,
             [1u8; 32],
             [2u8; 33],
         );
-        assert_eq!(ix.data[0], tag::REGISTER);
+        assert_eq!(ix.data[0], discriminator::REGISTER);
         let payload = RegisterData {
             owner_p256: None,
             nullifier_pubkey: [1u8; 32],
