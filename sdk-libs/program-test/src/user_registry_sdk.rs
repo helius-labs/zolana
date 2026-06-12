@@ -116,11 +116,7 @@ pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserR
 
 #[cfg(test)]
 mod layout_parity {
-    //! Locks the lean `zolana-interface` `UserRecord` to the on-chain Anchor
-    //! account body. If either struct's fields or order drift, a consumer
-    //! parsing account data via the interface would silently misread it; this
-    //! test fails loudly instead.
-
+    //! Ensures that the `zolana-interface` `UserRecord` matches the onchain account state. Fail loudly if state mismatch.
     use anchor_lang::prelude::Pubkey as AnchorPubkey;
     use anchor_lang::AnchorSerialize;
     use borsh::BorshDeserialize;
@@ -140,9 +136,7 @@ mod layout_parity {
         }
     }
 
-    /// `AnchorSerialize` writes the borsh body without the 8-byte account
-    /// discriminator, matching what the interface struct expects after the
-    /// discriminator is stripped.
+
     fn body_bytes(record: &ChainRecord) -> Vec<u8> {
         let mut buf = Vec::new();
         record.serialize(&mut buf).expect("serialize chain record");
@@ -176,7 +170,6 @@ mod layout_parity {
             }]
         );
 
-        // The discriminator-skipping accessor must agree with manual parsing.
         let mut account_data = vec![0u8; IfaceRecord::DISCRIMINATOR_LEN];
         account_data.extend_from_slice(&body);
         assert_eq!(
@@ -222,7 +215,7 @@ mod layout_parity {
         );
         let iface = IfaceRecord::try_from_slice(&body_bytes(&chain)).unwrap();
         assert_eq!(chain.sender_viewing_pubkey(), iface.sender_viewing_pubkey());
-        // No active delegate -> static viewing key, not the entry's.
+        // No active delegate means static viewing key, not the entry's.
         assert_eq!(iface.sender_viewing_pubkey(), [3u8; 33]);
     }
 }
