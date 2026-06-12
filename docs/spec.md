@@ -1200,10 +1200,11 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
 3. `policy_data_hash`, `zone_data`, `program_data_hash`, and `program_data` are `Some` only if `cpi_signer` is `Some`.
-4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
-5. Append the hash to the UTXO tree.
-6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
+4. If `cpi_signer` is `Some`, the `cpi_signer` account must be its [`zone_auth`](#zone-accounts) PDA — re-derived from `(program_id, bump)` — and must sign. `zone_program_id` then binds to `program_id`.
+5. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `owner_utxo_hash` from instruction data.
+6. Append the hash to the UTXO tree.
+7. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
+8. Emit a `ProoflessShieldEvent` via [`emit_event`](#instructions) self-CPI.
 
 **Event**
 
