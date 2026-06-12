@@ -809,7 +809,7 @@ struct MergeEncryptedUtxo {
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | program_data_hash | instruction data |
 | zone_data_hash | instruction data |
-| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. SPP derives each non-zero entry from the signer account named in `in_utxo_signer_indices`. |
+| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
 
 See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
