@@ -1,0 +1,24 @@
+[package]
+name = "zone-test-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+# Test-only fixture: a minimal "policy zone" program that CPIs into the
+# shielded pool's `zone_proofless_shield`, signing with its `zone_auth` PDA.
+# It enforces no policy — it exists so integration tests can exercise the
+# zone-signer path (a PDA can only sign via a CPI from its owning program).
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = { workspace = true }
+zolana-interface = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']

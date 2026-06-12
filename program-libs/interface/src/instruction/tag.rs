@@ -18,6 +18,9 @@ pub const UPDATE_ZONE_CONFIG: u8 = 11;
 /// Indexers authenticate events by taking only inner `emit_event`
 /// instructions invoked by the shielded-pool program itself.
 pub const EMIT_EVENT: u8 = 14;
+/// Policy-zone analog of `proofless_shield`: public deposit creating a
+/// zone-owned UTXO, authorized by the zone program's `zone_auth` signer.
+pub const ZONE_PROOFLESS_SHIELD: u8 = 15;
 
 /// Spec-reserved instruction tags that have **no handler** in the program.
 ///
@@ -61,6 +64,7 @@ pub enum InstructionTag {
     UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
     UpdateZoneConfig = UPDATE_ZONE_CONFIG,
     EmitEvent = EMIT_EVENT,
+    ZoneProoflessShield = ZONE_PROOFLESS_SHIELD,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -80,6 +84,7 @@ impl TryFrom<u8> for InstructionTag {
             UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
             UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
             EMIT_EVENT => Ok(Self::EmitEvent),
+            ZONE_PROOFLESS_SHIELD => Ok(Self::ZoneProoflessShield),
             _ => Err(()),
         }
     }

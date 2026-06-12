@@ -5,6 +5,7 @@ members = [
     "program-tests/shielded-pool",
     "programs/registry",
     "programs/shielded-pool",
+    "programs/zone-test",
     "prover/client",
     "sdk-libs/cli",
     "sdk-libs/keypair",

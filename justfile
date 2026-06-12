@@ -63,6 +63,7 @@ test-sdk-libs:
 test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/zone-test/Cargo.toml
     cargo test -p light-program-test
 
 # Aggregate of all CI-runnable rust tests.

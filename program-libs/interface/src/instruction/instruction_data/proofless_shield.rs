@@ -28,16 +28,37 @@ pub struct ProoflessShieldIxData {
     pub public_sol_amount: Option<u64>,
     /// `Some` for an SPL deposit.
     pub public_spl_amount: Option<u64>,
-    /// Zone-defined policy data hash; requires `cpi_signer`.
-    pub policy_data_hash: Option<[u8; 32]>,
-    /// Preimage of `policy_data_hash`.
-    pub zone_data: Option<Vec<u8>>,
     /// Program-defined data hash; requires `cpi_signer`.
     pub program_data_hash: Option<[u8; 32]>,
     /// Preimage of `program_data_hash`.
     pub program_data: Option<Vec<u8>>,
-    /// Invoking zone program PDA; see `transact`.
+    /// Invoking program PDA (general program owner, seed `auth`); see
+    /// `transact`. Policy-zone deposits use [`ZoneProoflessShieldIxData`].
     pub cpi_signer: Option<CpiSignerData>,
+}
+
+/// Policy-zone analog of [`ProoflessShieldIxData`] (spec:
+/// `zone_proofless_shield`, tag 15). A zone program CPIs into SPP signing with
+/// its `zone_auth` PDA (seed `zone_auth`); the created UTXO is owned by the
+/// zone and additionally carries the zone's `policy_data`.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ZoneProoflessShieldIxData {
+    /// As in [`ProoflessShieldIxData`].
+    pub view_tag: [u8; 32],
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub public_sol_amount: Option<u64>,
+    pub public_spl_amount: Option<u64>,
+    /// Calling zone program; `zone_auth` is re-derived from it (seed `zone_auth`).
+    pub cpi_signer: CpiSignerData,
+    /// Zone-defined policy data hash.
+    pub policy_data_hash: Option<[u8; 32]>,
+    /// Preimage of `policy_data_hash`.
+    pub zone_data: Option<Vec<u8>>,
+    /// Program-defined data hash.
+    pub program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    pub program_data: Option<Vec<u8>>,
 }
 
 /// Event emitted via [`tag::EMIT_EVENT`](crate::instruction::tag::EMIT_EVENT)

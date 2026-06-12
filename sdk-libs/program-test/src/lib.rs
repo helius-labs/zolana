@@ -26,9 +26,10 @@ use solana_transaction::Transaction;
 use thiserror::Error;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, BatchUpdateAddressTreeData, CreateSplInterfaceData,
-        CreateTreeData, CreateProtocolConfigData, PauseTreeData, ProoflessShieldEvent,
-        ProoflessShieldIxData, UpdateProtocolConfigData,
+        encode_instruction, tag, BatchUpdateAddressTreeData, CpiSignerData,
+        CreateSplInterfaceData, CreateTreeData, CreateProtocolConfigData, PauseTreeData,
+        ProoflessShieldEvent, ProoflessShieldIxData, UpdateProtocolConfigData,
+        ZoneProoflessShieldIxData,
     },
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
@@ -261,8 +262,6 @@ impl PoolTestRig {
             salt: [0u8; 16],
             public_sol_amount: Some(lamports),
             public_spl_amount: None,
-            policy_data_hash: None,
-            zone_data: None,
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
@@ -277,8 +276,6 @@ impl PoolTestRig {
             salt: [0u8; 16],
             public_sol_amount: None,
             public_spl_amount: Some(amount),
-            policy_data_hash: None,
-            zone_data: None,
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
@@ -515,6 +512,108 @@ impl PoolTestRig {
         self.proofless_shield(tree, depositor, &data)
     }
 
+    /// The test-only zone program (programs/zone-test); litesvm loads it here.
+    pub fn zone_test_program_id() -> Pubkey {
+        Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)
+    }
+
+    /// The zone program's `zone_auth` signer PDA and its bump.
+    pub fn zone_auth_pda(&self) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[b"zone_auth"], &Self::zone_test_program_id())
+    }
+
+    /// Load `zone_test_program.so` into the rig.
+    pub fn load_zone_test_program(&mut self) -> Result<(), RigError> {
+        let path = default_zone_test_program_path();
+        if !path.exists() {
+            return Err(RigError::MissingProgram(path));
+        }
+        let bytes = std::fs::read(&path)?;
+        self.svm
+            .add_program(Self::zone_test_program_id(), &bytes)
+            .map_err(|e| RigError::Litesvm(format!("add_zone_test: {e:?}")))?;
+        Ok(())
+    }
+
+    /// A SOL `ZoneProoflessShieldIxData` whose `cpi_signer` names the zone test
+    /// program and its `zone_auth` bump.
+    pub fn zone_sol_shield_data(
+        &self,
+        lamports: u64,
+        owner_utxo_hash: [u8; 32],
+    ) -> ZoneProoflessShieldIxData {
+        let (_, bump) = self.zone_auth_pda();
+        ZoneProoflessShieldIxData {
+            view_tag: [0u8; 32],
+            owner_utxo_hash,
+            salt: [0u8; 16],
+            public_sol_amount: Some(lamports),
+            public_spl_amount: None,
+            cpi_signer: CpiSignerData {
+                program_id: ZONE_TEST_PROGRAM_ID,
+                bump,
+            },
+            policy_data_hash: None,
+            zone_data: None,
+            program_data_hash: None,
+            program_data: None,
+        }
+    }
+
+    /// Drive a `zone_proofless_shield` SOL deposit through the zone test
+    /// program, which signs with its `zone_auth` PDA. Returns the emitted
+    /// event (read from the inner `emit_event`, like a real indexer).
+    /// `load_zone_test_program` must have been called first.
+    pub fn zone_proofless_shield(
+        &mut self,
+        tree: &Keypair,
+        depositor: &Keypair,
+        data: &ZoneProoflessShieldIxData,
+    ) -> Result<ProoflessShieldEvent, RigError> {
+        let (zone_auth, _) = self.zone_auth_pda();
+        // The zone test program forwards these to the shielded pool, with
+        // zone_auth (account 2) signed via its invoke_signed seeds.
+        let accounts = vec![
+            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new(depositor.pubkey(), true),
+            AccountMeta::new_readonly(zone_auth, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(self.cpi_authority(), false),
+            AccountMeta::new(depositor.pubkey(), false),
+            AccountMeta::new_readonly(self.program_id, false),
+        ];
+        let ix = Instruction {
+            program_id: Self::zone_test_program_id(),
+            accounts,
+            data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
+        };
+
+        let payer = self.payer.pubkey();
+        let message = Message::new(&[ix], Some(&payer));
+        let account_keys = message.account_keys.clone();
+        let blockhash = self.svm.latest_blockhash();
+        let tx = Transaction::new(&[&self.payer.insecure_clone(), depositor], message, blockhash);
+        let meta = self
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))?;
+
+        // emit_event is a (nested) inner instruction invoked by the shielded
+        // pool itself; iterate_flatten finds it regardless of CPI depth.
+        for inner in meta.inner_instructions.iter().flatten() {
+            let compiled = &inner.instruction;
+            let program = account_keys
+                .get(compiled.program_id_index as usize)
+                .copied()
+                .unwrap_or_default();
+            if program == self.program_id && compiled.data.first() == Some(&tag::EMIT_EVENT) {
+                return borsh::BorshDeserialize::try_from_slice(&compiled.data[1..])
+                    .map_err(|e| RigError::Litesvm(format!("event decode: {e}")));
+            }
+        }
+        Err(RigError::Litesvm("no emit_event inner instruction".into()))
+    }
+
     /// Load `light_registry.so` into this rig in addition to shielded-pool.
     /// Required before calling the registry-setup or `forest_address_tree`
     /// helpers.
@@ -687,6 +786,25 @@ fn system_create_account_ix(
         ],
         data,
     }
+}
+
+/// litesvm loads the test-only zone program (programs/zone-test) at this id.
+/// Any 32-byte value works; the program's `zone_auth` PDA derives from it.
+pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
+
+/// Default location of `zone_test_program.so`: `<workspace>/target/deploy/`,
+/// overridable via `ZONE_TEST_PROGRAM_PATH`.
+fn default_zone_test_program_path() -> PathBuf {
+    if let Ok(p) = std::env::var("ZONE_TEST_PROGRAM_PATH") {
+        return PathBuf::from(p);
+    }
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("deploy")
+        .join("zone_test_program.so")
 }
 
 fn default_program_path() -> PathBuf {

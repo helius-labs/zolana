@@ -10,6 +10,15 @@ use crate::{error::ShieldedPoolError, instructions::settlement::SettlementAccoun
 /// account work and sizes fixed scratch buffers.
 pub(crate) const SPP_MAX_INPUTS: usize = 5;
 
+/// CPI-signer PDA seed for a general program owner (`transact`,
+/// `proofless_shield`). Distinct from [`ZONE_AUTH_SEED`]: a general program
+/// owner and a policy zone are different capabilities.
+pub(crate) const CPI_SIGNER_SEED: &[u8] = b"auth";
+
+/// CPI-signer PDA seed for a policy zone (`zone_proofless_shield`, and the
+/// reserved zone instructions). See spec: Zone Accounts (`zone_auth`).
+pub(crate) const ZONE_AUTH_SEED: &[u8] = b"zone_auth";
+
 pub struct TransactAccounts<'a> {
     pub tree: &'a mut AccountView,
     pub settlement: SettlementAccounts<'a>,
@@ -21,13 +30,14 @@ pub(crate) fn load_transact_accounts<'a>(
     data: &TransactIxData,
     needs_sol: bool,
     needs_spl: bool,
+    cpi_signer_seed: &[u8],
 ) -> Result<TransactAccounts<'a>, ProgramError> {
     if accounts.len() < 2 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
 
     let account_snapshot = account_snapshot(accounts);
-    validate_cpi_signer(&account_snapshot, data)?;
+    validate_cpi_signer(&account_snapshot, data, cpi_signer_seed)?;
     let input_owner_pubkeys = validate_input_signer_indices(&account_snapshot, data)?;
 
     let (tree_slice, tail) = accounts.split_at_mut(1);
@@ -114,6 +124,7 @@ fn account_snapshot(accounts: &[AccountView]) -> Vec<AccountSnapshot> {
 fn validate_cpi_signer(
     accounts: &[AccountSnapshot],
     data: &TransactIxData,
+    seed: &[u8],
 ) -> Result<(), ProgramError> {
     let Some(cpi_signer) = data.cpi_signer else {
         return Ok(());
@@ -123,7 +134,7 @@ fn validate_cpi_signer(
         return Err(ProgramError::MissingRequiredSignature);
     }
     let bump = [cpi_signer.bump];
-    let expected = derive_cpi_signer_address(cpi_signer.program_id, &bump)?;
+    let expected = derive_cpi_signer_address(cpi_signer.program_id, &bump, seed)?;
     if account.address != expected {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
@@ -192,16 +203,17 @@ fn validate_input_signer_index(
 fn derive_cpi_signer_address(
     program_id: [u8; 32],
     bump: &[u8; 1],
+    seed: &[u8],
 ) -> Result<Address, ProgramError> {
     #[cfg(any(target_os = "solana", target_arch = "bpf"))]
     {
-        Address::create_program_address(&[b"auth", bump.as_slice()], &Address::from(program_id))
+        Address::create_program_address(&[seed, bump.as_slice()], &Address::from(program_id))
             .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts.into())
     }
 
     #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
     {
-        let _ = (program_id, bump);
+        let _ = (program_id, bump, seed);
         Err(ShieldedPoolError::InvalidSettlementAccounts.into())
     }
 }

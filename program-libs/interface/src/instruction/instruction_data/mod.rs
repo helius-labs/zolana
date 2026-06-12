@@ -9,7 +9,9 @@ pub mod transact;
 pub use batch_update_address_tree::BatchUpdateAddressTreeData;
 pub use create_tree::CreateTreeData;
 pub use create_spl_interface::CreateSplInterfaceData;
-pub use proofless_shield::{ProoflessShieldIxData, ProoflessShieldEvent};
+pub use proofless_shield::{
+    ProoflessShieldEvent, ProoflessShieldIxData, ZoneProoflessShieldIxData,
+};
 pub use zone_config::{
     CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
 };

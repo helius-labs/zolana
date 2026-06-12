@@ -108,25 +108,45 @@ fn rejects_bad_amount_shapes() {
 }
 
 #[test]
-fn rejects_zone_bearing_deposits() {
+fn rejects_program_owned_proofless_with_wrong_signer() {
     let Some((mut rig, _authority, tree)) = rig_with_tree() else {
         return;
     };
     let depositor = funded_depositor(&mut rig);
 
-    // 5-9: every zone/program field requires the unwired zone path.
+    // A program-owned deposit (cpi_signer set, seed `auth`) with a real signer
+    // in the cpi_signer slot that is not the derived PDA — reject.
+    let mut data = PoolTestRig::sol_shield_data(1_000_000, [3u8; 32]);
+    data.cpi_signer = Some(CpiSignerData {
+        program_id: [9u8; 32],
+        bump: 255,
+    });
+    let accounts = vec![
+        AccountMeta::new(tree.pubkey(), false),
+        AccountMeta::new(depositor.pubkey(), true),
+        AccountMeta::new_readonly(depositor.pubkey(), true), // not the derived auth PDA
+        AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(rig.cpi_authority(), false),
+        AccountMeta::new(depositor.pubkey(), false),
+        AccountMeta::new_readonly(rig.program_id, false),
+    ];
+    let err = rig
+        .proofless_shield_with_accounts(accounts, &depositor, &data)
+        .unwrap_err();
+    assert_custom(err, INVALID_SETTLEMENT_ACCOUNTS);
+}
+
+#[test]
+fn rejects_program_data_without_cpi_signer() {
+    let Some((mut rig, _authority, tree)) = rig_with_tree() else {
+        return;
+    };
+    let depositor = funded_depositor(&mut rig);
+
+    // program_data{,_hash} make the UTXO program-owned and require a
+    // cpi_signer (spec proofless_shield check 3). Policy/zone data is not on
+    // this instruction at all — it lives on zone_proofless_shield.
     let mutations: Vec<(&str, Box<dyn Fn(&mut zolana_interface::instruction::ProoflessShieldIxData)>)> = vec![
-        (
-            "cpi_signer",
-            Box::new(|d| {
-                d.cpi_signer = Some(CpiSignerData {
-                    program_id: [9u8; 32],
-                    bump: 254,
-                })
-            }),
-        ),
-        ("policy_data_hash", Box::new(|d| d.policy_data_hash = Some([1u8; 32]))),
-        ("zone_data", Box::new(|d| d.zone_data = Some(vec![1, 2, 3]))),
         ("program_data_hash", Box::new(|d| d.program_data_hash = Some([2u8; 32]))),
         ("program_data", Box::new(|d| d.program_data = Some(vec![4, 5]))),
     ];

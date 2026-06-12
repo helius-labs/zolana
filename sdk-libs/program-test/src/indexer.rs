@@ -13,8 +13,9 @@ use light_sparse_merkle_tree::SparseMerkleTree;
 use shielded_pool_program::instructions::create_tree::init::STATE_HEIGHT;
 use zolana_interface::instruction::ProoflessShieldEvent;
 
-/// Domain separator for UTXO commitments (spec: UTXO Hash).
-const UTXO_DOMAIN: u64 = 2;
+/// Domain separator for UTXO commitments (spec: UTXO Hash). Must match the
+/// program and the circuit (`protocol.UtxoDomain`).
+const UTXO_DOMAIN: u64 = 1;
 
 /// One deposited UTXO as an indexer sees it: the event fields plus its
 /// position in the state tree.
@@ -104,7 +105,12 @@ impl PoolIndexer {
 
 /// Recompute the UTXO commitment from event fields, mirroring the program.
 fn utxo_hash(event: &ProoflessShieldEvent) -> [u8; 32] {
-    let zone_program_id = event.zone_program_id.unwrap_or([0u8; 32]);
+    // zone_program_id is a raw pubkey in the event; the UTXO hash uses its
+    // pk_field encoding (spec: UTXO Hash), matching the program.
+    let zone_program_id = match event.zone_program_id {
+        Some(program_id) => pk_field_solana(&program_id),
+        None => [0u8; 32],
+    };
     let policy_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
     let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
     Poseidon::hashv(&[
