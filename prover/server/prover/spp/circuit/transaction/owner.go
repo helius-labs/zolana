@@ -12,7 +12,6 @@ import (
 
 const (
 	p256LimbBits    = 128
-	p256ScalarBits  = 256
 	p256MessageBits = 248
 )
 
@@ -56,25 +55,17 @@ func P256PkFieldFromPubkeyCircuit(
 	if err != nil {
 		return nil, err
 	}
-	x := fp.ReduceStrict(&point.X)
-	y := fp.ReduceStrict(&point.Y)
-	yBits := fp.ToBits(y)
-	xBits := fp.ToBits(x)
+	yBits := fp.ToBitsCanonical(&point.Y)
+	xBits := fp.ToBitsCanonical(&point.X)
 	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
-	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:p256ScalarBits])
+	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
 	return P256PkFieldCircuit(api, yBits[0], xLow128, xHigh128), nil
 }
 
 func p256MessageHashToP256Fr(api frontend.API, messageHash frontend.Variable) (*emulated.Element[emulated.P256Fr], error) {
-	bits := api.ToBinary(messageHash, p256MessageBits)
-	padded := make([]frontend.Variable, p256ScalarBits)
-	copy(padded, bits)
-	for i := p256MessageBits; i < p256ScalarBits; i++ {
-		padded[i] = frontend.Variable(0)
-	}
 	fr, err := emulated.NewField[emulated.P256Fr](api)
 	if err != nil {
 		return nil, err
 	}
-	return fr.FromBits(padded...), nil
+	return fr.FromBits(api.ToBinary(messageHash, p256MessageBits)...), nil
 }
