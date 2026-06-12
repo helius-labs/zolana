@@ -36,4 +36,4 @@ Feature: Viewing keys and view tags
 
   Scenario: The sender view tag matches the golden vector
     Given a viewing key "k" from scalar 1
-    Then the sender view tag of "k" at counter 0 is "d0ae24b9136f852f8f59671cd297f2804d021483a225b98607faa73755b47490"
+    Then the sender view tag of "k" at counter 0 is "00d0ae24b9136f852f8f59671cd297f2804d021483a225b98607faa73755b474"

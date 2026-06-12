@@ -26,3 +26,7 @@ Feature: Public key encoding
   Scenario: An unknown scheme prefix is rejected
     When I parse a public key whose first byte is 9
     Then the public key parse fails
+
+  Scenario: An Ed25519 key with a nonzero pad byte is rejected
+    When I parse an Ed25519 public key with a nonzero pad byte
+    Then the public key parse fails

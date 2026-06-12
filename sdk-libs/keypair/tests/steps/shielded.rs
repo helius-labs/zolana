@@ -1,9 +1,9 @@
 use cucumber::then;
-use zolana_keypair::constants::{BLINDING_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::hash::owner_hash;
 use zolana_keypair::{
-    CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey,
-    ViewingKey,
+    random_salt, CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair,
+    SigningKey, ViewingKey,
 };
 
 use crate::KeypairWorld;
@@ -59,7 +59,7 @@ fn facade_shared_tags(world: &mut KeypairWorld, sender: String, recipient: Strin
         .unwrap();
     let recv = world
         .keypair(&recipient)
-        .get_shared_view_tag(&world.keypair(&sender).viewing_pubkey(), 0)
+        .get_recipient_shared_view_tag(&world.keypair(&sender).viewing_pubkey(), 0)
         .unwrap();
     assert_eq!(send, recv);
 }
@@ -71,19 +71,21 @@ fn facade_transfer(world: &mut KeypairWorld, sender: String, recipient: String) 
         .nullifier(&[1u8; 32], &[2u8; BLINDING_LEN])
         .unwrap();
     let recipient_pubkey = world.keypair(&recipient).viewing_pubkey();
-    let mut sender_bundle = vec![0u8; PUBLIC_KEY_LEN + 3 * 8 + BLINDING_LEN];
-    sender_bundle.extend_from_slice(recipient_pubkey.as_bytes());
-    let recipient_plaintext = b"owner || asset || amount || blinding".to_vec();
-    let plaintexts: Vec<&[u8]> = vec![sender_bundle.as_slice(), recipient_plaintext.as_slice()];
+    let payload = b"owner || asset || amount || blinding".to_vec();
 
-    let enc = world
+    let tx = world
         .keypair(&sender)
-        .encrypt_transaction(&first_nullifier, &plaintexts)
+        .viewing_key
+        .get_transaction_viewing_key(&first_nullifier)
         .unwrap();
-    let ciphertexts: Vec<&[u8]> = enc.ciphertexts.iter().map(|c| c.as_slice()).collect();
+    let salt = random_salt();
+    let ct = tx
+        .encrypt_slot(&recipient_pubkey, &payload, salt, 1)
+        .unwrap();
+
     let decrypted = world
-        .keypair(&sender)
-        .decrypt_transaction(&first_nullifier, &ciphertexts, enc.salt)
+        .keypair(&recipient)
+        .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
         .unwrap();
-    assert_eq!(decrypted[1], recipient_plaintext);
+    assert_eq!(decrypted, payload);
 }
