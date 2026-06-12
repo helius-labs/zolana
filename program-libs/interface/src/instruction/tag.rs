@@ -6,14 +6,18 @@
 // === Implemented instructions (have a handler in the program dispatch) ===
 pub const TRANSACT: u8 = 0;
 pub const PROOFLESS_SHIELD: u8 = 1;
-pub const CREATE_SPL_INTERFACE: u8 = 6;
-pub const CREATE_POOL_TREE: u8 = 7;
-pub const CREATE_PROTOCOL_CONFIG: u8 = 9;
-pub const UPDATE_PROTOCOL_CONFIG: u8 = 10;
-pub const PAUSE_TREE: u8 = 11;
-pub const CREATE_ZONE_CONFIG: u8 = 12;
-pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 13;
-pub const UPDATE_ZONE_CONFIG: u8 = 14;
+pub const CREATE_SPL_INTERFACE: u8 = 4;
+pub const CREATE_POOL_TREE: u8 = 5;
+pub const CREATE_PROTOCOL_CONFIG: u8 = 6;
+pub const UPDATE_PROTOCOL_CONFIG: u8 = 7;
+pub const PAUSE_TREE: u8 = 8;
+pub const CREATE_ZONE_CONFIG: u8 = 9;
+pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
+pub const UPDATE_ZONE_CONFIG: u8 = 11;
+/// No-op carrying event bytes in instruction data; SPP self-CPI only.
+/// Indexers authenticate events by taking only inner `emit_event`
+/// instructions invoked by the shielded-pool program itself.
+pub const EMIT_EVENT: u8 = 14;
 
 /// Spec-reserved instruction tags that have **no handler** in the program.
 ///
@@ -27,11 +31,8 @@ pub const UPDATE_ZONE_CONFIG: u8 = 14;
 pub mod reserved {
     pub const ZONE_TRANSACT: u8 = 2;
     pub const ZONE_AUTHORITY_TRANSACT: u8 = 3;
-    pub const MERGE_TRANSACT: u8 = 15;
-    pub const ENABLE_MERGE_AUTHORITY: u8 = 16;
-    pub const DISABLE_MERGE_AUTHORITY: u8 = 17;
-    pub const CREATE_MERGE_AUTHORITY_TREE: u8 = 18;
-    pub const MERGE_ZONE: u8 = 19;
+    pub const MERGE_TRANSACT: u8 = 12;
+    pub const ZONE_MERGE_TRANSACT: u8 = 13;
 }
 
 // === Forester tree maintenance ===
@@ -59,6 +60,7 @@ pub enum InstructionTag {
     CreateZoneConfig = CREATE_ZONE_CONFIG,
     UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
     UpdateZoneConfig = UPDATE_ZONE_CONFIG,
+    EmitEvent = EMIT_EVENT,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -77,6 +79,7 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_ZONE_CONFIG => Ok(Self::CreateZoneConfig),
             UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
             UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
+            EMIT_EVENT => Ok(Self::EmitEvent),
             _ => Err(()),
         }
     }

@@ -119,3 +119,60 @@ fn batch_update_address_tree_rejects_non_registry_signer() {
         "expected UnauthorizedCaller (Custom(5)), got: {msg}"
     );
 }
+
+/// Phase-3 gate: the test indexer consumes ProoflessShieldEvents from inner
+/// emit_event instructions, reconstructs the on-chain state root, and locates
+/// every deposit without decryption.
+#[test]
+fn indexer_matches_onchain_root_and_locates_deposits() {
+    use light_program_test::{PoolIndexer, PoolTestRig};
+
+    let Some((mut rig, _authority, tree)) = rig_with_tree() else {
+        return;
+    };
+    let mut indexer = PoolIndexer::new();
+    assert_eq!(
+        indexer.root(),
+        rig.state_root(&tree.pubkey()).expect("state root"),
+        "empty trees must agree"
+    );
+
+    let depositor = Keypair::new();
+    rig.airdrop(&depositor.pubkey(), 10_000_000_000)
+        .expect("airdrop");
+
+    for (i, amount) in [1_000_000_000u64, 250_000_000, 42].into_iter().enumerate() {
+        let owner_utxo_hash = [i as u8 + 1; 32];
+        let mut data = PoolTestRig::sol_shield_data(amount, owner_utxo_hash);
+        data.view_tag = [0xA0 + i as u8; 32];
+        data.salt = [i as u8; 16];
+        let event = rig
+            .proofless_shield(&tree, &depositor, &data)
+            .expect("deposit");
+        assert_eq!(event.amount, amount, "event must carry the settled amount");
+        assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");
+        assert_eq!(event.salt, data.salt);
+        indexer.record_proofless_shield(&event);
+
+        assert_eq!(
+            indexer.root(),
+            rig.state_root(&tree.pubkey()).expect("state root"),
+            "reference tree must track the on-chain root after deposit {i}"
+        );
+    }
+
+    // The depositor locates each UTXO by its opaque owner commitment; the
+    // recipient by scanning their view tag.
+    for (i, amount) in [1_000_000_000u64, 250_000_000, 42].into_iter().enumerate() {
+        let record = indexer
+            .fetch_by_owner_utxo_hash(&[i as u8 + 1; 32])
+            .expect("fetch by owner commitment");
+        assert_eq!(record.amount, amount);
+        assert_eq!(record.leaf_index, i as u64);
+
+        let tag = [0xA0 + i as u8; 32];
+        let by_tag: Vec<_> = indexer.fetch_by_view_tag(&tag).collect();
+        assert_eq!(by_tag.len(), 1, "view tag locates exactly this deposit");
+        assert_eq!(by_tag[0].leaf_index, i as u64);
+    }
+}

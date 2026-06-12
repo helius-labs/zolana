@@ -51,6 +51,13 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
+    // emit_event (spec tag 14): a no-op carrying event bytes; reached only by
+    // self-CPI. Indexers authenticate events as inner instructions invoked by
+    // this program, so the handler validates nothing and mutates nothing.
+    if *ix_tag == tag::EMIT_EVENT {
+        return Ok(());
+    }
+
     dispatch!(*ix_tag, payload, program_id, accounts, {
         tag::CREATE_POOL_TREE => (CreatePoolTreeData, process_create_pool_tree),
         tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),

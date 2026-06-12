@@ -1,17 +1,21 @@
+use borsh::BorshSerialize;
 use light_hasher::{Hasher, Poseidon};
-use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::{ProoflessShieldData, TransactData, PUBLIC_AMOUNT_DEPOSIT};
+use pinocchio::{
+    cpi::invoke, error::ProgramError, instruction::InstructionView, AccountView, Address,
+    ProgramResult,
+};
+use zolana_interface::instruction::{
+    tag, ProoflessShieldData, ProoflessShieldEvent, TransactData, PUBLIC_AMOUNT_DEPOSIT,
+};
 
 use crate::instructions::{
     accounts::load_transact_accounts,
-    hash::solana_pk_hash,
+    hash::{field_from_u64, solana_pk_hash},
     settlement::{settle_public_amounts, spl_asset_pubkey},
 };
 use crate::{
     error::ShieldedPoolError,
-    instructions::{
-        create_pool_tree::init::append_state_leaves as append_to_pool, hash::field_from_u64, loader,
-    },
+    instructions::{create_pool_tree::init::append_state_leaves as append_to_pool, loader},
     log::log,
 };
 
@@ -21,13 +25,15 @@ const UTXO_DOMAIN: u64 = 2;
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
 /// The deposited amount is settled into the pool exactly like a transact
-/// deposit, and the recipient UTXO is hashed from the public fields plus the
-/// settled amount/asset and appended to the UTXO tree. It does NOT queue a view
-/// tag: a proofless shield spends nothing, so there are no nullifiers to insert,
-/// and the bootstrap UTXO is discovered from the public commitment itself. No
-/// proof: every field of the commitment is public, and the amount is taken from
-/// the actual deposit so a depositor cannot mint a UTXO worth more than they
-/// paid in.
+/// deposit, the recipient UTXO is hashed from the public fields plus the
+/// settled amount/asset and appended to the UTXO tree, and a
+/// `ProoflessShieldEvent` is emitted via `emit_event` self-CPI for the
+/// indexer (the utxo hash and the mint address do not exist in the
+/// instruction data). No proof: the amount is taken from the actual deposit
+/// so a depositor cannot mint a UTXO worth more than they paid in.
+///
+/// Accounts: the transact settlement layout, then the shielded-pool program
+/// account itself (callee of the self-CPI) last.
 pub fn process_proofless_shield(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -39,43 +45,56 @@ pub fn process_proofless_shield(
     if (sol == 0) == (spl == 0) {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
-    // Default-zone deposit: only bare UTXOs. Program/zone-owned UTXOs require the
-    // zone authorization path (spec: Program ownership), so reject program/policy
-    // data and a zone program id here — matching the transact circuit.
-    if data.data_hash != [0u8; 32]
-        || data.zone_data_hash != [0u8; 32]
-        || data.zone_program_id != [0u8; 32]
+    // Zone-bearing deposits require cpi_signer (spec check 3); the zone path
+    // is not wired into this dispatcher, so reject both the signer and any
+    // zone/program data outright.
+    if data.cpi_signer.is_some()
+        || data.policy_data_hash.is_some()
+        || data.zone_data.is_some()
+        || data.program_data_hash.is_some()
+        || data.program_data.is_some()
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
     let needs_sol = sol != 0;
     let needs_spl = spl != 0;
 
+    // The trailing account is the shielded-pool program itself, the callee of
+    // the emit_event self-CPI.
+    if accounts.len() < 2 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (head, program_slice) = accounts.split_at_mut(accounts.len() - 1);
+    if program_slice[0].address() != program_id {
+        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+    }
+
     // A TransactData view of the deposit drives the shared account-loading and
     // settlement paths (mode = DEPOSIT, no proof / nullifiers / outputs).
     let tx = deposit_view(&data);
-    let verified = load_transact_accounts(program_id, accounts, &tx, needs_sol, needs_spl)?;
+    let verified = load_transact_accounts(program_id, head, &tx, needs_sol, needs_spl)?;
 
     // Asset field and amount come from the actual deposit; the UTXO hash uses
     // the same encoding as the circuit so the deposit is spendable by a proof.
     // owner_utxo_hash = Poseidon(owner, blinding) is supplied opaquely, hiding
     // the recipient (the circuit never checks an output UTXO's owner).
-    let (asset, amount) = if needs_spl {
+    let (asset, asset_field, amount) = if needs_spl {
         let mint = spl_asset_pubkey(&verified.settlement)?;
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(mint.as_ref());
-        (solana_pk_hash(&bytes)?, spl)
+        (bytes, solana_pk_hash(&bytes)?, spl)
     } else {
-        (solana_pk_hash(&[0u8; 32])?, sol)
+        ([0u8; 32], solana_pk_hash(&[0u8; 32])?, sol)
     };
 
+    let zero = [0u8; 32];
     let utxo_hash = Poseidon::hashv(&[
         field_from_u64(UTXO_DOMAIN).as_slice(),
-        asset.as_slice(),
+        asset_field.as_slice(),
         field_from_u64(amount).as_slice(),
-        data.data_hash.as_slice(),
-        data.zone_data_hash.as_slice(),
-        data.zone_program_id.as_slice(),
+        zero.as_slice(),
+        zero.as_slice(),
+        zero.as_slice(),
         data.owner_utxo_hash.as_slice(),
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -87,7 +106,37 @@ pub fn process_proofless_shield(
         log("proofless_shield: state sub-tree append failed");
         return Err(ShieldedPoolError::StateAppendFailed.into());
     }
-    Ok(())
+
+    let event = ProoflessShieldEvent {
+        view_tag: data.view_tag,
+        utxo_hash,
+        asset,
+        amount,
+        zone_program_id: None,
+        policy_data_hash: None,
+        owner_utxo_hash: data.owner_utxo_hash,
+        salt: data.salt,
+        program_data_hash: None,
+        program_data: None,
+        zone_data: None,
+    };
+    emit_event(program_id, &event)
+}
+
+/// Self-CPI carrying the event bytes; the no-op `emit_event` handler accepts
+/// them and indexers read them from the inner instruction.
+fn emit_event(program_id: &Address, event: &ProoflessShieldEvent) -> ProgramResult {
+    let mut data = vec![tag::EMIT_EVENT];
+    event
+        .serialize(&mut data)
+        .map_err(|_| ProgramError::from(ShieldedPoolError::InvalidInstructionData))?;
+    let instruction = InstructionView {
+        program_id,
+        accounts: &[],
+        data: &data,
+    };
+    let no_accounts: &[&AccountView; 0] = &[];
+    invoke(&instruction, no_accounts)
 }
 
 fn deposit_view(data: &ProoflessShieldData) -> TransactData {

@@ -27,13 +27,15 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, BatchUpdateAddressTreeData, CreatePoolTreeData,
-        CreateProtocolConfigData, ProoflessShieldData,
+        CreateProtocolConfigData, ProoflessShieldData, ProoflessShieldEvent,
     },
     LIGHT_REGISTRY_PROGRAM_ID, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
+pub mod indexer;
 pub mod registry_sdk;
+pub use indexer::{PoolIndexer, UtxoRecord};
 pub use registry_sdk::{ForesterConfig, ProtocolConfig};
 
 #[derive(Debug, Error)]
@@ -187,31 +189,35 @@ impl PoolTestRig {
         Ok(tree)
     }
 
-    /// Deposit `lamports` of SOL without a proof (`proofless_shield`). The
-    /// depositor signs and is the SOL source; the UTXO commits to the opaque
-    /// `owner_utxo_hash`.
-    pub fn proofless_shield_sol(
+    /// A SOL-deposit `ProoflessShieldData` with bare commitment fields.
+    pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldData {
+        ProoflessShieldData {
+            view_tag: [0u8; 32],
+            owner_utxo_hash,
+            salt: [0u8; 16],
+            public_sol_amount: Some(lamports),
+            public_spl_amount: None,
+            policy_data_hash: None,
+            zone_data: None,
+            program_data_hash: None,
+            program_data: None,
+            cpi_signer: None,
+        }
+    }
+
+    /// Send a `proofless_shield` carrying `data` and return the
+    /// `ProoflessShieldEvent` it emitted via self-CPI — read from the inner
+    /// instructions exactly the way an indexer authenticates events. SOL
+    /// deposits only: the depositor signs and is the SOL source.
+    /// Accounts: [tree, signer, system_program, cpi_authority,
+    /// user_sol_account, shielded_pool_program].
+    pub fn proofless_shield(
         &mut self,
         tree: &Keypair,
         depositor: &Keypair,
-        lamports: u64,
-        owner_utxo_hash: [u8; 32],
-    ) -> Result<(), RigError> {
-        let data = encode_instruction(
-            tag::PROOFLESS_SHIELD,
-            &ProoflessShieldData {
-                owner_utxo_hash,
-                data_hash: [0u8; 32],
-                zone_data_hash: [0u8; 32],
-                zone_program_id: [0u8; 32],
-                bootstrap_view_tag: [0u8; 32],
-                public_sol_amount: Some(lamports),
-                public_spl_amount: None,
-                cleartext_utxo: Vec::new(),
-            },
-        );
-        // [tree, signer, system_program, cpi_authority, user_sol_account];
-        // for a deposit the SOL source must be the signer itself.
+        data: &ProoflessShieldData,
+    ) -> Result<ProoflessShieldEvent, RigError> {
+        let encoded = encode_instruction(tag::PROOFLESS_SHIELD, data);
         let ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
@@ -220,10 +226,54 @@ impl PoolTestRig {
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new(self.cpi_authority(), false),
                 AccountMeta::new(depositor.pubkey(), false),
+                AccountMeta::new_readonly(self.program_id, false),
             ],
-            data,
+            data: encoded,
         };
-        self.send(&[ix], &[&self.payer.insecure_clone(), depositor])
+
+        let payer = self.payer.pubkey();
+        let message = Message::new(&[ix], Some(&payer));
+        let account_keys = message.account_keys.clone();
+        let blockhash = self.svm.latest_blockhash();
+        let tx = Transaction::new(
+            &[&self.payer.insecure_clone(), depositor],
+            message,
+            blockhash,
+        );
+        let meta = self
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))?;
+
+        // The event is the inner emit_event instruction invoked by the
+        // shielded-pool program itself.
+        for inner in meta.inner_instructions.iter().flatten() {
+            let compiled = &inner.instruction;
+            let program = account_keys
+                .get(compiled.program_id_index as usize)
+                .copied()
+                .unwrap_or_default();
+            if program == self.program_id
+                && compiled.data.first() == Some(&tag::EMIT_EVENT)
+            {
+                return borsh::BorshDeserialize::try_from_slice(&compiled.data[1..])
+                    .map_err(|e| RigError::Litesvm(format!("event decode: {e}")));
+            }
+        }
+        Err(RigError::Litesvm("no emit_event inner instruction".into()))
+    }
+
+    /// Deposit `lamports` of SOL without a proof (`proofless_shield`). The
+    /// UTXO commits to the opaque `owner_utxo_hash`.
+    pub fn proofless_shield_sol(
+        &mut self,
+        tree: &Keypair,
+        depositor: &Keypair,
+        lamports: u64,
+        owner_utxo_hash: [u8; 32],
+    ) -> Result<ProoflessShieldEvent, RigError> {
+        let data = Self::sol_shield_data(lamports, owner_utxo_hash);
+        self.proofless_shield(tree, depositor, &data)
     }
 
     /// Load `light_registry.so` into this rig in addition to shielded-pool.
@@ -342,6 +392,16 @@ impl PoolTestRig {
     }
 
     /// Read the raw bytes of any account in the rig.
+    /// The on-chain state sub-tree root of a pool tree account.
+    pub fn state_root(&self, tree: &Pubkey) -> Option<[u8; 32]> {
+        let data = self.account_data(tree)?;
+        let offset = shielded_pool_program::instructions::create_pool_tree::init::state_root_offset();
+        let slice = data.get(offset..offset + 32)?;
+        let mut root = [0u8; 32];
+        root.copy_from_slice(slice);
+        Some(root)
+    }
+
     pub fn account_data(&self, pubkey: &Pubkey) -> Option<Vec<u8>> {
         self.svm.get_account(pubkey).map(|acc| acc.data)
     }

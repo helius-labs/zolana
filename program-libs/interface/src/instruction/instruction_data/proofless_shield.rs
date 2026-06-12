@@ -1,36 +1,62 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use super::transact::CpiSignerData;
+
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
 /// The program hashes the recipient's UTXO from these fields plus the settled
-/// deposit amount/asset, inserts the hash into the UTXO tree, and indexes it
-/// under `bootstrap_view_tag`. The owner is committed as `owner_utxo_hash =
-/// Poseidon(owner, blinding)`, so the recipient is hidden even though the
-/// deposit is public. The amount is taken from the actual public deposit (not a
-/// field here), so a depositor cannot mint a UTXO worth more than they
-/// deposited. No proof, no encryption (amount + asset are public).
+/// deposit amount/asset, appends the hash to the UTXO tree, and emits a
+/// [`ProoflessShieldEvent`] for indexing. The owner is committed as
+/// `owner_utxo_hash = Poseidon(owner, blinding)` with the blinding derived
+/// from the recipient's view-tag secret and `salt` (spec: Blinding
+/// derivation), so the recipient is hidden even though the deposit is public.
+/// The amount is taken from the actual public deposit, so a depositor cannot
+/// mint a UTXO worth more than they deposited.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessShieldData {
-    /// `owner_utxo_hash = Poseidon(owner, blinding)`. Opaque to the program — it
-    /// hides the recipient. The depositor (who knows owner+blinding) records it
-    /// off-chain to spend later. A malformed value just yields an unspendable
+    /// Indexing tag for the single output slot; chosen per the spec's View
+    /// Tag Selection.
+    pub view_tag: [u8; 32],
+    /// `owner_utxo_hash = Poseidon(owner, blinding)`. Opaque to the program —
+    /// it hides the recipient. A malformed value just yields an unspendable
     /// UTXO (the depositor's loss only).
     pub owner_utxo_hash: [u8; 32],
-    /// `program_data_hash` field of the UTXO commitment.
-    pub data_hash: [u8; 32],
-    /// `policy_data_hash` field of the UTXO commitment.
-    pub zone_data_hash: [u8; 32],
-    /// `zone_program_id` field of the UTXO commitment.
-    pub zone_program_id: [u8; 32],
-    /// Recipient bootstrap view tag (`recipient.viewing_pk`); the queue entry
-    /// the recipient scans to discover the deposit.
-    pub bootstrap_view_tag: [u8; 32],
-    /// Public SOL deposit. Exactly one of `public_sol_amount`/`public_spl_amount`
-    /// must be set; it becomes the deposited UTXO's amount.
+    /// Fresh CSPRNG per deposit; the recipient re-derives `blinding` from it
+    /// (spec: Blinding derivation).
+    pub salt: [u8; 16],
+    /// `Some` for a SOL deposit. Exactly one of the two amounts is set.
     pub public_sol_amount: Option<u64>,
-    /// Public SPL deposit. Exactly one of `public_sol_amount`/`public_spl_amount`
-    /// must be set; it becomes the deposited UTXO's amount.
+    /// `Some` for an SPL deposit.
     pub public_spl_amount: Option<u64>,
-    /// Cleartext UTXO body for the indexer (spec: no encryption). Opaque to SPP.
-    pub cleartext_utxo: Vec<u8>,
+    /// Zone-defined policy data hash; requires `cpi_signer`.
+    pub policy_data_hash: Option<[u8; 32]>,
+    /// Preimage of `policy_data_hash`.
+    pub zone_data: Option<Vec<u8>>,
+    /// Program-defined data hash; requires `cpi_signer`.
+    pub program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    pub program_data: Option<Vec<u8>>,
+    /// Invoking zone program PDA; see `transact`.
+    pub cpi_signer: Option<CpiSignerData>,
+}
+
+/// Event emitted via [`tag::EMIT_EVENT`](crate::instruction::tag::EMIT_EVENT)
+/// self-CPI after a `proofless_shield`. It lets an indexer index the created
+/// UTXO: the utxo hash and the mint address do not exist in the instruction
+/// data.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ProoflessShieldEvent {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    /// Deposited mint; reaches the instruction via accounts only.
+    pub asset: [u8; 32],
+    pub amount: u64,
+    /// From `cpi_signer`.
+    pub zone_program_id: Option<[u8; 32]>,
+    pub policy_data_hash: Option<[u8; 32]>,
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub program_data_hash: Option<[u8; 32]>,
+    pub program_data: Option<Vec<u8>>,
+    pub zone_data: Option<Vec<u8>>,
 }

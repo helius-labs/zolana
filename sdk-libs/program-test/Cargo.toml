@@ -22,6 +22,9 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+light-hasher = { workspace = true, features = ["poseidon"] }
+light-sparse-merkle-tree = { workspace = true }
+shielded-pool-program = { path = "../../programs/shielded-pool" }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -192,10 +192,7 @@ fn reserved_unimplemented_tags_are_not_dispatchable() {
         tag::reserved::ZONE_TRANSACT,
         tag::reserved::ZONE_AUTHORITY_TRANSACT,
         tag::reserved::MERGE_TRANSACT,
-        tag::reserved::ENABLE_MERGE_AUTHORITY,
-        tag::reserved::DISABLE_MERGE_AUTHORITY,
-        tag::reserved::CREATE_MERGE_AUTHORITY_TREE,
-        tag::reserved::MERGE_ZONE,
+        tag::reserved::ZONE_MERGE_TRANSACT,
     ] {
         assert_eq!(InstructionTag::try_from(tag), Err(()));
     }
