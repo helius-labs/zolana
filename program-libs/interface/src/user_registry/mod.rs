@@ -1,18 +1,8 @@
-//! User registry program interface — shared IDs, seeds, and account layout.
-//!
-//! The on-chain program is an Anchor program: its instructions are encoded as
-//! an 8-byte sighash discriminator followed by borsh args, and its accounts
-//! carry an 8-byte account discriminator. This crate therefore does NOT expose
-//! a tag-based instruction encoder for user-registry (that format would not be
-//! accepted by the program). Instruction builders live alongside the Anchor
-//! program crate. This module exposes the account layout for reading on-chain
-//! records and the PDA/program-id helpers.
-
+//! User registry program interface 
 pub mod state;
 
 pub use state::{SyncDelegateEntry, UserRecord};
 
-/// Placeholder program id for the user registry program scaffold.
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] = [
     122, 111, 108, 97, 110, 97, 95, 117, 114, 101, 103, 95, 118, 48, 95, 95, 95, 95, 95, 95, 95,
     95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 1,

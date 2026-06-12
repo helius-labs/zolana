@@ -13,7 +13,7 @@ use zolana_interface::user_registry::user_record_pda;
 
 use light_program_test::user_registry_sdk::{
     build_close_ix, build_register_ix, build_revoke_ix, build_set_sync_delegate_ix,
-    build_sync_delegate_rotate_ix, fetch_user_record, user_registry_program_id,
+    build_rotate_sync_delegate_ix, fetch_user_record, user_registry_program_id,
 };
 
 #[derive(Default, World)]
@@ -345,11 +345,11 @@ fn when_stranger_set_sync_delegate(
     world.send(&[stranger], ix);
 }
 
-// === sync_delegate_rotate ===
+// === rotate_sync_delegate ===
 
 #[given(regex = r#"sync delegate "(.*)" rotates keys for "(.*)""#)]
 #[when(regex = r#"sync delegate "(.*)" rotates keys for "(.*)""#)]
-fn when_sync_delegate_rotate(
+fn when_rotate_sync_delegate(
     world: &mut UserRegistryWorld,
     sync_delegate_name: String,
     owner_name: String,
@@ -362,7 +362,7 @@ fn when_sync_delegate_rotate(
         .insecure_clone();
     let sync_pubkey = test_p256_pubkey(0xC0 + sync_delegate_name.len() as u8);
     let viewing_pubkey = test_p256_pubkey(0xD0 + sync_delegate_name.len() as u8);
-    let ix = build_sync_delegate_rotate_ix(
+    let ix = build_rotate_sync_delegate_ix(
         &owner,
         &sync_delegate_kp.pubkey(),
         sync_pubkey,
@@ -375,7 +375,7 @@ fn when_sync_delegate_rotate(
 fn when_rotate_attempt(world: &mut UserRegistryWorld, signer_name: String, owner_name: String) {
     let owner = world.owners.get(&owner_name).expect("owner").pubkey();
     let signer = world.keypair_named(&signer_name);
-    let ix = build_sync_delegate_rotate_ix(
+    let ix = build_rotate_sync_delegate_ix(
         &owner,
         &signer.pubkey(),
         test_p256_pubkey(0xE0),
@@ -397,7 +397,7 @@ fn when_rotate_bad_key(
         .get(&sync_delegate_name)
         .expect("sync delegate")
         .insecure_clone();
-    let ix = build_sync_delegate_rotate_ix(
+    let ix = build_rotate_sync_delegate_ix(
         &owner,
         &sync_delegate_kp.pubkey(),
         test_p256_pubkey(0xE2),
