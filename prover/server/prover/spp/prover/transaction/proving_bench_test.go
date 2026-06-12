@@ -1,27 +1,41 @@
 package transaction
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"fmt"
 	"math/big"
 	"testing"
 
+	"light/light-prover/prover/spp/internal/p256key"
 	"light/light-prover/prover/spp/parse"
 	"light/light-prover/prover/spp/protocol"
 )
 
 func BenchmarkProveByShape(b *testing.B) {
-	for _, shape := range protocol.SupportedShapes {
-		shape := shape
-		b.Run(fmt.Sprintf("inputs_%d_outputs_%d", shape.NInputs, shape.NOutputs), func(b *testing.B) {
-			benchmarkProveShape(b, shape)
-		})
+	for _, rail := range []struct {
+		name string
+		p256 bool
+	}{
+		{name: "solana", p256: false},
+		{name: "p256", p256: true},
+	} {
+		for _, shape := range protocol.SupportedShapes {
+			b.Run(fmt.Sprintf("%s/inputs_%d_outputs_%d", rail.name, shape.NInputs, shape.NOutputs), func(b *testing.B) {
+				benchmarkProveShape(b, shape, rail.p256)
+			})
+		}
 	}
 }
 
-func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
-	tx, payerHash, err := benchmarkTransaction(shape)
+func benchmarkProveShape(b *testing.B, shape protocol.Shape, p256 bool) {
+	tx, payerHash, err := benchmarkTransaction(shape, p256)
 	if err != nil {
 		b.Fatal(err)
+	}
+	if TransactionRequiresP256(tx) != p256 {
+		b.Fatalf("benchmark transaction rail mismatch: requiresP256=%v, want %v", TransactionRequiresP256(tx), p256)
 	}
 	ps, err := Setup(shape, TransactionRequiresP256(tx))
 	if err != nil {
@@ -43,13 +57,29 @@ func benchmarkProveShape(b *testing.B, shape protocol.Shape) {
 	}
 }
 
-func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.Int, error) {
+func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequest, *big.Int, error) {
 	var payerPubkey [32]byte
 	for i := range payerPubkey {
 		payerPubkey[i] = byte(i + 1)
 	}
 	payerHash := protocol.Sha256BEField(payerPubkey[:])
-	ownerKeyHash, err := protocol.SolanaPkField(payerPubkey)
+
+	var (
+		ownerKeyHash *big.Int
+		p256Priv     *ecdsa.PrivateKey
+		p256Pubkey   []byte
+		err          error
+	)
+	if p256 {
+		p256Priv, err = p256key.PrivateKeyFromScalar(big.NewInt(11))
+		if err != nil {
+			return ProofTransactionRequest{}, nil, err
+		}
+		p256Pubkey = elliptic.MarshalCompressed(elliptic.P256(), p256Priv.PublicKey.X, p256Priv.PublicKey.Y)
+		ownerKeyHash, err = protocol.P256PkField(p256Pubkey)
+	} else {
+		ownerKeyHash, err = protocol.SolanaPkField(payerPubkey)
+	}
 	if err != nil {
 		return ProofTransactionRequest{}, nil, err
 	}
@@ -96,17 +126,22 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			Index: uint64(i),
 			Hash:  proofFieldInput(hash),
 		})
+		utxoRequest := ProofUtxoRequest{
+			Domain:        proofFieldInput(utxo.Domain),
+			Asset:         proofFieldInput(utxo.Asset),
+			Amount:        proofFieldInput(utxo.Amount),
+			Blinding:      proofFieldInput(utxo.Blinding),
+			DataHash:      proofFieldInput(utxo.DataHash),
+			ZoneDataHash:  proofFieldInput(utxo.ZoneDataHash),
+			ZoneProgramID: proofFieldInput(utxo.ZoneProgramID),
+		}
+		if p256 {
+			utxoRequest.OwnerP256Pubkey = parse.BytesHex(p256Pubkey)
+		} else {
+			utxoRequest.OwnerSolanaPubkey = parse.BytesHex(payerPubkey[:])
+		}
 		tx.Inputs = append(tx.Inputs, ProofInputRequest{
-			Utxo: ProofUtxoRequest{
-				Domain:            proofFieldInput(utxo.Domain),
-				OwnerSolanaPubkey: parse.BytesHex(payerPubkey[:]),
-				Asset:             proofFieldInput(utxo.Asset),
-				Amount:            proofFieldInput(utxo.Amount),
-				Blinding:          proofFieldInput(utxo.Blinding),
-				DataHash:          proofFieldInput(utxo.DataHash),
-				ZoneDataHash:      proofFieldInput(utxo.ZoneDataHash),
-				ZoneProgramID:     proofFieldInput(utxo.ZoneProgramID),
-			},
+			Utxo:            utxoRequest,
 			LeafIndex:       uint64(i),
 			NullifierSecret: proofFieldInput(nullifierSecret),
 		})
@@ -123,6 +158,27 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			ZoneDataHash:  proofFieldInput(big.NewInt(0)),
 			ZoneProgramID: proofFieldInput(big.NewInt(0)),
 		})
+	}
+
+	if p256 {
+		// The P256 signature covers the transcript-derived message hash, so
+		// build the assignment once without it to learn the hash, then attach
+		// the signature for the real proving run.
+		built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{AllowMissingP256Signature: true})
+		if err != nil {
+			return ProofTransactionRequest{}, nil, err
+		}
+		msg, err := parse.FieldBytes(built.publicInputs.P256MessageHash)
+		if err != nil {
+			return ProofTransactionRequest{}, nil, err
+		}
+		r, s, err := ecdsa.Sign(rand.Reader, p256Priv, msg[:])
+		if err != nil {
+			return ProofTransactionRequest{}, nil, err
+		}
+		tx.P256OwnerPubkey = parse.BytesHex(p256Pubkey)
+		tx.P256SignatureR = proofFieldInput(r)
+		tx.P256SignatureS = proofFieldInput(s)
 	}
 	return tx, payerHash, nil
 }

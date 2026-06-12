@@ -46,7 +46,7 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 // solana_owner_pk_hashes entry carries its own owner's pk_field.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := benchmarkTransaction(shape, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 // P256 rail.
 func TestBuildProofAssignmentAcceptsMixedP256AndSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := benchmarkTransaction(shape, false)
 	if err != nil {
 		t.Fatal(err)
 	}
