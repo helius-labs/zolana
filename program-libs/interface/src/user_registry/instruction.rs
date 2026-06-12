@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::state::{NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN};
 
-/// First-byte instruction discriminators for the user-registry program.
 pub mod discriminator {
     pub const REGISTER: u8 = 0;
     pub const SET_SYNC_DELEGATE: u8 = 1;
