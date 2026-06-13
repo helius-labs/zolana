@@ -24,6 +24,9 @@ solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["solana-address"]
+
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [
