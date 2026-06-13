@@ -8397,6 +8397,7 @@ dependencies = [
  "borsh",
  "pinocchio 0.11.1",
  "solana-address 2.6.0",
+ "solana-msg",
  "thiserror 2.0.18",
  "zolana-interface",
 ]
