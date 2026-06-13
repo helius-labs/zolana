@@ -7,12 +7,11 @@
 | `programs/` | On-chain SPP programs, including `shielded-pool` |
 | `program-libs/` | Shared Rust interface crate |
 | `program-tests/` | Internal test crates and test-only SBF programs |
-| `sdk-libs/` | Rust SDK crates (`keypair`, `photon-api`, `program-test`, `transaction`) |
+| `sdk-libs/` | Rust SDK crates (`keypair`, `program-test`, `transaction`) |
 | `cli/` | Zolana developer and operator CLI |
 | `forester/` | Off-chain nullifier-tree maintenance skeleton |
 | `prover/` | Go prover server + Rust prover client |
 | `xtask/` | Workspace dev tooling |
-| `external/photon` | Submodule used to build Photon and regenerate `sdk-libs/photon-api` |
 
 ## Common entry points
 
@@ -50,7 +49,7 @@ The workflow is a backstop, not the enforcement.
 - `just` — `cargo install just --locked`
 - Go (for `prover/server` tests)
 - Anza / Solana CLI 4.x for `cargo build-sbf` (only needed for SBF program builds)
-- `just build-cli`, `just install-surfpool`, `just install-photon`,
+- `just build-cli`, `just install-surfpool`,
   `just build-prover-server`, and `just build-programs` for local validator flows
 - Proving keys in `prover/server/proving-keys/` only if you want to run
   `just xtask-create-verifying-keys-smoke` — the directory is gitignored; obtain the keys from

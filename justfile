@@ -53,7 +53,6 @@ test-shielded-pool:
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:
     cargo test -p zolana-keypair
-    cargo test -p photon-api
     cargo test -p zolana-transaction
 
 test-forester:
@@ -84,7 +83,6 @@ start-localnet-validator: build-program-test-sbf
     mkdir -p "{{localnet-state-dir}}"
     just cli test-validator \
         --no-use-surfpool \
-        --skip-indexer \
         --skip-prover \
         --skip-system-accounts \
         --skip-system-programs \
@@ -95,7 +93,7 @@ start-localnet-validator: build-program-test-sbf
         --sbf-program {{zone-test-program-id}} target/deploy/zone_test_program.so
 
 stop-localnet:
-    just cli test-validator --no-use-surfpool --skip-indexer --skip-prover --rpc-port {{localnet-rpc-port}} --stop
+    just cli test-validator --no-use-surfpool --skip-prover --rpc-port {{localnet-rpc-port}} --stop
 
 stop-localnet-proofless:
     @just stop-localnet
@@ -177,26 +175,6 @@ install-surfpool:
     cp "$surfpool_bin" target/tools/surfpool
     chmod +x target/tools/surfpool
     target/tools/surfpool --version | grep "{{surfpool-version}}"
-
-# Build the Photon indexer binary from the pinned `external/photon` submodule.
-install-photon:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -e external/photon/.git ]]; then
-        echo "external/photon submodule not initialized; run 'git submodule update --init --recursive'" >&2
-        exit 1
-    fi
-    photon_rev=$(git -C external/photon rev-parse HEAD)
-    echo "Building Photon indexer @ ${photon_rev} (from external/photon submodule)"
-    cargo build --manifest-path external/photon/Cargo.toml --locked --bin photon
-    mkdir -p target/tools
-    cp external/photon/target/debug/photon target/tools/photon
-    chmod +x target/tools/photon
-    target/tools/photon --version
-    if [[ "${CI:-}" == "true" ]]; then
-        echo "Cleaning external/photon/target to leave disk for prover keys"
-        rm -rf external/photon/target
-    fi
 
 build-prover-server:
     mkdir -p target

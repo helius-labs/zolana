@@ -14,7 +14,6 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
 
 const DEFAULT_RPC_PORT: u16 = 8899;
-const DEFAULT_INDEXER_PORT: u16 = 8784;
 const DEFAULT_PROVER_PORT: u16 = 3001;
 const DEFAULT_LIMIT_LEDGER_SIZE: u64 = 10_000;
 const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
@@ -59,9 +58,6 @@ struct UpgradeableProgramSpec {
 
 #[derive(Args, Debug)]
 struct TestValidatorOptions {
-    #[arg(long, help = "Do not start Photon")]
-    skip_indexer: bool,
-
     #[arg(long, help = "Do not start the prover server")]
     skip_prover: bool,
 
@@ -103,13 +99,6 @@ struct TestValidatorOptions {
 
     #[arg(
         long,
-        default_value_t = DEFAULT_INDEXER_PORT,
-        help = "Photon indexer port"
-    )]
-    indexer_port: u16,
-
-    #[arg(
-        long,
         default_value_t = DEFAULT_PROVER_PORT,
         help = "Prover server port"
     )]
@@ -135,9 +124,6 @@ struct TestValidatorOptions {
         value_name = "PATH"
     )]
     ledger: Option<String>,
-
-    #[arg(long, help = "Photon database URL", value_name = "URL")]
-    indexer_db_url: Option<String>,
 
     #[arg(
         long = "sbf-program",
@@ -266,8 +252,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     kill_test_validator(opts.rpc_port);
     thread::sleep(Duration::from_secs(1));
 
-    let use_surfpool = opts.use_surfpool_backend();
-    let mut validator = if use_surfpool {
+    let mut validator = if opts.use_surfpool_backend() {
         let surfpool = find_binary(&["SURFPOOL_BIN"], &["target/tools/surfpool"], &["surfpool"])?;
         let args = surfpool_args(&opts)?;
         println!(
@@ -302,26 +287,6 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
 
     if !opts.skip_prover {
         start_prover_service(opts.prover_port, None)?;
-    }
-
-    if !opts.skip_indexer {
-        let start_slot = if use_surfpool {
-            Some(
-                rpc_u64(opts.rpc_port, "getFirstAvailableBlock")
-                    .context("failed to read surfpool first available block")?,
-            )
-        } else {
-            None
-        };
-        let prover_url =
-            (!opts.skip_prover).then(|| format!("http://127.0.0.1:{}", opts.prover_port));
-        start_indexer_service(
-            opts.rpc_port,
-            opts.indexer_port,
-            opts.indexer_db_url.as_deref(),
-            prover_url.as_deref(),
-            start_slot,
-        )?;
     }
 
     println!("Local validator environment is ready");
@@ -548,46 +513,6 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     Ok(())
 }
 
-fn start_indexer_service(
-    rpc_port: u16,
-    indexer_port: u16,
-    db_url: Option<&str>,
-    prover_url: Option<&str>,
-    start_slot: Option<u64>,
-) -> Result<()> {
-    kill_name("photon");
-    kill_port(indexer_port);
-
-    let photon = find_binary(&["PHOTON_BIN"], &["target/debug/photon"], &["photon"])?;
-    let mut args = vec![
-        "--port".to_string(),
-        indexer_port.to_string(),
-        "--rpc-url".to_string(),
-        format!("http://127.0.0.1:{rpc_port}"),
-    ];
-
-    if let Some(db_url) = db_url {
-        args.push("--db-url".to_string());
-        args.push(db_url.to_string());
-    }
-    if let Some(prover_url) = prover_url {
-        args.push("--prover-url".to_string());
-        args.push(prover_url.to_string());
-    }
-    if let Some(start_slot) = start_slot {
-        args.push("--start-slot".to_string());
-        args.push(start_slot.to_string());
-    }
-
-    println!("Starting Photon: {} {}", photon.display(), args.join(" "));
-    let mut child = spawn_service(&photon, &args, "photon")?;
-    wait_for_photon_health_with_child(indexer_port, READINESS_TIMEOUT, &mut child)
-        .with_context(|| format!("Photon on port {indexer_port} did not become ready"))?;
-    println!("Photon started successfully");
-    std::mem::forget(child);
-    Ok(())
-}
-
 fn spawn_service(binary: &Path, args: &[String], log_name: &str) -> Result<Child> {
     fs::create_dir_all("test-ledger").context("failed to create test-ledger log directory")?;
     let log_path = Path::new("test-ledger").join(format!("{log_name}.log"));
@@ -632,14 +557,6 @@ fn wait_for_http_get_with_child(
     })
 }
 
-fn wait_for_photon_health_with_child(
-    port: u16,
-    timeout: Duration,
-    child: &mut Child,
-) -> Result<()> {
-    wait_until_with_child(timeout, child, "Photon", || photon_health(port))
-}
-
 fn wait_until_with_child<F>(
     timeout: Duration,
     child: &mut Child,
@@ -669,20 +586,6 @@ fn rpc_health(port: u16) -> bool {
         .and_then(|value| value.as_str().map(str::to_string))
         .as_deref()
         == Some("ok")
-}
-
-fn photon_health(port: u16) -> bool {
-    json_rpc_request(port, "/getIndexerHealth", "getIndexerHealth")
-        .map(|value| value.get("result").and_then(Value::as_str) == Some("ok"))
-        .unwrap_or(false)
-}
-
-fn rpc_u64(port: u16, method: &str) -> Result<u64> {
-    let value = rpc_request(port, method)?;
-    value
-        .get("result")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("JSON-RPC method {method} did not return a u64 result: {value}"))
 }
 
 fn rpc_request(port: u16, method: &str) -> Result<Value> {
@@ -775,10 +678,6 @@ fn http_body(response: &str) -> &str {
 }
 
 fn stop_test_env(opts: &TestValidatorOptions) {
-    if !opts.skip_indexer {
-        kill_name("photon");
-        kill_port(opts.indexer_port);
-    }
     if !opts.skip_prover {
         kill_name("prover-server");
         kill_port(opts.prover_port);
@@ -981,7 +880,6 @@ mod tests {
     fn parses_local_validator_flags() {
         let opts = parse_validator(&[
             "--no-use-surfpool",
-            "--skip-indexer",
             "--skip-prover",
             "--skip-system-accounts",
             "--skip-system-programs",
@@ -1000,7 +898,6 @@ mod tests {
         ]);
 
         assert!(!opts.use_surfpool_backend());
-        assert!(opts.skip_indexer);
         assert!(opts.skip_prover);
         assert!(opts.skip_system_accounts);
         assert!(opts.skip_system_programs);

@@ -8,7 +8,6 @@ members = [
     "prover/client",
     "cli",
     "sdk-libs/keypair",
-    "sdk-libs/photon-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
     "xtask",
@@ -18,7 +17,6 @@ default-members = [
     "program-libs/interface",
     "programs/shielded-pool",
 ]
-exclude = ["external/photon"]
 resolver = "2"
 
 [workspace.package]
@@ -30,7 +28,6 @@ zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
-photon-api = { path = "sdk-libs/photon-api", version = "0.56.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 
 # Published privacy-program crates.
