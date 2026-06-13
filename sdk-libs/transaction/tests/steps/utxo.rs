@@ -59,6 +59,18 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     ])
     .unwrap();
     assert_eq!(actual, expected);
+    assert_eq!(
+        actual,
+        Utxo::commitment_from_owner_utxo_hash(
+            utxo.asset,
+            utxo.amount,
+            &program_data_hash,
+            &zone_data_hash,
+            utxo.zone_program_id,
+            &owner_utxo_hash,
+        )
+        .unwrap()
+    );
 }
 
 #[then(expr = "the utxo nullifier for {string} matches the keypair nullifier")]

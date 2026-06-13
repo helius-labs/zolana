@@ -1,6 +1,7 @@
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
+pub use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::hash::sha256_be;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
@@ -19,8 +20,6 @@ fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
 }
 
 pub type Blinding = [u8; BLINDING_LEN];
-
-pub const UTXO_DOMAIN: u16 = 1;
 
 pub fn derive_blinding(seed: &[u8; BLINDING_LEN], position: u8) -> Blinding {
     let mut preimage = [0u8; BLINDING_LEN + 1];
@@ -62,20 +61,19 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
+fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
+    zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)
+}
+
 pub fn zone_program_id_field(
     zone_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
     match zone_program_id {
+        Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
         None => Ok([0u8; 32]),
-        Some(id) => {
-            zolana_keypair::hash::hash_field(&id.to_bytes()).map_err(TransactionError::from)
-        }
     }
 }
 
-/// The UTXO hash, given the precomputed `owner_hash`. Shared by [`Utxo::hash`]
-/// (which derives `owner_hash` from the owner pubkey + `nullifier_pk`) and by
-/// outputs that already hold the recipient's `owner_hash`.
 pub fn hash_from_owner_hash(
     owner_hash: &[u8; 32],
     asset: &Address,
@@ -85,40 +83,70 @@ pub fn hash_from_owner_hash(
     program_data_hash: &[u8; 32],
     zone_data_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
-    let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
-    let asset =
-        zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
-    let amount = right_align(&amount.to_be_bytes());
     let blinding = right_align(blinding);
-    let zone_program_id = zone_program_id_field(zone_program_id)?;
     let owner_utxo_hash = poseidon(&[owner_hash, &blinding])?;
-    poseidon(&[
-        &domain,
-        &asset,
-        &amount,
+    Utxo::commitment_from_owner_utxo_hash(
+        *asset,
+        amount,
         program_data_hash,
         zone_data_hash,
-        &zone_program_id,
+        *zone_program_id,
         &owner_utxo_hash,
-    ])
+    )
+}
+
+pub fn owner_utxo_hash(
+    owner: &PublicKey,
+    nullifier_pk: &[u8; 32],
+    blinding: &Blinding,
+) -> Result<[u8; 32], TransactionError> {
+    let owner_hash = zolana_keypair::hash::owner_hash(owner, nullifier_pk)?;
+    let blinding = right_align(blinding);
+    poseidon(&[&owner_hash, &blinding])
 }
 
 impl Utxo {
+    pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
+        owner_utxo_hash(&self.owner, nullifier_pk, &self.blinding)
+    }
+
+    pub fn commitment_from_owner_utxo_hash(
+        asset: Address,
+        amount: u64,
+        program_data_hash: &[u8; 32],
+        zone_data_hash: &[u8; 32],
+        zone_program_id: Option<Address>,
+        owner_utxo_hash: &[u8; 32],
+    ) -> Result<[u8; 32], TransactionError> {
+        let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
+        let asset = asset_field(&asset)?;
+        let amount = right_align(&amount.to_be_bytes());
+        let zone_program_id = zone_program_id_field(&zone_program_id)?;
+        poseidon(&[
+            &domain,
+            &asset,
+            &amount,
+            program_data_hash,
+            zone_data_hash,
+            &zone_program_id,
+            owner_utxo_hash,
+        ])
+    }
+
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
         program_data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        hash_from_owner_hash(
-            &owner_hash,
-            &self.asset,
+        let owner_utxo_hash = self.owner_utxo_hash(nullifier_pk)?;
+        Self::commitment_from_owner_utxo_hash(
+            self.asset,
             self.amount,
-            &self.blinding,
-            &self.zone_program_id,
             program_data_hash,
             zone_data_hash,
+            self.zone_program_id,
+            &owner_utxo_hash,
         )
     }
 

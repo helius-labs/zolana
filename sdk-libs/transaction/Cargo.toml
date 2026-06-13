@@ -6,6 +6,7 @@ license = "Apache-2.0"
 edition.workspace = true
 
 [dependencies]
+zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

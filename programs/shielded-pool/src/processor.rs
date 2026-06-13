@@ -1,18 +1,45 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, AppendStateLeavesData, BatchUpdateAddressTreeData, CreatePoolTreeData, InsertAddressesData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
+    CreateTreeData, CreateZoneConfigData, PauseTreeData, ProoflessShieldIxData,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    ZoneProoflessShieldIxData,
 };
+use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY;
 
 use crate::{
     error::ShieldedPoolError,
     instructions::{
-        append_state_leaves::processor::process_append_state_leaves,
-        batch_update_address_tree::processor::process_batch_update_address_tree,
-        create_pool_tree::processor::process_create_pool_tree,
-        insert_addresses::processor::process_insert_addresses,
+        batch_update_nullifier_tree::processor::process_batch_update_nullifier_tree,
+        create_spl_interface::processor::process_create_spl_interface,
+        create_tree::processor::process_create_tree,
+        proofless_shield::{process_proofless_shield, process_zone_proofless_shield},
+        protocol_config::processor::{
+            process_create_protocol_config, process_create_zone_config, process_pause_tree,
+            process_update_protocol_config, process_update_zone_config,
+            process_update_zone_config_owner,
+        },
     },
 };
+
+macro_rules! dispatch {
+    (
+        $tag:expr, $payload:expr, $program_id:expr, $accounts:expr,
+        { $($const:path => ($data:ty, $handler:path)),+ $(,)? }
+    ) => {
+        match $tag {
+            $(
+                $const => {
+                    let data = <$data>::try_from_slice($payload)
+                        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+                    $handler($program_id, $accounts, data)
+                }
+            )+
+            _ => Err(ProgramError::InvalidInstructionData),
+        }
+    };
+}
 
 pub fn process_instruction(
     program_id: &Address,
@@ -23,27 +50,27 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
-    match *ix_tag {
-        tag::CREATE_POOL_TREE => {
-            let data = CreatePoolTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_create_pool_tree(program_id, accounts, data)
+    if *ix_tag == tag::EMIT_EVENT {
+        let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !authority.is_signer()
+            || *authority.address() != Address::from(SHIELDED_POOL_CPI_AUTHORITY)
+        {
+            return Err(ShieldedPoolError::UnauthorizedCaller.into());
         }
-        tag::INSERT_ADDRESSES => {
-            let data = InsertAddressesData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_insert_addresses(program_id, accounts, data)
-        }
-        tag::BATCH_UPDATE_ADDRESS_TREE => {
-            let data = BatchUpdateAddressTreeData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_batch_update_address_tree(program_id, accounts, data)
-        }
-        tag::APPEND_STATE_LEAVES => {
-            let data = AppendStateLeavesData::try_from_slice(payload)
-                .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-            process_append_state_leaves(program_id, accounts, data)
-        }
-        _ => Err(ProgramError::InvalidInstructionData),
+        return Ok(());
     }
+
+    dispatch!(*ix_tag, payload, program_id, accounts, {
+        tag::CREATE_TREE => (CreateTreeData, process_create_tree),
+        tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
+        tag::PROOFLESS_SHIELD => (ProoflessShieldIxData, process_proofless_shield),
+        tag::ZONE_PROOFLESS_SHIELD => (ZoneProoflessShieldIxData, process_zone_proofless_shield),
+        tag::CREATE_SPL_INTERFACE => (CreateSplInterfaceData, process_create_spl_interface),
+        tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
+        tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),
+        tag::PAUSE_TREE => (PauseTreeData, process_pause_tree),
+        tag::CREATE_ZONE_CONFIG => (CreateZoneConfigData, process_create_zone_config),
+        tag::UPDATE_ZONE_CONFIG_OWNER => (UpdateZoneConfigOwnerData, process_update_zone_config_owner),
+        tag::UPDATE_ZONE_CONFIG => (UpdateZoneConfigData, process_update_zone_config),
+    })
 }

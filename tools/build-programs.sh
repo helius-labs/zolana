@@ -18,4 +18,4 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
     -- --features bpf-entrypoint
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
-    --manifest-path programs/registry/Cargo.toml
+    --manifest-path program-tests/zone-test-program/Cargo.toml
