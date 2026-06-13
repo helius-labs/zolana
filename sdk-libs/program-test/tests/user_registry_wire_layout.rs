@@ -57,7 +57,10 @@ fn from_account_data_round_trips_with_trailing_padding() {
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend_from_slice(&body);
     account_data.resize(UserRecord::space_for(0), 0);
-    assert_eq!(UserRecord::from_account_data(&account_data).unwrap(), record);
+    assert_eq!(
+        UserRecord::from_account_data(&account_data).unwrap(),
+        record
+    );
 }
 
 #[test]

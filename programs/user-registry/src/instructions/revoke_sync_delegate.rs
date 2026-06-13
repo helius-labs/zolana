@@ -23,8 +23,7 @@ pub fn process_revoke_sync_delegate(
     check_record_pda_with_bump(record, &state.owner, state.bump, program_id)?;
 
     let signer_key = signer.address().as_array();
-    let authorized =
-        signer_key == &state.owner || state.sync_delegate.as_ref() == Some(signer_key);
+    let authorized = signer_key == &state.owner || state.sync_delegate.as_ref() == Some(signer_key);
     if !authorized {
         return Err(fail(UserRegistryError::UnauthorizedSigner));
     }

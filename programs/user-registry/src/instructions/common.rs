@@ -40,8 +40,11 @@ pub fn check_record_pda_with_bump(
     bump: u8,
     program_id: &Address,
 ) -> Result<(), ProgramError> {
-    let expected =
-        Address::derive_address(&[USER_RECORD_SEED, owner.as_slice()], Some(bump), program_id);
+    let expected = Address::derive_address(
+        &[USER_RECORD_SEED, owner.as_slice()],
+        Some(bump),
+        program_id,
+    );
     if record.address() != &expected {
         return Err(fail(UserRegistryError::InvalidRecordPda));
     }
@@ -104,7 +107,7 @@ pub fn create_record_account(
         accounts: &metas,
         data: &allocate_data,
     };
-    invoke_signed::<1, _>(&instruction, &[record], &[signer.clone()])?;
+    invoke_signed::<1, _>(&instruction, &[record], std::slice::from_ref(&signer))?;
 
     let mut assign_data = [0u8; 36];
     assign_data[0] = 1;
