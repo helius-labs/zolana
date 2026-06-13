@@ -61,7 +61,7 @@ test-forester:
 
 # End-to-end litesvm tests for shielded-pool.
 test-litesvm: build-program-test-sbf
-    cargo test -p zolana-program-test
+    cargo test -p shielded-pool-tests
 
 [private]
 build-program-test-sbf:
@@ -71,7 +71,7 @@ build-program-test-sbf:
 # Run one localnet test against a validator loaded with the real SBF programs.
 test-localnet test="localnet_proofless_shield": start-localnet-validator
     @echo "localnet rpc: http://127.0.0.1:{{localnet-rpc-port}}"
-    ZOLANA_LOCALNET_URL="http://127.0.0.1:{{localnet-rpc-port}}" cargo test -p zolana-program-test --features localnet --test {{test}} -- --nocapture
+    ZOLANA_LOCALNET_URL="http://127.0.0.1:{{localnet-rpc-port}}" cargo test -p shielded-pool-tests --features localnet --test {{test}} -- --nocapture
 
 test-localnet-proofless:
     @just test-localnet localnet_proofless_shield
@@ -235,18 +235,3 @@ xtask-create-verifying-keys-smoke:
         exit 0
     fi
     cargo run -p xtask -- create-verifying-keys --limit 1
-
-[private]
-render-diagrams:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v dot >/dev/null 2>&1; then
-        echo "graphviz 'dot' not found; install with 'brew install graphviz'" >&2
-        exit 1
-    fi
-    for src in docs/diagrams/*.dot; do
-        base="${src%.dot}"
-        dot -Tpng -Gdpi=144 "$src" -o "${base}.png"
-        dot -Tsvg "$src" -o "${base}.svg"
-        echo "rendered ${base}.png and ${base}.svg"
-    done

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "program-libs/interface",
+    "program-tests/shielded-pool",
     "programs/shielded-pool",
     "program-tests/zone-test-program",
     "forester",

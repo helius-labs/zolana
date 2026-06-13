@@ -4815,6 +4815,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "shielded-pool-tests"
+version = "0.1.0"
+dependencies = [
+ "shielded-pool-program",
+ "solana-commitment-config",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-transaction",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8469,14 +8489,10 @@ dependencies = [
  "light-hasher",
  "light-sparse-merkle-tree",
  "litesvm",
- "shielded-pool-program",
- "solana-commitment-config",
  "solana-instruction",
  "solana-keypair",
  "solana-message",
  "solana-pubkey 4.2.0",
- "solana-rpc-client",
- "solana-signature",
  "solana-signer",
  "solana-transaction",
  "thiserror 2.0.18",

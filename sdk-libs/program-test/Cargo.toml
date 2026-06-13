@@ -7,7 +7,6 @@ edition.workspace = true
 
 [features]
 default = []
-localnet = ["dep:solana-commitment-config", "dep:solana-rpc-client", "dep:solana-signature"]
 # Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or
 # absolute path passed at construction time). The default search path is
 # `<workspace>/target/deploy/shielded_pool_program.so`.
@@ -19,9 +18,6 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
-solana-commitment-config = { workspace = true, optional = true }
-solana-rpc-client = { workspace = true, optional = true }
-solana-signature = { workspace = true, optional = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 thiserror = { workspace = true }
@@ -30,11 +26,3 @@ zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }
 light-sparse-merkle-tree = { workspace = true }
-
-[dev-dependencies]
-shielded-pool-program = { workspace = true }
-
-[[test]]
-name = "localnet_proofless_shield"
-path = "tests/localnet_proofless_shield.rs"
-required-features = ["localnet"]

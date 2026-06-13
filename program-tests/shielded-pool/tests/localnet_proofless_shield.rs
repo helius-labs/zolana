@@ -1,4 +1,4 @@
-//! Local-validator proofless shield smoke.
+//! Local-validator proofless shield test.
 
 use std::{
     error::Error,
@@ -145,7 +145,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
     assert_eq!(zone_root_after, indexer.root());
     assert_wallet_discovers(&mut zone_recipient, &zone_event, zone_blinding)?;
 
-    println!("localnet proofless shield smoke passed via {rpc_url}");
+    println!("localnet proofless shield test passed via {rpc_url}");
     Ok(())
 }
 
