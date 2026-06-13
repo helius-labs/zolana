@@ -73,9 +73,8 @@
       - [`get_record`](#get_record)
       - [`register`](#register)
       - [`set_delegate`](#set_delegate)
-      - [`rotate_delegate_key`](#rotate_delegate_key)
-      - [`revoke`](#revoke)
-      - [`close`](#close)
+      - [`rotate_sync_delegate_key`](#rotate_sync_delegate_key)
+      - [`revoke_sync_delegate`](#revoke_sync_delegate)
   - [Sync Delegate](#sync-delegate)
 - [User Flows](#user-flows)
   - [First Time Sync Wallet](#first-time-sync-wallet)
@@ -1764,6 +1763,8 @@ struct Record {
 }
 
 struct Entry {
+    /// Sync delegate Solana pubkey at the time this entry was appended.
+    delegate: Address,
     /// Delegate's P-256 ECDH pubkey.
     sync_pk: P256Pubkey,
     /// Shared viewing pubkey published to senders for this entry:
@@ -1776,9 +1777,11 @@ struct Entry {
 
 Invariants:
 
-- The current delegate is set if and only if `entries` is non-empty.
+- While a delegate is active, the current delegate is set if and only if `entries` is non-empty.
+- After `revoke_sync_delegate`, the delegate is cleared; historical `entries` remain append-only.
 - `entries` is append-only: never modified or removed.
 - `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
+- Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the record:
 
@@ -1821,7 +1824,7 @@ struct RegisterRequest {
 
 #### `set_delegate`
 
-Appoints or replaces the current delegate. Appends a new entry. The appointment rotates `viewing_sk`; the wallet resets `tx_count`, `request_count`, `known_senders`, and `known_recipients`.
+Appoints or replaces the current delegate. Appends a new entry recording the delegate address and keys. The appointment rotates `viewing_sk`; the wallet resets `tx_count`, `request_count`, `known_senders`, and `known_recipients`.
 
 Authorized signer: `owner`.
 
@@ -1833,38 +1836,28 @@ struct SetDelegateRequest {
 }
 ```
 
-#### `rotate_delegate_key`
+#### `rotate_sync_delegate_key`
 
-Appends a new entry under the same delegate. The record's `delegate` field is unchanged. Like `set_delegate`, this rotates `viewing_sk` and resets the wallet's per-key counters and `known_*` maps.
+Appends a new entry under the same delegate. The record's `delegate` field is unchanged; the new entry copies the current delegate address. Like `set_delegate`, this rotates `viewing_sk` and resets the wallet's per-key counters and `known_*` maps.
 
 
 Authorized signer: current delegate.
 
 ```rust
-struct RotateDelegateKeyRequest {
+struct RotateSyncDelegateKeyRequest {
     sync_pk: P256Pubkey,
     viewing_pk: P256Pubkey,
 }
 ```
 
-#### `revoke`
+#### `revoke_sync_delegate`
 
 Removes the current delegate. `entries` is not modified. `viewing_sk` becomes the wallet's own viewing key (see [ViewingKey](#viewingkey)); the wallet resets per-key counters and `known_*` maps for that key.
 
 Authorized signer: `owner` or current delegate.
 
 ```rust
-struct RevokeRequest {}
-```
-
-#### `close`
-
-Removes the record. Fails unless `entries` is empty.
-
-Authorized signer: `owner`.
-
-```rust
-struct CloseRequest {}
+struct RevokeSyncDelegateRequest {}
 ```
 
 ## Sync Delegate
@@ -1876,7 +1869,7 @@ A sync delegate can optionally be set up by a wallet.The sync delegate holds a s
 1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**). From each shared `viewing_sk` the delegate derives that epoch's `view_root` and its self-rooted secrets (see [Derived secrets](#derived-secrets)).
 2. The [NullifierKey](#nullifierkey).
 
-**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_delegate_key` / `revoke` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
+**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_sync_delegate_key` / `revoke_sync_delegate` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
 
 # User Flows
 
