@@ -45,8 +45,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}

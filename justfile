@@ -17,14 +17,6 @@ mod forester 'forester'
 default:
     @just --list
 
-# === Setup ===
-
-init-submodules:
-    git submodule update --init --recursive
-
-submodule-status:
-    git submodule status --recursive
-
 # === Rust workspace ===
 
 # Build default workspace members.
@@ -89,6 +81,7 @@ start-localnet-validator: build-program-test-sbf
         --rpc-port {{localnet-rpc-port}} \
         --faucet-port {{localnet-faucet-port}} \
         --ledger "{{localnet-state-dir}}/ledger" \
+        --log-dir "{{localnet-state-dir}}/logs" \
         --sbf-program {{shielded-pool-program-id}} target/deploy/shielded_pool_program.so \
         --sbf-program {{zone-test-program-id}} target/deploy/zone_test_program.so
 

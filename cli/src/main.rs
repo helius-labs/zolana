@@ -17,7 +17,9 @@ const DEFAULT_RPC_PORT: u16 = 8899;
 const DEFAULT_PROVER_PORT: u16 = 3001;
 const DEFAULT_LIMIT_LEDGER_SIZE: u64 = 10_000;
 const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
+const DEFAULT_LOG_DIR: &str = "test-ledger";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
+const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 
@@ -124,6 +126,9 @@ struct TestValidatorOptions {
         value_name = "PATH"
     )]
     ledger: Option<String>,
+
+    #[arg(long, default_value = DEFAULT_LOG_DIR, help = "Service log directory")]
+    log_dir: String,
 
     #[arg(
         long = "sbf-program",
@@ -244,12 +249,14 @@ fn run(cli: Cli) -> Result<()> {
 
 fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     if opts.stop {
+        println!("Stopping local validator environment");
         stop_test_env(&opts);
+        println!("Local validator environment stopped");
         return Ok(());
     }
 
     println!("Starting local validator with zolana fixtures");
-    kill_test_validator(opts.rpc_port);
+    stop_test_validator(opts.rpc_port);
     thread::sleep(Duration::from_secs(1));
 
     let mut validator = if opts.use_surfpool_backend() {
@@ -260,7 +267,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
             surfpool.display(),
             args.join(" ")
         );
-        spawn_service(&surfpool, &args, "surfpool")?
+        spawn_service(&surfpool, &args, "surfpool", &opts.log_dir)?
     } else {
         let validator = find_binary(&[], &[], &["solana-test-validator"])?;
         let args = solana_validator_args(&opts)?;
@@ -269,7 +276,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
             validator.display(),
             args.join(" ")
         );
-        spawn_service(&validator, &args, "solana-test-validator")?
+        spawn_service(&validator, &args, "solana-test-validator", &opts.log_dir)?
     };
 
     wait_for_rpc_with_child(
@@ -286,7 +293,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     })?;
 
     if !opts.skip_prover {
-        start_prover_service(opts.prover_port, None)?;
+        start_prover_service(opts.prover_port, None, &opts.log_dir)?;
     }
 
     println!("Local validator environment is ready");
@@ -295,7 +302,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
 }
 
 fn run_start_prover(opts: StartProverOptions) -> Result<()> {
-    start_prover_service(opts.prover_port, opts.redis_url.as_deref())
+    start_prover_service(opts.prover_port, opts.redis_url.as_deref(), DEFAULT_LOG_DIR)
 }
 
 fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
@@ -470,8 +477,8 @@ fn fixtures_cache_dir() -> Result<PathBuf> {
     Ok(cache_root.join("fixtures").join(tag))
 }
 
-fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()> {
-    kill_port(prover_port);
+fn start_prover_service(prover_port: u16, redis_url: Option<&str>, log_dir: &str) -> Result<()> {
+    stop_port(prover_port);
 
     let prover = find_binary(
         &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
@@ -498,7 +505,7 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     }
 
     println!("Starting prover: {} {}", prover.display(), args.join(" "));
-    let mut child = spawn_service(&prover, &args, "prover-server")?;
+    let mut child = spawn_service(&prover, &args, "prover-server", log_dir)?;
     wait_for_http_get_with_child(
         prover_port,
         "/health",
@@ -513,9 +520,11 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     Ok(())
 }
 
-fn spawn_service(binary: &Path, args: &[String], log_name: &str) -> Result<Child> {
-    fs::create_dir_all("test-ledger").context("failed to create test-ledger log directory")?;
-    let log_path = Path::new("test-ledger").join(format!("{log_name}.log"));
+fn spawn_service(binary: &Path, args: &[String], log_name: &str, log_dir: &str) -> Result<Child> {
+    fs::create_dir_all(log_dir)
+        .with_context(|| format!("failed to create log directory {log_dir}"))?;
+    let log_path = Path::new(log_dir).join(format!("{log_name}.log"));
+    println!("Writing {log_name} logs to {}", log_path.display());
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -679,17 +688,17 @@ fn http_body(response: &str) -> &str {
 
 fn stop_test_env(opts: &TestValidatorOptions) {
     if !opts.skip_prover {
-        kill_name("prover-server");
-        kill_port(opts.prover_port);
+        stop_name("prover-server");
+        stop_port(opts.prover_port);
     }
-    kill_test_validator(opts.rpc_port);
+    stop_test_validator(opts.rpc_port);
 }
 
-fn kill_test_validator(rpc_port: u16) {
+fn stop_test_validator(rpc_port: u16) {
     remove_launchd_validators();
-    kill_name("solana-test-validator");
-    kill_name("surfpool");
-    kill_port(rpc_port);
+    stop_name("solana-test-validator");
+    stop_name("surfpool");
+    stop_port(rpc_port);
 }
 
 fn remove_launchd_validators() {
@@ -706,29 +715,84 @@ fn remove_launchd_validators() {
     }
 }
 
-fn kill_name(name: &str) {
-    let _ = Command::new("pkill")
+fn stop_name(name: &str) {
+    let _ = signal_name(name, "-TERM");
+    if wait_for_process_exit(|| !process_name_exists(name)) {
+        return;
+    }
+    let _ = signal_name(name, "-KILL");
+}
+
+fn signal_name(name: &str, signal: &str) -> bool {
+    Command::new("pkill")
+        .args([signal, "-x", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn process_name_exists(name: &str) -> bool {
+    Command::new("pgrep")
         .args(["-x", name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
-fn kill_port(port: u16) {
+fn stop_port(port: u16) {
     let output = Command::new("lsof").arg(format!("-ti:{port}")).output();
     let Ok(output) = output else {
         return;
     };
 
     for pid in String::from_utf8_lossy(&output.stdout).lines() {
-        if !pid.trim().is_empty() {
-            let _ = Command::new("kill")
-                .args(["-9", pid.trim()])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
+        let pid = pid.trim();
+        if !pid.is_empty() {
+            stop_pid(pid);
         }
     }
+}
+
+fn stop_pid(pid: &str) {
+    let _ = signal_pid(pid, "-TERM");
+    if wait_for_process_exit(|| !pid_exists(pid)) {
+        return;
+    }
+    let _ = signal_pid(pid, "-KILL");
+}
+
+fn signal_pid(pid: &str, signal: &str) -> bool {
+    Command::new("kill")
+        .args([signal, pid])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn pid_exists(pid: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", pid])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn wait_for_process_exit<F>(mut exited: F) -> bool
+where
+    F: FnMut() -> bool,
+{
+    let start = Instant::now();
+    while start.elapsed() < TERMINATION_GRACE_PERIOD {
+        if exited() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    exited()
 }
 
 fn find_binary(
@@ -889,6 +953,8 @@ mod tests {
             "9901",
             "--ledger",
             "target/localnet/ledger",
+            "--log-dir",
+            "target/localnet/logs",
             "--sbf-program",
             "Pool111111111111111111111111111111111111111",
             "target/deploy/pool.so",
@@ -904,6 +970,7 @@ mod tests {
         assert_eq!(opts.rpc_port, 8901);
         assert_eq!(opts.faucet_port, Some(9901));
         assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));
+        assert_eq!(opts.log_dir, "target/localnet/logs");
         let programs = opts.sbf_program_specs();
         assert_eq!(programs.len(), 2);
         assert_eq!(
