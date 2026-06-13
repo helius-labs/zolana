@@ -1,12 +1,7 @@
-# Zolana reduced Light Protocol workspace
+# Zolana workspace
 set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
-export FORESTER_E2E_ITERATIONS := env_var_or_default("FORESTER_E2E_ITERATIONS", "100")
-export FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS := env_var_or_default("FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS", "100")
-export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_SECONDS", "900")
-export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
-export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
@@ -16,14 +11,6 @@ mod prover 'prover/server'
 
 default:
     @just --list
-
-# === Setup ===
-
-init-submodules:
-    git submodule update --init --recursive
-
-submodule-status:
-    git submodule status --recursive
 
 # === Rust workspace ===
 
@@ -42,13 +29,11 @@ check:
 check-all:
     cargo check --workspace --all-targets
 
-# Default test target. Tests for the surviving slice (interface, registry,
-# shielded-pool program). Forester e2e tests will be reintroduced when the
-# foresting logic is rebuilt against the new combined tree type.
-test: test-scaffold test-sdk-libs
+# Default test target.
+test: test-shielded-pool test-sdk-libs
 
-# Cheap tests for the initial shielded-pool/interface/registry scaffold.
-test-scaffold:
+# Program/interface tests for the shielded-pool implementation.
+test-shielded-pool:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
@@ -58,15 +43,12 @@ test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
 
-# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
-# `.so`s under `target/deploy/`; run `just build-programs` first.
-test-litesvm:
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo test -p light-program-test
+# End-to-end litesvm tests for shielded-pool.
+test-litesvm: build-programs
+    cargo test -p shielded-pool-tests
 
-# Aggregate of all CI-runnable rust tests.
-test-all: test-scaffold test-litesvm
+# Aggregate of all CI-runnable Rust tests.
+test-all: test test-litesvm
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -74,61 +56,18 @@ verify-rust: check test
 # Full verification for the reduced workspace.
 verify: verify-rust prover-server-test
 
-# === Forester SBF test helpers ===
+# === CLI ===
 
-check-light-cli:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ -n "${ZOLANA_CLI_CMD:-}" ]]; then
-        echo "Using ZOLANA_CLI_CMD=$ZOLANA_CLI_CMD"
-    elif [[ -n "${LIGHT_CLI_CMD:-}" ]]; then
-        echo "Using LIGHT_CLI_CMD=$LIGHT_CLI_CMD"
-    elif [[ -n "${ZOLANA_CLI_BIN:-}" ]]; then
-        test -x "$ZOLANA_CLI_BIN"
-        echo "Using ZOLANA_CLI_BIN=$ZOLANA_CLI_BIN"
-    elif [[ -n "${LIGHT_CLI_BIN:-}" ]]; then
-        test -x "$LIGHT_CLI_BIN"
-        echo "Using LIGHT_CLI_BIN=$LIGHT_CLI_BIN"
-    elif [[ -x target/debug/zolana ]]; then
-        echo "Using target/debug/zolana"
-    elif [[ -x target/release/zolana ]]; then
-        echo "Using target/release/zolana"
-    elif command -v zolana >/dev/null 2>&1; then
-        echo "Using zolana from PATH: $(command -v zolana)"
-    else
-        echo "zolana CLI not found. Run 'just build-zolana-cli', set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD." >&2
-        exit 1
-    fi
+cli *args:
+    cargo run -p zolana-cli -- {{args}}
 
-build-zolana-cli:
+build-cli:
     cargo build -p zolana-cli
 
-# Download and verify the Light test-validator fixtures pinned in
-# .fixtures-version into ${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/<tag>.
-# Idempotent: no-op when the cache already has a verified bundle.
-fetch-fixtures:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tag=$(tr -d '[:space:]' < .fixtures-version)
-    cache_root="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}"
-    dest="${cache_root}/fixtures/${tag}"
-    if [[ -f "${dest}/SHA256SUMS" ]] && (cd "$dest" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); then
-        echo "fixtures ${tag} already cached at ${dest}"
-        exit 0
-    fi
-    rm -rf "$dest"
-    mkdir -p "$dest"
-    url="https://github.com/helius-labs/zolana/releases/download/${tag}/light-fixtures.tar.gz"
-    tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
-    echo "fetching ${url}"
-    curl -sSfL "$url" -o "$tmp/light-fixtures.tar.gz"
-    tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
-    cd "$dest" && shasum -a 256 -c SHA256SUMS
-    echo "fixtures ${tag} ready at ${dest}"
+test-cli:
+    cargo test -p zolana-cli
 
-# Back-compat alias; build-light-programs and CI used to invoke this.
-verify-light-fixtures: fetch-fixtures
+# === Local validator helpers ===
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -158,38 +97,9 @@ install-surfpool:
     chmod +x target/tools/surfpool
     target/tools/surfpool --version | grep "{{surfpool-version}}"
 
-# Build the Photon indexer binary from the commit pinned in `external/photon`.
-# Debug mode is enough for local validator tests and avoids the long release
-# compile that `cargo install --git` would do in every CI forester job.
-install-photon:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -e external/photon/.git ]]; then
-        echo "external/photon submodule not initialized; run 'git submodule update --init --recursive'" >&2
-        exit 1
-    fi
-    photon_rev=$(git -C external/photon rev-parse HEAD)
-    echo "Building Photon indexer @ ${photon_rev} (from external/photon submodule)"
-    cargo build --manifest-path external/photon/Cargo.toml --locked --bin photon
-    mkdir -p target/tools
-    cp external/photon/target/debug/photon target/tools/photon
-    chmod +x target/tools/photon
-    target/tools/photon --version
-    if [[ "${CI:-}" == "true" ]]; then
-        echo "Cleaning external/photon/target to leave disk for prover keys"
-        rm -rf external/photon/target
-    fi
-
-build-light-programs: fetch-fixtures
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    mkdir -p target/deploy
-    tag=$(tr -d '[:space:]' < .fixtures-version)
-    fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
-    cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
-    cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
+# Build local SBF programs into `target/deploy`.
+build-programs:
+    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
 build-prover-server:
     mkdir -p target
@@ -217,16 +127,15 @@ prover-server-test:
     fi
     cd prover/server
     # Scoped to ./prover/... (skips the redis-dependent `server` package tests)
-    # and uses the upstream 60m timeout — TestCombined alone compiles ~672
+    # and uses the upstream 60m timeout; TestCombined alone compiles ~672
     # groth16 circuits and exceeds Go's default 10m.
     go test ./prover/... -timeout 60m
 
+[private]
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
 
-# Smoke-tests the xtask by hashing a single proving key. CI doesn't have the
-# (gitignored, ~2.6GB) proving keys, so we skip cleanly when the directory is
-# missing or empty rather than failing the build.
+[private]
 xtask-create-verifying-keys-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -237,32 +146,6 @@ xtask-create-verifying-keys-smoke:
         exit 0
     fi
     cargo run -p xtask -- create-verifying-keys --limit 1
-
-# === Docs ===
-
-# Regenerate docs/api/README.md from docs/api/openapi.yaml. Requires python3 + PyYAML.
-gen-api-readme:
-    ./docs/api/generate-readme.sh
-
-# Build and open the OpenAPI HTML reference (Redoc). Requires npx.
-api-docs:
-    npx @redocly/cli build-docs docs/api/openapi.yaml -o /tmp/zolana-api-docs.html
-    open /tmp/zolana-api-docs.html
-
-# Re-render docs/diagrams/*.dot to PNG + SVG. Requires graphviz (`brew install graphviz`).
-render-diagrams:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v dot >/dev/null 2>&1; then
-        echo "graphviz 'dot' not found; install with 'brew install graphviz'" >&2
-        exit 1
-    fi
-    for src in docs/diagrams/*.dot; do
-        base="${src%.dot}"
-        dot -Tpng -Gdpi=144 "$src" -o "${base}.png"
-        dot -Tsvg "$src" -o "${base}.svg"
-        echo "rendered ${base}.png and ${base}.svg"
-    done
 
 # === Maintenance ===
 
