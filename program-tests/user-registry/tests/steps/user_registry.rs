@@ -10,7 +10,7 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_interface::user_registry::user_record_pda;
 
-use light_program_test::user_registry_sdk::{
+use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
     build_set_sync_delegate_ix, fetch_user_record, user_registry_program_id,
 };

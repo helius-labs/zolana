@@ -38,10 +38,11 @@ test-shielded-pool:
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
     cargo test -p zolana-user-registry --tests
+    cargo test -p user-registry-tests --test wire_layout
 
 # User-registry litesvm tests only (no Light fixture bundle required).
 test-user-registry-litesvm: build-programs
-    cargo test -p light-program-test --test user_registry_bdd
+    cargo test -p user-registry-tests
 
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:

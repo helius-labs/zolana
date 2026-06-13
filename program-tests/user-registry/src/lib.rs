@@ -1,4 +1,4 @@
-//! Minimal SDK for user-registry litesvm tests.
+//! LiteSVM test helpers for the user-registry program.
 
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;

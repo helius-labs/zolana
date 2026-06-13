@@ -25,10 +25,3 @@ zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 serial_test = { workspace = true }
-cucumber = { workspace = true }
-tokio = { workspace = true }
-zolana-user-registry = { workspace = true, features = ["no-entrypoint"] }
-
-[[test]]
-name = "user_registry_bdd"
-harness = false
