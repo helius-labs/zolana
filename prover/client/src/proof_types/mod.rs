@@ -6,3 +6,6 @@ pub mod combined;
 pub mod inclusion;
 pub mod merkle_tree_info;
 pub mod non_inclusion;
+pub mod transfer;
+pub mod transfer_common;
+pub mod transfer_eddsa;

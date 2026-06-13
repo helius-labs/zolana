@@ -6,6 +6,8 @@ pub enum CircuitType {
     BatchAppend,
     BatchUpdate,
     BatchAddressAppend,
+    Transfer,
+    TransferEddsa,
 }
 
 impl CircuitType {
@@ -18,6 +20,8 @@ impl CircuitType {
             Self::BatchAppend => "append".to_string(),
             Self::BatchUpdate => "update".to_string(),
             Self::BatchAddressAppend => "address-append".to_string(),
+            Self::Transfer => "transfer".to_string(),
+            Self::TransferEddsa => "transfer-eddsa".to_string(),
         }
     }
 }

@@ -11,6 +11,8 @@ pub enum ProofType {
     BatchUpdateTest,
     BatchAppendTest,
     BatchAddressAppendTest,
+    Transfer,
+    TransferEddsa,
 }
 
 impl Display for ProofType {
@@ -28,6 +30,8 @@ impl Display for ProofType {
                 ProofType::BatchAppendTest => "append-test",
                 ProofType::BatchAddressAppend => "address-append",
                 ProofType::BatchAddressAppendTest => "address-append-test",
+                ProofType::Transfer => "transfer",
+                ProofType::TransferEddsa => "transfer-eddsa",
             }
         )
     }
