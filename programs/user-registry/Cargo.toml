@@ -19,8 +19,6 @@ test-sbf = []
 [dependencies]
 borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
-# `Address::find_program_address` is syscall-backed on-chain; the `curve25519`
-# feature provides the host implementation for off-chain builds of this lib.
 solana-address = { version = "2.6", features = ["curve25519"] }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
