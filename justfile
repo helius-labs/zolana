@@ -77,7 +77,6 @@ start-localnet-validator: build-program-test-sbf
         --no-use-surfpool \
         --skip-prover \
         --skip-system-accounts \
-        --skip-system-programs \
         --rpc-port {{localnet-rpc-port}} \
         --faucet-port {{localnet-faucet-port}} \
         --ledger "{{localnet-state-dir}}/ledger" \
@@ -111,16 +110,8 @@ build-cli:
 test-cli:
     cargo test -p zolana-cli
 
-# Fetch pinned third-party SBF program artifacts.
-fetch-vendor-programs:
-    ./tools/fetch-vendor-programs.sh
-
-# Verify pinned third-party SBF program artifacts.
-verify-vendor-programs:
-    ./tools/verify-vendor-programs.sh
-
-# Build test-validator fixtures from an explicit source tree.
-build-fixtures: fetch-vendor-programs
+# Build account fixtures from an explicit source tree.
+build-fixtures:
     ./tools/build-fixtures.sh
 
 # Build fixtures and package them for manual distribution.
@@ -135,7 +126,7 @@ verify-fixtures:
 install-fixtures:
     ./tools/install-fixtures.sh "${FIXTURES_DIR:-target/fixtures/staging}"
 
-# Build local SBF programs and copy fixture programs into `target/deploy`.
+# Build local SBF programs into `target/deploy`.
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 

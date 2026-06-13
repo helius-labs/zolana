@@ -21,11 +21,6 @@ const DEFAULT_LOG_DIR: &str = "test-ledger";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
 
-const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
-
-// Programs auto-loaded into `zolana test-validator`.
-const SYSTEM_PROGRAMS: &[(&str, &str)] = &[(SPL_NOOP_ID, "spl_noop.so")];
-
 #[derive(Debug, Parser)]
 #[command(name = "zolana", about = "Local Zolana developer tooling")]
 struct Cli {
@@ -68,9 +63,6 @@ struct TestValidatorOptions {
 
     #[arg(long, help = "Do not load account fixtures")]
     skip_system_accounts: bool,
-
-    #[arg(long, help = "Do not load bundled SBF program fixtures")]
-    skip_system_programs: bool,
 
     #[arg(
         long = "use-surfpool",
@@ -325,9 +317,6 @@ fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
         opts.gossip_host.clone(),
     ];
 
-    if !opts.skip_system_programs {
-        add_system_program_args(&mut args)?;
-    }
     add_additional_program_args(&mut args, opts);
     add_account_dir_args(&mut args, opts)?;
     Ok(args)
@@ -350,9 +339,6 @@ fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
         args.push(ledger.clone());
     }
 
-    if !opts.skip_system_programs {
-        add_system_program_args(&mut args)?;
-    }
     add_additional_program_args(&mut args, opts);
     add_account_dir_args(&mut args, opts)?;
 
@@ -362,15 +348,6 @@ fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
     }
     args.extend(opts.validator_args());
     Ok(args)
-}
-
-fn add_system_program_args(args: &mut Vec<String>) -> Result<()> {
-    for (address, name) in SYSTEM_PROGRAMS {
-        args.push("--bpf-program".to_string());
-        args.push((*address).to_string());
-        args.push(path_string(&program_file_path(name)?)?);
-    }
-    Ok(())
 }
 
 fn add_additional_program_args(args: &mut Vec<String>, opts: &TestValidatorOptions) {
@@ -400,30 +377,6 @@ fn add_account_dir_args(args: &mut Vec<String>, opts: &TestValidatorOptions) -> 
     }
 
     Ok(())
-}
-
-fn program_file_path(name: &str) -> Result<PathBuf> {
-    if let Ok(dir) = env::var("ZOLANA_PROGRAMS_DIR") {
-        let candidate = Path::new(&dir).join(name);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-
-    let root = project_root()?;
-    let target_candidate = root.join("target/deploy").join(name);
-    if target_candidate.exists() {
-        return Ok(target_candidate);
-    }
-
-    for dir in fixture_dirs()? {
-        let candidate = dir.join("bin").join(name);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-
-    bail!("missing {name}; run `just build-fixtures` with a fixture source tree, or set ZOLANA_FIXTURES_DIR")
 }
 
 fn accounts_dir() -> Result<PathBuf> {
@@ -919,9 +872,9 @@ mod tests {
             .to_string();
 
         for flag in [
-            "--skip-system-programs",
             "--faucet-port <PORT>",
             "--ledger <PATH>",
+            "--log-dir <LOG_DIR>",
             "--sbf-program <ADDRESS> <PATH>",
         ] {
             assert!(help.contains(flag), "missing help entry for {flag}");
@@ -946,7 +899,6 @@ mod tests {
             "--no-use-surfpool",
             "--skip-prover",
             "--skip-system-accounts",
-            "--skip-system-programs",
             "--rpc-port",
             "8901",
             "--faucet-port",
@@ -966,7 +918,6 @@ mod tests {
         assert!(!opts.use_surfpool_backend());
         assert!(opts.skip_prover);
         assert!(opts.skip_system_accounts);
-        assert!(opts.skip_system_programs);
         assert_eq!(opts.rpc_port, 8901);
         assert_eq!(opts.faucet_port, Some(9901));
         assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));
@@ -990,7 +941,6 @@ mod tests {
         let opts = parse_validator(&[
             "--no-use-surfpool",
             "--skip-system-accounts",
-            "--skip-system-programs",
             "--rpc-port",
             "8899",
             "--faucet-port",

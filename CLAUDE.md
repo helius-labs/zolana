@@ -57,12 +57,10 @@ just stop-localnet
 
 ## Fixtures
 
-Third-party SBF programs are fetched through `tools/fetch-vendor-programs.sh`
-and verified against lock files under `fixtures/vendor`. Local validator
-fixtures are built, verified, and optionally installed through:
+Local validator account fixtures are built, verified, and optionally installed
+through:
 
 ```bash
-just fetch-vendor-programs
 just build-fixtures
 just verify-fixtures
 just install-fixtures

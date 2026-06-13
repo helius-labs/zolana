@@ -1,9 +1,0 @@
-# Vendored third-party SPL Noop program artifact.
-name=spl_noop
-file=spl_noop.so
-program_id=noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV
-repo=helius-labs/zolana
-tag=zolana-vendor-programs
-url=https://github.com/helius-labs/zolana/releases/download/zolana-vendor-programs/spl_noop.so
-sha256=9456458d0f60e575a9dd1a47341653fecbf67debc0fdaee7c303ba9b255c971f
-upstream=Lightprotocol/light-protocol third-party/solana-program-library/spl_noop.so

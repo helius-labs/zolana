@@ -15,7 +15,7 @@ if [[ ! -d "$dir" ]]; then
     exit 1
 fi
 
-for path in MANIFEST.json SHA256SUMS bin accounts; do
+for path in MANIFEST.json SHA256SUMS accounts; do
     if [[ ! -e "$dir/$path" ]]; then
         echo "error: fixture directory missing $path: $dir" >&2
         exit 1
