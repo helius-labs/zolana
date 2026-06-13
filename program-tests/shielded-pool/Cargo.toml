@@ -5,6 +5,6 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-pinocchio = "0.10"
+pinocchio = { workspace = true }
 shielded-pool-program = { workspace = true }
 zolana-interface = { workspace = true }

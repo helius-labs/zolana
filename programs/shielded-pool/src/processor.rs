@@ -1,17 +1,17 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, BatchUpdateAddressTreeData, CreateTreeData, CreateProtocolConfigData,
-    CreateSplInterfaceData, PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
+    CreateTreeData, PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData,
     ZoneProoflessShieldIxData,
 };
 
 use crate::{
     error::ShieldedPoolError,
     instructions::{
-        batch_update_address_tree::processor::process_batch_update_address_tree,
-        create_tree::processor::process_create_tree,
+        batch_update_nullifier_tree::processor::process_batch_update_nullifier_tree,
         create_spl_interface::processor::process_create_spl_interface,
+        create_tree::processor::process_create_tree,
         proofless_shield::{process_proofless_shield, process_zone_proofless_shield},
         protocol_config::processor::{
             process_create_protocol_config, process_pause_tree, process_update_protocol_config,
@@ -61,7 +61,7 @@ pub fn process_instruction(
 
     dispatch!(*ix_tag, payload, program_id, accounts, {
         tag::CREATE_TREE => (CreateTreeData, process_create_tree),
-        tag::BATCH_UPDATE_ADDRESS_TREE => (BatchUpdateAddressTreeData, process_batch_update_address_tree),
+        tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
         tag::PROOFLESS_SHIELD => (ProoflessShieldIxData, process_proofless_shield),
         tag::ZONE_PROOFLESS_SHIELD => (ZoneProoflessShieldIxData, process_zone_proofless_shield),
         tag::CREATE_SPL_INTERFACE => (CreateSplInterfaceData, process_create_spl_interface),

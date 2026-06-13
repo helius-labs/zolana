@@ -141,8 +141,14 @@ fn process_deposit(
     // and settlement paths (mode = DEPOSIT, no proof / nullifiers / outputs).
     // The cpi_signer seed selects the general-program vs policy-zone PDA.
     let tx = deposit_view(&d);
-    let verified =
-        load_transact_accounts(program_id, head, &tx, needs_sol, needs_spl, d.cpi_signer_seed)?;
+    let verified = load_transact_accounts(
+        program_id,
+        head,
+        &tx,
+        needs_sol,
+        needs_spl,
+        d.cpi_signer_seed,
+    )?;
 
     // Asset field and amount come from the actual deposit; the UTXO hash uses
     // the same encoding as the circuit so the deposit is spendable by a proof.

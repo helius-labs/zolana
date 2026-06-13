@@ -1,19 +1,19 @@
 use light_hasher::{
     bigint::bigint_to_be_bytes_array, hash_chain::create_hash_chain_from_slice, Poseidon,
 };
-use light_prover_client::{
-    constants::{DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, PROVE_PATH, SERVER_ADDRESS},
-    proof_types::batch_address_append::{
-        get_batch_address_append_circuit_inputs, to_json, BatchAddressAppendInputs,
-    },
-    prover::spawn_prover,
-};
 use light_sparse_merkle_tree::{
     changelog::ChangelogEntry, indexed_changelog::IndexedChangelogEntry, SparseMerkleTree,
 };
 use num_bigint::{BigUint, ToBigUint};
 use reqwest::Client;
 use serial_test::serial;
+use zolana_prover_client::{
+    constants::{DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, PROVE_PATH, SERVER_ADDRESS},
+    proof_types::batch_address_append::{
+        get_batch_address_append_circuit_inputs, to_json, BatchAddressAppendInputs,
+    },
+    prover::spawn_prover,
+};
 mod init_merkle_tree;
 
 #[serial]

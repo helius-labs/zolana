@@ -1,7 +1,7 @@
 pub(crate) mod accounts;
-pub mod batch_update_address_tree;
-pub mod create_tree;
+pub mod batch_update_nullifier_tree;
 pub mod create_spl_interface;
+pub mod create_tree;
 pub(crate) mod hash;
 pub mod loader;
 pub mod proofless_shield;

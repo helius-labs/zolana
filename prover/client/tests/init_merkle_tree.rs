@@ -7,7 +7,11 @@ use light_hasher::{
     Hasher, Poseidon,
 };
 use light_merkle_tree_reference::MerkleTree;
-use light_prover_client::{
+use num_bigint::{BigInt, Sign, ToBigUint};
+use num_traits::cast::ToPrimitive;
+use once_cell::{self, sync::Lazy};
+use tracing::info;
+use zolana_prover_client::{
     constants::{DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, DEFAULT_BATCH_STATE_TREE_HEIGHT},
     errors::ProverClientError,
     helpers::{big_int_to_string, bigint_to_u8_32},
@@ -34,10 +38,6 @@ use light_prover_client::{
         },
     },
 };
-use num_bigint::{BigInt, Sign, ToBigUint};
-use num_traits::cast::ToPrimitive;
-use once_cell::{self, sync::Lazy};
-use tracing::info;
 
 pub static MT_PROOF_INPUTS_26: Lazy<Mutex<InclusionMerkleProofInputs>> =
     Lazy::new(|| Mutex::new(internal_inclusion_merkle_tree_inputs(26)));

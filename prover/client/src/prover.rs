@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[cfg(feature = "devenv")]
-use crate::helpers::get_light_cli_command;
+use crate::helpers::get_zolana_cli_command;
 
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
@@ -37,7 +37,7 @@ pub async fn spawn_prover() {
         let prover_path = {
             #[cfg(feature = "devenv")]
             {
-                get_light_cli_command().expect(
+                get_zolana_cli_command().expect(
                     "failed to find zolana CLI; run `just build-zolana-cli`, set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD",
                 )
             }

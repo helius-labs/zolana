@@ -1,9 +1,9 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
-    encode_instruction, tag, BatchUpdateAddressTreeData, CreateZoneConfigData, CreateTreeData,
-    CreateProtocolConfigData, CreateSplInterfaceData, InputUtxoSignerIndex,
-    InstructionTag, PauseTreeData, TransactIxData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, UpdateProtocolConfigData, PUBLIC_AMOUNT_DEPOSIT,
+    encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
+    CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData, InputUtxoSignerIndex,
+    InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 #[test]
@@ -21,20 +21,20 @@ fn create_tree_roundtrip() {
 }
 
 #[test]
-fn batch_update_address_tree_roundtrip() {
-    let payload = BatchUpdateAddressTreeData {
+fn batch_update_nullifier_tree_roundtrip() {
+    let payload = BatchUpdateNullifierTreeData {
         new_root: [3u8; 32],
         compressed_proof_a: [4u8; 32],
         compressed_proof_b: [5u8; 64],
         compressed_proof_c: [6u8; 32],
     };
-    let bytes = encode_instruction(tag::BATCH_UPDATE_ADDRESS_TREE, &payload);
-    let decoded = BatchUpdateAddressTreeData::try_from_slice(&bytes[1..]).unwrap();
+    let bytes = encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &payload);
+    let decoded = BatchUpdateNullifierTreeData::try_from_slice(&bytes[1..]).unwrap();
 
-    assert_eq!(bytes[0], tag::BATCH_UPDATE_ADDRESS_TREE);
+    assert_eq!(bytes[0], tag::BATCH_UPDATE_NULLIFIER_TREE);
     assert_eq!(
         InstructionTag::try_from(bytes[0]),
-        Ok(InstructionTag::BatchUpdateAddressTree)
+        Ok(InstructionTag::BatchUpdateNullifierTree)
     );
     assert_eq!(decoded, payload);
 }
@@ -91,6 +91,7 @@ fn create_spl_interface_roundtrip() {
 fn protocol_config_roundtrips() {
     let create = CreateProtocolConfigData {
         authority: [1u8; 32],
+        merge_authorities: vec![[3u8; 32]],
     };
     let bytes = encode_instruction(tag::CREATE_PROTOCOL_CONFIG, &create);
     assert_eq!(bytes[0], tag::CREATE_PROTOCOL_CONFIG);
@@ -100,7 +101,8 @@ fn protocol_config_roundtrips() {
     );
 
     let update = UpdateProtocolConfigData {
-        new_authority: [2u8; 32],
+        authority: [2u8; 32],
+        merge_authorities: vec![[4u8; 32], [5u8; 32]],
     };
     let bytes = encode_instruction(tag::UPDATE_PROTOCOL_CONFIG, &update);
     assert_eq!(bytes[0], tag::UPDATE_PROTOCOL_CONFIG);
@@ -155,6 +157,10 @@ fn zone_config_update_roundtrips() {
 #[test]
 fn implemented_tags_map_to_instruction_tag() {
     let tags = [
+        (
+            tag::BATCH_UPDATE_NULLIFIER_TREE,
+            InstructionTag::BatchUpdateNullifierTree,
+        ),
         (tag::PROOFLESS_SHIELD, InstructionTag::ProoflessShield),
         (
             tag::CREATE_PROTOCOL_CONFIG,
@@ -165,18 +171,12 @@ fn implemented_tags_map_to_instruction_tag() {
             InstructionTag::UpdateProtocolConfig,
         ),
         (tag::PAUSE_TREE, InstructionTag::PauseTree),
-        (
-            tag::CREATE_ZONE_CONFIG,
-            InstructionTag::CreateZoneConfig,
-        ),
+        (tag::CREATE_ZONE_CONFIG, InstructionTag::CreateZoneConfig),
         (
             tag::UPDATE_ZONE_CONFIG_OWNER,
             InstructionTag::UpdateZoneConfigOwner,
         ),
-        (
-            tag::UPDATE_ZONE_CONFIG,
-            InstructionTag::UpdateZoneConfig,
-        ),
+        (tag::UPDATE_ZONE_CONFIG, InstructionTag::UpdateZoneConfig),
     ];
 
     for (tag, expected) in tags {

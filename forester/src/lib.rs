@@ -1,6 +1,4 @@
-//! Forester for the shielded-pool address sub-tree. Submits a single
-//! `forest_address_tree` transaction against the registry given a pre-built
-//! Groth16 proof.
+//! Forester for shielded-pool nullifier-tree maintenance.
 //!
 //! Proof generation lives in `prover/client`; this crate handles the on-chain
 //! submission path only.
@@ -14,4 +12,4 @@ pub mod forest;
 pub mod logging;
 pub mod utils;
 
-pub use forest::{forest_address_tree_once, ForestError, ForestParams};
+pub use forest::{batch_update_nullifier_tree_once, ForestError, ForestParams};

@@ -21,10 +21,10 @@ pub use data::{Data, DataRecord};
 pub use encryption::TransactionEncryption;
 pub use error::TransactionError;
 pub use solana_address::Address;
-pub use utxo::{derive_blinding, Utxo};
+pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, Utxo};
 pub use wallet::{
-    AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, ProoflessDepositEvent, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet,
+    WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

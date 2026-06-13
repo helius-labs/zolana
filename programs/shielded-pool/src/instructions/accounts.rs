@@ -6,10 +6,6 @@ use zolana_interface::{
 
 use crate::{error::ShieldedPoolError, instructions::settlement::SettlementAccounts};
 
-/// Largest supported input arity. Bounds instruction-data arities before any
-/// account work and sizes fixed scratch buffers.
-pub(crate) const SPP_MAX_INPUTS: usize = 5;
-
 /// CPI-signer PDA seed for a general program owner (`transact`,
 /// `proofless_shield`). Distinct from [`ZONE_AUTH_SEED`]: a general program
 /// owner and a policy zone are different capabilities.
@@ -162,7 +158,7 @@ fn validate_input_signer_indices(
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    let mut seen = [false; SPP_MAX_INPUTS];
+    let mut seen = vec![false; data.nullifiers.len()];
     for index in indices {
         validate_input_signer_index(
             accounts,
@@ -179,7 +175,7 @@ fn validate_input_signer_index(
     accounts: &[AccountSnapshot],
     active_inputs: usize,
     index: &InputUtxoSignerIndex,
-    seen: &mut [bool; SPP_MAX_INPUTS],
+    seen: &mut [bool],
     owner_pubkeys: &mut [[u8; 32]],
 ) -> Result<(), ProgramError> {
     let input_index = index.input_index as usize;

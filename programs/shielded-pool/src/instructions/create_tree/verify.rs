@@ -3,9 +3,7 @@ use zolana_interface::instruction::CreateTreeData;
 
 use crate::{
     error::ShieldedPoolError,
-    instructions::{
-        loader::MutableTreeAccounts, protocol_config::processor::read_protocol_config,
-    },
+    instructions::{loader::MutableTreeAccounts, protocol_config::processor::read_protocol_config},
 };
 
 /// Validate `[authority(signer), protocol_config, tree]`. Tree creation is

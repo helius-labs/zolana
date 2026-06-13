@@ -3,8 +3,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{encode_instruction, tag, CreateProtocolConfigData, PauseTreeData,
-        UpdateProtocolConfigData},
+    instruction::{
+        encode_instruction, tag, CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData,
+    },
     SHIELDED_POOL_PROGRAM_ID,
 };
 

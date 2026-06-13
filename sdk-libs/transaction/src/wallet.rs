@@ -6,11 +6,12 @@ use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
 use crate::asset::AssetRegistry;
+use crate::data::Data;
 use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::Utxo;
+use crate::utxo::{owner_utxo_hash, Blinding, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -23,6 +24,19 @@ pub struct SyncTransaction {
     pub encrypted_utxos: Vec<u8>,
     pub sender_view_tag: ViewTag,
     pub nullifiers: Vec<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProoflessDepositEvent {
+    pub view_tag: ViewTag,
+    pub utxo_hash: [u8; 32],
+    pub owner_utxo_hash: [u8; 32],
+    pub asset: Address,
+    pub amount: u64,
+    pub zone_program_id: Option<Address>,
+    pub program_data_hash: [u8; 32],
+    pub zone_data_hash: [u8; 32],
+    pub data: Data,
 }
 
 pub struct ViewingKeyEntry {
@@ -292,6 +306,71 @@ impl Wallet {
             utxos: Vec::new(),
             last_synced: 0,
         })
+    }
+
+    pub fn proofless_owner_utxo_hash(
+        &self,
+        blinding: &Blinding,
+    ) -> Result<[u8; 32], TransactionError> {
+        owner_utxo_hash(
+            &self.keypair.signing_pubkey(),
+            &self.keypair.nullifier_key.pubkey()?,
+            blinding,
+        )
+    }
+
+    pub fn discover_proofless_deposit(
+        &self,
+        event: &ProoflessDepositEvent,
+        blinding: Blinding,
+    ) -> Result<Option<WalletUtxo>, TransactionError> {
+        let owner_utxo_hash = self.proofless_owner_utxo_hash(&blinding)?;
+        if owner_utxo_hash != event.owner_utxo_hash {
+            return Ok(None);
+        }
+
+        let hash = Utxo::commitment_from_owner_utxo_hash(
+            event.asset,
+            event.amount,
+            &event.program_data_hash,
+            &event.zone_data_hash,
+            event.zone_program_id,
+            &event.owner_utxo_hash,
+        )?;
+        if hash != event.utxo_hash {
+            return Ok(None);
+        }
+
+        let utxo = Utxo {
+            owner: self.keypair.signing_pubkey(),
+            asset: event.asset,
+            amount: event.amount,
+            blinding,
+            zone_program_id: event.zone_program_id,
+            data: event.data.clone(),
+        };
+        let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
+        Ok(Some(WalletUtxo {
+            utxo,
+            hash,
+            nullifier,
+            spent: false,
+        }))
+    }
+
+    pub fn sync_proofless_deposit(
+        &mut self,
+        event: &ProoflessDepositEvent,
+        blinding: Blinding,
+    ) -> Result<bool, TransactionError> {
+        let Some(wallet_utxo) = self.discover_proofless_deposit(event, blinding)? else {
+            return Ok(false);
+        };
+        if self.utxos.iter().any(|u| u.hash == wallet_utxo.hash) {
+            return Ok(false);
+        }
+        self.utxos.push(wallet_utxo);
+        Ok(true)
     }
 
     pub fn sync(

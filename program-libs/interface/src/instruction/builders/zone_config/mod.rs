@@ -32,12 +32,7 @@ pub fn update_zone_config_owner(
     zone_config: Pubkey,
     data: UpdateZoneConfigOwnerData,
 ) -> Instruction {
-    build_update_ix(
-        tag::UPDATE_ZONE_CONFIG_OWNER,
-        authority,
-        zone_config,
-        data,
-    )
+    build_update_ix(tag::UPDATE_ZONE_CONFIG_OWNER, authority, zone_config, data)
 }
 
 pub fn update_zone_config(

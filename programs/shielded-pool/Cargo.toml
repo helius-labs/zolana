@@ -16,7 +16,7 @@ test-sbf = []
 
 [dependencies]
 borsh = { workspace = true }
-light-batched-merkle-tree = { workspace = true, default-features = false, features = ["pinocchio", "solana-msg"] }
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
 light-verifier = { workspace = true }
 light-hasher = { workspace = true, features = ["keccak", "poseidon"] }
 pinocchio-system = { workspace = true }

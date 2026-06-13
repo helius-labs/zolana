@@ -10,7 +10,6 @@ default = []
 [dependencies]
 clap = { version = "4.5.53", features = ["derive", "env"] }
 anyhow = { workspace = true }
-borsh = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -19,16 +18,13 @@ dotenvy = "0.15"
 
 # Solana client + transaction building.
 solana-commitment-config = { workspace = true }
-solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
-solana-sdk = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 
-# Registry + shielded-pool interface for instruction-data shapes + PDA seeds.
-light-registry = { workspace = true }
+# Shielded-pool interface for instruction-data shapes and builders.
 zolana-interface = { workspace = true, features = ["solana"] }

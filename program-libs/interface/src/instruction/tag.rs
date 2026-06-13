@@ -40,8 +40,8 @@ pub mod reserved {
 
 // === Forester tree maintenance ===
 // Outside the SPP spec dispatch table; intentionally above the reserved
-// proof/zone tag range so they never collide with spec tags.
-pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
+// proof/zone tag range so it never collides with spec tags.
+pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 
 /// Typed view of an *implemented* instruction tag.
 ///
@@ -53,7 +53,7 @@ pub const BATCH_UPDATE_ADDRESS_TREE: u8 = 51;
 #[repr(u8)]
 pub enum InstructionTag {
     CreateTree = CREATE_TREE,
-    BatchUpdateAddressTree = BATCH_UPDATE_ADDRESS_TREE,
+    BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
     CreateSplInterface = CREATE_SPL_INTERFACE,
@@ -73,7 +73,7 @@ impl TryFrom<u8> for InstructionTag {
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
             CREATE_TREE => Ok(Self::CreateTree),
-            BATCH_UPDATE_ADDRESS_TREE => Ok(Self::BatchUpdateAddressTree),
+            BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),

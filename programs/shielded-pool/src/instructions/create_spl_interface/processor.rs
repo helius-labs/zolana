@@ -6,9 +6,10 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
-    instruction::CreateSplInterfaceData, SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_COUNTER_PDA_SEED,
-    SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_PDA_SEED,
-    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    instruction::CreateSplInterfaceData, SHIELDED_POOL_CPI_AUTHORITY,
+    SPL_ASSET_COUNTER_ACCOUNT_LEN, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN,
+    SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{
@@ -20,6 +21,7 @@ use crate::{
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 const SPL_TOKEN_ACCOUNT_LEN: u64 = 165;
 const SPL_INITIALIZE_ACCOUNT3_DISCRIMINATOR: u8 = 18;
+const FIRST_SPL_ASSET_ID: u64 = 2;
 
 pub fn process_create_spl_interface(
     program_id: &Address,
@@ -63,10 +65,7 @@ pub fn process_create_spl_interface(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    // Kept for ABI compatibility with the first SPL interface shape. SPL
-    // identity is now derived canonically from the mint pubkey, so this PDA is
-    // address-gated but no longer initialized or incremented.
-    let (expected_counter, _) = derive_pda_1(SPL_ASSET_COUNTER_PDA_SEED, program_id)?;
+    let (expected_counter, counter_bump) = derive_pda_1(SPL_ASSET_COUNTER_PDA_SEED, program_id)?;
     let (expected_registry, registry_bump) = derive_pda_2(
         SPL_ASSET_REGISTRY_PDA_SEED,
         mint.address().as_ref(),
@@ -87,13 +86,24 @@ pub fn process_create_spl_interface(
 
     create_pda_account_if_needed(
         authority,
+        asset_counter,
+        SPL_ASSET_COUNTER_ACCOUNT_LEN as u64,
+        program_id,
+        &[SPL_ASSET_COUNTER_PDA_SEED],
+        counter_bump,
+    )?;
+    let asset_id = next_asset_id(program_id, asset_counter)?;
+
+    create_pda_account_if_needed(
+        authority,
         registry,
         SPL_ASSET_REGISTRY_ACCOUNT_LEN as u64,
         program_id,
         &[SPL_ASSET_REGISTRY_PDA_SEED, mint.address().as_ref()],
         registry_bump,
     )?;
-    write_asset_registry(program_id, registry, mint.address())?;
+    write_asset_registry(program_id, registry, mint.address(), asset_id)?;
+    bump_asset_counter(program_id, asset_counter, asset_id)?;
 
     create_pda_account_if_needed(
         authority,
@@ -105,6 +115,36 @@ pub fn process_create_spl_interface(
     )?;
     initialize_token_vault(token_program, vault, mint, cpi_authority)?;
 
+    Ok(())
+}
+
+fn next_asset_id(program_id: &Address, counter: &mut AccountView) -> Result<u64, ProgramError> {
+    if !counter.owned_by(program_id) || counter.data_len() < SPL_ASSET_COUNTER_ACCOUNT_LEN {
+        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
+    }
+
+    let counter_data = loader::account_data_mut(counter);
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&counter_data[..8]);
+    match u64::from_le_bytes(bytes) {
+        0 => Ok(FIRST_SPL_ASSET_ID),
+        id if id >= FIRST_SPL_ASSET_ID => Ok(id),
+        _ => Err(ShieldedPoolError::InvalidSplAssetRegistry.into()),
+    }
+}
+
+fn bump_asset_counter(
+    program_id: &Address,
+    counter: &mut AccountView,
+    assigned_asset_id: u64,
+) -> Result<(), ProgramError> {
+    if !counter.owned_by(program_id) || counter.data_len() < SPL_ASSET_COUNTER_ACCOUNT_LEN {
+        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
+    }
+    let next = assigned_asset_id
+        .checked_add(1)
+        .ok_or(ShieldedPoolError::InvalidSplAssetRegistry)?;
+    loader::account_data_mut(counter)[..8].copy_from_slice(&next.to_le_bytes());
     Ok(())
 }
 
@@ -173,6 +213,7 @@ fn write_asset_registry(
     program_id: &Address,
     registry: &mut AccountView,
     mint: &Address,
+    asset_id: u64,
 ) -> Result<(), ProgramError> {
     if !registry.owned_by(program_id) || registry.data_len() < SPL_ASSET_REGISTRY_ACCOUNT_LEN {
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
@@ -188,6 +229,7 @@ fn write_asset_registry(
     registry_data[..SPL_ASSET_REGISTRY_ACCOUNT_LEN].fill(0);
     registry_data[0..8].copy_from_slice(&SPL_ASSET_REGISTRY_MAGIC);
     registry_data[8..40].copy_from_slice(mint.as_ref());
+    registry_data[40..48].copy_from_slice(&asset_id.to_le_bytes());
     Ok(())
 }
 

@@ -20,15 +20,11 @@ const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
-const LIGHT_REGISTRY_ID: &str = "Lighton6oQpVkeewmo2mcPTQQp7kYHr4fWpAgJyEmDX";
 
 // Programs auto-loaded into `zolana test-validator`. The shielded-pool program
 // will be added here once it has a stable program ID and a compiled .so on
 // the fixture release.
-const SYSTEM_PROGRAMS: &[(&str, &str)] = &[
-    (SPL_NOOP_ID, "spl_noop.so"),
-    (LIGHT_REGISTRY_ID, "light_registry.so"),
-];
+const SYSTEM_PROGRAMS: &[(&str, &str)] = &[(SPL_NOOP_ID, "spl_noop.so")];
 
 #[derive(Debug)]
 struct ProgramSpec {
@@ -465,7 +461,7 @@ fn add_account_dir_args(args: &mut Vec<String>, opts: &TestValidatorOptions) -> 
 }
 
 fn program_file_path(name: &str) -> Result<PathBuf> {
-    if let Ok(dir) = env::var("LIGHT_PROTOCOL_PROGRAMS_DIR") {
+    if let Ok(dir) = env::var("ZOLANA_PROGRAMS_DIR") {
         let candidate = Path::new(&dir).join(name);
         if candidate.exists() {
             return Ok(candidate);
@@ -485,11 +481,11 @@ fn program_file_path(name: &str) -> Result<PathBuf> {
         }
     }
 
-    bail!("missing {name}; run `just fetch-fixtures` (or `just build-light-programs` for repo-built artifacts)")
+    bail!("missing {name}; run `just fetch-fixtures` (or `just build-programs` for repo-built artifacts)")
 }
 
 fn accounts_dir() -> Result<PathBuf> {
-    if let Ok(dir) = env::var("LIGHT_PROTOCOL_ACCOUNTS_DIR") {
+    if let Ok(dir) = env::var("ZOLANA_ACCOUNTS_DIR") {
         let path = PathBuf::from(dir);
         if path.exists() {
             return Ok(path);
@@ -528,9 +524,9 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     kill_port(prover_port);
 
     let prover = find_binary(
-        &["PROVER_BIN", "LIGHT_PROVER_BIN"],
+        &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
         &["target/prover-server"],
-        &["prover-server", "light-prover"],
+        &["prover-server"],
     )?;
     let keys_dir = prover_keys_dir()?;
     fs::create_dir_all(&keys_dir)
@@ -552,7 +548,7 @@ fn start_prover_service(prover_port: u16, redis_url: Option<&str>) -> Result<()>
     }
 
     println!("Starting prover: {} {}", prover.display(), args.join(" "));
-    let mut child = spawn_service(&prover, &args, "light-prover")?;
+    let mut child = spawn_service(&prover, &args, "prover-server")?;
     wait_for_http_get_with_child(
         prover_port,
         "/health",
@@ -799,7 +795,6 @@ fn stop_test_env(opts: &TestValidatorOptions) {
         kill_port(opts.indexer_port);
     }
     if !opts.skip_prover {
-        kill_name("light-prover");
         kill_name("prover-server");
         kill_port(opts.prover_port);
     }
@@ -902,12 +897,12 @@ fn project_root() -> Result<PathBuf> {
 }
 
 fn prover_keys_dir() -> Result<PathBuf> {
-    if let Ok(path) = env::var("LIGHT_PROVER_KEYS_DIR") {
+    if let Ok(path) = env::var("ZOLANA_PROVER_KEYS_DIR") {
         return Ok(PathBuf::from(path));
     }
 
     let home = env::var("HOME").context("HOME is not set")?;
-    Ok(Path::new(&home).join(".config/light/proving-keys"))
+    Ok(Path::new(&home).join(".config/zolana/proving-keys"))
 }
 
 fn path_string(path: &Path) -> Result<String> {
@@ -928,6 +923,6 @@ fn print_help() {
     println!("zolana <command>");
     println!();
     println!("Commands:");
-    println!("  test-validator    Start the local Light Protocol test validator");
+    println!("  test-validator    Start the local Zolana test validator");
     println!("  start-prover      Start the local prover server");
 }

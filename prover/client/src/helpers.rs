@@ -23,15 +23,15 @@ pub fn get_project_root() -> Option<String> {
     }
 }
 
-pub fn get_light_cli_command() -> Option<String> {
-    if let Ok(command) = env::var("ZOLANA_CLI_CMD").or_else(|_| env::var("LIGHT_CLI_CMD")) {
+pub fn get_zolana_cli_command() -> Option<String> {
+    if let Ok(command) = env::var("ZOLANA_CLI_CMD") {
         let command = command.trim();
         if !command.is_empty() {
             return Some(command.to_string());
         }
     }
 
-    if let Ok(path) = env::var("ZOLANA_CLI_BIN").or_else(|_| env::var("LIGHT_CLI_BIN")) {
+    if let Ok(path) = env::var("ZOLANA_CLI_BIN") {
         let path = path.trim();
         if !path.is_empty() {
             return Some(shell_quote(path));

@@ -6,7 +6,10 @@ use pinocchio::{
 };
 use zolana_interface::{
     instruction::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData},
-    state::{discriminator::PROTOCOL_CONFIG, PROTOCOL_CONFIG_ACCOUNT_LEN},
+    state::{
+        discriminator::PROTOCOL_CONFIG, PROTOCOL_CONFIG_ACCOUNT_LEN,
+        PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
+    },
     SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
@@ -36,6 +39,7 @@ pub fn process_create_protocol_config(
     if !authority_matches(authority, &data.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
+    validate_merge_authorities(&data.merge_authorities)?;
 
     // The config is the singleton authority oracle, so it lives at a canonical
     // PDA the program creates itself — a caller can't substitute a config that
@@ -47,7 +51,7 @@ pub fn process_create_protocol_config(
     create_config_pda(authority, config, program_id, bump)?;
 
     let bytes = loader::account_data_mut(config);
-    write_protocol_config(bytes, &data.authority);
+    write_protocol_config(bytes, &data.authority, &data.merge_authorities)?;
     Ok(())
 }
 
@@ -61,9 +65,10 @@ pub fn process_update_protocol_config(
     if !authority_matches(authority, &current.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
+    validate_merge_authorities(&data.merge_authorities)?;
 
     let bytes = loader::account_data_mut(config);
-    write_protocol_config(bytes, &data.new_authority);
+    write_protocol_config(bytes, &data.authority, &data.merge_authorities)?;
     Ok(())
 }
 
@@ -90,8 +95,7 @@ pub fn process_pause_tree(
     }
 
     let bytes = loader::account_data_mut(tree);
-    set_tree_paused(bytes, data.paused)
-        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+    set_tree_paused(bytes, data.paused).map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
     Ok(())
 }
 
@@ -107,9 +111,9 @@ pub fn assert_tree_not_paused(tree: &AccountView) -> ProgramResult {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
 pub struct ProtocolConfigState {
     pub authority: [u8; 32],
+    pub merge_authorities: Vec<[u8; 32]>,
 }
 
 /// Canonical protocol-config PDA + bump: `[SPP_PROTOCOL_CONFIG_PDA_SEED]`.
@@ -186,13 +190,53 @@ pub fn read_protocol_config(
     }
     let mut authority = [0u8; 32];
     authority.copy_from_slice(&bytes[8..40]);
-    Ok(ProtocolConfigState { authority })
+    let merge_authorities = read_merge_authorities(&bytes)?;
+    Ok(ProtocolConfigState {
+        authority,
+        merge_authorities,
+    })
 }
 
-fn write_protocol_config(bytes: &mut [u8], authority: &[u8; 32]) {
+fn write_protocol_config(
+    bytes: &mut [u8],
+    authority: &[u8; 32],
+    merge_authorities: &[[u8; 32]],
+) -> Result<(), ProgramError> {
+    validate_merge_authorities(merge_authorities)?;
     bytes[..PROTOCOL_CONFIG_ACCOUNT_LEN].fill(0);
     bytes[0] = PROTOCOL_CONFIG;
     bytes[8..40].copy_from_slice(authority);
+    bytes[40..48].copy_from_slice(&(merge_authorities.len() as u64).to_le_bytes());
+    for (index, authority) in merge_authorities.iter().enumerate() {
+        let offset = 48 + index * 32;
+        bytes[offset..offset + 32].copy_from_slice(authority);
+    }
+    Ok(())
+}
+
+fn validate_merge_authorities(merge_authorities: &[[u8; 32]]) -> Result<(), ProgramError> {
+    if merge_authorities.len() > PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES {
+        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+    Ok(())
+}
+
+fn read_merge_authorities(bytes: &[u8]) -> Result<Vec<[u8; 32]>, ProgramError> {
+    let mut count = [0u8; 8];
+    count.copy_from_slice(&bytes[40..48]);
+    let count = u64::from_le_bytes(count) as usize;
+    if count > PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES {
+        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+
+    let mut authorities = Vec::with_capacity(count);
+    for index in 0..count {
+        let offset = 48 + index * 32;
+        let mut authority = [0u8; 32];
+        authority.copy_from_slice(&bytes[offset..offset + 32]);
+        authorities.push(authority);
+    }
+    Ok(authorities)
 }
 
 fn authority_matches(account: &AccountView, authority: &[u8; 32]) -> bool {

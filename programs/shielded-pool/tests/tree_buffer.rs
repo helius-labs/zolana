@@ -6,9 +6,9 @@ use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::SparseMerkleTree;
 use shielded_pool_program::instructions::create_tree::init::{
-    address_sub_tree_slice_mut, append_state_leaves, init_tree_account,
-    tree_account_size, state_next_index_offset, state_root_offset, ADDRESS_SUB_TREE_OFFSET,
-    DISCRIMINATOR_OFFSET, STATE_HEIGHT,
+    address_sub_tree_slice_mut, append_state_leaves, init_tree_account, state_next_index_offset,
+    state_root_offset, tree_account_size, ADDRESS_SUB_TREE_OFFSET, DISCRIMINATOR_OFFSET,
+    STATE_HEIGHT,
 };
 
 const OWNER: pinocchio::Address = pinocchio::Address::new_from_array([1u8; 32]);

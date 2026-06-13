@@ -1,20 +1,19 @@
 [workspace]
 members = [
-    "forester",
     "program-libs/interface",
+    "program-tests/program-test",
     "program-tests/shielded-pool",
-    "programs/registry",
     "programs/shielded-pool",
-    "programs/zone-test",
+    "program-tests/zone-test-program",
+    "forester",
     "prover/client",
     "sdk-libs/cli",
     "sdk-libs/keypair",
-    "sdk-libs/program-test",
+    "sdk-libs/photon-api",
     "sdk-libs/transaction",
     "xtask",
 ]
 default-members = [
-    "forester",
     "prover/client",
     "program-libs/interface",
     "programs/shielded-pool",
@@ -26,126 +25,54 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-# Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
-# newer time-core releases.
-time = ">=0.3, <0.3.46"
-
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
+photon-api = { path = "sdk-libs/photon-api", version = "0.56.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
-light-prover-client = { path = "prover/client", version = "8.0.0" }
-light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
 
-# Published Light Protocol crates.
-aligned-sized = "1.1.0"
-light-array-map = "0.2.0"
-light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.8.0", default-features = false }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.11.0" }
-light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.6.0" }
+# Published privacy-program crates.
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.11.0", default-features = false }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.3.0" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "2.2.0" }
-light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "0.11.0" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "4.0.0" }
 light-poseidon = "0.4.0"
-light-program-profiler = "0.1.1"
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475", version = "10.0.0" }
 light-sparse-merkle-tree = "0.3.0"
 
 # Solana and SPL.
-anchor-lang = "1.0.2"
-anchor-spl = "1.0.2"
 borsh = { version = "1.5", default-features = false, features = ["derive"] }
-solana-account = "3.4"
-solana-account-info = "3.1"
-solana-account-decoder = "4.0.0-rc.0"
-solana-account-decoder-client-types = "4.0.0-rc.0"
 solana-address = { version = "2.6", features = ["copy", "decode"] }
-solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
-solana-banks-client = { version = "4.0.0-rc.0", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
-solana-client = "4.0.0-rc.0"
-solana-clock = "3.0"
-solana-commitment-config = "3.1"
-solana-compute-budget = "3.1"
-solana-compute-budget-interface = "3.0"
-solana-cpi = "3.1"
-solana-epoch-info = "3.1"
-solana-hash = "4.3"
+solana-commitment-config = "3.1.1"
 solana-instruction = "3.4"
 solana-keypair = "3.1.2"
-solana-loader-v3-interface = "8.0"
 solana-message = "3.1"
-solana-msg = "3.1"
 solana-program = "4.0"
-solana-program-error = "3.0"
-solana-program-pack = "3.1"
 solana-pubkey = "4.2"
-solana-rent = "4.2"
 solana-rpc-client = "4.0.0-rc.0"
-solana-rpc-client-api = "4.0.0-rc.0"
-solana-security-txt = "1.1.2"
-solana-sdk = "3.0"
-solana-signature = "3.4"
+solana-signature = "3.4.0"
 solana-signer = "3.0"
-solana-system-interface = { version = "3.2", features = ["bincode"] }
-solana-sysvar = { version = "4.0", features = ["bincode"] }
 solana-transaction = "3.1"
-solana-transaction-error = "3.0"
-solana-transaction-status = "4.0.0-rc.0"
-solana-transaction-status-client-types = "4.0.0-rc.0"
-spl-token = "9.0"
-spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
-spl-token-2022-interface = "2.0"
-spl-pod = "0.7"
 pinocchio = "0.11"
-pinocchio-pubkey = "0.3.0"
 pinocchio-system = "0.6.0"
-pinocchio-token-program = { git = "https://github.com/Lightprotocol/token", rev = "f7bee9bbc8039c224a88ea76e9ae2edd78e0f9c3" }
 
 # Async, HTTP, logging, and utilities.
 anyhow = "1.0"
-async-channel = "2.5"
-async-trait = "0.1.82"
-arrayvec = "0.7"
-base64 = "0.13"
-bb8 = "0.8.6"
-bitvec = { version = "1.0.1", default-features = false }
-bs58 = "0.5.1"
-bytemuck = "1.19.0"
-chrono = "0.4"
-dashmap = "6.1.0"
-darling = "0.21"
-env_logger = "0.11"
-futures = "0.3.31"
-governor = "0.8.0"
-heck = "0.5"
 hex = "0.4"
-lazy_static = "1.5.0"
-log = "0.4"
 litesvm = "0.12"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
-proc-macro2 = "1.0"
-quote = "1.0"
 rand = "0.8.5"
 rayon = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serial_test = "3.2.0"
 sha2 = "0.10"
-syn = { version = "2.0", features = ["visit-mut", "full"] }
-tabled = "0.20"
 thiserror = "2.0"
-tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.41"
-tracing-appender = "0.2.3"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
-zerocopy = "0.8.25"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 # Prover math/crypto.
 ark-bn254 = "0.5"
@@ -173,7 +100,6 @@ light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", re
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "eecd83af918f0935875612d716213952a50d7475" }
-light-registry = { path = "programs/registry" }
 
 [profile.dev]
 opt-level = 0

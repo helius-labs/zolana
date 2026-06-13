@@ -1,9 +1,9 @@
-use light_prover_client::{
+use reqwest::Client;
+use serial_test::serial;
+use zolana_prover_client::{
     constants::{PROVE_PATH, SERVER_ADDRESS},
     prover::spawn_prover,
 };
-use reqwest::Client;
-use serial_test::serial;
 mod init_merkle_tree;
 use crate::init_merkle_tree::{combined_inputs_string_v1, combined_inputs_string_v2};
 

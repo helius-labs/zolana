@@ -1,17 +1,11 @@
-# Zolana reduced Light Protocol workspace
+# Zolana workspace
 set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
-export FORESTER_E2E_ITERATIONS := env_var_or_default("FORESTER_E2E_ITERATIONS", "100")
-export FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS := env_var_or_default("FORESTER_E2E_EXPECTED_MIN_PROCESSED_ITEMS", "100")
-export FORESTER_E2E_TIMEOUT_SECONDS := env_var_or_default("FORESTER_E2E_TIMEOUT_SECONDS", "900")
-export FORESTER_E2E_SLOT_WARP_STEP := env_var_or_default("FORESTER_E2E_SLOT_WARP_STEP", "50")
-export FORESTER_E2E_SLOT_WARP_INTERVAL_MS := env_var_or_default("FORESTER_E2E_SLOT_WARP_INTERVAL_MS", "2000")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 
-mod forester 'forester'
 mod prover 'prover/server'
 
 default:
@@ -42,12 +36,10 @@ check:
 check-all:
     cargo check --workspace --all-targets
 
-# Default test target. Tests for the surviving slice (interface, registry,
-# shielded-pool program). Forester e2e tests will be reintroduced when the
-# foresting logic is rebuilt against the new combined tree type.
-test: test-scaffold test-sdk-libs
+# Default test target. Tests the interface, shielded-pool program, SDKs, and Forester.
+test: test-scaffold test-sdk-libs test-forester
 
-# Cheap tests for the initial shielded-pool/interface/registry scaffold.
+# Cheap tests for the program/interface slice.
 test-scaffold:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
@@ -56,18 +48,20 @@ test-scaffold:
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:
     cargo test -p zolana-keypair
+    cargo test -p photon-api
     cargo test -p zolana-transaction
 
-# End-to-end litesvm tests for shielded-pool + registry. Requires the SBF
-# `.so`s under `target/deploy/`; run `just build-programs` first.
+test-forester:
+    cargo test -p forester
+
+# End-to-end litesvm tests for shielded-pool; run `just build-programs` first.
 test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/zone-test/Cargo.toml
-    cargo test -p light-program-test
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
+    cargo test -p zolana-program-test
 
-# Aggregate of all CI-runnable rust tests.
-test-all: test-scaffold test-litesvm
+# Aggregate of all CI-runnable Rust tests.
+test-all: test test-litesvm
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -75,21 +69,16 @@ verify-rust: check test
 # Full verification for the reduced workspace.
 verify: verify-rust prover-server-test
 
-# === Forester SBF test helpers ===
+# === Local validator helpers ===
 
-check-light-cli:
+check-zolana-cli:
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -n "${ZOLANA_CLI_CMD:-}" ]]; then
         echo "Using ZOLANA_CLI_CMD=$ZOLANA_CLI_CMD"
-    elif [[ -n "${LIGHT_CLI_CMD:-}" ]]; then
-        echo "Using LIGHT_CLI_CMD=$LIGHT_CLI_CMD"
     elif [[ -n "${ZOLANA_CLI_BIN:-}" ]]; then
         test -x "$ZOLANA_CLI_BIN"
         echo "Using ZOLANA_CLI_BIN=$ZOLANA_CLI_BIN"
-    elif [[ -n "${LIGHT_CLI_BIN:-}" ]]; then
-        test -x "$LIGHT_CLI_BIN"
-        echo "Using LIGHT_CLI_BIN=$LIGHT_CLI_BIN"
     elif [[ -x target/debug/zolana ]]; then
         echo "Using target/debug/zolana"
     elif [[ -x target/release/zolana ]]; then
@@ -104,9 +93,7 @@ check-light-cli:
 build-zolana-cli:
     cargo build -p zolana-cli
 
-# Download and verify the Light test-validator fixtures pinned in
-# .fixtures-version into ${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/<tag>.
-# Idempotent: no-op when the cache already has a verified bundle.
+# Download and verify the pinned test-validator fixtures.
 fetch-fixtures:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -127,9 +114,6 @@ fetch-fixtures:
     tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
     cd "$dest" && shasum -a 256 -c SHA256SUMS
     echo "fixtures ${tag} ready at ${dest}"
-
-# Back-compat alias; build-light-programs and CI used to invoke this.
-verify-light-fixtures: fetch-fixtures
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -159,9 +143,7 @@ install-surfpool:
     chmod +x target/tools/surfpool
     target/tools/surfpool --version | grep "{{surfpool-version}}"
 
-# Build the Photon indexer binary from the commit pinned in `external/photon`.
-# Debug mode is enough for local validator tests and avoids the long release
-# compile that `cargo install --git` would do in every CI forester job.
+# Build the Photon indexer binary from the pinned `external/photon` submodule.
 install-photon:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -181,16 +163,16 @@ install-photon:
         rm -rf external/photon/target
     fi
 
-build-light-programs: fetch-fixtures
+# Build local SBF programs and copy fixture programs into `target/deploy`.
+build-programs: fetch-fixtures
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/registry/Cargo.toml
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
     mkdir -p target/deploy
     tag=$(tr -d '[:space:]' < .fixtures-version)
     fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
     cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
-    cp "${fixtures}/bin/light_system_program_pinocchio.so" target/deploy/light_system_program_pinocchio.so
 
 build-prover-server:
     mkdir -p target

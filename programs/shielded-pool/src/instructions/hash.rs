@@ -10,7 +10,6 @@ pub(crate) fn field_from_u64(value: u64) -> [u8; 32] {
     out
 }
 
-
 /// Encodes 16 big-endian bytes as a field element (value in the low 16 bytes).
 fn field_from_u128_be(value: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];

@@ -50,7 +50,6 @@ pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
 pub enum TreeError {
     BufferTooSmall,
     InvalidDiscriminator,
-    StateAppendFailed,
     AddressInitFailed,
     InvalidRootIndex,
 }
@@ -107,9 +106,9 @@ pub fn state_root_history_offset() -> usize {
     state_root_history_meta_offset() + 4
 }
 
-// The nullifier tree keeps no SPP-side state here: it IS the Light batched
-// address tree in the address sub-tree, whose own root_history is the
-// nullifier-root cache referenced by transact's nullifier_tree_root_index.
+// The nullifier tree keeps no SPP-side state here: it is the batched address
+// tree in the address sub-tree, whose own root_history is the nullifier-root
+// cache referenced by transact's nullifier_tree_root_index.
 
 /// Offset of the 1-byte flags region (bit 0 = paused). It lives at the END of
 /// the account, OUTSIDE the discriminator word, so toggling paused never
@@ -192,10 +191,7 @@ fn init_state_sub_tree(state: &mut [u8]) {
     state[history..history + 32].copy_from_slice(&root);
 }
 
-pub fn append_state_leaves(
-    bytes: &mut [u8],
-    leaves: &[[u8; 32]],
-) -> Result<[u8; 32], TreeError> {
+pub fn append_state_leaves(bytes: &mut [u8], leaves: &[[u8; 32]]) -> Result<[u8; 32], TreeError> {
     if bytes.len() < tree_account_size() {
         return Err(TreeError::BufferTooSmall);
     }

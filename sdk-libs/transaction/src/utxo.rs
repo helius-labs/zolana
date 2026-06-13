@@ -62,34 +62,70 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
+fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
+    zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)
+}
+
 fn zone_program_id_field(zone_program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
-    // TODO: discuss whether we want to hash anything at all in this case or hashing 0s is ok (different pr)
-    let id = zone_program_id.unwrap_or_default().to_bytes();
-    zolana_keypair::hash::hash_field(&id).map_err(TransactionError::from)
+    match zone_program_id {
+        Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
+        None => Ok([0u8; 32]),
+    }
+}
+
+pub fn owner_utxo_hash(
+    owner: &PublicKey,
+    nullifier_pk: &[u8; 32],
+    blinding: &Blinding,
+) -> Result<[u8; 32], TransactionError> {
+    let owner_hash = zolana_keypair::hash::owner_hash(owner, nullifier_pk)?;
+    let blinding = right_align(blinding);
+    poseidon(&[&owner_hash, &blinding])
 }
 
 impl Utxo {
+    pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
+        owner_utxo_hash(&self.owner, nullifier_pk, &self.blinding)
+    }
+
+    pub fn commitment_from_owner_utxo_hash(
+        asset: Address,
+        amount: u64,
+        program_data_hash: &[u8; 32],
+        zone_data_hash: &[u8; 32],
+        zone_program_id: Option<Address>,
+        owner_utxo_hash: &[u8; 32],
+    ) -> Result<[u8; 32], TransactionError> {
+        let domain = right_align(&u64::from(UTXO_DOMAIN).to_be_bytes());
+        let asset = asset_field(&asset)?;
+        let amount = right_align(&amount.to_be_bytes());
+        let zone_program_id = zone_program_id_field(&zone_program_id)?;
+        poseidon(&[
+            &domain,
+            &asset,
+            &amount,
+            program_data_hash,
+            zone_data_hash,
+            &zone_program_id,
+            owner_utxo_hash,
+        ])
+    }
+
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
         program_data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
-        let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        let amount = right_align(&self.amount.to_be_bytes());
-        let blinding = right_align(&self.blinding);
-        let zone_program_id = zone_program_id_field(&self.zone_program_id)?;
-        let owner_utxo_hash = poseidon(&[&owner_hash, &blinding])?;
-        poseidon(&[
-            &domain,
-            self.asset.as_array(),
-            &amount,
+        let owner_utxo_hash = self.owner_utxo_hash(nullifier_pk)?;
+        Self::commitment_from_owner_utxo_hash(
+            self.asset,
+            self.amount,
             program_data_hash,
             zone_data_hash,
-            &zone_program_id,
+            self.zone_program_id,
             &owner_utxo_hash,
-        ])
+        )
     }
 
     pub fn nullifier(

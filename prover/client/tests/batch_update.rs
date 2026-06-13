@@ -1,12 +1,12 @@
 use light_hasher::{hash_chain::create_hash_chain_from_slice, Hasher, Poseidon};
 use light_merkle_tree_reference::MerkleTree;
-use light_prover_client::{
+use reqwest::Client;
+use serial_test::serial;
+use zolana_prover_client::{
     constants::{DEFAULT_BATCH_STATE_TREE_HEIGHT, PROVE_PATH, SERVER_ADDRESS},
     proof_types::batch_update::{get_batch_update_inputs, update_inputs_string},
     prover::spawn_prover,
 };
-use reqwest::Client;
-use serial_test::serial;
 mod init_merkle_tree;
 
 #[serial]
