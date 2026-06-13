@@ -3,21 +3,23 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::user_registry::instruction::RotateSyncDelegateData;
+use zolana_interface::user_registry::{
+    instruction::RotateSyncDelegateKeyData, SyncDelegateEntry, UserRecord,
+};
 
 use super::common::{
     check_record_pda_with_bump, check_system_program, grow_record, read_record, write_record,
 };
 use crate::{
     error::{fail, UserRegistryError},
-    state::{validate_p256_pubkey, SyncDelegateEntry, UserRecord},
+    validation::validate_p256_pubkey,
 };
 
 /// Appends a new sync-delegate entry without changing the sync delegate address.
-pub fn process_rotate_sync_delegate(
+pub fn process_rotate_sync_delegate_key(
     program_id: &Address,
     accounts: &mut [AccountView],
-    data: RotateSyncDelegateData,
+    data: RotateSyncDelegateKeyData,
 ) -> ProgramResult {
     validate_p256_pubkey(&data.sync_pubkey)?;
     validate_p256_pubkey(&data.viewing_pubkey)?;
@@ -40,8 +42,10 @@ pub fn process_rotate_sync_delegate(
     if state.sync_delegate.as_ref() != Some(sync_delegate.address().as_array()) {
         return Err(fail(UserRegistryError::InvalidSyncDelegate));
     }
+    let delegate = *sync_delegate.address().as_array();
 
     state.entries.push(SyncDelegateEntry {
+        delegate,
         sync_pubkey: data.sync_pubkey,
         viewing_pubkey: data.viewing_pubkey,
         created_at: Clock::get()?.unix_timestamp,

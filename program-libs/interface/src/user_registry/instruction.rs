@@ -5,9 +5,8 @@ use super::state::{NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN};
 pub mod discriminator {
     pub const REGISTER: u8 = 0;
     pub const SET_SYNC_DELEGATE: u8 = 1;
-    pub const ROTATE_SYNC_DELEGATE: u8 = 2;
-    pub const REVOKE: u8 = 3;
-    pub const CLOSE: u8 = 4;
+    pub const ROTATE_SYNC_DELEGATE_KEY: u8 = 2;
+    pub const REVOKE_SYNC_DELEGATE: u8 = 3;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -25,7 +24,7 @@ pub struct SetSyncDelegateData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct RotateSyncDelegateData {
+pub struct RotateSyncDelegateKeyData {
     pub sync_pubkey: [u8; P256_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
 }
@@ -38,7 +37,7 @@ mod builders {
     use solana_instruction::{AccountMeta, Instruction};
     use solana_pubkey::Pubkey;
 
-    use super::{discriminator, RegisterData, RotateSyncDelegateData, SetSyncDelegateData};
+    use super::{discriminator, RegisterData, RotateSyncDelegateKeyData, SetSyncDelegateData};
     use crate::instruction::encode_instruction;
 
     const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
@@ -78,10 +77,10 @@ mod builders {
     }
 
     /// Accounts: `[user_record (writable), sync_delegate (writable signer), system_program]`.
-    pub fn rotate_sync_delegate(
+    pub fn rotate_sync_delegate_key(
         user_record: Pubkey,
         sync_delegate: Pubkey,
-        data: RotateSyncDelegateData,
+        data: RotateSyncDelegateKeyData,
     ) -> Instruction {
         Instruction {
             program_id: program_id(),
@@ -90,31 +89,19 @@ mod builders {
                 AccountMeta::new(sync_delegate, true),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
-            data: encode_instruction(discriminator::ROTATE_SYNC_DELEGATE, &data),
+            data: encode_instruction(discriminator::ROTATE_SYNC_DELEGATE_KEY, &data),
         }
     }
 
     /// Accounts: `[user_record (writable), signer]`.
-    pub fn revoke(user_record: Pubkey, signer: Pubkey) -> Instruction {
+    pub fn revoke_sync_delegate(user_record: Pubkey, signer: Pubkey) -> Instruction {
         Instruction {
             program_id: program_id(),
             accounts: vec![
                 AccountMeta::new(user_record, false),
                 AccountMeta::new_readonly(signer, true),
             ],
-            data: vec![discriminator::REVOKE],
-        }
-    }
-
-    /// Accounts: `[user_record (writable), owner (writable signer)]`.
-    pub fn close(user_record: Pubkey, owner: Pubkey) -> Instruction {
-        Instruction {
-            program_id: program_id(),
-            accounts: vec![
-                AccountMeta::new(user_record, false),
-                AccountMeta::new(owner, true),
-            ],
-            data: vec![discriminator::CLOSE],
+            data: vec![discriminator::REVOKE_SYNC_DELEGATE],
         }
     }
 }

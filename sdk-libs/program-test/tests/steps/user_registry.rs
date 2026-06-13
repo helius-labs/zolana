@@ -11,8 +11,8 @@ use solana_transaction::Transaction;
 use zolana_interface::user_registry::user_record_pda;
 
 use light_program_test::user_registry_sdk::{
-    build_close_ix, build_register_ix, build_revoke_ix, build_set_sync_delegate_ix,
-    build_rotate_sync_delegate_ix, fetch_user_record, user_registry_program_id,
+    build_register_ix, build_revoke_sync_delegate_ix, build_set_sync_delegate_ix,
+    build_rotate_sync_delegate_key_ix, fetch_user_record, user_registry_program_id,
 };
 
 #[derive(Default, World)]
@@ -25,7 +25,6 @@ pub struct UserRegistryWorld {
     pub owner_p256: HashMap<String, [u8; 33]>,
     pub nullifier_pubkey: HashMap<String, [u8; 32]>,
     pub viewing_pubkey: HashMap<String, [u8; 33]>,
-    pub balances: HashMap<String, u64>,
     pub last_error: Option<String>,
 }
 
@@ -43,8 +42,8 @@ impl UserRegistryWorld {
         all.extend(signers.iter().map(Keypair::insecure_clone));
         let payer_pubkey = all[0].pubkey();
         // Advance the blockhash so otherwise-identical transactions (e.g.
-        // re-register after close, re-appoint after revoke) get distinct
-        // signatures and are not rejected as AlreadyProcessed.
+        // re-appoint after revoke) get distinct signatures and are not
+        // rejected as AlreadyProcessed.
         self.svm.as_mut().expect("rig").expire_blockhash();
         let blockhash = self.svm.as_mut().expect("rig").latest_blockhash();
         let msg = Message::new(&[ix], Some(&payer_pubkey));
@@ -71,15 +70,6 @@ impl UserRegistryWorld {
             .or_else(|| self.strangers.get(name))
             .unwrap_or_else(|| panic!("no keypair named {name}"))
             .insecure_clone()
-    }
-
-    fn lamports_of(&self, pubkey: &Pubkey) -> u64 {
-        self.svm
-            .as_ref()
-            .expect("rig")
-            .get_account(pubkey)
-            .map(|account| account.lamports)
-            .unwrap_or(0)
     }
 }
 
@@ -125,10 +115,6 @@ fn raw_set_sync_delegate_ix(
             viewing_pubkey: test_p256_pubkey(0xEF),
         },
     )
-}
-
-fn raw_close_ix(user_record: Pubkey, owner: Pubkey) -> solana_instruction::Instruction {
-    zolana_interface::user_registry::instruction::close(user_record, owner)
 }
 
 // === given ===
@@ -342,11 +328,11 @@ fn when_stranger_set_sync_delegate(
     world.send(&[stranger], ix);
 }
 
-// === rotate_sync_delegate ===
+// === rotate_sync_delegate_key ===
 
 #[given(regex = r#"sync delegate "(.*)" rotates keys for "(.*)""#)]
 #[when(regex = r#"sync delegate "(.*)" rotates keys for "(.*)""#)]
-fn when_rotate_sync_delegate(
+fn when_rotate_sync_delegate_key(
     world: &mut UserRegistryWorld,
     sync_delegate_name: String,
     owner_name: String,
@@ -359,7 +345,7 @@ fn when_rotate_sync_delegate(
         .insecure_clone();
     let sync_pubkey = test_p256_pubkey(0xC0 + sync_delegate_name.len() as u8);
     let viewing_pubkey = test_p256_pubkey(0xD0 + sync_delegate_name.len() as u8);
-    let ix = build_rotate_sync_delegate_ix(
+    let ix = build_rotate_sync_delegate_key_ix(
         &owner,
         &sync_delegate_kp.pubkey(),
         sync_pubkey,
@@ -372,7 +358,7 @@ fn when_rotate_sync_delegate(
 fn when_rotate_attempt(world: &mut UserRegistryWorld, signer_name: String, owner_name: String) {
     let owner = world.owners.get(&owner_name).expect("owner").pubkey();
     let signer = world.keypair_named(&signer_name);
-    let ix = build_rotate_sync_delegate_ix(
+    let ix = build_rotate_sync_delegate_key_ix(
         &owner,
         &signer.pubkey(),
         test_p256_pubkey(0xE0),
@@ -394,7 +380,7 @@ fn when_rotate_bad_key(
         .get(&sync_delegate_name)
         .expect("sync delegate")
         .insecure_clone();
-    let ix = build_rotate_sync_delegate_ix(
+    let ix = build_rotate_sync_delegate_key_ix(
         &owner,
         &sync_delegate_kp.pubkey(),
         test_p256_pubkey(0xE2),
@@ -403,50 +389,15 @@ fn when_rotate_bad_key(
     world.send(&[sync_delegate_kp], ix);
 }
 
-// === revoke ===
+// === revoke_sync_delegate ===
 
 #[given(regex = r#""(.*)" revokes sync delegate for "(.*)""#)]
 #[when(regex = r#""(.*)" revokes sync delegate for "(.*)""#)]
 fn when_revoke(world: &mut UserRegistryWorld, signer_name: String, owner_name: String) {
     let owner = world.owners.get(&owner_name).expect("owner").pubkey();
     let signer_kp = world.keypair_named(&signer_name);
-    let ix = build_revoke_ix(&owner, &signer_kp.pubkey());
+    let ix = build_revoke_sync_delegate_ix(&owner, &signer_kp.pubkey());
     world.send(&[signer_kp], ix);
-}
-
-// === close ===
-
-#[when(regex = r#""(.*)" closes the record"#)]
-fn when_close(world: &mut UserRegistryWorld, name: String) {
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    world
-        .balances
-        .insert(name.clone(), world.lamports_of(&owner));
-    let ix = build_close_ix(&owner);
-    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
-}
-
-#[when(regex = r#"^"(.*)" tries to close the record$"#)]
-fn when_close_fails(world: &mut UserRegistryWorld, name: String) {
-    when_close(world, name);
-}
-
-#[when(regex = r#"stranger "(.*)" tries to close the record of "(.*)""#)]
-fn when_stranger_close(
-    world: &mut UserRegistryWorld,
-    stranger_name: String,
-    owner_name: String,
-) {
-    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
-    let (victim_record, _bump) = user_record_pda(&owner);
-    let stranger = world
-        .strangers
-        .get(&stranger_name)
-        .expect("stranger")
-        .insecure_clone();
-    let ix = raw_close_ix(victim_record, stranger.pubkey());
-    world.send(&[stranger], ix);
 }
 
 // === then ===
@@ -509,11 +460,44 @@ fn then_sync_delegate_entries(
         )
     );
     assert_eq!(record.entries.len(), count);
-    // Active delegate: senders must see the latest entry's viewing key,
-    // not the static one.
+    let active_delegate = world
+        .sync_delegates
+        .get(&sync_delegate_name)
+        .expect("sync delegate")
+        .pubkey()
+        .to_bytes();
+    assert_eq!(
+        record.entries.last().expect("entry").delegate,
+        active_delegate,
+        "latest entry must record the active delegate"
+    );
     assert_eq!(
         record.sender_viewing_pubkey(),
         record.entries.last().expect("entry").viewing_pubkey
+    );
+}
+
+#[then(regex = r#""(.*)" entry (\d+) has sync delegate "(.*)""#)]
+fn then_entry_has_sync_delegate(
+    world: &mut UserRegistryWorld,
+    owner_name: String,
+    index: usize,
+    sync_delegate_name: String,
+) {
+    assert_no_error(world);
+    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
+    let record =
+        fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
+    let expected = world
+        .sync_delegates
+        .get(&sync_delegate_name)
+        .expect("sync delegate")
+        .pubkey()
+        .to_bytes();
+    assert_eq!(
+        record.entries[index].delegate,
+        expected,
+        "entry {index} delegate mismatch"
     );
 }
 
@@ -526,25 +510,6 @@ fn then_revoked(world: &mut UserRegistryWorld, owner_name: String, count: usize)
     assert!(record.sync_delegate.is_none());
     assert_eq!(record.entries.len(), count);
     assert_eq!(record.sender_viewing_pubkey(), record.viewing_pubkey);
-}
-
-#[then(regex = r#""(.*)" has no user record"#)]
-fn then_no_record(world: &mut UserRegistryWorld, name: String) {
-    assert_no_error(world);
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    let (pda, _) = user_record_pda(&owner);
-    assert!(world.svm.as_ref().expect("rig").get_account(&pda).is_none());
-}
-
-#[then(regex = r#""(.*)" received the rent refund"#)]
-fn then_rent_refunded(world: &mut UserRegistryWorld, name: String) {
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    let before = *world.balances.get(&name).expect("pre-close balance");
-    let after = world.lamports_of(&owner);
-    assert!(
-        after > before,
-        "owner balance must grow by the reclaimed rent: before={before} after={after}"
-    );
 }
 
 #[then("the transaction fails")]

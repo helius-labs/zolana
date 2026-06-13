@@ -15,8 +15,6 @@ pub enum UserRegistryError {
     UnauthorizedSigner,
     #[error("signer does not match the active sync delegate")]
     InvalidSyncDelegate,
-    #[error("record cannot be closed while sync delegate entries are non-empty")]
-    RecordNotEmpty,
     #[error("user record account does not match the expected PDA")]
     InvalidRecordPda,
     #[error("record owner does not match the owner account")]
@@ -36,7 +34,6 @@ impl UserRegistryError {
             Self::SyncDelegateNotSet => "SyncDelegateNotSet",
             Self::UnauthorizedSigner => "UnauthorizedSigner",
             Self::InvalidSyncDelegate => "InvalidSyncDelegate",
-            Self::RecordNotEmpty => "RecordNotEmpty",
             Self::InvalidRecordPda => "InvalidRecordPda",
             Self::OwnerMismatch => "OwnerMismatch",
             Self::InvalidRecordAccount => "InvalidRecordAccount",

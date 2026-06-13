@@ -3,7 +3,7 @@ pub mod error;
 pub mod instructions;
 pub mod log;
 pub mod processor;
-pub mod state;
+pub mod validation;
 
 pub use processor::process_instruction;
 

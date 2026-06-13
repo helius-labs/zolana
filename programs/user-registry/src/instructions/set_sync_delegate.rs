@@ -3,17 +3,19 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::user_registry::instruction::SetSyncDelegateData;
+use zolana_interface::user_registry::{
+    instruction::SetSyncDelegateData, SyncDelegateEntry, UserRecord,
+};
 
 use super::common::{
     check_record_pda_with_bump, check_system_program, grow_record, read_record, write_record,
 };
 use crate::{
     error::{fail, UserRegistryError},
-    state::{validate_p256_pubkey, SyncDelegateEntry, UserRecord},
+    validation::validate_p256_pubkey,
 };
 
-/// Appoints or replaces the sync delegate and appends a sync-delegate entry.
+/// Sets a sync delegate and appends a sync-delegate entry.
 pub fn process_set_sync_delegate(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -43,6 +45,7 @@ pub fn process_set_sync_delegate(
 
     state.sync_delegate = Some(data.sync_delegate);
     state.entries.push(SyncDelegateEntry {
+        delegate: data.sync_delegate,
         sync_pubkey: data.sync_pubkey,
         viewing_pubkey: data.viewing_pubkey,
         created_at: Clock::get()?.unix_timestamp,

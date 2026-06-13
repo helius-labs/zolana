@@ -61,6 +61,8 @@ Feature: User registry program
     And owner "alice" appoints sync delegate "bob"
     When owner "alice" appoints sync delegate "carol"
     Then "alice" has sync delegate "carol" with 2 entries
+    And "alice" entry 0 has sync delegate "bob"
+    And "alice" entry 1 has sync delegate "carol"
 
   Scenario: A stranger cannot appoint a sync delegate for another owner
     Given owner "alice" with p256 keys
@@ -75,7 +77,7 @@ Feature: User registry program
     When owner "alice" tries to appoint sync delegate "bob" with sync key prefix 0
     Then the transaction fails with "InvalidP256Prefix"
 
-  # === rotate_sync_delegate ===
+  # === rotate_sync_delegate_key ===
 
   Scenario: Sync delegate rotate appends without changing sync delegate address
     Given owner "alice" with p256 keys
@@ -83,6 +85,8 @@ Feature: User registry program
     And owner "alice" appoints sync delegate "bob"
     When sync delegate "bob" rotates keys for "alice"
     Then "alice" has sync delegate "bob" with 2 entries
+    And "alice" entry 0 has sync delegate "bob"
+    And "alice" entry 1 has sync delegate "bob"
 
   Scenario: Owner cannot rotate sync delegate keys
     Given owner "alice" with p256 keys
@@ -131,7 +135,7 @@ Feature: User registry program
     When sync delegate "bob" tries to rotate keys for "alice" with viewing key prefix 0
     Then the transaction fails with "InvalidP256Prefix"
 
-  # === revoke ===
+  # === revoke_sync_delegate ===
 
   Scenario: Revoke by the sync delegate clears it but keeps entries
     Given owner "alice" with p256 keys
@@ -139,6 +143,7 @@ Feature: User registry program
     And owner "alice" appoints sync delegate "bob"
     When "bob" revokes sync delegate for "alice"
     Then "alice" has no sync delegate and 1 entries
+    And "alice" entry 0 has sync delegate "bob"
 
   Scenario: Revoke by the owner clears the sync delegate
     Given owner "alice" with p256 keys
@@ -176,41 +181,3 @@ Feature: User registry program
     And "bob" revokes sync delegate for "alice"
     When owner "alice" appoints sync delegate "bob"
     Then "alice" has sync delegate "bob" with 2 entries
-
-  # === close ===
-
-  Scenario: Close succeeds before any sync delegate entry
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    When "alice" closes the record
-    Then "alice" has no user record
-    And "alice" received the rent refund
-
-  Scenario: Close fails after set_sync_delegate
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    And owner "alice" appoints sync delegate "bob"
-    When "alice" tries to close the record
-    Then the transaction fails with "RecordNotEmpty"
-
-  Scenario: Close fails even after revoke
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    And owner "alice" appoints sync delegate "bob"
-    And "bob" revokes sync delegate for "alice"
-    When "alice" tries to close the record
-    Then the transaction fails with "RecordNotEmpty"
-
-  Scenario: A stranger cannot close another owner's record
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    And a stranger "mallory"
-    When stranger "mallory" tries to close the record of "alice"
-    Then the transaction fails with "InvalidRecordPda"
-
-  Scenario: Re-register after close succeeds
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    When "alice" closes the record
-    And "alice" registers on-chain
-    Then "alice" has a user record with no sync delegate
