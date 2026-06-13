@@ -88,8 +88,8 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
 
-  test-scaffold:
-    name: tests / scaffold
+  test-shielded-pool:
+    name: tests / shielded-pool
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
@@ -97,7 +97,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: just test-scaffold
+      - run: just test-shielded-pool
 
   test-sdk-libs:
     name: tests / sdk-libs

@@ -499,15 +499,14 @@ impl PoolTestRig {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, RigError> {
-        let accounts = vec![
-            AccountMeta::new(tree.pubkey(), false),
-            AccountMeta::new(depositor.pubkey(), true),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(self.cpi_authority(), false),
-            AccountMeta::new(depositor.pubkey(), false),
-            AccountMeta::new_readonly(self.program_id, false),
-        ];
-        self.proofless_shield_with_accounts(accounts, depositor, data)
+        let ix = proofless_shield_sol_instruction(
+            self.program_id,
+            tree.pubkey(),
+            depositor.pubkey(),
+            self.cpi_authority(),
+            data,
+        );
+        self.send_proofless_shield_ix(ix, depositor)
     }
 
     /// SPL `proofless_shield`: the depositor signs and pays from `user_token`,
@@ -549,7 +548,14 @@ impl PoolTestRig {
             accounts,
             data: encoded,
         };
+        self.send_proofless_shield_ix(ix, depositor)
+    }
 
+    fn send_proofless_shield_ix(
+        &mut self,
+        ix: Instruction,
+        depositor: &Keypair,
+    ) -> Result<ProoflessShieldEvent, RigError> {
         let payer = self.payer.pubkey();
         let message = Message::new(&[ix], Some(&payer));
         let account_keys = message.account_keys.clone();
@@ -587,7 +593,7 @@ impl PoolTestRig {
 
     /// The zone program's `zone_auth` signer PDA and its bump.
     pub fn zone_auth_pda(&self) -> (Pubkey, u8) {
-        Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], &Self::zone_test_program_id())
+        zone_auth_pda(&Self::zone_test_program_id())
     }
 
     /// Load `zone_test_program.so` into the rig.
@@ -739,22 +745,15 @@ impl PoolTestRig {
         data: &ZoneProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, RigError> {
         let (zone_auth, _) = self.zone_auth_pda();
-        // The zone wrapper forwards these to the shielded pool and signs
-        // account 2 with its `zone_auth` seeds.
-        let accounts = vec![
-            AccountMeta::new(tree.pubkey(), false),
-            AccountMeta::new(depositor.pubkey(), true),
-            AccountMeta::new_readonly(zone_auth, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(self.cpi_authority(), false),
-            AccountMeta::new(depositor.pubkey(), false),
-            AccountMeta::new_readonly(self.program_id, false),
-        ];
-        let ix = Instruction {
-            program_id: Self::zone_test_program_id(),
-            accounts,
-            data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
-        };
+        let ix = zone_proofless_shield_sol_instruction(
+            self.program_id,
+            Self::zone_test_program_id(),
+            tree.pubkey(),
+            depositor.pubkey(),
+            zone_auth,
+            self.cpi_authority(),
+            data,
+        );
 
         let payer = self.payer.pubkey();
         let message = Message::new(&[ix], Some(&payer));
@@ -891,6 +890,55 @@ fn system_create_account_ix(
 /// litesvm loads the test-only zone wrapper program at this id.
 /// Any 32-byte value works; the program's `zone_auth` PDA derives from it.
 pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
+
+pub fn zone_auth_pda(zone_program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], zone_program_id)
+}
+
+pub fn proofless_shield_sol_instruction(
+    program_id: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    cpi_authority: Pubkey,
+    data: &ProoflessShieldIxData,
+) -> Instruction {
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(tree, false),
+            AccountMeta::new(depositor, true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(cpi_authority, false),
+            AccountMeta::new(depositor, false),
+            AccountMeta::new_readonly(program_id, false),
+        ],
+        data: encode_instruction(tag::PROOFLESS_SHIELD, data),
+    }
+}
+
+pub fn zone_proofless_shield_sol_instruction(
+    shielded_pool_program_id: Pubkey,
+    zone_program_id: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    zone_auth: Pubkey,
+    cpi_authority: Pubkey,
+    data: &ZoneProoflessShieldIxData,
+) -> Instruction {
+    Instruction {
+        program_id: zone_program_id,
+        accounts: vec![
+            AccountMeta::new(tree, false),
+            AccountMeta::new(depositor, true),
+            AccountMeta::new_readonly(zone_auth, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(cpi_authority, false),
+            AccountMeta::new(depositor, false),
+            AccountMeta::new_readonly(shielded_pool_program_id, false),
+        ],
+        data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
+    }
+}
 
 /// Default location of `zone_test_program.so`: `<workspace>/target/deploy/`,
 /// overridable via `ZONE_TEST_PROGRAM_PATH`.

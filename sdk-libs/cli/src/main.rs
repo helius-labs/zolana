@@ -21,9 +21,7 @@ const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 
 const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 
-// Programs auto-loaded into `zolana test-validator`. The shielded-pool program
-// will be added here once it has a stable program ID and a compiled .so on
-// the fixture release.
+// Programs auto-loaded into `zolana test-validator`.
 const SYSTEM_PROGRAMS: &[(&str, &str)] = &[(SPL_NOOP_ID, "spl_noop.so")];
 
 #[derive(Debug)]
@@ -474,14 +472,14 @@ fn program_file_path(name: &str) -> Result<PathBuf> {
         return Ok(target_candidate);
     }
 
-    if let Ok(cache) = fixtures_cache_dir() {
-        let cache_candidate = cache.join("bin").join(name);
-        if cache_candidate.exists() {
-            return Ok(cache_candidate);
+    for dir in fixture_dirs()? {
+        let candidate = dir.join("bin").join(name);
+        if candidate.exists() {
+            return Ok(candidate);
         }
     }
 
-    bail!("missing {name}; run `just fetch-fixtures` (or `just build-programs` for repo-built artifacts)")
+    bail!("missing {name}; run `just build-fixtures` with a fixture source tree, or set ZOLANA_FIXTURES_DIR")
 }
 
 fn accounts_dir() -> Result<PathBuf> {
@@ -492,14 +490,29 @@ fn accounts_dir() -> Result<PathBuf> {
         }
     }
 
-    if let Ok(cache) = fixtures_cache_dir() {
-        let path = cache.join("accounts");
+    for dir in fixture_dirs()? {
+        let path = dir.join("accounts");
         if path.exists() {
             return Ok(path);
         }
     }
 
-    bail!("missing account fixtures; run `just fetch-fixtures`")
+    bail!("missing account fixtures; run `just build-fixtures` with a fixture source tree, or set ZOLANA_FIXTURES_DIR")
+}
+
+fn fixture_dirs() -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+    if let Ok(dir) = env::var("ZOLANA_FIXTURES_DIR") {
+        dirs.push(PathBuf::from(dir));
+    }
+
+    dirs.push(project_root()?.join("target/fixtures/staging"));
+
+    if let Ok(cache) = fixtures_cache_dir() {
+        dirs.push(cache);
+    }
+
+    Ok(dirs)
 }
 
 fn fixtures_cache_dir() -> Result<PathBuf> {

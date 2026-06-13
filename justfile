@@ -7,6 +7,7 @@ surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 
 mod prover 'prover/server'
+mod forester 'forester'
 
 default:
     @just --list
@@ -36,11 +37,11 @@ check:
 check-all:
     cargo check --workspace --all-targets
 
-# Default test target. Tests the interface, shielded-pool program, SDKs, and Forester.
-test: test-scaffold test-sdk-libs test-forester
+# Default test target. Tests the shielded-pool implementation, SDKs, and Forester.
+test: test-shielded-pool test-sdk-libs test-forester
 
-# Cheap tests for the program/interface slice.
-test-scaffold:
+# Program/interface tests for the shielded-pool implementation.
+test-shielded-pool:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
@@ -60,6 +61,22 @@ test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
     cargo test -p zolana-program-test
 
+# Run one localnet test against a validator loaded with the real SBF programs.
+test-localnet test="localnet_proofless_shield":
+    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/localnet-test.sh run {{test}}
+
+test-localnet-proofless:
+    @just test-localnet localnet_proofless_shield
+
+start-localnet:
+    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/localnet-test.sh start
+
+stop-localnet:
+    ./tools/localnet-test.sh stop
+
+stop-localnet-proofless:
+    @just stop-localnet
+
 # Aggregate of all CI-runnable Rust tests.
 test-all: test test-litesvm
 
@@ -69,52 +86,40 @@ verify-rust: check test
 # Full verification for the reduced workspace.
 verify: verify-rust prover-server-test
 
-# === Local validator helpers ===
-
-check-zolana-cli:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ -n "${ZOLANA_CLI_CMD:-}" ]]; then
-        echo "Using ZOLANA_CLI_CMD=$ZOLANA_CLI_CMD"
-    elif [[ -n "${ZOLANA_CLI_BIN:-}" ]]; then
-        test -x "$ZOLANA_CLI_BIN"
-        echo "Using ZOLANA_CLI_BIN=$ZOLANA_CLI_BIN"
-    elif [[ -x target/debug/zolana ]]; then
-        echo "Using target/debug/zolana"
-    elif [[ -x target/release/zolana ]]; then
-        echo "Using target/release/zolana"
-    elif command -v zolana >/dev/null 2>&1; then
-        echo "Using zolana from PATH: $(command -v zolana)"
-    else
-        echo "zolana CLI not found. Run 'just build-zolana-cli', set ZOLANA_CLI_BIN, or set ZOLANA_CLI_CMD." >&2
-        exit 1
-    fi
+# === CLI and Fixtures ===
 
 build-zolana-cli:
     cargo build -p zolana-cli
 
-# Download and verify the pinned test-validator fixtures.
-fetch-fixtures:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tag=$(tr -d '[:space:]' < .fixtures-version)
-    cache_root="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}"
-    dest="${cache_root}/fixtures/${tag}"
-    if [[ -f "${dest}/SHA256SUMS" ]] && (cd "$dest" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); then
-        echo "fixtures ${tag} already cached at ${dest}"
-        exit 0
-    fi
-    rm -rf "$dest"
-    mkdir -p "$dest"
-    archive="zolana-fixtures.tar.gz"
-    url="https://github.com/helius-labs/zolana/releases/download/${tag}/${archive}"
-    tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
-    echo "fetching ${url}"
-    curl -sSfL "$url" -o "$tmp/${archive}"
-    tar -xzf "$tmp/${archive}" -C "$dest"
-    cd "$dest" && shasum -a 256 -c SHA256SUMS
-    echo "fixtures ${tag} ready at ${dest}"
+# Fetch pinned third-party SBF program artifacts.
+fetch-vendor-programs:
+    ./tools/fetch-vendor-programs.sh
+
+# Verify pinned third-party SBF program artifacts.
+verify-vendor-programs:
+    ./tools/verify-vendor-programs.sh
+
+# Build test-validator fixtures from an explicit source tree.
+build-fixtures: fetch-vendor-programs
+    ./tools/build-fixtures.sh
+
+# Build fixtures and package them for manual distribution.
+package-fixtures:
+    ./tools/package-fixtures.sh "${FIXTURES_DIR:-target/fixtures/staging}"
+
+# Verify the local fixture directory. Override with FIXTURES_DIR=/path.
+verify-fixtures:
+    ./tools/verify-fixtures.sh "${FIXTURES_DIR:-target/fixtures/staging}"
+
+# Install verified local fixtures into the user cache.
+install-fixtures:
+    ./tools/install-fixtures.sh "${FIXTURES_DIR:-target/fixtures/staging}"
+
+# Build local SBF programs and copy fixture programs into `target/deploy`.
+build-programs:
+    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
+
+# === Local validator helpers ===
 
 install-surfpool:
     #!/usr/bin/env bash
@@ -164,17 +169,6 @@ install-photon:
         rm -rf external/photon/target
     fi
 
-# Build local SBF programs and copy fixture programs into `target/deploy`.
-build-programs: fetch-fixtures
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
-    mkdir -p target/deploy
-    tag=$(tr -d '[:space:]' < .fixtures-version)
-    fixtures="${ZOLANA_CACHE_DIR:-$HOME/.cache/zolana}/fixtures/${tag}"
-    cp "${fixtures}/bin/spl_noop.so" target/deploy/spl_noop.so
-
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
@@ -200,17 +194,14 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    # Scoped to ./prover/... (skips the redis-dependent `server` package tests)
-    # and uses the upstream 60m timeout — TestCombined alone compiles ~672
-    # groth16 circuits and exceeds Go's default 10m.
+    # Skip Redis-backed server tests; TestCombined needs more than Go's default 10m timeout.
     go test ./prover/... -timeout 60m
 
+[private]
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
 
-# Smoke-tests the xtask by hashing a single proving key. CI doesn't have the
-# (gitignored, ~2.6GB) proving keys, so we skip cleanly when the directory is
-# missing or empty rather than failing the build.
+[private]
 xtask-create-verifying-keys-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -222,18 +213,7 @@ xtask-create-verifying-keys-smoke:
     fi
     cargo run -p xtask -- create-verifying-keys --limit 1
 
-# === Docs ===
-
-# Regenerate docs/api/README.md from docs/api/openapi.yaml. Requires python3 + PyYAML.
-gen-api-readme:
-    ./docs/api/generate-readme.sh
-
-# Build and open the OpenAPI HTML reference (Redoc). Requires npx.
-api-docs:
-    npx @redocly/cli build-docs docs/api/openapi.yaml -o /tmp/zolana-api-docs.html
-    open /tmp/zolana-api-docs.html
-
-# Re-render docs/diagrams/*.dot to PNG + SVG. Requires graphviz (`brew install graphviz`).
+[private]
 render-diagrams:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -247,11 +227,3 @@ render-diagrams:
         dot -Tsvg "$src" -o "${base}.svg"
         echo "rendered ${base}.png and ${base}.svg"
     done
-
-# === Maintenance ===
-
-metadata:
-    cargo metadata --format-version 1 --no-deps
-
-clean:
-    cargo clean
