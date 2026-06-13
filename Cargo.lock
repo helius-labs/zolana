@@ -2805,7 +2805,7 @@ version = "0.8.0"
 source = "git+https://github.com/helius-labs/privacy-program-libs?rev=eecd83af918f0935875612d716213952a50d7475#eecd83af918f0935875612d716213952a50d7475"
 dependencies = [
  "pinocchio 0.10.2",
- "pinocchio-system",
+ "pinocchio-system 0.5.0",
  "solana-account-info",
  "solana-address 2.6.0",
  "solana-cpi",
@@ -3658,6 +3658,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24044a0815753862b558e179e78f03f7344cb755de48617a09d7d23b50883b6c"
 dependencies = [
  "pinocchio 0.10.2",
+ "solana-address 2.6.0",
+]
+
+[[package]]
+name = "pinocchio-system"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3ae2ee67b42e2ac797dd88312da473c895660e270d8093e0ba2749b885b5778"
+dependencies = [
+ "pinocchio 0.11.1",
  "solana-address 2.6.0",
 ]
 
@@ -4607,6 +4617,7 @@ dependencies = [
  "light-sparse-merkle-tree",
  "light-verifier",
  "pinocchio 0.11.1",
+ "pinocchio-system 0.6.1",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "zolana-interface",
@@ -8387,6 +8398,14 @@ dependencies = [
  "tokio",
  "wincode",
  "zolana-keypair",
+]
+
+[[package]]
+name = "zone-test-program"
+version = "0.1.0"
+dependencies = [
+ "solana-program 4.0.0",
+ "zolana-interface",
 ]
 
 [[package]]
