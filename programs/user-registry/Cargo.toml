@@ -20,6 +20,7 @@ test-sbf = []
 borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 solana-address = { version = "2.6", features = ["curve25519"] }
+solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 
