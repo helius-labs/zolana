@@ -9,6 +9,8 @@ import (
 	"light/light-prover/logging"
 	"light/light-prover/prover/common"
 	"light/light-prover/prover/nullifier_tree"
+	"light/light-prover/prover/transfer"
+	transfereddsaonly "light/light-prover/prover/transfer_eddsa_only"
 	"net/http"
 	"strings"
 	"time"
@@ -1133,6 +1135,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
 	default:
+		// Includes transfer / transfer-eddsa (single proof, 1-3 seconds).
 		return "1-3 seconds"
 	}
 }
@@ -1152,6 +1155,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.BatchAddressAppendCircuitType:
 		return 30
 	default:
+		// Includes transfer / transfer-eddsa (single proof, ~1-3 seconds).
 		return 1
 	}
 }
@@ -1165,6 +1169,10 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
+	case common.TransferCircuitType:
+		return handler.transferProof(buf)
+	case common.TransferEddsaCircuitType:
+		return handler.transferEddsaProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1188,6 +1196,48 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	}
 
 	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
+	var params transfer.TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetTransferSystem(common.TransferCircuitType, params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("transfer: %w", err))
+	}
+
+	proof, err := transfer.ProveTransfer(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetTransferSystem(common.TransferEddsaCircuitType, params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
+	}
+
+	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
