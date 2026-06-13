@@ -1,7 +1,4 @@
-//! Test-only policy-zone wrapper.
-//!
-//! It forwards selected SPP instruction bytes and signs with this program's
-//! `zone_auth` PDA, letting integration tests exercise zone signer validation.
+//! Test policy-zone program for litesvm.
 
 use solana_program::{
     account_info::AccountInfo,
@@ -60,10 +57,7 @@ fn process_create_zone_config(
     if *accounts[CREATE_ZONE_AUTH].key != zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
-    let shielded_pool = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    if *accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].key != shielded_pool {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    let shielded_pool = checked_shielded_pool(accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].key)?;
 
     let ix = Instruction {
         program_id: shielded_pool,
@@ -87,13 +81,10 @@ fn process_zone_proofless_shield(
         .get(..FORWARDED_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let (zone_auth, bump) = Pubkey::find_program_address(&[ZONE_AUTH_SEED], program_id);
-    let shielded_pool = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     if *accounts[ZONE_AUTH].key != zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
-    if *accounts[SHIELDED_POOL_PROGRAM].key != shielded_pool {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    let shielded_pool = checked_shielded_pool(accounts[SHIELDED_POOL_PROGRAM].key)?;
 
     let metas = vec![
         AccountMeta::new(*accounts[TREE].key, false),
@@ -110,4 +101,12 @@ fn process_zone_proofless_shield(
         data: data.to_vec(),
     };
     invoke_signed(&ix, accounts, &[&[ZONE_AUTH_SEED, &[bump]]])
+}
+
+fn checked_shielded_pool(account: &Pubkey) -> Result<Pubkey, ProgramError> {
+    let shielded_pool = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    if account != &shielded_pool {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    Ok(shielded_pool)
 }

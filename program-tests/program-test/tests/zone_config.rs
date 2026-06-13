@@ -1,7 +1,4 @@
-//! zone-config admin coverage (spec tags 9-11).
-//!
-//! `create_zone_config` must be driven through the zone wrapper because SPP
-//! requires the zone program's `zone_auth` PDA to sign.
+//! Zone-config admin coverage.
 
 mod common;
 
@@ -12,12 +9,22 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{encode_instruction, tag, CreateZoneConfigData},
-    state::{discriminator::ZONE_CONFIG, ZONE_CONFIG_ACCOUNT_LEN},
+    state::{
+        discriminator::ZONE_CONFIG, CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET,
+        ZONE_CONFIG_ACCOUNT_LEN, ZONE_CONFIG_BUMP_OFFSET, ZONE_CONFIG_ENABLED_OFFSET,
+    },
 };
 use zolana_program_test::{RigError, ZONE_TEST_PROGRAM_ID};
 
 const UNAUTHORIZED_CALLER: u32 = 3;
 const INVALID_ZONE_CONFIG: u32 = 14;
+
+#[derive(Debug, PartialEq, Eq)]
+struct ZoneConfigState {
+    authority: Pubkey,
+    zone_authority_transact_is_enabled: bool,
+    bump: u8,
+}
 
 #[test]
 fn create_and_update_zone_config() {
@@ -37,28 +44,29 @@ fn create_and_update_zone_config() {
         .create_zone_config(&payer, &authority.pubkey(), true)
         .expect("create_zone_config");
 
-    let bytes = rig.account_data(&zone_config).expect("zone config exists");
-    assert_eq!(bytes.len(), ZONE_CONFIG_ACCOUNT_LEN);
-    assert_eq!(bytes[0], ZONE_CONFIG);
-    assert_eq!(&bytes[8..40], authority.pubkey().as_ref());
-    assert_eq!(bytes[40], 1);
+    let state = read_zone_config(&rig.account_data(&zone_config).expect("zone config exists"));
     assert_eq!(
-        bytes[41],
-        rig.zone_config_pda(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID))
-            .1
+        state,
+        ZoneConfigState {
+            authority: authority.pubkey(),
+            zone_authority_transact_is_enabled: true,
+            bump: rig
+                .zone_config_pda(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID))
+                .1,
+        }
     );
 
     rig.update_zone_config(&authority, &zone_config, false)
         .expect("disable zone authority transact");
-    let bytes = rig.account_data(&zone_config).expect("zone config exists");
-    assert_eq!(&bytes[8..40], authority.pubkey().as_ref());
-    assert_eq!(bytes[40], 0);
+    let state = read_zone_config(&rig.account_data(&zone_config).expect("zone config exists"));
+    assert_eq!(state.authority, authority.pubkey());
+    assert!(!state.zone_authority_transact_is_enabled);
 
     let next = Keypair::new();
     rig.update_zone_config_owner(&authority, &zone_config, &next.pubkey())
         .expect("rotate owner");
-    let bytes = rig.account_data(&zone_config).expect("zone config exists");
-    assert_eq!(&bytes[8..40], next.pubkey().as_ref());
+    let state = read_zone_config(&rig.account_data(&zone_config).expect("zone config exists"));
+    assert_eq!(state.authority, next.pubkey());
 
     let err = rig
         .update_zone_config(&authority, &zone_config, true)
@@ -66,6 +74,20 @@ fn create_and_update_zone_config() {
     assert_custom(err, UNAUTHORIZED_CALLER);
     rig.update_zone_config(&next, &zone_config, true)
         .expect("new owner can update");
+}
+
+fn read_zone_config(bytes: &[u8]) -> ZoneConfigState {
+    assert_eq!(bytes.len(), ZONE_CONFIG_ACCOUNT_LEN);
+    assert_eq!(bytes[0], ZONE_CONFIG);
+
+    let authority: [u8; 32] = bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
+        .try_into()
+        .expect("authority field");
+    ZoneConfigState {
+        authority: Pubkey::new_from_array(authority),
+        zone_authority_transact_is_enabled: bytes[ZONE_CONFIG_ENABLED_OFFSET] != 0,
+        bump: bytes[ZONE_CONFIG_BUMP_OFFSET],
+    }
 }
 
 #[test]

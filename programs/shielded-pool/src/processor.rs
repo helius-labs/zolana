@@ -22,12 +22,6 @@ use crate::{
     },
 };
 
-/// Table-driven instruction dispatch.
-///
-/// Every arm shares the same shape — borsh-decode the payload into the
-/// instruction's data type (mapping a decode failure to InvalidInstructionData)
-/// and call its handler — so express it once here instead of repeating it per
-/// instruction. Unknown/reserved tags fall through to InvalidInstructionData.
 macro_rules! dispatch {
     (
         $tag:expr, $payload:expr, $program_id:expr, $accounts:expr,
@@ -55,9 +49,6 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
-    // emit_event (spec tag 14): a no-op carrying event bytes; reached only by
-    // self-CPI. Indexers authenticate events as inner instructions invoked by
-    // this program, so the handler validates nothing and mutates nothing.
     if *ix_tag == tag::EMIT_EVENT {
         return Ok(());
     }

@@ -1,9 +1,5 @@
 //! First-byte instruction dispatch tags for the shielded-pool program.
-//!
-//! Tag values are the on-chain instruction encoding and MUST stay stable. They
-//! follow the SPP spec's instruction table.
 
-// === Implemented instructions (have a handler in the program dispatch) ===
 pub const TRANSACT: u8 = 0;
 pub const PROOFLESS_SHIELD: u8 = 1;
 pub const CREATE_SPL_INTERFACE: u8 = 4;
@@ -14,23 +10,10 @@ pub const PAUSE_TREE: u8 = 8;
 pub const CREATE_ZONE_CONFIG: u8 = 9;
 pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
 pub const UPDATE_ZONE_CONFIG: u8 = 11;
-/// No-op carrying event bytes in instruction data; SPP self-CPI only.
-/// Indexers authenticate events by taking only inner `emit_event`
-/// instructions invoked by the shielded-pool program itself.
 pub const EMIT_EVENT: u8 = 14;
-/// Policy-zone analog of `proofless_shield`: public deposit creating a
-/// zone-owned UTXO, authorized by the zone program's `zone_auth` signer.
 pub const ZONE_PROOFLESS_SHIELD: u8 = 15;
 
-/// Spec-reserved instruction tags that have **no handler** in the program.
-///
-/// These values are reserved by the SPP spec but are not dispatchable: the
-/// program rejects them with `InvalidInstructionData` exactly like any unknown
-/// byte, and there are no instruction-data types for them. They live in this
-/// separate `reserved` namespace — rather than alongside the crate-level `tag::`
-/// constants — so the top-level tag surface is exactly the shipped,
-/// dispatchable instruction set. These only reserve their tag numbers so a
-/// future implementation keeps the numbering stable.
+/// Spec-reserved tags without handlers in this program version.
 pub mod reserved {
     pub const ZONE_TRANSACT: u8 = 2;
     pub const ZONE_AUTHORITY_TRANSACT: u8 = 3;
@@ -38,17 +21,9 @@ pub mod reserved {
     pub const ZONE_MERGE_TRANSACT: u8 = 13;
 }
 
-// === Forester tree maintenance ===
-// Outside the SPP spec dispatch table; intentionally above the reserved
-// proof/zone tag range so it never collides with spec tags.
 pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 
-/// Typed view of an *implemented* instruction tag.
-///
-/// Reserved-but-unimplemented spec tags (ZONE_TRANSACT, MERGE_*) are
-/// deliberately not variants: they have no handler, so `try_from` returns `Err`
-/// for them exactly like any unknown byte. This keeps the public surface to
-/// what the program can actually dispatch.
+/// Dispatchable instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {

@@ -11,8 +11,10 @@ use zolana_interface::{
     },
     state::{
         discriminator::{PROTOCOL_CONFIG, ZONE_CONFIG},
-        PROTOCOL_CONFIG_ACCOUNT_LEN, PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
-        ZONE_CONFIG_ACCOUNT_LEN,
+        CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET, PROTOCOL_CONFIG_ACCOUNT_LEN,
+        PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES, PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET,
+        PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET, ZONE_CONFIG_ACCOUNT_LEN,
+        ZONE_CONFIG_BUMP_OFFSET, ZONE_CONFIG_ENABLED_OFFSET,
     },
     SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
 };
@@ -27,7 +29,6 @@ pub fn process_create_protocol_config(
     accounts: &mut [AccountView],
     data: CreateProtocolConfigData,
 ) -> ProgramResult {
-    // [authority(signer+payer), protocol_config(PDA, created here), system_program].
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
@@ -39,15 +40,11 @@ pub fn process_create_protocol_config(
     if !authority.is_signer() || !config.is_writable() {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
-    // The creator names the initial authority and must sign as it.
     if !authority_matches(authority, &data.authority) {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     validate_merge_authorities(&data.merge_authorities)?;
 
-    // The config is the singleton authority oracle, so it lives at a canonical
-    // PDA the program creates itself — a caller can't substitute a config that
-    // names a different authority.
     let (expected, bump) = protocol_config_pda(program_id)?;
     if *config.address() != expected {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
@@ -108,7 +105,6 @@ pub fn process_create_zone_config(
     accounts: &mut [AccountView],
     data: CreateZoneConfigData,
 ) -> ProgramResult {
-    // [payer(signer), zone_config(PDA), zone_auth(signer), system_program].
     if accounts.len() < 4 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
@@ -199,7 +195,6 @@ struct ZoneConfigState {
     zone_config_bump: u8,
 }
 
-/// Canonical protocol-config PDA + bump: `[SPP_PROTOCOL_CONFIG_PDA_SEED]`.
 fn protocol_config_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {
     Address::derive_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], program_id)
         .ok_or_else(|| ShieldedPoolError::InvalidProtocolConfig.into())
@@ -219,24 +214,16 @@ fn create_config_pda(
     program_id: &Address,
     bump: u8,
 ) -> ProgramResult {
-    if config.data_len() != 0 {
-        // The singleton already exists; do not reinitialize it.
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
     let bump = [bump];
-    let space = PROTOCOL_CONFIG_ACCOUNT_LEN as u64;
-    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
     let seeds = [Seed::from(SPP_PROTOCOL_CONFIG_PDA_SEED), Seed::from(&bump)];
-    let signer = Signer::from(&seeds);
-    pinocchio_system::instructions::CreateAccount {
-        from: payer,
-        to: config,
-        lamports,
-        space,
-        owner: program_id,
-    }
-    .invoke_signed(core::slice::from_ref(&signer))
-    .map_err(|_| ShieldedPoolError::InvalidProtocolConfig.into())
+    create_pda(
+        payer,
+        config,
+        program_id,
+        PROTOCOL_CONFIG_ACCOUNT_LEN,
+        &seeds,
+        ShieldedPoolError::InvalidProtocolConfig,
+    )
 }
 
 fn create_zone_config_pda(
@@ -246,27 +233,45 @@ fn create_zone_config_pda(
     policy_program_id: &[u8; 32],
     bump: u8,
 ) -> ProgramResult {
-    if config.data_len() != 0 {
-        return Err(ShieldedPoolError::InvalidZoneConfig.into());
-    }
     let bump = [bump];
-    let space = ZONE_CONFIG_ACCOUNT_LEN as u64;
-    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
     let seeds = [
         Seed::from(SPP_ZONE_CONFIG_PDA_SEED),
         Seed::from(policy_program_id.as_slice()),
         Seed::from(&bump),
     ];
-    let signer = Signer::from(&seeds);
+    create_pda(
+        payer,
+        config,
+        program_id,
+        ZONE_CONFIG_ACCOUNT_LEN,
+        &seeds,
+        ShieldedPoolError::InvalidZoneConfig,
+    )
+}
+
+fn create_pda(
+    payer: &AccountView,
+    account: &AccountView,
+    program_id: &Address,
+    space: usize,
+    seeds: &[Seed],
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    if account.data_len() != 0 {
+        return Err(error.into());
+    }
+    let space = space as u64;
+    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
+    let signer = Signer::from(seeds);
     pinocchio_system::instructions::CreateAccount {
         from: payer,
-        to: config,
+        to: account,
         lamports,
         space,
         owner: program_id,
     }
     .invoke_signed(core::slice::from_ref(&signer))
-    .map_err(|_| ShieldedPoolError::InvalidZoneConfig.into())
+    .map_err(|_| error.into())
 }
 
 fn load_authority_and_config<'a>(
@@ -314,8 +319,6 @@ pub fn read_protocol_config(
     program_id: &Address,
     account: &AccountView,
 ) -> Result<ProtocolConfigState, ProgramError> {
-    // Pin the authority oracle to the canonical PDA: a substituted config that
-    // names a different authority is rejected here, wherever the config is read.
     let (expected, _) = protocol_config_pda(program_id)?;
     if *account.address() != expected
         || !account.owned_by(program_id)
@@ -329,11 +332,9 @@ pub fn read_protocol_config(
     if bytes[0] != PROTOCOL_CONFIG {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
-    let mut authority = [0u8; 32];
-    authority.copy_from_slice(&bytes[8..40]);
     let merge_authorities = read_merge_authorities(&bytes)?;
     Ok(ProtocolConfigState {
-        authority,
+        authority: read_authority(&bytes),
         merge_authorities,
     })
 }
@@ -346,10 +347,11 @@ fn write_protocol_config(
     validate_merge_authorities(merge_authorities)?;
     bytes[..PROTOCOL_CONFIG_ACCOUNT_LEN].fill(0);
     bytes[0] = PROTOCOL_CONFIG;
-    bytes[8..40].copy_from_slice(authority);
-    bytes[40..48].copy_from_slice(&(merge_authorities.len() as u64).to_le_bytes());
+    authority_bytes_mut(bytes).copy_from_slice(authority);
+    bytes[PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET..PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET]
+        .copy_from_slice(&(merge_authorities.len() as u64).to_le_bytes());
     for (index, authority) in merge_authorities.iter().enumerate() {
-        let offset = 48 + index * 32;
+        let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + index * 32;
         bytes[offset..offset + 32].copy_from_slice(authority);
     }
     Ok(())
@@ -365,12 +367,10 @@ fn read_zone_config(account: &AccountView) -> Result<ZoneConfigState, ProgramErr
     if bytes[0] != ZONE_CONFIG {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
-    let mut authority = [0u8; 32];
-    authority.copy_from_slice(&bytes[8..40]);
     Ok(ZoneConfigState {
-        authority,
-        zone_authority_transact_is_enabled: bytes[40] != 0,
-        zone_config_bump: bytes[41],
+        authority: read_authority(&bytes),
+        zone_authority_transact_is_enabled: bytes[ZONE_CONFIG_ENABLED_OFFSET] != 0,
+        zone_config_bump: bytes[ZONE_CONFIG_BUMP_OFFSET],
     })
 }
 
@@ -385,9 +385,9 @@ fn write_zone_config(
     }
     bytes[..ZONE_CONFIG_ACCOUNT_LEN].fill(0);
     bytes[0] = ZONE_CONFIG;
-    bytes[8..40].copy_from_slice(authority);
-    bytes[40] = u8::from(zone_authority_transact_is_enabled);
-    bytes[41] = zone_config_bump;
+    authority_bytes_mut(bytes).copy_from_slice(authority);
+    bytes[ZONE_CONFIG_ENABLED_OFFSET] = u8::from(zone_authority_transact_is_enabled);
+    bytes[ZONE_CONFIG_BUMP_OFFSET] = zone_config_bump;
     Ok(())
 }
 
@@ -433,7 +433,10 @@ fn validate_merge_authorities(merge_authorities: &[[u8; 32]]) -> Result<(), Prog
 
 fn read_merge_authorities(bytes: &[u8]) -> Result<Vec<[u8; 32]>, ProgramError> {
     let mut count = [0u8; 8];
-    count.copy_from_slice(&bytes[40..48]);
+    count.copy_from_slice(
+        &bytes[PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET
+            ..PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET],
+    );
     let count = u64::from_le_bytes(count) as usize;
     if count > PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
@@ -441,12 +444,28 @@ fn read_merge_authorities(bytes: &[u8]) -> Result<Vec<[u8; 32]>, ProgramError> {
 
     let mut authorities = Vec::with_capacity(count);
     for index in 0..count {
-        let offset = 48 + index * 32;
-        let mut authority = [0u8; 32];
-        authority.copy_from_slice(&bytes[offset..offset + 32]);
-        authorities.push(authority);
+        let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + index * 32;
+        authorities.push(read_pubkey_bytes(&bytes[offset..offset + 32]));
     }
     Ok(authorities)
+}
+
+fn read_authority(bytes: &[u8]) -> [u8; 32] {
+    read_pubkey_bytes(authority_bytes(bytes))
+}
+
+fn read_pubkey_bytes(bytes: &[u8]) -> [u8; 32] {
+    let mut value = [0u8; 32];
+    value.copy_from_slice(bytes);
+    value
+}
+
+fn authority_bytes(bytes: &[u8]) -> &[u8] {
+    &bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
+}
+
+fn authority_bytes_mut(bytes: &mut [u8]) -> &mut [u8] {
+    &mut bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
 }
 
 fn authority_matches(account: &AccountView, authority: &[u8; 32]) -> bool {
