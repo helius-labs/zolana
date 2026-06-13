@@ -16,16 +16,18 @@ test-sbf = []
 
 [dependencies]
 borsh = { workspace = true }
-light-batched-merkle-tree = { workspace = true, features = ["pinocchio"] }
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
 light-verifier = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon"] }
+light-hasher = { workspace = true, features = ["keccak", "poseidon"] }
+pinocchio-system = { workspace = true }
 light-sparse-merkle-tree = { workspace = true }
 pinocchio = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 
 [dev-dependencies]
-solana-pubkey = { workspace = true }
+# curve25519: off-chain PDA derivation in tests needs the on-curve check.
+solana-pubkey = { workspace = true, features = ["curve25519"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

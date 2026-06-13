@@ -4,7 +4,31 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 
+[features]
+default = []
+localnet = [
+    "dep:solana-commitment-config",
+    "dep:solana-rpc-client",
+    "dep:solana-signature",
+]
+
 [dependencies]
-pinocchio = "0.10"
 shielded-pool-program = { workspace = true }
+solana-commitment-config = { workspace = true, optional = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true, optional = true }
+solana-signature = { workspace = true, optional = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[[test]]
+name = "localnet_proofless_shield"
+path = "tests/localnet_proofless_shield.rs"
+required-features = ["localnet"]

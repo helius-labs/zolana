@@ -1,0 +1,83 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use super::transact::CpiSignerData;
+
+/// Public deposit without a proof (spec: `proofless_shield`, tag 1).
+///
+/// The program hashes the recipient's UTXO from these fields plus the settled
+/// deposit amount/asset, appends the hash to the UTXO tree, and emits a
+/// [`ProoflessShieldEvent`] for indexing. The owner is committed as
+/// `owner_utxo_hash = Poseidon(owner, blinding)` with the blinding derived
+/// from the recipient's view-tag secret and `salt` (spec: Blinding
+/// derivation), so the recipient is hidden even though the deposit is public.
+/// The amount is taken from the actual public deposit, so a depositor cannot
+/// mint a UTXO worth more than they deposited.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ProoflessShieldIxData {
+    /// Indexing tag for the single output slot; chosen per the spec's View
+    /// Tag Selection.
+    pub view_tag: [u8; 32],
+    /// `owner_utxo_hash = Poseidon(owner, blinding)`. Opaque to the program —
+    /// it hides the recipient. A malformed value just yields an unspendable
+    /// UTXO (the depositor's loss only).
+    pub owner_utxo_hash: [u8; 32],
+    /// Fresh CSPRNG per deposit; the recipient re-derives `blinding` from it
+    /// (spec: Blinding derivation).
+    pub salt: [u8; 16],
+    /// `Some` for a SOL deposit. Exactly one of the two amounts is set.
+    pub public_sol_amount: Option<u64>,
+    /// `Some` for an SPL deposit.
+    pub public_spl_amount: Option<u64>,
+    /// Program-defined data hash; requires `cpi_signer`.
+    pub program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    pub program_data: Option<Vec<u8>>,
+    /// Invoking program PDA (general program owner, seed `auth`); see
+    /// `transact`. Policy-zone deposits use [`ZoneProoflessShieldIxData`].
+    pub cpi_signer: Option<CpiSignerData>,
+}
+
+/// Policy-zone analog of [`ProoflessShieldIxData`] (spec:
+/// `zone_proofless_shield`, tag 15). A zone program CPIs into SPP signing with
+/// its `zone_auth` PDA (seed `zone_auth`); the created UTXO is owned by the
+/// zone and additionally carries the zone's `policy_data`.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ZoneProoflessShieldIxData {
+    /// As in [`ProoflessShieldIxData`].
+    pub view_tag: [u8; 32],
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub public_sol_amount: Option<u64>,
+    pub public_spl_amount: Option<u64>,
+    /// Calling zone program; `zone_auth` is re-derived from it (seed `zone_auth`).
+    pub cpi_signer: CpiSignerData,
+    /// Zone-defined policy data hash.
+    pub policy_data_hash: Option<[u8; 32]>,
+    /// Preimage of `policy_data_hash`.
+    pub zone_data: Option<Vec<u8>>,
+    /// Program-defined data hash.
+    pub program_data_hash: Option<[u8; 32]>,
+    /// Preimage of `program_data_hash`.
+    pub program_data: Option<Vec<u8>>,
+}
+
+/// Event emitted via [`tag::EMIT_EVENT`](crate::instruction::tag::EMIT_EVENT)
+/// self-CPI after a `proofless_shield`. It lets an indexer index the created
+/// UTXO: the utxo hash and the mint address do not exist in the instruction
+/// data.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ProoflessShieldEvent {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    /// Deposited mint; reaches the instruction via accounts only.
+    pub asset: [u8; 32],
+    pub amount: u64,
+    /// From `cpi_signer`.
+    pub zone_program_id: Option<[u8; 32]>,
+    pub policy_data_hash: Option<[u8; 32]>,
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub program_data_hash: Option<[u8; 32]>,
+    pub program_data: Option<Vec<u8>>,
+    pub zone_data: Option<Vec<u8>>,
+}

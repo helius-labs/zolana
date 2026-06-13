@@ -1,5 +1,9 @@
-pub mod append_state_leaves;
-pub mod batch_update_address_tree;
-pub mod create_pool_tree;
-pub mod insert_addresses;
+pub(crate) mod accounts;
+pub mod batch_update_nullifier_tree;
+pub mod create_spl_interface;
+pub mod create_tree;
+pub(crate) mod hash;
 pub mod loader;
+pub mod proofless_shield;
+pub mod protocol_config;
+pub(crate) mod settlement;
