@@ -6,8 +6,9 @@
 |---|---|
 | `programs/` | On-chain SPP programs, including `shielded-pool` |
 | `program-libs/` | Shared Rust interface crate |
-| `program-tests/` | LitesVM rigs and test-only SBF fixtures |
-| `sdk-libs/` | Rust SDK crates (`cli`, `keypair`, `photon-api`, `transaction`) |
+| `program-tests/` | Internal test crates and test-only SBF programs |
+| `sdk-libs/` | Rust SDK crates (`keypair`, `photon-api`, `program-test`, `transaction`) |
+| `cli/` | Zolana developer and operator CLI |
 | `forester/` | Off-chain nullifier-tree maintenance skeleton |
 | `prover/` | Go prover server + Rust prover client |
 | `xtask/` | Workspace dev tooling |

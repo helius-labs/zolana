@@ -4815,15 +4815,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shielded-pool-tests"
-version = "0.1.0"
-dependencies = [
- "pinocchio 0.11.1",
- "shielded-pool-program",
- "zolana-interface",
-]
-
-[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8439,6 +8430,7 @@ name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "serde_json",
 ]
 
@@ -8447,6 +8439,7 @@ name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "light-batched-merkle-tree",
  "solana-instruction",
  "solana-pubkey 4.2.0",
 ]

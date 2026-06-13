@@ -10,5 +10,6 @@ solana = ["dep:solana-instruction", "dep:solana-pubkey"]
 
 [dependencies]
 borsh = { workspace = true }
+light-batched-merkle-tree = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true, optional = true }

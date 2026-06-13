@@ -1,15 +1,14 @@
 [workspace]
 members = [
     "program-libs/interface",
-    "program-tests/program-test",
-    "program-tests/shielded-pool",
     "programs/shielded-pool",
     "program-tests/zone-test-program",
     "forester",
     "prover/client",
-    "sdk-libs/cli",
+    "cli",
     "sdk-libs/keypair",
     "sdk-libs/photon-api",
+    "sdk-libs/program-test",
     "sdk-libs/transaction",
     "xtask",
 ]
@@ -28,6 +27,7 @@ edition = "2021"
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
+zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 photon-api = { path = "sdk-libs/photon-api", version = "0.56.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
@@ -60,6 +60,7 @@ pinocchio-system = "0.6.0"
 
 # Async, HTTP, logging, and utilities.
 anyhow = "1.0"
+clap = { version = "4.5.53", features = ["derive", "env"] }
 hex = "0.4"
 litesvm = "0.12"
 num-bigint = "0.4.6"

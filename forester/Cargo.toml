@@ -8,7 +8,7 @@ publish = false
 default = []
 
 [dependencies]
-clap = { version = "4.5.53", features = ["derive", "env"] }
+clap = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

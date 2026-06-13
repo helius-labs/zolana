@@ -10,8 +10,7 @@
 
 use light_hasher::Poseidon;
 use light_sparse_merkle_tree::SparseMerkleTree;
-use shielded_pool_program::instructions::create_tree::init::STATE_HEIGHT;
-use zolana_interface::instruction::ProoflessShieldEvent;
+use zolana_interface::{instruction::ProoflessShieldEvent, state::STATE_HEIGHT};
 use zolana_transaction::{Address, TransactionError, Utxo};
 
 /// One deposited UTXO as an indexer sees it: the event fields plus its

@@ -1,11 +1,15 @@
 use borsh::BorshDeserialize;
-use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{
-    create_zone_config, encode_instruction, tag, BatchUpdateNullifierTreeData,
-    CreateProtocolConfigData, CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData,
-    InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData,
-    UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
+    encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
+    CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData, InputUtxoSignerIndex,
+    InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
 };
+
+#[cfg(feature = "solana")]
+use solana_pubkey::Pubkey;
+#[cfg(feature = "solana")]
+use zolana_interface::instruction::create_zone_config;
 
 #[test]
 fn create_tree_roundtrip() {
@@ -156,6 +160,7 @@ fn zone_config_update_roundtrips() {
 }
 
 #[test]
+#[cfg(feature = "solana")]
 fn create_zone_config_builder_account_layout() {
     let payer = Pubkey::new_unique();
     let config = Pubkey::new_unique();

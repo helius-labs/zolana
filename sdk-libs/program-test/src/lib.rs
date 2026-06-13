@@ -31,6 +31,7 @@ use zolana_interface::{
         ProoflessShieldIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
         UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
     },
+    state::state_root_offset,
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
     SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
@@ -806,7 +807,7 @@ impl PoolTestRig {
     /// The on-chain state sub-tree root of a pool tree account.
     pub fn state_root(&self, tree: &Pubkey) -> Option<[u8; 32]> {
         let data = self.account_data(tree)?;
-        let offset = shielded_pool_program::instructions::create_tree::init::state_root_offset();
+        let offset = state_root_offset();
         let slice = data.get(offset..offset + 32)?;
         let mut root = [0u8; 32];
         root.copy_from_slice(slice);
@@ -959,7 +960,7 @@ fn default_program_path() -> PathBuf {
     if let Ok(p) = std::env::var("SHIELDED_POOL_PROGRAM_PATH") {
         return PathBuf::from(p);
     }
-    // CARGO_MANIFEST_DIR points at program-tests/program-test at build time; the
+    // CARGO_MANIFEST_DIR points at sdk-libs/program-test at build time; the
     // workspace root is two levels up.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest_dir)

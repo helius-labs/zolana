@@ -5,6 +5,11 @@ export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
+localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", "8899")
+localnet-faucet-port := env_var_or_default("ZOLANA_LOCALNET_FAUCET_PORT", "9900")
+localnet-state-dir := env_var_or_default("ZOLANA_LOCALNET_STATE_DIR", "target/localnet")
+shielded-pool-program-id := "S7exd9VLhvwVWK9wqRGQrg87616fGnyYEvrsuA1D2LG"
+zone-test-program-id := "9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz"
 
 mod prover 'prover/server'
 mod forester 'forester'
@@ -44,7 +49,6 @@ test: test-shielded-pool test-sdk-libs test-forester
 test-shielded-pool:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
-    cargo test -p shielded-pool-tests
 
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:
@@ -56,23 +60,42 @@ test-forester:
     cargo test -p forester
 
 # End-to-end litesvm tests for shielded-pool.
-test-litesvm:
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
+test-litesvm: build-program-test-sbf
     cargo test -p zolana-program-test
 
+[private]
+build-program-test-sbf:
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
+
 # Run one localnet test against a validator loaded with the real SBF programs.
-test-localnet test="localnet_proofless_shield":
-    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/localnet-test.sh run {{test}}
+test-localnet test="localnet_proofless_shield": start-localnet-validator
+    @echo "localnet rpc: http://127.0.0.1:{{localnet-rpc-port}}"
+    ZOLANA_LOCALNET_URL="http://127.0.0.1:{{localnet-rpc-port}}" cargo test -p zolana-program-test --features localnet --test {{test}} -- --nocapture
 
 test-localnet-proofless:
     @just test-localnet localnet_proofless_shield
 
-start-localnet:
-    SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/localnet-test.sh start
+start-localnet: start-localnet-validator
+    @echo "localnet rpc: http://127.0.0.1:{{localnet-rpc-port}}"
+
+[private]
+start-localnet-validator: build-program-test-sbf
+    mkdir -p "{{localnet-state-dir}}"
+    cargo run -p zolana-cli -- test-validator \
+        --no-use-surfpool \
+        --skip-indexer \
+        --skip-prover \
+        --skip-system-accounts \
+        --skip-system-programs \
+        --rpc-port {{localnet-rpc-port}} \
+        --faucet-port {{localnet-faucet-port}} \
+        --ledger "{{localnet-state-dir}}/ledger" \
+        --sbf-program {{shielded-pool-program-id}} target/deploy/shielded_pool_program.so \
+        --sbf-program {{zone-test-program-id}} target/deploy/zone_test_program.so
 
 stop-localnet:
-    ./tools/localnet-test.sh stop
+    cargo run -p zolana-cli -- test-validator --no-use-surfpool --skip-indexer --skip-prover --rpc-port {{localnet-rpc-port}} --stop
 
 stop-localnet-proofless:
     @just stop-localnet

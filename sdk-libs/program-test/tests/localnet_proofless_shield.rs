@@ -7,9 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use shielded_pool_program::instructions::create_tree::init::{
-    state_root_offset, tree_account_size,
-};
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
@@ -23,6 +20,7 @@ use zolana_interface::{
         encode_instruction, tag, CpiSignerData, CreateProtocolConfigData, CreateTreeData,
         ProoflessShieldEvent, ProoflessShieldIxData, ZoneProoflessShieldIxData,
     },
+    state::{state_root_offset, tree_account_size},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};

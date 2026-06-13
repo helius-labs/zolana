@@ -26,25 +26,23 @@
 //! as u64 LE; its high bits stay zero so it reads identically as `bytes[0]` and
 //! as an 8-byte-aligned u64.
 
-use light_batched_merkle_tree::{
-    initialize_address_tree::{
-        init_batched_address_merkle_tree_account, InitAddressTreeAccountsInstructionData,
-    },
-    merkle_tree::get_merkle_tree_account_size,
+use light_batched_merkle_tree::initialize_address_tree::{
+    init_batched_address_merkle_tree_account, InitAddressTreeAccountsInstructionData,
 };
 use light_hasher::Poseidon;
 use light_sparse_merkle_tree::SparseMerkleTree;
 use pinocchio::Address;
-use zolana_interface::state::discriminator::TREE_HEADER;
-
-pub const STATE_HEIGHT: usize = 26;
-pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
-
-pub const DISCRIMINATOR_LEN: usize = 8;
-pub const DISCRIMINATOR_OFFSET: usize = 0;
-pub const PAUSED_FLAG: u8 = 1;
-pub const FLAGS_LEN: usize = 1;
-pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
+pub use zolana_interface::state::{
+    address_sub_tree_size, state_next_index_offset, state_root_history_meta_offset,
+    state_root_history_offset, state_root_offset, state_sub_tree_offset, state_subtrees_offset,
+    tree_account_size, tree_flags_offset, ADDRESS_SUB_TREE_OFFSET, DISCRIMINATOR_LEN,
+    DISCRIMINATOR_OFFSET, FLAGS_LEN, PAUSED_FLAG, STATE_HEIGHT, STATE_ROOT_HISTORY_CAPACITY,
+};
+use zolana_interface::state::{
+    discriminator::TREE_HEADER, ADDRESS_TREE_BLOOM_FILTER_CAPACITY,
+    ADDRESS_TREE_BLOOM_FILTER_NUM_ITERS, ADDRESS_TREE_HEIGHT, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+    ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TreeError {
@@ -59,67 +57,21 @@ pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
         index: 0,
         program_owner: None,
         forester: None,
-        bloom_filter_num_iters: 3,
-        input_queue_batch_size: 10,
-        input_queue_zkp_batch_size: 10,
-        height: 40,
-        root_history_capacity: 200,
-        bloom_filter_capacity: 20_000 * 8,
+        bloom_filter_num_iters: ADDRESS_TREE_BLOOM_FILTER_NUM_ITERS,
+        input_queue_batch_size: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+        input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        height: ADDRESS_TREE_HEIGHT,
+        root_history_capacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+        bloom_filter_capacity: ADDRESS_TREE_BLOOM_FILTER_CAPACITY,
         network_fee: None,
         rollover_threshold: None,
         close_threshold: None,
     }
 }
 
-pub fn address_sub_tree_size() -> usize {
-    let p = address_tree_params();
-    get_merkle_tree_account_size(
-        p.input_queue_batch_size,
-        p.bloom_filter_capacity,
-        p.input_queue_zkp_batch_size,
-        p.root_history_capacity,
-        p.height,
-    )
-}
-
-pub fn state_sub_tree_offset() -> usize {
-    ADDRESS_SUB_TREE_OFFSET + address_sub_tree_size()
-}
-
-pub fn state_next_index_offset() -> usize {
-    state_sub_tree_offset()
-}
-
-pub fn state_root_offset() -> usize {
-    state_sub_tree_offset() + 8
-}
-
-pub fn state_subtrees_offset() -> usize {
-    state_sub_tree_offset() + 8 + 32
-}
-
-pub fn state_root_history_meta_offset() -> usize {
-    state_subtrees_offset() + STATE_HEIGHT * 32
-}
-
-pub fn state_root_history_offset() -> usize {
-    state_root_history_meta_offset() + 4
-}
-
 // The nullifier tree keeps no SPP-side state here: it is the batched address
 // tree in the address sub-tree, whose own root_history is the nullifier-root
 // cache referenced by transact's nullifier_tree_root_index.
-
-/// Offset of the 1-byte flags region (bit 0 = paused). It lives at the END of
-/// the account, OUTSIDE the discriminator word, so toggling paused never
-/// corrupts a u64-LE read of the combined discriminator.
-pub fn tree_flags_offset() -> usize {
-    state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
-}
-
-pub fn tree_account_size() -> usize {
-    tree_flags_offset() + FLAGS_LEN
-}
 
 pub fn tree_discriminator() -> u8 {
     TREE_HEADER

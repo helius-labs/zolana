@@ -109,8 +109,8 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
 
-  test-programs:
-    name: tests / program-tests
+  test-litesvm:
+    name: tests / litesvm
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
@@ -121,7 +121,7 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: program-tests
+          shared-key: litesvm
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         run: |

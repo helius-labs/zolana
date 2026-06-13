@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde_json::{json, Value};
 
 const DEFAULT_RPC_PORT: u16 = 8899;
@@ -24,6 +25,25 @@ const SPL_NOOP_ID: &str = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
 // Programs auto-loaded into `zolana test-validator`.
 const SYSTEM_PROGRAMS: &[(&str, &str)] = &[(SPL_NOOP_ID, "spl_noop.so")];
 
+#[derive(Debug, Parser)]
+#[command(name = "zolana", about = "Local Zolana developer tooling")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+enum CliCommand {
+    #[command(
+        name = "test-validator",
+        about = "Start the local Zolana test validator"
+    )]
+    TestValidator(Box<TestValidatorOptions>),
+
+    #[command(name = "start-prover", about = "Start the local prover server")]
+    StartProver(StartProverOptions),
+}
+
 #[derive(Debug)]
 struct ProgramSpec {
     address: String,
@@ -37,270 +57,203 @@ struct UpgradeableProgramSpec {
     upgrade_authority: String,
 }
 
-#[derive(Debug)]
+#[derive(Args, Debug)]
 struct TestValidatorOptions {
+    #[arg(long, help = "Do not start Photon")]
     skip_indexer: bool,
+
+    #[arg(long, help = "Do not start the prover server")]
     skip_prover: bool,
+
+    #[arg(long, help = "Stop the local validator environment")]
     stop: bool,
+
+    #[arg(long, help = "Do not load account fixtures")]
     skip_system_accounts: bool,
+
+    #[arg(long, help = "Do not load bundled SBF program fixtures")]
+    skip_system_programs: bool,
+
+    #[arg(
+        long = "use-surfpool",
+        conflicts_with = "no_use_surfpool",
+        help = "Use surfpool as the validator backend (default)"
+    )]
     use_surfpool: bool,
+
+    #[arg(
+        long = "no-use-surfpool",
+        conflicts_with = "use_surfpool",
+        help = "Use solana-test-validator directly"
+    )]
+    no_use_surfpool: bool,
+
+    #[arg(long, help = "Reuse the existing validator ledger")]
     skip_reset: bool,
+
+    #[arg(long, default_value_t = DEFAULT_RPC_PORT, help = "Validator RPC port")]
     rpc_port: u16,
+
+    #[arg(
+        long,
+        help = "Faucet port for solana-test-validator",
+        value_name = "PORT"
+    )]
+    faucet_port: Option<u16>,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_INDEXER_PORT,
+        help = "Photon indexer port"
+    )]
     indexer_port: u16,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_PROVER_PORT,
+        help = "Prover server port"
+    )]
     prover_port: u16,
+
+    #[arg(
+        long,
+        default_value = DEFAULT_GOSSIP_HOST,
+        help = "Validator host or bind address"
+    )]
     gossip_host: String,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_LIMIT_LEDGER_SIZE,
+        help = "solana-test-validator ledger retention"
+    )]
     limit_ledger_size: u64,
+
+    #[arg(
+        long,
+        help = "Ledger path for solana-test-validator",
+        value_name = "PATH"
+    )]
+    ledger: Option<String>,
+
+    #[arg(long, help = "Photon database URL", value_name = "URL")]
     indexer_db_url: Option<String>,
-    sbf_programs: Vec<ProgramSpec>,
-    upgradeable_programs: Vec<UpgradeableProgramSpec>,
+
+    #[arg(
+        long = "sbf-program",
+        num_args = 2,
+        value_names = ["ADDRESS", "PATH"],
+        help = "Load an immutable SBF program"
+    )]
+    sbf_programs: Vec<String>,
+
+    #[arg(
+        long = "upgradeable-program",
+        num_args = 3,
+        value_names = ["ADDRESS", "PATH", "AUTHORITY"],
+        help = "Load an upgradeable SBF program"
+    )]
+    upgradeable_programs: Vec<String>,
+
+    #[arg(
+        long = "account-dir",
+        help = "Additional account fixture directory",
+        value_name = "PATH"
+    )]
     account_dirs: Vec<String>,
-    validator_args: Vec<String>,
+
+    #[arg(
+        long = "validator-args",
+        help = "Forward a whitespace-separated argument string to the validator",
+        value_name = "ARGS"
+    )]
+    validator_arg_groups: Vec<String>,
+
+    #[arg(last = true, allow_hyphen_values = true, value_name = "VALIDATOR_ARG")]
+    trailing_validator_args: Vec<String>,
+
+    #[arg(
+        long,
+        help = "solana-test-validator geyser config",
+        value_name = "PATH"
+    )]
     geyser_config: Option<String>,
 }
 
-impl Default for TestValidatorOptions {
-    fn default() -> Self {
-        Self {
-            skip_indexer: false,
-            skip_prover: false,
-            stop: false,
-            skip_system_accounts: false,
-            use_surfpool: true,
-            skip_reset: false,
-            rpc_port: DEFAULT_RPC_PORT,
-            indexer_port: DEFAULT_INDEXER_PORT,
-            prover_port: DEFAULT_PROVER_PORT,
-            gossip_host: DEFAULT_GOSSIP_HOST.to_string(),
-            limit_ledger_size: DEFAULT_LIMIT_LEDGER_SIZE,
-            indexer_db_url: None,
-            sbf_programs: Vec::new(),
-            upgradeable_programs: Vec::new(),
-            account_dirs: Vec::new(),
-            validator_args: Vec::new(),
-            geyser_config: None,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Args, Debug)]
 struct StartProverOptions {
+    #[arg(
+        long = "prover-port",
+        alias = "port",
+        visible_alias = "port",
+        default_value_t = DEFAULT_PROVER_PORT,
+        help = "Prover server port"
+    )]
     prover_port: u16,
+
+    #[arg(
+        long = "redis-url",
+        alias = "redisUrl",
+        visible_alias = "redisUrl",
+        help = "Redis URL for prover state"
+    )]
     redis_url: Option<String>,
 }
 
-impl Default for StartProverOptions {
-    fn default() -> Self {
-        Self {
-            prover_port: DEFAULT_PROVER_PORT,
-            redis_url: None,
-        }
+impl TestValidatorOptions {
+    fn use_surfpool_backend(&self) -> bool {
+        self.use_surfpool || !self.no_use_surfpool
+    }
+
+    fn sbf_program_specs(&self) -> Vec<ProgramSpec> {
+        self.sbf_programs
+            .chunks_exact(2)
+            .map(|chunk| ProgramSpec {
+                address: chunk[0].clone(),
+                path: chunk[1].clone(),
+            })
+            .collect()
+    }
+
+    fn upgradeable_program_specs(&self) -> Vec<UpgradeableProgramSpec> {
+        self.upgradeable_programs
+            .chunks_exact(3)
+            .map(|chunk| UpgradeableProgramSpec {
+                address: chunk[0].clone(),
+                path: chunk[1].clone(),
+                upgrade_authority: chunk[2].clone(),
+            })
+            .collect()
+    }
+
+    fn validator_args(&self) -> Vec<String> {
+        let mut args = self
+            .validator_arg_groups
+            .iter()
+            .flat_map(|group| group.split_whitespace().map(str::to_string))
+            .collect::<Vec<_>>();
+        args.extend(self.trailing_validator_args.iter().cloned());
+        args
     }
 }
 
 fn main() {
-    if let Err(error) = run() {
+    if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let args = env::args().skip(1).collect::<Vec<_>>();
-    match args.first().map(String::as_str) {
-        Some("test-validator")
-            if args
-                .get(1)
-                .is_some_and(|arg| arg == "--help" || arg == "-h") =>
-        {
-            print_help();
+fn run(cli: Cli) -> Result<()> {
+    match cli.command {
+        Some(CliCommand::TestValidator(opts)) => run_test_validator(*opts),
+        Some(CliCommand::StartProver(opts)) => run_start_prover(opts),
+        None => {
+            Cli::command().print_help()?;
+            println!();
             Ok(())
         }
-        Some("test-validator") => run_test_validator(parse_test_validator_args(&args[1..])?),
-        Some("start-prover")
-            if args
-                .get(1)
-                .is_some_and(|arg| arg == "--help" || arg == "-h") =>
-        {
-            print_help();
-            Ok(())
-        }
-        Some("start-prover") => run_start_prover(parse_start_prover_args(&args[1..])?),
-        Some("--help") | Some("-h") | None => {
-            print_help();
-            Ok(())
-        }
-        Some(command) => bail!("unknown command: {command}"),
     }
-}
-
-fn parse_test_validator_args(args: &[String]) -> Result<TestValidatorOptions> {
-    let mut opts = TestValidatorOptions::default();
-    let mut index = 0;
-
-    while index < args.len() {
-        let arg = &args[index];
-        match arg.as_str() {
-            "--skip-indexer" => opts.skip_indexer = true,
-            "--skip-prover" => opts.skip_prover = true,
-            "--stop" => opts.stop = true,
-            "--skip-system-accounts" => opts.skip_system_accounts = true,
-            "--use-surfpool" => opts.use_surfpool = true,
-            "--no-use-surfpool" => opts.use_surfpool = false,
-            "--skip-reset" => opts.skip_reset = true,
-            "--relax-indexer-version-constraint" | "--verbose" | "-v" => {}
-            "--devnet" | "--mainnet" => {
-                bail!("{arg} is not supported by the reduced zolana test-validator")
-            }
-            "--rpc-port" => opts.rpc_port = parse_next(args, &mut index, arg)?,
-            "--indexer-port" => opts.indexer_port = parse_next(args, &mut index, arg)?,
-            "--prover-port" => opts.prover_port = parse_next(args, &mut index, arg)?,
-            "--limit-ledger-size" => opts.limit_ledger_size = parse_next(args, &mut index, arg)?,
-            "--gossip-host" => opts.gossip_host = take_next(args, &mut index, arg)?,
-            "--indexer-db-url" => opts.indexer_db_url = Some(take_next(args, &mut index, arg)?),
-            "--geyser-config" => opts.geyser_config = Some(take_next(args, &mut index, arg)?),
-            "--validator-args" => {
-                let value = take_next(args, &mut index, arg)?;
-                opts.validator_args
-                    .extend(value.split_whitespace().map(str::to_string));
-            }
-            "--account-dir" => opts.account_dirs.push(take_next(args, &mut index, arg)?),
-            "--sbf-program" => {
-                let (address, path) = take_program(args, &mut index, arg)?;
-                opts.sbf_programs.push(ProgramSpec { address, path });
-            }
-            "--upgradeable-program" => {
-                let (address, path, upgrade_authority) =
-                    take_upgradeable_program(args, &mut index, arg)?;
-                opts.upgradeable_programs.push(UpgradeableProgramSpec {
-                    address,
-                    path,
-                    upgrade_authority,
-                });
-            }
-            _ if arg.starts_with("--rpc-port=") => {
-                opts.rpc_port = parse_value(&arg["--rpc-port=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--indexer-port=") => {
-                opts.indexer_port = parse_value(&arg["--indexer-port=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--prover-port=") => {
-                opts.prover_port = parse_value(&arg["--prover-port=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--limit-ledger-size=") => {
-                opts.limit_ledger_size = parse_value(&arg["--limit-ledger-size=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--gossip-host=") => {
-                opts.gossip_host = arg["--gossip-host=".len()..].to_string();
-            }
-            _ if arg.starts_with("--indexer-db-url=") => {
-                opts.indexer_db_url = Some(arg["--indexer-db-url=".len()..].to_string());
-            }
-            _ if arg.starts_with("--geyser-config=") => {
-                opts.geyser_config = Some(arg["--geyser-config=".len()..].to_string());
-            }
-            _ if arg.starts_with("--validator-args=") => {
-                let value = &arg["--validator-args=".len()..];
-                opts.validator_args
-                    .extend(value.split_whitespace().map(str::to_string));
-            }
-            _ if arg.starts_with("--account-dir=") => {
-                opts.account_dirs
-                    .push(arg["--account-dir=".len()..].to_string());
-            }
-            other => opts.validator_args.push(other.to_string()),
-        }
-        index += 1;
-    }
-
-    Ok(opts)
-}
-
-fn parse_start_prover_args(args: &[String]) -> Result<StartProverOptions> {
-    let mut opts = StartProverOptions::default();
-    let mut index = 0;
-
-    while index < args.len() {
-        let arg = &args[index];
-        match arg.as_str() {
-            "--prover-port" | "--port" => opts.prover_port = parse_next(args, &mut index, arg)?,
-            "--redisUrl" | "--redis-url" => {
-                opts.redis_url = Some(take_next(args, &mut index, arg)?)
-            }
-            _ if arg.starts_with("--prover-port=") => {
-                opts.prover_port = parse_value(&arg["--prover-port=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--port=") => {
-                opts.prover_port = parse_value(&arg["--port=".len()..], arg)?;
-            }
-            _ if arg.starts_with("--redisUrl=") => {
-                opts.redis_url = Some(arg["--redisUrl=".len()..].to_string());
-            }
-            _ if arg.starts_with("--redis-url=") => {
-                opts.redis_url = Some(arg["--redis-url=".len()..].to_string());
-            }
-            other => bail!("unknown start-prover argument: {other}"),
-        }
-        index += 1;
-    }
-
-    Ok(opts)
-}
-
-fn take_next(args: &[String], index: &mut usize, flag: &str) -> Result<String> {
-    *index += 1;
-    args.get(*index)
-        .cloned()
-        .ok_or_else(|| anyhow!("missing value for {flag}"))
-}
-
-fn parse_next<T>(args: &[String], index: &mut usize, flag: &str) -> Result<T>
-where
-    T: std::str::FromStr,
-    T::Err: std::fmt::Display,
-{
-    let value = take_next(args, index, flag)?;
-    parse_value(&value, flag)
-}
-
-fn parse_value<T>(value: &str, flag: &str) -> Result<T>
-where
-    T: std::str::FromStr,
-    T::Err: std::fmt::Display,
-{
-    value
-        .parse()
-        .map_err(|error| anyhow!("invalid value for {flag}: {error}"))
-}
-
-fn take_program(args: &[String], index: &mut usize, flag: &str) -> Result<(String, String)> {
-    let first = take_next(args, index, flag)?;
-    let parts = first.split_whitespace().collect::<Vec<_>>();
-    if parts.len() == 2 {
-        return Ok((parts[0].to_string(), parts[1].to_string()));
-    }
-
-    let second = take_next(args, index, flag)?;
-    Ok((first, second))
-}
-
-fn take_upgradeable_program(
-    args: &[String],
-    index: &mut usize,
-    flag: &str,
-) -> Result<(String, String, String)> {
-    let first = take_next(args, index, flag)?;
-    let parts = first.split_whitespace().collect::<Vec<_>>();
-    if parts.len() == 3 {
-        return Ok((
-            parts[0].to_string(),
-            parts[1].to_string(),
-            parts[2].to_string(),
-        ));
-    }
-
-    let second = take_next(args, index, flag)?;
-    let third = take_next(args, index, flag)?;
-    Ok((first, second, third))
 }
 
 fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
@@ -313,7 +266,8 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     kill_test_validator(opts.rpc_port);
     thread::sleep(Duration::from_secs(1));
 
-    let mut validator = if opts.use_surfpool {
+    let use_surfpool = opts.use_surfpool_backend();
+    let mut validator = if use_surfpool {
         let surfpool = find_binary(&["SURFPOOL_BIN"], &["target/tools/surfpool"], &["surfpool"])?;
         let args = surfpool_args(&opts)?;
         println!(
@@ -351,7 +305,7 @@ fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     }
 
     if !opts.skip_indexer {
-        let start_slot = if opts.use_surfpool {
+        let start_slot = if use_surfpool {
             Some(
                 rpc_u64(opts.rpc_port, "getFirstAvailableBlock")
                     .context("failed to read surfpool first available block")?,
@@ -380,6 +334,13 @@ fn run_start_prover(opts: StartProverOptions) -> Result<()> {
 }
 
 fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
+    if opts.faucet_port.is_some() {
+        bail!("--faucet-port is only supported with --no-use-surfpool");
+    }
+    if opts.ledger.is_some() {
+        bail!("--ledger is only supported with --no-use-surfpool");
+    }
+
     let mut args = vec![
         "start".to_string(),
         "--offline".to_string(),
@@ -392,7 +353,9 @@ fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
         opts.gossip_host.clone(),
     ];
 
-    add_system_program_args(&mut args)?;
+    if !opts.skip_system_programs {
+        add_system_program_args(&mut args)?;
+    }
     add_additional_program_args(&mut args, opts);
     add_account_dir_args(&mut args, opts)?;
     Ok(args)
@@ -407,8 +370,17 @@ fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
     args.push(format!("--rpc-port={}", opts.rpc_port));
     args.push(format!("--bind-address={}", opts.gossip_host));
     args.push("--quiet".to_string());
+    if let Some(faucet_port) = opts.faucet_port {
+        args.push(format!("--faucet-port={faucet_port}"));
+    }
+    if let Some(ledger) = &opts.ledger {
+        args.push("--ledger".to_string());
+        args.push(ledger.clone());
+    }
 
-    add_system_program_args(&mut args)?;
+    if !opts.skip_system_programs {
+        add_system_program_args(&mut args)?;
+    }
     add_additional_program_args(&mut args, opts);
     add_account_dir_args(&mut args, opts)?;
 
@@ -416,7 +388,7 @@ fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
         args.push("--geyser-plugin-config".to_string());
         args.push(geyser_config.clone());
     }
-    args.extend(opts.validator_args.iter().cloned());
+    args.extend(opts.validator_args());
     Ok(args)
 }
 
@@ -430,17 +402,17 @@ fn add_system_program_args(args: &mut Vec<String>) -> Result<()> {
 }
 
 fn add_additional_program_args(args: &mut Vec<String>, opts: &TestValidatorOptions) {
-    for program in &opts.sbf_programs {
+    for program in opts.sbf_program_specs() {
         args.push("--bpf-program".to_string());
-        args.push(program.address.clone());
-        args.push(program.path.clone());
+        args.push(program.address);
+        args.push(program.path);
     }
 
-    for program in &opts.upgradeable_programs {
+    for program in opts.upgradeable_program_specs() {
         args.push("--upgradeable-program".to_string());
-        args.push(program.address.clone());
-        args.push(program.path.clone());
-        args.push(program.upgrade_authority.clone());
+        args.push(program.address);
+        args.push(program.path);
+        args.push(program.upgrade_authority);
     }
 }
 
@@ -815,9 +787,24 @@ fn stop_test_env(opts: &TestValidatorOptions) {
 }
 
 fn kill_test_validator(rpc_port: u16) {
+    remove_launchd_validators();
     kill_name("solana-test-validator");
     kill_name("surfpool");
     kill_port(rpc_port);
+}
+
+fn remove_launchd_validators() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    for label in ["com.zolana.localnet", "com.zolana.localnet-proofless"] {
+        let _ = Command::new("launchctl")
+            .args(["remove", label])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
 }
 
 fn kill_name(name: &str) {
@@ -932,10 +919,176 @@ fn path_string_with_trailing_separator(path: &Path) -> Result<String> {
     Ok(value)
 }
 
-fn print_help() {
-    println!("zolana <command>");
-    println!();
-    println!("Commands:");
-    println!("  test-validator    Start the local Zolana test validator");
-    println!("  start-prover      Start the local prover server");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn parse_cli(values: &[&str]) -> Cli {
+        Cli::try_parse_from(std::iter::once("zolana").chain(values.iter().copied()))
+            .expect("parse cli")
+    }
+
+    fn parse_validator(values: &[&str]) -> TestValidatorOptions {
+        match parse_cli(
+            &std::iter::once("test-validator")
+                .chain(values.iter().copied())
+                .collect::<Vec<_>>(),
+        )
+        .command
+        .expect("command")
+        {
+            CliCommand::TestValidator(opts) => *opts,
+            CliCommand::StartProver(_) => panic!("expected test-validator command"),
+        }
+    }
+
+    #[test]
+    fn test_validator_help_documents_localnet_flags() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("test-validator")
+            .expect("test-validator subcommand")
+            .render_long_help()
+            .to_string();
+
+        for flag in [
+            "--skip-system-programs",
+            "--faucet-port <PORT>",
+            "--ledger <PATH>",
+            "--sbf-program <ADDRESS> <PATH>",
+        ] {
+            assert!(help.contains(flag), "missing help entry for {flag}");
+        }
+    }
+
+    #[test]
+    fn clap_accepts_top_level_and_command_help() {
+        for args in [
+            ["zolana", "--help"].as_slice(),
+            ["zolana", "test-validator", "--help"].as_slice(),
+            ["zolana", "start-prover", "--help"].as_slice(),
+        ] {
+            let error = Cli::try_parse_from(args).expect_err("help exits early");
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        }
+    }
+
+    #[test]
+    fn parses_local_validator_flags() {
+        let opts = parse_validator(&[
+            "--no-use-surfpool",
+            "--skip-indexer",
+            "--skip-prover",
+            "--skip-system-accounts",
+            "--skip-system-programs",
+            "--rpc-port",
+            "8901",
+            "--faucet-port",
+            "9901",
+            "--ledger",
+            "target/localnet/ledger",
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+            "--sbf-program",
+            "Zone111111111111111111111111111111111111111",
+            "target/deploy/zone.so",
+        ]);
+
+        assert!(!opts.use_surfpool_backend());
+        assert!(opts.skip_indexer);
+        assert!(opts.skip_prover);
+        assert!(opts.skip_system_accounts);
+        assert!(opts.skip_system_programs);
+        assert_eq!(opts.rpc_port, 8901);
+        assert_eq!(opts.faucet_port, Some(9901));
+        assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));
+        let programs = opts.sbf_program_specs();
+        assert_eq!(programs.len(), 2);
+        assert_eq!(
+            programs[0].address,
+            "Pool111111111111111111111111111111111111111"
+        );
+        assert_eq!(programs[0].path, "target/deploy/pool.so");
+        assert_eq!(
+            programs[1].address,
+            "Zone111111111111111111111111111111111111111"
+        );
+        assert_eq!(programs[1].path, "target/deploy/zone.so");
+    }
+
+    #[test]
+    fn builds_solana_validator_args_for_program_tests_without_fixtures() {
+        let opts = parse_validator(&[
+            "--no-use-surfpool",
+            "--skip-system-accounts",
+            "--skip-system-programs",
+            "--rpc-port",
+            "8899",
+            "--faucet-port",
+            "9900",
+            "--ledger",
+            "target/localnet/ledger",
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+            "--sbf-program",
+            "Zone111111111111111111111111111111111111111",
+            "target/deploy/zone.so",
+        ]);
+
+        let actual = solana_validator_args(&opts).expect("build solana validator args");
+        let expected = strings(&[
+            "--reset",
+            "--limit-ledger-size=10000",
+            "--rpc-port=8899",
+            "--bind-address=127.0.0.1",
+            "--quiet",
+            "--faucet-port=9900",
+            "--ledger",
+            "target/localnet/ledger",
+            "--bpf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+            "--bpf-program",
+            "Zone111111111111111111111111111111111111111",
+            "target/deploy/zone.so",
+        ]);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn rejects_solana_validator_only_flags_with_surfpool() {
+        let opts = parse_validator(&["--ledger", "target/localnet/ledger"]);
+        let error = surfpool_args(&opts).expect_err("surfpool should reject --ledger");
+        assert!(error.to_string().contains("--ledger"));
+
+        let opts = parse_validator(&["--faucet-port", "9900"]);
+        let error = surfpool_args(&opts).expect_err("surfpool should reject --faucet-port");
+        assert!(error.to_string().contains("--faucet-port"));
+    }
+
+    #[test]
+    fn parses_start_prover_options() {
+        let command = parse_cli(&[
+            "start-prover",
+            "--port",
+            "3002",
+            "--redis-url",
+            "redis://localhost:6379/15",
+        ])
+        .command
+        .expect("command");
+        let CliCommand::StartProver(opts) = command else {
+            panic!("expected start-prover command");
+        };
+
+        assert_eq!(opts.prover_port, 3002);
+        assert_eq!(opts.redis_url.as_deref(), Some("redis://localhost:6379/15"));
+    }
 }
