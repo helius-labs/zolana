@@ -7,8 +7,7 @@ use zolana_interface::user_registry::instruction::{
 use crate::{
     error::{fail, UserRegistryError},
     instructions::{
-        register::process_register,
-        revoke_sync_delegate::process_revoke_sync_delegate,
+        register::process_register, revoke_sync_delegate::process_revoke_sync_delegate,
         rotate_sync_delegate_key::process_rotate_sync_delegate_key,
         set_sync_delegate::process_set_sync_delegate,
     },

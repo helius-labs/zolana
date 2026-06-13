@@ -11,8 +11,8 @@ use solana_transaction::Transaction;
 use zolana_interface::user_registry::user_record_pda;
 
 use light_program_test::user_registry_sdk::{
-    build_register_ix, build_revoke_sync_delegate_ix, build_set_sync_delegate_ix,
-    build_rotate_sync_delegate_key_ix, fetch_user_record, user_registry_program_id,
+    build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
+    build_set_sync_delegate_ix, fetch_user_record, user_registry_program_id,
 };
 
 #[derive(Default, World)]
@@ -311,7 +311,9 @@ fn when_set_sync_delegate_bad_key(
     world.send(&[owner_kp], ix);
 }
 
-#[when(regex = r#"stranger "(.*)" tries to appoint (?:himself|herself) as sync delegate for "(.*)""#)]
+#[when(
+    regex = r#"stranger "(.*)" tries to appoint (?:himself|herself) as sync delegate for "(.*)""#
+)]
 fn when_stranger_set_sync_delegate(
     world: &mut UserRegistryWorld,
     stranger_name: String,
@@ -367,7 +369,9 @@ fn when_rotate_attempt(world: &mut UserRegistryWorld, signer_name: String, owner
     world.send(&[signer], ix);
 }
 
-#[when(regex = r#"sync delegate "(.*)" tries to rotate keys for "(.*)" with viewing key prefix (\d+)"#)]
+#[when(
+    regex = r#"sync delegate "(.*)" tries to rotate keys for "(.*)" with viewing key prefix (\d+)"#
+)]
 fn when_rotate_bad_key(
     world: &mut UserRegistryWorld,
     sync_delegate_name: String,
@@ -417,7 +421,11 @@ fn then_no_sync_delegate(world: &mut UserRegistryWorld, name: String) {
     let record =
         fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
     assert_eq!(record.owner, owner.to_bytes());
-    assert_eq!(record.bump, user_record_pda(&owner).1, "stored bump must be canonical");
+    assert_eq!(
+        record.bump,
+        user_record_pda(&owner).1,
+        "stored bump must be canonical"
+    );
     assert!(record.sync_delegate.is_none());
     assert!(record.entries.is_empty());
     assert_eq!(record.nullifier_pubkey, world.nullifier_pubkey[&name]);
@@ -447,7 +455,11 @@ fn then_sync_delegate_entries(
     let owner = world.owners.get(&owner_name).expect("owner").pubkey();
     let record =
         fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
-    assert_eq!(record.bump, user_record_pda(&owner).1, "stored bump must survive updates");
+    assert_eq!(
+        record.bump,
+        user_record_pda(&owner).1,
+        "stored bump must survive updates"
+    );
     assert_eq!(
         record.sync_delegate,
         Some(
@@ -495,8 +507,7 @@ fn then_entry_has_sync_delegate(
         .pubkey()
         .to_bytes();
     assert_eq!(
-        record.entries[index].delegate,
-        expected,
+        record.entries[index].delegate, expected,
         "entry {index} delegate mismatch"
     );
 }

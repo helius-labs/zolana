@@ -3,7 +3,10 @@
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::user_registry::{
-    instruction::{self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData, SetSyncDelegateData},
+    instruction::{
+        self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData,
+        SetSyncDelegateData,
+    },
     user_record_pda,
 };
 

@@ -37,7 +37,7 @@ test-shielded-pool:
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
-    cargo test -p zolana-user-registry --lib
+    cargo test -p zolana-user-registry --tests
 
 # User-registry litesvm tests only (no Light fixture bundle required).
 test-user-registry-litesvm: build-programs
