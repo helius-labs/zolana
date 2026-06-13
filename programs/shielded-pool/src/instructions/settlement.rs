@@ -9,7 +9,8 @@ use zolana_interface::{
         TransactIxData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
     },
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
-    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
+    SPL_ASSET_REGISTRY_MINT_OFFSET, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{error::ShieldedPoolError, log::log};
@@ -316,11 +317,15 @@ fn read_asset_registry(account: &AccountView) -> Result<AssetRegistryState, Prog
     let data = account
         .try_borrow()
         .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
-    if data[0..8] != SPL_ASSET_REGISTRY_MAGIC[..] {
+    if data[SPL_ASSET_REGISTRY_MAGIC_OFFSET..SPL_ASSET_REGISTRY_MAGIC_END]
+        != SPL_ASSET_REGISTRY_MAGIC[..]
+    {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(AssetRegistryState {
-        mint: address_from_slice(&data[8..40]),
+        mint: address_from_slice(
+            &data[SPL_ASSET_REGISTRY_MINT_OFFSET..SPL_ASSET_REGISTRY_MINT_END],
+        ),
     })
 }
 

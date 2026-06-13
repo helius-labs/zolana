@@ -8,7 +8,9 @@ use pinocchio::{
 use zolana_interface::{
     instruction::CreateSplInterfaceData, SHIELDED_POOL_CPI_AUTHORITY,
     SPL_ASSET_COUNTER_ACCOUNT_LEN, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN,
-    SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_ASSET_REGISTRY_ASSET_ID_END, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC,
+    SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
+    SPL_ASSET_REGISTRY_MINT_OFFSET, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
     SPL_TOKEN_PROGRAM_ID,
 };
 
@@ -227,9 +229,12 @@ fn write_asset_registry(
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
     registry_data[..SPL_ASSET_REGISTRY_ACCOUNT_LEN].fill(0);
-    registry_data[0..8].copy_from_slice(&SPL_ASSET_REGISTRY_MAGIC);
-    registry_data[8..40].copy_from_slice(mint.as_ref());
-    registry_data[40..48].copy_from_slice(&asset_id.to_le_bytes());
+    registry_data[SPL_ASSET_REGISTRY_MAGIC_OFFSET..SPL_ASSET_REGISTRY_MAGIC_END]
+        .copy_from_slice(&SPL_ASSET_REGISTRY_MAGIC);
+    registry_data[SPL_ASSET_REGISTRY_MINT_OFFSET..SPL_ASSET_REGISTRY_MINT_END]
+        .copy_from_slice(mint.as_ref());
+    registry_data[SPL_ASSET_REGISTRY_ASSET_ID_OFFSET..SPL_ASSET_REGISTRY_ASSET_ID_END]
+        .copy_from_slice(&asset_id.to_le_bytes());
     Ok(())
 }
 

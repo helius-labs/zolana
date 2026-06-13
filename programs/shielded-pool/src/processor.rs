@@ -6,6 +6,7 @@ use zolana_interface::instruction::{
     UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     ZoneProoflessShieldIxData,
 };
+use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY;
 
 use crate::{
     error::ShieldedPoolError,
@@ -50,6 +51,12 @@ pub fn process_instruction(
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     if *ix_tag == tag::EMIT_EVENT {
+        let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !authority.is_signer()
+            || *authority.address() != Address::from(SHIELDED_POOL_CPI_AUTHORITY)
+        {
+            return Err(ShieldedPoolError::UnauthorizedCaller.into());
+        }
         return Ok(());
     }
 

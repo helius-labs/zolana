@@ -146,9 +146,8 @@ pub fn init_tree_account(
         return Err(TreeError::BufferTooSmall);
     }
     // Refuse to re-initialize: a fresh account is zeroed, so a non-zero
-    // discriminator means the tree already exists (mirrors create_spl_interface's
-    // zeroed-check). Without this a second create_tree would clobber a live
-    // tree's roots and subtrees.
+    // A nonzero discriminator means the tree already exists. Without this a
+    // second create_tree would clobber a live tree's roots and subtrees.
     if bytes[DISCRIMINATOR_OFFSET..DISCRIMINATOR_OFFSET + DISCRIMINATOR_LEN]
         .iter()
         .any(|byte| *byte != 0)
@@ -177,11 +176,13 @@ pub fn init_tree_account(
 fn init_state_sub_tree(state: &mut [u8]) {
     // `state` starts at state_sub_tree_offset() within the combined account.
     // Offsets below are relative to `state`.
-    state[0..8].copy_from_slice(&0u64.to_le_bytes());
+    let next_index_end = core::mem::size_of::<u64>();
+    state[..next_index_end].copy_from_slice(&0u64.to_le_bytes());
     let smt = SparseMerkleTree::<Poseidon, STATE_HEIGHT>::new_empty();
     let root = smt.root();
-    state[8..40].copy_from_slice(&root);
-    write_subtrees_to(state, 40, &smt.get_subtrees());
+    let root_end = next_index_end + root.len();
+    state[next_index_end..root_end].copy_from_slice(&root);
+    write_subtrees_to(state, root_end, &smt.get_subtrees());
     state[state_root_history_meta_relative_offset()..state_root_history_meta_relative_offset() + 2]
         .copy_from_slice(&0u16.to_le_bytes());
     state[state_root_history_meta_relative_offset() + 2

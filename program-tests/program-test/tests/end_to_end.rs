@@ -67,9 +67,6 @@ fn proofless_shield_sol_deposits_into_pool() {
     assert_ne!(tree_before, tree_after, "tree must record the new leaf");
 }
 
-/// Phase-3 gate: the test indexer consumes ProoflessShieldEvents from inner
-/// emit_event instructions, reconstructs the on-chain state root, and locates
-/// every deposit without decryption.
 #[test]
 fn indexer_matches_onchain_root_and_locates_deposits() {
     use zolana_program_test::{PoolIndexer, PoolTestRig};

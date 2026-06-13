@@ -54,7 +54,7 @@ test-sdk-libs:
 test-forester:
     cargo test -p forester
 
-# End-to-end litesvm tests for shielded-pool; run `just build-programs` first.
+# End-to-end litesvm tests for shielded-pool.
 test-litesvm:
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path programs/shielded-pool/Cargo.toml -- --features bpf-entrypoint
     cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program-tests/zone-test-program/Cargo.toml
@@ -106,12 +106,13 @@ fetch-fixtures:
     fi
     rm -rf "$dest"
     mkdir -p "$dest"
-    url="https://github.com/helius-labs/zolana/releases/download/${tag}/light-fixtures.tar.gz"
+    archive="zolana-fixtures.tar.gz"
+    url="https://github.com/helius-labs/zolana/releases/download/${tag}/${archive}"
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     echo "fetching ${url}"
-    curl -sSfL "$url" -o "$tmp/light-fixtures.tar.gz"
-    tar -xzf "$tmp/light-fixtures.tar.gz" -C "$dest"
+    curl -sSfL "$url" -o "$tmp/${archive}"
+    tar -xzf "$tmp/${archive}" -C "$dest"
     cd "$dest" && shasum -a 256 -c SHA256SUMS
     echo "fixtures ${tag} ready at ${dest}"
 

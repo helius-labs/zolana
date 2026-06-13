@@ -1,8 +1,7 @@
-//! Shared harness for shielded-pool program tests: rig boot (skipping when
-//! the .so is missing), the standard protocol-config + tree setup, and
-//! shared error assertions.
+//! Shared harness for shielded-pool program tests.
 #![allow(dead_code)]
 
+use shielded_pool_program::error::ShieldedPoolError;
 use solana_keypair::Keypair;
 use zolana_program_test::{PoolTestRig, RigError};
 
@@ -24,8 +23,6 @@ pub fn rig() -> Option<PoolTestRig> {
     }
 }
 
-/// Boot a rig with the canonical protocol config and one tree, returning
-/// (rig, authority, tree).
 pub fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
     let mut rig = rig()?;
     let authority = Keypair::new();
@@ -37,8 +34,6 @@ pub fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
     Some((rig, authority, tree))
 }
 
-/// Assert a rig error is the program's `Custom(code)`. The discriminants are
-/// the stable on-chain error codes (`error.rs`).
 #[track_caller]
 pub fn assert_custom(err: RigError, code: u32) {
     let msg = format!("{err}");
@@ -46,8 +41,11 @@ pub fn assert_custom(err: RigError, code: u32) {
     assert!(msg.contains(&needle), "expected {needle}, got: {msg}");
 }
 
-/// Assert a rig error is a built-in Solana instruction error (by name as it
-/// appears in litesvm's debug output, e.g. "NotEnoughAccountKeys").
+#[track_caller]
+pub fn assert_pool_error(err: RigError, error: ShieldedPoolError) {
+    assert_custom(err, error as u32);
+}
+
 #[track_caller]
 pub fn assert_instruction_error(err: RigError, name: &str) {
     let msg = format!("{err}");

@@ -8529,6 +8529,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "wincode",
+ "zolana-interface",
  "zolana-keypair",
 ]
 

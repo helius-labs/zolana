@@ -2,7 +2,8 @@
 
 mod common;
 
-use common::{assert_custom, rig};
+use common::{assert_pool_error, rig};
+use shielded_pool_program::error::ShieldedPoolError;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -15,9 +16,6 @@ use zolana_interface::{
     },
 };
 use zolana_program_test::{RigError, ZONE_TEST_PROGRAM_ID};
-
-const UNAUTHORIZED_CALLER: u32 = 3;
-const INVALID_ZONE_CONFIG: u32 = 14;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ZoneConfigState {
@@ -71,7 +69,7 @@ fn create_and_update_zone_config() {
     let err = rig
         .update_zone_config(&authority, &zone_config, true)
         .unwrap_err();
-    assert_custom(err, UNAUTHORIZED_CALLER);
+    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
     rig.update_zone_config(&next, &zone_config, true)
         .expect("new owner can update");
 }
@@ -129,5 +127,5 @@ fn create_zone_config_rejects_fake_zone_auth() {
         .map(|_| ())
         .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))
         .unwrap_err();
-    assert_custom(err, INVALID_ZONE_CONFIG);
+    assert_pool_error(err, ShieldedPoolError::InvalidZoneConfig);
 }

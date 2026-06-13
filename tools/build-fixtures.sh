@@ -2,14 +2,14 @@
 # Build a fixtures bundle for upload to a GitHub release.
 #
 # Bin/accounts source defaults to sdk-libs/cli/{bin,accounts}, which only
-# exists for the v1 bootstrap (`light-fixtures-zkc-0.28.4`). For subsequent
+# exists for the v1 bootstrap (`zolana-fixtures-zkc-0.28.4`). For subsequent
 # releases, point FIXTURES_BIN_DIR / FIXTURES_ACCOUNTS_DIR at wherever you
 # staged the new fixtures (e.g. an extracted prior release, or freshly built
 # .so files).
 #
 # Output (under target/fixtures/):
-#   light-fixtures.tar.gz           the archive to upload
-#   light-fixtures.tar.gz.sha256    sha-of-the-archive (for release notes)
+#   zolana-fixtures.tar.gz          the archive to upload
+#   zolana-fixtures.tar.gz.sha256   sha-of-the-archive (for release notes)
 #
 # Inside the archive:
 #   bin/                            *.so test-validator binaries
@@ -67,16 +67,18 @@ EOF
 
 # Repeatable archive: sort entries so two builds from the same source produce
 # byte-identical tarballs (modulo gzip headers).
-tar --no-xattrs -czf "$out/light-fixtures.tar.gz" \
+archive="zolana-fixtures.tar.gz"
+
+tar --no-xattrs -czf "$out/$archive" \
     -C "$staging" \
     $(cd "$staging" && find . -type f | sort)
 
-shasum -a 256 "$out/light-fixtures.tar.gz" \
-    | awk -v name="light-fixtures.tar.gz" '{print $1"  "name}' \
-    > "$out/light-fixtures.tar.gz.sha256"
+shasum -a 256 "$out/$archive" \
+    | awk -v name="$archive" '{print $1"  "name}' \
+    > "$out/$archive.sha256"
 
-echo "Built  : $out/light-fixtures.tar.gz"
-echo "Sha    : $(awk '{print $1}' "$out/light-fixtures.tar.gz.sha256")"
+echo "Built  : $out/$archive"
+echo "Sha    : $(awk '{print $1}' "$out/$archive.sha256")"
 echo "Tag    : $tag"
 echo "Files  :"
-tar -tzf "$out/light-fixtures.tar.gz" | sed 's/^/  /'
+tar -tzf "$out/$archive" | sed 's/^/  /'

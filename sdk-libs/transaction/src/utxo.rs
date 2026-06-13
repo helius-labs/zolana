@@ -1,6 +1,7 @@
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
+pub use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::hash::sha256_be;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
@@ -19,8 +20,6 @@ fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
 }
 
 pub type Blinding = [u8; BLINDING_LEN];
-
-pub const UTXO_DOMAIN: u16 = 1;
 
 pub fn derive_blinding(seed: &[u8; BLINDING_LEN], position: u8) -> Blinding {
     let mut preimage = [0u8; BLINDING_LEN + 1];

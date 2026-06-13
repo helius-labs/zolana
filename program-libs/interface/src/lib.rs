@@ -1,6 +1,8 @@
 pub mod instruction;
 pub mod state;
 
+pub const UTXO_DOMAIN: u16 = 1;
+
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
     6, 111, 11, 97, 110, 97, 95, 115, 104, 105, 101, 108, 100, 101, 100, 95, 112, 111, 111, 108,
@@ -45,4 +47,11 @@ pub const SPL_ASSET_COUNTER_ACCOUNT_LEN: usize = 8;
 /// Canonical layout for a shielded-pool SPL asset registry record:
 /// magic (8), mint pubkey (32), asset_id (8).
 pub const SPL_ASSET_REGISTRY_MAGIC: [u8; 8] = *b"SPASSET1";
-pub const SPL_ASSET_REGISTRY_ACCOUNT_LEN: usize = 48;
+pub const SPL_ASSET_REGISTRY_MAGIC_OFFSET: usize = 0;
+pub const SPL_ASSET_REGISTRY_MAGIC_END: usize = SPL_ASSET_REGISTRY_MAGIC_OFFSET + 8;
+pub const SPL_ASSET_REGISTRY_MINT_OFFSET: usize = SPL_ASSET_REGISTRY_MAGIC_END;
+pub const SPL_ASSET_REGISTRY_MINT_END: usize = SPL_ASSET_REGISTRY_MINT_OFFSET + 32;
+pub const SPL_ASSET_REGISTRY_ASSET_ID_OFFSET: usize = SPL_ASSET_REGISTRY_MINT_END;
+pub const SPL_ASSET_REGISTRY_ASSET_ID_END: usize =
+    SPL_ASSET_REGISTRY_ASSET_ID_OFFSET + core::mem::size_of::<u64>();
+pub const SPL_ASSET_REGISTRY_ACCOUNT_LEN: usize = SPL_ASSET_REGISTRY_ASSET_ID_END;

@@ -1,18 +1,9 @@
-//! zone_proofless_shield matrix (spec tag 15): policy-zone public deposit,
-//! authorized by the zone program's `zone_auth` signer.
-//!
-//! Cases:
-//!  1. Functional: a SOL deposit driven through the zone wrapper program (which
-//!     signs with its `zone_auth` PDA) creates a zone-owned UTXO; the event
-//!     carries the zone program id + policy hash, and the indexer's
-//!     recomputation + root parity hold (exercising the pk_field-encoded
-//!     zone_program_id in the UTXO hash).
-//!  2. Invalid signer: `zone_proofless_shield` sent directly to the pool with a
-//!     real signer that is not the derived `zone_auth` PDA — reject.
+//! Policy-zone proofless deposit coverage through the test zone wrapper.
 
 mod common;
 
-use common::{assert_custom, rig_with_tree};
+use common::{assert_pool_error, rig_with_tree};
+use shielded_pool_program::error::ShieldedPoolError;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -24,9 +15,6 @@ use zolana_program_test::{
     proofless_event_for_wallet, PoolIndexer, RigError, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::Wallet;
-
-// Stable on-chain error codes (programs/shielded-pool/src/error.rs).
-const INVALID_SETTLEMENT_ACCOUNTS: u32 = 9;
 
 #[test]
 fn zone_proofless_shield_succeeds_and_event_is_faithful() {
@@ -135,5 +123,5 @@ fn rejects_zone_proofless_with_wrong_signer() {
         .map(|_| ())
         .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))
         .unwrap_err();
-    assert_custom(err, INVALID_SETTLEMENT_ACCOUNTS);
+    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
 }
