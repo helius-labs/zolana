@@ -8,7 +8,6 @@ on:
       - "**/*.md"
       - "LICENSE*"
       - ".gitignore"
-      - ".gitmodules"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
@@ -16,7 +15,6 @@ on:
       - "**/*.md"
       - "LICENSE*"
       - ".gitignore"
-      - ".gitmodules"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -67,8 +65,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy
@@ -81,15 +77,13 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
 
-  test-scaffold:
-    name: tests / scaffold
+  test-shielded-pool:
+    name: tests / shielded-pool
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
@@ -97,7 +91,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: just test-scaffold
+      - run: just test-shielded-pool
 
   test-sdk-libs:
     name: tests / sdk-libs
@@ -108,3 +102,22 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
+
+  test-litesvm:
+    name: tests / litesvm
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: litesvm
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - run: cargo build-sbf --version
+      - run: just test-litesvm

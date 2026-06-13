@@ -6,7 +6,7 @@ members = [
     "programs/registry",
     "programs/shielded-pool",
     "prover/client",
-    "sdk-libs/cli",
+    "cli",
     "sdk-libs/keypair",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
@@ -18,7 +18,6 @@ default-members = [
     "program-libs/interface",
     "programs/shielded-pool",
 ]
-exclude = ["external/photon"]
 resolver = "2"
 
 [workspace.package]
@@ -115,6 +114,7 @@ bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"
 bytemuck = "1.19.0"
 chrono = "0.4"
+clap = { version = "4.5.53", features = ["derive", "env"] }
 dashmap = "6.1.0"
 darling = "0.21"
 env_logger = "0.11"
