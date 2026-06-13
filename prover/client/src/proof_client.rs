@@ -12,11 +12,7 @@ use crate::{
         compress_proof, deserialize_gnark_proof_json, proof_from_json_struct, ProofCompressed,
         ProofResult,
     },
-    proof_types::{
-        batch_address_append::{to_json, BatchAddressAppendInputs},
-        batch_append::{BatchAppendInputsJson, BatchAppendsCircuitInputs},
-        batch_update::{update_inputs_string, BatchUpdateCircuitInputs},
-    },
+    proof_types::batch_address_append::{to_json, BatchAddressAppendInputs},
     prover::build_http_client,
 };
 
@@ -674,30 +670,6 @@ impl ProofClient {
         let new_root = light_hasher::bigint::bigint_to_be_bytes_array::<32>(&inputs.new_root)?;
         let inputs_json = to_json(&inputs);
         let proof = self.generate_proof(inputs_json).await?;
-        Ok((proof, new_root))
-    }
-
-    pub async fn generate_batch_append_proof(
-        &self,
-        circuit_inputs: BatchAppendsCircuitInputs,
-    ) -> Result<(ProofResult, [u8; 32]), ProverClientError> {
-        let new_root = light_hasher::bigint::bigint_to_be_bytes_array::<32>(
-            &circuit_inputs.new_root.to_biguint().unwrap(),
-        )?;
-        let inputs_json = BatchAppendInputsJson::from_inputs(&circuit_inputs).to_string();
-        let proof = self.generate_proof(inputs_json).await?;
-        Ok((proof, new_root))
-    }
-
-    pub async fn generate_batch_update_proof(
-        &self,
-        circuit_inputs: BatchUpdateCircuitInputs,
-    ) -> Result<(ProofResult, [u8; 32]), ProverClientError> {
-        let new_root = light_hasher::bigint::bigint_to_be_bytes_array::<32>(
-            &circuit_inputs.new_root.to_biguint().unwrap(),
-        )?;
-        let json_str = update_inputs_string(&circuit_inputs);
-        let proof = self.generate_proof(json_str).await?;
         Ok((proof, new_root))
     }
 }

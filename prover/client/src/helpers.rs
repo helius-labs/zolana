@@ -2,8 +2,7 @@ use std::{env, path::Path, process::Command};
 
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::changelog::ChangelogEntry;
-use num_bigint::{BigInt, BigUint};
-use num_traits::{Num, ToPrimitive};
+use num_bigint::BigUint;
 use serde::Serialize;
 
 use crate::errors::ProverClientError;
@@ -69,31 +68,6 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub fn change_endianness(bytes: &[u8]) -> Vec<u8> {
-    let mut vec = Vec::with_capacity(bytes.len());
-    for chunk in bytes.chunks(32) {
-        vec.extend(chunk.iter().rev());
-    }
-    vec
-}
-pub fn convert_endianness_128(bytes: &[u8]) -> Vec<u8> {
-    bytes
-        .chunks(64)
-        .flat_map(|b| b.iter().copied().rev().collect::<Vec<u8>>())
-        .collect::<Vec<u8>>()
-}
-
-pub fn bigint_to_u8_32(n: &BigInt) -> Result<[u8; 32], Box<dyn std::error::Error>> {
-    let (_, bytes_be) = n.to_bytes_be();
-    if bytes_be.len() > 32 {
-        Err("Number too large to fit in [u8; 32]")?;
-    }
-    let mut array = [0; 32];
-    let bytes = &bytes_be[..bytes_be.len()];
-    array[(32 - bytes.len())..].copy_from_slice(bytes);
-    Ok(array)
-}
-
 pub fn compute_root_from_merkle_proof<const HEIGHT: usize>(
     leaf: [u8; 32],
     path_elements: &[[u8; 32]; HEIGHT],
@@ -118,36 +92,6 @@ pub fn compute_root_from_merkle_proof<const HEIGHT: usize>(
 
 pub fn big_uint_to_string(big_uint: &BigUint) -> String {
     format!("0x{}", big_uint.to_str_radix(16))
-}
-
-pub fn big_int_to_string(big_int: &BigInt) -> String {
-    format!("0x{}", big_int.to_str_radix(16))
-}
-pub fn string_to_big_int(hex_str: &str) -> Option<BigInt> {
-    if hex_str.starts_with("0x") || hex_str.starts_with("0X") {
-        BigInt::from_str_radix(&hex_str[2..], 16).ok()
-    } else {
-        None
-    }
-}
-
-pub fn create_vec_of_string(number_of_utxos: usize, element: &BigInt) -> Vec<String> {
-    vec![big_int_to_string(element); number_of_utxos]
-}
-
-pub fn create_vec_of_u32(number_of_utxos: usize, element: &BigInt) -> Vec<u32> {
-    vec![element.to_u32().unwrap(); number_of_utxos]
-}
-
-pub fn create_vec_of_vec_of_string(
-    number_of_utxos: usize,
-    elements: &[BigInt],
-) -> Vec<Vec<String>> {
-    let vec: Vec<String> = elements
-        .iter()
-        .map(|e| format!("0x{}", e.to_str_radix(16)))
-        .collect();
-    vec![vec; number_of_utxos]
 }
 
 pub fn create_json_from_struct<T>(json_struct: &T) -> String

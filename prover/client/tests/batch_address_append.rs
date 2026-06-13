@@ -14,7 +14,6 @@ use light_sparse_merkle_tree::{
 use num_bigint::{BigUint, ToBigUint};
 use reqwest::Client;
 use serial_test::serial;
-mod init_merkle_tree;
 
 #[serial]
 #[tokio::test]
