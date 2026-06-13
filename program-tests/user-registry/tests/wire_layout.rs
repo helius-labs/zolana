@@ -1,5 +1,5 @@
 use borsh::to_vec;
-use light_program_test::user_registry_sdk::build_register_ix;
+use user_registry_tests::build_register_ix;
 use zolana_interface::user_registry::instruction::{discriminator, RegisterData};
 use zolana_interface::user_registry::{SyncDelegateEntry, UserRecord};
 

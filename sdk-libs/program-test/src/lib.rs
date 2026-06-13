@@ -34,7 +34,6 @@ use zolana_interface::{
 };
 
 pub mod registry_sdk;
-pub mod user_registry_sdk;
 pub use registry_sdk::{ForesterConfig, ProtocolConfig};
 
 #[derive(Debug, Error)]

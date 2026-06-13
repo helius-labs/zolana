@@ -2994,7 +2994,6 @@ name = "light-program-test"
 version = "0.23.0"
 dependencies = [
  "borsh",
- "cucumber",
  "litesvm",
  "serial_test",
  "solana-instruction",
@@ -3004,9 +3003,7 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "thiserror 2.0.18",
- "tokio",
  "zolana-interface",
- "zolana-user-registry",
 ]
 
 [[package]]
@@ -7575,6 +7572,24 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+]
+
+[[package]]
+name = "user-registry-tests"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "cucumber",
+ "litesvm",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
+ "tokio",
+ "zolana-interface",
+ "zolana-user-registry",
 ]
 
 [[package]]
