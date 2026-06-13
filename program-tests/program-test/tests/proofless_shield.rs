@@ -28,7 +28,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{encode_instruction, tag, CpiSignerData};
+use zolana_interface::instruction::{
+    encode_instruction, tag, CpiSignerData, ProoflessShieldIxData,
+};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{proofless_event_for_wallet, PoolIndexer, PoolTestRig};
@@ -39,6 +41,9 @@ const INVALID_TREE_ACCOUNTS: u32 = 1;
 const INVALID_TRANSACT_SHAPE: u32 = 6;
 const INVALID_SETTLEMENT_ACCOUNTS: u32 = 9;
 const TREE_PAUSED: u32 = 13;
+
+type ProoflessMutation = Box<dyn Fn(&mut ProoflessShieldIxData)>;
+type ProoflessMutationCase = (&'static str, ProoflessMutation);
 
 fn funded_depositor(rig: &mut PoolTestRig) -> Keypair {
     let depositor = Keypair::new();
@@ -165,10 +170,7 @@ fn rejects_program_data_without_cpi_signer() {
     // program_data{,_hash} make the UTXO program-owned and require a
     // cpi_signer (spec proofless_shield check 3). Policy/zone data is not on
     // this instruction at all — it lives on zone_proofless_shield.
-    let mutations: Vec<(
-        &str,
-        Box<dyn Fn(&mut zolana_interface::instruction::ProoflessShieldIxData)>,
-    )> = vec![
+    let mutations: Vec<ProoflessMutationCase> = vec![
         (
             "program_data_hash",
             Box::new(|d| d.program_data_hash = Some([2u8; 32])),

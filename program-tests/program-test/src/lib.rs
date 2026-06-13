@@ -316,20 +316,19 @@ impl PoolTestRig {
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<(ProoflessShieldIxData, Blinding), RigError> {
-        let (view_tag, owner_utxo_hash, salt, blinding) =
-            wallet_shield_fields(recipient, blinding_seed, position)?;
+        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok((
             ProoflessShieldIxData {
-                view_tag,
-                owner_utxo_hash,
-                salt,
+                view_tag: fields.view_tag,
+                owner_utxo_hash: fields.owner_utxo_hash,
+                salt: fields.salt,
                 public_sol_amount: Some(lamports),
                 public_spl_amount: None,
                 program_data_hash: None,
                 program_data: None,
                 cpi_signer: None,
             },
-            blinding,
+            fields.blinding,
         ))
     }
 
@@ -339,20 +338,19 @@ impl PoolTestRig {
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<(ProoflessShieldIxData, Blinding), RigError> {
-        let (view_tag, owner_utxo_hash, salt, blinding) =
-            wallet_shield_fields(recipient, blinding_seed, position)?;
+        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok((
             ProoflessShieldIxData {
-                view_tag,
-                owner_utxo_hash,
-                salt,
+                view_tag: fields.view_tag,
+                owner_utxo_hash: fields.owner_utxo_hash,
+                salt: fields.salt,
                 public_sol_amount: None,
                 public_spl_amount: Some(amount),
                 program_data_hash: None,
                 program_data: None,
                 cpi_signer: None,
             },
-            blinding,
+            fields.blinding,
         ))
     }
 
@@ -630,13 +628,12 @@ impl PoolTestRig {
         position: u8,
     ) -> Result<(ZoneProoflessShieldIxData, Blinding), RigError> {
         let (_, bump) = self.zone_auth_pda();
-        let (view_tag, owner_utxo_hash, salt, blinding) =
-            wallet_shield_fields(recipient, blinding_seed, position)?;
+        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok((
             ZoneProoflessShieldIxData {
-                view_tag,
-                owner_utxo_hash,
-                salt,
+                view_tag: fields.view_tag,
+                owner_utxo_hash: fields.owner_utxo_hash,
+                salt: fields.salt,
                 public_sol_amount: Some(lamports),
                 public_spl_amount: None,
                 cpi_signer: CpiSignerData {
@@ -648,7 +645,7 @@ impl PoolTestRig {
                 program_data_hash: None,
                 program_data: None,
             },
-            blinding,
+            fields.blinding,
         ))
     }
 
@@ -764,22 +761,29 @@ impl PoolTestRig {
     }
 }
 
+struct WalletShieldFields {
+    view_tag: [u8; 32],
+    owner_utxo_hash: [u8; 32],
+    salt: [u8; 16],
+    blinding: Blinding,
+}
+
 fn wallet_shield_fields(
     recipient: &Wallet,
     blinding_seed: &[u8; BLINDING_LEN],
     position: u8,
-) -> Result<([u8; 32], [u8; 32], [u8; 16], Blinding), RigError> {
+) -> Result<WalletShieldFields, RigError> {
     let blinding = derive_blinding(blinding_seed, position);
     let owner_utxo_hash = recipient.proofless_owner_utxo_hash(&blinding)?;
     let mut salt = [0u8; 16];
     salt.copy_from_slice(&blinding_seed[..16]);
     salt[15] ^= position;
-    Ok((
-        recipient.keypair.recipient_bootstrap_view_tag(),
+    Ok(WalletShieldFields {
+        view_tag: recipient.keypair.recipient_bootstrap_view_tag(),
         owner_utxo_hash,
         salt,
         blinding,
-    ))
+    })
 }
 
 /// Top-level system_program::CreateAccount (discriminator 0); the new
