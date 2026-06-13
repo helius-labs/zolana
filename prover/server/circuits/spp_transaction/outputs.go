@@ -3,7 +3,7 @@ package transaction
 import "github.com/consensys/gnark/frontend"
 
 // constrainOutput verifies one created output and returns its UTXO hash (0 for a
-// dummy) for the transaction-hash chain.
+// dummy) for the transaction-hash chain (step 5).
 func constrainOutput(api frontend.API, out Output) frontend.Variable {
 	api.AssertIsBoolean(out.IsDummy)
 	notDummy := api.Sub(1, out.IsDummy)

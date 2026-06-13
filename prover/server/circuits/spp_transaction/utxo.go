@@ -20,7 +20,8 @@ type UtxoCircuitFields struct {
 
 // DefineGadget hashes the UTXO's fields into its commitment: the owner and
 // blinding fold into an inner hash, which joins the remaining fields. This lets
-// UtxoCircuitFields be used directly as a gadget via abstractor.Call.
+// UtxoCircuitFields be used directly as a gadget via abstractor.Call. Used for
+// both input (step 4.1) and output (step 5.1) utxo hashes.
 func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	ownerUtxoHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.Owner, u.Blinding})
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
@@ -36,4 +37,15 @@ func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 
 func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	return abstractor.Call(api, u)
+}
+
+// OwnerHashGadget binds an owner key hash to a nullifier public key — the owner
+// commitment verified in step 4.2.
+type OwnerHashGadget struct {
+	OwnerKeyHash frontend.Variable
+	NullifierPk  frontend.Variable
+}
+
+func (gadget OwnerHashGadget) DefineGadget(api frontend.API) interface{} {
+	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.OwnerKeyHash, gadget.NullifierPk})
 }

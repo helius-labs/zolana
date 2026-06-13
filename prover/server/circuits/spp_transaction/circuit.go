@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"fmt"
+	"math/big"
 
 	"light/light-prover/circuits/gadget"
 
@@ -94,25 +95,22 @@ func newCircuit(shape Shape, requiresP256 bool) (*Circuit, error) {
 	return c, nil
 }
 
-// 1. Validate layout
+// Define runs the proof in the order below; each step lives in the named file.
 //
-// 2. create nullifier pubkeys
-//
-// 3. Verify p256 signature
-//
-//  4. Inputs:
+//  1. validate layout                          (circuit.go)
+//  2. create nullifier pubkeys                 (inputs.go)
+//  3. verify p256 signature                    (p256.go)
+//  4. inputs (inputs.go):
 //     4.1. create utxo hashes
-//     4.2. create nullifiers
-//     4.3. verify inclusion proof
-//     4.4. verify nullifier non inclusion proof
-//     4.4. verify every nullifier is unique
-//
-//  5. Outputs:
-//     5.1. create output utxo hashes
-//
-// 6. check private transaction hash
-//
-// 7. check public inputs hash
+//     4.2. verify owner binding
+//     4.3. create nullifiers
+//     4.4. verify inclusion proof
+//     4.5. verify nullifier non-inclusion proof
+//     4.6. verify every nullifier is unique
+//  5. outputs: create output utxo hashes       (outputs.go)
+//  6. verify balance conservation              (balance.go)
+//  7. check private transaction hash           (private_tx_hash.go)
+//  8. check public inputs hash                 (circuit.go)
 func (c *Circuit) Define(api frontend.API) error {
 	if err := c.validateLayout(); err != nil {
 		return err
@@ -298,4 +296,58 @@ func (c *Circuit) validateLayout() error {
 		}
 	}
 	return nil
+}
+
+// Shape identifies one fixed-size SPP transaction circuit by its input and
+// output counts. The host mirrors this as protocol.Shape (with the supported-set
+// metadata); the circuit only needs the counts and that they are positive.
+type Shape struct {
+	NInputs  int
+	NOutputs int
+}
+
+// Validate checks the counts the circuit relies on to size its witness. The
+// supported-shape check lives host-side (protocol.Shape.IsSupported).
+func (s Shape) Validate() error {
+	if s.NInputs < 1 {
+		return fmt.Errorf("spp: NInputs must be >= 1, got %d", s.NInputs)
+	}
+	if s.NOutputs < 1 {
+		return fmt.Errorf("spp: NOutputs must be >= 1, got %d", s.NOutputs)
+	}
+	return nil
+}
+
+// These mirror the SPP protocol constants, kept in the circuits package so it
+// depends on no host code (see circuits/CLAUDE.md). They must stay in sync with
+// prover/spp/protocol.
+const (
+	// UtxoDomain is the domain tag folded into every UTXO commitment.
+	UtxoDomain = 1
+	// StateTreeHeight is the SPP state (UTXO) merkle tree height.
+	StateTreeHeight = 26
+	// NullifierTreeHeight is the SPP nullifier tree height.
+	NullifierTreeHeight = 40
+)
+
+// solAssetValue is the UTXO asset field for native SOL: Poseidon(0, 0), the
+// all-zero address encoded as a SolanaPkField. Precomputed so the circuits
+// package needs no host Poseidon; protocol.SolAsset() is the source of truth.
+var solAssetValue, _ = new(big.Int).SetString(
+	"14744269619966411208579211824598458697587494354926760081771325075741142829156", 10)
+
+// SolAsset returns the native-SOL asset field used in UTXO commitments.
+func SolAsset() *big.Int {
+	return new(big.Int).Set(solAssetValue)
+}
+
+// assertEqualWhen constrains a == b only when cond == 1 (see
+// gadget.AssertEqualWhen). For cond == 0 the check is vacuously satisfied.
+func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
+}
+
+// assertZeroWhen constrains v == 0 only when cond == 1 (see gadget.AssertZeroWhen).
+func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
+	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
 }
