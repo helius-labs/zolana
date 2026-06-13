@@ -27,12 +27,13 @@ use thiserror::Error;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CpiSignerData, CreateProtocolConfigData, CreateSplInterfaceData,
-        CreateTreeData, PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData,
-        UpdateProtocolConfigData, ZoneProoflessShieldIxData,
+        CreateTreeData, CreateZoneConfigData, PauseTreeData, ProoflessShieldEvent,
+        ProoflessShieldIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
+        UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
     },
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{
@@ -145,6 +146,13 @@ impl PoolTestRig {
     /// The per-mint pool vault PDA (spec: `spl_token_interface`).
     pub fn spl_asset_vault_pda(&self, mint: &Pubkey) -> Pubkey {
         Pubkey::find_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &self.program_id).0
+    }
+
+    pub fn zone_config_pda(&self, zone_program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[SPP_ZONE_CONFIG_PDA_SEED, zone_program_id.as_ref()],
+            &self.program_id,
+        )
     }
 
     /// Create the canonical protocol config naming `authority`. The authority
@@ -573,13 +581,13 @@ impl PoolTestRig {
     }
 
     /// The test-only zone wrapper program; litesvm loads it here.
-    pub fn zone_test_program_id() -> Pubkey {
+    fn zone_test_program_id() -> Pubkey {
         Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)
     }
 
     /// The zone program's `zone_auth` signer PDA and its bump.
     pub fn zone_auth_pda(&self) -> (Pubkey, u8) {
-        Pubkey::find_program_address(&[b"zone_auth"], &Self::zone_test_program_id())
+        Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], &Self::zone_test_program_id())
     }
 
     /// Load `zone_test_program.so` into the rig.
@@ -593,6 +601,77 @@ impl PoolTestRig {
             .add_program(Self::zone_test_program_id(), &bytes)
             .map_err(|e| RigError::Litesvm(format!("add_zone_test: {e:?}")))?;
         Ok(())
+    }
+
+    pub fn create_zone_config(
+        &mut self,
+        payer: &Keypair,
+        authority: &Pubkey,
+        zone_authority_transact_is_enabled: bool,
+    ) -> Result<Pubkey, RigError> {
+        let zone_program = Self::zone_test_program_id();
+        let (zone_config, zone_config_bump) = self.zone_config_pda(&zone_program);
+        let (zone_auth, zone_auth_bump) = self.zone_auth_pda();
+        let data = CreateZoneConfigData {
+            policy_program_id: ZONE_TEST_PROGRAM_ID,
+            zone_auth_bump,
+            authority: authority.to_bytes(),
+            zone_authority_transact_is_enabled,
+            zone_config_bump,
+        };
+        let ix = Instruction {
+            program_id: zone_program,
+            accounts: vec![
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new(zone_config, false),
+                AccountMeta::new_readonly(zone_auth, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new_readonly(self.program_id, false),
+            ],
+            data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), payer])?;
+        Ok(zone_config)
+    }
+
+    pub fn update_zone_config_owner(
+        &mut self,
+        authority: &Keypair,
+        zone_config: &Pubkey,
+        new_authority: &Pubkey,
+    ) -> Result<(), RigError> {
+        let data = UpdateZoneConfigOwnerData {
+            new_authority: new_authority.to_bytes(),
+        };
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(*zone_config, false),
+            ],
+            data: encode_instruction(tag::UPDATE_ZONE_CONFIG_OWNER, &data),
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
+    }
+
+    pub fn update_zone_config(
+        &mut self,
+        authority: &Keypair,
+        zone_config: &Pubkey,
+        zone_authority_transact_is_enabled: bool,
+    ) -> Result<(), RigError> {
+        let data = UpdateZoneConfigData {
+            zone_authority_transact_is_enabled,
+        };
+        let ix = Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(authority.pubkey(), true),
+                AccountMeta::new(*zone_config, false),
+            ],
+            data: encode_instruction(tag::UPDATE_ZONE_CONFIG, &data),
+        };
+        self.send(&[ix], &[&self.payer.insecure_clone(), authority])
     }
 
     /// SOL zone deposit data whose `cpi_signer` names the wrapper program and

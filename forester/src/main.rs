@@ -1,9 +1,8 @@
 use clap::Parser;
-use forester::{cli::Cli, errors::ForesterError};
+use forester::cli::Cli;
 
 #[tokio::main]
-#[allow(clippy::result_large_err)]
-async fn main() -> Result<(), ForesterError> {
+async fn main() {
     dotenvy::dotenv().ok();
     forester::logging::setup();
 
@@ -12,5 +11,4 @@ async fn main() -> Result<(), ForesterError> {
     // combined address+state tree type.
     let _cli = Cli::parse();
     tracing::info!("forester skeleton: no work to do");
-    Ok(())
 }

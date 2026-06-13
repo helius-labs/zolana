@@ -1,6 +1,7 @@
 //! Shared harness for shielded-pool program tests: rig boot (skipping when
 //! the .so is missing), the standard protocol-config + tree setup, and
 //! shared error assertions.
+#![allow(dead_code)]
 
 use solana_keypair::Keypair;
 use zolana_program_test::{PoolTestRig, RigError};
@@ -38,7 +39,6 @@ pub fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
 
 /// Assert a rig error is the program's `Custom(code)`. The discriminants are
 /// the stable on-chain error codes (`error.rs`).
-#[allow(dead_code)] // each test binary compiles this module; not all use it
 #[track_caller]
 pub fn assert_custom(err: RigError, code: u32) {
     let msg = format!("{err}");
@@ -48,7 +48,6 @@ pub fn assert_custom(err: RigError, code: u32) {
 
 /// Assert a rig error is a built-in Solana instruction error (by name as it
 /// appears in litesvm's debug output, e.g. "NotEnoughAccountKeys").
-#[allow(dead_code)] // each test binary compiles this module; not all use it
 #[track_caller]
 pub fn assert_instruction_error(err: RigError, name: &str) {
     let msg = format!("{err}");

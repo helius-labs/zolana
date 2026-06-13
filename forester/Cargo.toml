@@ -9,7 +9,6 @@ default = []
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive", "env"] }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

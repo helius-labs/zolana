@@ -2,7 +2,8 @@ use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
     tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
-    CreateTreeData, PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData,
+    CreateTreeData, CreateZoneConfigData, PauseTreeData, ProoflessShieldIxData,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     ZoneProoflessShieldIxData,
 };
 
@@ -14,7 +15,9 @@ use crate::{
         create_tree::processor::process_create_tree,
         proofless_shield::{process_proofless_shield, process_zone_proofless_shield},
         protocol_config::processor::{
-            process_create_protocol_config, process_pause_tree, process_update_protocol_config,
+            process_create_protocol_config, process_create_zone_config, process_pause_tree,
+            process_update_protocol_config, process_update_zone_config,
+            process_update_zone_config_owner,
         },
     },
 };
@@ -68,5 +71,8 @@ pub fn process_instruction(
         tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
         tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),
         tag::PAUSE_TREE => (PauseTreeData, process_pause_tree),
+        tag::CREATE_ZONE_CONFIG => (CreateZoneConfigData, process_create_zone_config),
+        tag::UPDATE_ZONE_CONFIG_OWNER => (UpdateZoneConfigOwnerData, process_update_zone_config_owner),
+        tag::UPDATE_ZONE_CONFIG => (UpdateZoneConfigData, process_update_zone_config),
     })
 }

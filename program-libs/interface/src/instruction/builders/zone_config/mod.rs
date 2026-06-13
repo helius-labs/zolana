@@ -19,9 +19,10 @@ pub fn create_zone_config(
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
-            AccountMeta::new_readonly(payer, true),
+            AccountMeta::new(payer, true),
             AccountMeta::new(zone_config, false),
             AccountMeta::new_readonly(zone_auth, true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
         ],
         data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
     }

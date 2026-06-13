@@ -12,6 +12,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_interface::instruction::{batch_update_nullifier_tree, BatchUpdateNullifierTreeData};
+use zolana_interface::{SHIELDED_POOL_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ForestError {
@@ -24,7 +25,6 @@ pub enum ForestError {
 pub struct ForestParams<'a> {
     pub rpc_url: &'a str,
     pub authority: &'a Keypair,
-    pub protocol_config: Pubkey,
     pub pool_tree: Pubkey,
     pub batch_update: BatchUpdateNullifierTreeData,
 }
@@ -35,7 +35,7 @@ pub fn batch_update_nullifier_tree_once(
     let authority = params.authority.pubkey();
     let ix = batch_update_nullifier_tree(
         authority,
-        params.protocol_config,
+        protocol_config_pda(),
         params.pool_tree,
         params.batch_update,
     );
@@ -51,10 +51,15 @@ pub fn batch_update_nullifier_tree_once(
         .map_err(|e| ForestError::TxFailed(e.to_string()))
 }
 
+fn protocol_config_pda() -> Pubkey {
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &program_id).0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
+    use zolana_interface::instruction::tag;
 
     #[test]
     fn maintenance_instruction_targets_spp() {
@@ -84,5 +89,14 @@ mod tests {
         assert_eq!(ix.accounts[1].pubkey, config);
         assert_eq!(ix.accounts[2].pubkey, tree);
         assert!(ix.accounts[2].is_writable);
+    }
+
+    #[test]
+    fn protocol_config_is_canonical_spp_pda() {
+        let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+        assert_eq!(
+            protocol_config_pda(),
+            Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &program_id).0
+        );
     }
 }

@@ -5,12 +5,16 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
-    instruction::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData},
-    state::{
-        discriminator::PROTOCOL_CONFIG, PROTOCOL_CONFIG_ACCOUNT_LEN,
-        PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
+    instruction::{
+        CreateProtocolConfigData, CreateZoneConfigData, PauseTreeData, UpdateProtocolConfigData,
+        UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     },
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
+    state::{
+        discriminator::{PROTOCOL_CONFIG, ZONE_CONFIG},
+        PROTOCOL_CONFIG_ACCOUNT_LEN, PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
+        ZONE_CONFIG_ACCOUNT_LEN,
+    },
+    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
 };
 
 use crate::{
@@ -99,6 +103,79 @@ pub fn process_pause_tree(
     Ok(())
 }
 
+pub fn process_create_zone_config(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: CreateZoneConfigData,
+) -> ProgramResult {
+    // [payer(signer), zone_config(PDA), zone_auth(signer), system_program].
+    if accounts.len() < 4 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (payer_slice, tail) = accounts.split_at_mut(1);
+    let payer = &payer_slice[0];
+    let (config_slice, tail) = tail.split_at_mut(1);
+    let config = &mut config_slice[0];
+    let zone_auth = &tail[0];
+
+    if !payer.is_signer() || !config.is_writable() {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    validate_zone_auth(zone_auth, &data.policy_program_id, data.zone_auth_bump)?;
+
+    let (expected, bump) = zone_config_pda(program_id, &data.policy_program_id)?;
+    if *config.address() != expected || data.zone_config_bump != bump {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    create_zone_config_pda(payer, config, program_id, &data.policy_program_id, bump)?;
+
+    let bytes = loader::account_data_mut(config);
+    write_zone_config(
+        bytes,
+        &data.authority,
+        data.zone_authority_transact_is_enabled,
+        bump,
+    )
+}
+
+pub fn process_update_zone_config_owner(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: UpdateZoneConfigOwnerData,
+) -> ProgramResult {
+    let (authority, config) = load_authority_and_zone_config(program_id, accounts)?;
+    let current = read_zone_config(config)?;
+    if !authority_matches(authority, &current.authority) {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    let bytes = loader::account_data_mut(config);
+    write_zone_config(
+        bytes,
+        &data.new_authority,
+        current.zone_authority_transact_is_enabled,
+        current.zone_config_bump,
+    )
+}
+
+pub fn process_update_zone_config(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: UpdateZoneConfigData,
+) -> ProgramResult {
+    let (authority, config) = load_authority_and_zone_config(program_id, accounts)?;
+    let current = read_zone_config(config)?;
+    if !authority_matches(authority, &current.authority) {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    let bytes = loader::account_data_mut(config);
+    write_zone_config(
+        bytes,
+        &current.authority,
+        data.zone_authority_transact_is_enabled,
+        current.zone_config_bump,
+    )
+}
+
 pub fn assert_tree_not_paused(tree: &AccountView) -> ProgramResult {
     let bytes = tree
         .try_borrow()
@@ -116,10 +193,24 @@ pub struct ProtocolConfigState {
     pub merge_authorities: Vec<[u8; 32]>,
 }
 
+struct ZoneConfigState {
+    authority: [u8; 32],
+    zone_authority_transact_is_enabled: bool,
+    zone_config_bump: u8,
+}
+
 /// Canonical protocol-config PDA + bump: `[SPP_PROTOCOL_CONFIG_PDA_SEED]`.
 fn protocol_config_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {
     Address::derive_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], program_id)
         .ok_or_else(|| ShieldedPoolError::InvalidProtocolConfig.into())
+}
+
+fn zone_config_pda(
+    program_id: &Address,
+    policy_program_id: &[u8; 32],
+) -> Result<(Address, u8), ProgramError> {
+    Address::derive_program_address(&[SPP_ZONE_CONFIG_PDA_SEED, policy_program_id], program_id)
+        .ok_or_else(|| ShieldedPoolError::InvalidZoneConfig.into())
 }
 
 fn create_config_pda(
@@ -148,6 +239,36 @@ fn create_config_pda(
     .map_err(|_| ShieldedPoolError::InvalidProtocolConfig.into())
 }
 
+fn create_zone_config_pda(
+    payer: &AccountView,
+    config: &AccountView,
+    program_id: &Address,
+    policy_program_id: &[u8; 32],
+    bump: u8,
+) -> ProgramResult {
+    if config.data_len() != 0 {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let bump = [bump];
+    let space = ZONE_CONFIG_ACCOUNT_LEN as u64;
+    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
+    let seeds = [
+        Seed::from(SPP_ZONE_CONFIG_PDA_SEED),
+        Seed::from(policy_program_id.as_slice()),
+        Seed::from(&bump),
+    ];
+    let signer = Signer::from(&seeds);
+    pinocchio_system::instructions::CreateAccount {
+        from: payer,
+        to: config,
+        lamports,
+        space,
+        owner: program_id,
+    }
+    .invoke_signed(core::slice::from_ref(&signer))
+    .map_err(|_| ShieldedPoolError::InvalidZoneConfig.into())
+}
+
 fn load_authority_and_config<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
@@ -165,6 +286,26 @@ fn load_authority_and_config<'a>(
         || (config_writable && !config.is_writable())
     {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+    Ok((authority, config))
+}
+
+fn load_authority_and_zone_config<'a>(
+    program_id: &Address,
+    accounts: &'a mut [AccountView],
+) -> Result<(&'a AccountView, &'a mut AccountView), ProgramError> {
+    if accounts.len() < 2 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (head, tail) = accounts.split_at_mut(1);
+    let authority = &head[0];
+    let config = &mut tail[0];
+    if !authority.is_signer()
+        || !config.is_writable()
+        || !config.owned_by(program_id)
+        || config.data_len() < ZONE_CONFIG_ACCOUNT_LEN
+    {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
     Ok((authority, config))
 }
@@ -212,6 +353,75 @@ fn write_protocol_config(
         bytes[offset..offset + 32].copy_from_slice(authority);
     }
     Ok(())
+}
+
+fn read_zone_config(account: &AccountView) -> Result<ZoneConfigState, ProgramError> {
+    if account.data_len() < ZONE_CONFIG_ACCOUNT_LEN {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let bytes = account
+        .try_borrow()
+        .map_err(|_| ShieldedPoolError::InvalidZoneConfig)?;
+    if bytes[0] != ZONE_CONFIG {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let mut authority = [0u8; 32];
+    authority.copy_from_slice(&bytes[8..40]);
+    Ok(ZoneConfigState {
+        authority,
+        zone_authority_transact_is_enabled: bytes[40] != 0,
+        zone_config_bump: bytes[41],
+    })
+}
+
+fn write_zone_config(
+    bytes: &mut [u8],
+    authority: &[u8; 32],
+    zone_authority_transact_is_enabled: bool,
+    zone_config_bump: u8,
+) -> ProgramResult {
+    if bytes.len() < ZONE_CONFIG_ACCOUNT_LEN {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    bytes[..ZONE_CONFIG_ACCOUNT_LEN].fill(0);
+    bytes[0] = ZONE_CONFIG;
+    bytes[8..40].copy_from_slice(authority);
+    bytes[40] = u8::from(zone_authority_transact_is_enabled);
+    bytes[41] = zone_config_bump;
+    Ok(())
+}
+
+fn validate_zone_auth(
+    zone_auth: &AccountView,
+    policy_program_id: &[u8; 32],
+    zone_auth_bump: u8,
+) -> ProgramResult {
+    if !zone_auth.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    let bump = [zone_auth_bump];
+    let expected = derive_zone_auth(policy_program_id, &bump)?;
+    if *zone_auth.address() != expected {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    Ok(())
+}
+
+fn derive_zone_auth(policy_program_id: &[u8; 32], bump: &[u8; 1]) -> Result<Address, ProgramError> {
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    {
+        Address::create_program_address(
+            &[zolana_interface::ZONE_AUTH_PDA_SEED, bump.as_slice()],
+            &Address::from(*policy_program_id),
+        )
+        .map_err(|_| ShieldedPoolError::InvalidZoneConfig.into())
+    }
+
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    {
+        let _ = (policy_program_id, bump);
+        Err(ShieldedPoolError::InvalidZoneConfig.into())
+    }
 }
 
 fn validate_merge_authorities(merge_authorities: &[[u8; 32]]) -> Result<(), ProgramError> {

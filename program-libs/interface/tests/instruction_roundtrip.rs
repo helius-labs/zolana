@@ -1,9 +1,10 @@
 use borsh::BorshDeserialize;
+use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{
-    encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-    CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData, InputUtxoSignerIndex,
-    InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
+    create_zone_config, encode_instruction, tag, BatchUpdateNullifierTreeData,
+    CreateProtocolConfigData, CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData,
+    InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 #[test]
@@ -152,6 +153,36 @@ fn zone_config_update_roundtrips() {
         UpdateZoneConfigData::try_from_slice(&bytes[1..]).unwrap(),
         update
     );
+}
+
+#[test]
+fn create_zone_config_builder_account_layout() {
+    let payer = Pubkey::new_unique();
+    let config = Pubkey::new_unique();
+    let zone_auth = Pubkey::new_unique();
+    let ix = create_zone_config(
+        payer,
+        config,
+        zone_auth,
+        CreateZoneConfigData {
+            policy_program_id: Pubkey::new_unique().to_bytes(),
+            zone_auth_bump: 255,
+            authority: Pubkey::new_unique().to_bytes(),
+            zone_authority_transact_is_enabled: true,
+            zone_config_bump: 254,
+        },
+    );
+
+    assert_eq!(ix.accounts.len(), 4);
+    assert_eq!(ix.accounts[0].pubkey, payer);
+    assert!(ix.accounts[0].is_signer);
+    assert!(ix.accounts[0].is_writable);
+    assert_eq!(ix.accounts[1].pubkey, config);
+    assert!(ix.accounts[1].is_writable);
+    assert_eq!(ix.accounts[2].pubkey, zone_auth);
+    assert!(ix.accounts[2].is_signer);
+    assert!(!ix.accounts[2].is_writable);
+    assert_eq!(ix.accounts[3].pubkey, Pubkey::default());
 }
 
 #[test]
