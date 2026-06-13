@@ -238,6 +238,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 
 ### Instruction data
 
+1. use [instruction-decoder](https://github.com/helius-labs/privacy-program-libs/tree/main/crates/instruction-decoder)
 1. default light-zero-copy
 3. if not hot path can use borsh
 
