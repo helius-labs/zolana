@@ -2,14 +2,17 @@
 //! and address-tree queue paths against an in-memory account buffer — no
 //! Solana runtime needed.
 
-use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
+use light_batched_merkle_tree::merkle_tree::{
+    get_merkle_tree_account_size, BatchedMerkleTreeAccount,
+};
 use light_hasher::{Hasher, Poseidon};
 use light_sparse_merkle_tree::SparseMerkleTree;
 use shielded_pool_program::instructions::create_tree::init::{
-    address_sub_tree_slice_mut, append_state_leaves, init_tree_account, state_next_index_offset,
-    state_root_offset, tree_account_size, ADDRESS_SUB_TREE_OFFSET, DISCRIMINATOR_OFFSET,
-    STATE_HEIGHT,
+    address_sub_tree_slice_mut, address_tree_params, append_state_leaves, init_tree_account,
+    state_next_index_offset, state_root_offset, tree_account_size, ADDRESS_SUB_TREE_OFFSET,
+    DISCRIMINATOR_OFFSET, STATE_HEIGHT,
 };
+use zolana_interface::state::ADDRESS_SUB_TREE_SIZE;
 
 const OWNER: pinocchio::Address = pinocchio::Address::new_from_array([1u8; 32]);
 const TREE: pinocchio::Address = pinocchio::Address::new_from_array([2u8; 32]);
@@ -39,6 +42,19 @@ fn read_state_root(bytes: &[u8]) -> [u8; 32] {
     let mut root = [0u8; 32];
     root.copy_from_slice(&bytes[off..off + 32]);
     root
+}
+
+#[test]
+fn address_sub_tree_size_matches_light_layout() {
+    let params = address_tree_params();
+    let light_size = get_merkle_tree_account_size(
+        params.input_queue_batch_size,
+        params.bloom_filter_capacity,
+        params.input_queue_zkp_batch_size,
+        params.root_history_capacity,
+        params.height,
+    );
+    assert_eq!(ADDRESS_SUB_TREE_SIZE, light_size);
 }
 
 #[test]

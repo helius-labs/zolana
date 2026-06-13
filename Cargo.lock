@@ -8459,7 +8459,6 @@ name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "light-batched-merkle-tree",
  "solana-instruction",
  "solana-pubkey 4.2.0",
 ]

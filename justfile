@@ -71,7 +71,7 @@ build-program-test-sbf:
 # Run one localnet test against a validator loaded with the real SBF programs.
 test-localnet test="localnet_proofless_shield": start-localnet-validator
     @echo "localnet rpc: http://127.0.0.1:{{localnet-rpc-port}}"
-    ZOLANA_LOCALNET_URL="http://127.0.0.1:{{localnet-rpc-port}}" cargo test -p shielded-pool-tests --features localnet --test {{test}} -- --nocapture
+    ZOLANA_LOCALNET_URL="http://127.0.0.1:{{localnet-rpc-port}}" cargo test -p shielded-pool-tests --features localnet --test {{replace(test, "test=", "")}} -- --nocapture
 
 test-localnet-proofless:
     @just test-localnet localnet_proofless_shield
@@ -82,7 +82,7 @@ start-localnet: start-localnet-validator
 [private]
 start-localnet-validator: build-program-test-sbf
     mkdir -p "{{localnet-state-dir}}"
-    cargo run -p zolana-cli -- test-validator \
+    just cli test-validator \
         --no-use-surfpool \
         --skip-indexer \
         --skip-prover \
@@ -95,7 +95,7 @@ start-localnet-validator: build-program-test-sbf
         --sbf-program {{zone-test-program-id}} target/deploy/zone_test_program.so
 
 stop-localnet:
-    cargo run -p zolana-cli -- test-validator --no-use-surfpool --skip-indexer --skip-prover --rpc-port {{localnet-rpc-port}} --stop
+    just cli test-validator --no-use-surfpool --skip-indexer --skip-prover --rpc-port {{localnet-rpc-port}} --stop
 
 stop-localnet-proofless:
     @just stop-localnet
@@ -111,8 +111,14 @@ verify: verify-rust prover-server-test
 
 # === CLI and Fixtures ===
 
-build-zolana-cli:
+cli *args:
+    cargo run -p zolana-cli -- {{args}}
+
+build-cli:
     cargo build -p zolana-cli
+
+test-cli:
+    cargo test -p zolana-cli
 
 # Fetch pinned third-party SBF program artifacts.
 fetch-vendor-programs:

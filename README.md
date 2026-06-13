@@ -50,7 +50,7 @@ The workflow is a backstop, not the enforcement.
 - `just` — `cargo install just --locked`
 - Go (for `prover/server` tests)
 - Anza / Solana CLI 4.x for `cargo build-sbf` (only needed for SBF program builds)
-- `just build-zolana-cli`, `just install-surfpool`, `just install-photon`,
+- `just build-cli`, `just install-surfpool`, `just install-photon`,
   `just build-prover-server`, and `just build-programs` for local validator flows
 - Proving keys in `prover/server/proving-keys/` only if you want to run
   `just xtask-create-verifying-keys-smoke` — the directory is gitignored; obtain the keys from
