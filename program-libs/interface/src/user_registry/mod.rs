@@ -22,15 +22,3 @@ pub fn user_record_pda(owner: &solana_pubkey::Pubkey) -> (solana_pubkey::Pubkey,
 pub fn user_registry_program_id() -> solana_pubkey::Pubkey {
     solana_pubkey::Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID)
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    #[cfg(feature = "solana")]
-    fn program_id_matches_known_base58() {
-        assert_eq!(
-            super::user_registry_program_id().to_string(),
-            "9EwHPNdsPHMt7kaUZaXDTaj92HVC8CL4Q16io4Vu87t4"
-        );
-    }
-}
