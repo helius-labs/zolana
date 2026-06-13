@@ -5,10 +5,7 @@ on:
     branches: [main]
     paths:
       - "forester/**"
-      - "programs/**"
-      - "program-libs/**"
-      - "program-tests/**"
-      - "sdk-libs/program-test/**"
+      - "program-libs/interface/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/forester.yml"
@@ -17,10 +14,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "forester/**"
-      - "programs/**"
-      - "program-libs/**"
-      - "program-tests/**"
-      - "sdk-libs/program-test/**"
+      - "program-libs/interface/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/forester.yml"
