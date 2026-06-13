@@ -1,4 +1,4 @@
-package spptransaction
+package transaction_test
 
 import (
 	. "light/light-prover/circuits/spp_transaction"

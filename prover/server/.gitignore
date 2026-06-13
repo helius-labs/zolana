@@ -10,6 +10,7 @@ formal-verification/lake-packages/*
 !formal-verification/lake-manifest.json
 
 inputs_*
+!inputs_test.go
 log.txt
 
 *.bin
