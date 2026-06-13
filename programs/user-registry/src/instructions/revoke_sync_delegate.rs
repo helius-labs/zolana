@@ -3,8 +3,11 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Clears the active sync delegate. Entry history is preserved.
-pub fn process_revoke(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+/// Removes the active sync delegate. Keeps history in entries vec.
+pub fn process_revoke_sync_delegate(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+) -> ProgramResult {
     if accounts.len() < 2 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }

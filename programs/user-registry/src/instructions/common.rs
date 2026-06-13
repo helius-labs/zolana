@@ -33,8 +33,7 @@ pub fn check_record_pda(
     Ok(bump)
 }
 
-/// CHECK `record` against a stored bump. Note that the bump MUST come from a
-/// record this program wrote.
+/// CHECK `record` against a stored bump.
 pub fn check_record_pda_with_bump(
     record: &AccountView,
     owner: &[u8; 32],
@@ -49,8 +48,7 @@ pub fn check_record_pda_with_bump(
     Ok(())
 }
 
-/// Deserialize record
-/// Checks ownership, is_writable, discriminator
+/// Deserialize record and CHECK ownership, is_writable, discriminator
 pub fn read_record(record: &AccountView, program_id: &Address) -> Result<UserRecord, ProgramError> {
     if !record.owned_by(program_id) || !record.is_writable() {
         return Err(fail(UserRegistryError::InvalidRecordAccount));
@@ -154,7 +152,7 @@ mod tests {
     use super::*;
     use zolana_interface::user_registry::USER_REGISTRY_PROGRAM_ID;
 
-    /// Verify that `check_record_pda_with_bump` is sound.
+    /// Check that `check_record_pda_with_bump` is sound.
     #[test]
     fn stored_bump_derivation_matches_canonical_search() {
         let program_id = Address::new_from_array(USER_REGISTRY_PROGRAM_ID);

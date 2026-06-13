@@ -1,12 +1,11 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_interface::user_registry::instruction::RegisterData;
+use zolana_interface::user_registry::{instruction::RegisterData, UserRecord};
 
 use super::common::{check_record_pda, check_system_program, create_record_account, write_record};
 use crate::{
     error::{fail, UserRegistryError},
-    state::{
+    validation::{
         validate_canonical_nullifier_pubkey, validate_optional_p256_pubkey, validate_p256_pubkey,
-        UserRecord,
     },
 };
 

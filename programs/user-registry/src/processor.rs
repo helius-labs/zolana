@@ -1,14 +1,15 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::user_registry::instruction::{
-    discriminator, RegisterData, RotateSyncDelegateData, SetSyncDelegateData,
+    discriminator, RegisterData, RotateSyncDelegateKeyData, SetSyncDelegateData,
 };
 
 use crate::{
     error::{fail, UserRegistryError},
     instructions::{
-        close::process_close, register::process_register, revoke::process_revoke,
-        rotate_sync_delegate::process_rotate_sync_delegate,
+        register::process_register,
+        revoke_sync_delegate::process_revoke_sync_delegate,
+        rotate_sync_delegate_key::process_rotate_sync_delegate_key,
         set_sync_delegate::process_set_sync_delegate,
     },
 };
@@ -33,22 +34,16 @@ pub fn process_instruction(
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
             process_set_sync_delegate(program_id, accounts, data)
         }
-        discriminator::ROTATE_SYNC_DELEGATE => {
-            let data = RotateSyncDelegateData::try_from_slice(payload)
+        discriminator::ROTATE_SYNC_DELEGATE_KEY => {
+            let data = RotateSyncDelegateKeyData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
-            process_rotate_sync_delegate(program_id, accounts, data)
+            process_rotate_sync_delegate_key(program_id, accounts, data)
         }
-        discriminator::REVOKE => {
+        discriminator::REVOKE_SYNC_DELEGATE => {
             if !payload.is_empty() {
                 return Err(fail(UserRegistryError::InvalidInstructionData));
             }
-            process_revoke(program_id, accounts)
-        }
-        discriminator::CLOSE => {
-            if !payload.is_empty() {
-                return Err(fail(UserRegistryError::InvalidInstructionData));
-            }
-            process_close(program_id, accounts)
+            process_revoke_sync_delegate(program_id, accounts)
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }
