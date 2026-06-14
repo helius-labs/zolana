@@ -6,7 +6,8 @@ use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, Tra
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::wallet::{SyncReport, SyncTransaction, Wallet};
+use zolana_transaction::test_wallet::TestWallet;
+use zolana_transaction::wallet::{SyncReport, SyncTransaction};
 use zolana_transaction::{
     AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID,
 };
@@ -269,7 +270,7 @@ fn build_scenario() -> Scenario {
     scenario
 }
 
-fn verify_sync(scenario: &Scenario, wallet: &Wallet, report: &SyncReport) {
+fn verify_sync(scenario: &Scenario, wallet: &TestWallet, report: &SyncReport) {
     let own_transactions = BOOTSTRAP_RECEIVES
         + REQUEST_RECEIVES
         + total_shared_receives()
@@ -303,7 +304,7 @@ fn verify_sync(scenario: &Scenario, wallet: &Wallet, report: &SyncReport) {
 #[ignore]
 fn defi_trader_full_sync() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = TestWallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
         .sync(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)
@@ -332,7 +333,7 @@ fn defi_trader_full_sync() {
 #[ignore]
 fn defi_trader_full_sync_parallel() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = TestWallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
         .sync_parallel(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)

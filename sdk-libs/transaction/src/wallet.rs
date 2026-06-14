@@ -3,18 +3,16 @@ use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{KeypairError, P256Pubkey, PublicKey};
 
 use crate::asset::AssetRegistry;
-use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
-use crate::transfer::TransferEncryptedUtxos;
+use crate::transfer::{
+    TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+};
 use crate::utxo::Utxo;
 use crate::{SPLIT, TRANSFER};
-
-#[cfg(feature = "parallel")]
-mod parallel;
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
 
@@ -26,7 +24,6 @@ pub struct SyncTransaction {
 }
 
 pub struct ViewingKeyEntry {
-    pub key: ViewingKey,
     pub created_at: i64,
     pub tx_count: u64,
     pub request_count: u64,
@@ -35,9 +32,8 @@ pub struct ViewingKeyEntry {
 }
 
 impl ViewingKeyEntry {
-    pub fn new(key: ViewingKey, created_at: i64) -> Self {
+    pub fn new(created_at: i64) -> Self {
         Self {
-            key,
             created_at,
             tx_count: 0,
             request_count: 0,
@@ -70,8 +66,65 @@ pub struct SyncReport {
     pub undecryptable_candidates: usize,
 }
 
+pub trait WalletCrypto {
+    fn signing_pubkey(&self) -> PublicKey;
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], TransactionError>;
+    fn viewing_pubkey(&self) -> P256Pubkey;
+    fn nullifier(
+        &self,
+        utxo_hash: &[u8; 32],
+        blinding: &[u8; zolana_keypair::constants::BLINDING_LEN],
+    ) -> Result<[u8; 32], TransactionError>;
+    fn recipient_bootstrap_view_tag(&self) -> ViewTag;
+    fn get_sender_view_tag(&self, index: u64) -> Result<ViewTag, KeypairError>;
+    fn get_recipient_request_view_tag(&self, index: u64) -> Result<ViewTag, KeypairError>;
+    fn get_send_shared_view_tag(
+        &self,
+        counterparty: &P256Pubkey,
+        index: u64,
+    ) -> Result<ViewTag, KeypairError>;
+    fn get_recipient_shared_view_tag(
+        &self,
+        counterparty: &P256Pubkey,
+        index: u64,
+    ) -> Result<ViewTag, KeypairError>;
+
+    fn transaction_viewing_pubkey(
+        &self,
+        first_nullifier: &[u8; 32],
+    ) -> Result<P256Pubkey, TransactionError>;
+
+    fn encrypt_transaction_slot(
+        &self,
+        first_nullifier: &[u8; 32],
+        recipient: &P256Pubkey,
+        plaintext: &[u8],
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        slot: u32,
+    ) -> Result<Vec<u8>, TransactionError>;
+
+    fn decrypt_root_slot(
+        &self,
+        peer: &P256Pubkey,
+        ciphertext: &[u8],
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        slot: u32,
+    ) -> Result<Vec<u8>, TransactionError>;
+
+    fn decrypt_transaction_slot(
+        &self,
+        first_nullifier: &[u8; 32],
+        peer: &P256Pubkey,
+        ciphertext: &[u8],
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        slot: u32,
+    ) -> Result<Vec<u8>, TransactionError>;
+}
+
 pub struct Wallet {
-    pub keypair: ShieldedKeypair,
+    pub signing_pubkey: PublicKey,
+    pub nullifier_pubkey: [u8; 32],
+    pub viewing_pubkey: P256Pubkey,
     pub viewing_key_history: Vec<ViewingKeyEntry>,
     pub utxos: Vec<WalletUtxo>,
     pub last_synced: i64,
@@ -133,8 +186,8 @@ impl TxIndex {
     }
 }
 
-struct SyncCtx<'a> {
-    keypair: &'a ShieldedKeypair,
+struct SyncCtx<'a, C> {
+    crypto: &'a C,
     owner: PublicKey,
     nullifier_pk: [u8; 32],
     utxos: &'a mut Vec<WalletUtxo>,
@@ -144,7 +197,7 @@ struct SyncCtx<'a> {
     report: SyncReport,
 }
 
-impl SyncCtx<'_> {
+impl<C: WalletCrypto> SyncCtx<'_, C> {
     fn store(&mut self, utxo: Utxo) -> Result<(), TransactionError> {
         if utxo.owner != self.owner {
             return Ok(());
@@ -153,7 +206,7 @@ impl SyncCtx<'_> {
         if !self.stored_hashes.insert(hash) {
             return Ok(());
         }
-        let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
+        let nullifier = self.crypto.nullifier(&hash, &utxo.blinding)?;
         self.utxos.push(WalletUtxo {
             utxo,
             hash,
@@ -167,7 +220,6 @@ impl SyncCtx<'_> {
     fn decrypt_recipient_slot(
         &mut self,
         index: &TxIndex,
-        key: &ViewingKey,
         assets: &AssetRegistry,
         site: (usize, usize),
     ) -> Result<Option<P256Pubkey>, TransactionError> {
@@ -178,10 +230,27 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(None);
         };
-        let decrypted = key.decrypt_transfer_recipient(blob, site.1).and_then(|pt| {
-            let sender = pt.sender_pubkey;
-            pt.into_utxo(assets, None).map(|utxo| (sender, utxo))
-        });
+        let decrypted = blob
+            .recipient_slots
+            .get(site.1)
+            .ok_or(TransactionError::InvalidLength {
+                expected: blob.recipient_slots.len(),
+                actual: site.1,
+            })
+            .and_then(|entry| {
+                self.crypto
+                    .decrypt_root_slot(
+                        &blob.tx_viewing_pk,
+                        &entry.ciphertext,
+                        blob.salt,
+                        site.1 as u32 + 1,
+                    )
+                    .and_then(|bytes| TransferRecipientPlaintext::deserialize(&bytes))
+            })
+            .and_then(|pt| {
+                let sender = pt.sender_pubkey;
+                pt.into_utxo(assets, None).map(|utxo| (sender, utxo))
+            });
         match decrypted {
             Ok((sender, utxo)) => {
                 self.store(utxo)?;
@@ -199,7 +268,6 @@ impl SyncCtx<'_> {
         &mut self,
         index: &TxIndex,
         transactions: &[SyncTransaction],
-        key: &ViewingKey,
         assets: &AssetRegistry,
         t: usize,
     ) -> Result<Option<Vec<P256Pubkey>>, TransactionError> {
@@ -212,10 +280,23 @@ impl SyncCtx<'_> {
         };
         match index.parsed.get(t) {
             Some(ParsedBlob::Transfer(blob)) => {
-                let Ok((sender, recipients)) = key.decrypt_transfer(first_nullifier, blob) else {
+                let Ok(sender_bytes) = self.crypto.decrypt_root_slot(
+                    &blob.tx_viewing_pk,
+                    &blob.sender_ciphertext,
+                    blob.salt,
+                    0,
+                ) else {
                     self.report.undecryptable_candidates += 1;
                     return Ok(None);
                 };
+                let Ok(sender) = TransferSenderPlaintext::deserialize(&sender_bytes) else {
+                    self.report.undecryptable_candidates += 1;
+                    return Ok(None);
+                };
+                if blob.recipient_slots.len() != sender.recipient_viewing_pks.len() {
+                    self.report.undecryptable_candidates += 1;
+                    return Ok(None);
+                }
                 let pks = sender.recipient_viewing_pks.clone();
                 let Ok(change) = sender.into_utxos(assets, None) else {
                     self.report.undecryptable_candidates += 1;
@@ -224,21 +305,36 @@ impl SyncCtx<'_> {
                 for utxo in change {
                     self.store(utxo)?;
                 }
-                for pt in recipients {
-                    if pt.owner_pubkey != self.owner {
+                for (i, (slot, pubkey)) in blob.recipient_slots.iter().zip(&pks).enumerate() {
+                    let decrypted = self
+                        .crypto
+                        .decrypt_transaction_slot(
+                            first_nullifier,
+                            pubkey,
+                            &slot.ciphertext,
+                            blob.salt,
+                            i as u32 + 1,
+                        )
+                        .and_then(|bytes| TransferRecipientPlaintext::deserialize(&bytes));
+                    let Ok(pt) = decrypted else {
+                        self.report.undecryptable_candidates += 1;
                         continue;
-                    }
-                    match pt.into_utxo(assets, None) {
-                        Ok(utxo) => self.store(utxo)?,
-                        Err(_) => self.report.undecryptable_candidates += 1,
+                    };
+                    if pt.owner_pubkey == self.owner {
+                        match pt.into_utxo(assets, None) {
+                            Ok(utxo) => self.store(utxo)?,
+                            Err(_) => self.report.undecryptable_candidates += 1,
+                        }
                     }
                 }
                 self.processed_senders.insert(t);
                 Ok(Some(pks))
             }
             Some(ParsedBlob::Split(blob)) => {
-                let decrypted = key
-                    .decrypt_split(blob)
+                let decrypted = self
+                    .crypto
+                    .decrypt_root_slot(&blob.tx_viewing_pk, &blob.ciphertext, blob.salt, 0)
+                    .and_then(|bytes| crate::split::SplitBundlePlaintext::deserialize(&bytes))
                     .and_then(|bundle| bundle.into_utxos(assets, None));
                 let Ok(utxos) = decrypted else {
                     self.report.undecryptable_candidates += 1;
@@ -284,18 +380,24 @@ fn scan_stream(
 }
 
 impl Wallet {
-    pub fn new(keypair: ShieldedKeypair) -> Result<Self, TransactionError> {
-        let key = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())?;
-        Ok(Self {
-            keypair,
-            viewing_key_history: vec![ViewingKeyEntry::new(key, 0)],
+    pub fn new(
+        signing_pubkey: PublicKey,
+        nullifier_pubkey: [u8; 32],
+        viewing_pubkey: P256Pubkey,
+    ) -> Self {
+        Self {
+            signing_pubkey,
+            nullifier_pubkey,
+            viewing_pubkey,
+            viewing_key_history: vec![ViewingKeyEntry::new(0)],
             utxos: Vec::new(),
             last_synced: 0,
-        })
+        }
     }
 
-    pub fn sync(
+    pub fn sync<C: WalletCrypto>(
         &mut self,
+        crypto: &C,
         transactions: &[SyncTransaction],
         assets: &AssetRegistry,
         synced_at: i64,
@@ -305,9 +407,9 @@ impl Wallet {
         let index = TxIndex::build(transactions, &mut report);
         let stored_hashes: HashSet<[u8; 32]> = self.utxos.iter().map(|u| u.hash).collect();
         let mut ctx = SyncCtx {
-            owner: self.keypair.signing_pubkey(),
-            nullifier_pk: self.keypair.nullifier_key.pubkey()?,
-            keypair: &self.keypair,
+            owner: self.signing_pubkey,
+            nullifier_pk: self.nullifier_pubkey,
+            crypto,
             utxos: &mut self.utxos,
             stored_hashes,
             processed_senders: HashSet::new(),
@@ -317,7 +419,6 @@ impl Wallet {
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
-                key,
                 tx_count,
                 request_count,
                 known_senders,
@@ -325,10 +426,10 @@ impl Wallet {
                 ..
             } = entry;
 
-            let bootstrap = key.recipient_bootstrap_view_tag();
+            let bootstrap = crypto.recipient_bootstrap_view_tag();
             if let Some(sites) = index.recipient_sites.get(&bootstrap) {
                 for site in sites {
-                    if let Some(sender) = ctx.decrypt_recipient_slot(&index, key, assets, *site)? {
+                    if let Some(sender) = ctx.decrypt_recipient_slot(&index, assets, *site)? {
                         known_senders.entry(sender).or_insert(0);
                     }
                 }
@@ -336,7 +437,7 @@ impl Wallet {
 
             let max_sender = scan_stream(
                 window,
-                |n| key.get_sender_view_tag(n),
+                |n| crypto.get_sender_view_tag(n),
                 |tag| {
                     let Some(sites) = index.sender_sites.get(tag) else {
                         return Ok(None);
@@ -344,7 +445,7 @@ impl Wallet {
                     let mut decrypted = false;
                     for &t in sites {
                         if let Some(pks) =
-                            ctx.decrypt_sender_side(&index, transactions, key, assets, t)?
+                            ctx.decrypt_sender_side(&index, transactions, assets, t)?
                         {
                             decrypted = true;
                             for pk in pks {
@@ -361,16 +462,14 @@ impl Wallet {
 
             let max_request = scan_stream(
                 window,
-                |n| key.get_recipient_request_view_tag(n),
+                |n| crypto.get_recipient_request_view_tag(n),
                 |tag| {
                     let Some(sites) = index.recipient_sites.get(tag) else {
                         return Ok(None);
                     };
                     let mut decrypted = false;
                     for site in sites {
-                        if let Some(sender) =
-                            ctx.decrypt_recipient_slot(&index, key, assets, *site)?
-                        {
+                        if let Some(sender) = ctx.decrypt_recipient_slot(&index, assets, *site)? {
                             decrypted = true;
                             known_senders.entry(sender).or_insert(0);
                         }
@@ -386,17 +485,14 @@ impl Wallet {
             for s in senders {
                 let max = scan_stream(
                     window,
-                    |n| key.get_recipient_shared_view_tag(&s, n),
+                    |n| crypto.get_recipient_shared_view_tag(&s, n),
                     |tag| {
                         let Some(sites) = index.recipient_sites.get(tag) else {
                             return Ok(None);
                         };
                         let mut decrypted = false;
                         for site in sites {
-                            if ctx
-                                .decrypt_recipient_slot(&index, key, assets, *site)?
-                                .is_some()
-                            {
+                            if ctx.decrypt_recipient_slot(&index, assets, *site)?.is_some() {
                                 decrypted = true;
                             }
                         }
@@ -412,7 +508,7 @@ impl Wallet {
             for r in recipients {
                 let max = scan_stream(
                     window,
-                    |n| key.get_send_shared_view_tag(&r, n),
+                    |n| crypto.get_send_shared_view_tag(&r, n),
                     |tag| {
                         let Some(sites) = index.recipient_sites.get(tag) else {
                             return Ok(None);
@@ -420,7 +516,7 @@ impl Wallet {
                         let mut decrypted = false;
                         for &(t, _) in sites {
                             if let Some(pks) =
-                                ctx.decrypt_sender_side(&index, transactions, key, assets, t)?
+                                ctx.decrypt_sender_side(&index, transactions, assets, t)?
                             {
                                 decrypted = true;
                                 for pk in pks {

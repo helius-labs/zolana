@@ -8362,6 +8362,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-client"
+version = "0.1.0"
+dependencies = [
+ "solana-address 2.6.0",
+ "solana-instruction",
+ "thiserror 2.0.18",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
@@ -8415,6 +8426,18 @@ dependencies = [
  "solana-msg",
  "thiserror 2.0.18",
  "zolana-interface",
+]
+
+[[package]]
+name = "zolana-wallet"
+version = "0.1.0"
+dependencies = [
+ "solana-address 2.6.0",
+ "solana-instruction",
+ "tokio",
+ "zolana-client",
+ "zolana-keypair",
+ "zolana-transaction",
 ]
 
 [[package]]

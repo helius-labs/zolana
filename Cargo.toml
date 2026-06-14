@@ -9,9 +9,11 @@ members = [
     "programs/user-registry",
     "prover/client",
     "cli",
+    "sdk-libs/client",
     "sdk-libs/keypair",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
+    "sdk-libs/wallet",
     "xtask",
 ]
 default-members = [
@@ -32,8 +34,10 @@ time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
+zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
+zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
 light-prover-client = { path = "prover/client", version = "8.0.0" }

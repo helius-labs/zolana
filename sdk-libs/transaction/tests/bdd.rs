@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::split::{SplitBundlePlaintext, SplitEncryptedUtxos};
+use zolana_transaction::test_wallet::TestWallet;
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
 use zolana_transaction::utxo::Utxo;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
+use zolana_transaction::wallet::SyncTransaction;
 
 #[derive(Default, World)]
 pub struct TransactionWorld {
@@ -26,7 +27,7 @@ pub struct TransactionWorld {
     pub owned_utxos: HashMap<String, Vec<Utxo>>,
     pub spent_utxos: Vec<Utxo>,
     pub sent_counts: HashMap<String, u64>,
-    pub wallet: Option<Wallet>,
+    pub wallet: Option<TestWallet>,
     pub wallet_name: Option<String>,
 }
 

@@ -1,0 +1,17 @@
+[package]
+name = "zolana-client"
+version = "0.1.0"
+description = "Native wallet SDK surface for Zolana privacy flows."
+license = "Apache-2.0"
+edition.workspace = true
+
+[features]
+default = []
+test-utils = []
+
+[dependencies]
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+thiserror = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }

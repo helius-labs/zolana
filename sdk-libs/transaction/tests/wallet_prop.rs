@@ -6,9 +6,10 @@ use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, Tra
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::test_wallet::TestWallet;
 #[cfg(feature = "parallel")]
 use zolana_transaction::wallet::SyncReport;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
+use zolana_transaction::wallet::SyncTransaction;
 use zolana_transaction::{AssetRegistry, Utxo};
 
 const NUM_CPS: usize = 3;
@@ -268,7 +269,7 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
+        let mut wallet = TestWallet::new(keypair).unwrap();
         let report = wallet.sync(&self.txs, &self.assets, at, WINDOW).unwrap();
         prop_assert_eq!(report.unparsed_transactions, 0);
         prop_assert_eq!(report.undecryptable_candidates, 0);
@@ -332,14 +333,14 @@ impl Harness {
     #[cfg(feature = "parallel")]
     fn check_parallel(
         &self,
-        sequential: &Wallet,
+        sequential: &TestWallet,
         report: &SyncReport,
         at: i64,
     ) -> Result<(), TestCaseError> {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
+        let mut wallet = TestWallet::new(keypair).unwrap();
         let parallel_report = wallet
             .sync_parallel(&self.txs, &self.assets, at, WINDOW)
             .unwrap();
