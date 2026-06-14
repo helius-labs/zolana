@@ -65,29 +65,54 @@ func proveAndVerify(t *testing.T, shape protocol.Shape, tx ProofTransactionReque
 	}
 }
 
-// TestProveTransferWithDummyPadding proves a 1-in/1-out transfer inside the
-// canonical 1-2 shape: the second output slot is a dummy. This exercises the
-// dummy gating through real Groth16 proving and verification. (Dummy input
-// slots are exercised by TestProveShieldWithAllDummyInputs; a larger-than-
-// canonical shape such as 2-2 for this transfer would be rejected, since SPP
-// derives the vkey from the real counts.)
+// TestProveTransferWithDummyPadding proves a 2-in/1-out transfer inside the
+// canonical 2-2 shape: the second output slot is a dummy. This exercises the
+// dummy output gating through real Groth16 proving and verification. (Dummy
+// input slots are exercised by TestProveShieldWithAllDummyInputs. A non-minimal
+// shape for these counts would be rejected, since SPP derives the vkey from the
+// real counts via CanonicalShape.)
 func TestProveTransferWithDummyPadding(t *testing.T) {
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	payerPubkey, payerHash, owner, nullifierSecret := proveTestOwner(t)
 
-	input := protocol.Utxo{
-		Domain:        big.NewInt(protocol.UtxoDomain),
-		Owner:         owner,
-		Asset:         protocol.SolAsset(),
-		Amount:        big.NewInt(100),
-		Blinding:      big.NewInt(1000),
-		DataHash:      big.NewInt(0),
-		ZoneDataHash:  big.NewInt(0),
-		ZoneProgramID: big.NewInt(0),
+	// Two inputs owned by the same Solana payer; distinct blindings give
+	// distinct UTXO hashes and nullifiers. They fund a single real output, so
+	// the second output slot in the 2-2 shape is a dummy.
+	inputUtxos := []protocol.Utxo{
+		{
+			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
+			Amount: big.NewInt(60), Blinding: big.NewInt(1000),
+			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+		},
+		{
+			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
+			Amount: big.NewInt(40), Blinding: big.NewInt(1001),
+			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+		},
 	}
-	inputHash, err := protocol.UtxoHash(input)
-	if err != nil {
-		t.Fatal(err)
+
+	stateEntries := make([]ProofStateEntry, len(inputUtxos))
+	inputs := make([]ProofInputRequest, len(inputUtxos))
+	for i, input := range inputUtxos {
+		inputHash, err := protocol.UtxoHash(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stateEntries[i] = ProofStateEntry{Index: uint64(i), Hash: proofFieldInput(inputHash)}
+		inputs[i] = ProofInputRequest{
+			Utxo: ProofUtxoRequest{
+				Domain:            proofFieldInput(input.Domain),
+				OwnerSolanaPubkey: parse.BytesHex(payerPubkey[:]),
+				Asset:             proofFieldInput(input.Asset),
+				Amount:            proofFieldInput(input.Amount),
+				Blinding:          proofFieldInput(input.Blinding),
+				DataHash:          proofFieldInput(input.DataHash),
+				ZoneDataHash:      proofFieldInput(input.ZoneDataHash),
+				ZoneProgramID:     proofFieldInput(input.ZoneProgramID),
+			},
+			LeafIndex:       uint64(i),
+			NullifierSecret: proofFieldInput(nullifierSecret),
+		}
 	}
 
 	tx := ProofTransactionRequest{
@@ -99,25 +124,8 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		ProgramIDHashchain:       proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
-		StateEntries: []ProofStateEntry{
-			{Index: 0, Hash: proofFieldInput(inputHash)},
-		},
-		Inputs: []ProofInputRequest{
-			{
-				Utxo: ProofUtxoRequest{
-					Domain:            proofFieldInput(input.Domain),
-					OwnerSolanaPubkey: parse.BytesHex(payerPubkey[:]),
-					Asset:             proofFieldInput(input.Asset),
-					Amount:            proofFieldInput(input.Amount),
-					Blinding:          proofFieldInput(input.Blinding),
-					DataHash:          proofFieldInput(input.DataHash),
-					ZoneDataHash:      proofFieldInput(input.ZoneDataHash),
-					ZoneProgramID:     proofFieldInput(input.ZoneProgramID),
-				},
-				LeafIndex:       0,
-				NullifierSecret: proofFieldInput(nullifierSecret),
-			},
-		},
+		StateEntries:             stateEntries,
+		Inputs:                   inputs,
 		Outputs: []ProofUtxoRequest{
 			solOutput(owner, 100, 2000),
 		},

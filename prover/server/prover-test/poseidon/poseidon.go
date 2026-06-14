@@ -37,6 +37,13 @@ func HashWithT(t int, inputs []*big.Int) (*big.Int, error) {
 	if len(inputs) != t-1 {
 		return nil, fmt.Errorf("poseidon: want %d inputs for t=%d, got %d", t-1, t, len(inputs))
 	}
+	// iden3.Hash panics on a nil or out-of-field input; validate up front so
+	// every caller (UtxoHash, Nullifier, ...) gets an error instead.
+	for i, input := range inputs {
+		if err := ValidateField(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("poseidon: %w", err)
+		}
+	}
 	return iden3.Hash(inputs)
 }
 
