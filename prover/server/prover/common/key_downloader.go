@@ -22,13 +22,14 @@ const (
 	DefaultMaxRetryDelay = 5 * time.Minute
 
 	// TransferKeysRepo and TransferKeysReleaseTag identify the GitHub release
-	// that hosts the transfer proving keys (transfer_<in>_<out>.key,
-	// transfer-eddsa_<in>_<out>.key) and their CHECKSUM. They must match the
+	// that hosts the transfer proving keys (transfer_<in>_<out>.key for the
+	// eddsa rail, transfer_p256_<in>_<out>.key for the P256 rail) and their
+	// CHECKSUM. They must match the
 	// repo/tag used by scripts/publish_keys_release.sh. The repo is private, so
 	// the keys are fetched with the `gh` CLI (which carries the caller's auth,
 	// or CI's same-repo GITHUB_TOKEN) rather than an unauthenticated URL.
 	TransferKeysRepo       = "helius-labs/zolana"
-	TransferKeysReleaseTag = "transfer-keys-v1"
+	TransferKeysReleaseTag = "transfer-keys-v2"
 )
 
 type DownloadConfig struct {

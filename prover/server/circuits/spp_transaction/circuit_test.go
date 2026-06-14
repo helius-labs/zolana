@@ -278,11 +278,11 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 func refreshPublicInputHash(t testing.TB, assignment *Circuit) {
 	t.Helper()
 	publicInputs := protocol.PublicInputs{
-		Nullifiers:           spptest.ToBigInts(assignment.InputNullifiers()),
-		OutputUtxoHashes:     spptest.ToBigInts(assignment.OutputHashes()),
-		UtxoTreeRoots:        spptest.ToBigInts(assignment.InputUtxoRoots()),
-		NullifierTreeRoots:   spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
-		PrivateTxHash: spptest.AsBigInt(assignment.PrivateTxHash),
+		Nullifiers:         spptest.ToBigInts(assignment.InputNullifiers()),
+		OutputUtxoHashes:   spptest.ToBigInts(assignment.OutputHashes()),
+		UtxoTreeRoots:      spptest.ToBigInts(assignment.InputUtxoRoots()),
+		NullifierTreeRoots: spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
+		PrivateTxHash:      spptest.AsBigInt(assignment.PrivateTxHash),
 		P256MessageHash: spptest.MustP256FieldFromLimbs(
 			t,
 			spptest.AsBigInt(assignment.P256MessageHashLow),

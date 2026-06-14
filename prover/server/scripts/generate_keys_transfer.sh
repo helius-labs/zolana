@@ -12,13 +12,21 @@ shapes=(
     "2 3"
 )
 
-for rail in transfer transfer-eddsa; do
+# "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
+# mirrors the verifying-key module name: transfer (eddsa) / transfer_p256 (p256).
+rails=(
+    "transfer transfer"
+    "transfer-p256 transfer_p256"
+)
+
+for entry in "${rails[@]}"; do
+    read -r circuit prefix <<<"$entry"
     for shape in "${shapes[@]}"; do
         read -r n_inputs n_outputs <<<"$shape"
-        output="${keys_dir}/${rail}_${n_inputs}_${n_outputs}.key"
-        echo "Generating ${rail} ${n_inputs}x${n_outputs} -> ${output}"
+        output="${keys_dir}/${prefix}_${n_inputs}_${n_outputs}.key"
+        echo "Generating ${circuit} ${n_inputs}x${n_outputs} -> ${output}"
         ./light-prover setup-transfer \
-            --circuit "$rail" \
+            --circuit "$circuit" \
             --n-inputs "$n_inputs" \
             --n-outputs "$n_outputs" \
             --output "$output"

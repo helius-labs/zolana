@@ -1,6 +1,6 @@
 use cucumber::then;
 use sha2::{Digest, Sha256};
-use zolana_keypair::hash::{owner_hash, sha256_be};
+use zolana_keypair::hash::{owner_hash, sha256, sha256_be, split_be_128};
 use zolana_keypair::{PublicKey, SigningKey};
 
 use crate::KeypairWorld;
@@ -11,6 +11,20 @@ fn sha256_be_matches(_world: &mut KeypairWorld, input: String) {
     let raw: [u8; 32] = Sha256::digest(input.as_bytes()).into();
     assert_eq!(got[0], 0);
     assert_eq!(&got[1..], &raw[1..]);
+}
+
+#[then(expr = "sha256 of {string} is the full SHA-256 digest and its limbs reconstruct it")]
+fn sha256_full_matches(_world: &mut KeypairWorld, input: String) {
+    let got = sha256(input.as_bytes());
+    let raw: [u8; 32] = Sha256::digest(input.as_bytes()).into();
+    // Full digest, unlike sha256_be the most-significant byte is kept.
+    assert_eq!(got, raw);
+    assert_ne!(got[0], 0);
+    // Big-endian 128-bit limbs (high = bytes 0..16, low = bytes 16..32) used to
+    // carry the 256-bit P256 message digest across the circuit boundary.
+    let (low, high) = split_be_128(&got);
+    assert_eq!(&high[16..], &raw[0..16]);
+    assert_eq!(&low[16..], &raw[16..32]);
 }
 
 #[then(expr = "pubkey_field of signing key {string} is {string}")]

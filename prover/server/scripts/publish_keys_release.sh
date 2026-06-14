@@ -9,13 +9,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v1}"
+tag="${1:-transfer-keys-v2}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 
 assets=(
     "${keys_dir}/transfer_2_3.key"
-    "${keys_dir}/transfer-eddsa_2_3.key"
+    "${keys_dir}/transfer_p256_2_3.key"
     "${keys_dir}/CHECKSUM"
 )
 
@@ -38,7 +38,7 @@ else
     gh release create "$tag" "${assets[@]}" \
         --repo "$repo" \
         --title "Transfer proving keys ($tag)" \
-        --notes "Groth16 proving keys for the transfer and transfer-eddsa circuits. Downloaded by the prover server at startup."
+        --notes "Groth16 proving keys for the transfer (eddsa) and transfer_p256 circuits. Downloaded by the prover server at startup."
 fi
 
 echo "Done. Assets published to https://github.com/${repo}/releases/tag/${tag}"

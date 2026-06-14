@@ -10,7 +10,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 go build -o light-prover .
 
-keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'transfer-eddsa_*.key' \) | sort)"
+keys="$(find "$keys_dir" -maxdepth 1 -type f -name 'transfer_*.key' | sort)"
 if [ -z "$keys" ]; then
     echo "no transfer proving keys in $keys_dir"
     exit 1

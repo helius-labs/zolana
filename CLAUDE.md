@@ -280,8 +280,8 @@ Rule of thumb: `Vec<u8>` -> `u16`, otherwise -> `u8`.
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
-The `transfer` (P256 ownership rail) and `transfer-eddsa` (Solana-only rail)
-circuits live in `prover/server/circuits/spp_transaction/`. Their proving
+The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
+rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is the
 single source of truth duplicated in four places that MUST stay in sync:
 `sdk-libs/client/src/shape.rs` (the client may use a subset), Go
@@ -295,10 +295,11 @@ on-chain verifier when it exists (`transact/proof.rs`).
 # All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
 prover/server/scripts/generate_keys_transfer.sh
 
-# One shape directly (rail = transfer | transfer-eddsa)
+# One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
+# Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.
 cd prover/server && go build -o light-prover .
-./light-prover setup-transfer --circuit transfer --n-inputs 2 --n-outputs 3 \
-    --output proving-keys/transfer_2_3.key
+./light-prover setup-transfer --circuit transfer-p256 --n-inputs 2 --n-outputs 3 \
+    --output proving-keys/transfer_p256_2_3.key
 ```
 
 `setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`
@@ -308,7 +309,7 @@ cd prover/server && go build -o light-prover .
 ### Distribute proving keys via GitHub release
 
 Gitignored keys are published as assets on a private-repo GitHub release
-(`transfer-keys-v1` on `helius-labs/zolana`). The unauthenticated asset URL
+(`transfer-keys-v2` on `helius-labs/zolana`). The unauthenticated asset URL
 404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
 `GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
 `TransferKeysReleaseTag` in `key_downloader.go` and must match
@@ -341,11 +342,11 @@ regenerated. The codegen lives in the `xtask` crate, which depends on the
 
 ### BSB22 commitments (the two rails differ on purpose)
 
-- **transfer (P256):** the emulated-P256 gadget adds one BSB22 commitment over
+- **transfer_p256 (P256):** the emulated-P256 gadget adds one BSB22 commitment over
   private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
   public_inputs + 2`. Proofs carry `proof_commitment` + `proof_commitment_pok`.
   Verify with `Groth16Verifier::new_with_commitment`.
-- **transfer-eddsa (Solana-only):** vanilla Groth16, zero commitments. Its vk
+- **transfer (eddsa, Solana-only):** vanilla Groth16, zero commitments. Its vk
   has `vk_commitment_g2: None` and `vk_ic.len() == public_inputs + 1`. Verify
   with `Groth16Verifier::new`.
 

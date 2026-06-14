@@ -370,9 +370,9 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	var prefix string
 	switch circuitType {
 	case TransferP256CircuitType:
-		prefix = "transfer"
+		prefix = "transfer_p256"
 	case TransferCircuitType:
-		prefix = "transfer-eddsa"
+		prefix = "transfer"
 	default:
 		return ""
 	}
