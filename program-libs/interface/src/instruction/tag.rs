@@ -23,13 +23,12 @@ pub mod reserved {
 
 pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 
-/// Dispatchable instruction tags.
+/// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {
     CreateTree = CREATE_TREE,
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
-    Transact = TRANSACT,
     ProoflessShield = PROOFLESS_SHIELD,
     CreateSplInterface = CREATE_SPL_INTERFACE,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
@@ -49,7 +48,6 @@ impl TryFrom<u8> for InstructionTag {
         match tag {
             CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
-            TRANSACT => Ok(Self::Transact),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
