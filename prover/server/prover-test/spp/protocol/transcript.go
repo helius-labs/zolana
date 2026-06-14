@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"light/light-prover/prover-test/poseidon"
+	"zolana/prover/prover-test/poseidon"
 )
 
 // HashChain folds values from left to right:

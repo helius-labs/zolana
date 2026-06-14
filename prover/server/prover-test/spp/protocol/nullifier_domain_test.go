@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"light/light-prover/prover-test/poseidon"
+	"zolana/prover/prover-test/poseidon"
 )
 
 // nullifierTreeInitRootDecimal pins the init root of the general nullifier

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"light/light-prover/logging"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"zolana/prover/logging"
 )
 
 const (

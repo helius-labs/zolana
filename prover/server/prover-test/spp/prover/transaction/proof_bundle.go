@@ -6,9 +6,9 @@ import (
 	"math/big"
 	"os"
 
-	"light/light-prover/prover/common"
-	"light/light-prover/prover-test/spp/parse"
-	"light/light-prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/parse"
+	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover/common"
 )
 
 type ProofBundleRequest struct {

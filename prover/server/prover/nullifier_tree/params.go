@@ -3,7 +3,7 @@ package nullifiertree
 import (
 	"math/big"
 
-	merkletree "light/light-prover/merkle-tree"
+	merkletree "zolana/prover/merkle-tree"
 )
 
 type BatchAddressAppendParameters struct {

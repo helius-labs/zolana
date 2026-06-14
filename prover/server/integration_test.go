@@ -3,16 +3,16 @@ package main_test
 import (
 	"bytes"
 	"io"
-	"light/light-prover/logging"
-	nullifiertreetest "light/light-prover/prover-test/nullifier_tree"
-	"light/light-prover/prover/common"
-	"light/light-prover/server"
 	"math/big"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+	"zolana/prover/logging"
+	nullifiertreetest "zolana/prover/prover-test/nullifier_tree"
+	"zolana/prover/prover/common"
+	"zolana/prover/server"
 
 	gnarkLogger "github.com/consensys/gnark/logger"
 )

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"light/light-prover/prover-test/spp/parse"
+	"zolana/prover/prover-test/spp/parse"
 )
 
 type publicInputHashVector struct {

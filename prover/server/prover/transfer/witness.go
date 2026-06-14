@@ -1,7 +1,7 @@
 package transfer
 
 import (
-	txcircuit "light/light-prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"

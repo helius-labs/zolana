@@ -7,10 +7,10 @@ import (
 	"math/big"
 	"testing"
 
-	"light/light-prover/prover-test/spp/internal/p256key"
-	"light/light-prover/prover-test/spp/parse"
-	"light/light-prover/prover-test/spp/protocol"
-	txprover "light/light-prover/prover-test/spp/prover/transaction"
+	"zolana/prover/prover-test/spp/internal/p256key"
+	"zolana/prover/prover-test/spp/parse"
+	"zolana/prover/prover-test/spp/protocol"
+	txprover "zolana/prover/prover-test/spp/prover/transaction"
 )
 
 func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {

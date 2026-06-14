@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/big"
 
-	merkletree "light/light-prover/merkle-tree"
-	"light/light-prover/prover/nullifier_tree"
+	merkletree "zolana/prover/merkle-tree"
+	"zolana/prover/prover/nullifier_tree"
 )
 
 // BuildAddressAppendParamsFromValues builds the batch-address-append witness

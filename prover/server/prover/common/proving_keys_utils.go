@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"light/light-prover/logging"
 	"os"
 	"path/filepath"
+	"zolana/prover/logging"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math/big"
 
-	txcircuit "light/light-prover/circuits/spp_transaction"
-	"light/light-prover/prover-test/spp/parse"
-	"light/light-prover/prover-test/spp/protocol"
+	txcircuit "zolana/prover/circuits/spp_transaction"
+	"zolana/prover/prover-test/spp/parse"
+	"zolana/prover/prover-test/spp/protocol"
 )
 
 type outputWitnesses struct {

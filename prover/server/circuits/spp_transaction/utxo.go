@@ -1,7 +1,7 @@
 package transaction
 
 import (
-	gadgetlib "light/light-prover/circuits/gadget"
+	gadgetlib "zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"

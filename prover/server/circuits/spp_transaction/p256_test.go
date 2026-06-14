@@ -2,12 +2,12 @@ package transaction_test
 
 import (
 	"crypto/elliptic"
-	. "light/light-prover/circuits/spp_transaction"
 	"math/big"
 	"testing"
+	. "zolana/prover/circuits/spp_transaction"
 
-	"light/light-prover/prover-test/spp/protocol"
-	"light/light-prover/prover-test/spp/spptest"
+	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"

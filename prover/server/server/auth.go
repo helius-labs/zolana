@@ -2,10 +2,10 @@ package server
 
 import (
 	"crypto/subtle"
-	"light/light-prover/logging"
 	"net/http"
 	"os"
 	"strings"
+	"zolana/prover/logging"
 )
 
 type authMiddleware struct {
@@ -29,7 +29,7 @@ func (m *authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Str("path", r.URL.Path).
 			Str("method", r.Method).
 			Msg("Unauthorized API request - missing or invalid API key")
-		
+
 		unauthorizedError := &Error{
 			StatusCode: http.StatusUnauthorized,
 			Code:       "unauthorized",

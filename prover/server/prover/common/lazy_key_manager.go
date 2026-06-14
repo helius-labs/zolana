@@ -2,10 +2,10 @@ package common
 
 import (
 	"fmt"
-	"light/light-prover/logging"
 	"path/filepath"
 	"strings"
 	"sync"
+	"zolana/prover/logging"
 )
 
 type LazyKeyManager struct {

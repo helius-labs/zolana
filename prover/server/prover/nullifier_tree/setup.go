@@ -3,7 +3,7 @@ package nullifiertree
 import (
 	"fmt"
 
-	"light/light-prover/prover/common"
+	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

@@ -3,13 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"light/light-prover/logging"
-	"light/light-prover/prover/common"
-	"light/light-prover/prover/nullifier_tree"
 	"log"
 	"os"
 	"strconv"
 	"time"
+	"zolana/prover/logging"
+	"zolana/prover/prover/common"
+	"zolana/prover/prover/nullifier_tree"
 )
 
 const (

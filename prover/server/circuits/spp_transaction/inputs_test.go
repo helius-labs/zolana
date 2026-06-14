@@ -1,14 +1,14 @@
 package transaction_test
 
 import (
-	"light/light-prover/circuits/gadget"
-	. "light/light-prover/circuits/spp_transaction"
 	"math/big"
 	"testing"
+	"zolana/prover/circuits/gadget"
+	. "zolana/prover/circuits/spp_transaction"
 
-	"light/light-prover/prover-test/poseidon"
-	"light/light-prover/prover-test/spp/protocol"
-	"light/light-prover/prover-test/spp/spptest"
+	"zolana/prover/prover-test/poseidon"
+	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint/solver"

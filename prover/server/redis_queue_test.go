@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"light/light-prover/prover/common"
-	"light/light-prover/server"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+	"zolana/prover/prover/common"
+	"zolana/prover/server"
 
 	"github.com/google/uuid"
 )

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"light/light-prover/prover/common"
+	"zolana/prover/prover/common"
 )
 
 type UtxoParamsJSON struct {

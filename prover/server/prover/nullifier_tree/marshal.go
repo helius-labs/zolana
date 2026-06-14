@@ -2,8 +2,8 @@ package nullifiertree
 
 import (
 	"encoding/json"
-	"light/light-prover/prover/common"
 	"math/big"
+	"zolana/prover/prover/common"
 )
 
 type BatchAddressAppendParametersJSON struct {

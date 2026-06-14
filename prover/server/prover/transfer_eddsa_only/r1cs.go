@@ -1,7 +1,7 @@
 package transfereddsaonly
 
 import (
-	txcircuit "light/light-prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"

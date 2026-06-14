@@ -1,9 +1,9 @@
 package nullifiertreetest
 
 import (
-	"light/light-prover/prover/nullifier_tree"
 	"math/big"
 	"testing"
+	"zolana/prover/prover/nullifier_tree"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

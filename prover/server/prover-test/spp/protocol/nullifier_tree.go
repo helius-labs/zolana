@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"light/light-prover/prover-test/poseidon"
+	"zolana/prover/prover-test/poseidon"
 )
 
 var nullifierUpperBound = new(big.Int).Sub(poseidon.Modulus, big.NewInt(1))

@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"light/light-prover/logging"
-	"light/light-prover/prover/common"
 	"time"
+	"zolana/prover/logging"
+	"zolana/prover/prover/common"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"light/light-prover/circuits/gadget"
+	"zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
