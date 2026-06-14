@@ -185,9 +185,10 @@ func buildCircuitAssignmentExact(
 
 	externalDataHash := spptest.Fe(300)
 	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, externalDataHash)
-	p256MessageHash := spptest.MustP256MessageHash(t, privateTxHash)
-	p256MessageBytes := spptest.MustFieldBytes(t, p256MessageHash)
-	p256Pub, p256Sig, err := spptest.UnusedP256Witness(p256MessageBytes[:])
+	p256MessageDigest := spptest.MustP256MessageDigest(t, privateTxHash)
+	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256MessageDigest)
+	p256MessageHashField := spptest.MustP256FieldFromLimbs(t, p256MessageLow, p256MessageHigh)
+	p256Pub, p256Sig, err := spptest.UnusedP256Witness(p256MessageDigest[:])
 	if err != nil {
 		t.Fatalf("unused P256 witness: %v", err)
 	}
@@ -199,7 +200,7 @@ func buildCircuitAssignmentExact(
 		UtxoTreeRoots:        utxoTreeRoots,
 		NullifierTreeRoots:   nullifierTreeRoots,
 		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHash,
+		P256MessageHash:      p256MessageHashField,
 		ExternalDataHash:     externalDataHash,
 		PublicSolAmount:      protocol.SignedToField(publicSolAmount),
 		PublicSplAmount:      protocol.SignedToField(publicSplAmount),
@@ -248,7 +249,8 @@ func buildCircuitAssignmentExact(
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
 		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHash,
+		P256MessageHashLow:   p256MessageLow,
+		P256MessageHashHigh:  p256MessageHigh,
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
@@ -280,8 +282,12 @@ func refreshPublicInputHash(t testing.TB, assignment *Circuit) {
 		OutputUtxoHashes:     spptest.ToBigInts(assignment.OutputHashes()),
 		UtxoTreeRoots:        spptest.ToBigInts(assignment.InputUtxoRoots()),
 		NullifierTreeRoots:   spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
-		PrivateTxHash:        spptest.AsBigInt(assignment.PrivateTxHash),
-		P256MessageHash:      spptest.AsBigInt(assignment.P256MessageHash),
+		PrivateTxHash: spptest.AsBigInt(assignment.PrivateTxHash),
+		P256MessageHash: spptest.MustP256FieldFromLimbs(
+			t,
+			spptest.AsBigInt(assignment.P256MessageHashLow),
+			spptest.AsBigInt(assignment.P256MessageHashHigh),
+		),
 		ExternalDataHash:     spptest.AsBigInt(assignment.ExternalDataHash),
 		PublicSolAmount:      spptest.AsBigInt(assignment.PublicSolAmount),
 		PublicSplAmount:      spptest.AsBigInt(assignment.PublicSplAmount),
@@ -380,7 +386,7 @@ func rewriteInputAsP256(
 	assignment.Inputs[inputIndex].SolanaOwnerPkHash = spptest.Fe(0)
 
 	rebuildAfterOwnerChange(t, assignment)
-	msg := spptest.MustFieldBytes(t, spptest.AsBigInt(assignment.P256MessageHash))
+	msg := spptest.MustP256MessageDigest(t, spptest.AsBigInt(assignment.PrivateTxHash))
 	r, s, err := ecdsa.Sign(rand.Reader, signingPriv, msg[:])
 	if err != nil {
 		t.Fatalf("sign P256 private tx hash: %v", err)
@@ -455,7 +461,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *Circuit) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHash = spptest.MustP256MessageHash(t, privateTxHash)
+	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
 	refreshPublicInputHash(t, assignment)
 }
 

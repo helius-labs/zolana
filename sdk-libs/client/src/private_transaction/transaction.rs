@@ -13,17 +13,15 @@ use zolana_transaction::transfer::{
     RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext,
 };
 use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{Data, ExternalData, TransactionEncryption, Utxo, SOL_MINT};
+use zolana_transaction::{Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_MINT};
 
 use crate::error::ClientError;
+use crate::private_transaction::field::{asset_field, signed_to_field};
+use crate::private_transaction::signed_transaction::SignedTransaction;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer::TransferProver;
-use crate::prover::transfer_p256::{
-    input_utxo_hash, P256Owner, PublicAmounts, TransferNewOutput, TransferP256Prover,
-};
+use crate::prover::transfer_p256::{P256Owner, PublicAmounts, TransferP256Prover};
 use crate::rpc::{NullifierNonInclusionProof, StateInclusionProof};
-use crate::transaction::field::{asset_field, signed_to_field};
-use crate::transaction::signed_transaction::SignedTransaction;
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -33,6 +31,8 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
+    pub zone_data_hash: Option<[u8; 32]>,
+    pub program_data_hash: Option<[u8; 32]>,
 }
 
 impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
@@ -40,6 +40,8 @@ impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
         Self {
             utxo,
             nullifier_key: NullifierKey::from_secret(*keypair.nullifier_key.secret()),
+            zone_data_hash: None,
+            program_data_hash: None,
         }
     }
 }
@@ -78,11 +80,7 @@ pub struct SpendProof {
     pub nullifier: NullifierNonInclusionProof,
 }
 
-pub trait ProofResolver {
-    fn resolve(&mut self, commitment: &InputCommitment) -> Result<SpendProof, ClientError>;
-}
-// TODO: rename to Circuit type
-pub enum TransferRail {
+pub enum CircuitType {
     P256(TransferP256Prover),
     Eddsa(TransferProver),
 }
@@ -244,7 +242,9 @@ impl Transaction {
 
     fn first_nullifier(&self) -> Result<[u8; 32], ClientError> {
         let spend = self.inputs.first().ok_or(ClientError::NoInputs)?;
-        let utxo_hash = input_utxo_hash(&spend.utxo, &spend.nullifier_key)?;
+        let utxo_hash = spend
+            .utxo
+            .hash(&spend.nullifier_key.pubkey()?, &[0u8; 32], &[0u8; 32])?;
         Ok(spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?)
@@ -285,20 +285,22 @@ impl Transaction {
         let mut outputs = Vec::new();
         if let Some(asset) = spl_asset {
             if spl_change > 0 {
-                outputs.push(TransferNewOutput {
+                outputs.push(OutputUtxo {
                     owner_hash,
                     asset,
                     amount: spl_change,
                     blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                    ..Default::default()
                 });
             }
         }
         if sol_change > 0 {
-            outputs.push(TransferNewOutput {
+            outputs.push(OutputUtxo {
                 owner_hash,
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ..Default::default()
             });
         }
 
@@ -309,11 +311,12 @@ impl Transaction {
             let position = RECIPIENT_POSITION_BASE + i as u8;
             let blinding = derive_blinding(&self.blinding_seed, position);
             let asset_id = self.asset_id(assets, &recipient.asset)?;
-            outputs.push(TransferNewOutput {
+            outputs.push(OutputUtxo {
                 owner_hash: recipient.address.owner_hash()?,
                 asset: recipient.asset,
                 amount: recipient.amount,
                 blinding,
+                ..Default::default()
             });
             recipient_viewing_pks.push(recipient.address.viewing_pubkey);
             recipient_outputs.push(RecipientOutput {

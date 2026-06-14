@@ -25,7 +25,8 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 // CreateWitness assigns the pre-computed parameters onto the Solana-only
 // spp_transaction circuit. The P256 gadget is not compiled on this rail, so the
 // declared-but-unconstrained P256 signals are assigned zero emulated values and
-// P256MessageHash is pinned to 0 (the circuit asserts this). No hashing.
+// both P256 message-hash limbs are pinned to 0 (the circuit asserts this). No
+// hashing.
 func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	circuit := &txcircuit.Circuit{
 		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
@@ -43,7 +44,8 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 			S: emulated.ValueOf[emulated.P256Fr](big.NewInt(0)),
 		},
 		PrivateTxHash:        p.PrivateTxHash,
-		P256MessageHash:      big.NewInt(0),
+		P256MessageHashLow:   big.NewInt(0),
+		P256MessageHashHigh:  big.NewInt(0),
 		PublicSolAmount:      p.PublicSolAmount,
 		PublicSplAmount:      p.PublicSplAmount,
 		PublicSplAssetPubkey: p.PublicSplAssetPubkey,

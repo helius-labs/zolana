@@ -27,8 +27,12 @@ type Circuit struct {
 	P256Pub          P256PublicKey
 	P256Sig          P256Signature
 
-	PrivateTxHash        frontend.Variable
-	P256MessageHash      frontend.Variable
+	PrivateTxHash frontend.Variable
+	// P256 ECDSA message digest (full SHA-256) carried as two big-endian 128-bit
+	// limbs: a 256-bit value does not fit in one BN254 element. Both are 0 on the
+	// Solana-only rail.
+	P256MessageHashLow   frontend.Variable
+	P256MessageHashHigh  frontend.Variable
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
@@ -124,7 +128,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		if err != nil {
 			return err
 		}
-		p256Message, err := p256MessageHashToP256Fr(api, c.P256MessageHash)
+		p256Message, err := p256MessageHashToP256Fr(api, c.P256MessageHashLow, c.P256MessageHashHigh)
 		if err != nil {
 			return err
 		}
@@ -139,7 +143,8 @@ func (c *Circuit) Define(api frontend.API) error {
 		// Solana-only rail: no P256 gadget. Pin the message hash to 0 and set
 		// p256SigValid to a constant — constrainInput forces every real input
 		// Solana-owned, so the P256 checks never fire.
-		api.AssertIsEqual(c.P256MessageHash, 0)
+		api.AssertIsEqual(c.P256MessageHashLow, 0)
+		api.AssertIsEqual(c.P256MessageHashHigh, 0)
 		env.p256PkField = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
 	}
@@ -198,7 +203,7 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		gadget.HashChain(api, c.InputUtxoRoots()),
 		gadget.HashChain(api, c.InputNullifierTreeRoots()),
 		c.PrivateTxHash,
-		c.P256MessageHash,
+		gadget.PoseidonHash(api, []frontend.Variable{c.P256MessageHashLow, c.P256MessageHashHigh}),
 		c.ExternalDataHash,
 		c.PublicSolAmount,
 		c.PublicSplAmount,

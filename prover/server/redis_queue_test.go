@@ -61,37 +61,37 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		shouldRemove bool
 	}{
 		{
-			queueName: "zk_update_queue",
+			queueName: "zk_address_append_queue",
 			job: &server.ProofJob{
 				ID:        uuid.New().String(),
 				Type:      "zk_proof",
-				Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
-				CreatedAt: oldTime,
-			},
-			shouldRemove: true,
-		},
-		{
-			queueName: "zk_update_queue",
-			job: &server.ProofJob{
-				ID:        uuid.New().String(),
-				Type:      "zk_proof",
-				Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
-				CreatedAt: recentTime,
-			},
-			shouldRemove: false,
-		},
-		{
-			queueName: "zk_append_queue",
-			job: &server.ProofJob{
-				ID:        uuid.New().String(),
-				Type:      "zk_proof",
-				Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
+				Payload:   json.RawMessage(`{"tree_height": 40, "batch_size": 10}`),
 				CreatedAt: oldTime,
 			},
 			shouldRemove: true,
 		},
 		{
 			queueName: "zk_address_append_queue",
+			job: &server.ProofJob{
+				ID:        uuid.New().String(),
+				Type:      "zk_proof",
+				Payload:   json.RawMessage(`{"tree_height": 40, "batch_size": 10}`),
+				CreatedAt: recentTime,
+			},
+			shouldRemove: false,
+		},
+		{
+			queueName: "zk_failed_queue",
+			job: &server.ProofJob{
+				ID:        uuid.New().String(),
+				Type:      "zk_proof",
+				Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
+				CreatedAt: oldTime,
+			},
+			shouldRemove: false,
+		},
+		{
+			queueName: "zk_results_queue",
 			job: &server.ProofJob{
 				ID:        uuid.New().String(),
 				Type:      "zk_proof",
@@ -117,9 +117,9 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 	}
 
 	expectedInitial := map[string]int64{
-		"zk_update_queue":         2,
-		"zk_append_queue":         1,
-		"zk_address_append_queue": 1,
+		"zk_address_append_queue": 2,
+		"zk_failed_queue":         1,
+		"zk_results_queue":        1,
 	}
 
 	for queue, expected := range expectedInitial {
@@ -142,9 +142,9 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 
 	// Count expected remaining jobs
 	expectedAfter := map[string]int64{
-		"zk_update_queue":         1, // 1 recent job should remain
-		"zk_append_queue":         0, // 1 old job should be removed
-		"zk_address_append_queue": 1, // 1 recent job should remain
+		"zk_address_append_queue": 1, // 1 recent job remains, 1 old removed
+		"zk_failed_queue":         1, // untouched by cleanup
+		"zk_results_queue":        1, // untouched by cleanup
 	}
 
 	for queue, expected := range expectedAfter {
@@ -153,15 +153,7 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		}
 	}
 
-	// Verify we can still dequeue the remaining jobs
-	remainingUpdate, err := rq.DequeueProof("zk_update_queue", 1*time.Second)
-	if err != nil {
-		t.Errorf("Failed to dequeue remaining update job: %v", err)
-	}
-	if remainingUpdate == nil {
-		t.Errorf("Expected to find remaining update job")
-	}
-
+	// Verify we can still dequeue the remaining address append job
 	remainingAddress, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
 	if err != nil {
 		t.Errorf("Failed to dequeue remaining address append job: %v", err)
@@ -170,13 +162,13 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		t.Errorf("Expected to find remaining address append job")
 	}
 
-	// Verify append queue is empty (old job was cleaned up)
-	emptyAppend, err := rq.DequeueProof("zk_append_queue", 500*time.Millisecond)
+	// Verify the address append queue is now empty (only the old job was cleaned up)
+	emptyAddress, err := rq.DequeueProof("zk_address_append_queue", 500*time.Millisecond)
 	if err != nil {
-		t.Errorf("Failed to check empty append queue: %v", err)
+		t.Errorf("Failed to check empty address append queue: %v", err)
 	}
-	if emptyAppend != nil {
-		t.Errorf("Expected append queue to be empty after cleanup, but found job: %v", emptyAppend)
+	if emptyAddress != nil {
+		t.Errorf("Expected address append queue to be empty after dequeue, but found job: %v", emptyAddress)
 	}
 }
 
@@ -190,29 +182,30 @@ func TestCleanupOldProofRequests(t *testing.T) {
 	recentTime := now.Add(-15 * time.Minute) // 15 minutes ago (should stay)
 
 	// Create old jobs (should be removed)
-	oldUpdateJob := &server.ProofJob{
+	oldAddressJob := &server.ProofJob{
 		ID:        uuid.New().String(),
 		Type:      "zk_proof",
-		Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
-		CreatedAt: oldTime,
-	}
-
-	oldAppendJob := &server.ProofJob{
-		ID:        uuid.New().String(),
-		Type:      "zk_proof",
-		Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
+		Payload:   json.RawMessage(`{"tree_height": 40, "batch_size": 10}`),
 		CreatedAt: oldTime,
 	}
 
 	// Create recent jobs (should stay)
-	recentUpdateJob := &server.ProofJob{
+	recentAddressJob := &server.ProofJob{
 		ID:        uuid.New().String(),
 		Type:      "zk_proof",
-		Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
+		Payload:   json.RawMessage(`{"tree_height": 40, "batch_size": 10}`),
 		CreatedAt: recentTime,
 	}
 
-	recentAppendJob := &server.ProofJob{
+	// Jobs in an isolated queue that cleanup does not touch
+	oldFailedJob := &server.ProofJob{
+		ID:        uuid.New().String(),
+		Type:      "zk_proof",
+		Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
+		CreatedAt: oldTime,
+	}
+
+	recentFailedJob := &server.ProofJob{
 		ID:        uuid.New().String(),
 		Type:      "zk_proof",
 		Payload:   json.RawMessage(`{"height": 32, "batch_size": 10}`),
@@ -220,24 +213,24 @@ func TestCleanupOldProofRequests(t *testing.T) {
 	}
 
 	// Enqueue all jobs
-	err := rq.EnqueueProof("zk_update_queue", oldUpdateJob)
+	err := rq.EnqueueProof("zk_address_append_queue", oldAddressJob)
 	if err != nil {
-		t.Fatalf("Failed to enqueue old update job: %v", err)
+		t.Fatalf("Failed to enqueue old address append job: %v", err)
 	}
 
-	err = rq.EnqueueProof("zk_append_queue", oldAppendJob)
+	err = rq.EnqueueProof("zk_failed_queue", oldFailedJob)
 	if err != nil {
-		t.Fatalf("Failed to enqueue old append job: %v", err)
+		t.Fatalf("Failed to enqueue old failed job: %v", err)
 	}
 
-	err = rq.EnqueueProof("zk_update_queue", recentUpdateJob)
+	err = rq.EnqueueProof("zk_address_append_queue", recentAddressJob)
 	if err != nil {
-		t.Fatalf("Failed to enqueue recent update job: %v", err)
+		t.Fatalf("Failed to enqueue recent address append job: %v", err)
 	}
 
-	err = rq.EnqueueProof("zk_append_queue", recentAppendJob)
+	err = rq.EnqueueProof("zk_failed_queue", recentFailedJob)
 	if err != nil {
-		t.Fatalf("Failed to enqueue recent append job: %v", err)
+		t.Fatalf("Failed to enqueue recent failed job: %v", err)
 	}
 
 	// Verify initial state
@@ -245,11 +238,11 @@ func TestCleanupOldProofRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get initial queue stats: %v", err)
 	}
-	if stats["zk_update_queue"] != 2 {
-		t.Errorf("Expected zk_update_queue to have 2 jobs initially, got %d", stats["zk_update_queue"])
+	if stats["zk_address_append_queue"] != 2 {
+		t.Errorf("Expected zk_address_append_queue to have 2 jobs initially, got %d", stats["zk_address_append_queue"])
 	}
-	if stats["zk_append_queue"] != 2 {
-		t.Errorf("Expected zk_append_queue to have 2 jobs initially, got %d", stats["zk_append_queue"])
+	if stats["zk_failed_queue"] != 2 {
+		t.Errorf("Expected zk_failed_queue to have 2 jobs initially, got %d", stats["zk_failed_queue"])
 	}
 
 	// Run cleanup
@@ -264,33 +257,23 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		t.Fatalf("Failed to get queue stats after cleanup: %v", err)
 	}
 
-	// Should have 1 job remaining in each queue (the recent ones)
-	if stats["zk_update_queue"] != 1 {
-		t.Errorf("Expected zk_update_queue to have 1 job after cleanup, got %d", stats["zk_update_queue"])
+	// The address append queue drops its old job; the failed queue is untouched
+	if stats["zk_address_append_queue"] != 1 {
+		t.Errorf("Expected zk_address_append_queue to have 1 job after cleanup, got %d", stats["zk_address_append_queue"])
 	}
-	if stats["zk_append_queue"] != 1 {
-		t.Errorf("Expected zk_append_queue to have 1 job after cleanup, got %d", stats["zk_append_queue"])
-	}
-
-	// Verify the remaining jobs are the recent ones by checking they can be dequeued
-	dequeuedUpdate, err := rq.DequeueProof("zk_update_queue", 1*time.Second)
-	if err != nil {
-		t.Errorf("Failed to dequeue remaining update job: %v", err)
-	}
-	if dequeuedUpdate == nil {
-		t.Errorf("Expected to find remaining update job")
-	} else if dequeuedUpdate.ID != recentUpdateJob.ID {
-		t.Errorf("Expected remaining job to be recent job, got ID %s instead of %s", dequeuedUpdate.ID, recentUpdateJob.ID)
+	if stats["zk_failed_queue"] != 2 {
+		t.Errorf("Expected zk_failed_queue to have 2 jobs after cleanup, got %d", stats["zk_failed_queue"])
 	}
 
-	dequeuedAppend, err := rq.DequeueProof("zk_append_queue", 1*time.Second)
+	// Verify the remaining address append job is the recent one
+	dequeuedAddress, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
 	if err != nil {
-		t.Errorf("Failed to dequeue remaining append job: %v", err)
+		t.Errorf("Failed to dequeue remaining address append job: %v", err)
 	}
-	if dequeuedAppend == nil {
-		t.Errorf("Expected to find remaining append job")
-	} else if dequeuedAppend.ID != recentAppendJob.ID {
-		t.Errorf("Expected remaining job to be recent job, got ID %s instead of %s", dequeuedAppend.ID, recentAppendJob.ID)
+	if dequeuedAddress == nil {
+		t.Errorf("Expected to find remaining address append job")
+	} else if dequeuedAddress.ID != recentAddressJob.ID {
+		t.Errorf("Expected remaining job to be recent job, got ID %s instead of %s", dequeuedAddress.ID, recentAddressJob.ID)
 	}
 }
 
@@ -336,11 +319,7 @@ func TestQueueStats(t *testing.T) {
 	}
 
 	expectedQueues := []string{
-		"zk_update_queue",
-		"zk_append_queue",
 		"zk_address_append_queue",
-		"zk_update_processing_queue",
-		"zk_append_processing_queue",
 		"zk_address_append_processing_queue",
 		"zk_failed_queue",
 		"zk_results_queue",
@@ -356,13 +335,13 @@ func TestQueueStats(t *testing.T) {
 	}
 }
 
-func TestEnqueueToUpdateQueue(t *testing.T) {
+func TestEnqueueToFailedQueue(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	job := createTestJob("test-update-1", "batch-update")
+	job := createTestJob("test-failed-1", "batch-address-append")
 
-	err := rq.EnqueueProof("zk_update_queue", job)
+	err := rq.EnqueueProof("zk_failed_queue", job)
 	if err != nil {
 		t.Errorf("Failed to enqueue proof: %v", err)
 	}
@@ -371,18 +350,18 @@ func TestEnqueueToUpdateQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_update_queue"] != int64(1) {
-		t.Errorf("Expected zk_update_queue to have 1 job, got %d", stats["zk_update_queue"])
+	if stats["zk_failed_queue"] != int64(1) {
+		t.Errorf("Expected zk_failed_queue to have 1 job, got %d", stats["zk_failed_queue"])
 	}
 }
 
-func TestEnqueueToAppendQueue(t *testing.T) {
+func TestEnqueueToResultsQueue(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	job := createTestJob("test-append-1", "batch-append")
+	job := createTestJob("test-results-1", "batch-address-append")
 
-	err := rq.EnqueueProof("zk_append_queue", job)
+	err := rq.EnqueueProof("zk_results_queue", job)
 	if err != nil {
 		t.Errorf("Failed to enqueue proof: %v", err)
 	}
@@ -391,8 +370,8 @@ func TestEnqueueToAppendQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_append_queue"] != int64(1) {
-		t.Errorf("Expected zk_append_queue to have 1 job, got %d", stats["zk_append_queue"])
+	if stats["zk_results_queue"] != int64(1) {
+		t.Errorf("Expected zk_results_queue to have 1 job, got %d", stats["zk_results_queue"])
 	}
 }
 
@@ -416,18 +395,18 @@ func TestEnqueueToAddressAppendQueue(t *testing.T) {
 	}
 }
 
-func TestDequeueFromUpdateQueue(t *testing.T) {
+func TestDequeueFromFailedQueue(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	originalJob := createTestJob("test-dequeue-update", "batch-update")
+	originalJob := createTestJob("test-dequeue-failed", "batch-address-append")
 
-	err := rq.EnqueueProof("zk_update_queue", originalJob)
+	err := rq.EnqueueProof("zk_failed_queue", originalJob)
 	if err != nil {
 		t.Fatalf("Failed to enqueue proof: %v", err)
 	}
 
-	dequeuedJob, err := rq.DequeueProof("zk_update_queue", 1*time.Second)
+	dequeuedJob, err := rq.DequeueProof("zk_failed_queue", 1*time.Second)
 	if err != nil {
 		t.Errorf("Failed to dequeue proof: %v", err)
 	}
@@ -442,18 +421,18 @@ func TestDequeueFromUpdateQueue(t *testing.T) {
 	}
 }
 
-func TestDequeueFromAppendQueue(t *testing.T) {
+func TestDequeueFromResultsQueue(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	originalJob := createTestJob("test-dequeue-append", "batch-append")
+	originalJob := createTestJob("test-dequeue-results", "batch-address-append")
 
-	err := rq.EnqueueProof("zk_append_queue", originalJob)
+	err := rq.EnqueueProof("zk_results_queue", originalJob)
 	if err != nil {
 		t.Fatalf("Failed to enqueue proof: %v", err)
 	}
 
-	dequeuedJob, err := rq.DequeueProof("zk_append_queue", 1*time.Second)
+	dequeuedJob, err := rq.DequeueProof("zk_results_queue", 1*time.Second)
 	if err != nil {
 		t.Errorf("Failed to dequeue proof: %v", err)
 	}
@@ -493,7 +472,7 @@ func TestDequeueTimeout(t *testing.T) {
 	defer teardownRedisQueue(t, rq)
 
 	start := time.Now()
-	job, err := rq.DequeueProof("zk_update_queue", 500*time.Millisecond)
+	job, err := rq.DequeueProof("zk_address_append_queue", 500*time.Millisecond)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -512,36 +491,17 @@ func TestDequeueTimeout(t *testing.T) {
 
 func TestQueueNameForCircuitType(t *testing.T) {
 	tests := []struct {
-		circuitType   string
+		circuitType   common.CircuitType
 		expectedQueue string
 	}{
-		{string(common.BatchUpdateCircuitType), "zk_update_queue"},
-		{string(common.BatchAppendCircuitType), "zk_append_queue"},
-		{string(common.BatchAddressAppendCircuitType), "zk_address_append_queue"},
-		{string(common.InclusionCircuitType), "zk_update_queue"},    // Default to update queue
-		{string(common.NonInclusionCircuitType), "zk_update_queue"}, // Default to update queue
-		{string(common.CombinedCircuitType), "zk_update_queue"},     // Default to update queue
+		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
+		{common.TransferCircuitType, ""},     // Not queued
+		{common.TransferP256CircuitType, ""}, // Not queued
 	}
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("CircuitType_%s", test.circuitType), func(t *testing.T) {
-			var circuitType common.CircuitType
-			switch test.circuitType {
-			case string(common.BatchUpdateCircuitType):
-				circuitType = common.BatchUpdateCircuitType
-			case string(common.BatchAppendCircuitType):
-				circuitType = common.BatchAppendCircuitType
-			case string(common.BatchAddressAppendCircuitType):
-				circuitType = common.BatchAddressAppendCircuitType
-			case string(common.InclusionCircuitType):
-				circuitType = common.InclusionCircuitType
-			case string(common.NonInclusionCircuitType):
-				circuitType = common.NonInclusionCircuitType
-			case string(common.CombinedCircuitType):
-				circuitType = common.CombinedCircuitType
-			}
-
-			queueName := server.GetQueueNameForCircuit(circuitType)
+			queueName := server.GetQueueNameForCircuit(test.circuitType)
 			if queueName != test.expectedQueue {
 				t.Errorf("Expected queue %s for circuit type %s, got %s", test.expectedQueue, test.circuitType, queueName)
 			}
@@ -553,23 +513,23 @@ func TestMultipleJobsInDifferentQueues(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	updateJob := createTestJob("update-job", "batch-update")
-	appendJob := createTestJob("append-job", "batch-append")
 	addressAppendJob := createTestJob("address-append-job", "batch-address-append")
+	failedJob := createTestJob("failed-job", "batch-address-append")
+	resultsJob := createTestJob("results-job", "batch-address-append")
 
-	err := rq.EnqueueProof("zk_update_queue", updateJob)
-	if err != nil {
-		t.Fatalf("Failed to enqueue update job: %v", err)
-	}
-
-	err = rq.EnqueueProof("zk_append_queue", appendJob)
-	if err != nil {
-		t.Fatalf("Failed to enqueue append job: %v", err)
-	}
-
-	err = rq.EnqueueProof("zk_address_append_queue", addressAppendJob)
+	err := rq.EnqueueProof("zk_address_append_queue", addressAppendJob)
 	if err != nil {
 		t.Fatalf("Failed to enqueue address append job: %v", err)
+	}
+
+	err = rq.EnqueueProof("zk_failed_queue", failedJob)
+	if err != nil {
+		t.Fatalf("Failed to enqueue failed job: %v", err)
+	}
+
+	err = rq.EnqueueProof("zk_results_queue", resultsJob)
+	if err != nil {
+		t.Fatalf("Failed to enqueue results job: %v", err)
 	}
 
 	stats, err := rq.GetQueueStats()
@@ -577,30 +537,14 @@ func TestMultipleJobsInDifferentQueues(t *testing.T) {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
 
-	if stats["zk_update_queue"] != int64(1) {
-		t.Errorf("Expected zk_update_queue to have 1 job, got %d", stats["zk_update_queue"])
-	}
-	if stats["zk_append_queue"] != int64(1) {
-		t.Errorf("Expected zk_append_queue to have 1 job, got %d", stats["zk_append_queue"])
-	}
 	if stats["zk_address_append_queue"] != int64(1) {
 		t.Errorf("Expected zk_address_append_queue to have 1 job, got %d", stats["zk_address_append_queue"])
 	}
-
-	dequeuedUpdate, err := rq.DequeueProof("zk_update_queue", 1*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to dequeue from update queue: %v", err)
+	if stats["zk_failed_queue"] != int64(1) {
+		t.Errorf("Expected zk_failed_queue to have 1 job, got %d", stats["zk_failed_queue"])
 	}
-	if dequeuedUpdate.ID != updateJob.ID {
-		t.Errorf("Expected update job ID %s, got %s", updateJob.ID, dequeuedUpdate.ID)
-	}
-
-	dequeuedAppend, err := rq.DequeueProof("zk_append_queue", 1*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to dequeue from append queue: %v", err)
-	}
-	if dequeuedAppend.ID != appendJob.ID {
-		t.Errorf("Expected append job ID %s, got %s", appendJob.ID, dequeuedAppend.ID)
+	if stats["zk_results_queue"] != int64(1) {
+		t.Errorf("Expected zk_results_queue to have 1 job, got %d", stats["zk_results_queue"])
 	}
 
 	dequeuedAddressAppend, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
@@ -609,6 +553,22 @@ func TestMultipleJobsInDifferentQueues(t *testing.T) {
 	}
 	if dequeuedAddressAppend.ID != addressAppendJob.ID {
 		t.Errorf("Expected address append job ID %s, got %s", addressAppendJob.ID, dequeuedAddressAppend.ID)
+	}
+
+	dequeuedFailed, err := rq.DequeueProof("zk_failed_queue", 1*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to dequeue from failed queue: %v", err)
+	}
+	if dequeuedFailed.ID != failedJob.ID {
+		t.Errorf("Expected failed job ID %s, got %s", failedJob.ID, dequeuedFailed.ID)
+	}
+
+	dequeuedResults, err := rq.DequeueProof("zk_results_queue", 1*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to dequeue from results queue: %v", err)
+	}
+	if dequeuedResults.ID != resultsJob.ID {
+		t.Errorf("Expected results job ID %s, got %s", resultsJob.ID, dequeuedResults.ID)
 	}
 }
 
@@ -678,23 +638,11 @@ func TestWorkerCreation(t *testing.T) {
 
 	keyManager := common.NewLazyKeyManager("./proving-keys/", common.DefaultDownloadConfig())
 
-	updateWorker := server.NewUpdateQueueWorker(rq, keyManager)
-	if updateWorker == nil {
-		t.Errorf("Expected update worker to be created, got nil")
-	}
-
-	appendWorker := server.NewAppendQueueWorker(rq, keyManager)
-	if appendWorker == nil {
-		t.Errorf("Expected append worker to be created, got nil")
-	}
-
 	addressAppendWorker := server.NewAddressAppendQueueWorker(rq, keyManager)
 	if addressAppendWorker == nil {
 		t.Errorf("Expected address append worker to be created, got nil")
 	}
 
-	var _ server.QueueWorker = updateWorker
-	var _ server.QueueWorker = appendWorker
 	var _ server.QueueWorker = addressAppendWorker
 }
 
@@ -703,9 +651,9 @@ func TestJobProcessingFlow(t *testing.T) {
 	defer teardownRedisQueue(t, rq)
 
 	jobID := "test-processing-flow"
-	job := createTestJob(jobID, "batch-update")
+	job := createTestJob(jobID, "batch-address-append")
 
-	err := rq.EnqueueProof("zk_update_queue", job)
+	err := rq.EnqueueProof("zk_address_append_queue", job)
 	if err != nil {
 		t.Fatalf("Failed to enqueue job: %v", err)
 	}
@@ -714,11 +662,11 @@ func TestJobProcessingFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_update_queue"] != int64(1) {
-		t.Errorf("Expected zk_update_queue to have 1 job, got %d", stats["zk_update_queue"])
+	if stats["zk_address_append_queue"] != int64(1) {
+		t.Errorf("Expected zk_address_append_queue to have 1 job, got %d", stats["zk_address_append_queue"])
 	}
 
-	dequeuedJob, err := rq.DequeueProof("zk_update_queue", 1*time.Second)
+	dequeuedJob, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to dequeue job: %v", err)
 	}
@@ -732,7 +680,7 @@ func TestJobProcessingFlow(t *testing.T) {
 		Payload:   job.Payload,
 		CreatedAt: time.Now(),
 	}
-	err = rq.EnqueueProof("zk_update_processing_queue", processingJob)
+	err = rq.EnqueueProof("zk_address_append_processing_queue", processingJob)
 	if err != nil {
 		t.Fatalf("Failed to enqueue processing job: %v", err)
 	}
@@ -741,8 +689,8 @@ func TestJobProcessingFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_update_processing_queue"] != int64(1) {
-		t.Errorf("Expected zk_update_processing_queue to have 1 job, got %d", stats["zk_update_processing_queue"])
+	if stats["zk_address_append_processing_queue"] != int64(1) {
+		t.Errorf("Expected zk_address_append_processing_queue to have 1 job, got %d", stats["zk_address_append_processing_queue"])
 	}
 
 	resultJob := &server.ProofJob{
@@ -938,104 +886,36 @@ func contains(s, substr string) bool {
 }
 
 func TestWorkerSelectionLogic(t *testing.T) {
-	circuits := []string{"update", "append", "inclusion"}
-
-	if !containsCircuit(circuits, "update") {
-		t.Errorf("Expected circuits to contain 'update'")
-	}
-
-	if !containsCircuit(circuits, "append") {
-		t.Errorf("Expected circuits to contain 'append'")
-	}
-
-	if !containsCircuit(circuits, "inclusion") {
-		t.Errorf("Expected circuits to contain 'inclusion'")
-	}
-
-	if containsCircuit(circuits, "address-append") {
-		t.Errorf("Expected circuits to NOT contain 'address-append'")
-	}
-
-	if containsCircuit(circuits, "non-existent") {
-		t.Errorf("Expected circuits to NOT contain 'non-existent'")
-	}
-
-	emptyCircuits := []string{}
-	if containsCircuit(emptyCircuits, "update") {
-		t.Errorf("Expected empty circuits to NOT contain 'update'")
-	}
-
 	testCases := []struct {
 		name          string
 		circuits      []string
-		expectUpdate  bool
-		expectAppend  bool
 		expectAddress bool
 	}{
 		{
-			name:          "Update only",
-			circuits:      []string{"update"},
-			expectUpdate:  true,
-			expectAppend:  false,
-			expectAddress: false,
-		},
-		{
-			name:          "Append only",
-			circuits:      []string{"append"},
-			expectUpdate:  false,
-			expectAppend:  true,
-			expectAddress: false,
-		},
-		{
 			name:          "Address append only",
 			circuits:      []string{"address-append"},
-			expectUpdate:  false,
-			expectAppend:  false,
 			expectAddress: true,
 		},
 		{
-			name:          "Multiple circuits",
-			circuits:      []string{"update", "append"},
-			expectUpdate:  true,
-			expectAppend:  true,
+			name:          "Address append test",
+			circuits:      []string{"address-append-test"},
+			expectAddress: true,
+		},
+		{
+			name:          "Unrelated circuits only",
+			circuits:      []string{"transfer", "transfer-p256"},
 			expectAddress: false,
 		},
 		{
-			name:          "All batch circuits",
-			circuits:      []string{"update", "append", "address-append"},
-			expectUpdate:  true,
-			expectAppend:  true,
-			expectAddress: true,
-		},
-		{
-			name:          "Test circuits",
-			circuits:      []string{"update-test", "append-test", "address-append-test"},
-			expectUpdate:  true,
-			expectAppend:  true,
-			expectAddress: true,
-		},
-		{
-			name:          "Non-batch circuits only",
-			circuits:      []string{"inclusion", "non-inclusion"},
-			expectUpdate:  false,
-			expectAppend:  false,
+			name:          "Empty",
+			circuits:      []string{},
 			expectAddress: false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			shouldStartUpdate := containsCircuit(tc.circuits, "update") || containsCircuit(tc.circuits, "update-test")
-			shouldStartAppend := containsCircuit(tc.circuits, "append") || containsCircuit(tc.circuits, "append-test")
 			shouldStartAddress := containsCircuit(tc.circuits, "address-append") || containsCircuit(tc.circuits, "address-append-test")
-
-			if shouldStartUpdate != tc.expectUpdate {
-				t.Errorf("Expected update worker: %v, got: %v", tc.expectUpdate, shouldStartUpdate)
-			}
-
-			if shouldStartAppend != tc.expectAppend {
-				t.Errorf("Expected append worker: %v, got: %v", tc.expectAppend, shouldStartAppend)
-			}
 
 			if shouldStartAddress != tc.expectAddress {
 				t.Errorf("Expected address append worker: %v, got: %v", tc.expectAddress, shouldStartAddress)
@@ -1058,8 +938,6 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 		circuitType   common.CircuitType
 		expectedQueue string
 	}{
-		{common.BatchUpdateCircuitType, "zk_update_queue"},
-		{common.BatchAppendCircuitType, "zk_append_queue"},
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
 	}
 
@@ -1074,15 +952,14 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	}
 
 	nonBatchTests := []common.CircuitType{
-		common.InclusionCircuitType,
-		common.NonInclusionCircuitType,
-		common.CombinedCircuitType,
+		common.TransferCircuitType,
+		common.TransferP256CircuitType,
 	}
 
 	for _, circuitType := range nonBatchTests {
 		t.Run(fmt.Sprintf("NonBatchOperation_%s", string(circuitType)), func(t *testing.T) {
 			queueName := server.GetQueueNameForCircuit(circuitType)
-			expectedQueue := "zk_update_queue"
+			expectedQueue := ""
 			if queueName != expectedQueue {
 				t.Errorf("Expected circuit type %s to route to %s, got %s",
 					string(circuitType), expectedQueue, queueName)

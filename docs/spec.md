@@ -489,7 +489,7 @@ utxo_hash = Poseidon(domain, asset, amount,
 owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `zone_program_id` is Poseidon-encoded as `Poseidon(low, high)` before hashing.
+The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` and `zone_program_id` are Poseidon-encoded as `Poseidon(low, high)` before hashing.
 
 Nesting owner_utxo_hash keeps the owner the funds are shielded to private  when using proofless_shield deposits.
 

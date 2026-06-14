@@ -443,7 +443,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
-	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType, forceAsync, forceSync)
+	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
@@ -460,29 +460,12 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType, forceAsync, forceSync bool) bool {
+func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType) bool {
 	if !handler.enableQueue || handler.redisQueue == nil {
 		return false
 	}
 
-	// Always use queue for batch operations when queue is available
-	// This prevents cross-contamination in clustered deployments
-	if circuitType == common.BatchUpdateCircuitType ||
-		circuitType == common.BatchAppendCircuitType ||
-		circuitType == common.BatchAddressAppendCircuitType {
-		return true
-	}
-
-	// For non-batch operations, respect sync/async preferences
-	if forceAsync {
-		return true
-	}
-	if forceSync {
-		return false
-	}
-
-	// Non-batch operations default to local processing
-	return false
+	return circuitType == common.BatchAddressAppendCircuitType
 }
 
 type queueStatsHandler struct {
@@ -503,8 +486,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":        stats,
-		"total_pending": stats["zk_update_queue"] + stats["zk_append_queue"] + stats["zk_address_append_queue"],
-		"total_active":  stats["zk_update_processing_queue"] + stats["zk_append_processing_queue"] + stats["zk_address_append_processing_queue"],
+		"total_pending": stats["zk_address_append_queue"],
+		"total_active":  stats["zk_address_append_processing_queue"],
 		"total_failed":  stats["zk_failed_queue"],
 		"timestamp":     time.Now().Unix(),
 	}
@@ -1098,9 +1081,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {
 	switch circuitType {
-	case common.BatchAppendCircuitType,
-		common.BatchUpdateCircuitType,
-		common.BatchAddressAppendCircuitType:
+	case common.BatchAddressAppendCircuitType:
 		return true
 	default:
 		return false
@@ -1109,49 +1090,24 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
-	case common.BatchUpdateCircuitType:
-		return "zk_update_queue"
-	case common.BatchAppendCircuitType:
-		return "zk_append_queue"
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
 	default:
-		return "zk_update_queue"
+		return ""
 	}
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
 	switch circuitType {
-	case common.InclusionCircuitType:
-		return "1-3 seconds"
-	case common.NonInclusionCircuitType:
-		return "1-3 seconds"
-	case common.CombinedCircuitType:
-		return "1-3 seconds"
-	case common.BatchAppendCircuitType:
-		return "10-30 seconds"
-	case common.BatchUpdateCircuitType:
-		return "10-30 seconds"
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
 	default:
-		// Includes transfer / transfer-eddsa (single proof, 1-3 seconds).
 		return "1-3 seconds"
 	}
 }
 
 func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitType) int {
 	switch circuitType {
-	case common.InclusionCircuitType:
-		return 1
-	case common.NonInclusionCircuitType:
-		return 1
-	case common.CombinedCircuitType:
-		return 1
-	case common.BatchAppendCircuitType:
-		return 30
-	case common.BatchUpdateCircuitType:
-		return 30
 	case common.BatchAddressAppendCircuitType:
 		return 30
 	case common.TransferP256CircuitType:

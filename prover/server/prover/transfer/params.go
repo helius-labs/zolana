@@ -64,8 +64,11 @@ type TransferParameters struct {
 	P256SigR *big.Int
 	P256SigS *big.Int
 
-	PrivateTxHash        *big.Int
-	P256MessageHash      *big.Int
+	PrivateTxHash *big.Int
+	// P256 ECDSA message digest (full SHA-256) as two big-endian 128-bit limbs.
+	// Both 0 on the Solana-only rail.
+	P256MessageHashLow   *big.Int
+	P256MessageHashHigh  *big.Int
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int

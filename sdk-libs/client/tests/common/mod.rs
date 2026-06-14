@@ -12,10 +12,10 @@ use groth16_solana::groth16::Groth16Verifier;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
-use zolana_client::transaction::field::{asset_field, signed_to_field};
+use zolana_client::private_transaction::field::{asset_field, signed_to_field};
 use zolana_client::{
-    spawn_prover, ProverClient, PublicAmounts, Shape, SpendUtxo, Transaction, TransferNewOutput,
-    TransferP256ProofResult, TransferProofResult, TransferRail, WithdrawalTarget,
+    spawn_prover, CircuitType, ProverClient, PublicAmounts, RpcBlocking, Shape, SpendUtxo,
+    Transaction, TransferP256ProofResult, TransferProofResult, WithdrawalTarget,
 };
 use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
 use zolana_keypair::shielded::ShieldedKeypair;
@@ -25,7 +25,7 @@ use zolana_transaction::transfer::{
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{
-    AssetRegistry, Data, ExternalData, TransactionEncryption, Utxo, SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_MINT,
 };
 
 /// Registry id for the single test SPL mint (SOL is the reserved id 1).
@@ -123,6 +123,8 @@ pub fn run(plan: &TransferPlan) {
                 Owner::Solana => SpendUtxo {
                     utxo,
                     nullifier_key: NullifierKey::from_secret(random_blinding(&mut rng)),
+                    program_data_hash: None,
+                    zone_data_hash: None,
                 },
             }
         })
@@ -180,8 +182,14 @@ pub fn run(plan: &TransferPlan) {
         indexer.add_utxo(commitment.utxo_hash);
     }
 
-    match signed.into_prover(&mut indexer).expect("into prover") {
-        TransferRail::P256(prover) => {
+    let input_merkle_proofs = indexer
+        .get_input_merkle_proofs(&commitments)
+        .expect("input merkle proofs");
+    match signed
+        .into_prover(&input_merkle_proofs)
+        .expect("into prover")
+    {
+        CircuitType::P256(prover) => {
             assert_outputs(
                 &prover.outputs,
                 &prover.public_amounts,
@@ -193,7 +201,7 @@ pub fn run(plan: &TransferPlan) {
             );
             prove_and_verify_p256(&prover.build().expect("build"));
         }
-        TransferRail::Eddsa(prover) => {
+        CircuitType::Eddsa(prover) => {
             assert_outputs(
                 &prover.outputs,
                 &prover.public_amounts,
@@ -212,7 +220,7 @@ pub fn run(plan: &TransferPlan) {
 /// produced exactly those, and that the encrypted bundle decrypts back to the
 /// same sender change and recipients.
 fn assert_outputs(
-    outputs: &[TransferNewOutput],
+    outputs: &[OutputUtxo],
     public_amounts: &PublicAmounts,
     external_data: &ExternalData,
     plan: &TransferPlan,
@@ -253,27 +261,30 @@ fn assert_outputs(
     let owner_hash = sender.shielded_address().unwrap().owner_hash().unwrap();
     let mut expected = Vec::new();
     if change(Asset::Spl) > 0 {
-        expected.push(TransferNewOutput {
+        expected.push(OutputUtxo {
             owner_hash,
             asset: spl_mint(),
             amount: change(Asset::Spl),
             blinding: derive_blinding(&seed, 0),
+            ..Default::default()
         });
     }
     if change(Asset::Sol) > 0 {
-        expected.push(TransferNewOutput {
+        expected.push(OutputUtxo {
             owner_hash,
             asset: SOL_MINT,
             amount: change(Asset::Sol),
             blinding: derive_blinding(&seed, 1),
+            ..Default::default()
         });
     }
     for (i, (recipient, send)) in recipients.iter().zip(&plan.sends).enumerate() {
-        expected.push(TransferNewOutput {
+        expected.push(OutputUtxo {
             owner_hash: recipient.shielded_address().unwrap().owner_hash().unwrap(),
             asset: asset_addr(send.asset),
             amount: send.amount,
             blinding: derive_blinding(&seed, 2 + i as u8),
+            ..Default::default()
         });
     }
     assert_eq!(outputs, expected.as_slice());

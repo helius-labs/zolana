@@ -1,20 +1,20 @@
-use zolana_keypair::hash::sha256_be;
-use zolana_transaction::ExternalData;
+use zolana_keypair::hash::sha256;
+use zolana_transaction::transaction::private_tx_hash;
+use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::error::ClientError;
+use crate::private_transaction::transaction::{
+    inputs_require_p256, CircuitType, InputCommitment, SpendProof, SpendUtxo,
+};
 use crate::prover::shape::Shape;
 use crate::prover::transfer::TransferProver;
 use crate::prover::transfer_p256::{
-    input_utxo_hash, output_utxo_hash, private_tx_hash, P256Owner, PublicAmounts,
-    TransferNewOutput, TransferP256Prover, TransferSpendInput,
-};
-use crate::transaction::transaction::{
-    inputs_require_p256, InputCommitment, ProofResolver, SpendUtxo, TransferRail,
+    P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
 };
 
 pub struct SignedTransaction {
     pub(crate) inputs: Vec<SpendUtxo>,
-    pub(crate) outputs: Vec<TransferNewOutput>,
+    pub(crate) outputs: Vec<OutputUtxo>,
     pub(crate) public_amounts: PublicAmounts,
     pub(crate) external_data: ExternalData,
     pub(crate) payer_pubkey_hash: [u8; 32],
@@ -28,7 +28,10 @@ impl SignedTransaction {
             .iter()
             .enumerate()
             .map(|(index, spend)| {
-                let utxo_hash = input_utxo_hash(&spend.utxo, &spend.nullifier_key)?;
+                let utxo_hash =
+                    spend
+                        .utxo
+                        .hash(&spend.nullifier_key.pubkey()?, &[0u8; 32], &[0u8; 32])?;
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -43,8 +46,8 @@ impl SignedTransaction {
 
     pub fn into_prover(
         self,
-        resolver: &mut impl ProofResolver,
-    ) -> Result<TransferRail, ClientError> {
+        input_merkle_proofs: &[SpendProof],
+    ) -> Result<CircuitType, ClientError> {
         let requires_p256 = inputs_require_p256(&self.inputs)?;
         let SignedTransaction {
             inputs,
@@ -61,26 +64,22 @@ impl SignedTransaction {
             let SpendUtxo {
                 utxo,
                 nullifier_key,
+                ..
             } = spend;
-            let utxo_hash = input_utxo_hash(&utxo, &nullifier_key)?;
-            let nullifier = nullifier_key.nullifier(&utxo_hash, &utxo.blinding)?;
-            let commitment = InputCommitment {
-                index,
-                utxo_hash,
-                nullifier,
-            };
-            let proof = resolver.resolve(&commitment)?;
+            let proof = input_merkle_proofs
+                .get(index)
+                .ok_or(ClientError::MissingInputMerkleProof { index })?;
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
-                state_proof: proof.state,
-                nullifier_proof: proof.nullifier,
+                state_proof: proof.state.clone(),
+                nullifier_proof: proof.nullifier.clone(),
             });
         }
 
         if requires_p256 {
             let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-            Ok(TransferRail::P256(TransferP256Prover {
+            Ok(CircuitType::P256(TransferP256Prover {
                 inputs: spends,
                 outputs,
                 external_data,
@@ -90,7 +89,7 @@ impl SignedTransaction {
                 shape: Some(shape),
             }))
         } else {
-            Ok(TransferRail::Eddsa(TransferProver {
+            Ok(CircuitType::Eddsa(TransferProver {
                 inputs: spends,
                 outputs,
                 external_data,
@@ -104,18 +103,22 @@ impl SignedTransaction {
     pub(crate) fn message_hash(&self) -> Result<[u8; 32], ClientError> {
         let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
         for spend in &self.inputs {
-            input_hashes.push(input_utxo_hash(&spend.utxo, &spend.nullifier_key)?);
+            input_hashes.push(spend.utxo.hash(
+                &spend.nullifier_key.pubkey()?,
+                &[0u8; 32],
+                &[0u8; 32],
+            )?);
         }
         input_hashes.resize(self.shape.n_inputs, [0u8; 32]);
 
         let mut output_hashes = Vec::with_capacity(self.shape.n_outputs);
         for output in &self.outputs {
-            output_hashes.push(output_utxo_hash(output)?);
+            output_hashes.push(output.hash()?);
         }
         output_hashes.resize(self.shape.n_outputs, [0u8; 32]);
 
         let external_data_hash = self.external_data.hash();
         let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
-        Ok(sha256_be(&private_tx))
+        Ok(sha256(&private_tx))
     }
 }

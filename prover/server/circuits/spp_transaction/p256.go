@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	p256LimbBits    = 128
-	p256MessageBits = 248
+	p256LimbBits = 128
 )
 
 // P256PublicKey and P256Signature are the gnark ECDSA witness types pinned to
@@ -65,10 +64,15 @@ func P256PkFieldFromPubkeyCircuit(
 	}), nil
 }
 
-func p256MessageHashToP256Fr(api frontend.API, messageHash frontend.Variable) (*emulated.Element[emulated.P256Fr], error) {
+// p256MessageHashToP256Fr reconstructs the full 256-bit SHA-256 ECDSA message
+// digest from its two big-endian 128-bit limbs. Each limb is range-checked to
+// 128 bits by ToBinary; concatenating low (bits 0..128) then high (bits
+// 128..256) yields the canonical 256-bit scalar fed to the emulated P256 curve.
+func p256MessageHashToP256Fr(api frontend.API, low, high frontend.Variable) (*emulated.Element[emulated.P256Fr], error) {
 	fr, err := emulated.NewField[emulated.P256Fr](api)
 	if err != nil {
 		return nil, err
 	}
-	return fr.FromBits(api.ToBinary(messageHash, p256MessageBits)...), nil
+	bits := append(api.ToBinary(low, p256LimbBits), api.ToBinary(high, p256LimbBits)...)
+	return fr.FromBits(bits...), nil
 }

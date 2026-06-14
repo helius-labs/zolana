@@ -52,7 +52,8 @@ type TransferParametersJSON struct {
 	P256SigR             string             `json:"p256SigR"`
 	P256SigS             string             `json:"p256SigS"`
 	PrivateTxHash        string             `json:"privateTxHash"`
-	P256MessageHash      string             `json:"p256MessageHash"`
+	P256MessageHashLow   string             `json:"p256MessageHashLow"`
+	P256MessageHashHigh  string             `json:"p256MessageHashHigh"`
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
@@ -86,7 +87,8 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		P256SigR:             feHex(p.P256SigR),
 		P256SigS:             feHex(p.P256SigS),
 		PrivateTxHash:        feHex(p.PrivateTxHash),
-		P256MessageHash:      feHex(p.P256MessageHash),
+		P256MessageHashLow:   feHex(p.P256MessageHashLow),
+		P256MessageHashHigh:  feHex(p.P256MessageHashHigh),
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
@@ -151,7 +153,10 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PrivateTxHash, err = feFromHex(params.PrivateTxHash); err != nil {
 		return err
 	}
-	if p.P256MessageHash, err = feFromHex(params.P256MessageHash); err != nil {
+	if p.P256MessageHashLow, err = feFromHex(params.P256MessageHashLow); err != nil {
+		return err
+	}
+	if p.P256MessageHashHigh, err = feFromHex(params.P256MessageHashHigh); err != nil {
 		return err
 	}
 	if p.PublicSolAmount, err = feFromHex(params.PublicSolAmount); err != nil {

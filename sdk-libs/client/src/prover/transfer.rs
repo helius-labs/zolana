@@ -1,18 +1,18 @@
 use num_bigint::BigUint;
-use zolana_transaction::ExternalData;
+use zolana_transaction::transaction::private_tx_hash;
+use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::error::ClientError;
+use crate::private_transaction::field::be;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer_p256::{
-    assemble_inputs, assemble_outputs, private_tx_hash, public_input_hash, PublicAmounts,
-    TransferNewOutput, TransferSpendInput,
+    assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
 };
 use crate::prover::TransferInputs;
-use crate::transaction::field::be;
 
 pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<TransferNewOutput>,
+    pub outputs: Vec<OutputUtxo>,
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
@@ -39,18 +39,19 @@ impl TransferProver {
             &external_data_hash,
         )?;
         let p256_message_hash = [0u8; 32];
-        let public_input = public_input_hash(
-            &assembled_inputs.nullifiers,
-            &assembled_outputs.output_hashes,
-            &assembled_inputs.utxo_roots,
-            &assembled_inputs.nullifier_tree_roots,
-            &private_tx,
-            &p256_message_hash,
-            &external_data_hash,
-            &self.public_amounts,
-            &self.payer_pubkey_hash,
-            &assembled_inputs.solana_owner_pk_hashes,
-        )?;
+        let public_input = PublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hashes: &assembled_outputs.output_hashes,
+            utxo_roots: &assembled_inputs.utxo_roots,
+            nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
+            private_tx: &private_tx,
+            p256_message_hash: &p256_message_hash,
+            external_data_hash: &external_data_hash,
+            public_amounts: &self.public_amounts,
+            payer_pubkey_hash: &self.payer_pubkey_hash,
+            solana_owner_pk_hashes: &assembled_inputs.solana_owner_pk_hashes,
+        }
+        .hash()?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,

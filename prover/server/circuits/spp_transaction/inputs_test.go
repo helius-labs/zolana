@@ -90,7 +90,8 @@ func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewSolanaCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.P256MessageHash = spptest.Fe(0)
+	assignment.P256MessageHashLow = spptest.Fe(0)
+	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -107,7 +108,8 @@ func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.P256MessageHash = spptest.Fe(0)
+	assignment.P256MessageHashLow = spptest.Fe(0)
+	assignment.P256MessageHashHigh = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -214,7 +216,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	assignment.P256MessageHash = spptest.MustP256MessageHash(t, privateTxHash)
+	assignment.P256MessageHashLow, assignment.P256MessageHashHigh = spptest.MustP256MessageLimbs(t, privateTxHash)
 	refreshPublicInputHash(t, assignment)
 	return assignment
 }

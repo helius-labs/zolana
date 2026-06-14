@@ -124,46 +124,8 @@ type BaseQueueWorker struct {
 	semaphore           chan struct{}
 }
 
-type UpdateQueueWorker struct {
-	*BaseQueueWorker
-}
-
-type AppendQueueWorker struct {
-	*BaseQueueWorker
-}
-
 type AddressAppendQueueWorker struct {
 	*BaseQueueWorker
-}
-
-func NewUpdateQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *UpdateQueueWorker {
-	maxConcurrency := getMaxConcurrency()
-	return &UpdateQueueWorker{
-		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
-			stopChan:            make(chan struct{}),
-			queueName:           "zk_update_queue",
-			processingQueueName: "zk_update_processing_queue",
-			maxConcurrency:      maxConcurrency,
-			semaphore:           make(chan struct{}, maxConcurrency),
-		},
-	}
-}
-
-func NewAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *AppendQueueWorker {
-	maxConcurrency := getMaxConcurrency()
-	return &AppendQueueWorker{
-		BaseQueueWorker: &BaseQueueWorker{
-			queue:               redisQueue,
-			keyManager:          keyManager,
-			stopChan:            make(chan struct{}),
-			queueName:           "zk_append_queue",
-			processingQueueName: "zk_append_processing_queue",
-			maxConcurrency:      maxConcurrency,
-			semaphore:           make(chan struct{}, maxConcurrency),
-		},
-	}
 }
 
 func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *AddressAppendQueueWorker {
@@ -240,12 +202,7 @@ func (w *BaseQueueWorker) processJobs() {
 
 		queueWaitTime := jobAge.Seconds()
 		circuitType := "unknown"
-		switch w.queueName {
-		case "zk_update_queue":
-			circuitType = "update"
-		case "zk_append_queue":
-			circuitType = "append"
-		case "zk_address_append_queue":
+		if w.queueName == "zk_address_append_queue" {
 			circuitType = "address-append"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
@@ -464,22 +421,6 @@ func (w *BaseQueueWorker) processJobs() {
 			}
 		}
 	}(job, inputHash)
-}
-
-func (w *UpdateQueueWorker) Start() {
-	w.BaseQueueWorker.Start()
-}
-
-func (w *UpdateQueueWorker) Stop() {
-	w.BaseQueueWorker.Stop()
-}
-
-func (w *AppendQueueWorker) Start() {
-	w.BaseQueueWorker.Start()
-}
-
-func (w *AppendQueueWorker) Stop() {
-	w.BaseQueueWorker.Stop()
 }
 
 func (w *AddressAppendQueueWorker) Start() {

@@ -12,6 +12,5 @@ pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use shape::{canonical_shape, resolve_shape, Shape, SUPPORTED_SHAPES};
 pub use transfer::{TransferProofResult, TransferProver};
 pub use transfer_p256::{
-    P256Owner, PublicAmounts, TransferNewOutput, TransferP256ProofResult, TransferP256Prover,
-    TransferSpendInput,
+    P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferSpendInput,
 };

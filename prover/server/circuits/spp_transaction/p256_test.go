@@ -45,7 +45,7 @@ func TestCircuitRejectsBadP256MessageHash(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.P256MessageHash = new(big.Int).Add(spptest.AsBigInt(assignment.P256MessageHash), big.NewInt(1))
+	assignment.P256MessageHashLow = new(big.Int).Add(spptest.AsBigInt(assignment.P256MessageHashLow), big.NewInt(1))
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))

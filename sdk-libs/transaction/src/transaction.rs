@@ -66,7 +66,7 @@ impl InputUtxo {
 
 /// A new output UTXO. The sender commits to the recipient's `owner_hash`
 /// directly, since it only knows the recipient's identity, not its keys.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct OutputUtxo {
     pub owner_hash: [u8; 32],
     pub asset: Address,
@@ -113,18 +113,25 @@ impl EncryptedTransaction {
             .iter()
             .map(OutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        let input_chain = hash_chain(&input_hashes)?;
-        let output_chain = hash_chain(&output_hashes)?;
-        let external_data_hash = self.external_data.hash();
-        Ok(poseidon(&[
-            &input_chain,
-            &output_chain,
-            &external_data_hash,
-        ])?)
+        private_tx_hash(&input_hashes, &output_hashes, &self.external_data.hash())
     }
 }
 
-/// Folds left-to-right: `h = items[0]; h = Poseidon(h, items[i])`. Empty folds to zero.
+pub fn private_tx_hash(
+    input_hashes: &[[u8; 32]],
+    output_hashes: &[[u8; 32]],
+    external_data_hash: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let input_chain = hash_chain(input_hashes)?;
+    let output_chain = hash_chain(output_hashes)?;
+    Ok(poseidon(&[
+        &input_chain,
+        &output_chain,
+        external_data_hash,
+    ])?)
+}
+
+/// Hashes left-to-right: `h = items[0]; h = Poseidon(h, items[i])`. Empty returns zero.
 fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
     let mut iter = items.iter();
     let mut acc = match iter.next() {

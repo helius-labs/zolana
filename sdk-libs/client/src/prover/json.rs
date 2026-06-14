@@ -93,8 +93,10 @@ pub(crate) struct TransferP256InputsJson {
     pub p256_sig_s: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "p256MessageHash")]
-    pub p256_message_hash: String,
+    #[serde(rename = "p256MessageHashLow")]
+    pub p256_message_hash_low: String,
+    #[serde(rename = "p256MessageHashHigh")]
+    pub p256_message_hash_high: String,
     #[serde(rename = "publicSolAmount")]
     pub public_sol_amount: String,
     #[serde(rename = "publicSplAmount")]
@@ -208,7 +210,8 @@ pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
         p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
         p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        p256_message_hash: big_uint_to_string(&inputs.p256_message_hash),
+        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
+        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
         public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
         public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
         public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),

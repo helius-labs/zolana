@@ -168,10 +168,7 @@ func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequ
 		if err != nil {
 			return ProofTransactionRequest{}, nil, err
 		}
-		msg, err := parse.FieldBytes(built.publicInputs.P256MessageHash)
-		if err != nil {
-			return ProofTransactionRequest{}, nil, err
-		}
+		msg := built.p256MessageDigest
 		r, s, err := ecdsa.Sign(rand.Reader, p256Priv, msg[:])
 		if err != nil {
 			return ProofTransactionRequest{}, nil, err

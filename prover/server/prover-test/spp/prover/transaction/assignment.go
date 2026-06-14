@@ -52,8 +52,11 @@ type proofAssignment struct {
 	circuit         *txcircuit.Circuit
 	publicInputs    protocol.PublicInputs
 	publicInputHash *big.Int
-	outputUtxos     []ProofUtxoResponse
-	transcript      assignmentTranscript
+	// p256MessageDigest is the full SHA-256 ECDSA message the P256 owner signs;
+	// the signing payload carries it. Zero on the Solana-only rail.
+	p256MessageDigest [32]byte
+	outputUtxos       []ProofUtxoResponse
+	transcript        assignmentTranscript
 }
 
 func buildProofAssignment(
@@ -89,28 +92,33 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	p256MessageHash, err := protocol.P256MessageHash(privateTxHash)
+	p256MessageDigest, err := protocol.P256MessageDigest(privateTxHash)
 	if err != nil {
 		return proofAssignment{}, err
 	}
 	// Ownership rail: a transaction with any P256 input uses the P256-capable
 	// circuit; otherwise the Solana-only variant, which omits the P256 gadget
-	// and pins P256MessageHash to 0 (no signature). The rail must match the
-	// proving system the caller selected (buildProofTransaction checks this).
+	// and pins both message-hash limbs to 0 (no signature). The rail must match
+	// the proving system the caller selected (buildProofTransaction checks this).
 	requiresP256 := inputs.requiresP256OwnerWitness
 	if !requiresP256 {
-		p256MessageHash = big.NewInt(0)
+		p256MessageDigest = [32]byte{}
+	}
+	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256MessageDigest)
+	p256MessageHashField, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
+	if err != nil {
+		return proofAssignment{}, err
 	}
 	p256Pub, p256Sig, err := p256WitnessForTransaction(
 		tx,
-		p256MessageHash,
+		p256MessageDigest,
 		inputs.requiresP256OwnerWitness,
 		options.AllowMissingP256Signature,
 	)
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, p256MessageHash)
+	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, p256MessageHashField)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
@@ -125,7 +133,8 @@ func buildProofAssignment(
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
 		PrivateTxHash:        privateTxHash,
-		P256MessageHash:      p256MessageHash,
+		P256MessageHashLow:   p256MessageLow,
+		P256MessageHashHigh:  p256MessageHigh,
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
@@ -143,11 +152,12 @@ func buildProofAssignment(
 		requiresP256OwnerWitness: inputs.requiresP256OwnerWitness,
 	}
 	return proofAssignment{
-		circuit:         assignment,
-		publicInputs:    publicInputs,
-		publicInputHash: publicInputHash,
-		outputUtxos:     outputs.responses,
-		transcript:      transcript,
+		circuit:           assignment,
+		publicInputs:      publicInputs,
+		publicInputHash:   publicInputHash,
+		p256MessageDigest: p256MessageDigest,
+		outputUtxos:       outputs.responses,
+		transcript:        transcript,
 	}, nil
 }
 

@@ -7797,6 +7797,7 @@ dependencies = [
 name = "zolana-client"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cucumber",
  "futures",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
@@ -7811,8 +7812,18 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "solana-account",
  "solana-address 2.6.0",
  "solana-bn254",
+ "solana-clock",
+ "solana-hash 4.3.0",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-transaction",
+ "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "zolana-interface",
  "zolana-keypair",

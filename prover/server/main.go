@@ -91,7 +91,7 @@ func runCli() {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-eddsa\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-p256\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -572,20 +572,6 @@ func runCli() {
 						startAll := len(enabledCircuits) == 0
 						var workersStarted []string
 
-						if startAll || enabledCircuitsMap["update"] || enabledCircuitsMap["update-test"] {
-							updateWorker := server.NewUpdateQueueWorker(redisQueue, keyManager)
-							workers = append(workers, updateWorker)
-							go updateWorker.Start()
-							workersStarted = append(workersStarted, "update")
-						}
-
-						if startAll || enabledCircuitsMap["append"] || enabledCircuitsMap["append-test"] {
-							appendWorker := server.NewAppendQueueWorker(redisQueue, keyManager)
-							workers = append(workers, appendWorker)
-							go appendWorker.Start()
-							workersStarted = append(workersStarted, "append")
-						}
-
 						if startAll || enabledCircuitsMap["address-append"] || enabledCircuitsMap["address-append-test"] {
 							addressAppendWorker := server.NewAddressAppendQueueWorker(redisQueue, keyManager)
 							workers = append(workers, addressAppendWorker)
@@ -927,14 +913,4 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 			}
 		}
 	}()
-}
-
-// containsCircuit checks if the circuits slice contains the specified circuit
-func containsCircuit(circuits []string, circuit string) bool {
-	for _, c := range circuits {
-		if c == circuit {
-			return true
-		}
-	}
-	return false
 }

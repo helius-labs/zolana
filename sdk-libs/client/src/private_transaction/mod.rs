@@ -4,6 +4,5 @@ pub mod transaction;
 
 pub use signed_transaction::SignedTransaction;
 pub use transaction::{
-    InputCommitment, ProofResolver, SpendProof, SpendUtxo, Transaction, TransferRail,
-    WithdrawalTarget,
+    CircuitType, InputCommitment, SpendProof, SpendUtxo, Transaction, WithdrawalTarget,
 };

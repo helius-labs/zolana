@@ -8,10 +8,10 @@ mod test_indexer;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
-use zolana_client::transaction::field::signed_to_field;
+use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
-    ClientError, PublicAmounts, SignedTransaction, SpendUtxo, Transaction, TransferNewOutput,
-    TransferP256Prover, TransferRail, WithdrawalTarget,
+    CircuitType, ClientError, PublicAmounts, RpcBlocking, SignedTransaction, SpendUtxo,
+    Transaction, TransferP256Prover, WithdrawalTarget,
 };
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};
@@ -20,7 +20,8 @@ use zolana_transaction::transfer::{
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{
-    AssetRegistry, Data, ExternalData, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_ASSET_ID,
+    SOL_MINT,
 };
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
@@ -55,12 +56,19 @@ fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, 
 
 fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let mut indexer = TestIndexer::new();
-    for commitment in signed.input_commitments().expect("commitments") {
+    let commitments = signed.input_commitments().expect("commitments");
+    for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
-    match signed.into_prover(&mut indexer).expect("into prover") {
-        TransferRail::P256(prover) => prover,
-        TransferRail::Eddsa(_) => panic!("expected P256 rail"),
+    let input_merkle_proofs = indexer
+        .get_input_merkle_proofs(&commitments)
+        .expect("input merkle proofs");
+    match signed
+        .into_prover(&input_merkle_proofs)
+        .expect("into prover")
+    {
+        CircuitType::P256(prover) => prover,
+        CircuitType::Eddsa(_) => panic!("expected P256 rail"),
     }
 }
 
@@ -112,17 +120,19 @@ fn transfer_round_trip_outputs_and_bundle() {
     assert_eq!(
         prover.outputs,
         vec![
-            TransferNewOutput {
+            OutputUtxo {
                 owner_hash: sender_owner,
                 asset: SOL_MINT,
                 amount: 40,
                 blinding: derive_blinding(&seed, 1),
+                ..Default::default()
             },
-            TransferNewOutput {
+            OutputUtxo {
                 owner_hash: recipient_owner,
                 asset: SOL_MINT,
                 amount: 60,
                 blinding: derive_blinding(&seed, 2),
+                ..Default::default()
             },
         ]
     );
@@ -209,11 +219,12 @@ fn withdrawal_sets_external_data_and_change() {
 
     assert_eq!(
         prover.outputs,
-        vec![TransferNewOutput {
+        vec![OutputUtxo {
             owner_hash: sender_owner,
             asset: SOL_MINT,
             amount: 70,
             blinding: derive_blinding(&seed, 1),
+            ..Default::default()
         }]
     );
     assert!(recipients_pt.is_empty());
@@ -264,6 +275,8 @@ fn rail_follows_input_owner_type() {
             data: Data::default(),
         },
         nullifier_key: NullifierKey::from_secret(blinding(&mut rng)),
+        zone_data_hash: None,
+        program_data_hash: None,
     };
     let ed_tx = Transaction::new(
         sender.shielded_address().unwrap(),
@@ -276,12 +289,14 @@ fn rail_follows_input_owner_type() {
         .finalize(&sender, &registry(), sender.get_sender_view_tag(0).unwrap())
         .unwrap();
     let mut indexer = TestIndexer::new();
-    for commitment in signed.input_commitments().unwrap() {
+    let commitments = signed.input_commitments().unwrap();
+    for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
+    let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        signed.into_prover(&mut indexer).unwrap(),
-        TransferRail::Eddsa(_)
+        signed.into_prover(&input_merkle_proofs).unwrap(),
+        CircuitType::Eddsa(_)
     ));
 }
 

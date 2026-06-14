@@ -62,10 +62,15 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
-fn zone_program_id_field(zone_program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
-    // TODO: discuss whether we want to hash anything at all in this case or hashing 0s is ok (different pr)
-    let id = zone_program_id.unwrap_or_default().to_bytes();
-    zolana_keypair::hash::hash_field(&id).map_err(TransactionError::from)
+pub fn zone_program_id_field(
+    zone_program_id: &Option<Address>,
+) -> Result<[u8; 32], TransactionError> {
+    match zone_program_id {
+        None => Ok([0u8; 32]),
+        Some(id) => {
+            zolana_keypair::hash::hash_field(&id.to_bytes()).map_err(TransactionError::from)
+        }
+    }
 }
 
 /// The UTXO hash, given the precomputed `owner_hash`. Shared by [`Utxo::hash`]
@@ -81,13 +86,15 @@ pub fn hash_from_owner_hash(
     zone_data_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
     let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
+    let asset =
+        zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
     let blinding = right_align(blinding);
     let zone_program_id = zone_program_id_field(zone_program_id)?;
     let owner_utxo_hash = poseidon(&[owner_hash, &blinding])?;
     poseidon(&[
         &domain,
-        asset.as_array(),
+        &asset,
         &amount,
         program_data_hash,
         zone_data_hash,

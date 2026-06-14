@@ -82,9 +82,14 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	}
 	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkField.Hash)
 
-	p256MessageHash, err := protocol.P256MessageHash(mustField(t, vector.P256MessageHash.PrivateTxHash))
+	p256Digest, err := protocol.P256MessageDigest(mustField(t, vector.P256MessageHash.PrivateTxHash))
 	if err != nil {
-		t.Fatalf("p256 message hash: %v", err)
+		t.Fatalf("p256 message digest: %v", err)
+	}
+	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256Digest)
+	p256MessageHash, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
+	if err != nil {
+		t.Fatalf("p256 message hash field: %v", err)
 	}
 	expectField(t, "p256_message_hash", p256MessageHash, vector.P256MessageHash.Hash)
 

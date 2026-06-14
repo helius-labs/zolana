@@ -2,33 +2,22 @@ use num_bigint::BigUint;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use solana_address::Address;
-use zolana_keypair::hash::{owner_hash, poseidon, sha256_be};
+use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
 use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
-use zolana_transaction::utxo::UTXO_DOMAIN;
-use zolana_transaction::{ExternalData, Utxo};
+use zolana_transaction::transaction::private_tx_hash;
+use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
 use crate::error::ClientError;
+use crate::private_transaction::field::{be, hash_chain, right_align_slice};
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
-use crate::rpc::{
-    NullifierNonInclusionProof, StateInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
-};
-use crate::transaction::field::{asset_field, be, hash_chain, right_align, right_align_slice};
+use crate::rpc::{NullifierNonInclusionProof, StateInclusionProof};
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub state_proof: StateInclusionProof,
     pub nullifier_proof: NullifierNonInclusionProof,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransferNewOutput {
-    pub owner_hash: [u8; 32],
-    pub asset: Address,
-    pub amount: u64,
-    pub blinding: [u8; 31],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +36,7 @@ impl PublicAmounts {
         }
     }
 }
-
+// Why does this exist? What does Precomputed mean?
 pub enum P256Owner {
     Signer(SigningKey),
     Precomputed {
@@ -59,7 +48,7 @@ pub enum P256Owner {
 
 pub struct TransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<TransferNewOutput>,
+    pub outputs: Vec<OutputUtxo>,
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
@@ -86,20 +75,22 @@ impl TransferP256Prover {
             &assembled_outputs.output_hashes,
             &external_data_hash,
         )?;
-        let p256_message_hash = sha256_be(&private_tx);
+        let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness(&p256_message_hash)?;
-        let public_input = public_input_hash(
-            &assembled_inputs.nullifiers,
-            &assembled_outputs.output_hashes,
-            &assembled_inputs.utxo_roots,
-            &assembled_inputs.nullifier_tree_roots,
-            &private_tx,
-            &p256_message_hash,
-            &external_data_hash,
-            &self.public_amounts,
-            &self.payer_pubkey_hash,
-            &assembled_inputs.solana_owner_pk_hashes,
-        )?;
+        let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
+        let public_input = PublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hashes: &assembled_outputs.output_hashes,
+            utxo_roots: &assembled_inputs.utxo_roots,
+            nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
+            private_tx: &private_tx,
+            p256_message_hash: &p256_message_hash,
+            external_data_hash: &external_data_hash,
+            public_amounts: &self.public_amounts,
+            payer_pubkey_hash: &self.payer_pubkey_hash,
+            solana_owner_pk_hashes: &assembled_inputs.solana_owner_pk_hashes,
+        }
+        .hash()?;
 
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
@@ -110,7 +101,8 @@ impl TransferP256Prover {
             p256_sig_r: be(&signature.sig_r),
             p256_sig_s: be(&signature.sig_s),
             private_tx_hash: be(&private_tx),
-            p256_message_hash: be(&p256_message_hash),
+            p256_message_hash_low: be(&p256_message_low),
+            p256_message_hash_high: be(&p256_message_high),
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
@@ -227,12 +219,13 @@ pub(crate) fn assemble_inputs(
     for (index, spend) in spends.iter().enumerate() {
         let nullifier_pk = spend.nullifier_key.pubkey()?;
         let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pk)?;
-        let (utxo_wire, utxo_hash) = real_utxo(
-            owner_field,
+        let utxo_inputs = UtxoInputs::new(
+            &owner_field,
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
         )?;
+        let utxo_hash = spend.utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])?;
         let nullifier = spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -252,7 +245,7 @@ pub(crate) fn assemble_inputs(
         let nf = &spend.nullifier_proof;
 
         inputs.push(TransferInput {
-            utxo: utxo_wire,
+            utxo: utxo_inputs,
             is_dummy: zero(),
             state_path_elements: state.path_elements.iter().map(be).collect(),
             state_path_index: BigUint::from(state.leaf_index),
@@ -274,7 +267,7 @@ pub(crate) fn assemble_inputs(
     }
 
     for _ in spends.len()..shape.n_inputs {
-        inputs.push(dummy_input());
+        inputs.push(TransferInput::new_dummy());
         input_hashes.push([0u8; 32]);
         nullifiers.push([0u8; 32]);
         utxo_roots.push([0u8; 32]);
@@ -293,7 +286,7 @@ pub(crate) fn assemble_inputs(
 }
 
 pub(crate) fn assemble_outputs(
-    outputs: &[TransferNewOutput],
+    outputs: &[OutputUtxo],
     shape: Shape,
 ) -> Result<AssembledOutputs, ClientError> {
     if outputs.len() > shape.n_outputs {
@@ -303,18 +296,13 @@ pub(crate) fn assemble_outputs(
         });
     }
 
-    let mut wire = Vec::with_capacity(shape.n_outputs);
+    let mut assembled = Vec::with_capacity(shape.n_outputs);
     let mut hashes = Vec::with_capacity(shape.n_outputs);
 
     for output in outputs {
-        let (utxo_wire, hash) = real_utxo(
-            output.owner_hash,
-            &output.asset,
-            output.amount,
-            &output.blinding,
-        )?;
-        wire.push(TransferOutput {
-            utxo: utxo_wire,
+        let hash = output.hash()?;
+        assembled.push(TransferOutput {
+            utxo: UtxoInputs::from_output(output)?,
             is_dummy: zero(),
             hash: be(&hash),
         });
@@ -322,150 +310,51 @@ pub(crate) fn assemble_outputs(
     }
 
     for _ in outputs.len()..shape.n_outputs {
-        wire.push(TransferOutput {
-            utxo: dummy_utxo(),
-            is_dummy: BigUint::from(1u8),
-            hash: zero(),
-        });
+        assembled.push(TransferOutput::new_dummy());
         hashes.push([0u8; 32]);
     }
 
     Ok(AssembledOutputs {
-        outputs: wire,
+        outputs: assembled,
         output_hashes: hashes,
     })
 }
 
-pub(crate) fn private_tx_hash(
-    input_hashes: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    external_data_hash: &[u8; 32],
-) -> Result<[u8; 32], ClientError> {
-    let input_chain = hash_chain(input_hashes)?;
-    let output_chain = hash_chain(output_hashes)?;
-    poseidon(&[&input_chain, &output_chain, external_data_hash])
-        .map_err(|e| ClientError::Hasher(e.to_string()))
-}
-// TODO: refactor into struct with method hash -> use method pattern
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn public_input_hash(
-    nullifiers: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    utxo_roots: &[[u8; 32]],
-    nullifier_tree_roots: &[[u8; 32]],
-    private_tx: &[u8; 32],
-    p256_message_hash: &[u8; 32],
-    external_data_hash: &[u8; 32],
-    public_amounts: &PublicAmounts,
-    payer_pubkey_hash: &[u8; 32],
-    solana_owner_pk_hashes: &[[u8; 32]],
-) -> Result<[u8; 32], ClientError> {
-    let elements = [
-        hash_chain(nullifiers)?,
-        hash_chain(output_hashes)?,
-        hash_chain(utxo_roots)?,
-        hash_chain(nullifier_tree_roots)?,
-        *private_tx,
-        *p256_message_hash,
-        *external_data_hash,
-        public_amounts.sol,
-        public_amounts.spl,
-        public_amounts.asset,
-        [0u8; 32],
-        *payer_pubkey_hash,
-        [0u8; 32],
-        [0u8; 32],
-        hash_chain(solana_owner_pk_hashes)?,
-    ];
-    hash_chain(&elements)
+pub(crate) struct PublicInputs<'a> {
+    pub nullifiers: &'a [[u8; 32]],
+    pub output_hashes: &'a [[u8; 32]],
+    pub utxo_roots: &'a [[u8; 32]],
+    pub nullifier_tree_roots: &'a [[u8; 32]],
+    pub private_tx: &'a [u8; 32],
+    pub p256_message_hash: &'a [u8; 32],
+    pub external_data_hash: &'a [u8; 32],
+    pub public_amounts: &'a PublicAmounts,
+    pub payer_pubkey_hash: &'a [u8; 32],
+    pub solana_owner_pk_hashes: &'a [[u8; 32]],
 }
 
-pub fn input_utxo_hash(utxo: &Utxo, nullifier_key: &NullifierKey) -> Result<[u8; 32], ClientError> {
-    let nullifier_pk = nullifier_key.pubkey()?;
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk)?;
-    let (_, hash) = real_utxo(owner_field, &utxo.asset, utxo.amount, &utxo.blinding)?;
-    Ok(hash)
-}
-
-pub fn output_utxo_hash(output: &TransferNewOutput) -> Result<[u8; 32], ClientError> {
-    let (_, hash) = real_utxo(
-        output.owner_hash,
-        &output.asset,
-        output.amount,
-        &output.blinding,
-    )?;
-    Ok(hash)
-}
-
-fn real_utxo(
-    owner_field: [u8; 32],
-    asset: &Address,
-    amount: u64,
-    blinding: &[u8; 31],
-) -> Result<(UtxoInputs, [u8; 32]), ClientError> {
-    let domain_fe = right_align(&UTXO_DOMAIN.to_be_bytes());
-    let asset_fe = asset_field(asset)?;
-    let amount_fe = right_align(&amount.to_be_bytes());
-    let blinding_fe = right_align(blinding);
-    let zero_fe = [0u8; 32];
-
-    let owner_utxo_hash =
-        poseidon(&[&owner_field, &blinding_fe]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    let hash = poseidon(&[
-        &domain_fe,
-        &asset_fe,
-        &amount_fe,
-        &zero_fe,
-        &zero_fe,
-        &zero_fe,
-        &owner_utxo_hash,
-    ])
-    .map_err(|e| ClientError::Hasher(e.to_string()))?;
-
-    let wire = UtxoInputs {
-        domain: be(&domain_fe),
-        owner: be(&owner_field),
-        asset: be(&asset_fe),
-        amount: be(&amount_fe),
-        blinding: be(&blinding_fe),
-        data_hash: zero(),
-        zone_data_hash: zero(),
-        zone_program_id: zero(),
-    };
-    Ok((wire, hash))
-}
-
-fn dummy_utxo() -> UtxoInputs {
-    UtxoInputs {
-        domain: zero(),
-        owner: zero(),
-        asset: zero(),
-        amount: zero(),
-        blinding: zero(),
-        data_hash: zero(),
-        zone_data_hash: zero(),
-        zone_program_id: zero(),
+impl PublicInputs<'_> {
+    pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
+        let elements = [
+            hash_chain(self.nullifiers)?,
+            hash_chain(self.output_hashes)?,
+            hash_chain(self.utxo_roots)?,
+            hash_chain(self.nullifier_tree_roots)?,
+            *self.private_tx,
+            hash_field(self.p256_message_hash)?,
+            *self.external_data_hash,
+            self.public_amounts.sol,
+            self.public_amounts.spl,
+            self.public_amounts.asset,
+            [0u8; 32],
+            *self.payer_pubkey_hash,
+            [0u8; 32],
+            [0u8; 32],
+            hash_chain(self.solana_owner_pk_hashes)?,
+        ];
+        hash_chain(&elements)
     }
 }
-
-fn dummy_input() -> TransferInput {
-    TransferInput {
-        utxo: dummy_utxo(),
-        is_dummy: BigUint::from(1u8),
-        state_path_elements: vec![zero(); STATE_TREE_HEIGHT],
-        state_path_index: zero(),
-        nullifier_low_value: zero(),
-        nullifier_next_value: zero(),
-        nullifier_low_path_elements: vec![zero(); NULLIFIER_TREE_HEIGHT],
-        nullifier_low_path_index: zero(),
-        utxo_tree_root: zero(),
-        nullifier_tree_root: zero(),
-        nullifier: zero(),
-        solana_owner_pk_hash: zero(),
-        nullifier_secret: zero(),
-    }
-}
-
 fn zero() -> BigUint {
     BigUint::from(0u8)
 }

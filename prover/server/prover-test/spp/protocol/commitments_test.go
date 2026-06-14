@@ -185,7 +185,7 @@ func TestP256PkFieldMatchesSpecFormula(t *testing.T) {
 	}
 }
 
-func TestP256MessageHashIsSha256BE(t *testing.T) {
+func TestP256MessageDigestIsFullSha256(t *testing.T) {
 	privateTxHash := new(big.Int).SetBytes([]byte{
 		0x01, 0x02, 0x03, 0x04,
 		0x05, 0x06, 0x07, 0x08,
@@ -197,17 +197,24 @@ func TestP256MessageHashIsSha256BE(t *testing.T) {
 		0x1d, 0x1e, 0x1f, 0x20,
 	})
 
-	value, err := P256MessageHash(privateTxHash)
-	got := mustHash(t, value, err)
+	digest, err := P256MessageDigest(privateTxHash)
+	if err != nil {
+		t.Fatalf("p256 message digest: %v", err)
+	}
 	var privateTxHashBytes [32]byte
 	privateTxHash.FillBytes(privateTxHashBytes[:])
-	// Sha256BE: SHA-256 with the most-significant byte zeroed (keeps digest[1..32]).
-	sum := sha256.Sum256(privateTxHashBytes[:])
-	sum[0] = 0
-	want := new(big.Int).SetBytes(sum[:])
+	// Full SHA-256, no byte zeroing: the digest is carried as two 128-bit limbs.
+	want := sha256.Sum256(privateTxHashBytes[:])
+	if digest != want {
+		t.Fatalf("p256 message digest mismatch: got %x want %x", digest, want)
+	}
 
-	if got.Cmp(want) != 0 {
-		t.Fatalf("P256 message hash mismatch: got %s want %s", got, want)
+	// Limbs are the big-endian high/low halves and reconstruct the digest.
+	low, high := P256MessageLimbs(digest)
+	wantHigh := new(big.Int).SetBytes(want[0:16])
+	wantLow := new(big.Int).SetBytes(want[16:32])
+	if low.Cmp(wantLow) != 0 || high.Cmp(wantHigh) != 0 {
+		t.Fatalf("p256 message limbs mismatch: got (%s,%s) want (%s,%s)", low, high, wantLow, wantHigh)
 	}
 }
 

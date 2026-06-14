@@ -17,14 +17,10 @@ import (
 
 func p256WitnessForTransaction(
 	tx ProofTransactionRequest,
-	p256MessageHash *big.Int,
+	msg [32]byte,
 	requiresP256 bool,
 	allowMissingSignature bool,
 ) (txcircuit.P256PublicKey, txcircuit.P256Signature, error) {
-	msg, err := parse.FieldBytes(p256MessageHash)
-	if err != nil {
-		return txcircuit.P256PublicKey{}, txcircuit.P256Signature{}, fmt.Errorf("p256_message_hash: %w", err)
-	}
 	if !requiresP256 && strings.TrimSpace(tx.P256OwnerPubkey) == "" {
 		return unusedP256Witness(msg[:])
 	}

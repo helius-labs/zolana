@@ -302,7 +302,7 @@ func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransacti
 	return ProofSigningPayloadTransaction{
 		Name:                  tx.Name,
 		PrivateTxHash:         parse.FieldHex(built.publicInputs.PrivateTxHash),
-		P256MessageHash:       parse.FieldHex(built.publicInputs.P256MessageHash),
+		P256MessageHash:       parse.BytesHex(built.p256MessageDigest[:]),
 		RequiresP256Signature: built.transcript.requiresP256OwnerWitness,
 	}, nil
 }

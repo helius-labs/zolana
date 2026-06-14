@@ -56,4 +56,7 @@ pub enum ClientError {
 
     #[error("prover process error: {0}")]
     Prover(String),
+
+    #[error("missing input merkle proof for input {index}")]
+    MissingInputMerkleProof { index: usize },
 }

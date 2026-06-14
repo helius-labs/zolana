@@ -36,15 +36,15 @@ func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedP256MessageHash, err := protocol.P256MessageHash(privateTxHash)
+	expectedDigest, err := protocol.P256MessageDigest(privateTxHash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.Transactions[0].P256MessageHash != parse.FieldHex(expectedP256MessageHash) {
+	if payload.Transactions[0].P256MessageHash != parse.BytesHex(expectedDigest[:]) {
 		t.Fatalf(
 			"P256 message hash = %q, want %q",
 			payload.Transactions[0].P256MessageHash,
-			parse.FieldHex(expectedP256MessageHash),
+			parse.BytesHex(expectedDigest[:]),
 		)
 	}
 
@@ -59,11 +59,7 @@ func TestBuildProofBundleAcceptsSignedP256Input(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p256MessageHash, err := parse.Field("0x" + payload.Transactions[0].P256MessageHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg, err := parse.FieldBytes(p256MessageHash)
+	msg, err := parse.Hex32(payload.Transactions[0].P256MessageHash)
 	if err != nil {
 		t.Fatal(err)
 	}
