@@ -11,9 +11,7 @@ use solana_signer::Signer;
 use zolana_interface::instruction::{encode_instruction, tag};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{
-    proofless_event_for_wallet, PoolIndexer, RigError, ZONE_TEST_PROGRAM_ID,
-};
+use zolana_program_test::{proofless_event_for_wallet, RigError, ZONE_TEST_PROGRAM_ID};
 use zolana_transaction::Wallet;
 
 #[test]
@@ -57,17 +55,11 @@ fn zone_proofless_shield_succeeds_and_event_is_faithful() {
         "leaf must be appended"
     );
 
-    // The indexer recomputes the utxo_hash (pk_field-encoding zone_program_id)
-    // and its reference root must equal the on-chain root.
-    let mut indexer = PoolIndexer::new();
-    indexer
-        .record_proofless_shield(&event)
-        .expect("record proofless event");
     assert_eq!(
-        indexer.root(),
+        rig.indexer().root(),
         rig.state_root(&tree.pubkey()).expect("root")
     );
-    let by_tag: Vec<_> = indexer.fetch_by_view_tag(&data.view_tag).collect();
+    let by_tag: Vec<_> = rig.indexer().fetch_by_view_tag(&data.view_tag).collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
     assert!(
         recipient

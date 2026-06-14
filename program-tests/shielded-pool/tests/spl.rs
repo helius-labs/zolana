@@ -14,7 +14,7 @@ use zolana_interface::{
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, PoolIndexer, PoolTestRig};
+use zolana_program_test::{proofless_event_for_wallet, PoolTestRig};
 use zolana_transaction::Wallet;
 
 const TOKEN_INSUFFICIENT_FUNDS: u32 = 1;
@@ -150,12 +150,8 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
         "leaf must be appended"
     );
 
-    let mut indexer = PoolIndexer::new();
-    indexer
-        .record_proofless_shield(&event)
-        .expect("record proofless event");
     assert_eq!(
-        indexer.root(),
+        rig.indexer().root(),
         rig.state_root(&tree.pubkey()).expect("root")
     );
     assert!(

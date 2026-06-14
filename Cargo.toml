@@ -172,6 +172,7 @@ light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-prog
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
+light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
 light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1" }

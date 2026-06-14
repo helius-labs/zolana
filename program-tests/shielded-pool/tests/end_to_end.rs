@@ -69,14 +69,13 @@ fn proofless_shield_sol_deposits_into_pool() {
 
 #[test]
 fn indexer_matches_onchain_root_and_locates_deposits() {
-    use zolana_program_test::{PoolIndexer, PoolTestRig};
+    use zolana_program_test::PoolTestRig;
 
     let Some((mut rig, _authority, tree)) = rig_with_tree() else {
         return;
     };
-    let mut indexer = PoolIndexer::new();
     assert_eq!(
-        indexer.root(),
+        rig.indexer().root(),
         rig.state_root(&tree.pubkey()).expect("state root"),
         "empty trees must agree"
     );
@@ -104,9 +103,6 @@ fn indexer_matches_onchain_root_and_locates_deposits() {
         assert_eq!(event.amount, amount, "event must carry the settled amount");
         assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");
         assert_eq!(event.salt, data.salt);
-        indexer
-            .record_proofless_shield(&event)
-            .expect("record proofless event");
         assert!(
             recipient
                 .sync_proofless_deposit(&proofless_event_for_wallet(&event), blinding)
@@ -117,14 +113,15 @@ fn indexer_matches_onchain_root_and_locates_deposits() {
         view_tags.push(data.view_tag);
 
         assert_eq!(
-            indexer.root(),
+            rig.indexer().root(),
             rig.state_root(&tree.pubkey()).expect("state root"),
-            "reference tree must track the on-chain root after deposit {i}"
+            "indexed tree must track the on-chain root after deposit {i}"
         );
     }
 
     // The depositor locates each UTXO by its opaque owner commitment; the
     // recipient by scanning their view tag.
+    let indexer = rig.indexer();
     for (i, amount) in [1_000_000_000u64, 250_000_000, 1_000_000]
         .into_iter()
         .enumerate()
