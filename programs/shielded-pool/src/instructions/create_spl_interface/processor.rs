@@ -2,7 +2,6 @@ use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
-    sysvars::rent::{ACCOUNT_STORAGE_OVERHEAD, DEFAULT_LAMPORTS_PER_BYTE},
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
@@ -85,7 +84,7 @@ pub fn process_create_spl_interface(
     create_pda_account_if_needed(
         authority,
         asset_counter,
-        SPL_ASSET_COUNTER_ACCOUNT_LEN as u64,
+        SPL_ASSET_COUNTER_ACCOUNT_LEN,
         program_id,
         &[SPL_ASSET_COUNTER_PDA_SEED],
         counter_bump,
@@ -95,7 +94,7 @@ pub fn process_create_spl_interface(
     create_pda_account_if_needed(
         authority,
         registry,
-        SPL_ASSET_REGISTRY_ACCOUNT_LEN as u64,
+        SPL_ASSET_REGISTRY_ACCOUNT_LEN,
         program_id,
         &[SPL_ASSET_REGISTRY_PDA_SEED, mint.address().as_ref()],
         registry_bump,
@@ -106,7 +105,7 @@ pub fn process_create_spl_interface(
     create_pda_account_if_needed(
         authority,
         vault,
-        SPL_TOKEN_ACCOUNT_LEN as u64,
+        SPL_TOKEN_ACCOUNT_LEN,
         token_program.address(),
         &[SPL_ASSET_VAULT_PDA_SEED, mint.address().as_ref()],
         vault_bump,
@@ -148,8 +147,8 @@ fn bump_asset_counter(
 
 fn create_pda_account_if_needed(
     payer: &AccountView,
-    account: &AccountView,
-    space: u64,
+    account: &mut AccountView,
+    space: usize,
     owner: &Address,
     seed_prefix: &[&[u8]],
     bump: u8,
@@ -159,27 +158,35 @@ fn create_pda_account_if_needed(
     }
 
     let bump = [bump];
-    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
-    let create = |signer: &Signer| {
-        pinocchio_system::instructions::CreateAccount {
-            from: payer,
-            to: account,
-            lamports,
-            space,
-            owner,
+    // Use the minimum-balance helper so creation survives the cold path where an
+    // attacker pre-funds the PDA with lamports (top-up + allocate + assign);
+    // a raw CreateAccount would fail on a donated balance and DoS this admin ix.
+    let result = match seed_prefix {
+        [seed] => {
+            let seeds = [Seed::from(*seed), Seed::from(&bump)];
+            pinocchio_system::create_account_with_minimum_balance_signed(
+                account,
+                space,
+                owner,
+                payer,
+                None,
+                &[Signer::from(&seeds)],
+            )
         }
-        .invoke_signed(core::slice::from_ref(signer))
-    };
-    match seed_prefix {
-        [seed] => create(&Signer::from(&[Seed::from(*seed), Seed::from(&bump)])),
-        [seed_a, seed_b] => create(&Signer::from(&[
-            Seed::from(*seed_a),
-            Seed::from(*seed_b),
-            Seed::from(&bump),
-        ])),
+        [seed_a, seed_b] => {
+            let seeds = [Seed::from(*seed_a), Seed::from(*seed_b), Seed::from(&bump)];
+            pinocchio_system::create_account_with_minimum_balance_signed(
+                account,
+                space,
+                owner,
+                payer,
+                None,
+                &[Signer::from(&seeds)],
+            )
+        }
         _ => Err(ProgramError::InvalidArgument),
-    }
-    .map_err(|_| {
+    };
+    result.map_err(|_| {
         log("create_spl_interface: PDA account creation failed");
         ProgramError::from(ShieldedPoolError::InvalidSplAssetRegistry)
     })

@@ -1,7 +1,6 @@
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
-    sysvars::rent::{ACCOUNT_STORAGE_OVERHEAD, DEFAULT_LAMPORTS_PER_BYTE},
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
@@ -210,7 +209,7 @@ fn zone_config_pda(
 
 fn create_config_pda(
     payer: &AccountView,
-    config: &AccountView,
+    config: &mut AccountView,
     program_id: &Address,
     bump: u8,
 ) -> ProgramResult {
@@ -228,7 +227,7 @@ fn create_config_pda(
 
 fn create_zone_config_pda(
     payer: &AccountView,
-    config: &AccountView,
+    config: &mut AccountView,
     program_id: &Address,
     policy_program_id: &[u8; 32],
     bump: u8,
@@ -251,7 +250,7 @@ fn create_zone_config_pda(
 
 fn create_pda(
     payer: &AccountView,
-    account: &AccountView,
+    account: &mut AccountView,
     program_id: &Address,
     space: usize,
     seeds: &[Seed],
@@ -260,17 +259,17 @@ fn create_pda(
     if account.data_len() != 0 {
         return Err(error.into());
     }
-    let space = space as u64;
-    let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
+    // Minimum-balance helper handles the cold path (attacker-donated lamports)
+    // that a raw CreateAccount would fail on, preventing creation DoS.
     let signer = Signer::from(seeds);
-    pinocchio_system::instructions::CreateAccount {
-        from: payer,
-        to: account,
-        lamports,
+    pinocchio_system::create_account_with_minimum_balance_signed(
+        account,
         space,
-        owner: program_id,
-    }
-    .invoke_signed(core::slice::from_ref(&signer))
+        program_id,
+        payer,
+        None,
+        core::slice::from_ref(&signer),
+    )
     .map_err(|_| error.into())
 }
 
