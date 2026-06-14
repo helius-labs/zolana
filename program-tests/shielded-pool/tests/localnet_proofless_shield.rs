@@ -11,8 +11,7 @@ use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_protocol_config_instruction, create_tree_instructions, proofless_shield_sol_instruction,
     rpc_state_root, single_proofless_shield_event, zone_auth_pda,
-    zone_proofless_shield_sol_instruction, Rpc, ShieldedPoolTestRig, SolanaRpc,
-    ZONE_TEST_PROGRAM_ID,
+    zone_proofless_shield_sol_instruction, Rpc, SolanaRpc, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::Wallet;
 
@@ -51,7 +50,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     let create_config =
         create_protocol_config_instruction(program_id, authority.pubkey(), Vec::new());
     let create_config_tx =
-        rpc.send_instructions(&[create_config], &[&authority], &authority.pubkey())?;
+        rpc.create_and_send_transaction(&[create_config], &authority.pubkey(), &[&authority])?;
     print_signature("create_protocol_config", &create_config_tx.signature);
 
     let tree = Keypair::new();
@@ -63,12 +62,15 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         &tree.pubkey(),
         tree_account_size() as u64,
     )?;
-    let create_tree_tx =
-        rpc.send_instructions(&create_tree, &[&payer, &tree, &authority], &payer.pubkey())?;
+    let create_tree_tx = rpc.create_and_send_transaction(
+        &create_tree,
+        &payer.pubkey(),
+        &[&payer, &tree, &authority],
+    )?;
     print_signature("create_tree", &create_tree_tx.signature);
 
     let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?)?;
-    let direct_data = ShieldedPoolTestRig::wallet_sol_shield_data(
+    let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_recipient,
         &[3u8; BLINDING_LEN],
@@ -82,7 +84,8 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY),
         &direct_data,
     );
-    let direct_tx = rpc.send_instructions(&[direct_ix], &[&payer, &depositor], &payer.pubkey())?;
+    let direct_tx =
+        rpc.create_and_send_transaction(&[direct_ix], &payer.pubkey(), &[&payer, &depositor])?;
     print_signature("proofless_shield", &direct_tx.signature);
     let direct_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(direct_root_after, direct_root_before);
@@ -92,7 +95,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
     let (zone_auth, zone_auth_bump) = zone_auth_pda(&zone_program_id);
-    let mut zone_data = ShieldedPoolTestRig::wallet_zone_sol_shield_data_for_zone(
+    let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
         DEPOSIT_LAMPORTS,
         &zone_recipient,
         &[5u8; BLINDING_LEN],
@@ -111,7 +114,8 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY),
         &zone_data,
     );
-    let zone_tx = rpc.send_instructions(&[zone_ix], &[&payer, &depositor], &payer.pubkey())?;
+    let zone_tx =
+        rpc.create_and_send_transaction(&[zone_ix], &payer.pubkey(), &[&payer, &depositor])?;
     print_signature("zone_proofless_shield", &zone_tx.signature);
     let zone_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(zone_root_after, zone_root_before);

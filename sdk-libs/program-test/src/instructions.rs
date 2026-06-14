@@ -9,7 +9,7 @@ use zolana_interface::{
     SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
-use crate::{rpc::Rpc, RigError};
+use crate::{rpc::Rpc, ProgramTestError};
 
 pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
 
@@ -67,7 +67,7 @@ pub fn create_tree_instructions<R: Rpc>(
     authority: &Pubkey,
     tree: &Pubkey,
     account_size: u64,
-) -> Result<Vec<Instruction>, RigError> {
+) -> Result<Vec<Instruction>, ProgramTestError> {
     let rent = rpc.minimum_balance_for_rent_exemption(account_size as usize)?;
     Ok(vec![
         system_create_account_ix(payer, tree, rent, account_size, &program_id),
@@ -83,12 +83,12 @@ pub fn create_tree_instructions<R: Rpc>(
     ])
 }
 
-pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], RigError> {
+pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], ProgramTestError> {
     let data = rpc.account_data(tree)?;
     let offset = state_root_offset();
     let slice = data
         .get(offset..offset + 32)
-        .ok_or_else(|| RigError::Rpc("tree account missing state root".into()))?;
+        .ok_or_else(|| ProgramTestError::Rpc("tree account missing state root".into()))?;
     let mut root = [0u8; 32];
     root.copy_from_slice(slice);
     Ok(root)

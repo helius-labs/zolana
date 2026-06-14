@@ -3,7 +3,7 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{tag, ProoflessShieldEvent};
 
-use crate::{PoolIndexer, RigError};
+use crate::{PoolIndexer, ProgramTestError};
 
 #[derive(Clone, Debug)]
 pub struct ParsedInstruction {
@@ -28,12 +28,12 @@ pub struct IndexedEvent {
 pub fn parsed_instruction_from_compiled(
     account_keys: &[Pubkey],
     instruction: &CompiledInstruction,
-) -> Result<ParsedInstruction, RigError> {
+) -> Result<ParsedInstruction, ProgramTestError> {
     let program_id = account_keys
         .get(instruction.program_id_index as usize)
         .copied()
         .ok_or_else(|| {
-            RigError::Event(format!(
+            ProgramTestError::Event(format!(
                 "program id index {} out of bounds for {} account keys",
                 instruction.program_id_index,
                 account_keys.len()
@@ -44,7 +44,7 @@ pub fn parsed_instruction_from_compiled(
         .iter()
         .map(|index| {
             account_keys.get(*index as usize).copied().ok_or_else(|| {
-                RigError::Event(format!(
+                ProgramTestError::Event(format!(
                     "account index {index} out of bounds for {} account keys",
                     account_keys.len()
                 ))
@@ -62,7 +62,7 @@ pub fn indexed_events_from_meta(
     shielded_pool_program_id: Pubkey,
     account_keys: &[Pubkey],
     meta: &TransactionMetadata,
-) -> Result<Vec<IndexedEvent>, RigError> {
+) -> Result<Vec<IndexedEvent>, ProgramTestError> {
     let instructions = meta
         .inner_instructions
         .iter()
@@ -75,7 +75,7 @@ pub fn indexed_events_from_meta(
 pub fn indexed_events_from_instructions<'a>(
     shielded_pool_program_id: Pubkey,
     instructions: impl IntoIterator<Item = &'a ParsedInstruction>,
-) -> Result<Vec<IndexedEvent>, RigError> {
+) -> Result<Vec<IndexedEvent>, ProgramTestError> {
     let mut events = Vec::new();
     for instruction in instructions {
         if instruction.program_id == shielded_pool_program_id
@@ -99,14 +99,17 @@ pub fn indexed_event_from_emit_payload(payload: &[u8]) -> IndexedEvent {
     }
 }
 
-pub fn index_events(indexer: &mut PoolIndexer, events: &[IndexedEvent]) -> Result<(), RigError> {
+pub fn index_events(
+    indexer: &mut PoolIndexer,
+    events: &[IndexedEvent],
+) -> Result<(), ProgramTestError> {
     for event in events {
         match &event.data {
             IndexedEventData::ProoflessShield(event) => {
                 indexer.record_proofless_shield(event)?;
             }
             IndexedEventData::Unknown => {
-                return Err(RigError::Event(format!(
+                return Err(ProgramTestError::Event(format!(
                     "unknown shielded-pool event tag={} payload_len={}",
                     event.tag,
                     event.payload.len()
@@ -119,23 +122,23 @@ pub fn index_events(indexer: &mut PoolIndexer, events: &[IndexedEvent]) -> Resul
 
 pub fn single_proofless_shield_event(
     events: &[IndexedEvent],
-) -> Result<ProoflessShieldEvent, RigError> {
+) -> Result<ProoflessShieldEvent, ProgramTestError> {
     let mut proofless_events = events.iter().map(|event| match &event.data {
         IndexedEventData::ProoflessShield(event) => Ok(event.as_ref()),
-        IndexedEventData::Unknown => Err(RigError::Event(format!(
+        IndexedEventData::Unknown => Err(ProgramTestError::Event(format!(
             "unknown shielded-pool event tag={} payload_len={}",
             event.tag,
             event.payload.len()
         ))),
     });
     let Some(event) = proofless_events.next() else {
-        return Err(RigError::Event(
+        return Err(ProgramTestError::Event(
             "no proofless shield event emitted by transaction".into(),
         ));
     };
     let event = event?.clone();
     if proofless_events.next().transpose()?.is_some() {
-        return Err(RigError::Event(
+        return Err(ProgramTestError::Event(
             "expected one proofless shield event".into(),
         ));
     }

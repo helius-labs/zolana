@@ -10,15 +10,18 @@ use crate::{
     instructions::{
         create_protocol_config_instruction, create_tree_instructions, protocol_config_pda,
     },
-    RigError, ShieldedPoolTestRig,
+    ProgramTestError, ZolanaProgramTest,
 };
 
-impl ShieldedPoolTestRig {
+impl ZolanaProgramTest {
     pub fn protocol_config_pda(&self) -> Pubkey {
         protocol_config_pda(&self.program_id)
     }
 
-    pub fn create_protocol_config(&mut self, authority: &Keypair) -> Result<Pubkey, RigError> {
+    pub fn create_protocol_config(
+        &mut self,
+        authority: &Keypair,
+    ) -> Result<Pubkey, ProgramTestError> {
         self.create_protocol_config_with_merge_authorities(authority, Vec::new())
     }
 
@@ -26,7 +29,7 @@ impl ShieldedPoolTestRig {
         &mut self,
         authority: &Keypair,
         merge_authorities: Vec<[u8; 32]>,
-    ) -> Result<Pubkey, RigError> {
+    ) -> Result<Pubkey, ProgramTestError> {
         self.airdrop(&authority.pubkey(), 1_000_000_000)?;
         let config = self.protocol_config_pda();
         let ix = create_protocol_config_instruction(
@@ -42,7 +45,7 @@ impl ShieldedPoolTestRig {
         &mut self,
         authority: &Keypair,
         new_authority: &Pubkey,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         self.update_protocol_config_with_merge_authorities(authority, new_authority, Vec::new())
     }
 
@@ -51,7 +54,7 @@ impl ShieldedPoolTestRig {
         authority: &Keypair,
         new_authority: &Pubkey,
         merge_authorities: Vec<[u8; 32]>,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         let data = encode_instruction(
             tag::UPDATE_PROTOCOL_CONFIG,
             &UpdateProtocolConfigData {
@@ -75,7 +78,7 @@ impl ShieldedPoolTestRig {
         authority: &Keypair,
         tree: &Keypair,
         paused: bool,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         let data = encode_instruction(tag::PAUSE_TREE, &PauseTreeData { paused });
         let ix = Instruction {
             program_id: self.program_id,
@@ -93,14 +96,14 @@ impl ShieldedPoolTestRig {
         &mut self,
         account_size: u64,
         authority: &Keypair,
-    ) -> Result<Keypair, RigError> {
+    ) -> Result<Keypair, ProgramTestError> {
         let tree = Keypair::new();
         let program_id = self.program_id;
         let payer = self.payer.pubkey();
         let authority_key = authority.pubkey();
         let tree_key = tree.pubkey();
         let ixs = create_tree_instructions(
-            &self.rpc(),
+            self,
             program_id,
             &payer,
             &authority_key,

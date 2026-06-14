@@ -7,17 +7,17 @@ use zolana_interface::instruction::{
 };
 
 use crate::{
-    instructions::proofless_shield_sol_instruction, single_proofless_shield_event, RigError,
-    ShieldedPoolTestRig,
+    instructions::proofless_shield_sol_instruction, single_proofless_shield_event,
+    ProgramTestError, ZolanaProgramTest,
 };
 
-impl ShieldedPoolTestRig {
+impl ZolanaProgramTest {
     pub fn proofless_shield(
         &mut self,
         tree: &Keypair,
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldEvent, RigError> {
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let ix = proofless_shield_sol_instruction(
             self.program_id,
             tree.pubkey(),
@@ -35,7 +35,7 @@ impl ShieldedPoolTestRig {
         user_token: &Pubkey,
         mint: &Pubkey,
         data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldEvent, RigError> {
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let accounts = vec![
             AccountMeta::new(tree.pubkey(), false),
             AccountMeta::new(depositor.pubkey(), true),
@@ -54,7 +54,7 @@ impl ShieldedPoolTestRig {
         accounts: Vec<AccountMeta>,
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldEvent, RigError> {
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let ix = Instruction {
             program_id: self.program_id,
             accounts,
@@ -67,8 +67,8 @@ impl ShieldedPoolTestRig {
         &mut self,
         ix: Instruction,
         depositor: &Keypair,
-    ) -> Result<ProoflessShieldEvent, RigError> {
-        let outcome = self.send_indexed(&[ix], &[depositor])?;
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
+        let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_proofless_shield_event(&outcome.events)
     }
 
@@ -78,7 +78,7 @@ impl ShieldedPoolTestRig {
         depositor: &Keypair,
         lamports: u64,
         owner_utxo_hash: [u8; 32],
-    ) -> Result<ProoflessShieldEvent, RigError> {
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let data = Self::sol_shield_data(lamports, owner_utxo_hash);
         self.proofless_shield(tree, depositor, &data)
     }

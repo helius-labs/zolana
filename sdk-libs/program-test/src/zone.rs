@@ -17,10 +17,10 @@ use crate::{
     paths::default_zone_test_program_path,
     single_proofless_shield_event,
     wallet_data::wallet_shield_fields,
-    RigError, ShieldedPoolTestRig,
+    ProgramTestError, ZolanaProgramTest,
 };
 
-impl ShieldedPoolTestRig {
+impl ZolanaProgramTest {
     pub fn zone_config_pda(&self, zone_program_id: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(
             &[SPP_ZONE_CONFIG_PDA_SEED, zone_program_id.as_ref()],
@@ -36,15 +36,15 @@ impl ShieldedPoolTestRig {
         zone_auth_pda(&Self::zone_test_program_id())
     }
 
-    pub fn load_zone_test_program(&mut self) -> Result<(), RigError> {
+    pub fn load_zone_test_program(&mut self) -> Result<(), ProgramTestError> {
         let path = default_zone_test_program_path();
         if !path.exists() {
-            return Err(RigError::MissingProgram(path));
+            return Err(ProgramTestError::MissingProgram(path));
         }
         let bytes = std::fs::read(&path)?;
         self.svm
             .add_program(Self::zone_test_program_id(), &bytes)
-            .map_err(|e| RigError::Litesvm(format!("add_zone_test: {e:?}")))?;
+            .map_err(|e| ProgramTestError::Litesvm(format!("add_zone_test: {e:?}")))?;
         Ok(())
     }
 
@@ -53,7 +53,7 @@ impl ShieldedPoolTestRig {
         payer: &Keypair,
         authority: &Pubkey,
         zone_authority_transact_is_enabled: bool,
-    ) -> Result<Pubkey, RigError> {
+    ) -> Result<Pubkey, ProgramTestError> {
         let zone_program = Self::zone_test_program_id();
         let (zone_config, zone_config_bump) = self.zone_config_pda(&zone_program);
         let (zone_auth, zone_auth_bump) = self.zone_auth_pda();
@@ -84,7 +84,7 @@ impl ShieldedPoolTestRig {
         authority: &Keypair,
         zone_config: &Pubkey,
         new_authority: &Pubkey,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         let data = UpdateZoneConfigOwnerData {
             new_authority: new_authority.to_bytes(),
         };
@@ -104,7 +104,7 @@ impl ShieldedPoolTestRig {
         authority: &Keypair,
         zone_config: &Pubkey,
         zone_authority_transact_is_enabled: bool,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         let data = UpdateZoneConfigData {
             zone_authority_transact_is_enabled,
         };
@@ -148,7 +148,7 @@ impl ShieldedPoolTestRig {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneProoflessShieldIxData, RigError> {
+    ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
         let (_, bump) = self.zone_auth_pda();
         Self::wallet_zone_sol_shield_data_for_zone(
             lamports,
@@ -167,7 +167,7 @@ impl ShieldedPoolTestRig {
         position: u8,
         zone_program_id: [u8; 32],
         zone_auth_bump: u8,
-    ) -> Result<ZoneProoflessShieldIxData, RigError> {
+    ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneProoflessShieldIxData {
             view_tag: fields.view_tag,
@@ -191,7 +191,7 @@ impl ShieldedPoolTestRig {
         tree: &Keypair,
         depositor: &Keypair,
         data: &ZoneProoflessShieldIxData,
-    ) -> Result<ProoflessShieldEvent, RigError> {
+    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let (zone_auth, _) = self.zone_auth_pda();
         let ix = zone_proofless_shield_sol_instruction(
             self.program_id,
@@ -202,7 +202,7 @@ impl ShieldedPoolTestRig {
             self.cpi_authority(),
             data,
         );
-        let outcome = self.send_indexed(&[ix], &[depositor])?;
+        let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_proofless_shield_event(&outcome.events)
     }
 }
