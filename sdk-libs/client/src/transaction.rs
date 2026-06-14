@@ -19,11 +19,11 @@ use crate::error::ClientError;
 use crate::field::{asset_field, signed_to_field};
 use crate::merkle::{NullifierNonInclusionProof, StateInclusionProof};
 use crate::shape::{resolve_shape, Shape};
-use crate::transfer::{
+use crate::transfer::TransferProver;
+use crate::transfer_p256::{
     input_utxo_hash, output_utxo_hash, private_tx_hash, P256Owner, PublicAmounts,
-    TransferNewOutput, TransferProver, TransferSpendInput,
+    TransferNewOutput, TransferP256Prover, TransferSpendInput,
 };
-use crate::transfer_eddsa::TransferEddsaProver;
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -83,8 +83,8 @@ pub trait ProofResolver {
 }
 
 pub enum TransferRail {
-    P256(TransferProver),
-    Eddsa(TransferEddsaProver),
+    P256(TransferP256Prover),
+    Eddsa(TransferProver),
 }
 
 fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, ClientError> {
@@ -463,7 +463,7 @@ impl SignedTransaction {
 
         if requires_p256 {
             let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-            Ok(TransferRail::P256(TransferProver {
+            Ok(TransferRail::P256(TransferP256Prover {
                 inputs: spends,
                 outputs,
                 external_data,
@@ -473,7 +473,7 @@ impl SignedTransaction {
                 shape: Some(shape),
             }))
         } else {
-            Ok(TransferRail::Eddsa(TransferEddsaProver {
+            Ok(TransferRail::Eddsa(TransferProver {
                 inputs: spends,
                 outputs,
                 external_data,

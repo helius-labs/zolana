@@ -315,7 +315,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 func ReadSystemFromFile(path string) (interface{}, error) {
 	if strings.Contains(strings.ToLower(path), "transfer-eddsa") {
 		ps := new(TransferProofSystem)
-		ps.CircuitType = TransferEddsaCircuitType
+		ps.CircuitType = TransferCircuitType
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -329,7 +329,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "transfer") {
 		ps := new(TransferProofSystem)
-		ps.CircuitType = TransferCircuitType
+		ps.CircuitType = TransferP256CircuitType
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err

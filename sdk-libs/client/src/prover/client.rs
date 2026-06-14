@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::error::ClientError;
-use crate::prover::inputs::{TransferEddsaInputs, TransferInputs};
-use crate::prover::json::{to_json, to_json_eddsa};
+use crate::prover::inputs::{TransferInputs, TransferP256Inputs};
+use crate::prover::json::{to_json, to_json_p256};
 use crate::prover::proof::{proof_from_gnark_json, Proof};
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
@@ -52,14 +52,14 @@ impl ProverClient {
 
     /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
     /// `ProofCompressed::try_from` for the wire format.
-    pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs))
+    pub fn prove_transfer_p256(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
+        self.send(to_json_p256(inputs))
     }
 
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
-    pub fn prove_transfer_eddsa(&self, inputs: &TransferEddsaInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_eddsa(inputs))
+    pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json(inputs))
     }
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {

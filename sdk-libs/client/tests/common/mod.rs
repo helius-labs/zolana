@@ -3,8 +3,8 @@
 //! exact output UTXOs (independently recomputed from the plan) and that the
 //! encrypted bundle decrypts back to them, resolve state + nullifier proofs via
 //! `TestIndexer`, prove on the prover server, and verify against the committed
-//! verifying key for whichever rail the inputs select (P256 `transfer_2_3` or
-//! Solana-only `transfer_eddsa_2_3`).
+//! verifying key for whichever rail the inputs select (P256 `transfer_p256_2_3` or
+//! Solana-only `transfer_2_3`).
 
 pub mod test_indexer;
 
@@ -14,11 +14,10 @@ use solana_address::Address;
 use test_indexer::TestIndexer;
 use zolana_client::field::{asset_field, signed_to_field};
 use zolana_client::{
-    spawn_prover, ProverClient, PublicAmounts, Shape, SpendUtxo, Transaction,
-    TransferEddsaProofResult, TransferNewOutput, TransferProofResult, TransferRail,
-    WithdrawalTarget,
+    spawn_prover, ProverClient, PublicAmounts, Shape, SpendUtxo, Transaction, TransferNewOutput,
+    TransferP256ProofResult, TransferProofResult, TransferRail, WithdrawalTarget,
 };
-use zolana_interface::verifying_keys::{transfer_2_3, transfer_eddsa_2_3};
+use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::transfer::{
@@ -377,10 +376,10 @@ fn start_prover() {
     spawn_prover().expect("start prover");
 }
 
-fn prove_and_verify_p256(result: &TransferProofResult) {
+fn prove_and_verify_p256(result: &TransferP256ProofResult) {
     start_prover();
     let proof = ProverClient::local()
-        .prove_transfer(&result.inputs)
+        .prove_transfer_p256(&result.inputs)
         .expect("prove transfer");
     let commitments = proof
         .commitment
@@ -393,16 +392,16 @@ fn prove_and_verify_p256(result: &TransferProofResult) {
         &commitments.commitment,
         &commitments.commitment_pok,
         &public_inputs,
-        &transfer_2_3::VERIFYINGKEY,
+        &transfer_p256_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");
 }
 
-fn prove_and_verify_eddsa(result: &TransferEddsaProofResult) {
+fn prove_and_verify_eddsa(result: &TransferProofResult) {
     start_prover();
     let proof = ProverClient::local()
-        .prove_transfer_eddsa(&result.inputs)
+        .prove_transfer(&result.inputs)
         .expect("prove transfer-eddsa");
     let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
     let mut verifier = Groth16Verifier::new(
@@ -410,7 +409,7 @@ fn prove_and_verify_eddsa(result: &TransferEddsaProofResult) {
         &proof.b,
         &proof.c,
         &public_inputs,
-        &transfer_eddsa_2_3::VERIFYINGKEY,
+        &transfer_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");

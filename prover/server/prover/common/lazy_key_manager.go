@@ -369,9 +369,9 @@ var transferSupportedShapes = [][2]uint32{
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
 	var prefix string
 	switch circuitType {
-	case TransferCircuitType:
+	case TransferP256CircuitType:
 		prefix = "transfer"
-	case TransferEddsaCircuitType:
+	case TransferCircuitType:
 		prefix = "transfer-eddsa"
 	default:
 		return ""

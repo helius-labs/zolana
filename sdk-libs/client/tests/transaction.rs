@@ -11,7 +11,7 @@ use test_indexer::TestIndexer;
 use zolana_client::field::signed_to_field;
 use zolana_client::{
     ClientError, PublicAmounts, SignedTransaction, SpendUtxo, Transaction, TransferNewOutput,
-    TransferProver, TransferRail, WithdrawalTarget,
+    TransferP256Prover, TransferRail, WithdrawalTarget,
 };
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};
@@ -53,7 +53,7 @@ fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, 
     )
 }
 
-fn prover_of(signed: SignedTransaction) -> TransferProver {
+fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let mut indexer = TestIndexer::new();
     for commitment in signed.input_commitments().expect("commitments") {
         indexer.add_utxo(commitment.utxo_hash);

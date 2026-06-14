@@ -12,7 +12,7 @@ import (
 // circuit. Returns a TransferProofSystem for proof generation and verification.
 func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
 	switch circuit {
-	case common.TransferCircuitType:
+	case common.TransferP256CircuitType:
 		return SetupTransfer(nInputs, nOutputs)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
@@ -30,7 +30,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem
 		return nil, err
 	}
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferCircuitType,
+		CircuitType:      common.TransferP256CircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,
@@ -60,7 +60,7 @@ func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath 
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferCircuitType,
+		CircuitType:      common.TransferP256CircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,
@@ -87,7 +87,7 @@ func ImportTransferSetupWithR1CS(nInputs uint32, nOutputs uint32, pkPath string,
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferCircuitType,
+		CircuitType:      common.TransferP256CircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,

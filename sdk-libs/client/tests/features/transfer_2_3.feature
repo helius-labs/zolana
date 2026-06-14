@@ -3,7 +3,7 @@ Feature: Transaction proving at shape (2,3)
   nullifier proofs via the indexer, prove it on the prover server, and verify
   the proof against the committed verifying key for the selected rail. The rail
   follows input ownership: any P256-owned input proves on transfer_2_3, all
-  Solana-owned inputs prove on transfer_eddsa_2_3.
+  Solana-owned inputs prove on transfer_2_3.
 
   Scenario: P256 SOL transfer with one real input padded to a dummy slot
     Given a P256 SOL input worth 100

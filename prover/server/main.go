@@ -105,9 +105,9 @@ func runCli() {
 					var ps *common.TransferProofSystem
 					var err error
 					switch circuit {
-					case common.TransferCircuitType:
+					case common.TransferP256CircuitType:
 						ps, err = transfer.SetupTransferCircuit(circuit, nInputs, nOutputs)
-					case common.TransferEddsaCircuitType:
+					case common.TransferCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)

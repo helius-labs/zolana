@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 use crate::prover::inputs::{
-    TransferEddsaInputs, TransferInput, TransferInputs, TransferOutput, UtxoInputs,
+    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -70,7 +70,7 @@ pub(crate) struct OutputParamsJson {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct TransferInputsJson {
+pub(crate) struct TransferP256InputsJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
     #[serde(rename = "nInputs")]
@@ -114,7 +114,7 @@ pub(crate) struct TransferInputsJson {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct TransferEddsaInputsJson {
+pub(crate) struct TransferInputsJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
     #[serde(rename = "nInputs")]
@@ -195,9 +195,9 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
 }
 
 /// Serialize the P256 transfer witness to the prover server's JSON request body.
-pub(crate) fn to_json(inputs: &TransferInputs) -> String {
-    let json = TransferInputsJson {
-        circuit_type: "transfer".to_string(),
+pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
+    let json = TransferP256InputsJson {
+        circuit_type: "transfer-p256".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
@@ -222,9 +222,9 @@ pub(crate) fn to_json(inputs: &TransferInputs) -> String {
 }
 
 /// Serialize the Solana-only transfer witness to the prover server's JSON request body.
-pub(crate) fn to_json_eddsa(inputs: &TransferEddsaInputs) -> String {
-    let json = TransferEddsaInputsJson {
-        circuit_type: "transfer-eddsa".to_string(),
+pub(crate) fn to_json(inputs: &TransferInputs) -> String {
+    let json = TransferInputsJson {
+        circuit_type: "transfer".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),

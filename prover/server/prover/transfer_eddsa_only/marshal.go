@@ -72,7 +72,7 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
 	paramsJson := TransferParametersJSON{
-		CircuitType:          common.TransferEddsaCircuitType,
+		CircuitType:          common.TransferCircuitType,
 		NInputs:              p.NInputs,
 		NOutputs:             p.NOutputs,
 		ExternalDataHash:     feHex(p.ExternalDataHash),

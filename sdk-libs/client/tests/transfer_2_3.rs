@@ -1,13 +1,13 @@
 //! End-to-end BDD tests for the `Transaction` builder at shape (2,3): each
 //! scenario declares inputs / sends / withdrawals, then the `Then` step builds
 //! the transfer, proves it on the prover server, and verifies against the
-//! committed verifying key for the selected rail (P256 `transfer_2_3` or
-//! Solana-only `transfer_eddsa_2_3`).
+//! committed verifying key for the selected rail (P256 `transfer_p256_2_3` or
+//! Solana-only `transfer_2_3`).
 //!
 //! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_2_3.key` and `transfer-eddsa_2_3.key` proving keys available.
+//! `transfer_p256_2_3.key` and `transfer-eddsa_2_3.key` proving keys available.
 //!
-//! Run with: `cargo test -p zolana-client --test transfer_2_3`
+//! Run with: `cargo test -p zolana-client --test transfer_p256_2_3`
 
 mod common;
 

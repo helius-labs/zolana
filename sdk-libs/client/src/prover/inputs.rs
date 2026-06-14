@@ -43,7 +43,7 @@ pub struct TransferOutput {
 /// Flat, pre-computed witness for the P256-capable spp_transaction circuit.
 /// Mirrors prover/server/prover/transfer/params.go TransferParameters.
 #[derive(Debug, Clone)]
-pub struct TransferInputs {
+pub struct TransferP256Inputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
@@ -67,7 +67,7 @@ pub struct TransferInputs {
 /// rail has no P256 gadget, so there is no P256 pubkey/signature/message-hash.
 /// Mirrors prover/server/prover/transfer_eddsa_only/params.go TransferParameters.
 #[derive(Debug, Clone)]
-pub struct TransferEddsaInputs {
+pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,

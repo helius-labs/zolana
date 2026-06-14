@@ -59,8 +59,8 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 
 	// Transfer circuits are keyed by (nInputs, nOutputs) instead of a tree
 	// height, so they are exempt from the tree-height requirement below.
-	isTransfer := CircuitType(circuitType) == TransferCircuitType ||
-		CircuitType(circuitType) == TransferEddsaCircuitType
+	isTransfer := CircuitType(circuitType) == TransferP256CircuitType ||
+		CircuitType(circuitType) == TransferCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.
