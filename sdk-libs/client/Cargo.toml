@@ -33,11 +33,9 @@ solana-transaction = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
-hex = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
 light-merkle-tree-reference = { workspace = true }
 zolana-interface = { workspace = true }
-serial_test = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

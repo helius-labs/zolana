@@ -25,10 +25,6 @@ pinocchio = { workspace = true }
 thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 
-[dev-dependencies]
-# curve25519: off-chain PDA derivation in tests needs the on-curve check.
-solana-pubkey = { workspace = true, features = ["curve25519"] }
-
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [
