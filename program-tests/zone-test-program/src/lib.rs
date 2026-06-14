@@ -1,13 +1,15 @@
 //! Test policy-zone program for litesvm.
+//!
+//! Pinocchio-based: built against `solana-program`'s entrypoint ABI this
+//! program crashed litesvm 0.12's loader during entrypoint deserialization
+//! (access violation before any CPI). Pinocchio's entrypoint is ABI-compatible
+//! with the loader the SPP program already uses, so this fixture matches it.
 
-use solana_program::{
-    account_info::AccountInfo,
-    entrypoint,
-    entrypoint::ProgramResult,
-    instruction::{AccountMeta, Instruction},
-    program::invoke_signed,
-    program_error::ProgramError,
-    pubkey::Pubkey,
+use pinocchio::{
+    cpi::{invoke_signed, Seed, Signer},
+    error::ProgramError,
+    instruction::{InstructionAccount, InstructionView},
+    AccountView, Address, ProgramResult,
 };
 use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
 
@@ -28,11 +30,14 @@ const CREATE_ZONE_SYSTEM: usize = 3;
 const CREATE_ZONE_SHIELDED_POOL_PROGRAM: usize = 4;
 const CREATE_ZONE_ACCOUNTS: usize = 5;
 
-entrypoint!(process_instruction);
+#[cfg(not(feature = "no-entrypoint"))]
+mod entrypoint {
+    pinocchio::entrypoint!(crate::process_instruction);
+}
 
 pub fn process_instruction(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
+    program_id: &Address,
+    accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
     let Some(ix_tag) = data.first() else {
@@ -46,67 +51,94 @@ pub fn process_instruction(
 }
 
 fn process_create_zone_config(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
+    program_id: &Address,
+    accounts: &[AccountView],
     data: &[u8],
 ) -> ProgramResult {
     let accounts = accounts
         .get(..CREATE_ZONE_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let (zone_auth, bump) = Pubkey::find_program_address(&[ZONE_AUTH_SEED], program_id);
-    if *accounts[CREATE_ZONE_AUTH].key != zone_auth {
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_SEED], program_id);
+    if accounts[CREATE_ZONE_AUTH].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
-    let shielded_pool = checked_shielded_pool(accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].key)?;
+    check_shielded_pool(accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].address())?;
 
-    let ix = Instruction {
-        program_id: shielded_pool,
-        accounts: vec![
-            AccountMeta::new(*accounts[CREATE_ZONE_PAYER].key, true),
-            AccountMeta::new(*accounts[CREATE_ZONE_CONFIG].key, false),
-            AccountMeta::new_readonly(zone_auth, true),
-            AccountMeta::new_readonly(*accounts[CREATE_ZONE_SYSTEM].key, false),
-        ],
-        data: data.to_vec(),
+    let metas = [
+        InstructionAccount::writable_signer(accounts[CREATE_ZONE_PAYER].address()),
+        InstructionAccount::writable(accounts[CREATE_ZONE_CONFIG].address()),
+        InstructionAccount::readonly_signer(&zone_auth),
+        InstructionAccount::readonly(accounts[CREATE_ZONE_SYSTEM].address()),
+    ];
+    let instruction = InstructionView {
+        program_id: &Address::from(SHIELDED_POOL_PROGRAM_ID),
+        accounts: &metas,
+        data,
     };
-    invoke_signed(&ix, accounts, &[&[ZONE_AUTH_SEED, &[bump]]])
+    let bump = [bump];
+    let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
+    let signer = Signer::from(&seeds);
+    invoke_signed(
+        &instruction,
+        &[
+            &accounts[CREATE_ZONE_PAYER],
+            &accounts[CREATE_ZONE_CONFIG],
+            &accounts[CREATE_ZONE_AUTH],
+            &accounts[CREATE_ZONE_SYSTEM],
+        ],
+        core::slice::from_ref(&signer),
+    )
 }
 
 fn process_zone_proofless_shield(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
+    program_id: &Address,
+    accounts: &[AccountView],
     data: &[u8],
 ) -> ProgramResult {
     let accounts = accounts
         .get(..FORWARDED_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let (zone_auth, bump) = Pubkey::find_program_address(&[ZONE_AUTH_SEED], program_id);
-    if *accounts[ZONE_AUTH].key != zone_auth {
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_SEED], program_id);
+    if accounts[ZONE_AUTH].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
-    let shielded_pool = checked_shielded_pool(accounts[SHIELDED_POOL_PROGRAM].key)?;
+    check_shielded_pool(accounts[SHIELDED_POOL_PROGRAM].address())?;
 
-    let metas = vec![
-        AccountMeta::new(*accounts[TREE].key, false),
-        AccountMeta::new(*accounts[PAYER].key, true),
-        AccountMeta::new_readonly(zone_auth, true),
-        AccountMeta::new_readonly(*accounts[SYSTEM_PROGRAM].key, false),
-        AccountMeta::new(*accounts[CPI_AUTHORITY].key, false),
-        AccountMeta::new(*accounts[USER_SOL].key, false),
-        AccountMeta::new_readonly(*accounts[SHIELDED_POOL_PROGRAM].key, false),
+    let metas = [
+        InstructionAccount::writable(accounts[TREE].address()),
+        InstructionAccount::writable_signer(accounts[PAYER].address()),
+        InstructionAccount::readonly_signer(&zone_auth),
+        InstructionAccount::readonly(accounts[SYSTEM_PROGRAM].address()),
+        InstructionAccount::writable(accounts[CPI_AUTHORITY].address()),
+        InstructionAccount::writable(accounts[USER_SOL].address()),
+        InstructionAccount::readonly(accounts[SHIELDED_POOL_PROGRAM].address()),
     ];
-    let ix = Instruction {
-        program_id: shielded_pool,
-        accounts: metas,
-        data: data.to_vec(),
+    let instruction = InstructionView {
+        program_id: &Address::from(SHIELDED_POOL_PROGRAM_ID),
+        accounts: &metas,
+        data,
     };
-    invoke_signed(&ix, accounts, &[&[ZONE_AUTH_SEED, &[bump]]])
+    let bump = [bump];
+    let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
+    let signer = Signer::from(&seeds);
+    invoke_signed(
+        &instruction,
+        &[
+            &accounts[TREE],
+            &accounts[PAYER],
+            &accounts[ZONE_AUTH],
+            &accounts[SYSTEM_PROGRAM],
+            &accounts[CPI_AUTHORITY],
+            &accounts[USER_SOL],
+            &accounts[SHIELDED_POOL_PROGRAM],
+        ],
+        core::slice::from_ref(&signer),
+    )
 }
 
-fn checked_shielded_pool(account: &Pubkey) -> Result<Pubkey, ProgramError> {
-    let shielded_pool = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    if account != &shielded_pool {
+fn check_shielded_pool(account: &Address) -> Result<(), ProgramError> {
+    if account != &Address::from(SHIELDED_POOL_PROGRAM_ID) {
         return Err(ProgramError::IncorrectProgramId);
     }
-    Ok(shielded_pool)
+    Ok(())
 }
