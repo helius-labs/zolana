@@ -16,3 +16,5 @@ pub struct NullifierNonInclusionProof {
     pub low_leaf_index: u64,
     pub root: [u8; 32],
 }
+
+// TODO: add an Rpc trait see pr comment

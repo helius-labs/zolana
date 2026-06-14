@@ -12,7 +12,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
-use zolana_client::field::{asset_field, signed_to_field};
+use zolana_client::transaction::field::{asset_field, signed_to_field};
 use zolana_client::{
     spawn_prover, ProverClient, PublicAmounts, Shape, SpendUtxo, Transaction, TransferNewOutput,
     TransferP256ProofResult, TransferProofResult, TransferRail, WithdrawalTarget,

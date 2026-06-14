@@ -9,12 +9,12 @@ use zolana_transaction::utxo::UTXO_DOMAIN;
 use zolana_transaction::{ExternalData, Utxo};
 
 use crate::error::ClientError;
-use crate::field::{asset_field, be, hash_chain, right_align, right_align_slice};
-use crate::merkle::{
+use crate::prover::shape::{resolve_shape, Shape};
+use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
+use crate::rpc::{
     NullifierNonInclusionProof, StateInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
-use crate::shape::{resolve_shape, Shape};
+use crate::transaction::field::{asset_field, be, hash_chain, right_align, right_align_slice};
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,

@@ -8,7 +8,7 @@ mod test_indexer;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
-use zolana_client::field::signed_to_field;
+use zolana_client::transaction::field::signed_to_field;
 use zolana_client::{
     ClientError, PublicAmounts, SignedTransaction, SpendUtxo, Transaction, TransferNewOutput,
     TransferP256Prover, TransferRail, WithdrawalTarget,

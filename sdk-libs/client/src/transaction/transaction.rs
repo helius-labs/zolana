@@ -16,14 +16,14 @@ use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{Data, ExternalData, TransactionEncryption, Utxo, SOL_MINT};
 
 use crate::error::ClientError;
-use crate::field::{asset_field, signed_to_field};
-use crate::merkle::{NullifierNonInclusionProof, StateInclusionProof};
-use crate::shape::{resolve_shape, Shape};
-use crate::transfer::TransferProver;
-use crate::transfer_p256::{
-    input_utxo_hash, output_utxo_hash, private_tx_hash, P256Owner, PublicAmounts,
-    TransferNewOutput, TransferP256Prover, TransferSpendInput,
+use crate::prover::shape::{resolve_shape, Shape};
+use crate::prover::transfer::TransferProver;
+use crate::prover::transfer_p256::{
+    input_utxo_hash, P256Owner, PublicAmounts, TransferNewOutput, TransferP256Prover,
 };
+use crate::rpc::{NullifierNonInclusionProof, StateInclusionProof};
+use crate::transaction::field::{asset_field, signed_to_field};
+use crate::transaction::signed_transaction::SignedTransaction;
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -81,13 +81,13 @@ pub struct SpendProof {
 pub trait ProofResolver {
     fn resolve(&mut self, commitment: &InputCommitment) -> Result<SpendProof, ClientError>;
 }
-
+// TODO: rename to Circuit type
 pub enum TransferRail {
     P256(TransferP256Prover),
     Eddsa(TransferProver),
 }
 
-fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, ClientError> {
+pub(crate) fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, ClientError> {
     for spend in inputs {
         if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             return Ok(true);
@@ -392,114 +392,6 @@ impl Transaction {
         } else {
             Ok(assets.asset_id(asset)?)
         }
-    }
-}
-
-pub struct SignedTransaction {
-    inputs: Vec<SpendUtxo>,
-    outputs: Vec<TransferNewOutput>,
-    public_amounts: PublicAmounts,
-    external_data: ExternalData,
-    payer_pubkey_hash: [u8; 32],
-    shape: Shape,
-    p256_owner: Option<P256Owner>,
-}
-
-impl SignedTransaction {
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, ClientError> {
-        self.inputs
-            .iter()
-            .enumerate()
-            .map(|(index, spend)| {
-                let utxo_hash = input_utxo_hash(&spend.utxo, &spend.nullifier_key)?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
-                    index,
-                    utxo_hash,
-                    nullifier,
-                })
-            })
-            .collect()
-    }
-
-    pub fn into_prover(
-        self,
-        resolver: &mut impl ProofResolver,
-    ) -> Result<TransferRail, ClientError> {
-        let requires_p256 = inputs_require_p256(&self.inputs)?;
-        let SignedTransaction {
-            inputs,
-            outputs,
-            public_amounts,
-            external_data,
-            payer_pubkey_hash,
-            shape,
-            p256_owner,
-        } = self;
-
-        let mut spends = Vec::with_capacity(inputs.len());
-        for (index, spend) in inputs.into_iter().enumerate() {
-            let SpendUtxo {
-                utxo,
-                nullifier_key,
-            } = spend;
-            let utxo_hash = input_utxo_hash(&utxo, &nullifier_key)?;
-            let nullifier = nullifier_key.nullifier(&utxo_hash, &utxo.blinding)?;
-            let commitment = InputCommitment {
-                index,
-                utxo_hash,
-                nullifier,
-            };
-            let proof = resolver.resolve(&commitment)?;
-            spends.push(TransferSpendInput {
-                utxo,
-                nullifier_key,
-                state_proof: proof.state,
-                nullifier_proof: proof.nullifier,
-            });
-        }
-
-        if requires_p256 {
-            let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-            Ok(TransferRail::P256(TransferP256Prover {
-                inputs: spends,
-                outputs,
-                external_data,
-                public_amounts,
-                payer_pubkey_hash,
-                p256_owner,
-                shape: Some(shape),
-            }))
-        } else {
-            Ok(TransferRail::Eddsa(TransferProver {
-                inputs: spends,
-                outputs,
-                external_data,
-                public_amounts,
-                payer_pubkey_hash,
-                shape: Some(shape),
-            }))
-        }
-    }
-
-    fn message_hash(&self) -> Result<[u8; 32], ClientError> {
-        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
-        for spend in &self.inputs {
-            input_hashes.push(input_utxo_hash(&spend.utxo, &spend.nullifier_key)?);
-        }
-        input_hashes.resize(self.shape.n_inputs, [0u8; 32]);
-
-        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs);
-        for output in &self.outputs {
-            output_hashes.push(output_utxo_hash(output)?);
-        }
-        output_hashes.resize(self.shape.n_outputs, [0u8; 32]);
-
-        let external_data_hash = self.external_data.hash();
-        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
-        Ok(sha256_be(&private_tx))
     }
 }
 

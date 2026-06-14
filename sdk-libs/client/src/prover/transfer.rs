@@ -2,13 +2,13 @@ use num_bigint::BigUint;
 use zolana_transaction::ExternalData;
 
 use crate::error::ClientError;
-use crate::field::be;
-use crate::prover::TransferInputs;
-use crate::shape::{resolve_shape, Shape};
-use crate::transfer_p256::{
+use crate::prover::shape::{resolve_shape, Shape};
+use crate::prover::transfer_p256::{
     assemble_inputs, assemble_outputs, private_tx_hash, public_input_hash, PublicAmounts,
     TransferNewOutput, TransferSpendInput,
 };
+use crate::prover::TransferInputs;
+use crate::transaction::field::be;
 
 pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,

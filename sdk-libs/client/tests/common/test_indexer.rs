@@ -4,7 +4,7 @@ use light_hasher::Poseidon;
 use light_merkle_tree_reference::indexed::IndexedMerkleTree;
 use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
-use zolana_client::field::BN254_MODULUS_DEC;
+use zolana_client::transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
     ClientError, InputCommitment, NullifierNonInclusionProof, ProofResolver, SpendProof,
     StateInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
