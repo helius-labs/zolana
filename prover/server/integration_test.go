@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"io"
 	"light/light-prover/logging"
+	nullifiertreetest "light/light-prover/prover-test/nullifier_tree"
 	"light/light-prover/prover/common"
-	"light/light-prover/prover/v1"
-	"light/light-prover/prover/v2"
 	"light/light-prover/server"
 	"math/big"
 	"net/http"
@@ -193,42 +192,16 @@ func TestFull(t *testing.T) {
 // runCommonTests contains all tests that should run in both modes
 func runCommonTests(t *testing.T) {
 	t.Run("testWrongMethod", testWrongMethod)
-	t.Run("testInclusionHappyPath32_1to20", testInclusionHappyPath32_1to20)
-	t.Run("testNonInclusionHappyPath40_1to32", testNonInclusionHappyPath40_1to32)
-	t.Run("testV2CombinedHappyPath", testV2CombinedHappyPath)
-	// v1 tests (height 26)
-	t.Run("testV1InclusionHappyPath26_12348", testV1InclusionHappyPath26_12348)
-	t.Run("testV1NonInclusionHappyPath26_12", testV1NonInclusionHappyPath26_12)
-	t.Run("testV1CombinedHappyPath26", testV1CombinedHappyPath26)
 }
 
 // runFullOnlyTests contains tests that should only run in full mode
 func runFullOnlyTests(t *testing.T) {
-	// Happy path tests
-	t.Run("testBatchAppendHappyPath32_500", testBatchAppendHappyPath32_500)
-	t.Run("testBatchUpdateHappyPath32_500", testBatchUpdateHappyPath32_500)
 	t.Run("testBatchAddressAppendHappyPath40_250", testBatchAddressAppendHappyPath40_250)
-
-	// Previous state handling tests
-	t.Run("testBatchAppendPreviousState32_500", testBatchAppendPreviousState32_500)
-	t.Run("testBatchUpdateWithPreviousState32_500", testBatchUpdateWithPreviousState32_500)
 	t.Run("testBatchAddressAppendWithPreviousState40_250", testBatchAddressAppendWithPreviousState40_250)
-
-	// Invalid input validation tests
-	t.Run("testBatchAppendInvalidInput32_500", testBatchAppendInvalidInput32_500)
-	t.Run("testBatchUpdateInvalidInput32_500", testBatchUpdateInvalidInput32_500)
 	t.Run("testBatchAddressAppendInvalidInput40_250", testBatchAddressAppendInvalidInput40_250)
 }
 
 func runLightweightOnlyTests(t *testing.T) {
-	t.Run("testBatchAppendHappyPath32_10", testBatchAppendHappyPath32_10)
-	t.Run("testBatchAppendPreviousState32_10", testBatchAppendPreviousState32_10)
-
-	t.Run("testBatchUpdateHappyPath32_10", testBatchUpdateHappyPath32_10)
-	t.Run("testBatchUpdateWithPreviousState32_10", testBatchUpdateWithPreviousState32_10)
-	t.Run("testBatchUpdateInvalidInput32_10", testBatchUpdateInvalidInput32_10)
-	t.Run("testBatchUpdateHappyPath32_10", testBatchUpdateHappyPath32_10)
-
 	t.Run("testBatchAddressAppendHappyPath40_10", testBatchAddressAppendHappyPath40_10)
 	t.Run("testBatchAddressAppendWithPreviousState40_10", testBatchAddressAppendWithPreviousState40_10)
 	t.Run("testBatchAddressAppendInvalidInput40_10", testBatchAddressAppendInvalidInput40_10)
@@ -242,407 +215,6 @@ func testWrongMethod(t *testing.T) {
 	if response.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("Expected status code %d, got %d", http.StatusMethodNotAllowed, response.StatusCode)
 	}
-}
-
-func testInclusionHappyPath32_1to20(t *testing.T) {
-	for compressedAccounts := 1; compressedAccounts <= 20; compressedAccounts++ {
-		tree := v2.BuildTestTree(32, compressedAccounts, false)
-		jsonBytes, _ := tree.MarshalJSON()
-		jsonString := string(jsonBytes)
-
-		response, err := http.Post(proveEndpoint(), "application/json", strings.NewReader(jsonString))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(response.Body)
-			t.Fatalf("V2 Inclusion %d accounts: Expected status code %d, got %d. Response: %s",
-				compressedAccounts, http.StatusOK, response.StatusCode, string(body))
-		}
-	}
-}
-
-func testNonInclusionHappyPath40_1to32(t *testing.T) {
-	for compressedAccounts := 1; compressedAccounts <= 32; compressedAccounts++ {
-		tree := v2.BuildValidTestNonInclusionTree(40, compressedAccounts, false)
-		jsonBytes, _ := tree.MarshalJSON()
-		jsonString := string(jsonBytes)
-
-		response, err := http.Post(proveEndpoint(), "application/json", strings.NewReader(jsonString))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(response.Body)
-			t.Fatalf("V2 NonInclusion %d accounts: Expected status code %d, got %d. Response: %s",
-				compressedAccounts, http.StatusOK, response.StatusCode, string(body))
-		}
-	}
-}
-
-func testV2CombinedHappyPath(t *testing.T) {
-	for inclusionAccounts := 1; inclusionAccounts <= 4; inclusionAccounts++ {
-		for nonInclusionAccounts := 1; nonInclusionAccounts <= 4; nonInclusionAccounts++ {
-			params := v2.BuildValidCombinedParameters(
-				32, 40,
-				inclusionAccounts, nonInclusionAccounts)
-
-			jsonBytes, err := params.MarshalJSON()
-			if err != nil {
-				t.Fatalf("Failed to marshal V2 combined params: %v", err)
-			}
-
-			response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer response.Body.Close()
-
-			if response.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(response.Body)
-				t.Fatalf("V2 Combined %d_%d: Expected status code %d, got %d. Response: %s",
-					inclusionAccounts, nonInclusionAccounts,
-					http.StatusOK, response.StatusCode, string(body))
-			}
-		}
-	}
-}
-
-func testBatchAppendHappyPath32_1000(t *testing.T) {
-	treeDepth := 32
-	batchSize := 1000
-	startIndex := 0
-	params := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		t.Fatalf("Expected status code %d, got %d. Response body: %s", http.StatusOK, response.StatusCode, string(body))
-	}
-}
-
-func testBatchAppendHappyPath32_10(t *testing.T) {
-	treeDepth := 32
-	batchSize := 10
-	startIndex := 0
-	params := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		t.Fatalf("Expected status code %d, got %d. Response body: %s", http.StatusOK, response.StatusCode, string(body))
-	}
-}
-
-func testBatchAppendHappyPath32_500(t *testing.T) {
-	treeDepth := 32
-	batchSize := 500
-	startIndex := 0
-	params := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		t.Fatalf("Expected status code %d, got %d. Response body: %s", http.StatusOK, response.StatusCode, string(body))
-	}
-}
-
-func testBatchAppendPreviousState32_100(t *testing.T) {
-	treeDepth := 32
-	batchSize := 100
-	startIndex := 0
-
-	// First batch
-	params1 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-	jsonBytes1, _ := params1.MarshalJSON()
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response1.StatusCode != http.StatusOK {
-		t.Fatalf("First batch: Expected status code %d, got %d", http.StatusOK, response1.StatusCode)
-	}
-
-	// Second batch
-	startIndex += batchSize
-	params2 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, params1.Tree, startIndex, true)
-	jsonBytes2, _ := params2.MarshalJSON()
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response2.StatusCode != http.StatusOK {
-		t.Fatalf("Second batch: Expected status code %d, got %d", http.StatusOK, response2.StatusCode)
-	}
-}
-
-func testBatchAppendPreviousState32_10(t *testing.T) {
-	treeDepth := 32
-	batchSize := 10
-	startIndex := 0
-
-	// First batch
-	params1 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-	jsonBytes1, _ := params1.MarshalJSON()
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response1.StatusCode != http.StatusOK {
-		t.Fatalf("First batch: Expected status code %d, got %d", http.StatusOK, response1.StatusCode)
-	}
-
-	// Second batch
-	startIndex += batchSize
-	params2 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, params1.Tree, startIndex, true)
-	jsonBytes2, _ := params2.MarshalJSON()
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response2.StatusCode != http.StatusOK {
-		t.Fatalf("Second batch: Expected status code %d, got %d", http.StatusOK, response2.StatusCode)
-	}
-}
-
-func testBatchAppendPreviousState32_500(t *testing.T) {
-	treeDepth := 32
-	batchSize := 500
-	startIndex := 0
-
-	// First batch
-	params1 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-	jsonBytes1, _ := params1.MarshalJSON()
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response1.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response1.Body)
-		t.Fatalf("First batch: Expected status code %d, got %d. Response: %s", http.StatusOK, response1.StatusCode, string(body))
-	}
-
-	// Second batch
-	startIndex += batchSize
-	params2 := v2.BuildTestBatchAppendTree(treeDepth, batchSize, params1.Tree, startIndex, true)
-	jsonBytes2, _ := params2.MarshalJSON()
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response2.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response2.Body)
-		t.Fatalf("Second batch: Expected status code %d, got %d. Response: %s", http.StatusOK, response2.StatusCode, string(body))
-	}
-}
-
-func testBatchAppendInvalidInput32_500(t *testing.T) {
-	treeDepth := 32
-	batchSize := 500
-	startIndex := 0
-	params := v2.BuildTestBatchAppendTree(treeDepth, batchSize, nil, startIndex, true)
-
-	// Invalidate the input by changing the old root
-	params.OldRoot = big.NewInt(0)
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, response.StatusCode)
-	}
-
-	body, _ := io.ReadAll(response.Body)
-	if !strings.Contains(string(body), "proving_error") {
-		t.Fatalf("Expected error message to contain 'proving_error', got: %s", string(body))
-	}
-}
-
-func testBatchUpdateWithPreviousState32_10(t *testing.T) {
-	treeDepth := uint32(32)
-	batchSize := uint32(10)
-
-	// First batch
-	params1 := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), nil, nil)
-	jsonBytes1, _ := params1.MarshalJSON()
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response1.StatusCode != http.StatusOK {
-		t.Fatalf("First batch: Expected status code %d, got %d", http.StatusOK, response1.StatusCode)
-	}
-
-	// Second batch
-	params2 := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), params1.Tree, nil)
-	jsonBytes2, _ := params2.MarshalJSON()
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response2.StatusCode != http.StatusOK {
-		t.Fatalf("Second batch: Expected status code %d, got %d", http.StatusOK, response2.StatusCode)
-	}
-
-	// Verify that the new root is different from the old root
-	if params2.OldRoot.Cmp(params2.NewRoot) == 0 {
-		t.Errorf("Expected new root to be different from old root")
-	}
-}
-
-func testBatchUpdateWithPreviousState32_500(t *testing.T) {
-	treeDepth := uint32(32)
-	batchSize := uint32(500)
-
-	// First batch
-	params1 := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), nil, nil)
-	jsonBytes1, _ := params1.MarshalJSON()
-	response1, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response1.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response1.Body)
-		t.Fatalf("First batch: Expected status code %d, got %d. Response: %s", http.StatusOK, response1.StatusCode, string(body))
-	}
-
-	// Second batch
-	params2 := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), params1.Tree, nil)
-	jsonBytes2, _ := params2.MarshalJSON()
-	response2, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response2.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response2.Body)
-		t.Fatalf("Second batch: Expected status code %d, got %d. Response: %s", http.StatusOK, response2.StatusCode, string(body))
-	}
-
-	// Verify that the new root is different from the old root
-	if params2.OldRoot.Cmp(params2.NewRoot) == 0 {
-		t.Errorf("Expected new root to be different from old root")
-	}
-}
-
-func testBatchUpdateInvalidInput32_10(t *testing.T) {
-	treeDepth := uint32(32)
-	batchSize := uint32(10)
-	params := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), nil, nil)
-
-	// Invalidate the input by changing the old root
-	params.OldRoot = big.NewInt(0)
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, response.StatusCode)
-	}
-
-	body, _ := io.ReadAll(response.Body)
-	if !strings.Contains(string(body), "proving_error") {
-		t.Fatalf("Expected error message to contain 'proving_error', got: %s", string(body))
-	}
-}
-
-func testBatchUpdateInvalidInput32_500(t *testing.T) {
-	treeDepth := uint32(32)
-	batchSize := uint32(500)
-	params := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), nil, nil)
-
-	// Invalidate the input by changing the old root
-	params.OldRoot = big.NewInt(0)
-	jsonBytes, _ := params.MarshalJSON()
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, response.StatusCode)
-	}
-
-	body, _ := io.ReadAll(response.Body)
-	if !strings.Contains(string(body), "proving_error") {
-		t.Fatalf("Expected error message to contain 'proving_error', got: %s", string(body))
-	}
-}
-
-func testBatchUpdateHappyPath32_10(t *testing.T) {
-	runBatchUpdateTest(t, 32, 10)
-}
-
-func testBatchUpdateHappyPath32_100(t *testing.T) {
-	runBatchUpdateTest(t, 32, 100)
-}
-
-func testBatchUpdateHappyPath32_500(t *testing.T) {
-	runBatchUpdateTest(t, 32, 500)
-}
-
-func testBatchUpdateHappyPath32_1000(t *testing.T) {
-	runBatchUpdateTest(t, 32, 1000)
-}
-
-func runBatchUpdateTest(t *testing.T, treeDepth uint32, batchSize uint32) {
-	params := v2.BuildTestBatchUpdateTree(int(treeDepth), int(batchSize), nil, nil)
-
-	jsonBytes, err := params.MarshalJSON()
-	if err != nil {
-		t.Fatalf("Failed to marshal JSON: %v", err)
-	}
-
-	response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		t.Fatalf("Failed to send POST request: %v", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		t.Fatalf("Expected status code %d, got %d. Response body: %s", http.StatusOK, response.StatusCode, string(body))
-	}
-
-	if params.OldRoot.Cmp(params.NewRoot) == 0 {
-		t.Errorf("Expected new root to be different from old root")
-	}
-
-	t.Logf("Successfully ran batch update test with tree depth %d and batch size %d", treeDepth, batchSize)
 }
 
 func testBatchAddressAppendHappyPath40_10(t *testing.T) {
@@ -666,7 +238,7 @@ func testBatchAddressAppendHappyPath40_1000(t *testing.T) {
 }
 
 func runBatchAddressAppendTest(t *testing.T, treeHeight uint32, batchSize uint32) {
-	params, err := v2.BuildTestAddressTree(treeHeight, batchSize, nil, 1)
+	params, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, nil, 1)
 	if err != nil {
 		t.Fatalf("Failed to build test tree: %v", err)
 	}
@@ -708,7 +280,7 @@ func testBatchAddressAppendWithPreviousState40_250(t *testing.T) {
 
 func runBatchAddressAppendWithPreviousStateTest(t *testing.T, treeHeight uint32, batchSize uint32) {
 	startIndex := uint64(1)
-	params1, err := v2.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
+	params1, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
 	if err != nil {
 		t.Fatalf("Failed to build first test tree: %v", err)
 	}
@@ -730,7 +302,7 @@ func runBatchAddressAppendWithPreviousStateTest(t *testing.T, treeHeight uint32,
 	response1.Body.Close()
 
 	startIndex += uint64(batchSize)
-	params2, err := v2.BuildTestAddressTree(treeHeight, batchSize, params1.Tree, startIndex)
+	params2, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, params1.Tree, startIndex)
 	if err != nil {
 		t.Fatalf("Failed to build second test tree: %v", err)
 	}
@@ -765,7 +337,7 @@ func testBatchAddressAppendInvalidInput40_10(t *testing.T) {
 	batchSize := uint32(10)
 	startIndex := uint64(0)
 
-	params, err := v2.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
+	params, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
 	if err != nil {
 		t.Fatalf("Failed to build test tree: %v", err)
 	}
@@ -802,7 +374,7 @@ func testBatchAddressAppendInvalidInput40_250(t *testing.T) {
 	batchSize := uint32(250)
 	startIndex := uint64(0)
 
-	params, err := v2.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
+	params, err := nullifiertreetest.BuildTestAddressTree(treeHeight, batchSize, nil, startIndex)
 	if err != nil {
 		t.Fatalf("Failed to build test tree: %v", err)
 	}
@@ -832,87 +404,4 @@ func testBatchAddressAppendInvalidInput40_250(t *testing.T) {
 
 	t.Logf("Successfully ran invalid input test with tree height %d and batch size %d",
 		treeHeight, batchSize)
-}
-
-// V1 Integration Tests (height 26)
-
-func testV1InclusionHappyPath26_12348(t *testing.T) {
-	for _, compressedAccounts := range []int{1, 2, 3, 4, 8} {
-		tree := v1.BuildTestTree(26, compressedAccounts, false)
-		jsonBytes, _ := tree.MarshalJSON()
-		jsonString := string(jsonBytes)
-
-		response, err := http.Post(proveEndpoint(), "application/json", strings.NewReader(jsonString))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(response.Body)
-			t.Fatalf("V1 Inclusion %d accounts: Expected status code %d, got %d. Response: %s",
-				compressedAccounts, http.StatusOK, response.StatusCode, string(body))
-		}
-	}
-}
-
-func testV1NonInclusionHappyPath26_12(t *testing.T) {
-	for _, compressedAccounts := range []int{1, 2} {
-		tree := v1.BuildValidTestNonInclusionTree(26, compressedAccounts, false)
-		jsonBytes, _ := tree.MarshalJSON()
-		jsonString := string(jsonBytes)
-
-		response, err := http.Post(proveEndpoint(), "application/json", strings.NewReader(jsonString))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(response.Body)
-			t.Fatalf("V1 NonInclusion %d accounts: Expected status code %d, got %d. Response: %s",
-				compressedAccounts, http.StatusOK, response.StatusCode, string(body))
-		}
-	}
-}
-
-func testV1CombinedHappyPath26(t *testing.T) {
-	// Test different combinations of inclusion and non-inclusion accounts
-	testCases := []struct {
-		inclusionAccounts    int
-		nonInclusionAccounts int
-	}{
-		{1, 1},
-		{2, 1},
-		{1, 2},
-		{2, 2},
-		{3, 1},
-		{3, 2},
-		{4, 1},
-		{4, 2},
-	}
-
-	for _, tc := range testCases {
-		params := v1.BuildValidCombinedParameters(
-			26, 26,
-			tc.inclusionAccounts, tc.nonInclusionAccounts)
-
-		jsonBytes, err := params.MarshalJSON()
-		if err != nil {
-			t.Fatalf("Failed to marshal combined params: %v", err)
-		}
-
-		response, err := http.Post(proveEndpoint(), "application/json", bytes.NewBuffer(jsonBytes))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-
-		if response.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(response.Body)
-			t.Fatalf("V1 Combined %d_%d: Expected status code %d, got %d. Response: %s",
-				tc.inclusionAccounts, tc.nonInclusionAccounts,
-				http.StatusOK, response.StatusCode, string(body))
-		}
-	}
 }

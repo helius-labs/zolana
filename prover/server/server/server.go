@@ -8,8 +8,7 @@ import (
 	"io"
 	"light/light-prover/logging"
 	"light/light-prover/prover/common"
-	v1 "light/light-prover/prover/v1"
-	v2 "light/light-prover/prover/v2"
+	"light/light-prover/prover/nullifier_tree"
 	"net/http"
 	"strings"
 	"time"
@@ -1164,16 +1163,6 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	}
 
 	switch proofRequestMeta.CircuitType {
-	case common.InclusionCircuitType:
-		return handler.inclusionProof(buf, proofRequestMeta)
-	case common.NonInclusionCircuitType:
-		return handler.nonInclusionProof(buf, proofRequestMeta)
-	case common.CombinedCircuitType:
-		return handler.combinedProof(buf, proofRequestMeta)
-	case common.BatchUpdateCircuitType:
-		return handler.batchUpdateProof(buf)
-	case common.BatchAppendCircuitType:
-		return handler.batchAppendHandler(buf)
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
 	default:
@@ -1182,7 +1171,7 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 }
 
 func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchAddressAppendParameters
+	var params nullifiertree.BatchAddressAppendParameters
 	err := json.Unmarshal(buf, &params)
 	if err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1198,194 +1187,12 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 		return nil, provingError(fmt.Errorf("batch address append: %w", err))
 	}
 
-	proof, err := v2.ProveBatchAddressAppend(ps, &params)
+	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
 	}
 	return proof, nil
-}
-
-func (handler proveHandler) batchAppendHandler(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchAppendParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-
-	treeHeight := params.Height
-	batchSize := params.BatchSize
-
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchAppendCircuitType, treeHeight, batchSize)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("batch append: %w", err))
-	}
-
-	proof, err := v2.ProveBatchAppend(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err).Msg("Error during proof generation")
-		return nil, provingError(err)
-	}
-
-	return proof, nil
-}
-
-func (handler proveHandler) batchUpdateProof(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchUpdateParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-
-	treeHeight := params.Height
-	batchSize := params.BatchSize
-
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchUpdateCircuitType, treeHeight, batchSize)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("batch update: %w", err))
-	}
-
-	proof, err := v2.ProveBatchUpdate(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) inclusionProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	ps, err := handler.keyManager.GetMerkleSystem(
-		proofRequestMeta.StateTreeHeight,
-		proofRequestMeta.NumInputs,
-		0,
-		0,
-		proofRequestMeta.Version,
-	)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("inclusion proof: %w", err))
-	}
-
-	switch proofRequestMeta.Version {
-	case 1:
-		var params v1.InclusionParameters
-
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveInclusion(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 2:
-		var params v2.InclusionParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveInclusion(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	}
-
-	return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-}
-
-func (handler proveHandler) nonInclusionProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	version := uint32(1)
-	if proofRequestMeta.AddressTreeHeight == 40 {
-		version = 2
-	}
-
-	ps, err := handler.keyManager.GetMerkleSystem(
-		0,
-		0,
-		proofRequestMeta.AddressTreeHeight,
-		proofRequestMeta.NumAddresses,
-		version,
-	)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("non-inclusion proof: %w", err))
-	}
-
-	switch proofRequestMeta.AddressTreeHeight {
-	case 26:
-		var params v1.NonInclusionParameters
-
-		var err = json.Unmarshal(buf, &params)
-		if err != nil {
-			logging.Logger().Info().Msg("error Unmarshal")
-			logging.Logger().Info().Msg(err.Error())
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveNonInclusion(ps, &params)
-		if err != nil {
-			logging.Logger().Err(err)
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 40:
-		var params v2.NonInclusionParameters
-
-		var err = json.Unmarshal(buf, &params)
-		if err != nil {
-			logging.Logger().Info().Msg("error Unmarshal")
-			logging.Logger().Info().Msg(err.Error())
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveNonInclusion(ps, &params)
-		if err != nil {
-			logging.Logger().Err(err)
-			return nil, provingError(err)
-		}
-		return proof, nil
-	default:
-		return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-	}
-}
-
-func (handler proveHandler) combinedProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	version := uint32(1)
-	if proofRequestMeta.AddressTreeHeight == 40 {
-		version = 2
-	}
-
-	ps, err := handler.keyManager.GetMerkleSystem(
-		proofRequestMeta.StateTreeHeight,
-		proofRequestMeta.NumInputs,
-		proofRequestMeta.AddressTreeHeight,
-		proofRequestMeta.NumAddresses,
-		version,
-	)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("combined proof: %w", err))
-	}
-
-	switch proofRequestMeta.AddressTreeHeight {
-	case 26:
-		var params v1.CombinedParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveCombined(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 40:
-		var params v2.CombinedParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveCombined(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	default:
-		return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-	}
 }
 
 func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

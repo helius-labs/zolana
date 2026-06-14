@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"light/light-prover/logging"
 	"light/light-prover/prover/common"
-	v1 "light/light-prover/prover/v1"
-	v2 "light/light-prover/prover/v2"
+	"light/light-prover/prover/nullifier_tree"
 	"log"
 	"os"
 	"strconv"
@@ -508,16 +507,6 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	log.Printf("proofRequestMeta.CircuitType: %s", proofRequestMeta.CircuitType)
 
 	switch proofRequestMeta.CircuitType {
-	case common.InclusionCircuitType:
-		proof, proofError = w.processInclusionProof(job.Payload, proofRequestMeta)
-	case common.NonInclusionCircuitType:
-		proof, proofError = w.processNonInclusionProof(job.Payload, proofRequestMeta)
-	case common.CombinedCircuitType:
-		proof, proofError = w.processCombinedProof(job.Payload, proofRequestMeta)
-	case common.BatchUpdateCircuitType:
-		proof, proofError = w.processBatchUpdateProof(job.Payload)
-	case common.BatchAppendCircuitType:
-		proof, proofError = w.processBatchAppendProof(job.Payload)
 	case common.BatchAddressAppendCircuitType:
 		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
 	default:
@@ -541,133 +530,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	return proof, nil
 }
 
-func (w *BaseQueueWorker) processInclusionProof(payload json.RawMessage, meta common.ProofRequestMeta) (*common.Proof, error) {
-	ps, err := w.keyManager.GetMerkleSystem(
-		meta.StateTreeHeight,
-		meta.NumInputs,
-		0,
-		0,
-		meta.Version,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("inclusion proof: %w", err)
-	}
-
-	switch meta.Version {
-	case 1:
-		var params v1.InclusionParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal legacy inclusion parameters: %w", err)
-		}
-		return v1.ProveInclusion(ps, &params)
-	case 2:
-		var params v2.InclusionParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal inclusion parameters: %w", err)
-		}
-		return v2.ProveInclusion(ps, &params)
-	}
-
-	return nil, fmt.Errorf("unsupported version: %d", meta.Version)
-}
-
-func (w *BaseQueueWorker) processNonInclusionProof(payload json.RawMessage, meta common.ProofRequestMeta) (*common.Proof, error) {
-	ps, err := w.keyManager.GetMerkleSystem(
-		0,
-		0,
-		meta.AddressTreeHeight,
-		meta.NumAddresses,
-		meta.Version,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("non-inclusion proof: %w", err)
-	}
-
-	if meta.AddressTreeHeight == 26 {
-		var params v1.NonInclusionParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal legacy non-inclusion parameters: %w", err)
-		}
-		return v1.ProveNonInclusion(ps, &params)
-	} else if meta.AddressTreeHeight == 40 {
-		var params v2.NonInclusionParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal non-inclusion parameters: %w", err)
-		}
-		return v2.ProveNonInclusion(ps, &params)
-	}
-
-	return nil, fmt.Errorf("unsupported address tree height: %d", meta.AddressTreeHeight)
-}
-
-func (w *BaseQueueWorker) processCombinedProof(payload json.RawMessage, meta common.ProofRequestMeta) (*common.Proof, error) {
-	ps, err := w.keyManager.GetMerkleSystem(
-		meta.StateTreeHeight,
-		meta.NumInputs,
-		meta.AddressTreeHeight,
-		meta.NumAddresses,
-		meta.Version,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("combined proof: %w", err)
-	}
-
-	switch meta.AddressTreeHeight {
-	case 26:
-		var params v1.CombinedParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal legacy combined parameters: %w", err)
-		}
-		return v1.ProveCombined(ps, &params)
-	case 40:
-		var params v2.CombinedParameters
-		if err := json.Unmarshal(payload, &params); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal combined parameters: %w", err)
-		}
-		return v2.ProveCombined(ps, &params)
-	}
-
-	return nil, fmt.Errorf("unsupported address tree height: %d", meta.AddressTreeHeight)
-}
-
-func (w *BaseQueueWorker) processBatchUpdateProof(payload json.RawMessage) (*common.Proof, error) {
-	var params v2.BatchUpdateParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal batch update parameters: %w", err)
-	}
-
-	ps, err := w.keyManager.GetBatchSystem(
-		common.BatchUpdateCircuitType,
-		params.Height,
-		params.BatchSize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("batch update proof: %w", err)
-	}
-
-	return v2.ProveBatchUpdate(ps, &params)
-}
-
-func (w *BaseQueueWorker) processBatchAppendProof(payload json.RawMessage) (*common.Proof, error) {
-	var params v2.BatchAppendParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal batch append parameters: %w", err)
-	}
-
-	ps, err := w.keyManager.GetBatchSystem(
-		common.BatchAppendCircuitType,
-		params.Height,
-		params.BatchSize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("batch append proof: %w", err)
-	}
-
-	return v2.ProveBatchAppend(ps, &params)
-}
-
 func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage) (*common.Proof, error) {
-	var params v2.BatchAddressAppendParameters
+	var params nullifiertree.BatchAddressAppendParameters
 	if err := json.Unmarshal(payload, &params); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal batch address append parameters: %w", err)
 	}
@@ -682,7 +546,7 @@ func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage
 	}
 
 	logging.Logger().Info().Msg("Processing batch address append proof")
-	return v2.ProveBatchAddressAppend(ps, &params)
+	return nullifiertree.ProveBatchAddressAppend(ps, &params)
 }
 
 func (w *BaseQueueWorker) removeFromProcessingQueue(jobID string) {

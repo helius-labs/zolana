@@ -6,6 +6,31 @@
 implementation cleanup unless that is the explicit task. If code, tests, and the
 spec disagree, treat the code or tests as suspect first.
 
+## Repo Structure
+
+program-libs
+- libraries used in programs
+- are publised as crates
+
+programs
+- must not depend on sdk libs
+- are not published as crates
+
+program-tests
+- integration test (programs) for programs 
+- are not publised as crates
+
+sdk-libs
+- libraries to interact with programs
+
+sdk-tests
+- integration test programs for sdks
+
+prover
+- go circuits
+- go prover server
+- rust prover client
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: on-chain SPP program.
