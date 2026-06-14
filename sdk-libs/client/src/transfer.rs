@@ -14,7 +14,7 @@ use crate::merkle::{
     NullifierNonInclusionProof, StateInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use crate::prover::{TransferInput, TransferInputs, TransferOutput, UtxoInputs};
-use crate::shape::{canonical_shape, Shape};
+use crate::shape::{resolve_shape, Shape};
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,
@@ -23,6 +23,7 @@ pub struct TransferSpendInput {
     pub nullifier_proof: NullifierNonInclusionProof,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferNewOutput {
     pub owner_hash: [u8; 32],
     pub asset: Address,
@@ -30,6 +31,7 @@ pub struct TransferNewOutput {
     pub blinding: [u8; 31],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicAmounts {
     pub sol: [u8; 32],
     pub spl: [u8; 32],
@@ -62,6 +64,7 @@ pub struct TransferProver {
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
     pub p256_owner: P256Owner,
+    pub shape: Option<Shape>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +77,7 @@ pub struct TransferProofResult {
 
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
-        let shape = canonical_shape(self.inputs.len(), self.outputs.len())?;
+        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         let assembled_inputs = assemble_inputs(&self.inputs, shape, true)?;
         let assembled_outputs = assemble_outputs(&self.outputs, shape)?;
         let external_data_hash = self.external_data.hash();
@@ -381,6 +384,16 @@ pub fn input_utxo_hash(utxo: &Utxo, nullifier_key: &NullifierKey) -> Result<[u8;
     let nullifier_pk = nullifier_key.pubkey()?;
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk)?;
     let (_, hash) = real_utxo(owner_field, &utxo.asset, utxo.amount, &utxo.blinding)?;
+    Ok(hash)
+}
+
+pub fn output_utxo_hash(output: &TransferNewOutput) -> Result<[u8; 32], ClientError> {
+    let (_, hash) = real_utxo(
+        output.owner_hash,
+        &output.asset,
+        output.amount,
+        &output.blinding,
+    )?;
     Ok(hash)
 }
 

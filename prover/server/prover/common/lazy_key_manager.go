@@ -232,7 +232,7 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 		Str("cache_key", key).
 		Msg("Loading TransferProofSystem")
 
-	if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
+	if err := EnsureTransferKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 

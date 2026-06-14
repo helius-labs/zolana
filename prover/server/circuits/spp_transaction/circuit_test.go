@@ -53,9 +53,9 @@ func TestCircuitProvesForSupportedShapes(t *testing.T) {
 }
 
 // MustNewCircuit builds the P256-capable circuit and panics on error -- a test
-// convenience over the error-returning NewCircuit.
+// convenience over the error-returning NewTransferP256Circuit.
 func MustNewCircuit(shape Shape) *Circuit {
-	circuit, err := NewCircuit(shape)
+	circuit, err := NewTransferP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -64,7 +64,7 @@ func MustNewCircuit(shape Shape) *Circuit {
 
 // MustNewSolanaCircuit builds the Solana-only circuit and panics on error.
 func MustNewSolanaCircuit(shape Shape) *Circuit {
-	circuit, err := NewSolanaCircuit(shape)
+	circuit, err := NewTransferCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

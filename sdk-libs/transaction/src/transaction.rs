@@ -5,7 +5,6 @@
 use solana_address::Address;
 use zolana_keypair::hash::{poseidon, sha256_be};
 
-use crate::data::Data;
 use crate::error::TransactionError;
 use crate::utxo::{hash_from_owner_hash, Blinding, Utxo};
 

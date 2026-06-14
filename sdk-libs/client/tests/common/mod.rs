@@ -1,25 +1,75 @@
-//! Shared helpers for the transfer (2,3) integration tests: build real witnesses
-//! (state inclusion + nullifier non-inclusion proofs via the reference trees),
-//! a recipient-and-change transfer builder, and prove+verify against the
-//! committed `transfer_2_3` verifying key.
+//! Spec-driven transfer runner for the BDD scenarios: build a shielded transfer
+//! with the `Transaction` builder from a declarative `TransferPlan`, assert the
+//! exact output UTXOs (independently recomputed from the plan) and that the
+//! encrypted bundle decrypts back to them, resolve state + nullifier proofs via
+//! `TestIndexer`, prove on the prover server, and verify against the committed
+//! verifying key for whichever rail the inputs select (P256 `transfer_2_3` or
+//! Solana-only `transfer_eddsa_2_3`).
+
+pub mod test_indexer;
 
 use groth16_solana::groth16::Groth16Verifier;
-use light_hasher::{Hasher, Poseidon};
-use light_merkle_tree_reference::MerkleTree;
-use num_bigint::BigUint;
-use p256::ecdsa::SigningKey;
 use rand::{rngs::ThreadRng, RngCore};
-use zolana_client::field::BN254_MODULUS_DEC;
-use zolana_client::transfer::input_utxo_hash;
+use solana_address::Address;
+use test_indexer::TestIndexer;
+use zolana_client::field::{asset_field, signed_to_field};
 use zolana_client::{
-    spawn_prover, NullifierNonInclusionProof, P256Owner, ProverClient, PublicAmounts,
-    StateInclusionProof, TransferNewOutput, TransferProofResult, TransferProver,
-    TransferSpendInput, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    spawn_prover, ProverClient, PublicAmounts, Shape, SpendUtxo, Transaction,
+    TransferEddsaProofResult, TransferNewOutput, TransferProofResult, TransferRail,
+    WithdrawalTarget,
 };
-use zolana_interface::verifying_keys::transfer_2_3::VERIFYINGKEY;
-use zolana_keypair::hash::owner_hash;
+use zolana_interface::verifying_keys::{transfer_2_3, transfer_eddsa_2_3};
+use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{Data, ExternalData, Utxo, SOL_MINT};
+use zolana_transaction::transfer::{
+    TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+};
+use zolana_transaction::utxo::derive_blinding;
+use zolana_transaction::{
+    AssetRegistry, Data, ExternalData, TransactionEncryption, Utxo, SOL_MINT,
+};
+
+/// Registry id for the single test SPL mint (SOL is the reserved id 1).
+const SPL_ASSET_ID: u64 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Owner {
+    P256,
+    Solana,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Asset {
+    Sol,
+    Spl,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InputSpec {
+    pub owner: Owner,
+    pub asset: Asset,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SendSpec {
+    pub asset: Asset,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WithdrawSpec {
+    pub asset: Asset,
+    pub amount: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct TransferPlan {
+    pub inputs: Vec<InputSpec>,
+    pub sends: Vec<SendSpec>,
+    pub withdraw: Option<WithdrawSpec>,
+    pub declared_shape: bool,
+}
 
 fn random_blinding(rng: &mut ThreadRng) -> [u8; 31] {
     let mut b = [0u8; 31];
@@ -33,216 +83,305 @@ fn random_32(rng: &mut ThreadRng) -> [u8; 32] {
     b
 }
 
-/// A random value guaranteed to be a valid BN254 field element (poseidon inputs
-/// must be < ~254 bits): zero the most-significant byte.
-fn random_field(rng: &mut ThreadRng) -> [u8; 32] {
-    let mut b = random_32(rng);
-    b[0] = 0;
-    b
+fn spl_mint() -> Address {
+    Address::new_from_array([2u8; 32])
 }
 
-/// A transfer recipient: a Solana (ed25519) owner plus its nullifier pubkey,
-/// enough to mint an output UTXO to them.
-pub struct Recipient {
-    owner: PublicKey,
-    nullifier_pk: [u8; 32],
-}
-
-impl Recipient {
-    pub fn random(rng: &mut ThreadRng) -> Self {
-        let owner = PublicKey::from_ed25519(&random_32(rng));
-        let nullifier_pk = NullifierKey::from_secret(random_blinding(rng))
-            .pubkey()
-            .expect("nullifier pubkey");
-        Self {
-            owner,
-            nullifier_pk,
-        }
-    }
-
-    fn output(&self, amount: u64, rng: &mut ThreadRng) -> TransferNewOutput {
-        TransferNewOutput {
-            owner_hash: owner_hash(&self.owner, &self.nullifier_pk).expect("owner hash"),
-            asset: SOL_MINT,
-            amount,
-            blinding: random_blinding(rng),
-        }
+fn asset_addr(asset: Asset) -> Address {
+    match asset {
+        Asset::Sol => SOL_MINT,
+        Asset::Spl => spl_mint(),
     }
 }
 
-/// Build the state-inclusion proofs for a set of input UTXO leaf hashes inserted
-/// into a fresh height-26 Poseidon merkle tree (one shared root).
-fn state_proofs(leaves: &[[u8; 32]]) -> Vec<StateInclusionProof> {
-    let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    for leaf in leaves {
-        tree.append(leaf).expect("append state leaf");
-    }
-    let root = tree.root();
-    (0..leaves.len())
-        .map(|i| StateInclusionProof {
-            path_elements: tree
-                .get_proof_of_leaf(i, true)
-                .expect("state proof")
-                .try_into()
-                .expect("state path length"),
-            leaf_index: i as u64,
-            root,
-        })
-        .collect()
-}
+/// Build the transfer described by `plan`, assert its output UTXOs and encrypted
+/// bundle, prove it, and verify the proof. The rail is inferred from input
+/// ownership: any P256-owned input takes the P256 rail (signed), all-Solana
+/// inputs take the eddsa rail (unsigned).
+pub fn run(plan: &TransferPlan) {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().expect("sender keypair");
+    let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
-/// p - 1 (BN254 scalar field modulus minus one), big-endian. The SPP nullifier
-/// tree's indexed-value domain spans the whole field, so the empty-tree sentinel
-/// low element is (value 0, next_value p-1) (see the circuit's full_field_compare:
-/// "init sentinel p-1"). p itself can't be used: a field witness assigned p
-/// reduces to 0.
-fn nullifier_upper_bound() -> [u8; 32] {
-    let upper = BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("modulus") - 1u32;
-    let bytes = upper.to_bytes_be();
-    let mut out = [0u8; 32];
-    out[32 - bytes.len()..].copy_from_slice(&bytes);
-    out
-}
-
-/// Build nullifier non-inclusion proofs against a fresh (empty) height-40 indexed
-/// tree whose single sentinel leaf is `Poseidon(0, p-1)`: every nullifier is
-/// bracketed by `0 < nullifier < p-1`.
-fn nullifier_proofs(count: usize) -> Vec<NullifierNonInclusionProof> {
-    let low_value = [0u8; 32];
-    let next_value = nullifier_upper_bound();
-    let sentinel_leaf = Poseidon::hashv(&[&low_value, &next_value]).expect("sentinel leaf");
-
-    let mut tree = MerkleTree::<Poseidon>::new(NULLIFIER_TREE_HEIGHT, 0);
-    tree.append(&sentinel_leaf).expect("append sentinel");
-    let root = tree.root();
-    let low_path_elements: [[u8; 32]; NULLIFIER_TREE_HEIGHT] = tree
-        .get_proof_of_leaf(0, true)
-        .expect("sentinel proof")
-        .try_into()
-        .expect("nullifier path length");
-
-    (0..count)
-        .map(|_| NullifierNonInclusionProof {
-            low_value,
-            next_value,
-            low_path_elements,
-            low_leaf_index: 0,
-            root,
-        })
-        .collect()
-}
-
-/// Build real spend inputs (random owner / nullifier key / blinding per input)
-/// with consistent state + nullifier proofs.
-fn build_inputs(amounts: &[u64], rng: &mut ThreadRng) -> Vec<TransferSpendInput> {
-    let utxos: Vec<(Utxo, NullifierKey)> = amounts
+    let inputs: Vec<SpendUtxo> = plan
+        .inputs
         .iter()
-        .map(|&amount| {
-            let owner = PublicKey::from_ed25519(&random_32(rng));
-            let nullifier_key = NullifierKey::from_secret(random_blinding(rng));
+        .map(|input| {
+            let owner = match input.owner {
+                Owner::P256 => sender.signing_pubkey(),
+                Owner::Solana => PublicKey::from_ed25519(&random_32(&mut rng)),
+            };
             let utxo = Utxo {
                 owner,
-                asset: SOL_MINT,
-                amount,
-                blinding: random_blinding(rng),
+                asset: asset_addr(input.asset),
+                amount: input.amount,
+                blinding: random_blinding(&mut rng),
                 zone_program_id: None,
                 data: Data::default(),
             };
-            (utxo, nullifier_key)
+            match input.owner {
+                Owner::P256 => SpendUtxo::from((utxo, &sender)),
+                Owner::Solana => SpendUtxo {
+                    utxo,
+                    nullifier_key: NullifierKey::from_secret(random_blinding(&mut rng)),
+                },
+            }
         })
         .collect();
 
-    let utxo_hashes: Vec<[u8; 32]> = utxos
+    // Fresh recipients are created up front so the expected outputs can name them.
+    let recipients: Vec<ShieldedKeypair> = plan
+        .sends
         .iter()
-        .map(|(utxo, nk)| input_utxo_hash(utxo, nk).expect("utxo hash"))
+        .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
         .collect();
 
-    let states = state_proofs(&utxo_hashes);
-    let nfs = nullifier_proofs(utxos.len());
-
-    utxos
-        .into_iter()
-        .zip(states)
-        .zip(nfs)
-        .map(
-            |(((utxo, nullifier_key), state_proof), nullifier_proof)| TransferSpendInput {
-                utxo,
-                nullifier_key,
-                state_proof,
-                nullifier_proof,
-            },
-        )
-        .collect()
-}
-
-fn public_amounts_sol(public_sol: u64) -> PublicAmounts {
-    let mut sol = [0u8; 32];
-    sol[24..].copy_from_slice(&public_sol.to_be_bytes());
-    PublicAmounts {
-        sol,
-        spl: [0u8; 32],
-        asset: [0u8; 32],
-    }
-}
-
-/// Build and prove a P256-rail transfer: spend `input_amounts` plus an optional
-/// `public_sol` deposit, send each amount in `send_amounts` to a fresh recipient,
-/// and return the remainder to the sender as a change output. The proof is
-/// verified against `transfer_2_3::VERIFYINGKEY`.
-pub fn run_transfer(input_amounts: &[u64], public_sol: u64, send_amounts: &[u64]) {
-    let mut rng = rand::thread_rng();
-
-    let inputs = build_inputs(input_amounts, &mut rng);
-
-    let total_in: u64 = input_amounts.iter().sum::<u64>() + public_sol;
-    let total_sent: u64 = send_amounts.iter().sum();
-    assert!(total_sent <= total_in, "sends exceed available value");
-    let change = total_in - total_sent;
-
-    let mut outputs: Vec<TransferNewOutput> = send_amounts
-        .iter()
-        .map(|&amount| Recipient::random(&mut rng).output(amount, &mut rng))
-        .collect();
-    if change > 0 {
-        outputs.push(Recipient::random(&mut rng).output(change, &mut rng));
-    }
-
-    // P256 signature is unused for Solana-owned/dummy inputs; a fixed key suffices.
-    let signing_key = SigningKey::from_slice(&[1u8; 32]).expect("p256 signing key");
-    let result = TransferProver {
+    let mut tx = Transaction::new(
+        sender.shielded_address().expect("sender address"),
         inputs,
-        outputs,
-        external_data: ExternalData::default(),
-        public_amounts: public_amounts_sol(public_sol),
-        payer_pubkey_hash: random_field(&mut rng),
-        p256_owner: P256Owner::Signer(signing_key),
+        Address::default(),
+    );
+    if plan.declared_shape {
+        tx = tx.with_shape(Shape::new(2, 3));
     }
-    .build()
-    .expect("build transfer witness");
+    for (recipient, send) in recipients.iter().zip(&plan.sends) {
+        tx.send(
+            &recipient.shielded_address().expect("recipient address"),
+            asset_addr(send.asset),
+            send.amount,
+            recipient.recipient_bootstrap_view_tag(),
+        )
+        .expect("send");
+    }
+    if let Some(withdraw) = &plan.withdraw {
+        let target = match withdraw.asset {
+            Asset::Sol => WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array([7u8; 32]),
+            },
+            Asset::Spl => WithdrawalTarget::Spl {
+                user_spl_token: Address::new_from_array([8u8; 32]),
+                spl_token_interface: Address::new_from_array([9u8; 32]),
+            },
+        };
+        tx.withdraw(asset_addr(withdraw.asset), withdraw.amount, target)
+            .expect("withdraw");
+    }
 
-    prove_and_verify(&result);
+    let view_tag = sender.get_sender_view_tag(0).expect("sender view tag");
+    let signed = if tx.requires_p256_owner().expect("rail") {
+        tx.sign(&sender, &assets, view_tag).expect("sign")
+    } else {
+        tx.finalize(&sender, &assets, view_tag).expect("finalize")
+    };
+
+    let commitments = signed.input_commitments().expect("input commitments");
+    let first_nullifier = commitments.first().expect("at least one input").nullifier;
+    let mut indexer = TestIndexer::new();
+    for commitment in &commitments {
+        indexer.add_utxo(commitment.utxo_hash);
+    }
+
+    match signed.into_prover(&mut indexer).expect("into prover") {
+        TransferRail::P256(prover) => {
+            assert_outputs(
+                &prover.outputs,
+                &prover.public_amounts,
+                &prover.external_data,
+                plan,
+                &sender,
+                &recipients,
+                &first_nullifier,
+            );
+            prove_and_verify_p256(&prover.build().expect("build"));
+        }
+        TransferRail::Eddsa(prover) => {
+            assert_outputs(
+                &prover.outputs,
+                &prover.public_amounts,
+                &prover.external_data,
+                plan,
+                &sender,
+                &recipients,
+                &first_nullifier,
+            );
+            prove_and_verify_eddsa(&prover.build().expect("build"));
+        }
+    }
 }
 
-fn prove_and_verify(result: &TransferProofResult) {
+/// Recompute the expected output UTXOs from the plan and assert the builder
+/// produced exactly those, and that the encrypted bundle decrypts back to the
+/// same sender change and recipients.
+fn assert_outputs(
+    outputs: &[TransferNewOutput],
+    public_amounts: &PublicAmounts,
+    external_data: &ExternalData,
+    plan: &TransferPlan,
+    sender: &ShieldedKeypair,
+    recipients: &[ShieldedKeypair],
+    first_nullifier: &[u8; 32],
+) {
+    let blob = TransferEncryptedUtxos::deserialize(&external_data.encrypted_utxos).unwrap();
+    let (sender_pt, recipients_pt) = sender
+        .viewing_key
+        .decrypt_transfer(first_nullifier, &blob)
+        .unwrap();
+    let seed = sender_pt.blinding_seed;
+
+    let net_public = |asset: Asset| -> i128 {
+        match &plan.withdraw {
+            Some(w) if w.asset == asset => -(w.amount as i128),
+            _ => 0,
+        }
+    };
+    let input_sum = |asset: Asset| -> i128 {
+        plan.inputs
+            .iter()
+            .filter(|i| i.asset == asset)
+            .map(|i| i.amount as i128)
+            .sum()
+    };
+    let send_sum = |asset: Asset| -> i128 {
+        plan.sends
+            .iter()
+            .filter(|s| s.asset == asset)
+            .map(|s| s.amount as i128)
+            .sum()
+    };
+    let change =
+        |asset: Asset| -> u64 { (input_sum(asset) + net_public(asset) - send_sum(asset)) as u64 };
+
+    let owner_hash = sender.shielded_address().unwrap().owner_hash().unwrap();
+    let mut expected = Vec::new();
+    if change(Asset::Spl) > 0 {
+        expected.push(TransferNewOutput {
+            owner_hash,
+            asset: spl_mint(),
+            amount: change(Asset::Spl),
+            blinding: derive_blinding(&seed, 0),
+        });
+    }
+    if change(Asset::Sol) > 0 {
+        expected.push(TransferNewOutput {
+            owner_hash,
+            asset: SOL_MINT,
+            amount: change(Asset::Sol),
+            blinding: derive_blinding(&seed, 1),
+        });
+    }
+    for (i, (recipient, send)) in recipients.iter().zip(&plan.sends).enumerate() {
+        expected.push(TransferNewOutput {
+            owner_hash: recipient.shielded_address().unwrap().owner_hash().unwrap(),
+            asset: asset_addr(send.asset),
+            amount: send.amount,
+            blinding: derive_blinding(&seed, 2 + i as u8),
+        });
+    }
+    assert_eq!(outputs, expected.as_slice());
+
+    // Public amounts: signed net per asset, with the SPL asset pinned to 0 when
+    // there is no public SPL movement.
+    assert_eq!(
+        public_amounts,
+        &PublicAmounts {
+            sol: signed_to_field(net_public(Asset::Sol)),
+            spl: signed_to_field(net_public(Asset::Spl)),
+            asset: if net_public(Asset::Spl) != 0 {
+                asset_field(&spl_mint()).unwrap()
+            } else {
+                [0u8; 32]
+            },
+        }
+    );
+
+    // External data: transact discriminator, withdrawal magnitudes + accounts,
+    // everything else defaulted; the random ciphertext is passed through.
+    let (user_sol_account, user_spl_token, spl_token_interface) = match &plan.withdraw {
+        Some(w) if w.asset == Asset::Sol => (
+            Address::new_from_array([7u8; 32]),
+            Address::default(),
+            Address::default(),
+        ),
+        Some(_) => (
+            Address::default(),
+            Address::new_from_array([8u8; 32]),
+            Address::new_from_array([9u8; 32]),
+        ),
+        None => (Address::default(), Address::default(), Address::default()),
+    };
+    assert_eq!(
+        external_data,
+        &ExternalData {
+            instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            sender_view_tag: sender.get_sender_view_tag(0).unwrap(),
+            relayer_fee: 0,
+            public_sol_amount: net_public(Asset::Sol).unsigned_abs() as u64,
+            public_spl_amount: net_public(Asset::Spl).unsigned_abs() as u64,
+            user_sol_account,
+            user_spl_token,
+            spl_token_interface,
+            encrypted_utxos: external_data.encrypted_utxos.clone(),
+        }
+    );
+
+    // The encrypted bundle decrypts to the same sender change and recipients.
+    let has_spl = plan.inputs.iter().any(|i| i.asset == Asset::Spl)
+        || plan.sends.iter().any(|s| s.asset == Asset::Spl)
+        || matches!(plan.withdraw, Some(w) if w.asset == Asset::Spl);
+    assert_eq!(
+        sender_pt,
+        TransferSenderPlaintext {
+            owner_pubkey: sender.signing_pubkey(),
+            spl_asset_id: if has_spl { SPL_ASSET_ID } else { 0 },
+            spl_amount: change(Asset::Spl),
+            sol_amount: change(Asset::Sol),
+            blinding_seed: seed,
+            recipient_viewing_pks: recipients.iter().map(|r| r.viewing_pubkey()).collect(),
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        }
+    );
+    let expected_recipients: Vec<TransferRecipientPlaintext> = recipients
+        .iter()
+        .zip(&plan.sends)
+        .enumerate()
+        .map(|(i, (recipient, send))| TransferRecipientPlaintext {
+            owner_pubkey: recipient.signing_pubkey(),
+            sender_pubkey: sender.viewing_pubkey(),
+            asset_id: match send.asset {
+                Asset::Sol => zolana_transaction::SOL_ASSET_ID,
+                Asset::Spl => SPL_ASSET_ID,
+            },
+            amount: send.amount,
+            blinding: derive_blinding(&seed, 2 + i as u8),
+            data: Data::default(),
+        })
+        .collect();
+    assert_eq!(recipients_pt, expected_recipients);
+}
+
+fn start_prover() {
     // Point the prover at the in-repo proving keys (once, to avoid a concurrent
-    // set_var race across the non-serial tests).
+    // set_var race across the non-serial scenarios).
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "LIGHT_PROVER_KEYS_DIR",
+            "ZOLANA_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"
             ),
         );
     });
-
     spawn_prover().expect("start prover");
+}
 
+fn prove_and_verify_p256(result: &TransferProofResult) {
+    start_prover();
     let proof = ProverClient::local()
         .prove_transfer(&result.inputs)
         .expect("prove transfer");
-
     let commitments = proof
         .commitment
         .expect("P256 transfer proof must carry a commitment");
@@ -254,7 +393,24 @@ fn prove_and_verify(result: &TransferProofResult) {
         &commitments.commitment,
         &commitments.commitment_pok,
         &public_inputs,
-        &VERIFYINGKEY,
+        &transfer_2_3::VERIFYINGKEY,
+    )
+    .expect("construct verifier");
+    verifier.verify().expect("groth16 proof verifies");
+}
+
+fn prove_and_verify_eddsa(result: &TransferEddsaProofResult) {
+    start_prover();
+    let proof = ProverClient::local()
+        .prove_transfer_eddsa(&result.inputs)
+        .expect("prove transfer-eddsa");
+    let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
+    let mut verifier = Groth16Verifier::new(
+        &proof.a,
+        &proof.b,
+        &proof.c,
+        &public_inputs,
+        &transfer_eddsa_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");

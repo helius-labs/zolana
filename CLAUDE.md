@@ -305,6 +305,25 @@ cd prover/server && go build -o light-prover .
 (pk+vk+ccs). Keys are gitignored. The server lazy-loads
 `proving-keys/<rail>_<in>_<out>.key` on first proof request for that shape.
 
+### Distribute proving keys via GitHub release
+
+Gitignored keys are published as assets on a private-repo GitHub release
+(`transfer-keys-v1` on `helius-labs/zolana`). The unauthenticated asset URL
+404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
+`GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
+`TransferKeysReleaseTag` in `key_downloader.go` and must match
+`publish_keys_release.sh`; bump both when rotating.
+
+```bash
+prover/server/scripts/publish_keys_release.sh        # publish/refresh the release
+```
+
+`loadTransferSystem` -> `EnsureTransferKeyFromRelease` verifies against the local
+`CHECKSUM` (offline, no network), else runs `gh release download` and re-checks
+the SHA256. Merkle/batch keys still use the GCS `DownloadKey` path. CI's
+`tests / client integration` job (`just test-client-integration`) sets
+`GH_TOKEN` and caches `prover/server/proving-keys` by tag.
+
 ### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
 
 ```bash

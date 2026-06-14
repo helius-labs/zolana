@@ -18,6 +18,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -25,4 +26,9 @@ light-hasher = { workspace = true, features = ["poseidon", "std"] }
 light-merkle-tree-reference = { workspace = true }
 zolana-interface = { workspace = true }
 serial_test = { workspace = true }
-rand = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+
+[[test]]
+name = "transfer_2_3"
+harness = false

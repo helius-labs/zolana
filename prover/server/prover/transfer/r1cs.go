@@ -14,7 +14,7 @@ import (
 // verifying key was produced with (the P256 rail adds a BSB22 commitment the
 // on-chain Groth16Verifier expects); do not drop it.
 func R1CSTransfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
-	circuit, err := txcircuit.NewCircuit(txcircuit.Shape{
+	circuit, err := txcircuit.NewTransferP256Circuit(txcircuit.Shape{
 		NInputs:  int(nInputs),
 		NOutputs: int(nOutputs),
 	})

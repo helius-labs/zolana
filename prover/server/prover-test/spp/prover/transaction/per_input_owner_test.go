@@ -30,9 +30,9 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 }
 
 // mustNewCircuit builds the P256-capable circuit and panics on error -- a test
-// convenience over the error-returning txcircuit.NewCircuit.
+// convenience over the error-returning txcircuit.NewTransferP256Circuit.
 func mustNewCircuit(shape txcircuit.Shape) *txcircuit.Circuit {
-	circuit, err := txcircuit.NewCircuit(shape)
+	circuit, err := txcircuit.NewTransferP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +41,7 @@ func mustNewCircuit(shape txcircuit.Shape) *txcircuit.Circuit {
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
 func mustNewSolanaCircuit(shape txcircuit.Shape) *txcircuit.Circuit {
-	circuit, err := txcircuit.NewSolanaCircuit(shape)
+	circuit, err := txcircuit.NewTransferCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

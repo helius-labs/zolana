@@ -11,6 +11,7 @@ pub mod asset;
 pub mod data;
 pub mod encryption;
 pub mod error;
+pub mod plaintext_transfer;
 pub mod split;
 pub mod transaction;
 pub mod transfer;
@@ -32,6 +33,7 @@ pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
 pub const TRANSFER: u8 = 1;
 pub const SPLIT: u8 = 2;
+pub const TRANSFER_PLAINTEXT: u8 = 4;
 
 pub(crate) struct P256PubkeySchema;
 pub(crate) struct PublicKeySchema;

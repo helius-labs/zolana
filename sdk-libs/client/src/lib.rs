@@ -3,6 +3,7 @@ pub mod field;
 pub mod merkle;
 pub mod prover;
 pub mod shape;
+pub mod transaction;
 pub mod transfer;
 pub mod transfer_eddsa;
 
@@ -14,7 +15,11 @@ pub use prover::{
     spawn_prover, Commitments, CompressedCommitments, Proof, ProofCompressed, ProverClient,
     TransferEddsaInputs, TransferInput, TransferInputs, TransferOutput, UtxoInputs,
 };
-pub use shape::{canonical_shape, Shape, SUPPORTED_SHAPES};
+pub use shape::{canonical_shape, resolve_shape, Shape, SUPPORTED_SHAPES};
+pub use transaction::{
+    InputCommitment, ProofResolver, SignedTransaction, SpendProof, SpendUtxo, Transaction,
+    TransferRail, WithdrawalTarget,
+};
 pub use transfer::{
     P256Owner, PublicAmounts, TransferNewOutput, TransferProofResult, TransferProver,
     TransferSpendInput,

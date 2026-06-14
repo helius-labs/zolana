@@ -37,9 +37,9 @@ func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSyst
 	)
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
 	if requiresP256 {
-		circuit, err = txcircuit.NewCircuit(txShape)
+		circuit, err = txcircuit.NewTransferP256Circuit(txShape)
 	} else {
-		circuit, err = txcircuit.NewSolanaCircuit(txShape)
+		circuit, err = txcircuit.NewTransferCircuit(txShape)
 	}
 	if err != nil {
 		return nil, err

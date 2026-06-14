@@ -65,16 +65,17 @@ type Output struct {
 	Hash    frontend.Variable
 }
 
-// NewCircuit builds the P256-capable transaction circuit (includes the ECDSA
-// gadget). Use NewSolanaCircuit for the cheaper Solana-only rail.
-func NewCircuit(shape Shape) (*Circuit, error) {
+// Transfer circuit with p256 ecdsa signature verification.
+// Input utxos must be owned by the signing p256 ecdsa key
+// or an eddsa key that is checked by the verifying Solana program.
+func NewTransferP256Circuit(shape Shape) (*Circuit, error) {
 	return newCircuit(shape, true)
 }
 
-// NewSolanaCircuit builds the Solana-only transaction circuit: it omits the
-// emulated-P256 gadget (~7x fewer constraints) and requires every real input to
-// be Solana-owned.
-func NewSolanaCircuit(shape Shape) (*Circuit, error) {
+// Transfer circuit without p256 ecdsa signature verification.
+// Input utxos must be owned by an eddsa key that is checked
+// by the verifying Solana program.
+func NewTransferCircuit(shape Shape) (*Circuit, error) {
 	return newCircuit(shape, false)
 }
 

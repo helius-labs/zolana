@@ -13,7 +13,7 @@ import (
 // shape (no P256 gadget). WithCompressThreshold(300) matches the constraint
 // system the committed verifying key was produced with; do not drop it.
 func R1CSTransfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
-	circuit, err := txcircuit.NewSolanaCircuit(txcircuit.Shape{
+	circuit, err := txcircuit.NewTransferCircuit(txcircuit.Shape{
 		NInputs:  int(nInputs),
 		NOutputs: int(nOutputs),
 	})

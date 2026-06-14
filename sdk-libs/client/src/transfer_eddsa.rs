@@ -4,7 +4,7 @@ use zolana_transaction::ExternalData;
 use crate::error::ClientError;
 use crate::field::be;
 use crate::prover::TransferEddsaInputs;
-use crate::shape::canonical_shape;
+use crate::shape::{resolve_shape, Shape};
 use crate::transfer::{
     assemble_inputs, assemble_outputs, private_tx_hash, public_input_hash, PublicAmounts,
     TransferNewOutput, TransferSpendInput,
@@ -16,6 +16,7 @@ pub struct TransferEddsaProver {
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
+    pub shape: Option<Shape>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ pub struct TransferEddsaProofResult {
 
 impl TransferEddsaProver {
     pub fn build(self) -> Result<TransferEddsaProofResult, ClientError> {
-        let shape = canonical_shape(self.inputs.len(), self.outputs.len())?;
+        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         let assembled_inputs = assemble_inputs(&self.inputs, shape, false)?;
         let assembled_outputs = assemble_outputs(&self.outputs, shape)?;
         let external_data_hash = self.external_data.hash();

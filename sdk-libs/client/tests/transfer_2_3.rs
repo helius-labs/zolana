@@ -1,31 +1,79 @@
-//! End-to-end integration tests for the P256 `transfer` circuit at shape (2,3):
-//! build a real witness, prove via the prover server, and cryptographically
-//! verify against the committed `transfer_2_3` verifying key.
+//! End-to-end BDD tests for the `Transaction` builder at shape (2,3): each
+//! scenario declares inputs / sends / withdrawals, then the `Then` step builds
+//! the transfer, proves it on the prover server, and verifies against the
+//! committed verifying key for the selected rail (P256 `transfer_2_3` or
+//! Solana-only `transfer_eddsa_2_3`).
 //!
 //! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_2_3.key` proving key available.
+//! `transfer_2_3.key` and `transfer-eddsa_2_3.key` proving keys available.
+//!
+//! Run with: `cargo test -p zolana-client --test transfer_2_3`
 
 mod common;
 
-use common::run_transfer;
+use common::{Asset, InputSpec, Owner, SendSpec, TransferPlan, WithdrawSpec};
+use cucumber::{given, then, when, World};
 
-/// Dummy inputs, real outputs: a deposit of 100 funds a 60 send to a recipient
-/// and a 40 change output. Both input slots are dummy.
-#[test]
-fn deposit_dummy_inputs_real_outputs() {
-    run_transfer(&[], 100, &[60]);
+#[derive(Debug, Default, World)]
+struct TransferWorld {
+    plan: TransferPlan,
 }
 
-/// One real input + one dummy input; two real outputs (send + change) + one dummy
-/// output. A real 100-value spend split into a 60 send and 40 change.
-#[test]
-fn one_real_one_dummy_input() {
-    run_transfer(&[100], 0, &[60]);
+fn owner(word: &str) -> Owner {
+    match word {
+        "P256" => Owner::P256,
+        "Solana" => Owner::Solana,
+        other => panic!("unknown owner type: {other}"),
+    }
 }
 
-/// All real inputs and outputs: two inputs (100 + 50) fully spent into three real
-/// outputs — two sends (60, 50) and a 40 change.
-#[test]
-fn all_real_inputs_and_outputs() {
-    run_transfer(&[100, 50], 0, &[60, 50]);
+fn asset(word: &str) -> Asset {
+    match word {
+        "SOL" => Asset::Sol,
+        "SPL" => Asset::Spl,
+        other => panic!("unknown asset: {other}"),
+    }
+}
+
+#[given(expr = "a {word} {word} input worth {int}")]
+fn given_input(world: &mut TransferWorld, owner_word: String, asset_word: String, amount: u64) {
+    world.plan.inputs.push(InputSpec {
+        owner: owner(&owner_word),
+        asset: asset(&asset_word),
+        amount,
+    });
+}
+
+#[given("the (2,3) shape is declared")]
+fn given_declared_shape(world: &mut TransferWorld) {
+    world.plan.declared_shape = true;
+}
+
+#[when(expr = "the sender sends {int} {word} to a fresh recipient")]
+fn when_sends(world: &mut TransferWorld, amount: u64, asset_word: String) {
+    world.plan.sends.push(SendSpec {
+        asset: asset(&asset_word),
+        amount,
+    });
+}
+
+#[when(expr = "the sender withdraws {int} {word} to an external account")]
+fn when_withdraws(world: &mut TransferWorld, amount: u64, asset_word: String) {
+    world.plan.withdraw = Some(WithdrawSpec {
+        asset: asset(&asset_word),
+        amount,
+    });
+}
+
+#[then("the proof verifies")]
+fn then_proof_verifies(world: &mut TransferWorld) {
+    common::run(&world.plan);
+}
+
+fn main() {
+    futures::executor::block_on(
+        TransferWorld::cucumber()
+            .fail_on_skipped()
+            .run_and_exit("tests/features"),
+    );
 }

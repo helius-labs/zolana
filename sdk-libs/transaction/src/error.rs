@@ -34,6 +34,9 @@ pub enum TransactionError {
     #[error("data attached to an output with zero amount")]
     DataWithoutOutput,
 
+    #[error("too many outputs to derive blinding positions")]
+    TooManyOutputs,
+
     #[error("duplicate data record")]
     DuplicateDataRecord,
 

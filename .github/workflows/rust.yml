@@ -140,3 +140,32 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
       - run: just test-user-registry-litesvm
+
+  test-client-integration:
+    name: tests / client integration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      # The spawned prover lazily fetches transfer proving keys from the
+      # transfer-keys-v1 release via `gh`. The release lives in this repo, so the
+      # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      # Avoid re-downloading the ~75MB keys every run; the prover's offline
+      # CHECKSUM path reuses them on a cache hit.
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v1
+      - run: just test-client-integration

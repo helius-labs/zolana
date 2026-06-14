@@ -22,6 +22,18 @@ pub enum ClientError {
     #[error("too many outputs: got {got}, shape holds at most {max}")]
     TooManyOutputs { got: usize, max: usize },
 
+    #[error("insufficient balance for asset: requested {requested}, available {available}")]
+    InsufficientBalance { requested: u64, available: u64 },
+
+    #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
+    MultiplePublicSplAssets,
+
+    #[error("a transaction supports a single withdrawal")]
+    WithdrawalAlreadySet,
+
+    #[error("a transaction must spend at least one input")]
+    NoInputs,
+
     #[error(
         "input {index} is not Solana-owned; the transfer-eddsa rail rejects P256-owned inputs"
     )]

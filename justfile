@@ -49,6 +49,15 @@ test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
 
+# All zolana-client tests (lib unit tests, the `transaction` integration test,
+# and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
+# (via the zolana CLI), which lazily downloads transfer proving keys from the
+# transfer-keys-v1 GitHub release using `gh` -- so this needs `gh` on PATH with
+# auth (local `gh auth login`, or GH_TOKEN in CI). Builds the go prover binary
+# and the zolana CLI the spawned server/test rely on.
+test-client-integration: build-prover-server build-cli
+    cargo test -p zolana-client
+
 # End-to-end litesvm tests for shielded-pool.
 test-litesvm: build-programs
     cargo test -p shielded-pool-tests

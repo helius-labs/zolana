@@ -1154,8 +1154,13 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 30
 	case common.BatchAddressAppendCircuitType:
 		return 30
+	case common.TransferCircuitType:
+		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
+		// runs well over the 10s floor on slower CI hardware.
+		return 60
+	case common.TransferEddsaCircuitType:
+		return 30
 	default:
-		// Includes transfer / transfer-eddsa (single proof, ~1-3 seconds).
 		return 1
 	}
 }
