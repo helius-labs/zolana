@@ -18,7 +18,6 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
-zolana-user-registry = { workspace = true, features = ["no-entrypoint"] }
 
 [dev-dependencies]
 cucumber = { workspace = true }
