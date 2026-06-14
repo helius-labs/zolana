@@ -54,7 +54,7 @@ test-litesvm: build-programs
     cargo test -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-litesvm
+test-all: test test-litesvm test-user-registry-litesvm
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
