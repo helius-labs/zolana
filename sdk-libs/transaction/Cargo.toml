@@ -22,7 +22,6 @@ parallel = ["dep:rayon"]
 criterion = { workspace = true }
 cucumber = { workspace = true }
 tokio = { workspace = true }
-hex = { workspace = true }
 proptest = { workspace = true }
 
 [[test]]

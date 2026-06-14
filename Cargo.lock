@@ -3933,31 +3933,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serial_test"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "699f4197115b8a7e7ff19c9a315a4bd6fffec26cc4626ef45ecaea389e081c6d"
-dependencies = [
- "futures-executor",
- "futures-util",
- "log",
- "once_cell",
- "parking_lot",
- "serial_test_derive",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94e153fc76e1c6a068703d6d29c508a0b15c061c4b7e43da59cc097bc342673c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "sha2"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4017,7 +3992,6 @@ dependencies = [
  "light-verifier",
  "pinocchio 0.11.2",
  "pinocchio-system 0.6.1",
- "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "zolana-interface",
 ]
@@ -7462,7 +7436,6 @@ dependencies = [
  "cucumber",
  "futures",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
- "hex",
  "light-hasher",
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
@@ -7472,7 +7445,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serial_test",
  "solana-account",
  "solana-address 2.6.1",
  "solana-bn254",
@@ -7552,7 +7524,6 @@ dependencies = [
  "ark-bn254 0.5.0",
  "criterion",
  "cucumber",
- "hex",
  "light-poseidon 0.4.0",
  "proptest",
  "rayon",
