@@ -15,7 +15,6 @@
 
 use std::path::{Path, PathBuf};
 
-use borsh::BorshSerialize;
 use litesvm::LiteSVM;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
@@ -34,18 +33,31 @@ use zolana_interface::{
     state::state_root_offset,
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED,
     SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{
     derive_blinding, Address, Blinding, Data, DataRecord, ProoflessDepositEvent, Wallet,
 };
 
+pub mod events;
+pub use events::{
+    index_events, indexed_event_from_emit_payload, indexed_events_from_instructions,
+    indexed_events_from_meta, parsed_instruction_from_compiled, single_proofless_shield_event,
+    IndexedEvent, IndexedEventData, ParsedInstruction,
+};
 pub mod indexer;
-pub use indexer::{PoolIndexer, UtxoRecord};
+pub use indexer::{IndexerError, PoolIndexer, UtxoRecord};
+pub mod instructions;
+pub use instructions::{
+    proofless_shield_sol_instruction, system_create_account_ix, zone_auth_pda,
+    zone_proofless_shield_sol_instruction, ZONE_TEST_PROGRAM_ID,
+};
 mod logging;
+mod paths;
+use paths::{default_program_path, default_zone_test_program_path};
 pub mod rpc;
-pub use rpc::{IndexedEvent, IndexedTransaction, LiteSvmRpc};
+pub use rpc::{IndexedTransaction, LiteSvmRpc};
 
 pub fn proofless_event_for_wallet(event: &ProoflessShieldEvent) -> ProoflessDepositEvent {
     let mut records = Vec::new();
@@ -78,6 +90,10 @@ pub enum RigError {
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
     Transaction(#[from] zolana_transaction::TransactionError),
+    #[error("indexer: {0}")]
+    Indexer(#[from] IndexerError),
+    #[error("event: {0}")]
+    Event(String),
 }
 
 pub struct PoolTestRig {
@@ -123,10 +139,6 @@ impl PoolTestRig {
 
     pub fn indexer(&self) -> &PoolIndexer {
         &self.indexer
-    }
-
-    pub fn indexer_mut(&mut self) -> &mut PoolIndexer {
-        &mut self.indexer
     }
 
     fn rpc(&mut self) -> LiteSvmRpc<'_> {
@@ -285,10 +297,6 @@ impl PoolTestRig {
         );
 
         // 2. Call create_tree: [authority(signer), protocol_config, tree].
-        let mut create_pool_data = vec![tag::CREATE_TREE];
-        CreateTreeData
-            .serialize(&mut create_pool_data)
-            .expect("infallible");
         let pool_ix = Instruction {
             program_id: self.program_id,
             accounts: vec![
@@ -296,7 +304,7 @@ impl PoolTestRig {
                 AccountMeta::new_readonly(self.protocol_config_pda(), false),
                 AccountMeta::new(tree.pubkey(), false),
             ],
-            data: create_pool_data,
+            data: encode_instruction(tag::CREATE_TREE, &CreateTreeData),
         };
 
         self.send(
@@ -579,7 +587,7 @@ impl PoolTestRig {
         let outcome = self
             .rpc()
             .send_instructions(&[ix], &[&payer, depositor], &payer_pubkey)?;
-        single_proofless_event(outcome.events)
+        single_proofless_shield_event(&outcome.events)
     }
 
     /// Deposit `lamports` of SOL without a proof (`proofless_shield`). The
@@ -769,7 +777,7 @@ impl PoolTestRig {
         let outcome = self
             .rpc()
             .send_instructions(&[ix], &[&payer, depositor], &payer_pubkey)?;
-        single_proofless_event(outcome.events)
+        single_proofless_shield_event(&outcome.events)
     }
 
     pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), RigError> {
@@ -812,26 +820,9 @@ impl PoolTestRig {
     ) -> Result<(), RigError> {
         let blockhash = self.svm.latest_blockhash();
         let msg = Message::new(ixs, Some(payer));
-        let account_keys = msg.account_keys.clone();
         let tx = Transaction::new(signers, msg, blockhash);
-        self.rpc().send_transaction(tx, &account_keys).map(|_| ())
+        self.rpc().send_transaction(tx).map(|_| ())
     }
-}
-
-fn single_proofless_event(events: Vec<IndexedEvent>) -> Result<ProoflessShieldEvent, RigError> {
-    let mut proofless_events = events.into_iter().filter_map(|event| match event {
-        IndexedEvent::ProoflessShield(event) => Some(event),
-        IndexedEvent::Unknown { .. } => None,
-    });
-    let Some(event) = proofless_events.next() else {
-        return Err(RigError::Litesvm("no proofless shield event".into()));
-    };
-    if proofless_events.next().is_some() {
-        return Err(RigError::Litesvm(
-            "expected one proofless shield event".into(),
-        ));
-    }
-    Ok(event)
 }
 
 struct WalletShieldFields {
@@ -857,110 +848,4 @@ fn wallet_shield_fields(
         salt,
         blinding,
     })
-}
-
-/// Top-level system_program::CreateAccount (discriminator 0); the new
-/// account co-signs.
-fn system_create_account_ix(
-    payer: &Pubkey,
-    new_account: &Pubkey,
-    lamports: u64,
-    space: u64,
-    owner: &Pubkey,
-) -> Instruction {
-    let mut data = vec![0u8; 4 + 8 + 8 + 32];
-    data[4..12].copy_from_slice(&lamports.to_le_bytes());
-    data[12..20].copy_from_slice(&space.to_le_bytes());
-    data[20..52].copy_from_slice(&owner.to_bytes());
-    Instruction {
-        program_id: Pubkey::default(),
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new(*new_account, true),
-        ],
-        data,
-    }
-}
-
-/// litesvm loads the test-only zone wrapper program at this id.
-/// Any 32-byte value works; the program's `zone_auth` PDA derives from it.
-pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
-
-pub fn zone_auth_pda(zone_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], zone_program_id)
-}
-
-pub fn proofless_shield_sol_instruction(
-    program_id: Pubkey,
-    tree: Pubkey,
-    depositor: Pubkey,
-    cpi_authority: Pubkey,
-    data: &ProoflessShieldIxData,
-) -> Instruction {
-    Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(tree, false),
-            AccountMeta::new(depositor, true),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(cpi_authority, false),
-            AccountMeta::new(depositor, false),
-            AccountMeta::new_readonly(program_id, false),
-        ],
-        data: encode_instruction(tag::PROOFLESS_SHIELD, data),
-    }
-}
-
-pub fn zone_proofless_shield_sol_instruction(
-    shielded_pool_program_id: Pubkey,
-    zone_program_id: Pubkey,
-    tree: Pubkey,
-    depositor: Pubkey,
-    zone_auth: Pubkey,
-    cpi_authority: Pubkey,
-    data: &ZoneProoflessShieldIxData,
-) -> Instruction {
-    Instruction {
-        program_id: zone_program_id,
-        accounts: vec![
-            AccountMeta::new(tree, false),
-            AccountMeta::new(depositor, true),
-            AccountMeta::new_readonly(zone_auth, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(cpi_authority, false),
-            AccountMeta::new(depositor, false),
-            AccountMeta::new_readonly(shielded_pool_program_id, false),
-        ],
-        data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
-    }
-}
-
-/// Default location of `zone_test_program.so`: `<workspace>/target/deploy/`,
-/// overridable via `ZONE_TEST_PROGRAM_PATH`.
-fn default_zone_test_program_path() -> PathBuf {
-    if let Ok(p) = std::env::var("ZONE_TEST_PROGRAM_PATH") {
-        return PathBuf::from(p);
-    }
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    PathBuf::from(manifest_dir)
-        .join("..")
-        .join("..")
-        .join("target")
-        .join("deploy")
-        .join("zone_test_program.so")
-}
-
-fn default_program_path() -> PathBuf {
-    if let Ok(p) = std::env::var("SHIELDED_POOL_PROGRAM_PATH") {
-        return PathBuf::from(p);
-    }
-    // CARGO_MANIFEST_DIR points at sdk-libs/program-test at build time; the
-    // workspace root is two levels up.
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    PathBuf::from(manifest_dir)
-        .join("..")
-        .join("..")
-        .join("target")
-        .join("deploy")
-        .join("shielded_pool_program.so")
 }

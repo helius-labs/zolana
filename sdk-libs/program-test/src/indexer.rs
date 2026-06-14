@@ -10,8 +10,20 @@
 
 use light_hasher::Poseidon;
 use light_sparse_merkle_tree::SparseMerkleTree;
+use thiserror::Error;
 use zolana_interface::{instruction::ProoflessShieldEvent, state::STATE_HEIGHT};
 use zolana_transaction::{Address, TransactionError, Utxo};
+
+#[derive(Debug, Error)]
+pub enum IndexerError {
+    #[error("transaction: {0}")]
+    Transaction(#[from] TransactionError),
+    #[error("event utxo_hash mismatch: expected {expected:?}, got {actual:?}")]
+    UtxoHashMismatch {
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
+}
 
 /// One deposited UTXO as an indexer sees it: the event fields plus its
 /// position in the state tree.
@@ -53,12 +65,14 @@ impl PoolIndexer {
     pub fn record_proofless_shield(
         &mut self,
         event: &ProoflessShieldEvent,
-    ) -> Result<&UtxoRecord, TransactionError> {
+    ) -> Result<&UtxoRecord, IndexerError> {
         let recomputed = proofless_utxo_hash(event)?;
-        assert_eq!(
-            recomputed, event.utxo_hash,
-            "event utxo_hash must match recomputation from event fields"
-        );
+        if recomputed != event.utxo_hash {
+            return Err(IndexerError::UtxoHashMismatch {
+                expected: recomputed,
+                actual: event.utxo_hash,
+            });
+        }
 
         let leaf_index = self.tree.get_next_index() as u64;
         let record_index = self.utxos.len();

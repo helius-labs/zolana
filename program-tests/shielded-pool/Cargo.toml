@@ -7,12 +7,15 @@ publish = false
 [features]
 default = []
 localnet = [
+    "dep:bs58",
     "dep:solana-commitment-config",
     "dep:solana-rpc-client",
     "dep:solana-signature",
+    "dep:solana-transaction-status-client-types",
 ]
 
 [dependencies]
+bs58 = { workspace = true, optional = true }
 shielded-pool-program = { workspace = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-instruction = { workspace = true }
@@ -23,6 +26,7 @@ solana-rpc-client = { workspace = true, optional = true }
 solana-signature = { workspace = true, optional = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
+solana-transaction-status-client-types = { workspace = true, optional = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }

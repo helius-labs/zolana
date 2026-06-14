@@ -4026,6 +4026,7 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "shielded-pool-program",
  "solana-commitment-config",
  "solana-instruction",
@@ -4036,6 +4037,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction",
+ "solana-transaction-status-client-types",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
@@ -7318,8 +7320,11 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "sha2 0.10.9",
+ "zolana-interface",
+ "zolana-program-test",
 ]
 
 [[package]]
@@ -7527,6 +7532,7 @@ dependencies = [
  "light-instruction-decoder",
  "light-sparse-merkle-tree",
  "litesvm",
+ "solana-clock",
  "solana-instruction",
  "solana-keypair",
  "solana-message",

@@ -103,8 +103,8 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
 
-  test-litesvm:
-    name: tests / litesvm
+  test-programs:
+    name: tests / programs
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
@@ -113,14 +113,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: litesvm
+          shared-key: programs
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
-      - run: just test-litesvm
+      - run: just test-programs
 
   test-user-registry-litesvm:
     name: tests / user-registry litesvm

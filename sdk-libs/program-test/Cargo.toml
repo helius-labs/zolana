@@ -16,6 +16,7 @@ borsh = { workspace = true }
 litesvm = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
+solana-clock = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
