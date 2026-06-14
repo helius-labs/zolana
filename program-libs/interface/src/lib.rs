@@ -3,6 +3,15 @@ pub mod state;
 pub mod user_registry;
 pub mod verifying_keys;
 
+/// Decode a base58 program id into a `[u8; 32]` const at compile time.
+#[macro_export]
+macro_rules! pubkey_array {
+    ($address:literal) => {{
+        const _PK: ::solana_pubkey::Pubkey = ::solana_pubkey::Pubkey::from_str_const($address);
+        _PK.to_bytes()
+    }};
+}
+
 /// Placeholder program id for the initial shielded-pool program scaffold.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
     6, 111, 11, 97, 110, 97, 95, 115, 104, 105, 101, 108, 100, 101, 100, 95, 112, 111, 111, 108,

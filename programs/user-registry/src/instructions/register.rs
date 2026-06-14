@@ -2,12 +2,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::user_registry::{instruction::RegisterData, UserRecord};
 
 use super::common::{check_record_pda, check_system_program, create_record_account, write_record};
-use crate::{
-    error::{fail, UserRegistryError},
-    validation::{
-        validate_canonical_nullifier_pubkey, validate_optional_p256_pubkey, validate_p256_pubkey,
-    },
-};
+use crate::error::{fail, UserRegistryError};
 
 /// Creates a per-owner record with static shielded keys and no sync delegate.
 pub fn process_register(
@@ -15,10 +10,6 @@ pub fn process_register(
     accounts: &mut [AccountView],
     data: RegisterData,
 ) -> ProgramResult {
-    validate_optional_p256_pubkey(&data.owner_p256)?;
-    validate_p256_pubkey(&data.viewing_pubkey)?;
-    validate_canonical_nullifier_pubkey(&data.nullifier_pubkey)?;
-
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }

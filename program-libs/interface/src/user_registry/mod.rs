@@ -3,10 +3,8 @@ pub mod state;
 
 pub use state::{SyncDelegateEntry, UserRecord};
 
-pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] = [
-    122, 111, 108, 97, 110, 97, 95, 117, 114, 101, 103, 95, 118, 48, 95, 95, 95, 95, 95, 95, 95,
-    95, 95, 95, 95, 95, 95, 95, 95, 95, 95, 1,
-];
+pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
+    crate::pubkey_array!("9EwHPNdsPHMt7kaUZaXDTaj92HVC8CL4Q16io4Vu87t4");
 
 pub const USER_RECORD_SEED: &[u8] = b"zolana/registry/v0";
 

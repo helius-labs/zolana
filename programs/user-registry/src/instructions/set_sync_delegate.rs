@@ -10,10 +10,7 @@ use zolana_interface::user_registry::{
 use super::common::{
     check_record_pda_with_bump, check_system_program, grow_record, read_record, write_record,
 };
-use crate::{
-    error::{fail, UserRegistryError},
-    validation::validate_p256_pubkey,
-};
+use crate::error::{fail, UserRegistryError};
 
 /// Sets a sync delegate and appends a sync-delegate entry.
 pub fn process_set_sync_delegate(
@@ -21,9 +18,6 @@ pub fn process_set_sync_delegate(
     accounts: &mut [AccountView],
     data: SetSyncDelegateData,
 ) -> ProgramResult {
-    validate_p256_pubkey(&data.sync_pubkey)?;
-    validate_p256_pubkey(&data.viewing_pubkey)?;
-
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }

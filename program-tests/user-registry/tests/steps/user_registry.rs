@@ -92,13 +92,6 @@ fn test_p256_pubkey(tag: u8) -> [u8; 33] {
     pubkey
 }
 
-fn p256_pubkey_with_prefix(prefix: u8) -> [u8; 33] {
-    let mut pubkey = [0u8; 33];
-    pubkey[0] = prefix;
-    pubkey[1] = 0x77;
-    pubkey
-}
-
 /// Adversarial builder: targets an arbitrary record PDA with an arbitrary
 /// "owner" account, instead of deriving the PDA from the signer like the SDK.
 fn raw_set_sync_delegate_ix(
@@ -210,45 +203,6 @@ fn when_register_again(world: &mut UserRegistryWorld, name: String) {
     when_register(world, name);
 }
 
-#[when(regex = r#""(.*)" tries to register with viewing key prefix (\d+)"#)]
-fn when_register_bad_viewing(world: &mut UserRegistryWorld, name: String, prefix: u8) {
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    let ix = build_register_ix(
-        &owner,
-        Some(world.owner_p256[&name]),
-        world.nullifier_pubkey[&name],
-        p256_pubkey_with_prefix(prefix),
-    );
-    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
-}
-
-#[when(regex = r#""(.*)" tries to register with owner p256 prefix (\d+)"#)]
-fn when_register_bad_owner_p256(world: &mut UserRegistryWorld, name: String, prefix: u8) {
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    let ix = build_register_ix(
-        &owner,
-        Some(p256_pubkey_with_prefix(prefix)),
-        world.nullifier_pubkey[&name],
-        world.viewing_pubkey[&name],
-    );
-    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
-}
-
-#[when(regex = r#""(.*)" tries to register with a non-canonical nullifier pubkey"#)]
-fn when_register_bad_nullifier(world: &mut UserRegistryWorld, name: String) {
-    let owner = world.owners.get(&name).expect("owner").pubkey();
-    let ix = build_register_ix(
-        &owner,
-        Some(world.owner_p256[&name]),
-        zolana_user_registry::constants::BN254_FR_MODULUS,
-        world.viewing_pubkey[&name],
-    );
-    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
-}
-
 // === set_sync_delegate ===
 
 #[given(regex = r#"owner "(.*)" appoints sync delegate "(.*)""#)]
@@ -272,37 +226,6 @@ fn when_set_sync_delegate(
     let sync_pubkey = test_p256_pubkey(sync_delegate_name.len() as u8);
     let viewing_pubkey = test_p256_pubkey(0xB0 + sync_delegate_name.len() as u8);
     let ix = build_set_sync_delegate_ix(&owner, sync_delegate_pubkey, sync_pubkey, viewing_pubkey);
-    let owner_kp = world
-        .owners
-        .get(&owner_name)
-        .expect("owner")
-        .insecure_clone();
-    world.send(&[owner_kp], ix);
-}
-
-#[when(regex = r#"owner "(.*)" tries to appoint sync delegate "(.*)" with sync key prefix (\d+)"#)]
-fn when_set_sync_delegate_bad_key(
-    world: &mut UserRegistryWorld,
-    owner_name: String,
-    sync_delegate_name: String,
-    prefix: u8,
-) {
-    world
-        .sync_delegates
-        .entry(sync_delegate_name.clone())
-        .or_insert_with(Keypair::new);
-    let sync_delegate_pubkey = world
-        .sync_delegates
-        .get(&sync_delegate_name)
-        .expect("sync delegate")
-        .pubkey();
-    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
-    let ix = build_set_sync_delegate_ix(
-        &owner,
-        sync_delegate_pubkey,
-        p256_pubkey_with_prefix(prefix),
-        test_p256_pubkey(0xB1),
-    );
     let owner_kp = world
         .owners
         .get(&owner_name)
@@ -367,30 +290,6 @@ fn when_rotate_attempt(world: &mut UserRegistryWorld, signer_name: String, owner
         test_p256_pubkey(0xE1),
     );
     world.send(&[signer], ix);
-}
-
-#[when(
-    regex = r#"sync delegate "(.*)" tries to rotate keys for "(.*)" with viewing key prefix (\d+)"#
-)]
-fn when_rotate_bad_key(
-    world: &mut UserRegistryWorld,
-    sync_delegate_name: String,
-    owner_name: String,
-    prefix: u8,
-) {
-    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
-    let sync_delegate_kp = world
-        .sync_delegates
-        .get(&sync_delegate_name)
-        .expect("sync delegate")
-        .insecure_clone();
-    let ix = build_rotate_sync_delegate_key_ix(
-        &owner,
-        &sync_delegate_kp.pubkey(),
-        test_p256_pubkey(0xE2),
-        p256_pubkey_with_prefix(prefix),
-    );
-    world.send(&[sync_delegate_kp], ix);
 }
 
 // === revoke_sync_delegate ===

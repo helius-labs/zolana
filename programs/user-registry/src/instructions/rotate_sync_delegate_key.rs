@@ -10,10 +10,7 @@ use zolana_interface::user_registry::{
 use super::common::{
     check_record_pda_with_bump, check_system_program, grow_record, read_record, write_record,
 };
-use crate::{
-    error::{fail, UserRegistryError},
-    validation::validate_p256_pubkey,
-};
+use crate::error::{fail, UserRegistryError};
 
 /// Appends a new sync-delegate entry without changing the sync delegate address.
 pub fn process_rotate_sync_delegate_key(
@@ -21,9 +18,6 @@ pub fn process_rotate_sync_delegate_key(
     accounts: &mut [AccountView],
     data: RotateSyncDelegateKeyData,
 ) -> ProgramResult {
-    validate_p256_pubkey(&data.sync_pubkey)?;
-    validate_p256_pubkey(&data.viewing_pubkey)?;
-
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }

@@ -1,8 +1,6 @@
-pub mod constants;
 pub mod error;
 pub mod instructions;
 pub mod processor;
-pub mod validation;
 
 pub use processor::process_instruction;
 

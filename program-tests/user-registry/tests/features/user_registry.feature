@@ -27,26 +27,6 @@ Feature: User registry program
     When "alice" tries to register again
     Then the transaction fails with "AccountAlreadyInitialized"
 
-  Scenario: Register rejects a zero-prefix viewing key
-    Given owner "alice" with p256 keys
-    When "alice" tries to register with viewing key prefix 0
-    Then the transaction fails with "InvalidP256Prefix"
-
-  Scenario: Register rejects an uncompressed-prefix viewing key
-    Given owner "alice" with p256 keys
-    When "alice" tries to register with viewing key prefix 4
-    Then the transaction fails with "InvalidP256Prefix"
-
-  Scenario: Register rejects a zero-prefix owner p256 key
-    Given owner "alice" with p256 keys
-    When "alice" tries to register with owner p256 prefix 0
-    Then the transaction fails with "InvalidP256Prefix"
-
-  Scenario: Register rejects a non-canonical nullifier pubkey
-    Given owner "alice" with p256 keys
-    When "alice" tries to register with a non-canonical nullifier pubkey
-    Then the transaction fails with "NonCanonicalNullifierPubkey"
-
   # === set_sync_delegate ===
 
   Scenario: Set sync delegate appends an entry
@@ -70,12 +50,6 @@ Feature: User registry program
     And a stranger "mallory"
     When stranger "mallory" tries to appoint herself as sync delegate for "alice"
     Then the transaction fails with "InvalidRecordPda"
-
-  Scenario: Set sync delegate rejects a zero-prefix sync key
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    When owner "alice" tries to appoint sync delegate "bob" with sync key prefix 0
-    Then the transaction fails with "InvalidP256Prefix"
 
   # === rotate_sync_delegate_key ===
 
@@ -127,13 +101,6 @@ Feature: User registry program
     And "bob" revokes sync delegate for "alice"
     When "bob" tries to rotate sync delegate keys for "alice"
     Then the transaction fails with "InvalidSyncDelegate"
-
-  Scenario: Rotate rejects a zero-prefix viewing key
-    Given owner "alice" with p256 keys
-    And "alice" registers on-chain
-    And owner "alice" appoints sync delegate "bob"
-    When sync delegate "bob" tries to rotate keys for "alice" with viewing key prefix 0
-    Then the transaction fails with "InvalidP256Prefix"
 
   # === revoke_sync_delegate ===
 

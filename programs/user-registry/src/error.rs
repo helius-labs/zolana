@@ -5,10 +5,6 @@ use thiserror::Error;
 pub enum UserRegistryError {
     #[error("invalid instruction data")]
     InvalidInstructionData,
-    #[error("P-256 compressed pubkey prefix must be 0x02 or 0x03")]
-    InvalidP256Prefix,
-    #[error("nullifier_pubkey must be a canonical BN254 field element (< Fr)")]
-    NonCanonicalNullifierPubkey,
     #[error("no sync delegate is currently set")]
     SyncDelegateNotSet,
     #[error("signer is not the owner or active sync delegate")]
@@ -29,8 +25,6 @@ impl UserRegistryError {
     pub const fn name(self) -> &'static str {
         match self {
             Self::InvalidInstructionData => "InvalidInstructionData",
-            Self::InvalidP256Prefix => "InvalidP256Prefix",
-            Self::NonCanonicalNullifierPubkey => "NonCanonicalNullifierPubkey",
             Self::SyncDelegateNotSet => "SyncDelegateNotSet",
             Self::UnauthorizedSigner => "UnauthorizedSigner",
             Self::InvalidSyncDelegate => "InvalidSyncDelegate",
