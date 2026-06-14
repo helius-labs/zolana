@@ -59,6 +59,38 @@ fn create_protocol_config_succeeds_once() {
 }
 
 #[test]
+fn create_protocol_config_survives_donated_lamports() {
+    // The config PDA address is deterministic, so anyone can transfer lamports
+    // to it before the authority creates it. A raw system CreateAccount fails on
+    // a target that already holds lamports, which would permanently DoS pool
+    // bring-up; the minimum-balance helper must take the cold path (top-up +
+    // allocate + assign) and still create the account. This test fails against
+    // a raw-CreateAccount implementation and passes with the cold-path helper.
+    let Some(mut program_test) = program_test() else {
+        return;
+    };
+    let authority = Keypair::new();
+    let config = program_test.protocol_config_pda();
+
+    // Attacker griefs the not-yet-created PDA with a lamport donation.
+    program_test
+        .airdrop(&config, 1_000_000)
+        .expect("donate lamports to config PDA");
+
+    // Creation must still succeed despite the pre-funded balance.
+    let created = program_test
+        .create_protocol_config(&authority)
+        .expect("create_protocol_config must survive a pre-funded PDA");
+    assert_eq!(created, config);
+
+    let config_data = program_test
+        .account_data(&config)
+        .expect("config PDA exists");
+    assert_eq!(config_data.len(), PROTOCOL_CONFIG_ACCOUNT_LEN);
+    assert_eq!(config_authority(&config_data), authority.pubkey().as_ref());
+}
+
+#[test]
 fn protocol_config_persists_merge_authorities() {
     let Some(mut program_test) = program_test() else {
         return;
