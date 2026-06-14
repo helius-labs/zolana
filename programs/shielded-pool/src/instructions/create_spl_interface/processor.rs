@@ -11,7 +11,7 @@ use zolana_interface::{
     SPL_ASSET_REGISTRY_ASSET_ID_END, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC,
     SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
     SPL_ASSET_REGISTRY_MINT_OFFSET, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
-    SPL_TOKEN_PROGRAM_ID,
+    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{
@@ -21,8 +21,6 @@ use crate::{
 };
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
-const SPL_TOKEN_ACCOUNT_LEN: u64 = 165;
-const SPL_INITIALIZE_ACCOUNT3_DISCRIMINATOR: u8 = 18;
 const FIRST_SPL_ASSET_ID: u64 = 2;
 
 pub fn process_create_spl_interface(
@@ -67,15 +65,13 @@ pub fn process_create_spl_interface(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    let (expected_counter, counter_bump) = derive_pda_1(SPL_ASSET_COUNTER_PDA_SEED, program_id)?;
-    let (expected_registry, registry_bump) = derive_pda_2(
-        SPL_ASSET_REGISTRY_PDA_SEED,
-        mint.address().as_ref(),
+    let (expected_counter, counter_bump) = derive_pda(&[SPL_ASSET_COUNTER_PDA_SEED], program_id)?;
+    let (expected_registry, registry_bump) = derive_pda(
+        &[SPL_ASSET_REGISTRY_PDA_SEED, mint.address().as_ref()],
         program_id,
     )?;
-    let (expected_vault, vault_bump) = derive_pda_2(
-        SPL_ASSET_VAULT_PDA_SEED,
-        mint.address().as_ref(),
+    let (expected_vault, vault_bump) = derive_pda(
+        &[SPL_ASSET_VAULT_PDA_SEED, mint.address().as_ref()],
         program_id,
     )?;
 
@@ -110,7 +106,7 @@ pub fn process_create_spl_interface(
     create_pda_account_if_needed(
         authority,
         vault,
-        SPL_TOKEN_ACCOUNT_LEN,
+        SPL_TOKEN_ACCOUNT_LEN as u64,
         token_program.address(),
         &[SPL_ASSET_VAULT_PDA_SEED, mint.address().as_ref()],
         vault_bump,
@@ -164,31 +160,23 @@ fn create_pda_account_if_needed(
 
     let bump = [bump];
     let lamports = (ACCOUNT_STORAGE_OVERHEAD + space) * DEFAULT_LAMPORTS_PER_BYTE;
+    let create = |signer: &Signer| {
+        pinocchio_system::instructions::CreateAccount {
+            from: payer,
+            to: account,
+            lamports,
+            space,
+            owner,
+        }
+        .invoke_signed(core::slice::from_ref(signer))
+    };
     match seed_prefix {
-        [seed] => {
-            let seeds = [Seed::from(*seed), Seed::from(&bump)];
-            let signer = Signer::from(&seeds);
-            pinocchio_system::instructions::CreateAccount {
-                from: payer,
-                to: account,
-                lamports,
-                space,
-                owner,
-            }
-            .invoke_signed(core::slice::from_ref(&signer))
-        }
-        [seed_a, seed_b] => {
-            let seeds = [Seed::from(*seed_a), Seed::from(*seed_b), Seed::from(&bump)];
-            let signer = Signer::from(&seeds);
-            pinocchio_system::instructions::CreateAccount {
-                from: payer,
-                to: account,
-                lamports,
-                space,
-                owner,
-            }
-            .invoke_signed(core::slice::from_ref(&signer))
-        }
+        [seed] => create(&Signer::from(&[Seed::from(*seed), Seed::from(&bump)])),
+        [seed_a, seed_b] => create(&Signer::from(&[
+            Seed::from(*seed_a),
+            Seed::from(*seed_b),
+            Seed::from(&bump),
+        ])),
         _ => Err(ProgramError::InvalidArgument),
     }
     .map_err(|_| {
@@ -197,17 +185,11 @@ fn create_pda_account_if_needed(
     })
 }
 
-fn derive_pda_1(seed: &[u8], program_id: &Address) -> Result<(Address, u8), ProgramError> {
-    Address::derive_program_address(&[seed], program_id)
-        .ok_or(ShieldedPoolError::InvalidSplAssetRegistry.into())
-}
-
-fn derive_pda_2(
-    seed_a: &[u8],
-    seed_b: &[u8],
+fn derive_pda<const N: usize>(
+    seeds: &[&[u8]; N],
     program_id: &Address,
 ) -> Result<(Address, u8), ProgramError> {
-    Address::derive_program_address(&[seed_a, seed_b], program_id)
+    Address::derive_program_address(seeds, program_id)
         .ok_or(ShieldedPoolError::InvalidSplAssetRegistry.into())
 }
 
@@ -248,7 +230,7 @@ fn initialize_token_vault(
         InstructionAccount::readonly(mint.address()),
     ];
     let mut instruction_data = [0u8; 33];
-    instruction_data[0] = SPL_INITIALIZE_ACCOUNT3_DISCRIMINATOR;
+    instruction_data[0] = SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR;
     instruction_data[1..33].copy_from_slice(cpi_authority.address().as_ref());
     let instruction = InstructionView {
         program_id: token_program.address(),

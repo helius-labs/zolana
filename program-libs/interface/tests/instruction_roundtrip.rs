@@ -177,7 +177,7 @@ fn create_spl_interface_builder_account_layout() {
 
     assert_eq!(ix.accounts.len(), 9);
     assert!(ix.accounts[0].is_signer);
-    assert!(!ix.accounts[0].is_writable);
+    assert!(ix.accounts[0].is_writable);
     assert!(ix.accounts[2].is_writable);
     assert!(ix.accounts[3].is_writable);
     assert!(!ix.accounts[4].is_writable);

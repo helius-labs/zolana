@@ -129,7 +129,9 @@ pub fn single_proofless_shield_event(
         ))),
     });
     let Some(event) = proofless_events.next() else {
-        return Err(RigError::Event("no proofless shield event".into()));
+        return Err(RigError::Event(
+            "no proofless shield event emitted by transaction".into(),
+        ));
     };
     let event = event?.clone();
     if proofless_events.next().transpose()?.is_some() {

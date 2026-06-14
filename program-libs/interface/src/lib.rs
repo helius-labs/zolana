@@ -25,7 +25,7 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 pub const SPP_ZONE_CONFIG_PDA_SEED: &[u8] = b"spp_zone_config";
 /// Seed for the shielded-pool protocol-config PDA. The config is the singleton
 /// authority oracle for admin instructions, so it is a canonical PDA the
-/// program creates and address-checks — a substituted config can't name a new
+/// program creates and address-checks; a substituted config can't name a new
 /// authority.
 pub const SPP_PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"protocol_config";
 pub const ZONE_AUTH_PDA_SEED: &[u8] = b"zone_auth";
@@ -50,6 +50,17 @@ pub const SPL_TOKEN_PROGRAM_ID: [u8; 32] = [
     6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206, 235, 121, 172, 28, 180, 133, 237,
     95, 91, 55, 145, 58, 140, 245, 133, 126, 255, 0, 169,
 ];
+pub const SPL_TOKEN_MINT_ACCOUNT_LEN: usize = 82;
+pub const SPL_TOKEN_ACCOUNT_LEN: usize = 165;
+pub const SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET: usize = 64;
+pub const SPL_TOKEN_ACCOUNT_AMOUNT_END: usize =
+    SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET + core::mem::size_of::<u64>();
+pub const SPL_TOKEN_ACCOUNT_STATE_OFFSET: usize = 108;
+pub const SPL_TOKEN_ACCOUNT_INITIALIZED: u8 = 1;
+pub const SPL_TOKEN_TRANSFER_DISCRIMINATOR: u8 = 3;
+pub const SPL_TOKEN_MINT_TO_DISCRIMINATOR: u8 = 7;
+pub const SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR: u8 = 18;
+pub const SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR: u8 = 20;
 
 /// Canonical SPL asset counter layout: next_asset_id (8).
 pub const SPL_ASSET_COUNTER_ACCOUNT_LEN: usize = 8;

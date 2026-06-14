@@ -4,7 +4,10 @@ use zolana_interface::{
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
 };
 
-use crate::{error::ShieldedPoolError, instructions::settlement::SettlementAccounts};
+use crate::{
+    error::ShieldedPoolError,
+    instructions::settlement::{PublicSettlement, SettlementAccounts},
+};
 
 /// CPI-signer PDA seed for a general program owner (`transact`,
 /// `proofless_shield`). Distinct from [`ZONE_AUTH_SEED`]: a general program
@@ -24,8 +27,6 @@ pub(crate) fn load_transact_accounts<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
     data: &TransactIxData,
-    needs_sol: bool,
-    needs_spl: bool,
     cpi_signer_seed: &[u8],
 ) -> Result<TransactAccounts<'a>, ProgramError> {
     if accounts.len() < 2 {
@@ -56,19 +57,27 @@ pub(crate) fn load_transact_accounts<'a>(
 
     let mut settlement = SettlementAccounts::empty(signer);
     settlement.solana_owner_pubkeys = input_owner_pubkeys;
+    let settlement_requirements = PublicSettlement::try_from(data)?;
     let mut cursor = 0usize;
 
-    if needs_sol {
-        if settlement_slice.len() < cursor + 3 {
+    if settlement_requirements.needs_system_program() {
+        if settlement_slice.len() < cursor + 2 {
             return Err(ProgramError::NotEnoughAccountKeys);
         }
         settlement.system_program = Some(&settlement_slice[cursor]);
         settlement.cpi_authority = Some(&settlement_slice[cursor + 1]);
-        settlement.user_sol_account = Some(&settlement_slice[cursor + 2]);
-        cursor += 3;
+        cursor += 2;
     }
 
-    if needs_spl {
+    if settlement_requirements.has_public_sol() {
+        if settlement_slice.len() <= cursor {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        }
+        settlement.user_sol_account = Some(&settlement_slice[cursor]);
+        cursor += 1;
+    }
+
+    if settlement_requirements.has_public_spl() {
         if settlement.cpi_authority.is_none() {
             if settlement_slice.len() <= cursor {
                 return Err(ProgramError::NotEnoughAccountKeys);

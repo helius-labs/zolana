@@ -28,6 +28,8 @@ pub(crate) const INFO_MERGE_VIEW_TAG_SECRET: &[u8] = b"TSPP/merge_view_tag";
 
 pub(crate) const INFO_TX_VIEWING: &[u8] = b"TSPP/tx_viewing";
 
+pub(crate) const INFO_PROOFLESS_SHIELD_BLINDING: &[u8] = b"TSPP/proofless_shield/blinding";
+
 pub(crate) const INFO_SENDER_VIEW_TAG_PREFIX: &[u8] = b"TSPP/sender_view_tag/";
 
 pub(crate) const INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX: &[u8] =
