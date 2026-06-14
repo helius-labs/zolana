@@ -90,7 +90,7 @@ impl PoolIndexer {
     }
 
     /// Root of the reference state tree. Tests assert this equals the
-    /// on-chain root (`PoolTestRig::state_root`).
+    /// on-chain root (`ShieldedPoolTestRig::state_root`).
     pub fn root(&self) -> [u8; 32] {
         self.tree.root()
     }

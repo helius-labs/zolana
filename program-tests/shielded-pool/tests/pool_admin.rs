@@ -215,7 +215,7 @@ fn pause_tree_requires_existing_config() {
 
 #[test]
 fn create_tree_uses_tree_account_size_helper() {
-    // PoolTestRig and the program agree on the account layout: an undersized
+    // ShieldedPoolTestRig and the program agree on the account layout: an undersized
     // account must be rejected by init.
     let Some(mut rig) = rig() else {
         return;

@@ -1,11 +1,21 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, ProoflessShieldIxData, ZoneProoflessShieldIxData},
-    ZONE_AUTH_PDA_SEED,
+    instruction::{
+        encode_instruction, tag, CreateProtocolConfigData, CreateTreeData, ProoflessShieldIxData,
+        ZoneProoflessShieldIxData,
+    },
+    state::state_root_offset,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
+use crate::{rpc::Rpc, RigError};
+
 pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
+
+pub fn protocol_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], program_id).0
+}
 
 pub fn system_create_account_ix(
     payer: &Pubkey,
@@ -26,6 +36,62 @@ pub fn system_create_account_ix(
         ],
         data,
     }
+}
+
+pub fn create_protocol_config_instruction(
+    program_id: Pubkey,
+    authority: Pubkey,
+    merge_authorities: Vec<[u8; 32]>,
+) -> Instruction {
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(authority, true),
+            AccountMeta::new(protocol_config_pda(&program_id), false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ],
+        data: encode_instruction(
+            tag::CREATE_PROTOCOL_CONFIG,
+            &CreateProtocolConfigData {
+                authority: authority.to_bytes(),
+                merge_authorities,
+            },
+        ),
+    }
+}
+
+pub fn create_tree_instructions<R: Rpc>(
+    rpc: &R,
+    program_id: Pubkey,
+    payer: &Pubkey,
+    authority: &Pubkey,
+    tree: &Pubkey,
+    account_size: u64,
+) -> Result<Vec<Instruction>, RigError> {
+    let rent = rpc.minimum_balance_for_rent_exemption(account_size as usize)?;
+    Ok(vec![
+        system_create_account_ix(payer, tree, rent, account_size, &program_id),
+        Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(*authority, true),
+                AccountMeta::new_readonly(protocol_config_pda(&program_id), false),
+                AccountMeta::new(*tree, false),
+            ],
+            data: encode_instruction(tag::CREATE_TREE, &CreateTreeData),
+        },
+    ])
+}
+
+pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], RigError> {
+    let data = rpc.account_data(tree)?;
+    let offset = state_root_offset();
+    let slice = data
+        .get(offset..offset + 32)
+        .ok_or_else(|| RigError::Rpc("tree account missing state root".into()))?;
+    let mut root = [0u8; 32];
+    root.copy_from_slice(slice);
+    Ok(root)
 }
 
 pub fn zone_auth_pda(zone_program_id: &Pubkey) -> (Pubkey, u8) {

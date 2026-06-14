@@ -3,14 +3,14 @@
 
 use shielded_pool_program::error::ShieldedPoolError;
 use solana_keypair::Keypair;
-use zolana_program_test::{PoolTestRig, RigError};
+use zolana_program_test::{RigError, ShieldedPoolTestRig};
 
 /// 1.16 MB — big enough for the combined account; the program ignores any
 /// caller-supplied size and uses `tree_account_size()` internally.
 pub const TREE_ACCOUNT_SIZE: u64 = 1_200_000;
 
-pub fn rig() -> Option<PoolTestRig> {
-    match PoolTestRig::new() {
+pub fn rig() -> Option<ShieldedPoolTestRig> {
+    match ShieldedPoolTestRig::new() {
         Ok(r) => Some(r),
         Err(RigError::MissingProgram(_)) => {
             eprintln!(
@@ -23,7 +23,7 @@ pub fn rig() -> Option<PoolTestRig> {
     }
 }
 
-pub fn rig_with_tree() -> Option<(PoolTestRig, Keypair, Keypair)> {
+pub fn rig_with_tree() -> Option<(ShieldedPoolTestRig, Keypair, Keypair)> {
     let mut rig = rig()?;
     let authority = Keypair::new();
     rig.create_protocol_config(&authority)

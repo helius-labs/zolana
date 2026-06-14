@@ -25,7 +25,7 @@ pub fn create_spl_interface(
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
-            AccountMeta::new_readonly(accounts.authority, true),
+            AccountMeta::new(accounts.authority, true),
             AccountMeta::new_readonly(accounts.protocol_config, false),
             AccountMeta::new(accounts.asset_counter, false),
             AccountMeta::new(accounts.registry, false),

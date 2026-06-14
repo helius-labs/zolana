@@ -4,7 +4,7 @@
 //! their own tests.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced
-//! `target/deploy/shielded_pool_program.so`. The PoolTestRig returns
+//! `target/deploy/shielded_pool_program.so`. The ShieldedPoolTestRig returns
 //! `RigError::MissingProgram` if not.
 //!
 mod common;
@@ -49,9 +49,10 @@ fn proofless_shield_sol_deposits_into_pool() {
 
     let amount = 1_000_000_000u64;
     let seed = [42u8; BLINDING_LEN];
-    let (data, _) =
-        zolana_program_test::PoolTestRig::wallet_sol_shield_data(amount, &recipient, &seed, 0)
-            .expect("wallet deposit data");
+    let data = zolana_program_test::ShieldedPoolTestRig::wallet_sol_shield_data(
+        amount, &recipient, &seed, 0,
+    )
+    .expect("wallet deposit data");
     rig.proofless_shield(&tree, &depositor, &data)
         .expect("proofless_shield");
 
@@ -69,7 +70,7 @@ fn proofless_shield_sol_deposits_into_pool() {
 
 #[test]
 fn indexer_matches_onchain_root_and_locates_deposits() {
-    use zolana_program_test::PoolTestRig;
+    use zolana_program_test::ShieldedPoolTestRig;
 
     let Some((mut rig, _authority, tree)) = rig_with_tree() else {
         return;
@@ -94,9 +95,8 @@ fn indexer_matches_onchain_root_and_locates_deposits() {
     {
         let mut seed = [0xA0; BLINDING_LEN];
         seed[30] = i as u8;
-        let (data, blinding) =
-            PoolTestRig::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
-                .expect("wallet deposit data");
+        let data = ShieldedPoolTestRig::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
+            .expect("wallet deposit data");
         let event = rig
             .proofless_shield(&tree, &depositor, &data)
             .expect("deposit");
@@ -105,7 +105,7 @@ fn indexer_matches_onchain_root_and_locates_deposits() {
         assert_eq!(event.salt, data.salt);
         assert!(
             recipient
-                .sync_proofless_deposit(&proofless_event_for_wallet(&event), blinding)
+                .sync_proofless_deposit(&proofless_event_for_wallet(&event))
                 .expect("wallet discovery"),
             "wallet must discover deposit {i}"
         );

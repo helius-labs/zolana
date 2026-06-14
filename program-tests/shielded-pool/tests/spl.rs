@@ -14,7 +14,7 @@ use zolana_interface::{
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, PoolTestRig};
+use zolana_program_test::{proofless_event_for_wallet, ShieldedPoolTestRig};
 use zolana_transaction::Wallet;
 
 const TOKEN_INSUFFICIENT_FUNDS: u32 = 1;
@@ -36,7 +36,7 @@ fn registry_asset_id(data: &[u8]) -> u64 {
     read_le_u64(data, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET)
 }
 
-fn spl_setup(balance: u64) -> Option<(PoolTestRig, Keypair, Pubkey, Keypair, Pubkey)> {
+fn spl_setup(balance: u64) -> Option<(ShieldedPoolTestRig, Keypair, Pubkey, Keypair, Pubkey)> {
     let (mut rig, authority, tree) = rig_with_tree()?;
     let mint = rig.create_mint().expect("create_mint");
     rig.create_spl_interface(&authority, &mint)
@@ -130,7 +130,7 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
     let mut recipient =
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
     let seed = [7u8; BLINDING_LEN];
-    let (data, blinding) = PoolTestRig::wallet_spl_shield_data(400_000, &recipient, &seed, 0)
+    let data = ShieldedPoolTestRig::wallet_spl_shield_data(400_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
 
     let root_before = rig.state_root(&tree.pubkey()).expect("root");
@@ -156,7 +156,7 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
     );
     assert!(
         recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event), blinding)
+            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
             .expect("wallet discovery"),
         "recipient wallet must discover the SPL deposit"
     );
@@ -165,7 +165,7 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
 }
 
 fn spl_accounts(
-    rig: &PoolTestRig,
+    rig: &ShieldedPoolTestRig,
     tree: &Pubkey,
     depositor: &Pubkey,
     user_token: &Pubkey,
@@ -178,7 +178,7 @@ fn spl_accounts(
         AccountMeta::new(*user_token, false),
         AccountMeta::new(rig.spl_asset_vault_pda(mint), false),
         AccountMeta::new_readonly(rig.spl_asset_registry_pda(mint), false),
-        AccountMeta::new_readonly(PoolTestRig::token_program_id(), false),
+        AccountMeta::new_readonly(ShieldedPoolTestRig::token_program_id(), false),
         AccountMeta::new_readonly(rig.program_id, false),
     ]
 }
@@ -206,7 +206,7 @@ fn rejects_deposit_from_foreign_token_account() {
         .proofless_shield_with_accounts(
             accounts,
             &depositor,
-            &PoolTestRig::spl_shield_data(1_000, [1u8; 32]),
+            &ShieldedPoolTestRig::spl_shield_data(1_000, [1u8; 32]),
         )
         .unwrap_err();
     assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
@@ -233,7 +233,7 @@ fn rejects_non_canonical_vault() {
         .proofless_shield_with_accounts(
             accounts,
             &depositor,
-            &PoolTestRig::spl_shield_data(1_000, [1u8; 32]),
+            &ShieldedPoolTestRig::spl_shield_data(1_000, [1u8; 32]),
         )
         .unwrap_err();
     assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
@@ -255,7 +255,7 @@ fn rejects_mint_mismatch() {
         .proofless_shield_with_accounts(
             accounts,
             &depositor,
-            &PoolTestRig::spl_shield_data(1_000, [1u8; 32]),
+            &ShieldedPoolTestRig::spl_shield_data(1_000, [1u8; 32]),
         )
         .unwrap_err();
     assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
@@ -273,7 +273,7 @@ fn rejects_unaffordable_spl_deposit() {
             &depositor,
             &user_token,
             &mint,
-            &PoolTestRig::spl_shield_data(5_000, [3u8; 32]),
+            &ShieldedPoolTestRig::spl_shield_data(5_000, [3u8; 32]),
         )
         .unwrap_err();
     assert_custom(err, TOKEN_INSUFFICIENT_FUNDS);

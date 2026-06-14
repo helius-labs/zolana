@@ -95,39 +95,27 @@ fn process_deposit(
     accounts: &mut [AccountView],
     d: Deposit,
 ) -> ProgramResult {
-    let sol = d.public_sol_amount.unwrap_or(0);
-    let spl = d.public_spl_amount.unwrap_or(0);
-    if (sol == 0) == (spl == 0) {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
-    let needs_sol = sol != 0;
-    let needs_spl = spl != 0;
+    let needs_spl = d.public_spl_amount.is_some();
 
     if accounts.len() < 2 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
+    // The trailing self-program account is required for `emit_event` self-CPI.
     let (head, program_slice) = accounts.split_at_mut(accounts.len() - 1);
     if program_slice[0].address() != program_id {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
     let tx = deposit_view(&d);
-    let verified = load_transact_accounts(
-        program_id,
-        head,
-        &tx,
-        needs_sol,
-        needs_spl,
-        d.cpi_signer_seed,
-    )?;
+    let verified = load_transact_accounts(program_id, head, &tx, d.cpi_signer_seed)?;
 
     let (asset, asset_field, amount) = if needs_spl {
         let mint = spl_asset_pubkey(&verified.settlement)?;
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(mint.as_ref());
-        (bytes, solana_pk_hash(&bytes)?, spl)
+        (bytes, solana_pk_hash(&bytes)?, d.public_spl_amount.unwrap_or(0))
     } else {
-        ([0u8; 32], solana_pk_hash(&[0u8; 32])?, sol)
+        ([0u8; 32], solana_pk_hash(&[0u8; 32])?, d.public_sol_amount.unwrap_or(0))
     };
 
     let zero = [0u8; 32];
@@ -148,8 +136,6 @@ fn process_deposit(
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    settle_public_amounts(program_id, &verified.settlement, &tx)?;
-
     {
         let bytes = loader::account_data_mut(verified.tree);
         if append_to_pool(bytes, &[utxo_hash]).is_err() {
@@ -157,6 +143,8 @@ fn process_deposit(
             return Err(ShieldedPoolError::StateAppendFailed.into());
         }
     }
+
+    settle_public_amounts(program_id, &verified.settlement, &tx)?;
 
     let event = ProoflessShieldEvent {
         view_tag: d.view_tag,

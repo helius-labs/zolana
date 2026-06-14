@@ -32,7 +32,7 @@ fn zone_proofless_shield_succeeds_and_event_is_faithful() {
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
 
     let seed = [5u8; BLINDING_LEN];
-    let (mut data, blinding) = rig
+    let mut data = rig
         .wallet_zone_sol_shield_data(750_000_000, &recipient, &seed, 0)
         .expect("wallet zone deposit data");
     data.policy_data_hash = Some([5u8; 32]);
@@ -63,7 +63,7 @@ fn zone_proofless_shield_succeeds_and_event_is_faithful() {
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
     assert!(
         recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event), blinding)
+            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
             .expect("wallet discovery"),
         "recipient wallet must discover the zone deposit"
     );

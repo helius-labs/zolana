@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
+use zolana_keypair::constants::SALT_LEN;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
@@ -31,6 +32,7 @@ pub struct ProoflessDepositEvent {
     pub view_tag: ViewTag,
     pub utxo_hash: [u8; 32],
     pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; SALT_LEN],
     pub asset: Address,
     pub amount: u64,
     pub zone_program_id: Option<Address>,
@@ -319,7 +321,19 @@ impl Wallet {
         )
     }
 
+    pub fn proofless_blinding(&self, salt: &[u8; SALT_LEN]) -> Result<Blinding, TransactionError> {
+        Ok(self.keypair.viewing_key.derive_proofless_blinding(salt)?)
+    }
+
     pub fn discover_proofless_deposit(
+        &self,
+        event: &ProoflessDepositEvent,
+    ) -> Result<Option<WalletUtxo>, TransactionError> {
+        let blinding = self.proofless_blinding(&event.salt)?;
+        self.discover_proofless_deposit_with_blinding(event, blinding)
+    }
+
+    fn discover_proofless_deposit_with_blinding(
         &self,
         event: &ProoflessDepositEvent,
         blinding: Blinding,
@@ -361,9 +375,8 @@ impl Wallet {
     pub fn sync_proofless_deposit(
         &mut self,
         event: &ProoflessDepositEvent,
-        blinding: Blinding,
     ) -> Result<bool, TransactionError> {
-        let Some(wallet_utxo) = self.discover_proofless_deposit(event, blinding)? else {
+        let Some(wallet_utxo) = self.discover_proofless_deposit(event)? else {
             return Ok(false);
         };
         if self.utxos.iter().any(|u| u.hash == wallet_utxo.hash) {

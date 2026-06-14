@@ -13,17 +13,29 @@ use zolana_interface::instruction::{
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, PoolTestRig};
+use zolana_program_test::{proofless_event_for_wallet, ShieldedPoolTestRig};
 use zolana_transaction::Wallet;
 
 type ProoflessMutation = Box<dyn Fn(&mut ProoflessShieldIxData)>;
 type ProoflessMutationEntry = (&'static str, ProoflessMutation);
 
-fn funded_depositor(rig: &mut PoolTestRig) -> Keypair {
+fn funded_depositor(rig: &mut ShieldedPoolTestRig) -> Keypair {
     let depositor = Keypair::new();
     rig.airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("airdrop");
     depositor
+}
+
+fn assert_invalid_amount_shape(
+    rig: &mut ShieldedPoolTestRig,
+    tree: &Keypair,
+    depositor: &Keypair,
+    data: &ProoflessShieldIxData,
+) {
+    assert_pool_error(
+        rig.proofless_shield(tree, depositor, data).unwrap_err(),
+        ShieldedPoolError::InvalidTransactShape,
+    );
 }
 
 #[test]
@@ -35,7 +47,7 @@ fn sol_deposit_succeeds_and_event_is_faithful() {
     let mut recipient =
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let (data, blinding) = PoolTestRig::wallet_sol_shield_data(750_000_000, &recipient, &seed, 0)
+    let data = ShieldedPoolTestRig::wallet_sol_shield_data(750_000_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
 
     let root_before = rig.state_root(&tree.pubkey()).expect("root");
@@ -63,7 +75,7 @@ fn sol_deposit_succeeds_and_event_is_faithful() {
     assert_eq!(by_tag[0].owner_utxo_hash, data.owner_utxo_hash);
     assert!(
         recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event), blinding)
+            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
             .expect("wallet discovery"),
         "recipient wallet must discover the deposit"
     );
@@ -80,25 +92,25 @@ fn rejects_bad_amount_shapes() {
     let depositor = funded_depositor(&mut rig);
     let indexed_before = rig.indexer().utxos().len();
 
-    let mut both = PoolTestRig::sol_shield_data(1_000, [1u8; 32]);
+    let mut both = ShieldedPoolTestRig::sol_shield_data(1_000, [1u8; 32]);
     both.public_spl_amount = Some(5);
-    assert_pool_error(
-        rig.proofless_shield(&tree, &depositor, &both).unwrap_err(),
-        ShieldedPoolError::InvalidTransactShape,
-    );
+    assert_invalid_amount_shape(&mut rig, &tree, &depositor, &both);
 
-    let mut none = PoolTestRig::sol_shield_data(1_000, [1u8; 32]);
+    let mut none = ShieldedPoolTestRig::sol_shield_data(1_000, [1u8; 32]);
     none.public_sol_amount = None;
-    assert_pool_error(
-        rig.proofless_shield(&tree, &depositor, &none).unwrap_err(),
-        ShieldedPoolError::InvalidTransactShape,
-    );
+    assert_invalid_amount_shape(&mut rig, &tree, &depositor, &none);
 
-    let zero = PoolTestRig::sol_shield_data(0, [1u8; 32]);
-    assert_pool_error(
-        rig.proofless_shield(&tree, &depositor, &zero).unwrap_err(),
-        ShieldedPoolError::InvalidTransactShape,
-    );
+    let zero = ShieldedPoolTestRig::sol_shield_data(0, [1u8; 32]);
+    assert_invalid_amount_shape(&mut rig, &tree, &depositor, &zero);
+
+    let mut sol_zero_with_spl = ShieldedPoolTestRig::spl_shield_data(5, [1u8; 32]);
+    sol_zero_with_spl.public_sol_amount = Some(0);
+    assert_invalid_amount_shape(&mut rig, &tree, &depositor, &sol_zero_with_spl);
+
+    let mut spl_zero_with_sol = ShieldedPoolTestRig::sol_shield_data(1_000, [1u8; 32]);
+    spl_zero_with_sol.public_spl_amount = Some(0);
+    assert_invalid_amount_shape(&mut rig, &tree, &depositor, &spl_zero_with_sol);
+
     assert_eq!(rig.indexer().utxos().len(), indexed_before);
 }
 
@@ -109,7 +121,7 @@ fn rejects_program_owned_proofless_with_wrong_signer() {
     };
     let depositor = funded_depositor(&mut rig);
 
-    let mut data = PoolTestRig::sol_shield_data(1_000_000, [3u8; 32]);
+    let mut data = ShieldedPoolTestRig::sol_shield_data(1_000_000, [3u8; 32]);
     data.cpi_signer = Some(CpiSignerData {
         program_id: [9u8; 32],
         bump: 255,
@@ -147,7 +159,7 @@ fn rejects_program_data_without_cpi_signer() {
         ),
     ];
     for (name, mutate) in mutations {
-        let mut data = PoolTestRig::sol_shield_data(1_000, [1u8; 32]);
+        let mut data = ShieldedPoolTestRig::sol_shield_data(1_000, [1u8; 32]);
         mutate(&mut data);
         let err = rig
             .proofless_shield(&tree, &depositor, &data)
@@ -156,7 +168,7 @@ fn rejects_program_data_without_cpi_signer() {
     }
 }
 
-fn sol_accounts(rig: &PoolTestRig, tree: &Pubkey, depositor: &Pubkey) -> Vec<AccountMeta> {
+fn sol_accounts(rig: &ShieldedPoolTestRig, tree: &Pubkey, depositor: &Pubkey) -> Vec<AccountMeta> {
     vec![
         AccountMeta::new(*tree, false),
         AccountMeta::new(*depositor, true),
@@ -168,13 +180,13 @@ fn sol_accounts(rig: &PoolTestRig, tree: &Pubkey, depositor: &Pubkey) -> Vec<Acc
 }
 
 fn send_raw(
-    rig: &mut PoolTestRig,
+    rig: &mut ShieldedPoolTestRig,
     depositor: &Keypair,
     accounts: Vec<AccountMeta>,
 ) -> Result<(), zolana_program_test::RigError> {
     let data = encode_instruction(
         tag::PROOFLESS_SHIELD,
-        &PoolTestRig::sol_shield_data(1_000_000, [8u8; 32]),
+        &ShieldedPoolTestRig::sol_shield_data(1_000_000, [8u8; 32]),
     );
     let ix = Instruction {
         program_id: rig.program_id,
@@ -283,7 +295,7 @@ fn repeat_deposits_create_distinct_leaves() {
 
     // A fresh blockhash keeps the byte-identical second transaction from being
     // deduped as already processed.
-    let data = PoolTestRig::sol_shield_data(1_000_000, [4u8; 32]);
+    let data = ShieldedPoolTestRig::sol_shield_data(1_000_000, [4u8; 32]);
     let root0 = rig.state_root(&tree.pubkey()).expect("root");
     rig.proofless_shield(&tree, &depositor, &data).expect("d1");
     let root1 = rig.state_root(&tree.pubkey()).expect("root");
@@ -351,9 +363,6 @@ fn rejects_not_enough_accounts() {
         return;
     };
     let depositor = funded_depositor(&mut rig);
-    // Settlement accounts missing entirely, trailing callee still present:
-    // [tree, signer, program]. (Dropping the tail instead trips the
-    // self-CPI callee check first — case 10.)
     let mut accounts = sol_accounts(&rig, &tree.pubkey(), &depositor.pubkey());
     accounts.drain(2..5);
     assert_instruction_error(
