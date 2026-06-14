@@ -27,13 +27,13 @@ use zolana_interface::instruction::tag;
 
 #[cfg(feature = "solana-rpc")]
 use crate::events::indexed_events_from_instructions;
+#[cfg(feature = "solana-rpc")]
+use crate::PoolIndexer;
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
     logging::{log_failed_transaction, log_transaction},
     ProgramTestError, ZolanaProgramTest,
 };
-#[cfg(feature = "solana-rpc")]
-use crate::PoolIndexer;
 
 #[derive(Debug)]
 pub struct IndexedTransaction {
