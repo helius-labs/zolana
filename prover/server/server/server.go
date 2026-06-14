@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"light/light-prover/logging"
-	"light/light-prover/prover/common"
-	v1 "light/light-prover/prover/v1"
-	v2 "light/light-prover/prover/v2"
 	"net/http"
 	"strings"
 	"time"
+	"zolana/prover/logging"
+	"zolana/prover/prover/common"
+	"zolana/prover/prover/nullifier_tree"
+	"zolana/prover/prover/transfer"
+	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -442,7 +443,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
-	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType, forceAsync, forceSync)
+	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
@@ -459,29 +460,12 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType, forceAsync, forceSync bool) bool {
+func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType) bool {
 	if !handler.enableQueue || handler.redisQueue == nil {
 		return false
 	}
 
-	// Always use queue for batch operations when queue is available
-	// This prevents cross-contamination in clustered deployments
-	if circuitType == common.BatchUpdateCircuitType ||
-		circuitType == common.BatchAppendCircuitType ||
-		circuitType == common.BatchAddressAppendCircuitType {
-		return true
-	}
-
-	// For non-batch operations, respect sync/async preferences
-	if forceAsync {
-		return true
-	}
-	if forceSync {
-		return false
-	}
-
-	// Non-batch operations default to local processing
-	return false
+	return circuitType == common.BatchAddressAppendCircuitType
 }
 
 type queueStatsHandler struct {
@@ -502,8 +486,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":        stats,
-		"total_pending": stats["zk_update_queue"] + stats["zk_append_queue"] + stats["zk_address_append_queue"],
-		"total_active":  stats["zk_update_processing_queue"] + stats["zk_append_processing_queue"] + stats["zk_address_append_processing_queue"],
+		"total_pending": stats["zk_address_append_queue"],
+		"total_active":  stats["zk_address_append_processing_queue"],
 		"total_failed":  stats["zk_failed_queue"],
 		"timestamp":     time.Now().Unix(),
 	}
@@ -1097,9 +1081,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {
 	switch circuitType {
-	case common.BatchAppendCircuitType,
-		common.BatchUpdateCircuitType,
-		common.BatchAddressAppendCircuitType:
+	case common.BatchAddressAppendCircuitType:
 		return true
 	default:
 		return false
@@ -1108,29 +1090,15 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
-	case common.BatchUpdateCircuitType:
-		return "zk_update_queue"
-	case common.BatchAppendCircuitType:
-		return "zk_append_queue"
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
 	default:
-		return "zk_update_queue"
+		return ""
 	}
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
 	switch circuitType {
-	case common.InclusionCircuitType:
-		return "1-3 seconds"
-	case common.NonInclusionCircuitType:
-		return "1-3 seconds"
-	case common.CombinedCircuitType:
-		return "1-3 seconds"
-	case common.BatchAppendCircuitType:
-		return "10-30 seconds"
-	case common.BatchUpdateCircuitType:
-		return "10-30 seconds"
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
 	default:
@@ -1140,17 +1108,13 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 
 func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitType) int {
 	switch circuitType {
-	case common.InclusionCircuitType:
-		return 1
-	case common.NonInclusionCircuitType:
-		return 1
-	case common.CombinedCircuitType:
-		return 1
-	case common.BatchAppendCircuitType:
-		return 30
-	case common.BatchUpdateCircuitType:
-		return 30
 	case common.BatchAddressAppendCircuitType:
+		return 30
+	case common.TransferP256CircuitType:
+		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
+		// runs well over the 10s floor on slower CI hardware.
+		return 60
+	case common.TransferCircuitType:
 		return 30
 	default:
 		return 1
@@ -1164,25 +1128,19 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	}
 
 	switch proofRequestMeta.CircuitType {
-	case common.InclusionCircuitType:
-		return handler.inclusionProof(buf, proofRequestMeta)
-	case common.NonInclusionCircuitType:
-		return handler.nonInclusionProof(buf, proofRequestMeta)
-	case common.CombinedCircuitType:
-		return handler.combinedProof(buf, proofRequestMeta)
-	case common.BatchUpdateCircuitType:
-		return handler.batchUpdateProof(buf)
-	case common.BatchAppendCircuitType:
-		return handler.batchAppendHandler(buf)
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
+	case common.TransferP256CircuitType:
+		return handler.transferProof(buf)
+	case common.TransferCircuitType:
+		return handler.transferEddsaProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
 }
 
 func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchAddressAppendParameters
+	var params nullifiertree.BatchAddressAppendParameters
 	err := json.Unmarshal(buf, &params)
 	if err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1198,7 +1156,7 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 		return nil, provingError(fmt.Errorf("batch address append: %w", err))
 	}
 
-	proof, err := v2.ProveBatchAddressAppend(ps, &params)
+	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1206,46 +1164,20 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	return proof, nil
 }
 
-func (handler proveHandler) batchAppendHandler(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchAppendParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
+func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
+	var params transfer.TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
 		return nil, malformedBodyError(err)
 	}
 
-	treeHeight := params.Height
-	batchSize := params.BatchSize
-
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchAppendCircuitType, treeHeight, batchSize)
+	ps, err := handler.keyManager.GetTransferSystem(common.TransferP256CircuitType, params.NInputs, params.NOutputs)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("batch append: %w", err))
+		return nil, provingError(fmt.Errorf("transfer: %w", err))
 	}
 
-	proof, err := v2.ProveBatchAppend(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err).Msg("Error during proof generation")
-		return nil, provingError(err)
-	}
-
-	return proof, nil
-}
-
-func (handler proveHandler) batchUpdateProof(buf []byte) (*common.Proof, *Error) {
-	var params v2.BatchUpdateParameters
-	err := json.Unmarshal(buf, &params)
-	if err != nil {
-		return nil, malformedBodyError(err)
-	}
-
-	treeHeight := params.Height
-	batchSize := params.BatchSize
-
-	ps, err := handler.keyManager.GetBatchSystem(common.BatchUpdateCircuitType, treeHeight, batchSize)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("batch update: %w", err))
-	}
-
-	proof, err := v2.ProveBatchUpdate(ps, &params)
+	proof, err := transfer.ProveTransfer(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1253,139 +1185,25 @@ func (handler proveHandler) batchUpdateProof(buf []byte) (*common.Proof, *Error)
 	return proof, nil
 }
 
-func (handler proveHandler) inclusionProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	ps, err := handler.keyManager.GetMerkleSystem(
-		proofRequestMeta.StateTreeHeight,
-		proofRequestMeta.NumInputs,
-		0,
-		0,
-		proofRequestMeta.Version,
-	)
+func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetTransferSystem(common.TransferCircuitType, params.NInputs, params.NOutputs)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("inclusion proof: %w", err))
+		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
 	}
 
-	switch proofRequestMeta.Version {
-	case 1:
-		var params v1.InclusionParameters
-
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveInclusion(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 2:
-		var params v2.InclusionParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveInclusion(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	}
-
-	return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-}
-
-func (handler proveHandler) nonInclusionProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	version := uint32(1)
-	if proofRequestMeta.AddressTreeHeight == 40 {
-		version = 2
-	}
-
-	ps, err := handler.keyManager.GetMerkleSystem(
-		0,
-		0,
-		proofRequestMeta.AddressTreeHeight,
-		proofRequestMeta.NumAddresses,
-		version,
-	)
+	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("non-inclusion proof: %w", err))
+		logging.Logger().Err(err)
+		return nil, provingError(err)
 	}
-
-	switch proofRequestMeta.AddressTreeHeight {
-	case 26:
-		var params v1.NonInclusionParameters
-
-		var err = json.Unmarshal(buf, &params)
-		if err != nil {
-			logging.Logger().Info().Msg("error Unmarshal")
-			logging.Logger().Info().Msg(err.Error())
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveNonInclusion(ps, &params)
-		if err != nil {
-			logging.Logger().Err(err)
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 40:
-		var params v2.NonInclusionParameters
-
-		var err = json.Unmarshal(buf, &params)
-		if err != nil {
-			logging.Logger().Info().Msg("error Unmarshal")
-			logging.Logger().Info().Msg(err.Error())
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveNonInclusion(ps, &params)
-		if err != nil {
-			logging.Logger().Err(err)
-			return nil, provingError(err)
-		}
-		return proof, nil
-	default:
-		return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-	}
-}
-
-func (handler proveHandler) combinedProof(buf []byte, proofRequestMeta common.ProofRequestMeta) (*common.Proof, *Error) {
-	version := uint32(1)
-	if proofRequestMeta.AddressTreeHeight == 40 {
-		version = 2
-	}
-
-	ps, err := handler.keyManager.GetMerkleSystem(
-		proofRequestMeta.StateTreeHeight,
-		proofRequestMeta.NumInputs,
-		proofRequestMeta.AddressTreeHeight,
-		proofRequestMeta.NumAddresses,
-		version,
-	)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("combined proof: %w", err))
-	}
-
-	switch proofRequestMeta.AddressTreeHeight {
-	case 26:
-		var params v1.CombinedParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v1.ProveCombined(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	case 40:
-		var params v2.CombinedParameters
-		if err := json.Unmarshal(buf, &params); err != nil {
-			return nil, malformedBodyError(err)
-		}
-		proof, err := v2.ProveCombined(ps, &params)
-		if err != nil {
-			return nil, provingError(err)
-		}
-		return proof, nil
-	default:
-		return nil, provingError(fmt.Errorf("no proving system for %+v proofRequest", proofRequestMeta))
-	}
+	return proof, nil
 }
 
 func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

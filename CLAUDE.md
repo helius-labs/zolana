@@ -6,6 +6,31 @@
 implementation cleanup unless that is the explicit task. If code, tests, and the
 spec disagree, treat the code or tests as suspect first.
 
+## Repo Structure
+
+program-libs
+- libraries used in programs
+- are publised as crates
+
+programs
+- must not depend on sdk libs
+- are not published as crates
+
+program-tests
+- integration test (programs) for programs 
+- are not publised as crates
+
+sdk-libs
+- libraries to interact with programs
+
+sdk-tests
+- integration test programs for sdks
+
+prover
+- go circuits
+- go prover server
+- rust prover client
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: on-chain SPP program.
@@ -252,6 +277,91 @@ Rule of thumb: `Vec<u8>` -> `u16`, otherwise -> `u8`.
 1. Loading proving keys for big circuits takes a lot of time
 2. tests should start a prover server if not started yet
 3. The prover server should be lazy it should not load any proving keys on startup it should load them when a proof for that key is requested and then keep it loaded so that the key doesnt need to be loaded again
+
+## SPP Transaction Proving Keys & Verifying Keys
+
+The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
+rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
+systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is the
+single source of truth duplicated in four places that MUST stay in sync:
+`sdk-libs/client/src/shape.rs` (the client may use a subset), Go
+`prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
+`prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
+on-chain verifier when it exists (`transact/proof.rs`).
+
+### Generate proving keys (`.key`)
+
+```bash
+# All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
+prover/server/scripts/generate_keys_transfer.sh
+
+# One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
+# Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.
+cd prover/server && go build -o light-prover .
+./light-prover setup-transfer --circuit transfer-p256 --n-inputs 2 --n-outputs 3 \
+    --output proving-keys/transfer_p256_2_3.key
+```
+
+`setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`
+(pk+vk+ccs). Keys are gitignored. The server lazy-loads
+`proving-keys/<rail>_<in>_<out>.key` on first proof request for that shape.
+
+### Distribute proving keys via GitHub release
+
+Gitignored keys are published as assets on a private-repo GitHub release
+(`transfer-keys-v2` on `helius-labs/zolana`). The unauthenticated asset URL
+404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
+`GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
+`TransferKeysReleaseTag` in `key_downloader.go` and must match
+`publish_keys_release.sh`; bump both when rotating.
+
+```bash
+prover/server/scripts/publish_keys_release.sh        # publish/refresh the release
+```
+
+`loadTransferSystem` -> `EnsureTransferKeyFromRelease` verifies against the local
+`CHECKSUM` (offline, no network), else runs `gh release download` and re-checks
+the SHA256. Merkle/batch keys still use the GCS `DownloadKey` path. CI's
+`tests / client integration` job (`just test-client-integration`) sets
+`GH_TOKEN` and caches `prover/server/proving-keys` by tag.
+
+### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
+
+```bash
+prover/server/scripts/regenerate_all_vkeys.sh
+```
+
+Pipeline: `light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed)
+vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <out_dir> <filename>`
+calls `groth16_solana::gnark_vk_parser::generate_bsb22_vk_file` to emit a
+`pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
+regenerated. The codegen lives in the `xtask` crate, which depends on the
+`groth16-solana` fork (`../groth16-solana`, `features = ["bsb22"]`).
+`zolana-interface` depends on the same fork only to compile the committed
+`verifying_keys/*.rs` constants.
+
+### BSB22 commitments (the two rails differ on purpose)
+
+- **transfer_p256 (P256):** the emulated-P256 gadget adds one BSB22 commitment over
+  private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
+  public_inputs + 2`. Proofs carry `proof_commitment` + `proof_commitment_pok`.
+  Verify with `Groth16Verifier::new_with_commitment`.
+- **transfer (eddsa, Solana-only):** vanilla Groth16, zero commitments. Its vk
+  has `vk_commitment_g2: None` and `vk_ic.len() == public_inputs + 1`. Verify
+  with `Groth16Verifier::new`.
+
+Both verify in one binary built with the `bsb22` feature: `verify_common` runs
+the standard Groth16 pairing for every proof and only adds the Pedersen PoK
+pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
+(or the rail). The Go prover marshals `proof_commitment` as `omitempty`, so it is
+absent for the vanilla rail and present for the P256 rail automatically.
+
+NOTE: the parser/verifier support a single commitment over **private** wires
+only (empty `committed_wires`). Committing a **public** input (e.g.
+`committer.Commit(c.PublicInputHash)`) records that wire in
+`PublicAndCommitmentCommitted` and the parser rejects it with
+`Bsb22UnsupportedMultiCommitment`. The Solana rail must therefore stay vanilla
+(no explicit `Commit`), not force a public-wire commitment.
 
 ## Git Hygiene
 

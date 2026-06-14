@@ -13,7 +13,7 @@ pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], KeypairError> {
     poseidon(&[&low, &high])
 }
 
-pub(crate) fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
+pub fn split_be_128(v: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     let mut low = [0u8; 32];
     let mut high = [0u8; 32];
     high[16..].copy_from_slice(&v[0..16]);
@@ -42,6 +42,10 @@ pub fn sha256_be(preimage: &[u8]) -> [u8; 32] {
     let mut digest: [u8; 32] = Sha256::digest(preimage).into();
     digest[0] = 0;
     digest
+}
+
+pub fn sha256(preimage: &[u8]) -> [u8; 32] {
+    Sha256::digest(preimage).into()
 }
 
 pub fn owner_hash(

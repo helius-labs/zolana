@@ -5,7 +5,7 @@
 /forester/.surfpool/
 /forester/logs/
 /.surfpool/
-/test-ledger/
+test-ledger
 .DS_Store
 /.idea
 .claude

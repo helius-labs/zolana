@@ -46,10 +46,11 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
 
     let owner = owner_hash(&utxo.owner, &npk).unwrap();
     let owner_utxo_hash = poseidon(&[&owner, &fe(utxo.blinding)]).unwrap();
-    let zone_program_id = hash_field(&[0u8; 32]).unwrap();
+    let asset = hash_field(utxo.asset.as_array()).unwrap();
+    let zone_program_id = [0u8; 32];
     let expected = poseidon(&[
         &fe(UTXO_DOMAIN.to_be_bytes()),
-        utxo.asset.as_array(),
+        &asset,
         &fe(utxo.amount.to_be_bytes()),
         &program_data_hash,
         &zone_data_hash,

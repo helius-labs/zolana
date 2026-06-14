@@ -30,11 +30,11 @@ func ToHex(i *big.Int) string {
 }
 
 type ProofJSON struct {
-	Ar                  [2]string    `json:"ar"`
-	Bs                  [2][2]string `json:"bs"`
-	Krs                 [2]string    `json:"krs"`
-	ProofCommitment     []string     `json:"proof_commitment,omitempty"`
-	ProofCommitmentPok  []string     `json:"proof_commitment_pok,omitempty"`
+	Ar                 [2]string    `json:"ar"`
+	Bs                 [2][2]string `json:"bs"`
+	Krs                [2]string    `json:"krs"`
+	ProofCommitment    []string     `json:"proof_commitment,omitempty"`
+	ProofCommitmentPok []string     `json:"proof_commitment_pok,omitempty"`
 }
 
 func (p *Proof) MarshalJSON() ([]byte, error) {
@@ -223,8 +223,116 @@ func (ps *MerkleProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
+func (ps *TransferProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var totalWritten int64 = 0
+	var intBuf [4]byte
+
+	requiresP256 := uint32(0)
+	if ps.RequiresP256 {
+		requiresP256 = 1
+	}
+	fieldsToWrite := []uint32{
+		ps.NInputs,
+		ps.NOutputs,
+		requiresP256,
+	}
+
+	for _, field := range fieldsToWrite {
+		binary.BigEndian.PutUint32(intBuf[:], field)
+		written, err := w.Write(intBuf[:])
+		totalWritten += int64(written)
+		if err != nil {
+			return totalWritten, err
+		}
+	}
+
+	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.VerifyingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
+}
+
+func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var totalRead int64 = 0
+	var intBuf [4]byte
+
+	var requiresP256 uint32
+	fieldsToRead := []*uint32{
+		&ps.NInputs,
+		&ps.NOutputs,
+		&requiresP256,
+	}
+
+	for _, field := range fieldsToRead {
+		read, err := io.ReadFull(r, intBuf[:])
+		totalRead += int64(read)
+		if err != nil {
+			return totalRead, err
+		}
+		*field = binary.BigEndian.Uint32(intBuf[:])
+	}
+	ps.RequiresP256 = requiresP256 != 0
+
+	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	return totalRead, nil
+}
+
 func ReadSystemFromFile(path string) (interface{}, error) {
-	if strings.Contains(strings.ToLower(path), "address-append") {
+	if strings.Contains(strings.ToLower(path), "transfer") {
+		ps := new(TransferProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		// Derive the rail from the serialized RequiresP256 flag rather than the
+		// file name, so the circuit type is correct regardless of key naming.
+		if ps.RequiresP256 {
+			ps.CircuitType = TransferP256CircuitType
+		} else {
+			ps.CircuitType = TransferCircuitType
+		}
+		return ps, nil
+	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType
 		file, err := os.Open(path)

@@ -13,6 +13,7 @@ type ProofRequestMeta struct {
 	AddressTreeHeight uint32
 	TreeHeight        uint32
 	NumInputs         uint32
+	NumOutputs        uint32
 	NumAddresses      uint32
 	// TreeID is the merkle tree pubkey - used for fair queuing across trees
 	TreeID string
@@ -56,7 +57,23 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
 	}
 
-	if addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
+	// Transfer circuits are keyed by (nInputs, nOutputs) instead of a tree
+	// height, so they are exempt from the tree-height requirement below.
+	isTransfer := CircuitType(circuitType) == TransferP256CircuitType ||
+		CircuitType(circuitType) == TransferCircuitType
+
+	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
+	// handler re-reads the authoritative values from the unmarshalled params.
+	nInputs := uint32(0)
+	if v, ok := rawInput["nInputs"].(float64); ok && v > 0 {
+		nInputs = uint32(v)
+	}
+	nOutputs := uint32(0)
+	if v, ok := rawInput["nOutputs"].(float64); ok && v > 0 {
+		nOutputs = uint32(v)
+	}
+
+	if !isTransfer && addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
 		return ProofRequestMeta{}, fmt.Errorf("no 'addressTreeHeight' or stateTreeHeight'or 'treeHeight' provided")
 	}
 
@@ -70,6 +87,10 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 	numInputs := 0
 	if inclusionInputs, ok := rawInput["inputCompressedAccounts"].([]interface{}); ok {
 		numInputs = len(inclusionInputs)
+	}
+	// Transfer circuits report their shape via nInputs/nOutputs.
+	if isTransfer {
+		numInputs = int(nInputs)
 	}
 
 	// Extract NonInclusionInputs length
@@ -97,6 +118,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		StateTreeHeight:   stateTreeHeight,
 		AddressTreeHeight: addressTreeHeight,
 		NumInputs:         uint32(numInputs),
+		NumOutputs:        nOutputs,
 		NumAddresses:      uint32(numAddresses),
 		TreeID:            treeID,
 		BatchIndex:        batchIndex,

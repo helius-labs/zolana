@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::plaintext_transfer::TransferPlaintextUtxos;
 use zolana_transaction::split::{SplitBundlePlaintext, SplitEncryptedUtxos};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
@@ -21,6 +22,7 @@ pub struct TransactionWorld {
     pub transfer_blob: Option<TransferEncryptedUtxos>,
     pub split_bundle: Option<SplitBundlePlaintext>,
     pub split_blob: Option<SplitEncryptedUtxos>,
+    pub plaintext_transfer: Option<TransferPlaintextUtxos>,
     pub first_nullifier: [u8; 32],
     pub sync_transactions: Vec<SyncTransaction>,
     pub owned_utxos: HashMap<String, Vec<Utxo>>,

@@ -5,13 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"light/light-prover/logging"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"zolana/prover/logging"
 )
 
 const (
@@ -19,6 +20,16 @@ const (
 	DefaultMaxRetries    = 10
 	DefaultRetryDelay    = 5 * time.Second
 	DefaultMaxRetryDelay = 5 * time.Minute
+
+	// TransferKeysRepo and TransferKeysReleaseTag identify the GitHub release
+	// that hosts the transfer proving keys (transfer_<in>_<out>.key for the
+	// eddsa rail, transfer_p256_<in>_<out>.key for the P256 rail) and their
+	// CHECKSUM. They must match the
+	// repo/tag used by scripts/publish_keys_release.sh. The repo is private, so
+	// the keys are fetched with the `gh` CLI (which carries the caller's auth,
+	// or CI's same-repo GITHUB_TOKEN) rather than an unauthenticated URL.
+	TransferKeysRepo       = "helius-labs/zolana"
+	TransferKeysReleaseTag = "transfer-keys-v2"
 )
 
 type DownloadConfig struct {
@@ -117,6 +128,22 @@ func downloadChecksum(config *DownloadConfig) error {
 		Msg("Loaded checksums")
 
 	return nil
+}
+
+// readLocalChecksum looks up filename in a CHECKSUM file located in dir (format:
+// "checksum  filename" per line). Returns the checksum and true if found.
+func readLocalChecksum(dir string, filename string) (string, bool) {
+	content, err := os.ReadFile(filepath.Join(dir, "CHECKSUM"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		parts := strings.Fields(strings.TrimSpace(line))
+		if len(parts) >= 2 && parts[1] == filename {
+			return parts[0], true
+		}
+	}
+	return "", false
 }
 
 func verifyChecksum(filepath string, expectedChecksum string) (bool, error) {
@@ -285,6 +312,22 @@ func downloadFileWithResume(url, outputPath string, config *DownloadConfig) erro
 func DownloadKey(keyPath string, config *DownloadConfig) error {
 	filename := filepath.Base(keyPath)
 
+	// Offline path: a CHECKSUM file in the key's directory (written by
+	// scripts/generate_checksums.py) is authoritative for locally-generated keys
+	// such as the transfer proving keys, which are not published to the CDN. If it
+	// covers this file and the on-disk key verifies, accept it without any network.
+	if localChecksum, ok := readLocalChecksum(filepath.Dir(keyPath), filename); ok {
+		if _, err := os.Stat(keyPath); err == nil {
+			valid, verr := verifyChecksum(keyPath, localChecksum)
+			if verr == nil && valid {
+				logging.Logger().Info().
+					Str("file", filename).
+					Msg("Key file verified against local CHECKSUM, skipping download")
+				return nil
+			}
+		}
+	}
+
 	if err := downloadChecksum(config); err != nil {
 		return fmt.Errorf("failed to load checksums: %w", err)
 	}
@@ -366,6 +409,74 @@ func DownloadKey(keyPath string, config *DownloadConfig) error {
 		Str("file", filename).
 		Msg("Key file downloaded and verified successfully")
 
+	return nil
+}
+
+// EnsureTransferKeyFromRelease makes a transfer proving key available at
+// keyPath, fetching it (and the release CHECKSUM) from the private GitHub
+// release via the `gh` CLI. `gh` carries the caller's auth locally and CI's
+// same-repo GITHUB_TOKEN, so this works without an unauthenticated URL. If the
+// file is already present and verifies against the local CHECKSUM, no download
+// happens. When autoDownload is false, a missing file is an error.
+func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
+	filename := filepath.Base(keyPath)
+	dir := filepath.Dir(keyPath)
+
+	if localChecksum, ok := readLocalChecksum(dir, filename); ok {
+		if _, err := os.Stat(keyPath); err == nil {
+			if valid, verr := verifyChecksum(keyPath, localChecksum); verr == nil && valid {
+				logging.Logger().Info().
+					Str("file", filename).
+					Msg("Transfer key verified against local CHECKSUM, skipping download")
+				return nil
+			}
+		}
+	}
+
+	if !autoDownload {
+		if _, err := os.Stat(keyPath); err == nil {
+			return nil
+		}
+		return fmt.Errorf("required key file not found: %s (auto-download disabled)", filename)
+	}
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	logging.Logger().Info().
+		Str("file", filename).
+		Str("repo", TransferKeysRepo).
+		Str("tag", TransferKeysReleaseTag).
+		Msg("Downloading transfer key from GitHub release via gh")
+
+	cmd := exec.Command("gh", "release", "download", TransferKeysReleaseTag,
+		"--repo", TransferKeysRepo,
+		"--pattern", filename,
+		"--pattern", "CHECKSUM",
+		"--dir", dir,
+		"--clobber",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh release download failed for %s: %w: %s", filename, err, strings.TrimSpace(string(out)))
+	}
+
+	expectedChecksum, ok := readLocalChecksum(dir, filename)
+	if !ok {
+		return fmt.Errorf("downloaded CHECKSUM has no entry for %s", filename)
+	}
+	valid, err := verifyChecksum(keyPath, expectedChecksum)
+	if err != nil {
+		return fmt.Errorf("failed to verify downloaded file %s: %w", filename, err)
+	}
+	if !valid {
+		os.Remove(keyPath)
+		return fmt.Errorf("downloaded file %s checksum mismatch", filename)
+	}
+
+	logging.Logger().Info().
+		Str("file", filename).
+		Msg("Transfer key downloaded and verified successfully")
 	return nil
 }
 

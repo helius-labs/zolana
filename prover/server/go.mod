@@ -1,4 +1,4 @@
-module light/light-prover
+module zolana/prover
 
 go 1.25.5
 

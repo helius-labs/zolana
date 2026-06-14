@@ -49,6 +49,15 @@ test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
 
+# All zolana-client tests (lib unit tests, the `transaction` integration test,
+# and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
+# (via the zolana CLI), which lazily downloads transfer proving keys from the
+# transfer-keys-v1 GitHub release using `gh` -- so this needs `gh` on PATH with
+# auth (local `gh auth login`, or GH_TOKEN in CI). Builds the go prover binary
+# and the zolana CLI the spawned server/test rely on.
+test-client-integration: build-prover-server build-cli
+    cargo test -p zolana-client
+
 # End-to-end litesvm tests for shielded-pool.
 test-litesvm: build-programs
     cargo test -p shielded-pool-tests
@@ -132,10 +141,13 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    # Scoped to ./prover/... (skips the redis-dependent `server` package tests)
-    # and uses the upstream 60m timeout; TestCombined alone compiles ~672
-    # groth16 circuits and exceeds Go's default 10m.
-    go test ./prover/... -timeout 60m
+    # Runs every package except the redis-dependent `server` package:
+    # ./circuits/... (gnark solve/prove tests), ./prover/..., and
+    # ./prover-test/... (reference + integration tests). The circuit and
+    # integration tests run real groth16 setup+prove -- TestCircuitProvesFor-
+    # SupportedShapes alone proves every supported shape -- so the run can exceed
+    # Go's default 10m; the generous timeout is a ceiling, not a floor.
+    go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
 
 [private]
 xtask-create-verifying-keys:

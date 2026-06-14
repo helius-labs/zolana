@@ -1,6 +1,7 @@
 mod asset;
 mod blinding;
 mod common;
+mod plaintext_transfer;
 mod serialization;
 mod split;
 mod transfer;

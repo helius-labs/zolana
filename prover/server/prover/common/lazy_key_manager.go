@@ -2,16 +2,17 @@ package common
 
 import (
 	"fmt"
-	"light/light-prover/logging"
 	"path/filepath"
 	"strings"
 	"sync"
+	"zolana/prover/logging"
 )
 
 type LazyKeyManager struct {
 	mu                sync.RWMutex
 	merkleSystems     map[string]*MerkleProofSystem
 	batchSystems      map[string]*BatchProofSystem
+	transferSystems   map[string]*TransferProofSystem
 	keysDir           string
 	downloadConfig    *DownloadConfig
 	loadingInProgress map[string]chan struct{}
@@ -24,6 +25,7 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	return &LazyKeyManager{
 		merkleSystems:     make(map[string]*MerkleProofSystem),
 		batchSystems:      make(map[string]*BatchProofSystem),
+		transferSystems:   make(map[string]*TransferProofSystem),
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
 		loadingInProgress: make(map[string]chan struct{}),
@@ -75,6 +77,22 @@ func (m *LazyKeyManager) GetBatchSystem(circuitType CircuitType, treeHeight uint
 	m.mu.RUnlock()
 
 	return m.loadBatchSystem(key, circuitType, treeHeight, batchSize)
+}
+
+func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
+	key := fmt.Sprintf("%s_%d_%d", circuitType, nInputs, nOutputs)
+
+	m.mu.RLock()
+	if ps, exists := m.transferSystems[key]; exists {
+		m.mu.RUnlock()
+		logging.Logger().Debug().
+			Str("key", key).
+			Msg("Found cached TransferProofSystem")
+		return ps, nil
+	}
+	m.mu.RUnlock()
+
+	return m.loadTransferSystem(key, circuitType, nInputs, nOutputs)
 }
 
 func (m *LazyKeyManager) loadMerkleSystem(
@@ -190,6 +208,59 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 	return ps, nil
 }
 
+func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
+	loadChan := m.acquireLoadingLock(key)
+	if loadChan == nil {
+		m.waitForLoading(key)
+		m.mu.RLock()
+		ps, exists := m.transferSystems[key]
+		m.mu.RUnlock()
+		if exists {
+			return ps, nil
+		}
+		return nil, fmt.Errorf("loading completed but system not found in cache")
+	}
+	defer m.releaseLoadingLock(key, loadChan)
+
+	keyPath := m.determineTransferKeyPath(circuitType, nInputs, nOutputs)
+	if keyPath == "" {
+		return nil, fmt.Errorf("no key file mapping for %s with %d inputs and %d outputs", circuitType, nInputs, nOutputs)
+	}
+
+	logging.Logger().Info().
+		Str("key_path", keyPath).
+		Str("cache_key", key).
+		Msg("Loading TransferProofSystem")
+
+	if err := EnsureTransferKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
+		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
+	}
+
+	system, err := ReadSystemFromFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
+	}
+
+	ps, ok := system.(*TransferProofSystem)
+	if !ok {
+		return nil, fmt.Errorf("expected TransferProofSystem but got different type")
+	}
+
+	m.mu.Lock()
+	m.transferSystems[key] = ps
+	m.mu.Unlock()
+
+	logging.Logger().Info().
+		Str("cache_key", key).
+		Uint32("n_inputs", ps.NInputs).
+		Uint32("n_outputs", ps.NOutputs).
+		Bool("requires_p256", ps.RequiresP256).
+		Str("circuit_type", string(ps.CircuitType)).
+		Msg("TransferProofSystem loaded and cached successfully")
+
+	return ps, nil
+}
+
 func (m *LazyKeyManager) acquireLoadingLock(key string) chan struct{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -279,14 +350,51 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 	return ""
 }
 
+// transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
+// canonical shape set). Kept here because common must not import prover-test;
+// keep in sync with prover-test/spp/protocol/shape.go.
+var transferSupportedShapes = [][2]uint32{
+	{1, 1},
+	{1, 2},
+	{2, 2},
+	{2, 3},
+	{3, 3},
+	{4, 3},
+	{4, 4},
+	{5, 3},
+	{5, 4},
+	{1, 8},
+}
+
+func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
+	var prefix string
+	switch circuitType {
+	case TransferP256CircuitType:
+		prefix = "transfer_p256"
+	case TransferCircuitType:
+		prefix = "transfer"
+	default:
+		return ""
+	}
+
+	for _, shape := range transferSupportedShapes {
+		if shape[0] == nInputs && shape[1] == nOutputs {
+			return m.keyPath(fmt.Sprintf("%s_%d_%d.key", prefix, nInputs, nOutputs))
+		}
+	}
+
+	return ""
+}
+
 func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return map[string]interface{}{
-		"merkle_systems_loaded": len(m.merkleSystems),
-		"batch_systems_loaded":  len(m.batchSystems),
-		"keys_loading":          len(m.loadingInProgress),
+		"merkle_systems_loaded":   len(m.merkleSystems),
+		"batch_systems_loaded":    len(m.batchSystems),
+		"transfer_systems_loaded": len(m.transferSystems),
+		"keys_loading":            len(m.loadingInProgress),
 	}
 }
 
@@ -434,6 +542,13 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 		logging.Logger().Debug().
 			Str("cache_key", key).
 			Msg("Cached BatchProofSystem")
+
+	case *TransferProofSystem:
+		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.NInputs, ps.NOutputs)
+		m.transferSystems[key] = ps
+		logging.Logger().Debug().
+			Str("cache_key", key).
+			Msg("Cached TransferProofSystem")
 
 	default:
 		return fmt.Errorf("unknown system type: %T", system)
