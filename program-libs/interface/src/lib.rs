@@ -1,7 +1,7 @@
 pub mod instruction;
 pub mod state;
-pub mod verifying_keys;
 pub mod user_registry;
+pub mod verifying_keys;
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.
 #[macro_export]
