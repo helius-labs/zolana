@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use borsh::BorshSerialize;
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::LiteSVM;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -43,6 +43,9 @@ use zolana_transaction::{
 
 pub mod indexer;
 pub use indexer::{PoolIndexer, UtxoRecord};
+mod logging;
+pub mod rpc;
+pub use rpc::{IndexedEvent, IndexedTransaction, LiteSvmRpc};
 
 pub fn proofless_event_for_wallet(event: &ProoflessShieldEvent) -> ProoflessDepositEvent {
     let mut records = Vec::new();
@@ -81,6 +84,7 @@ pub struct PoolTestRig {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
+    indexer: PoolIndexer,
 }
 
 impl PoolTestRig {
@@ -113,7 +117,20 @@ impl PoolTestRig {
             svm,
             payer,
             program_id,
+            indexer: PoolIndexer::new(),
         })
+    }
+
+    pub fn indexer(&self) -> &PoolIndexer {
+        &self.indexer
+    }
+
+    pub fn indexer_mut(&mut self) -> &mut PoolIndexer {
+        &mut self.indexer
+    }
+
+    fn rpc(&mut self) -> LiteSvmRpc<'_> {
+        LiteSvmRpc::new(&mut self.svm, &mut self.indexer, self.program_id)
     }
 
     /// The canonical protocol-config PDA for the shielded-pool program.
@@ -557,21 +574,12 @@ impl PoolTestRig {
         ix: Instruction,
         depositor: &Keypair,
     ) -> Result<ProoflessShieldEvent, RigError> {
-        let payer = self.payer.pubkey();
-        let message = Message::new(&[ix], Some(&payer));
-        let account_keys = message.account_keys.clone();
-        let blockhash = self.svm.latest_blockhash();
-        let tx = Transaction::new(
-            &[&self.payer.insecure_clone(), depositor],
-            message,
-            blockhash,
-        );
-        let meta = self
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))?;
-
-        self.proofless_event_from_meta(&account_keys, &meta)
+        let payer = self.payer.insecure_clone();
+        let payer_pubkey = payer.pubkey();
+        let outcome = self
+            .rpc()
+            .send_instructions(&[ix], &[&payer, depositor], &payer_pubkey)?;
+        single_proofless_event(outcome.events)
     }
 
     /// Deposit `lamports` of SOL without a proof (`proofless_shield`). The
@@ -756,40 +764,12 @@ impl PoolTestRig {
             data,
         );
 
-        let payer = self.payer.pubkey();
-        let message = Message::new(&[ix], Some(&payer));
-        let account_keys = message.account_keys.clone();
-        let blockhash = self.svm.latest_blockhash();
-        let tx = Transaction::new(
-            &[&self.payer.insecure_clone(), depositor],
-            message,
-            blockhash,
-        );
-        let meta = self
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))?;
-
-        self.proofless_event_from_meta(&account_keys, &meta)
-    }
-
-    fn proofless_event_from_meta(
-        &self,
-        account_keys: &[Pubkey],
-        meta: &TransactionMetadata,
-    ) -> Result<ProoflessShieldEvent, RigError> {
-        for inner in meta.inner_instructions.iter().flatten() {
-            let compiled = &inner.instruction;
-            let program = account_keys
-                .get(compiled.program_id_index as usize)
-                .copied()
-                .unwrap_or_default();
-            if program == self.program_id && compiled.data.first() == Some(&tag::EMIT_EVENT) {
-                return borsh::BorshDeserialize::try_from_slice(&compiled.data[1..])
-                    .map_err(|e| RigError::Litesvm(format!("event decode: {e}")));
-            }
-        }
-        Err(RigError::Litesvm("no emit_event inner instruction".into()))
+        let payer = self.payer.insecure_clone();
+        let payer_pubkey = payer.pubkey();
+        let outcome = self
+            .rpc()
+            .send_instructions(&[ix], &[&payer, depositor], &payer_pubkey)?;
+        single_proofless_event(outcome.events)
     }
 
     pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), RigError> {
@@ -832,12 +812,26 @@ impl PoolTestRig {
     ) -> Result<(), RigError> {
         let blockhash = self.svm.latest_blockhash();
         let msg = Message::new(ixs, Some(payer));
+        let account_keys = msg.account_keys.clone();
         let tx = Transaction::new(signers, msg, blockhash);
-        self.svm
-            .send_transaction(tx)
-            .map(|_| ())
-            .map_err(|e| RigError::Litesvm(format!("send_transaction: {e:?}")))
+        self.rpc().send_transaction(tx, &account_keys).map(|_| ())
     }
+}
+
+fn single_proofless_event(events: Vec<IndexedEvent>) -> Result<ProoflessShieldEvent, RigError> {
+    let mut proofless_events = events.into_iter().filter_map(|event| match event {
+        IndexedEvent::ProoflessShield(event) => Some(event),
+        IndexedEvent::Unknown { .. } => None,
+    });
+    let Some(event) = proofless_events.next() else {
+        return Err(RigError::Litesvm("no proofless shield event".into()));
+    };
+    if proofless_events.next().is_some() {
+        return Err(RigError::Litesvm(
+            "expected one proofless shield event".into(),
+        ));
+    }
+    Ok(event)
 }
 
 struct WalletShieldFields {

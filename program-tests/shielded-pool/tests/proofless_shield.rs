@@ -13,7 +13,7 @@ use zolana_interface::instruction::{
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, PoolIndexer, PoolTestRig};
+use zolana_program_test::{proofless_event_for_wallet, PoolTestRig};
 use zolana_transaction::Wallet;
 
 type ProoflessMutation = Box<dyn Fn(&mut ProoflessShieldIxData)>;
@@ -54,11 +54,11 @@ fn sol_deposit_succeeds_and_event_is_faithful() {
         "leaf must be appended"
     );
 
-    let mut indexer = PoolIndexer::new();
-    indexer
-        .record_proofless_shield(&event)
-        .expect("record proofless event");
-    let by_tag: Vec<_> = indexer.fetch_by_view_tag(&data.view_tag).collect();
+    assert_eq!(
+        rig.indexer().root(),
+        rig.state_root(&tree.pubkey()).expect("root")
+    );
+    let by_tag: Vec<_> = rig.indexer().fetch_by_view_tag(&data.view_tag).collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
     assert_eq!(by_tag[0].owner_utxo_hash, data.owner_utxo_hash);
     assert!(
@@ -78,6 +78,7 @@ fn rejects_bad_amount_shapes() {
         return;
     };
     let depositor = funded_depositor(&mut rig);
+    let indexed_before = rig.indexer().utxos().len();
 
     let mut both = PoolTestRig::sol_shield_data(1_000, [1u8; 32]);
     both.public_spl_amount = Some(5);
@@ -98,6 +99,7 @@ fn rejects_bad_amount_shapes() {
         rig.proofless_shield(&tree, &depositor, &zero).unwrap_err(),
         ShieldedPoolError::InvalidTransactShape,
     );
+    assert_eq!(rig.indexer().utxos().len(), indexed_before);
 }
 
 #[test]
@@ -290,6 +292,8 @@ fn repeat_deposits_create_distinct_leaves() {
     let root2 = rig.state_root(&tree.pubkey()).expect("root");
     assert_ne!(root0, root1);
     assert_ne!(root1, root2);
+    assert_eq!(rig.indexer().utxos().len(), 2);
+    assert_eq!(rig.indexer().root(), root2);
 }
 
 #[test]
