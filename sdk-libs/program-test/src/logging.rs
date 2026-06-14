@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    fmt::Write,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use borsh::BorshDeserialize;
 use light_instruction_decoder::{
@@ -17,13 +20,14 @@ use zolana_interface::instruction::{
     UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
 };
 
-use crate::rpc::IndexedEvent;
+use crate::events::{IndexedEvent, IndexedEventData};
 
 const TEST_LOG_ENV: &str = "ZOLANA_PROGRAM_TEST_LOG";
 static TX_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 pub fn log_transaction(
     shielded_pool_program_id: Pubkey,
+    slot: u64,
     message: &Message,
     meta: &TransactionMetadata,
     events: &[IndexedEvent],
@@ -32,7 +36,7 @@ pub fn log_transaction(
         return;
     }
 
-    let mut log = transaction_log(shielded_pool_program_id, message, meta);
+    let mut log = transaction_log(shielded_pool_program_id, slot, message, meta);
     log.status = TransactionStatus::Success;
     let mut output = TransactionFormatter::new(&logging_config(shielded_pool_program_id))
         .format(&log, next_tx_number());
@@ -42,6 +46,7 @@ pub fn log_transaction(
 
 pub fn log_failed_transaction(
     shielded_pool_program_id: Pubkey,
+    slot: u64,
     message: &Message,
     err: &FailedTransactionMetadata,
 ) {
@@ -49,7 +54,7 @@ pub fn log_failed_transaction(
         return;
     }
 
-    let mut log = transaction_log(shielded_pool_program_id, message, &err.meta);
+    let mut log = transaction_log(shielded_pool_program_id, slot, message, &err.meta);
     log.status = TransactionStatus::Failed(format!("{:?}", err.err));
     let output = TransactionFormatter::new(&logging_config(shielded_pool_program_id))
         .format(&log, next_tx_number());
@@ -58,11 +63,12 @@ pub fn log_failed_transaction(
 
 fn transaction_log(
     shielded_pool_program_id: Pubkey,
+    slot: u64,
     message: &Message,
     meta: &TransactionMetadata,
 ) -> EnhancedTransactionLog {
     let config = logging_config(shielded_pool_program_id);
-    let mut log = EnhancedTransactionLog::new(meta.signature, 0);
+    let mut log = EnhancedTransactionLog::new(meta.signature, slot);
     log.fee = meta.fee;
     log.compute_used = meta.compute_units_consumed;
     log.instructions = instructions(message, meta, &config);
@@ -90,7 +96,10 @@ fn log_enabled() -> bool {
     let Ok(value) = std::env::var(TEST_LOG_ENV) else {
         return false;
     };
-    !matches!(value.as_str(), "" | "0" | "false" | "FALSE" | "off" | "OFF")
+    !matches!(
+        value.to_ascii_lowercase().as_str(),
+        "" | "0" | "false" | "off"
+    )
 }
 
 fn instructions(
@@ -174,14 +183,21 @@ fn append_indexed_events(output: &mut String, events: &[IndexedEvent]) {
 
 fn event_summary(event: &IndexedEvent) -> String {
     match event {
-        IndexedEvent::ProoflessShield(event) => format!(
+        IndexedEvent {
+            data: IndexedEventData::ProoflessShield(event),
+            ..
+        } => format!(
             "proofless_shield amount={} asset={} view_tag={} utxo_hash={}",
             event.amount,
             pubkey(&event.asset),
             short_hex(&event.view_tag),
             short_hex(&event.utxo_hash)
         ),
-        IndexedEvent::Unknown { data } => format!("unknown data_len={}", data.len()),
+        IndexedEvent {
+            data: IndexedEventData::Unknown,
+            payload,
+            ..
+        } => format!("unknown data_len={}", payload.len()),
     }
 }
 
@@ -495,7 +511,7 @@ fn cpi_signer(value: Option<zolana_interface::instruction::CpiSignerData>) -> St
 fn short_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(10);
     for byte in bytes.iter().take(4) {
-        out.push_str(&format!("{byte:02x}"));
+        let _ = write!(out, "{byte:02x}");
     }
     if bytes.len() > 4 {
         out.push_str("..");

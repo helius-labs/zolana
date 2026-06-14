@@ -228,7 +228,6 @@ fn write_asset_registry(
     {
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
-    registry_data[..SPL_ASSET_REGISTRY_ACCOUNT_LEN].fill(0);
     registry_data[SPL_ASSET_REGISTRY_MAGIC_OFFSET..SPL_ASSET_REGISTRY_MAGIC_END]
         .copy_from_slice(&SPL_ASSET_REGISTRY_MAGIC);
     registry_data[SPL_ASSET_REGISTRY_MINT_OFFSET..SPL_ASSET_REGISTRY_MINT_END]

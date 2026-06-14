@@ -5,6 +5,8 @@ export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
+localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", "8899")
+localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:8899")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -58,12 +60,15 @@ test-sdk-libs:
 test-client-integration: build-prover-server build-cli
     cargo test -p zolana-client
 
-# End-to-end litesvm tests for shielded-pool.
-test-litesvm: build-programs
+# Program integration tests backed by LiteSVM.
+test-programs: build-programs
     cargo test -p shielded-pool-tests
 
+# Backwards-compatible alias.
+test-litesvm: test-programs
+
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-litesvm test-user-registry-litesvm
+test-all: test test-programs test-user-registry-litesvm
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -83,6 +88,13 @@ test-cli:
     cargo test -p zolana-cli
 
 # === Local validator helpers ===
+
+test-localnet-proofless: build-programs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cargo run -p zolana-cli -- test-validator --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_proofless_shield -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash

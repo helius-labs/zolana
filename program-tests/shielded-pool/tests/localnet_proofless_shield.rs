@@ -12,23 +12,31 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
+use solana_rpc_client::api::config::RpcTransactionConfig;
 use solana_rpc_client::rpc_client::RpcClient;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
+use solana_transaction_status_client_types::{
+    option_serializer::OptionSerializer, EncodedTransaction, UiInstruction, UiMessage,
+    UiTransactionEncoding,
+};
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CpiSignerData, CreateProtocolConfigData, CreateTreeData,
-        ProoflessShieldEvent, ProoflessShieldIxData, ZoneProoflessShieldIxData,
+        ProoflessShieldEvent, ZoneProoflessShieldIxData,
     },
     state::{state_root_offset, tree_account_size},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
-    proofless_shield_sol_instruction, zone_auth_pda, zone_proofless_shield_sol_instruction,
-    PoolIndexer, PoolTestRig, ZONE_TEST_PROGRAM_ID,
+    index_events, indexed_events_from_instructions, proofless_shield_sol_instruction,
+    single_proofless_shield_event, system_create_account_ix, zone_auth_pda,
+    zone_proofless_shield_sol_instruction, ParsedInstruction, PoolIndexer, PoolTestRig,
+    ZONE_TEST_PROGRAM_ID,
 };
-use zolana_transaction::{Address, Blinding, Utxo, Wallet};
+use zolana_transaction::{Blinding, Wallet};
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
@@ -49,15 +57,15 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
     let depositor = Keypair::new();
     print_signature(
         "airdrop payer",
-        airdrop_and_confirm(&rpc, &payer.pubkey(), 20_000_000_000)?,
+        &airdrop_and_confirm(&rpc, &payer.pubkey(), 20_000_000_000)?,
     );
     print_signature(
         "airdrop authority",
-        airdrop_and_confirm(&rpc, &authority.pubkey(), 1_000_000_000)?,
+        &airdrop_and_confirm(&rpc, &authority.pubkey(), 1_000_000_000)?,
     );
     print_signature(
         "airdrop depositor",
-        airdrop_and_confirm(&rpc, &depositor.pubkey(), 5_000_000_000)?,
+        &airdrop_and_confirm(&rpc, &depositor.pubkey(), 5_000_000_000)?,
     );
 
     let protocol_config =
@@ -65,7 +73,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
     let create_config = create_protocol_config_ix(program_id, authority.pubkey(), protocol_config);
     print_signature(
         "create_protocol_config",
-        send_and_confirm(&rpc, &[create_config], &[&authority], &authority.pubkey())?,
+        &send_and_confirm(&rpc, &[create_config], &[&authority], &authority.pubkey())?,
     );
 
     let tree = Keypair::new();
@@ -78,7 +86,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
     )?;
     print_signature(
         "create_tree",
-        send_and_confirm(
+        &send_and_confirm(
             &rpc,
             &create_tree,
             &[&payer, &tree, &authority],
@@ -103,14 +111,13 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY),
         &direct_data,
     );
-    print_signature(
-        "proofless_shield",
-        send_and_confirm(&rpc, &[direct_ix], &[&payer, &depositor], &payer.pubkey())?,
-    );
+    let direct_signature =
+        send_and_confirm(&rpc, &[direct_ix], &[&payer, &depositor], &payer.pubkey())?;
+    print_signature("proofless_shield", &direct_signature);
     let direct_root_after = state_root(&rpc, &tree.pubkey())?;
     assert_ne!(direct_root_after, direct_root_before);
-    let direct_event = event_from_proofless(&direct_data, None)?;
-    indexer.record_proofless_shield(&direct_event)?;
+    let direct_event =
+        index_proofless_event_from_transaction(&rpc, &mut indexer, program_id, &direct_signature)?;
     assert_eq!(direct_root_after, indexer.root());
     assert_wallet_discovers(&mut direct_recipient, &direct_event, direct_blinding)?;
 
@@ -134,14 +141,13 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> Result<(), Box<dyn Er
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY),
         &zone_data,
     );
-    print_signature(
-        "zone_proofless_shield",
-        send_and_confirm(&rpc, &[zone_ix], &[&payer, &depositor], &payer.pubkey())?,
-    );
+    let zone_signature =
+        send_and_confirm(&rpc, &[zone_ix], &[&payer, &depositor], &payer.pubkey())?;
+    print_signature("zone_proofless_shield", &zone_signature);
     let zone_root_after = state_root(&rpc, &tree.pubkey())?;
     assert_ne!(zone_root_after, zone_root_before);
-    let zone_event = event_from_zone_proofless(&zone_data)?;
-    indexer.record_proofless_shield(&zone_event)?;
+    let zone_event =
+        index_proofless_event_from_transaction(&rpc, &mut indexer, program_id, &zone_signature)?;
     assert_eq!(zone_root_after, indexer.root());
     assert_wallet_discovers(&mut zone_recipient, &zone_event, zone_blinding)?;
 
@@ -225,65 +231,6 @@ fn wallet_zone_sol_shield_data(
     ))
 }
 
-fn event_from_proofless(
-    data: &ProoflessShieldIxData,
-    zone: Option<([u8; 32], [u8; 32], Option<Vec<u8>>)>,
-) -> Result<ProoflessShieldEvent, Box<dyn Error>> {
-    let amount = data
-        .public_sol_amount
-        .ok_or_else(|| io::Error::other("expected SOL proofless data"))?;
-    let (zone_program_id, policy_data_hash, zone_data) = match zone {
-        Some((program_id, hash, zone_data)) => (Some(program_id), Some(hash), zone_data),
-        None => (None, None, None),
-    };
-    let program_data_hash = data.program_data_hash.unwrap_or([0u8; 32]);
-    let zone_data_hash = policy_data_hash.unwrap_or([0u8; 32]);
-    let utxo_hash = Utxo::commitment_from_owner_utxo_hash(
-        Address::new_from_array([0u8; 32]),
-        amount,
-        &program_data_hash,
-        &zone_data_hash,
-        zone_program_id.map(Address::new_from_array),
-        &data.owner_utxo_hash,
-    )?;
-    Ok(ProoflessShieldEvent {
-        view_tag: data.view_tag,
-        utxo_hash,
-        asset: [0u8; 32],
-        amount,
-        zone_program_id,
-        policy_data_hash,
-        owner_utxo_hash: data.owner_utxo_hash,
-        salt: data.salt,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        zone_data,
-    })
-}
-
-fn event_from_zone_proofless(
-    data: &ZoneProoflessShieldIxData,
-) -> Result<ProoflessShieldEvent, Box<dyn Error>> {
-    let proofless = ProoflessShieldIxData {
-        view_tag: data.view_tag,
-        owner_utxo_hash: data.owner_utxo_hash,
-        salt: data.salt,
-        public_sol_amount: data.public_sol_amount,
-        public_spl_amount: data.public_spl_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: Some(data.cpi_signer),
-    };
-    event_from_proofless(
-        &proofless,
-        Some((
-            data.cpi_signer.program_id,
-            data.policy_data_hash.unwrap_or([0u8; 32]),
-            data.zone_data.clone(),
-        )),
-    )
-}
-
 fn assert_wallet_discovers(
     wallet: &mut Wallet,
     event: &ProoflessShieldEvent,
@@ -296,25 +243,82 @@ fn assert_wallet_discovers(
     Ok(())
 }
 
-fn system_create_account_ix(
-    payer: &Pubkey,
-    new_account: &Pubkey,
-    lamports: u64,
-    space: u64,
-    owner: &Pubkey,
-) -> Instruction {
-    let mut data = vec![0u8; 4 + 8 + 8 + 32];
-    data[4..12].copy_from_slice(&lamports.to_le_bytes());
-    data[12..20].copy_from_slice(&space.to_le_bytes());
-    data[20..52].copy_from_slice(&owner.to_bytes());
-    Instruction {
-        program_id: Pubkey::default(),
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new(*new_account, true),
-        ],
-        data,
-    }
+fn index_proofless_event_from_transaction(
+    rpc: &RpcClient,
+    indexer: &mut PoolIndexer,
+    program_id: Pubkey,
+    signature: &Signature,
+) -> Result<ProoflessShieldEvent, Box<dyn Error>> {
+    let config = RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Json),
+        commitment: Some(CommitmentConfig::confirmed()),
+        max_supported_transaction_version: Some(0),
+    };
+    let transaction = rpc.get_transaction_with_config(signature, config)?;
+    let encoded = transaction.transaction;
+    let meta = encoded
+        .meta
+        .ok_or_else(|| io::Error::other("transaction missing metadata"))?;
+    let account_keys = account_keys_from_transaction(encoded.transaction)?;
+    let inner = match meta.inner_instructions {
+        OptionSerializer::Some(inner) => inner,
+        OptionSerializer::None | OptionSerializer::Skip => {
+            return Err(io::Error::other("transaction missing inner instructions").into());
+        }
+    };
+    let instructions = inner
+        .iter()
+        .flat_map(|inner| inner.instructions.iter())
+        .map(|instruction| parsed_instruction_from_ui(instruction, &account_keys))
+        .collect::<Result<Vec<_>, _>>()?;
+    let events = indexed_events_from_instructions(program_id, &instructions)?;
+    index_events(indexer, &events)?;
+    Ok(single_proofless_shield_event(&events)?)
+}
+
+fn account_keys_from_transaction(
+    transaction: EncodedTransaction,
+) -> Result<Vec<Pubkey>, Box<dyn Error>> {
+    let EncodedTransaction::Json(transaction) = transaction else {
+        return Err(io::Error::other("expected JSON-encoded transaction").into());
+    };
+    let UiMessage::Raw(message) = transaction.message else {
+        return Err(io::Error::other("expected raw transaction message").into());
+    };
+    message
+        .account_keys
+        .into_iter()
+        .map(|key| key.parse::<Pubkey>().map_err(Into::into))
+        .collect()
+}
+
+fn parsed_instruction_from_ui(
+    instruction: &UiInstruction,
+    account_keys: &[Pubkey],
+) -> Result<ParsedInstruction, Box<dyn Error>> {
+    let UiInstruction::Compiled(instruction) = instruction else {
+        return Err(io::Error::other("expected compiled inner instruction").into());
+    };
+    let program_id = account_keys
+        .get(instruction.program_id_index as usize)
+        .copied()
+        .ok_or_else(|| io::Error::other("inner instruction program id index out of bounds"))?;
+    let accounts = instruction
+        .accounts
+        .iter()
+        .map(|index| {
+            account_keys.get(*index as usize).copied().ok_or_else(|| {
+                io::Error::other(format!(
+                    "inner instruction account index {index} out of bounds"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ParsedInstruction {
+        program_id,
+        accounts,
+        data: bs58::decode(&instruction.data).into_vec()?,
+    })
 }
 
 fn state_root(rpc: &RpcClient, tree: &Pubkey) -> Result<[u8; 32], Box<dyn Error>> {
@@ -374,6 +378,6 @@ fn wait_for_signature(
     Err(io::Error::other(format!("signature not confirmed: {signature}")).into())
 }
 
-fn print_signature(label: &str, signature: solana_signature::Signature) {
+fn print_signature(label: &str, signature: &solana_signature::Signature) {
     println!("{label}: {signature}");
 }
