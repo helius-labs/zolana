@@ -68,6 +68,34 @@ fn zone_program_id_field(zone_program_id: &Option<Address>) -> Result<[u8; 32], 
     zolana_keypair::hash::hash_field(&id).map_err(TransactionError::from)
 }
 
+/// The UTXO hash, given the precomputed `owner_hash`. Shared by [`Utxo::hash`]
+/// (which derives `owner_hash` from the owner pubkey + `nullifier_pk`) and by
+/// outputs that already hold the recipient's `owner_hash`.
+pub fn hash_from_owner_hash(
+    owner_hash: &[u8; 32],
+    asset: &Address,
+    amount: u64,
+    blinding: &Blinding,
+    zone_program_id: &Option<Address>,
+    program_data_hash: &[u8; 32],
+    zone_data_hash: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
+    let amount = right_align(&amount.to_be_bytes());
+    let blinding = right_align(blinding);
+    let zone_program_id = zone_program_id_field(zone_program_id)?;
+    let owner_utxo_hash = poseidon(&[owner_hash, &blinding])?;
+    poseidon(&[
+        &domain,
+        asset.as_array(),
+        &amount,
+        program_data_hash,
+        zone_data_hash,
+        &zone_program_id,
+        &owner_utxo_hash,
+    ])
+}
+
 impl Utxo {
     pub fn hash(
         &self,
@@ -75,21 +103,16 @@ impl Utxo {
         program_data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        let amount = right_align(&self.amount.to_be_bytes());
-        let blinding = right_align(&self.blinding);
-        let zone_program_id = zone_program_id_field(&self.zone_program_id)?;
-        let owner_utxo_hash = poseidon(&[&owner_hash, &blinding])?;
-        poseidon(&[
-            &domain,
-            self.asset.as_array(),
-            &amount,
+        hash_from_owner_hash(
+            &owner_hash,
+            &self.asset,
+            self.amount,
+            &self.blinding,
+            &self.zone_program_id,
             program_data_hash,
             zone_data_hash,
-            &zone_program_id,
-            &owner_utxo_hash,
-        ])
+        )
     }
 
     pub fn nullifier(

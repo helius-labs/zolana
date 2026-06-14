@@ -354,10 +354,15 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 // canonical shape set). Kept here because common must not import prover-test;
 // keep in sync with prover-test/spp/protocol/shape.go.
 var transferSupportedShapes = [][2]uint32{
+	{1, 1},
 	{1, 2},
 	{2, 2},
+	{2, 3},
 	{3, 3},
+	{4, 3},
+	{4, 4},
 	{5, 3},
+	{5, 4},
 	{1, 8},
 }
 

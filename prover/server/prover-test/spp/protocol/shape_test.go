@@ -4,10 +4,15 @@ import "testing"
 
 func TestSupportedShapes(t *testing.T) {
 	tests := []Shape{
-		{NInputs: 2, NOutputs: 2},
+		{NInputs: 1, NOutputs: 1},
 		{NInputs: 1, NOutputs: 2},
+		{NInputs: 2, NOutputs: 2},
+		{NInputs: 2, NOutputs: 3},
 		{NInputs: 3, NOutputs: 3},
+		{NInputs: 4, NOutputs: 3},
+		{NInputs: 4, NOutputs: 4},
 		{NInputs: 5, NOutputs: 3},
+		{NInputs: 5, NOutputs: 4},
 		{NInputs: 1, NOutputs: 8},
 	}
 
@@ -23,8 +28,9 @@ func TestUnsupportedShapes(t *testing.T) {
 		{NInputs: 0, NOutputs: 1},
 		{NInputs: 0, NOutputs: 2},
 		{NInputs: 1, NOutputs: 0},
-		{NInputs: 1, NOutputs: 1},
 		{NInputs: 3, NOutputs: 2},
+		{NInputs: 2, NOutputs: 4},
+		{NInputs: 6, NOutputs: 3},
 	}
 
 	for _, shape := range tests {
@@ -43,22 +49,28 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 		want              Shape
 	}{
 		// Exact arities map to themselves.
+		{1, 1, Shape{NInputs: 1, NOutputs: 1}},
 		{2, 2, Shape{NInputs: 2, NOutputs: 2}},
 		{1, 2, Shape{NInputs: 1, NOutputs: 2}},
 		{3, 3, Shape{NInputs: 3, NOutputs: 3}},
+		{4, 3, Shape{NInputs: 4, NOutputs: 3}},
+		{4, 4, Shape{NInputs: 4, NOutputs: 4}},
 		{5, 3, Shape{NInputs: 5, NOutputs: 3}},
+		{5, 4, Shape{NInputs: 5, NOutputs: 4}},
 		{1, 8, Shape{NInputs: 1, NOutputs: 8}},
 		// Smaller arities map to the smallest shape with capacity; the unused
 		// slots are dummy-padded (shield: 0 inputs, full unshield: 0 outputs).
-		{0, 1, Shape{NInputs: 1, NOutputs: 2}},
+		{0, 1, Shape{NInputs: 1, NOutputs: 1}},
 		{0, 2, Shape{NInputs: 1, NOutputs: 2}},
-		{1, 0, Shape{NInputs: 1, NOutputs: 2}},
-		{1, 1, Shape{NInputs: 1, NOutputs: 2}},
+		{1, 0, Shape{NInputs: 1, NOutputs: 1}},
 		{2, 1, Shape{NInputs: 2, NOutputs: 2}},
 		{3, 1, Shape{NInputs: 3, NOutputs: 3}},
-		{4, 3, Shape{NInputs: 5, NOutputs: 3}},
+		{2, 3, Shape{NInputs: 2, NOutputs: 3}},
+		{1, 3, Shape{NInputs: 2, NOutputs: 3}},
+		{1, 4, Shape{NInputs: 4, NOutputs: 4}},
+		{2, 4, Shape{NInputs: 4, NOutputs: 4}},
+		{3, 4, Shape{NInputs: 4, NOutputs: 4}},
 		{0, 8, Shape{NInputs: 1, NOutputs: 8}},
-		{1, 4, Shape{NInputs: 1, NOutputs: 8}},
 	}
 	for _, tc := range cases {
 		got, err := CanonicalShape(tc.nInputs, tc.nOutputs)
@@ -71,7 +83,7 @@ func TestCanonicalShapeMatchesOnChainSelection(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ nInputs, nOutputs int }{
-		{6, 1}, {2, 4}, {1, 9}, {2, 8}, {-1, 1}, {1, -1},
+		{6, 1}, {1, 9}, {2, 8}, {5, 5}, {4, 5}, {-1, 1}, {1, -1},
 	} {
 		if _, err := CanonicalShape(tc.nInputs, tc.nOutputs); err == nil {
 			t.Fatalf("CanonicalShape(%d, %d) should be rejected", tc.nInputs, tc.nOutputs)

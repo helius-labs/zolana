@@ -141,17 +141,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		api.AssertIsEqual(c.P256MessageHash, 0)
 		env.p256PkField = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
-		// TODO: remove the commitment and make the proof flexible in the program
-		// The P256 gadget adds a bsb22 commitment the on-chain Groth16Verifier
-		// expects. The Solana rail has no gadget, so add one explicit commitment
-		// to keep the same proof format and verifier.
-		committer, ok := api.(frontend.Committer)
-		if !ok {
-			return fmt.Errorf("spp: frontend does not support commitments")
-		}
-		if _, err := committer.Commit(c.PublicInputHash); err != nil {
-			return err
-		}
 	}
 	// Inputs
 	// TODO: move this into constrainInput

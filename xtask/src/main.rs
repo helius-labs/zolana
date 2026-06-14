@@ -14,6 +14,25 @@ fn main() {
             let options = CreateVerifyingKeysOptions::parse(args.collect());
             create_verifying_keys(options);
         }
+        Some("bsb22-vk") => {
+            let vk_bin = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename>"));
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <out_dir>"));
+            let filename = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
+            groth16_solana::gnark_vk_parser::generate_bsb22_vk_file(
+                &vk_bin,
+                Path::new(&out_dir),
+                &filename,
+                "VERIFYINGKEY",
+            )
+            .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            println!("wrote {out_dir}/{filename}");
+        }
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");

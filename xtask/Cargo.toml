@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 sha2 = { workspace = true }
+groth16-solana = { workspace = true }

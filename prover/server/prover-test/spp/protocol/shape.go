@@ -19,10 +19,15 @@ type Shape struct {
 // mirrors SHAPES in the on-chain verifier (transact/proof.rs canonical_shape).
 // This is the single source of truth for the shape set; do not duplicate it.
 var SupportedShapes = []Shape{
+	{NInputs: 1, NOutputs: 1},
 	{NInputs: 1, NOutputs: 2},
 	{NInputs: 2, NOutputs: 2},
+	{NInputs: 2, NOutputs: 3},
 	{NInputs: 3, NOutputs: 3},
+	{NInputs: 4, NOutputs: 3},
+	{NInputs: 4, NOutputs: 4},
 	{NInputs: 5, NOutputs: 3},
+	{NInputs: 5, NOutputs: 4},
 	{NInputs: 1, NOutputs: 8},
 }
 

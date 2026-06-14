@@ -9,6 +9,8 @@ import (
 	"light/light-prover/logging"
 	"light/light-prover/prover/common"
 	"light/light-prover/prover/nullifier_tree"
+	"light/light-prover/prover/transfer"
+	transfereddsaonly "light/light-prover/prover/transfer_eddsa_only"
 	"light/light-prover/server"
 	"os"
 	"os/signal"
@@ -83,6 +85,58 @@ func runCli() {
 					}
 
 					logging.Logger().Info().Msg("Setup completed successfully")
+					return nil
+				},
+			},
+			{
+				Name: "setup-transfer",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-eddsa\")", Required: true},
+					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
+					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					circuit := common.CircuitType(context.String("circuit"))
+					nInputs := uint32(context.Uint("n-inputs"))
+					nOutputs := uint32(context.Uint("n-outputs"))
+					path := context.String("output")
+
+					var ps *common.TransferProofSystem
+					var err error
+					switch circuit {
+					case common.TransferCircuitType:
+						ps, err = transfer.SetupTransferCircuit(circuit, nInputs, nOutputs)
+					case common.TransferEddsaCircuitType:
+						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
+					default:
+						return fmt.Errorf("invalid transfer circuit type %s", circuit)
+					}
+					if err != nil {
+						return err
+					}
+
+					file, err := os.Create(path)
+					if err != nil {
+						return err
+					}
+					defer func(file *os.File) {
+						if cerr := file.Close(); cerr != nil {
+							logging.Logger().Error().Err(cerr).Msg("error closing file")
+						}
+					}(file)
+
+					written, err := ps.WriteTo(file)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Str("circuit", string(circuit)).
+						Uint32("n_inputs", nInputs).
+						Uint32("n_outputs", nOutputs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Transfer proving system written")
 					return nil
 				},
 			},
@@ -230,18 +284,17 @@ func runCli() {
 						return fmt.Errorf("failed to read proving system: %v", err)
 					}
 
-					var vk interface{}
+					var buf bytes.Buffer
 					switch s := system.(type) {
 					case *common.MerkleProofSystem:
-						vk = s.VerifyingKey
+						_, err = s.VerifyingKey.WriteTo(&buf)
 					case *common.BatchProofSystem:
-						vk = s.VerifyingKey
+						_, err = s.VerifyingKey.WriteTo(&buf)
+					case *common.TransferProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
 					}
-
-					var buf bytes.Buffer
-					_, err = vk.(io.WriterTo).WriteTo(&buf)
 					if err != nil {
 						return fmt.Errorf("failed to serialize verification key: %v", err)
 					}

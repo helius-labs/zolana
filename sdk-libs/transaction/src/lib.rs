@@ -12,6 +12,7 @@ pub mod data;
 pub mod encryption;
 pub mod error;
 pub mod split;
+pub mod transaction;
 pub mod transfer;
 pub mod utxo;
 pub mod wallet;
@@ -21,6 +22,7 @@ pub use data::{Data, DataRecord};
 pub use encryption::TransactionEncryption;
 pub use error::TransactionError;
 pub use solana_address::Address;
+pub use transaction::{EncryptedTransaction, ExternalData, InputUtxo, OutputUtxo};
 pub use utxo::{derive_blinding, Utxo};
 pub use wallet::{
     AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletUtxo,

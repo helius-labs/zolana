@@ -1,5 +1,0 @@
-pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
-pub const HEALTH_CHECK: &str = "/health";
-pub const PROVE_PATH: &str = "/prove";
-
-pub const DEFAULT_BATCH_ADDRESS_TREE_HEIGHT: u32 = 40;

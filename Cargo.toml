@@ -9,6 +9,7 @@ members = [
     "programs/user-registry",
     "prover/client",
     "cli",
+    "sdk-libs/client",
     "sdk-libs/keypair",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
@@ -16,7 +17,6 @@ members = [
 ]
 default-members = [
     "forester",
-    "prover/client",
     "program-libs/interface",
     "programs/shielded-pool",
 ]
@@ -34,10 +34,12 @@ time = ">=0.3, <0.3.46"
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
+zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
 light-prover-client = { path = "prover/client", version = "8.0.0" }
 light-registry = { path = "programs/registry", version = "2.1.0", features = ["cpi"] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "6f44fe18ece7e9f2d09141707f7822e9321c7b66", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"

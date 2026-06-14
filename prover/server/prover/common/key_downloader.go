@@ -119,6 +119,22 @@ func downloadChecksum(config *DownloadConfig) error {
 	return nil
 }
 
+// readLocalChecksum looks up filename in a CHECKSUM file located in dir (format:
+// "checksum  filename" per line). Returns the checksum and true if found.
+func readLocalChecksum(dir string, filename string) (string, bool) {
+	content, err := os.ReadFile(filepath.Join(dir, "CHECKSUM"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		parts := strings.Fields(strings.TrimSpace(line))
+		if len(parts) >= 2 && parts[1] == filename {
+			return parts[0], true
+		}
+	}
+	return "", false
+}
+
 func verifyChecksum(filepath string, expectedChecksum string) (bool, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -284,6 +300,22 @@ func downloadFileWithResume(url, outputPath string, config *DownloadConfig) erro
 
 func DownloadKey(keyPath string, config *DownloadConfig) error {
 	filename := filepath.Base(keyPath)
+
+	// Offline path: a CHECKSUM file in the key's directory (written by
+	// scripts/generate_checksums.py) is authoritative for locally-generated keys
+	// such as the transfer proving keys, which are not published to the CDN. If it
+	// covers this file and the on-disk key verifies, accept it without any network.
+	if localChecksum, ok := readLocalChecksum(filepath.Dir(keyPath), filename); ok {
+		if _, err := os.Stat(keyPath); err == nil {
+			valid, verr := verifyChecksum(keyPath, localChecksum)
+			if verr == nil && valid {
+				logging.Logger().Info().
+					Str("file", filename).
+					Msg("Key file verified against local CHECKSUM, skipping download")
+				return nil
+			}
+		}
+	}
 
 	if err := downloadChecksum(config); err != nil {
 		return fmt.Errorf("failed to load checksums: %w", err)

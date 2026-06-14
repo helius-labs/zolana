@@ -1,37 +1,45 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Script to regenerate all .vkey.rs files from .key files
-# Usage: ./regenerate_all_vkeys.sh
+cd "$(dirname "$0")/.."
 
-set -e
+keys_dir="${1:-./proving-keys}"
+vkey_dir="../../program-libs/interface/src/verifying_keys"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
 
-PROVING_KEYS_DIR="./proving-keys"
-VKEY_OUTPUT_DIR="../../program-libs/verifier/src/verifying_keys"
+go build -o light-prover .
 
-echo "Regenerating all verification keys..."
-echo "========================================"
+keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'transfer-eddsa_*.key' \) | sort)"
+if [ -z "$keys" ]; then
+    echo "no transfer proving keys in $keys_dir"
+    exit 1
+fi
 
-# Counter for progress
-total=$(find "$PROVING_KEYS_DIR" -name "*.vkey" | wc -l | tr -d ' ')
-current=0
+modules=""
+for key in $keys; do
+    stem="$(basename "$key" .key)"
+    module="${stem//-/_}"
+    vk_bin="$tmp_dir/${stem}.vkbin"
 
-for key_file in "$PROVING_KEYS_DIR"/*.vkey; do
-    current=$((current + 1))
+    echo "exporting raw vk: $stem"
+    if ! ./light-prover export-vk --keys-file "$key" --output "$vk_bin" >/dev/null; then
+        echo "WARN: export-vk failed, skipping $stem"
+        continue
+    fi
 
-    # Extract the base name without extension
-    base_name=$(basename "$key_file" .vkey)
-
-    # Determine the output path
-    output_file="$VKEY_OUTPUT_DIR/${base_name}.rs"
-
-    echo "[$current/$total] Processing: $base_name"
-
-    # Run xtask from repo root
-    (cd ../.. && cargo run --package xtask -- generate-vkey-rs \
-        --input-path "prover/server/$key_file" \
-        --output-path "program-libs/verifier/src/verifying_keys/${base_name}.rs")
+    if (cd ../.. && cargo run -q -p xtask -- bsb22-vk \
+        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs"); then
+        modules="${modules}${module}"$'\n'
+    else
+        echo "WARN: vk codegen failed, skipping $stem"
+    fi
 done
 
-echo ""
-echo "========================================"
-echo "Completed! Regenerated $total verification keys."
+{
+    echo "$modules" | sort -u | while read -r module; do
+        [ -n "$module" ] && echo "pub mod $module;"
+    done
+} >"$vkey_dir/mod.rs"
+
+echo "Regenerated verifying keys into $vkey_dir"
