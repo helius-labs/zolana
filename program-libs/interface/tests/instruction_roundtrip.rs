@@ -9,7 +9,9 @@ use zolana_interface::instruction::{
 #[cfg(feature = "solana")]
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
-use zolana_interface::instruction::create_zone_config;
+use zolana_interface::instruction::{
+    create_spl_interface, create_zone_config, CreateSplInterfaceAccounts,
+};
 
 #[test]
 fn create_tree_roundtrip() {
@@ -71,10 +73,7 @@ fn transact_roundtrip() {
     let decoded = TransactIxData::try_from_slice(&bytes[1..]).unwrap();
 
     assert_eq!(bytes[0], tag::TRANSACT);
-    assert_eq!(
-        InstructionTag::try_from(bytes[0]),
-        Ok(InstructionTag::Transact)
-    );
+    assert_eq!(InstructionTag::try_from(bytes[0]), Err(()));
     assert_eq!(decoded, payload);
 }
 
@@ -161,6 +160,35 @@ fn zone_config_update_roundtrips() {
 
 #[test]
 #[cfg(feature = "solana")]
+fn create_spl_interface_builder_account_layout() {
+    let accounts = CreateSplInterfaceAccounts {
+        authority: Pubkey::new_unique(),
+        protocol_config: Pubkey::new_unique(),
+        asset_counter: Pubkey::new_unique(),
+        registry: Pubkey::new_unique(),
+        mint: Pubkey::new_unique(),
+        vault: Pubkey::new_unique(),
+        cpi_authority: Pubkey::new_unique(),
+        system_program: Pubkey::default(),
+        token_program: Pubkey::new_unique(),
+    };
+
+    let ix = create_spl_interface(accounts, CreateSplInterfaceData);
+
+    assert_eq!(ix.accounts.len(), 9);
+    assert!(ix.accounts[0].is_signer);
+    assert!(!ix.accounts[0].is_writable);
+    assert!(ix.accounts[2].is_writable);
+    assert!(ix.accounts[3].is_writable);
+    assert!(!ix.accounts[4].is_writable);
+    assert!(ix.accounts[5].is_writable);
+    assert!(!ix.accounts[6].is_writable);
+    assert!(!ix.accounts[7].is_writable);
+    assert!(!ix.accounts[8].is_writable);
+}
+
+#[test]
+#[cfg(feature = "solana")]
 fn create_zone_config_builder_account_layout() {
     let payer = Pubkey::new_unique();
     let config = Pubkey::new_unique();
@@ -221,10 +249,11 @@ fn implemented_tags_map_to_instruction_tag() {
 }
 
 #[test]
-fn reserved_unimplemented_tags_are_not_dispatchable() {
-    // Spec-reserved tags with no handler must not decode to an InstructionTag;
-    // the program dispatch treats them like any unknown byte.
+fn unimplemented_tags_are_not_dispatchable() {
+    // Tags with no handler must not decode to an InstructionTag; the program
+    // dispatch treats them like any unknown byte.
     for tag in [
+        tag::TRANSACT,
         tag::reserved::ZONE_TRANSACT,
         tag::reserved::ZONE_AUTHORITY_TRANSACT,
         tag::reserved::MERGE_TRANSACT,
