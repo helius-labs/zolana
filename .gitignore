@@ -1,4 +1,5 @@
 /target/
+/.tools/
 /forester/target/
 /forester/test-ledger/
 /forester/.surfpool/

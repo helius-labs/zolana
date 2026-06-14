@@ -7575,6 +7575,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "user-registry-tests"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "cucumber",
+ "litesvm",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
+ "tokio",
+ "zolana-interface",
+ "zolana-user-registry",
+]
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8385,6 +8403,18 @@ dependencies = [
  "tokio",
  "wincode",
  "zolana-keypair",
+]
+
+[[package]]
+name = "zolana-user-registry"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "pinocchio 0.11.1",
+ "solana-address 2.6.0",
+ "solana-msg",
+ "thiserror 2.0.18",
+ "zolana-interface",
 ]
 
 [[package]]
