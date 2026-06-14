@@ -43,7 +43,7 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
 light-account-checks = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "0.8.0", default-features = false }
-light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "0.11.0" }
+light-batched-merkle-tree = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "0.11.0", default-features = false }
 light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "0.6.0" }
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "1e6ea7dfe78a6e1394c6b0be8ce1d9606ea1b1e1", version = "0.3.0" }
