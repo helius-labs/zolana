@@ -313,32 +313,23 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 }
 
 func ReadSystemFromFile(path string) (interface{}, error) {
-	if strings.Contains(strings.ToLower(path), "transfer-eddsa") {
+	if strings.Contains(strings.ToLower(path), "transfer") {
 		ps := new(TransferProofSystem)
-		ps.CircuitType = TransferCircuitType
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
 		defer file.Close()
 
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		return ps, nil
-	} else if strings.Contains(strings.ToLower(path), "transfer") {
-		ps := new(TransferProofSystem)
-		ps.CircuitType = TransferP256CircuitType
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		_, err = ps.UnsafeReadFrom(file)
-		if err != nil {
-			return nil, err
+		// Derive the rail from the serialized RequiresP256 flag rather than the
+		// file name, so the circuit type is correct regardless of key naming.
+		if ps.RequiresP256 {
+			ps.CircuitType = TransferP256CircuitType
+		} else {
+			ps.CircuitType = TransferCircuitType
 		}
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "address-append") {
