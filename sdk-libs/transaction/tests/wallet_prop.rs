@@ -2,13 +2,14 @@ mod common;
 
 use std::collections::HashMap;
 
+use common::InMemoryWallet;
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
 use zolana_transaction::wallet::SyncReport;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
+use zolana_transaction::wallet::SyncTransaction;
 use zolana_transaction::{AssetRegistry, Utxo};
 
 const NUM_CPS: usize = 3;
@@ -268,7 +269,7 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
+        let mut wallet = InMemoryWallet::new(keypair).unwrap();
         let report = wallet
             .sync(&self.txs, &[], &self.assets, at, WINDOW)
             .unwrap();
@@ -334,16 +335,16 @@ impl Harness {
     #[cfg(feature = "parallel")]
     fn check_parallel(
         &self,
-        sequential: &Wallet,
+        sequential: &InMemoryWallet,
         report: &SyncReport,
         at: i64,
     ) -> Result<(), TestCaseError> {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
+        let mut wallet = InMemoryWallet::new(keypair).unwrap();
         let parallel_report = wallet
-            .sync_parallel(&self.txs, &self.assets, at, WINDOW)
+            .sync_parallel(&self.txs, &[], &self.assets, at, WINDOW)
             .unwrap();
         prop_assert_eq!(&parallel_report, report);
         prop_assert_eq!(wallet.last_synced, sequential.last_synced);

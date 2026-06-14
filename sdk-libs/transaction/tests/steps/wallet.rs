@@ -1,8 +1,9 @@
+use crate::common::InMemoryWallet;
 use cucumber::{given, then, when};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::split::SplitBundlePlaintext;
 use zolana_transaction::transfer::{RecipientOutput, TransferSenderPlaintext};
-use zolana_transaction::wallet::{AssetBalance, SyncTransaction, Wallet};
+use zolana_transaction::wallet::{AssetBalance, SyncTransaction};
 use zolana_transaction::{
     AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -220,7 +221,7 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
 
 #[when(expr = "a fresh wallet for {string} is synced from the recorded transactions")]
 fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
-    let mut wallet = Wallet::new(world.fresh_keypair(&name)).unwrap();
+    let mut wallet = InMemoryWallet::new(world.fresh_keypair(&name)).unwrap();
     let report = wallet
         .sync(
             &world.sync_transactions,

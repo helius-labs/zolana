@@ -25,13 +25,13 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("fund");
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let mut recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
 
     let seed = [5u8; BLINDING_LEN];
     let mut data = world
         .rpc()
-        .wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
+        .wallet_zone_sol_shield_data(amount, &keypair, &seed, 0)
         .expect("wallet zone deposit data");
     data.policy_data_hash = Some([5u8; 32]);
 
@@ -51,6 +51,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         ZONE_TEST_PROGRAM_ID,
         root_before,
         &mut recipient,
+        &keypair,
     );
     world.depositor = Some(depositor);
     world.last_proofless_view = Some(event);
@@ -69,13 +70,13 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let user_token = world.user_token();
     let vault = pda::spl_asset_vault(&mint);
     let depositor = world.depositor().insecure_clone();
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let mut recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
 
     let seed = [9u8; BLINDING_LEN];
     let mut data = world
         .rpc()
-        .wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
+        .wallet_zone_spl_shield_data(amount, &keypair, &seed, 0)
         .expect("wallet zone SPL deposit data");
     data.policy_data_hash = Some([9u8; 32]);
 
@@ -110,6 +111,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         ZONE_TEST_PROGRAM_ID,
         root_before,
         &mut recipient,
+        &keypair,
     );
     world.depositor = Some(depositor);
     world.last_proofless_view = Some(event);

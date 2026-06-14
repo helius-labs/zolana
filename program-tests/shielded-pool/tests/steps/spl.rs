@@ -143,10 +143,10 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let mint = world.mint();
     let user_token = world.user_token();
     let vault = pda::spl_asset_vault(&mint);
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let mut recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
     let seed = [7u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_spl_shield_data(amount, &recipient, &seed, 0)
+    let data = ZolanaProgramTest::wallet_spl_shield_data(amount, &keypair, &seed, 0)
         .expect("wallet deposit data");
 
     let vault_before = world.rpc().token_balance(&vault).expect("vault balance");
@@ -174,6 +174,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         user_token_before,
         root_before,
         &mut recipient,
+        &keypair,
     );
     world.last_proofless_view = Some(event);
     world.recipient = Some(recipient);

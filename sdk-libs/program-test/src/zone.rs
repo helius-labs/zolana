@@ -11,7 +11,7 @@ use zolana_interface::{
     pda,
 };
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::Wallet;
+use zolana_keypair::ShieldedKeypair;
 
 use crate::{
     instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path, single_deposit_view,
@@ -126,7 +126,7 @@ impl ZolanaProgramTest {
     pub fn wallet_zone_sol_shield_data(
         &self,
         lamports: u64,
-        recipient: &Wallet,
+        recipient: &ShieldedKeypair,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<ZoneDepositIxData, ProgramTestError> {
@@ -143,7 +143,7 @@ impl ZolanaProgramTest {
 
     pub fn wallet_zone_sol_shield_data_for_zone(
         lamports: u64,
-        recipient: &Wallet,
+        recipient: &ShieldedKeypair,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
         zone_program_id: [u8; 32],
@@ -169,7 +169,7 @@ impl ZolanaProgramTest {
     pub fn wallet_zone_spl_shield_data(
         &self,
         amount: u64,
-        recipient: &Wallet,
+        recipient: &ShieldedKeypair,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<ZoneDepositIxData, ProgramTestError> {

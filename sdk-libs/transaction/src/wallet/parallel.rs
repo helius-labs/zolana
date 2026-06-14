@@ -3,13 +3,13 @@ use std::mem;
 
 use rayon::prelude::*;
 use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{KeypairError, P256Pubkey, PublicKey};
 
 use super::{
-    ParsedBlob, SyncReport, SyncTransaction, TxIndex, ViewingKeyEntry, Wallet, WalletUtxo,
+    ParsedBlob, SyncReport, SyncTransaction, TxIndex, ViewingKeyEntry, Wallet, WalletKeyProvider,
+    WalletUtxo,
 };
 use crate::asset::AssetRegistry;
-use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::utxo::Utxo;
 
@@ -32,12 +32,11 @@ enum SiteOutcome {
     Failed,
 }
 
-struct DecryptEnv<'a> {
+struct DecryptEnv<'a, C: WalletKeyProvider + Sync> {
     index: &'a TxIndex,
     transactions: &'a [SyncTransaction],
-    key: &'a ViewingKey,
+    crypto: &'a C,
     assets: &'a AssetRegistry,
-    keypair: &'a ShieldedKeypair,
     owner: PublicKey,
     nullifier_pk: [u8; 32],
 }
@@ -85,7 +84,7 @@ fn sender_sites_for(index: &TxIndex, tag: &ViewTag) -> Option<Vec<Site>> {
     index
         .sender_sites
         .get(tag)
-        .map(|ts| ts.iter().map(|&t| Site::Sender(t)).collect())
+        .map(|txs| txs.iter().map(|&t| Site::Sender(t)).collect())
 }
 
 fn slot_sites_for(index: &TxIndex, tag: &ViewTag) -> Option<Vec<Site>> {
@@ -102,12 +101,15 @@ fn shared_out_sites_for(index: &TxIndex, tag: &ViewTag) -> Option<Vec<Site>> {
         .map(|sites| sites.iter().map(|&(t, _)| Site::Sender(t)).collect())
 }
 
-fn build_wallet_utxo(env: &DecryptEnv, utxo: Utxo) -> Result<Option<WalletUtxo>, TransactionError> {
+fn build_wallet_utxo<C: WalletKeyProvider + Sync>(
+    env: &DecryptEnv<'_, C>,
+    utxo: Utxo,
+) -> Result<Option<WalletUtxo>, TransactionError> {
     if utxo.owner != env.owner {
         return Ok(None);
     }
     let hash = utxo.hash(&env.nullifier_pk, &[0u8; 32], &[0u8; 32])?;
-    let nullifier = utxo.nullifier(&hash, &env.keypair.nullifier_key)?;
+    let nullifier = env.crypto.nullifier(&hash, &utxo.blinding)?;
     Ok(Some(WalletUtxo {
         utxo,
         hash,
@@ -116,17 +118,26 @@ fn build_wallet_utxo(env: &DecryptEnv, utxo: Utxo) -> Result<Option<WalletUtxo>,
     }))
 }
 
-fn decrypt_slot_site(
-    env: &DecryptEnv,
+fn decrypt_slot_site<C: WalletKeyProvider + Sync>(
+    env: &DecryptEnv<'_, C>,
     t: usize,
     slot: usize,
 ) -> Result<SiteOutcome, TransactionError> {
     let Some(ParsedBlob::Transfer(blob)) = env.index.parsed.get(t) else {
         return Ok(SiteOutcome::Failed);
     };
+    let Some(entry) = blob.recipient_slots.get(slot) else {
+        return Ok(SiteOutcome::Failed);
+    };
     let decrypted = env
-        .key
-        .decrypt_transfer_recipient(blob, slot)
+        .crypto
+        .decrypt_root_slot(
+            &blob.tx_viewing_pk,
+            &entry.ciphertext,
+            blob.salt,
+            slot as u32 + 1,
+        )
+        .and_then(|bytes| crate::transfer::TransferRecipientPlaintext::deserialize(&bytes))
         .and_then(|pt| {
             let sender = pt.sender_pubkey;
             pt.into_utxo(env.assets, None).map(|utxo| (sender, utxo))
@@ -142,17 +153,31 @@ fn decrypt_slot_site(
     })
 }
 
-fn decrypt_sender_site(env: &DecryptEnv, t: usize) -> Result<SiteOutcome, TransactionError> {
+fn decrypt_sender_site<C: WalletKeyProvider + Sync>(
+    env: &DecryptEnv<'_, C>,
+    t: usize,
+) -> Result<SiteOutcome, TransactionError> {
     let Some(first_nullifier) = env.transactions.get(t).and_then(|tx| tx.nullifiers.first()) else {
         return Ok(SiteOutcome::Failed);
     };
     match env.index.parsed.get(t) {
         Some(ParsedBlob::Transfer(blob)) => {
-            let Ok((sender, recipient_plaintexts)) =
-                env.key.decrypt_transfer(first_nullifier, blob)
+            let Ok(sender_bytes) = env.crypto.decrypt_root_slot(
+                &blob.tx_viewing_pk,
+                &blob.sender_ciphertext,
+                blob.salt,
+                0,
+            ) else {
+                return Ok(SiteOutcome::Failed);
+            };
+            let Ok(sender) = crate::transfer::TransferSenderPlaintext::deserialize(&sender_bytes)
             else {
                 return Ok(SiteOutcome::Failed);
             };
+            if blob.recipient_slots.len() != sender.recipient_viewing_pks.len() {
+                return Ok(SiteOutcome::Failed);
+            }
+
             let recipients = sender.recipient_viewing_pks.clone();
             let Ok(change) = sender.into_utxos(env.assets, None) else {
                 return Ok(SiteOutcome::Failed);
@@ -161,8 +186,25 @@ fn decrypt_sender_site(env: &DecryptEnv, t: usize) -> Result<SiteOutcome, Transa
             for utxo in change {
                 utxos.extend(build_wallet_utxo(env, utxo)?);
             }
+
             let mut undecryptable = 0;
-            for pt in recipient_plaintexts {
+            for (i, (slot, pubkey)) in blob.recipient_slots.iter().zip(&recipients).enumerate() {
+                let decrypted = env
+                    .crypto
+                    .decrypt_transaction_slot(
+                        first_nullifier,
+                        pubkey,
+                        &slot.ciphertext,
+                        blob.salt,
+                        i as u32 + 1,
+                    )
+                    .and_then(|bytes| {
+                        crate::transfer::TransferRecipientPlaintext::deserialize(&bytes)
+                    });
+                let Ok(pt) = decrypted else {
+                    undecryptable += 1;
+                    continue;
+                };
                 if pt.owner_pubkey != env.owner {
                     continue;
                 }
@@ -171,6 +213,7 @@ fn decrypt_sender_site(env: &DecryptEnv, t: usize) -> Result<SiteOutcome, Transa
                     Err(_) => undecryptable += 1,
                 }
             }
+
             Ok(SiteOutcome::Decrypted {
                 utxos,
                 sender: None,
@@ -180,8 +223,9 @@ fn decrypt_sender_site(env: &DecryptEnv, t: usize) -> Result<SiteOutcome, Transa
         }
         Some(ParsedBlob::Split(blob)) => {
             let decrypted = env
-                .key
-                .decrypt_split(blob)
+                .crypto
+                .decrypt_root_slot(&blob.tx_viewing_pk, &blob.ciphertext, blob.salt, 0)
+                .and_then(|bytes| crate::split::SplitBundlePlaintext::deserialize(&bytes))
                 .and_then(|bundle| bundle.into_utxos(env.assets, None));
             let Ok(outputs) = decrypted else {
                 return Ok(SiteOutcome::Failed);
@@ -201,21 +245,24 @@ fn decrypt_sender_site(env: &DecryptEnv, t: usize) -> Result<SiteOutcome, Transa
     }
 }
 
-fn decrypt_site(env: &DecryptEnv, site: Site) -> Result<SiteOutcome, TransactionError> {
+fn decrypt_site<C: WalletKeyProvider + Sync>(
+    env: &DecryptEnv<'_, C>,
+    site: Site,
+) -> Result<SiteOutcome, TransactionError> {
     match site {
         Site::Sender(t) => decrypt_sender_site(env, t),
         Site::Slot(t, slot) => decrypt_slot_site(env, t, slot),
     }
 }
 
-fn decrypt_new_sites(
-    env: &DecryptEnv,
+fn decrypt_new_sites<C: WalletKeyProvider + Sync>(
+    env: &DecryptEnv<'_, C>,
     outcomes: &mut HashMap<Site, SiteOutcome>,
     consumed: &HashSet<Site>,
     occurrences: impl Iterator<Item = Site>,
 ) -> Result<(), TransactionError> {
-    let mut seen: HashSet<Site> = HashSet::new();
-    let mut sites: Vec<Site> = Vec::new();
+    let mut seen = HashSet::new();
+    let mut sites = Vec::new();
     for site in occurrences {
         if consumed.contains(&site) || outcomes.contains_key(&site) || !seen.insert(site) {
             continue;
@@ -269,7 +316,7 @@ impl ReduceState<'_> {
 }
 
 fn reduce_stream(
-    state: &mut ReduceState,
+    state: &mut ReduceState<'_>,
     outcomes: &mut HashMap<Site, SiteOutcome>,
     hits: &[(u64, Vec<Site>)],
     mut on_stored: impl FnMut(Option<P256Pubkey>, Vec<P256Pubkey>),
@@ -299,8 +346,9 @@ fn reduce_stream(
 }
 
 impl Wallet {
-    pub fn sync_parallel(
+    pub fn sync_parallel<C: WalletKeyProvider + Sync>(
         &mut self,
+        crypto: &C,
         transactions: &[SyncTransaction],
         assets: &AssetRegistry,
         synced_at: i64,
@@ -309,31 +357,28 @@ impl Wallet {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
         let stored_hashes: HashSet<[u8; 32]> = self.utxos.iter().map(|u| u.hash).collect();
-        let owner = self.keypair.signing_pubkey();
-        let nullifier_pk = self.keypair.nullifier_key.pubkey()?;
         let mut state = ReduceState {
             utxos: &mut self.utxos,
             stored_hashes,
             consumed: HashSet::new(),
             report,
         };
+        let owner = self.signing_pubkey;
+        let nullifier_pk = self.nullifier_pubkey;
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
-                key,
                 tx_count,
                 request_count,
                 known_senders,
                 known_recipients,
                 ..
             } = entry;
-            let key: &ViewingKey = key;
             let env = DecryptEnv {
                 index: &index,
                 transactions,
-                key,
+                crypto,
                 assets,
-                keypair: &self.keypair,
                 owner,
                 nullifier_pk,
             };
@@ -341,17 +386,18 @@ impl Wallet {
 
             let bootstrap_sites: Vec<Site> = index
                 .recipient_sites
-                .get(&key.recipient_bootstrap_view_tag())
+                .get(&crypto.recipient_bootstrap_view_tag())
                 .map(|sites| sites.iter().map(|&(t, slot)| Site::Slot(t, slot)).collect())
                 .unwrap_or_default();
+
             let sender_hits = probe_stream(
                 window,
-                |n| key.get_sender_view_tag(n),
+                |n| crypto.get_sender_view_tag(n),
                 |tag| sender_sites_for(&index, tag),
             )?;
             let request_hits = probe_stream(
                 window,
-                |n| key.get_recipient_request_view_tag(n),
+                |n| crypto.get_recipient_request_view_tag(n),
                 |tag| slot_sites_for(&index, tag),
             )?;
 
@@ -374,6 +420,7 @@ impl Wallet {
                     known_senders.entry(pk).or_insert(0);
                 }
             }
+
             let max_sender =
                 reduce_stream(&mut state, &mut outcomes, &sender_hits, |_, recipients| {
                     for pk in recipients {
@@ -383,6 +430,7 @@ impl Wallet {
             if let Some(m) = max_sender {
                 *tx_count = m + 1;
             }
+
             let max_request =
                 reduce_stream(&mut state, &mut outcomes, &request_hits, |sender, _| {
                     if let Some(pk) = sender {
@@ -403,7 +451,7 @@ impl Wallet {
                 .map(|s| {
                     probe_stream(
                         window,
-                        |n| key.get_recipient_shared_view_tag(s, n),
+                        |n| crypto.get_recipient_shared_view_tag(s, n),
                         |tag| slot_sites_for(&index, tag),
                     )
                     .map(|hits| (*s, hits))
@@ -414,7 +462,7 @@ impl Wallet {
                 .map(|r| {
                     probe_stream(
                         window,
-                        |n| key.get_send_shared_view_tag(r, n),
+                        |n| crypto.get_send_shared_view_tag(r, n),
                         |tag| shared_out_sites_for(&index, tag),
                     )
                     .map(|hits| (*r, hits))

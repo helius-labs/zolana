@@ -2,6 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{event::DepositView, instruction::DepositIxData};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -28,6 +29,7 @@ pub fn assert_spl_deposit(
     user_token_before: u64,
     root_before: [u8; 32],
     recipient: &mut Wallet,
+    recipient_keypair: &ShieldedKeypair,
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, mint.to_bytes(), "event asset is the mint");
@@ -58,7 +60,8 @@ pub fn assert_spl_deposit(
 
     let before = recipient.utxos.len();
     recipient
-        .sync(
+        .sync_keypair(
+            recipient_keypair,
             &[],
             std::slice::from_ref(event),
             &AssetRegistry::default(),

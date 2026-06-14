@@ -26,8 +26,8 @@ pub use solana_address::Address;
 pub use transaction::{EncryptedTransaction, ExternalData, InputUtxo, OutputUtxo};
 pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
 pub use wallet::{
-    AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletKeyProvider,
+    WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

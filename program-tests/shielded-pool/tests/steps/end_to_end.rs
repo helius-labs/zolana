@@ -30,11 +30,11 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .map(|a| a.lamports)
         .unwrap_or(0);
     let tree_before = world.rpc().account_data(&tree).expect("tree data");
-    let recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
 
     let seed = [42u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &keypair, &seed, 0)
         .expect("wallet deposit data");
     world
         .rpc()
@@ -85,15 +85,15 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
         .rpc()
         .airdrop(&depositor.pubkey(), 10_000_000_000)
         .expect("airdrop");
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let mut recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
 
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
     for (i, amount) in E2E_AMOUNTS.into_iter().enumerate() {
         let mut seed = [0xA0; BLINDING_LEN];
         seed[30] = i as u8;
-        let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
+        let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &keypair, &seed, i as u8)
             .expect("wallet deposit data");
         let event = world
             .rpc()
@@ -104,7 +104,8 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
         assert_eq!(event.salt, data.salt);
         let before = recipient.utxos.len();
         recipient
-            .sync(
+            .sync_keypair(
+                &keypair,
                 &[],
                 std::slice::from_ref(&event),
                 &AssetRegistry::default(),

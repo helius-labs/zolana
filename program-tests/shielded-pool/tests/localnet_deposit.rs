@@ -95,10 +95,11 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
 
-    let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?)?;
+    let direct_keypair = ShieldedKeypair::new()?;
+    let mut direct_recipient = Wallet::new_from_keypair(&direct_keypair)?;
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
-        &direct_recipient,
+        &direct_keypair,
         &[3u8; BLINDING_LEN],
         0,
     )?;
@@ -129,13 +130,14 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_ne!(direct_root_after, direct_root_before);
     let direct_view = single_deposit_view(&direct_tx.events)?;
     assert_eq!(direct_root_after, indexer.root());
-    assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
+    assert_wallet_discovers(&mut direct_recipient, &direct_keypair, &direct_view)?;
 
-    let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
+    let zone_keypair = ShieldedKeypair::new()?;
+    let mut zone_recipient = Wallet::new_from_keypair(&zone_keypair)?;
     let (_, zone_auth_bump) = pda::zone_auth(&zone_program_id);
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
         DEPOSIT_LAMPORTS,
-        &zone_recipient,
+        &zone_keypair,
         &[5u8; BLINDING_LEN],
         0,
         ZONE_TEST_PROGRAM_ID,
@@ -171,7 +173,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_ne!(zone_root_after, zone_root_before);
     let zone_view = single_deposit_view(&zone_tx.events)?;
     assert_eq!(zone_root_after, indexer.root());
-    assert_wallet_discovers(&mut zone_recipient, &zone_view)?;
+    assert_wallet_discovers(&mut zone_recipient, &zone_keypair, &zone_view)?;
 
     println!("localnet proofless deposit test passed via {rpc_url}");
     Ok(())
@@ -217,8 +219,13 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     })
 }
 
-fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositView) -> TestResult {
-    wallet.sync(
+fn assert_wallet_discovers(
+    wallet: &mut Wallet,
+    keypair: &ShieldedKeypair,
+    view: &DepositView,
+) -> TestResult {
+    wallet.sync_keypair(
+        keypair,
         &[],
         std::slice::from_ref(view),
         &AssetRegistry::default(),

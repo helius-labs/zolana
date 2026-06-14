@@ -1,7 +1,10 @@
+#[allow(dead_code)]
+mod common;
 mod steps;
 
 use std::collections::HashMap;
 
+use common::InMemoryWallet;
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::plaintext_transfer::TransferPlaintextUtxos;
@@ -10,7 +13,7 @@ use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
 use zolana_transaction::utxo::Utxo;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
+use zolana_transaction::wallet::SyncTransaction;
 
 #[derive(Default, World)]
 pub struct TransactionWorld {
@@ -28,7 +31,7 @@ pub struct TransactionWorld {
     pub owned_utxos: HashMap<String, Vec<Utxo>>,
     pub spent_utxos: Vec<Utxo>,
     pub sent_counts: HashMap<String, u64>,
-    pub wallet: Option<Wallet>,
+    pub wallet: Option<InMemoryWallet>,
     pub wallet_name: Option<String>,
 }
 

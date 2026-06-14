@@ -67,10 +67,10 @@ fn assert_invalid_amount_shape(world: &mut ShieldedPoolWorld, data: &DepositIxDa
 #[when(expr = "the depositor shields {int} lamports to a fresh recipient")]
 fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let mut recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &keypair, &seed, 0)
         .expect("wallet deposit data");
     let root_before = world.rpc().state_root(&tree).expect("root");
     let depositor = world.depositor().insecure_clone();
@@ -88,6 +88,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         [0u8; 32],
         root_before,
         &mut recipient,
+        &keypair,
     );
     world.last_proofless_view = Some(event);
     world.recipient = Some(recipient);

@@ -4,11 +4,12 @@ use light_hasher::Poseidon;
 use light_merkle_tree_reference::indexed::IndexedMerkleTree;
 use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
+use zolana_client::error::ClientError;
 use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
-    CircuitType, ClientError, InputCommitment, NullifierNonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, Rpc, SignedTransaction, SpendProof, StateInclusionProof,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    CircuitType, InputCommitment, NullifierNonInclusionProof, ProofCompressed, ProveResult,
+    ProverClient, Rpc, SignedTransaction, SpendProof, StateInclusionProof, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 
 /// Wraps a Poseidon state tree (UTXO inclusion) and an indexed Poseidon nullifier

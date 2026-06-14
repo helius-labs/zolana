@@ -1,7 +1,7 @@
 [package]
 name = "zolana-client"
 version = "0.1.0"
-description = "Host-side Groth16 witness builder for SPP transaction circuits (transfer / transfer-eddsa)."
+description = "Native wallet SDK surface for Zolana privacy flows."
 license = "Apache-2.0"
 edition.workspace = true
 
@@ -9,46 +9,55 @@ edition.workspace = true
 default = []
 indexer-api = ["dep:base64", "dep:bs58", "dep:zolana-api"]
 solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
+test-utils = []
 
 [dependencies]
+aes-gcm = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+groth16-solana = { workspace = true }
+hkdf = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+p256 = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-api = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
-num-bigint = { workspace = true }
-num-traits = { workspace = true }
-solana-address = { workspace = true }
-p256 = { workspace = true }
-thiserror = { workspace = true }
-reqwest = { workspace = true, features = ["blocking"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-solana-bn254 = { workspace = true }
-groth16-solana = { workspace = true }
-rand = { workspace = true }
-futures = { workspace = true }
 bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-bn254 = { workspace = true }
 solana-clock = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
-solana-signature = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
+solana-signature = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
-light-hasher = { workspace = true, features = ["poseidon", "std"] }
-light-merkle-tree-reference = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
+light-hasher = { workspace = true, features = ["poseidon", "std"] }
+light-merkle-tree-reference = { workspace = true }
+serial_test = { workspace = true }
+zolana-interface = { workspace = true }
 
 [[test]]
 name = "transfer_2_3"

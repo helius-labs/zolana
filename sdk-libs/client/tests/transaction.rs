@@ -8,9 +8,10 @@ mod test_indexer;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
+use zolana_client::error::ClientError;
 use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
-    CircuitType, ClientError, PublicAmounts, Rpc, SignedTransaction, SpendUtxo, Transaction,
+    CircuitType, PublicAmounts, Rpc, SignedTransaction, SpendUtxo, Transaction,
     TransferP256Prover, WithdrawalTarget,
 };
 use zolana_keypair::shielded::ShieldedKeypair;
