@@ -113,9 +113,17 @@ fn process_deposit(
         let mint = spl_asset_pubkey(&verified.settlement)?;
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(mint.as_ref());
-        (bytes, solana_pk_hash(&bytes)?, d.public_spl_amount.unwrap_or(0))
+        (
+            bytes,
+            solana_pk_hash(&bytes)?,
+            d.public_spl_amount.unwrap_or(0),
+        )
     } else {
-        ([0u8; 32], solana_pk_hash(&[0u8; 32])?, d.public_sol_amount.unwrap_or(0))
+        (
+            [0u8; 32],
+            solana_pk_hash(&[0u8; 32])?,
+            d.public_sol_amount.unwrap_or(0),
+        )
     };
 
     let zero = [0u8; 32];

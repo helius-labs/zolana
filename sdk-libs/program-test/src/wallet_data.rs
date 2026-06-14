@@ -2,7 +2,7 @@ use zolana_interface::instruction::{ProoflessShieldEvent, ProoflessShieldIxData}
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{Address, Data, DataRecord, ProoflessDepositEvent, Wallet};
 
-use crate::{RigError, ShieldedPoolTestRig};
+use crate::{ProgramTestError, ZolanaProgramTest};
 
 pub fn proofless_event_for_wallet(event: &ProoflessShieldEvent) -> ProoflessDepositEvent {
     let mut records = Vec::new();
@@ -36,7 +36,7 @@ pub(crate) fn wallet_shield_fields(
     recipient: &Wallet,
     blinding_seed: &[u8; BLINDING_LEN],
     position: u8,
-) -> Result<WalletShieldFields, RigError> {
+) -> Result<WalletShieldFields, ProgramTestError> {
     let mut salt = [0u8; 16];
     salt.copy_from_slice(&blinding_seed[..16]);
     salt[15] ^= position;
@@ -49,7 +49,7 @@ pub(crate) fn wallet_shield_fields(
     })
 }
 
-impl ShieldedPoolTestRig {
+impl ZolanaProgramTest {
     pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldIxData {
         ProoflessShieldIxData {
             view_tag: [0u8; 32],
@@ -81,7 +81,7 @@ impl ShieldedPoolTestRig {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ProoflessShieldIxData, RigError> {
+    ) -> Result<ProoflessShieldIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ProoflessShieldIxData {
             view_tag: fields.view_tag,
@@ -100,7 +100,7 @@ impl ShieldedPoolTestRig {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ProoflessShieldIxData, RigError> {
+    ) -> Result<ProoflessShieldIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ProoflessShieldIxData {
             view_tag: fields.view_tag,

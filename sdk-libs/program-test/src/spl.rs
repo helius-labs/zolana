@@ -10,9 +10,9 @@ use zolana_interface::{
     SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 
-use crate::{instructions::system_create_account_ix, RigError, ShieldedPoolTestRig};
+use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProgramTest};
 
-impl ShieldedPoolTestRig {
+impl ZolanaProgramTest {
     pub fn token_program_id() -> Pubkey {
         Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
     }
@@ -33,7 +33,7 @@ impl ShieldedPoolTestRig {
         Pubkey::find_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &self.program_id).0
     }
 
-    pub fn create_mint(&mut self) -> Result<Pubkey, RigError> {
+    pub fn create_mint(&mut self) -> Result<Pubkey, ProgramTestError> {
         let mint = Keypair::new();
         let rent = self
             .svm
@@ -61,7 +61,7 @@ impl ShieldedPoolTestRig {
         &mut self,
         mint: &Pubkey,
         owner: &Pubkey,
-    ) -> Result<Pubkey, RigError> {
+    ) -> Result<Pubkey, ProgramTestError> {
         let account = Keypair::new();
         let rent = self
             .svm
@@ -92,7 +92,7 @@ impl ShieldedPoolTestRig {
         mint: &Pubkey,
         account: &Pubkey,
         amount: u64,
-    ) -> Result<(), RigError> {
+    ) -> Result<(), ProgramTestError> {
         let mut data = vec![SPL_TOKEN_MINT_TO_DISCRIMINATOR];
         data.extend_from_slice(&amount.to_le_bytes());
         let ix = Instruction {
@@ -120,7 +120,7 @@ impl ShieldedPoolTestRig {
         &mut self,
         authority: &Keypair,
         mint: &Pubkey,
-    ) -> Result<(Pubkey, Pubkey), RigError> {
+    ) -> Result<(Pubkey, Pubkey), ProgramTestError> {
         let registry = self.spl_asset_registry_pda(mint);
         let vault = self.spl_asset_vault_pda(mint);
         let ix = Instruction {
