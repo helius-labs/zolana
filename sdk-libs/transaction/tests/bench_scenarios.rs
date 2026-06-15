@@ -306,7 +306,7 @@ fn defi_trader_full_sync() {
     let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)
+        .sync(&scenario.txs, &[], &scenario.assets, 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 

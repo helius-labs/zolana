@@ -386,6 +386,7 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
+        proofless_deposits: &[ProoflessDepositEvent],
         assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
@@ -527,6 +528,16 @@ impl Wallet {
         }
 
         let report = ctx.report;
+
+        // Proofless deposits are public — there is no encrypted slot to scan,
+        // so the view-tag machinery above never sees them. Fold them in here so
+        // a single `sync` discovers both transfer outputs and proofless-shield
+        // deposits. Done before the spent pass so a deposit nullified by a
+        // transfer in the same batch is still marked spent below.
+        for event in proofless_deposits {
+            self.sync_proofless_deposit(event)?;
+        }
+
         for utxo in self.utxos.iter_mut() {
             if index.nullifiers.contains(&utxo.nullifier) {
                 utxo.spent = true;
@@ -564,5 +575,94 @@ impl Wallet {
         let mut balances: Vec<AssetBalance> = by_mint.into_values().collect();
         balances.sort_by_key(|b| b.asset_id);
         Ok(balances)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::asset::SOL_MINT;
+    use zolana_keypair::constants::VIEW_TAG_LEN;
+
+    /// Build a proofless deposit event the `wallet` is guaranteed to own, by
+    /// reusing the wallet's own blinding/owner-hash derivation so the embedded
+    /// `owner_utxo_hash` and `utxo_hash` match what discovery recomputes.
+    fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessDepositEvent {
+        let salt = [9u8; SALT_LEN];
+        let blinding = wallet.proofless_blinding(&salt).unwrap();
+        let owner_utxo_hash = wallet.proofless_owner_utxo_hash(&blinding).unwrap();
+        let utxo_hash = Utxo::commitment_from_owner_utxo_hash(
+            SOL_MINT,
+            amount,
+            &[0u8; 32],
+            &[0u8; 32],
+            None,
+            &owner_utxo_hash,
+        )
+        .unwrap();
+        ProoflessDepositEvent {
+            view_tag: [0u8; VIEW_TAG_LEN],
+            utxo_hash,
+            owner_utxo_hash,
+            salt,
+            asset: SOL_MINT,
+            amount,
+            zone_program_id: None,
+            program_data_hash: [0u8; 32],
+            zone_data_hash: [0u8; 32],
+            data: Data::new(Vec::new()),
+        }
+    }
+
+    #[test]
+    fn sync_discovers_and_spends_proofless_deposit() {
+        let mut wallet = Wallet::new(ShieldedKeypair::new().unwrap()).unwrap();
+        let assets = AssetRegistry::default();
+        let deposit = self_consistent_deposit(&wallet, 1_234);
+
+        // A single `sync` discovers the public deposit with no transfers present.
+        wallet
+            .sync(
+                &[],
+                std::slice::from_ref(&deposit),
+                &assets,
+                1,
+                DEFAULT_TAG_WINDOW,
+            )
+            .unwrap();
+        assert_eq!(wallet.utxos.len(), 1, "deposit discovered");
+        assert_eq!(wallet.utxos[0].hash, deposit.utxo_hash);
+        assert!(!wallet.utxos[0].spent);
+        let nullifier = wallet.utxos[0].nullifier;
+
+        // Re-syncing the same deposit must not duplicate it.
+        wallet
+            .sync(
+                &[],
+                std::slice::from_ref(&deposit),
+                &assets,
+                2,
+                DEFAULT_TAG_WINDOW,
+            )
+            .unwrap();
+        assert_eq!(wallet.utxos.len(), 1, "idempotent on re-sync");
+
+        // A later transaction that nullifies the deposit marks it spent, proving
+        // proofless UTXOs flow through the same spent pass as transfer outputs.
+        let spend = SyncTransaction {
+            encrypted_utxos: Vec::new(),
+            sender_view_tag: [0u8; VIEW_TAG_LEN],
+            nullifiers: vec![nullifier],
+        };
+        wallet
+            .sync(
+                std::slice::from_ref(&spend),
+                &[],
+                &assets,
+                3,
+                DEFAULT_TAG_WINDOW,
+            )
+            .unwrap();
+        assert!(wallet.utxos[0].spent, "deposit spent by its nullifier");
     }
 }

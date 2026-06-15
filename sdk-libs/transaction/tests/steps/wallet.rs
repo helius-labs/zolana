@@ -224,6 +224,7 @@ fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
     let report = wallet
         .sync(
             &world.sync_transactions,
+            &[],
             &AssetRegistry::default(),
             1_700_000_000,
             8,
