@@ -18,9 +18,9 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
-    create_spl_interface, create_zone_config, proofless_shield_sol_account_metas,
-    proofless_shield_spl, zone_proofless_shield_cpi, CpiSignerData, CreateSplInterfaceAccounts,
-    ProoflessShieldSplAccounts, ZoneProoflessShieldIxData,
+    create_spl_interface, create_zone_config, proofless_shield, zone_proofless_shield_cpi,
+    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldSplAccounts,
+    ZoneProoflessShieldIxData,
 };
 #[cfg(feature = "solana")]
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
@@ -283,7 +283,7 @@ fn create_zone_config_builder_account_layout() {
 fn proofless_shield_account_layouts() {
     let tree = Pubkey::new_unique();
     let depositor = Pubkey::new_unique();
-    let sol_accounts = proofless_shield_sol_account_metas(tree, depositor);
+    let sol_accounts = ProoflessShieldAccounts::sol(tree, depositor).account_metas();
 
     assert_eq!(sol_accounts.len(), 6);
     assert_eq!(sol_accounts[0].pubkey, tree);
@@ -303,16 +303,15 @@ fn proofless_shield_account_layouts() {
         cpi_signer: None,
     };
     let spl_accounts = ProoflessShieldSplAccounts {
-        tree,
-        depositor,
-        cpi_authority: Pubkey::new_unique(),
         user_token: Pubkey::new_unique(),
         vault: Pubkey::new_unique(),
         registry: Pubkey::new_unique(),
         token_program: Pubkey::new_unique(),
-        shielded_pool_program: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
     };
-    let ix = proofless_shield_spl(spl_accounts, &data);
+    let ix = proofless_shield(
+        ProoflessShieldAccounts::spl(tree, depositor, spl_accounts),
+        &data,
+    );
 
     assert_eq!(
         ix.program_id,

@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    proofless_shield as proofless_shield_ix, ProoflessShieldIxData,
+    proofless_shield as proofless_shield_ix, ProoflessShieldAccounts, ProoflessShieldIxData,
 };
 
 use crate::error::ClientError;
@@ -25,7 +25,7 @@ pub fn proofless_shield<R: Rpc>(
     depositor: &Keypair,
     data: &ProoflessShieldIxData,
 ) -> Result<Signature, ClientError> {
-    let ix = proofless_shield_ix(tree, depositor.pubkey(), data);
+    let ix = proofless_shield_ix(ProoflessShieldAccounts::sol(tree, depositor.pubkey()), data);
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
@@ -83,7 +83,10 @@ mod tests {
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
         // The action must submit exactly the interface builder's instruction
         // (same wincode-encoded data), with both payer and depositor signing.
-        let expected = proofless_shield_ix(tree, depositor.pubkey(), &data);
+        let expected = proofless_shield_ix(
+            ProoflessShieldAccounts::sol(tree, depositor.pubkey()),
+            &data,
+        );
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));

@@ -5,8 +5,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    proofless_shield_sol_account_metas, tag, CpiSignerData, ProoflessShieldIxData,
-    PUBLIC_AMOUNT_WITHDRAW_SOL,
+    tag, CpiSignerData, ProoflessShieldAccounts, ProoflessShieldIxData, PUBLIC_AMOUNT_WITHDRAW_SOL,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
@@ -24,7 +23,7 @@ fn sol_accounts(
     tree: &Pubkey,
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
-    let mut accounts = proofless_shield_sol_account_metas(*tree, *depositor);
+    let mut accounts = ProoflessShieldAccounts::sol(*tree, *depositor).account_metas();
     accounts[3] = AccountMeta::new(program_test.cpi_authority(), false);
     accounts[5] = AccountMeta::new_readonly(program_test.program_id, false);
     accounts

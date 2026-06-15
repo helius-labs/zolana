@@ -6,7 +6,7 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::ProoflessShieldSplAccounts;
+use zolana_interface::instruction::{ProoflessShieldAccounts, ProoflessShieldSplAccounts};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -25,16 +25,16 @@ fn spl_accounts(
     user_token: &Pubkey,
     mint: &Pubkey,
 ) -> Vec<AccountMeta> {
-    ProoflessShieldSplAccounts {
-        tree: *tree,
-        depositor: *depositor,
-        cpi_authority: program_test.cpi_authority(),
-        user_token: *user_token,
-        vault: program_test.spl_asset_vault_pda(mint),
-        registry: program_test.spl_asset_registry_pda(mint),
-        token_program: ZolanaProgramTest::token_program_id(),
-        shielded_pool_program: program_test.program_id,
-    }
+    ProoflessShieldAccounts::spl(
+        *tree,
+        *depositor,
+        ProoflessShieldSplAccounts {
+            user_token: *user_token,
+            vault: program_test.spl_asset_vault_pda(mint),
+            registry: program_test.spl_asset_registry_pda(mint),
+            token_program: ZolanaProgramTest::token_program_id(),
+        },
+    )
     .account_metas()
 }
 
