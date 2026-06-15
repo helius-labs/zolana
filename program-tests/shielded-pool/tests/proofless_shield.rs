@@ -13,7 +13,8 @@ use zolana_interface::instruction::{
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
+use zolana_test_utils::asserts::assert_proofless_shield;
 use zolana_transaction::Wallet;
 
 fn funded_depositor(program_test: &mut ZolanaProgramTest) -> Keypair {
@@ -55,36 +56,17 @@ fn sol_deposit_succeeds_and_event_is_faithful() {
         .proofless_shield(&tree, &depositor, &data)
         .expect("deposit");
 
-    assert_eq!(event.amount, 750_000_000);
-    assert_eq!(event.asset, [0u8; 32]);
-    assert_eq!(event.owner_utxo_hash, data.owner_utxo_hash);
-    assert_eq!(event.view_tag, data.view_tag);
-    assert_eq!(event.salt, data.salt);
-    assert_ne!(
-        program_test.state_root(&tree.pubkey()).expect("root"),
+    assert_proofless_shield(
+        &mut program_test,
+        &tree.pubkey(),
+        &event,
+        &data,
+        750_000_000,
+        [0u8; 32],
         root_before,
-        "leaf must be appended"
-    );
-
-    assert_eq!(
-        program_test.indexer().root(),
-        program_test.state_root(&tree.pubkey()).expect("root")
-    );
-    let by_tag: Vec<_> = program_test
-        .indexer()
-        .fetch_by_view_tag(&data.view_tag)
-        .collect();
-    assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
-    assert_eq!(by_tag[0].owner_utxo_hash, data.owner_utxo_hash);
-    assert!(
-        recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
-            .expect("wallet discovery"),
-        "recipient wallet must discover the deposit"
+        &mut recipient,
     );
     assert_eq!(recipient.utxos.len(), 1);
-    assert_eq!(recipient.utxos[0].hash, event.utxo_hash);
-    assert_eq!(recipient.utxos[0].utxo.amount, event.amount);
 }
 
 #[test]

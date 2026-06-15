@@ -11,7 +11,8 @@ use solana_signer::Signer;
 use zolana_interface::instruction::{encode_instruction, tag};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_test_utils::asserts::assert_zone_proofless_shield;
 use zolana_transaction::Wallet;
 
 #[test]
@@ -43,41 +44,16 @@ fn zone_proofless_shield_succeeds_and_event_is_faithful() {
         .zone_proofless_shield(&tree, &depositor, &data)
         .expect("zone deposit");
 
-    assert_eq!(event.amount, 750_000_000);
-    assert_eq!(event.asset, [0u8; 32]);
-    assert_eq!(event.owner_utxo_hash, data.owner_utxo_hash);
-    assert_eq!(event.view_tag, data.view_tag);
-    // The created UTXO is owned by the zone program, with its policy hash.
-    assert_eq!(event.zone_program_id, Some(ZONE_TEST_PROGRAM_ID));
-    assert_eq!(event.policy_data_hash, Some([5u8; 32]));
-    assert_ne!(
-        program_test.state_root(&tree.pubkey()).expect("root"),
+    assert_zone_proofless_shield(
+        &mut program_test,
+        &tree.pubkey(),
+        &event,
+        &data,
+        750_000_000,
+        [0u8; 32],
+        ZONE_TEST_PROGRAM_ID,
         root_before,
-        "leaf must be appended"
-    );
-
-    assert_eq!(
-        program_test.indexer().root(),
-        program_test.state_root(&tree.pubkey()).expect("root")
-    );
-    let by_tag: Vec<_> = program_test
-        .indexer()
-        .fetch_by_view_tag(&data.view_tag)
-        .collect();
-    assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
-    assert!(
-        recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
-            .expect("wallet discovery"),
-        "recipient wallet must discover the zone deposit"
-    );
-    assert_eq!(recipient.utxos[0].hash, event.utxo_hash);
-    assert_eq!(
-        recipient.utxos[0]
-            .utxo
-            .zone_program_id
-            .map(|id| id.to_bytes()),
-        Some(ZONE_TEST_PROGRAM_ID)
+        &mut recipient,
     );
 }
 
