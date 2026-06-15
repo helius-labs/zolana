@@ -1,6 +1,5 @@
 use std::pin::Pin;
 
-use async_trait::async_trait;
 use futures::Stream;
 use solana_account::Account;
 use solana_address::Address;
@@ -154,23 +153,22 @@ pub struct ProveResult {
 ///
 /// Every method defaults to `unimplemented!()`; implementors override the subset
 /// they support.
-#[async_trait]
 #[allow(unused_variables)]
 pub trait RpcBlocking: Send + Sync {
     // ===== Accounts =====
 
-    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+    fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         unimplemented!()
     }
 
-    async fn get_multiple_accounts(
+    fn get_multiple_accounts(
         &self,
         addresses: Vec<Address>,
     ) -> Result<Vec<Option<Account>>, ClientError> {
         unimplemented!()
     }
 
-    async fn get_program_accounts(
+    fn get_program_accounts(
         &self,
         program_id: Address,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
@@ -179,51 +177,51 @@ pub trait RpcBlocking: Send + Sync {
 
     // ===== Chain state =====
 
-    async fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
+    fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
-    async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+    fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
         unimplemented!()
     }
 
-    async fn get_block_height(&self) -> Result<u64, ClientError> {
+    fn get_block_height(&self) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
-    async fn get_slot(&self) -> Result<u64, ClientError> {
+    fn get_slot(&self) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
-    async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
+    fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
-    async fn get_signature_statuses(
+    fn get_signature_statuses(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         unimplemented!()
     }
 
-    async fn get_minimum_balance_for_rent_exemption(
+    fn get_minimum_balance_for_rent_exemption(
         &self,
         data_len: usize,
     ) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
-    async fn health(&self) -> Result<(), ClientError> {
+    fn health(&self) -> Result<(), ClientError> {
         unimplemented!()
     }
 
     // ===== Transactions =====
 
-    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
+    fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         unimplemented!()
     }
 
-    async fn send_transaction_with_config(
+    fn send_transaction_with_config(
         &self,
         transaction: &Transaction,
         config: RpcSendTransactionConfig,
@@ -231,7 +229,7 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn send_versioned_transaction_with_config(
+    fn send_versioned_transaction_with_config(
         &self,
         transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
@@ -239,28 +237,28 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn process_transaction(
+    fn process_transaction(
         &self,
         transaction: Transaction,
     ) -> Result<Signature, ClientError> {
         unimplemented!()
     }
 
-    async fn process_transaction_with_context(
+    fn process_transaction_with_context(
         &self,
         transaction: Transaction,
     ) -> Result<(Signature, Slot), ClientError> {
         unimplemented!()
     }
 
-    async fn process_versioned_transaction(
+    fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
         unimplemented!()
     }
 
-    async fn create_and_send_transaction(
+    fn create_and_send_transaction(
         &self,
         instructions: &[Instruction],
         payer: Address,
@@ -269,7 +267,7 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn create_and_send_versioned_transaction(
+    fn create_and_send_versioned_transaction(
         &self,
         instructions: &[Instruction],
         payer: Address,
@@ -281,7 +279,7 @@ pub trait RpcBlocking: Send + Sync {
 
     // ===== Misc =====
 
-    async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
+    fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
         unimplemented!()
     }
 
@@ -291,7 +289,7 @@ pub trait RpcBlocking: Send + Sync {
 
     // ===== Indexer (SPP) =====
 
-    async fn get_encrypted_utxos_by_tags(
+    fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
@@ -300,7 +298,7 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn get_shielded_transactions_by_tags(
+    fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         cursor: Option<Vec<u8>>,
@@ -309,14 +307,14 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn subscribe_to_shielded_transactions_by_tags(
+    fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
         unimplemented!()
     }
 
-    async fn get_merkle_proofs(
+    fn get_merkle_proofs(
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
@@ -324,7 +322,7 @@ pub trait RpcBlocking: Send + Sync {
         unimplemented!()
     }
 
-    async fn get_non_inclusion_proofs(
+    fn get_non_inclusion_proofs(
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
@@ -349,7 +347,7 @@ pub trait RpcBlocking: Send + Sync {
     }
 
     /// Build the SPP proof and submit the resulting transaction in one call.
-    async fn send_and_prove(
+    fn send_and_prove(
         &self,
         transaction: SignedTransaction,
     ) -> Result<Signature, ClientError> {
