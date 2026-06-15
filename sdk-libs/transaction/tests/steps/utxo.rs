@@ -2,7 +2,7 @@ use cucumber::then;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::hash::{hash_field, owner_hash, poseidon};
 use zolana_transaction::data::Data;
-use zolana_transaction::utxo::{Utxo, UTXO_DOMAIN};
+use zolana_transaction::utxo::{utxo_commitment, Utxo, UTXO_DOMAIN};
 use zolana_transaction::Address;
 
 use crate::TransactionWorld;
@@ -61,7 +61,7 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     assert_eq!(actual, expected);
     assert_eq!(
         actual,
-        Utxo::commitment_from_owner_utxo_hash(
+        utxo_commitment(
             utxo.asset,
             utxo.amount,
             &program_data_hash,
