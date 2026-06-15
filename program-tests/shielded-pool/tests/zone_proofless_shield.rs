@@ -8,7 +8,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{encode_instruction, tag};
+use zolana_interface::instruction::tag;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -80,10 +80,16 @@ fn rejects_zone_proofless_with_wrong_signer() {
         AccountMeta::new(depositor.pubkey(), false),
         AccountMeta::new_readonly(program_test.program_id, false),
     ];
+    let mut instruction_data = vec![tag::ZONE_PROOFLESS_SHIELD];
+    instruction_data.extend_from_slice(
+        &data
+            .serialize()
+            .expect("zone proofless ix data serialization is infallible"),
+    );
     let ix = Instruction {
         program_id: program_test.program_id,
         accounts,
-        data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, &data),
+        data: instruction_data,
     };
     let err = program_test
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])

@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    encode_instruction, proofless_shield, tag, ProoflessShieldEvent, ProoflessShieldIxData,
+    proofless_shield, tag, ProoflessShieldEvent, ProoflessShieldIxData,
 };
 
 use crate::{single_proofless_shield_event, ProgramTestError, ZolanaProgramTest};
@@ -46,10 +46,16 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
+        let mut instruction_data = vec![tag::PROOFLESS_SHIELD];
+        instruction_data.extend_from_slice(
+            &data
+                .serialize()
+                .expect("proofless ix data serialization is infallible"),
+        );
         let ix = Instruction {
             program_id: self.program_id,
             accounts,
-            data: encode_instruction(tag::PROOFLESS_SHIELD, data),
+            data: instruction_data,
         };
         self.send_proofless_shield_ix(ix, depositor)
     }

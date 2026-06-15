@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use wincode::{SchemaRead, SchemaWrite};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct TransactIxData {
@@ -24,7 +25,9 @@ pub struct TransactIxData {
     pub requires_p256: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
+)]
 pub struct CpiSignerData {
     pub program_id: [u8; 32],
     pub bump: u8,
