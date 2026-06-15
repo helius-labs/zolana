@@ -8,7 +8,7 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-use crate::ShieldedPoolWorld;
+use crate::{ShieldedPoolWorld, SolDepositObservation};
 
 const E2E_AMOUNTS: [u64; 3] = [1_000_000_000, 250_000_000, 1_000_000];
 
@@ -40,26 +40,33 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .proofless_shield(&tree, &depositor, &data)
         .expect("proofless_shield");
 
-    // The deposit landed in the pool's SOL vault (the CPI authority PDA).
     let vault_lamports = world
         .rpc()
         .svm
         .get_account(&vault)
         .map(|a| a.lamports)
         .unwrap_or(0);
-    assert!(
-        vault_lamports >= vault_before_lamports + amount,
-        "vault must grow by the deposit"
-    );
-
-    // The UTXO was appended: the state sub-tree root / next_index changed.
     let tree_after = world.rpc().account_data(&tree).expect("tree data");
-    assert_ne!(tree_before, tree_after, "tree must record the new leaf");
+    world.sol_deposit = Some(SolDepositObservation {
+        amount,
+        vault_before_lamports,
+        vault_after_lamports: vault_lamports,
+        tree_changed: tree_before != tree_after,
+    });
 }
 
 #[then(expr = "the deposit lands in the pool vault and grows the tree")]
-fn deposit_landed(_world: &mut ShieldedPoolWorld) {
-    // Assertions are performed in the `When` step where before/after state is local.
+fn deposit_landed(world: &mut ShieldedPoolWorld) {
+    let deposit = world.sol_deposit.take().expect("deposit observed");
+    let minimum_vault_lamports = deposit
+        .vault_before_lamports
+        .checked_add(deposit.amount)
+        .expect("vault lamports overflow");
+    assert!(
+        deposit.vault_after_lamports >= minimum_vault_lamports,
+        "vault must grow by the deposit"
+    );
+    assert!(deposit.tree_changed, "tree must record the new leaf");
 }
 
 #[when(expr = "the depositor makes the bootstrap deposit run")]
