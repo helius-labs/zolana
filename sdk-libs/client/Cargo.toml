@@ -7,9 +7,10 @@ edition.workspace = true
 
 [features]
 default = []
-solana-rpc = ["dep:solana-rpc-client", "dep:solana-commitment-config", "dep:solana-pubkey"]
+solana-rpc = ["dep:solana-rpc-client", "dep:solana-commitment-config"]
 
 [dependencies]
+zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 num-bigint = { workspace = true }
@@ -34,14 +35,14 @@ solana-signature = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
-solana-pubkey = { workspace = true, optional = true }
-solana-transaction = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
 light-merkle-tree-reference = { workspace = true }
-zolana-interface = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

@@ -14,8 +14,8 @@ use solana_address::Address;
 use test_indexer::TestIndexer;
 use zolana_client::private_transaction::field::{asset_field, signed_to_field};
 use zolana_client::{
-    spawn_prover, CircuitType, ProverClient, PublicAmounts, Rpc, Shape, SpendUtxo,
-    Transaction, TransferP256ProofResult, TransferProofResult, WithdrawalTarget,
+    spawn_prover, CircuitType, ProverClient, PublicAmounts, Rpc, Shape, SpendUtxo, Transaction,
+    TransferP256ProofResult, TransferProofResult, WithdrawalTarget,
 };
 use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
 use zolana_keypair::shielded::ShieldedKeypair;

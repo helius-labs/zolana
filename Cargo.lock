@@ -7318,6 +7318,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-signature",
+ "solana-signer",
  "solana-transaction",
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",

@@ -9,8 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use solana_address::Address;
 use solana_account::Account;
+use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
@@ -74,10 +74,9 @@ impl SolanaRpc {
     fn wait_for_signature(&self, signature: &Signature) -> Result<(), ClientError> {
         let started = Instant::now();
         while started.elapsed() < self.confirmation_timeout {
-            let confirmed = self
-                .client
-                .confirm_transaction(signature)
-                .map_err(|err| ClientError::Rpc(format!("confirm_transaction {signature}: {err}")))?;
+            let confirmed = self.client.confirm_transaction(signature).map_err(|err| {
+                ClientError::Rpc(format!("confirm_transaction {signature}: {err}"))
+            })?;
             if confirmed {
                 return Ok(());
             }
@@ -98,10 +97,7 @@ impl Rpc for SolanaRpc {
         }
     }
 
-    fn get_minimum_balance_for_rent_exemption(
-        &self,
-        data_len: usize,
-    ) -> Result<u64, ClientError> {
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         self.client
             .get_minimum_balance_for_rent_exemption(data_len)
             .map_err(|err| {
