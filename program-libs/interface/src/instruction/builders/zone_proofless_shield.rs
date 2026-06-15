@@ -17,6 +17,36 @@ pub fn zone_proofless_shield(
     depositor: Pubkey,
     data: &ZoneProoflessShieldIxData,
 ) -> Instruction {
+    build_zone_proofless_shield(zone_program_id, zone_auth, tree, depositor, data, false)
+}
+
+/// Build the shielded-pool CPI made by a zone program after receiving
+/// [`zone_proofless_shield`]. The account layout is the same, but the CPI
+/// targets SPP and marks the zone-auth PDA as signer.
+pub fn zone_proofless_shield_cpi(
+    zone_auth: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    data: &ZoneProoflessShieldIxData,
+) -> Instruction {
+    build_zone_proofless_shield(
+        Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        zone_auth,
+        tree,
+        depositor,
+        data,
+        true,
+    )
+}
+
+fn build_zone_proofless_shield(
+    program_id: Pubkey,
+    zone_auth: Pubkey,
+    tree: Pubkey,
+    depositor: Pubkey,
+    data: &ZoneProoflessShieldIxData,
+    zone_auth_signer: bool,
+) -> Instruction {
     let mut instruction_data = vec![tag::ZONE_PROOFLESS_SHIELD];
     instruction_data.extend_from_slice(
         &data
@@ -25,11 +55,11 @@ pub fn zone_proofless_shield(
     );
 
     Instruction {
-        program_id: zone_program_id,
+        program_id,
         accounts: vec![
             AccountMeta::new(tree, false),
             AccountMeta::new(depositor, true),
-            AccountMeta::new_readonly(zone_auth, false),
+            AccountMeta::new_readonly(zone_auth, zone_auth_signer),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY), false),
             AccountMeta::new(depositor, false),

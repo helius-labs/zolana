@@ -61,10 +61,6 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
-fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
-    zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)
-}
-
 pub fn zone_program_id_field(
     zone_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
@@ -98,7 +94,8 @@ pub fn utxo_hash(
     owner_utxo_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
     let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
-    let asset = asset_field(&asset)?;
+    let asset =
+        zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
     let zone_program_id = zone_program_id_field(&zone_program_id)?;
     poseidon(&[

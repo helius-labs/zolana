@@ -10,8 +10,11 @@ use zolana_interface::instruction::{
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
-    create_spl_interface, create_zone_config, CreateSplInterfaceAccounts,
+    create_spl_interface, create_zone_config, zone_proofless_shield_cpi, CpiSignerData,
+    CreateSplInterfaceAccounts, ZoneProoflessShieldIxData,
 };
+#[cfg(feature = "solana")]
+use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
 #[test]
 fn create_tree_is_tag_only() {
@@ -216,6 +219,48 @@ fn create_zone_config_builder_account_layout() {
     assert!(ix.accounts[2].is_signer);
     assert!(!ix.accounts[2].is_writable);
     assert_eq!(ix.accounts[3].pubkey, Pubkey::default());
+}
+
+#[test]
+#[cfg(feature = "solana")]
+fn zone_proofless_shield_cpi_builder_account_layout() {
+    let zone_auth = Pubkey::new_unique();
+    let tree = Pubkey::new_unique();
+    let depositor = Pubkey::new_unique();
+    let ix = zone_proofless_shield_cpi(
+        zone_auth,
+        tree,
+        depositor,
+        &ZoneProoflessShieldIxData {
+            view_tag: [1u8; 32],
+            owner_utxo_hash: [2u8; 32],
+            salt: [3u8; 16],
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
+            public_amount: Some(10),
+            cpi_signer: CpiSignerData {
+                program_id: Pubkey::new_unique().to_bytes(),
+                bump: 255,
+            },
+            policy_data_hash: None,
+            zone_data: None,
+            program_data_hash: None,
+            program_data: None,
+        },
+    );
+
+    assert_eq!(
+        ix.program_id,
+        Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
+    );
+    assert_eq!(ix.accounts.len(), 7);
+    assert_eq!(ix.accounts[0].pubkey, tree);
+    assert!(ix.accounts[0].is_writable);
+    assert_eq!(ix.accounts[1].pubkey, depositor);
+    assert!(ix.accounts[1].is_signer);
+    assert!(ix.accounts[1].is_writable);
+    assert_eq!(ix.accounts[2].pubkey, zone_auth);
+    assert!(ix.accounts[2].is_signer);
+    assert!(!ix.accounts[2].is_writable);
 }
 
 #[test]

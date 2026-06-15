@@ -5,13 +5,21 @@
 //! (access violation before any CPI). Pinocchio's entrypoint is ABI-compatible
 //! with the loader the SPP program already uses, so this fixture matches it.
 
+use borsh::BorshDeserialize;
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
+use solana_pubkey::Pubkey;
+use zolana_interface::{
+    instruction::{
+        create_zone_config, tag, zone_proofless_shield_cpi, CreateZoneConfigData,
+        ZoneProoflessShieldIxData,
+    },
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
 const ZONE_AUTH_SEED: &[u8] = b"zone_auth";
 const TREE: usize = 0;
@@ -64,16 +72,25 @@ fn process_create_zone_config(
     }
     check_shielded_pool(accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].address())?;
 
-    let metas = [
-        InstructionAccount::writable_signer(accounts[CREATE_ZONE_PAYER].address()),
-        InstructionAccount::writable(accounts[CREATE_ZONE_CONFIG].address()),
-        InstructionAccount::readonly_signer(&zone_auth),
-        InstructionAccount::readonly(accounts[CREATE_ZONE_SYSTEM].address()),
-    ];
-    let instruction = InstructionView {
-        program_id: &Address::from(SHIELDED_POOL_PROGRAM_ID),
-        accounts: &metas,
+    let data = CreateZoneConfigData::try_from_slice(payload(data)?)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let ix = create_zone_config(
+        pubkey(accounts[CREATE_ZONE_PAYER].address()),
+        pubkey(accounts[CREATE_ZONE_CONFIG].address()),
+        pubkey(&zone_auth),
         data,
+    );
+    let metas = [
+        cpi_account(&accounts[CREATE_ZONE_PAYER], &ix.accounts[0]),
+        cpi_account(&accounts[CREATE_ZONE_CONFIG], &ix.accounts[1]),
+        cpi_account(&accounts[CREATE_ZONE_AUTH], &ix.accounts[2]),
+        cpi_account(&accounts[CREATE_ZONE_SYSTEM], &ix.accounts[3]),
+    ];
+    let cpi_program_id = Address::from(ix.program_id.to_bytes());
+    let instruction = InstructionView {
+        program_id: &cpi_program_id,
+        accounts: &metas,
+        data: &ix.data,
     };
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
@@ -104,19 +121,28 @@ fn process_zone_proofless_shield(
     }
     check_shielded_pool(accounts[SHIELDED_POOL_PROGRAM].address())?;
 
+    let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let ix = zone_proofless_shield_cpi(
+        pubkey(&zone_auth),
+        pubkey(accounts[TREE].address()),
+        pubkey(accounts[PAYER].address()),
+        &data,
+    );
     let metas = [
-        InstructionAccount::writable(accounts[TREE].address()),
-        InstructionAccount::writable_signer(accounts[PAYER].address()),
-        InstructionAccount::readonly_signer(&zone_auth),
-        InstructionAccount::readonly(accounts[SYSTEM_PROGRAM].address()),
-        InstructionAccount::writable(accounts[CPI_AUTHORITY].address()),
-        InstructionAccount::writable(accounts[USER_SOL].address()),
-        InstructionAccount::readonly(accounts[SHIELDED_POOL_PROGRAM].address()),
+        cpi_account(&accounts[TREE], &ix.accounts[0]),
+        cpi_account(&accounts[PAYER], &ix.accounts[1]),
+        cpi_account(&accounts[ZONE_AUTH], &ix.accounts[2]),
+        cpi_account(&accounts[SYSTEM_PROGRAM], &ix.accounts[3]),
+        cpi_account(&accounts[CPI_AUTHORITY], &ix.accounts[4]),
+        cpi_account(&accounts[USER_SOL], &ix.accounts[5]),
+        cpi_account(&accounts[SHIELDED_POOL_PROGRAM], &ix.accounts[6]),
     ];
+    let cpi_program_id = Address::from(ix.program_id.to_bytes());
     let instruction = InstructionView {
-        program_id: &Address::from(SHIELDED_POOL_PROGRAM_ID),
+        program_id: &cpi_program_id,
         accounts: &metas,
-        data,
+        data: &ix.data,
     };
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
@@ -141,4 +167,19 @@ fn check_shielded_pool(account: &Address) -> Result<(), ProgramError> {
         return Err(ProgramError::IncorrectProgramId);
     }
     Ok(())
+}
+
+fn payload(data: &[u8]) -> Result<&[u8], ProgramError> {
+    data.get(1..).ok_or(ProgramError::InvalidInstructionData)
+}
+
+fn pubkey(address: &Address) -> Pubkey {
+    Pubkey::new_from_array(address.to_bytes())
+}
+
+fn cpi_account<'a>(
+    account: &'a AccountView,
+    meta: &solana_instruction::AccountMeta,
+) -> InstructionAccount<'a> {
+    InstructionAccount::new(account.address(), meta.is_writable, meta.is_signer)
 }
