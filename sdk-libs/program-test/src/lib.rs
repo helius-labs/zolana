@@ -37,7 +37,7 @@ pub use events::{
     IndexedEvent, IndexedEventData, ParsedInstruction,
 };
 pub mod indexer;
-pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, PoolIndexer, ProoflessOutput};
+pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};
 pub mod instructions;
 pub use instructions::{
     create_tree_instructions, protocol_config_pda, rpc_state_root, system_create_account_ix,
@@ -83,7 +83,7 @@ pub struct ZolanaProgramTest {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
-    indexer: PoolIndexer,
+    indexer: TestIndexer,
     /// Monotonic counter mixed into the deterministic seed for each tree the
     /// rig creates, so repeated `create_tree` calls yield distinct (but
     /// reproducible) addresses instead of colliding on a fixed key.
@@ -119,7 +119,7 @@ impl ZolanaProgramTest {
             svm,
             payer,
             program_id,
-            indexer: PoolIndexer::new(),
+            indexer: TestIndexer::new(),
             tree_counter: 0,
         })
     }
@@ -136,7 +136,7 @@ impl ZolanaProgramTest {
         Keypair::new_from_array(seed)
     }
 
-    pub fn indexer(&self) -> &PoolIndexer {
+    pub fn indexer(&self) -> &TestIndexer {
         &self.indexer
     }
 
