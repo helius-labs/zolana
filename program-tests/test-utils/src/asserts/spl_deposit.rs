@@ -31,7 +31,10 @@ pub fn assert_spl_deposit(
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, mint.to_bytes(), "event asset is the mint");
-    assert_eq!(event.owner_utxo_hash, data.owner_utxo_hash, "owner utxo hash");
+    assert_eq!(
+        event.owner_utxo_hash, data.owner_utxo_hash,
+        "owner utxo hash"
+    );
     assert_eq!(event.view_tag, data.view_tag, "view tag");
 
     assert_eq!(
