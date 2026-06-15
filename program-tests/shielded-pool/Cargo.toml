@@ -25,7 +25,13 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
+cucumber = { workspace = true }
+tokio = { workspace = true }
 zolana-test-utils = { workspace = true }
+
+[[test]]
+name = "bdd"
+harness = false
 
 [[test]]
 name = "localnet_proofless_shield"
