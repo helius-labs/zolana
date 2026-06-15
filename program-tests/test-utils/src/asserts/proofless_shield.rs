@@ -47,7 +47,11 @@ pub fn assert_proofless_shield(
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
     assert_eq!(
-        by_tag[0].owner_utxo_hash, data.owner_utxo_hash,
+        by_tag[0]
+            .proofless()
+            .expect("proofless deposit")
+            .owner_utxo_hash,
+        data.owner_utxo_hash,
         "indexed record owner utxo hash"
     );
 
