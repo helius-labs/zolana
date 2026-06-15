@@ -21,6 +21,9 @@ zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
 
+[dev-dependencies]
+zolana-test-utils = { workspace = true }
+
 [[test]]
 name = "localnet_proofless_shield"
 path = "tests/localnet_proofless_shield.rs"

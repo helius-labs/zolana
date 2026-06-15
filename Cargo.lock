@@ -3986,6 +3986,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
+ "zolana-test-utils",
  "zolana-transaction",
 ]
 
@@ -7372,6 +7373,18 @@ dependencies = [
  "thiserror 2.0.18",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-test-utils"
+version = "0.1.0"
+dependencies = [
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
  "zolana-transaction",
 ]
 

@@ -8,33 +8,13 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_MAGIC_END,
-    SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END, SPL_ASSET_REGISTRY_MINT_OFFSET,
-};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
+use zolana_test_utils::asserts::{assert_create_spl_interface, assert_spl_deposit};
 use zolana_transaction::Wallet;
 
 const TOKEN_INSUFFICIENT_FUNDS: u32 = 1;
-const TOKEN_ACCOUNT_MINT_OFFSET: usize = 0;
-const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;
-const TOKEN_ACCOUNT_OWNER_END: usize = 64;
-
-fn read_le_u64(data: &[u8], offset: usize) -> u64 {
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&data[offset..offset + 8]);
-    u64::from_le_bytes(bytes)
-}
-
-fn registry_mint(data: &[u8]) -> &[u8] {
-    &data[SPL_ASSET_REGISTRY_MINT_OFFSET..SPL_ASSET_REGISTRY_MINT_END]
-}
-
-fn registry_asset_id(data: &[u8]) -> u64 {
-    read_le_u64(data, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET)
-}
 
 fn spl_setup(balance: u64) -> Option<(ZolanaProgramTest, Keypair, Pubkey, Keypair, Pubkey)> {
     let (mut program_test, authority, tree) = program_test_with_tree()?;
@@ -65,31 +45,7 @@ fn create_spl_interface_initializes_registry_and_vault() {
     let (registry, vault) = program_test
         .create_spl_interface(&authority, &mint)
         .expect("create_spl_interface");
-    let registry_data = program_test
-        .account_data(&registry)
-        .expect("registry exists");
-    assert_eq!(
-        &registry_data[SPL_ASSET_REGISTRY_MAGIC_OFFSET..SPL_ASSET_REGISTRY_MAGIC_END],
-        SPL_ASSET_REGISTRY_MAGIC.as_slice()
-    );
-    assert_eq!(registry_mint(&registry_data), mint.as_ref());
-    assert_eq!(registry_asset_id(&registry_data), 2, "first SPL asset id");
-    let counter_data = program_test
-        .account_data(&program_test.spl_asset_counter_pda())
-        .expect("counter exists");
-    assert_eq!(read_le_u64(&counter_data, 0), 3, "next SPL asset id");
-    let vault_data = program_test.account_data(&vault).expect("vault exists");
-    assert_eq!(
-        &vault_data[TOKEN_ACCOUNT_MINT_OFFSET..TOKEN_ACCOUNT_OWNER_OFFSET],
-        mint.as_ref(),
-        "vault mint"
-    );
-    assert_eq!(
-        &vault_data[TOKEN_ACCOUNT_OWNER_OFFSET..TOKEN_ACCOUNT_OWNER_END],
-        program_test.cpi_authority().as_ref(),
-        "vault owner is the cpi authority"
-    );
-    assert_eq!(program_test.token_balance(&vault), Some(0));
+    assert_create_spl_interface(&program_test, &registry, &vault, &mint, 2, 3);
 
     // Fresh blockhash so the byte-identical transaction is not deduped as
     // already processed.
@@ -100,21 +56,10 @@ fn create_spl_interface_initializes_registry_and_vault() {
     assert_pool_error(err, ShieldedPoolError::InvalidSplAssetRegistry);
 
     let mint_b = program_test.create_mint().expect("create_mint");
-    let (registry_b, _vault_b) = program_test
+    let (registry_b, vault_b) = program_test
         .create_spl_interface(&authority, &mint_b)
         .expect("create_spl_interface mint B");
-    let registry_b_data = program_test
-        .account_data(&registry_b)
-        .expect("registry B exists");
-    assert_eq!(
-        registry_asset_id(&registry_b_data),
-        3,
-        "second SPL asset id"
-    );
-    let counter_data = program_test
-        .account_data(&program_test.spl_asset_counter_pda())
-        .expect("counter exists");
-    assert_eq!(read_le_u64(&counter_data, 0), 4, "next SPL asset id");
+    assert_create_spl_interface(&program_test, &registry_b, &vault_b, &mint_b, 3, 4);
 }
 
 #[test]
@@ -146,35 +91,29 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
     let data = ZolanaProgramTest::wallet_spl_shield_data(400_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
 
+    let vault_before = program_test.token_balance(&vault).expect("vault balance");
+    let user_token_before = program_test
+        .token_balance(&user_token)
+        .expect("user token balance");
     let root_before = program_test.state_root(&tree.pubkey()).expect("root");
     let event = program_test
         .proofless_shield_spl(&tree, &depositor, &user_token, &mint, &data)
         .expect("deposit");
 
-    assert_eq!(event.amount, 400_000);
-    assert_eq!(event.asset, mint.to_bytes());
-    assert_eq!(event.owner_utxo_hash, data.owner_utxo_hash);
-    assert_eq!(event.view_tag, data.view_tag);
-    assert_eq!(program_test.token_balance(&vault), Some(400_000));
-    assert_eq!(program_test.token_balance(&user_token), Some(600_000));
-    assert_ne!(
-        program_test.state_root(&tree.pubkey()).expect("root"),
+    assert_spl_deposit(
+        &mut program_test,
+        &tree.pubkey(),
+        &mint,
+        &vault,
+        &user_token,
+        &event,
+        &data,
+        400_000,
+        vault_before,
+        user_token_before,
         root_before,
-        "leaf must be appended"
+        &mut recipient,
     );
-
-    assert_eq!(
-        program_test.indexer().root(),
-        program_test.state_root(&tree.pubkey()).expect("root")
-    );
-    assert!(
-        recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(&event))
-            .expect("wallet discovery"),
-        "recipient wallet must discover the SPL deposit"
-    );
-    assert_eq!(recipient.utxos[0].hash, event.utxo_hash);
-    assert_eq!(recipient.utxos[0].utxo.asset.to_bytes(), mint.to_bytes());
 }
 
 fn spl_accounts(

@@ -10,31 +10,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{encode_instruction, tag, CreateProtocolConfigData},
-    state::{
-        CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET, PROTOCOL_CONFIG_ACCOUNT_LEN,
-        PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES, PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET,
-        PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET,
-    },
+    state::PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
 };
-
-fn read_u64(data: &[u8], offset: usize) -> u64 {
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&data[offset..offset + 8]);
-    u64::from_le_bytes(bytes)
-}
-
-fn config_authority(data: &[u8]) -> &[u8] {
-    &data[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
-}
-
-fn merge_authority_count(data: &[u8]) -> u64 {
-    read_u64(data, PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET)
-}
-
-fn merge_authority(data: &[u8], index: usize) -> &[u8] {
-    let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + index * 32;
-    &data[offset..offset + 32]
-}
+use zolana_test_utils::asserts::assert_protocol_config;
 
 #[test]
 fn create_protocol_config_succeeds_once() {
@@ -46,12 +24,7 @@ fn create_protocol_config_succeeds_once() {
     let config = program_test
         .create_protocol_config(&authority)
         .expect("create_protocol_config");
-    let config_data = program_test
-        .account_data(&config)
-        .expect("config PDA exists");
-    assert_eq!(config_data.len(), PROTOCOL_CONFIG_ACCOUNT_LEN);
-    assert_eq!(config_authority(&config_data), authority.pubkey().as_ref());
-    assert_eq!(merge_authority_count(&config_data), 0);
+    assert_protocol_config(&program_test, &config, &authority.pubkey(), &[]);
 
     program_test.svm.expire_blockhash();
     let again = program_test.create_protocol_config(&authority).unwrap_err();
@@ -83,11 +56,7 @@ fn create_protocol_config_survives_donated_lamports() {
         .expect("create_protocol_config must survive a pre-funded PDA");
     assert_eq!(created, config);
 
-    let config_data = program_test
-        .account_data(&config)
-        .expect("config PDA exists");
-    assert_eq!(config_data.len(), PROTOCOL_CONFIG_ACCOUNT_LEN);
-    assert_eq!(config_authority(&config_data), authority.pubkey().as_ref());
+    assert_protocol_config(&program_test, &config, &authority.pubkey(), &[]);
 }
 
 #[test]
@@ -102,12 +71,7 @@ fn protocol_config_persists_merge_authorities() {
     let config = program_test
         .create_protocol_config_with_merge_authorities(&authority, vec![merge_a])
         .expect("create_protocol_config");
-    let config_data = program_test
-        .account_data(&config)
-        .expect("config PDA exists");
-    assert_eq!(config_authority(&config_data), authority.pubkey().as_ref());
-    assert_eq!(merge_authority_count(&config_data), 1);
-    assert_eq!(merge_authority(&config_data, 0), &merge_a);
+    assert_protocol_config(&program_test, &config, &authority.pubkey(), &[merge_a]);
 
     let next = Keypair::new();
     program_test
@@ -116,12 +80,7 @@ fn protocol_config_persists_merge_authorities() {
     program_test
         .update_protocol_config_with_merge_authorities(&authority, &next.pubkey(), vec![merge_b])
         .expect("update_protocol_config");
-    let config_data = program_test
-        .account_data(&config)
-        .expect("config PDA exists");
-    assert_eq!(config_authority(&config_data), next.pubkey().as_ref());
-    assert_eq!(merge_authority_count(&config_data), 1);
-    assert_eq!(merge_authority(&config_data, 0), &merge_b);
+    assert_protocol_config(&program_test, &config, &next.pubkey(), &[merge_b]);
 }
 
 #[test]

@@ -1,0 +1,13 @@
+[package]
+name = "zolana-test-utils"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-transaction = { workspace = true }
