@@ -53,6 +53,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         &mut recipient,
     );
     world.depositor = Some(depositor);
+    world.last_proofless_event = Some(event);
     world.recipient = Some(recipient);
 }
 
