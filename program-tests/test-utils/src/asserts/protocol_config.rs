@@ -23,7 +23,9 @@ pub fn assert_protocol_config(
     authority: &Pubkey,
     merge_authorities: &[[u8; 32]],
 ) {
-    let data = program_test.account_data(config).expect("config PDA exists");
+    let data = program_test
+        .account_data(config)
+        .expect("config PDA exists");
     assert_eq!(
         data.len(),
         PROTOCOL_CONFIG_ACCOUNT_LEN,

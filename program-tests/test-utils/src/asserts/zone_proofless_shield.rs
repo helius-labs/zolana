@@ -29,7 +29,10 @@ pub fn assert_zone_proofless_shield(
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, expected_asset, "event asset");
-    assert_eq!(event.owner_utxo_hash, data.owner_utxo_hash, "owner utxo hash");
+    assert_eq!(
+        event.owner_utxo_hash, data.owner_utxo_hash,
+        "owner utxo hash"
+    );
     assert_eq!(event.view_tag, data.view_tag, "view tag");
     assert_eq!(
         event.zone_program_id,
