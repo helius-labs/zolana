@@ -11,7 +11,7 @@
 use light_hasher::Poseidon;
 use light_merkle_tree_reference::MerkleTree;
 use thiserror::Error;
-use zolana_interface::{instruction::ProoflessShieldEvent, state::STATE_HEIGHT};
+use zolana_interface::{event::ProoflessShieldEvent, state::STATE_HEIGHT};
 use zolana_transaction::{utxo_hash, Address, TransactionError};
 
 #[derive(Debug, Error)]

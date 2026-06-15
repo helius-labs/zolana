@@ -14,7 +14,7 @@ mod steps;
 use cucumber::World;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::ProoflessShieldEvent;
+use zolana_interface::event::ProoflessShieldEvent;
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 use zolana_transaction::Wallet;
 

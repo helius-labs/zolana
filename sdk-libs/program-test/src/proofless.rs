@@ -2,9 +2,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_interface::event::ProoflessShieldEvent;
 use zolana_interface::instruction::{
-    proofless_shield, proofless_shield_spl as proofless_shield_spl_ix, ProoflessShieldEvent,
-    ProoflessShieldIxData, ProoflessShieldSplAccounts,
+    proofless_shield, proofless_shield_spl as proofless_shield_spl_ix, ProoflessShieldIxData,
+    ProoflessShieldSplAccounts,
 };
 
 use crate::{single_proofless_shield_event, ProgramTestError, ZolanaProgramTest};

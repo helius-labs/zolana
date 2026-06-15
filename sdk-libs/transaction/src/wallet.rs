@@ -12,7 +12,7 @@ use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
+use crate::utxo::{owner_utxo_hash, utxo_hash, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -354,18 +354,6 @@ impl Wallet {
         })
     }
 
-    pub fn proofless_owner_utxo_hash(
-        &self,
-        blinding: &Blinding,
-    ) -> Result<[u8; 32], TransactionError> {
-        let owner_hash = self.keypair.owner_hash()?;
-        owner_utxo_hash(&owner_hash, blinding)
-    }
-
-    pub fn proofless_blinding(&self, salt: &[u8; SALT_LEN]) -> Result<Blinding, TransactionError> {
-        Ok(self.keypair.viewing_key.derive_proofless_blinding(salt)?)
-    }
-
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
@@ -578,8 +566,13 @@ mod tests {
     /// `owner_utxo_hash` and `utxo_hash` match what discovery recomputes.
     fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessDepositEvent {
         let salt = [9u8; SALT_LEN];
-        let blinding = wallet.proofless_blinding(&salt).unwrap();
-        let owner_utxo_hash = wallet.proofless_owner_utxo_hash(&blinding).unwrap();
+        let blinding = wallet
+            .keypair
+            .viewing_key
+            .derive_proofless_blinding(&salt)
+            .unwrap();
+        let owner_utxo_hash =
+            owner_utxo_hash(&wallet.keypair.owner_hash().unwrap(), &blinding).unwrap();
         let utxo_hash = utxo_hash(
             SOL_MINT,
             amount,

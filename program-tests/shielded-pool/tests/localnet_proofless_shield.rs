@@ -8,9 +8,10 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
+    event::ProoflessShieldEvent,
     instruction::{
         create_protocol_config, proofless_shield, tag, zone_proofless_shield,
-        CreateProtocolConfigData, ProoflessShieldEvent,
+        CreateProtocolConfigData,
     },
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,

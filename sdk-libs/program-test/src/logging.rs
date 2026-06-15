@@ -14,16 +14,16 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::{decode_event_payload, ShieldedPoolEvent},
+    event::{decode_event_payload, ProoflessShieldEvent, ShieldedPoolEvent},
     instruction::{
         tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
-        PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
-        UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SPL,
+        PauseTreeData, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
+        UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+        PUBLIC_AMOUNT_DEPOSIT_SPL,
     },
 };
 
-use crate::events::{IndexedEvent, IndexedEventData};
+use crate::events::IndexedEvent;
 
 const TEST_LOG_ENV: &str = "ZOLANA_PROGRAM_TEST_LOG";
 static TX_COUNTER: AtomicUsize = AtomicUsize::new(1);
@@ -185,22 +185,15 @@ fn append_indexed_events(output: &mut String, events: &[IndexedEvent]) {
 }
 
 fn event_summary(event: &IndexedEvent) -> String {
-    match event {
-        IndexedEvent {
-            data: IndexedEventData::ProoflessShield(event),
-            ..
-        } => format!(
+    match &event.event {
+        Ok(ShieldedPoolEvent::ProoflessShield(event)) => format!(
             "proofless_shield amount={} asset={} view_tag={} utxo_hash={}",
             event.amount,
             pubkey(&event.asset),
             short_hex(&event.view_tag),
             short_hex(&event.utxo_hash)
         ),
-        IndexedEvent {
-            data: IndexedEventData::Unknown,
-            payload,
-            ..
-        } => format!("unknown data_len={}", payload.len()),
+        Err(err) => format!("invalid data_len={} error={err:?}", event.payload.len()),
     }
 }
 
@@ -369,9 +362,6 @@ where
     })
 }
 
-/// Build a [`DecodedInstruction`] from already-parsed fields. Used for the
-/// wincode-encoded proofless shields, whose on-wire instruction data is decoded
-/// by the interface struct's inherent `deserialize` rather than borsh.
 fn decoded_instruction(
     name: &'static str,
     fields: Vec<DecodedField>,

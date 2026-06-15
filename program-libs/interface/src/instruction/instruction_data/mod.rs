@@ -5,9 +5,7 @@ pub mod transact;
 pub mod zone_config;
 
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTreeData;
-pub use proofless_shield::{
-    ProoflessShieldEvent, ProoflessShieldIxData, ZoneProoflessShieldIxData,
-};
+pub use proofless_shield::{ProoflessShieldIxData, ZoneProoflessShieldIxData};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use transact::{
     CpiSignerData, InputUtxoSignerIndex, TransactInput, TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,

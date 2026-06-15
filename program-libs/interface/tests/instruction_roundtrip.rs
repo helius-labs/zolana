@@ -2,14 +2,15 @@ use borsh::BorshDeserialize;
 use zolana_interface::{
     event::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
-        encode_event_payload, kind as event_kind, EventDecodeError, ShieldedPoolEvent,
+        encode_event_payload, kind as event_kind, EventDecodeError, ProoflessShieldEvent,
+        ShieldedPoolEvent,
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
         CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData,
-        ProoflessShieldEvent, ProoflessShieldIxData, TransactInput, TransactIxData,
-        UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
+        ProoflessShieldIxData, TransactInput, TransactIxData, UpdateProtocolConfigData,
+        UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+        PUBLIC_AMOUNT_DEPOSIT_SPL,
     },
 };
 

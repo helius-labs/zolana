@@ -2,8 +2,8 @@ use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::{decode_event_instruction, ShieldedPoolEvent},
-    instruction::{tag, ProoflessShieldEvent},
+    event::{decode_event_instruction, EventDecodeError, ProoflessShieldEvent, ShieldedPoolEvent},
+    instruction::tag,
 };
 
 use crate::{ProgramTestError, TestIndexer};
@@ -15,19 +15,11 @@ pub struct ParsedInstruction {
     pub data: Vec<u8>,
 }
 
-// Test-harness event holder; the large `ProoflessShield` variant is fine here.
-#[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug)]
-pub enum IndexedEventData {
-    ProoflessShield(ProoflessShieldEvent),
-    Unknown,
-}
-
 #[derive(Clone, Debug)]
 pub struct IndexedEvent {
     pub tag: u8,
     pub payload: Vec<u8>,
-    pub data: IndexedEventData,
+    pub decoded: Result<ShieldedPoolEvent, EventDecodeError>,
 }
 
 pub fn parsed_instruction_from_compiled(
@@ -86,27 +78,18 @@ pub fn indexed_events_from_instructions<'a>(
         if instruction.program_id == shielded_pool_program_id
             && instruction.data.first() == Some(&tag::EMIT_EVENT)
         {
-            events.push(indexed_event_from_instruction_data(&instruction.data));
+            events.push(parse_indexed_event(&instruction.data));
         }
     }
     Ok(events)
 }
 
-pub fn indexed_event_from_instruction_data(data: &[u8]) -> IndexedEvent {
+fn parse_indexed_event(data: &[u8]) -> IndexedEvent {
     let payload = data.get(1..).unwrap_or_default().to_vec();
-    let data = decode_event_instruction(data)
-        .map(indexed_event_data)
-        .unwrap_or(IndexedEventData::Unknown);
     IndexedEvent {
         tag: tag::EMIT_EVENT,
         payload,
-        data,
-    }
-}
-
-fn indexed_event_data(event: ShieldedPoolEvent) -> IndexedEventData {
-    match event {
-        ShieldedPoolEvent::ProoflessShield(event) => IndexedEventData::ProoflessShield(event),
+        decoded: decode_event_instruction(data),
     }
 }
 
@@ -115,13 +98,13 @@ pub fn index_events(
     events: &[IndexedEvent],
 ) -> Result<(), ProgramTestError> {
     for event in events {
-        match &event.data {
-            IndexedEventData::ProoflessShield(event) => {
+        match &event.decoded {
+            Ok(ShieldedPoolEvent::ProoflessShield(event)) => {
                 indexer.record_proofless_shield(event)?;
             }
-            IndexedEventData::Unknown => {
+            Err(err) => {
                 return Err(ProgramTestError::Event(format!(
-                    "unknown shielded-pool event tag={} payload_len={}",
+                    "invalid shielded-pool event tag={} payload_len={} error={err:?}",
                     event.tag,
                     event.payload.len()
                 )));
@@ -134,10 +117,10 @@ pub fn index_events(
 pub fn single_proofless_shield_event(
     events: &[IndexedEvent],
 ) -> Result<ProoflessShieldEvent, ProgramTestError> {
-    let mut proofless_events = events.iter().map(|event| match &event.data {
-        IndexedEventData::ProoflessShield(event) => Ok(event),
-        IndexedEventData::Unknown => Err(ProgramTestError::Event(format!(
-            "unknown shielded-pool event tag={} payload_len={}",
+    let mut proofless_events = events.iter().map(|event| match &event.decoded {
+        Ok(ShieldedPoolEvent::ProoflessShield(event)) => Ok(event),
+        Err(err) => Err(ProgramTestError::Event(format!(
+            "invalid shielded-pool event tag={} payload_len={} error={err:?}",
             event.tag,
             event.payload.len()
         ))),
