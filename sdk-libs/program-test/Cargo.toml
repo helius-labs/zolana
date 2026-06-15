@@ -43,4 +43,4 @@ zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }
 light-instruction-decoder = { workspace = true }
-light-sparse-merkle-tree = { workspace = true }
+light-merkle-tree-reference = { workspace = true }

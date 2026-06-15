@@ -9,7 +9,7 @@
 //!   without any decryption.
 
 use light_hasher::Poseidon;
-use light_sparse_merkle_tree::SparseMerkleTree;
+use light_merkle_tree_reference::MerkleTree;
 use thiserror::Error;
 use zolana_interface::{instruction::ProoflessShieldEvent, state::STATE_HEIGHT};
 use zolana_transaction::{utxo_commitment, Address, TransactionError};
@@ -23,6 +23,8 @@ pub enum IndexerError {
         expected: [u8; 32],
         actual: [u8; 32],
     },
+    #[error("reference merkle tree: {0}")]
+    MerkleTree(String),
 }
 
 /// One deposited UTXO as an indexer sees it: the event fields plus its
@@ -41,7 +43,7 @@ pub struct UtxoRecord {
 }
 
 pub struct PoolIndexer {
-    tree: SparseMerkleTree<Poseidon, STATE_HEIGHT>,
+    tree: MerkleTree<Poseidon>,
     utxos: Vec<UtxoRecord>,
 }
 
@@ -54,7 +56,7 @@ impl Default for PoolIndexer {
 impl PoolIndexer {
     pub fn new() -> Self {
         Self {
-            tree: SparseMerkleTree::new_empty(),
+            tree: MerkleTree::new(STATE_HEIGHT, 0),
             utxos: Vec::new(),
         }
     }
@@ -74,9 +76,13 @@ impl PoolIndexer {
             });
         }
 
-        let leaf_index = self.tree.get_next_index() as u64;
+        // One leaf is appended per recorded UTXO, in order, so the next leaf
+        // lands at the current record count (matches the on-chain append order).
+        let leaf_index = self.utxos.len() as u64;
         let record_index = self.utxos.len();
-        self.tree.append(event.utxo_hash);
+        self.tree
+            .append(&event.utxo_hash)
+            .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?;
         self.utxos.push(UtxoRecord {
             utxo_hash: event.utxo_hash,
             owner_utxo_hash: event.owner_utxo_hash,
