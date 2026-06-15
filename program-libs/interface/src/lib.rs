@@ -21,8 +21,11 @@ pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
     95, 118, 48, 95, 95, 95, 95, 95, 95, 95, 95, 1,
 ];
 
-/// Seed for the shielded-pool program's own CPI authority PDA, used as the
-/// SOL vault and SPL vault authority for public settlement.
+/// Seed for the native SOL interface account used by public SOL settlement.
+pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
+
+/// Seed for the shielded-pool program's own CPI authority PDA, used as the SPL
+/// vault authority for public SPL settlement.
 pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 pub const SPP_ZONE_CONFIG_PDA_SEED: &[u8] = b"spp_zone_config";
 /// Seed for the shielded-pool protocol-config PDA. The config is the singleton

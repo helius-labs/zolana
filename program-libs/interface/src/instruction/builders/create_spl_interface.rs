@@ -10,7 +10,6 @@ pub struct CreateSplInterfaceAccounts {
     pub registry: Pubkey,
     pub mint: Pubkey,
     pub vault: Pubkey,
-    pub cpi_authority: Pubkey,
     pub system_program: Pubkey,
     pub token_program: Pubkey,
 }
@@ -25,7 +24,6 @@ pub fn create_spl_interface(accounts: CreateSplInterfaceAccounts) -> Instruction
             AccountMeta::new(accounts.registry, false),
             AccountMeta::new_readonly(accounts.mint, false),
             AccountMeta::new(accounts.vault, false),
-            AccountMeta::new_readonly(accounts.cpi_authority, false),
             AccountMeta::new_readonly(accounts.system_program, false),
             AccountMeta::new_readonly(accounts.token_program, false),
         ],

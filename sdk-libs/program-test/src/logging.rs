@@ -237,7 +237,6 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                     "registry",
                     "mint",
                     "vault",
-                    "cpi_authority",
                     "system_program",
                     "token_program",
                 ],
@@ -302,7 +301,7 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                             "depositor",
                             "zone_auth",
                             "system_program",
-                            "cpi_authority",
+                            "sol_interface",
                             "sol_source",
                             "self_program",
                         ],
@@ -382,7 +381,6 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
         &[
             "tree",
             "depositor",
-            "cpi_authority",
             "user_token",
             "vault",
             "asset_registry",
@@ -395,7 +393,7 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
             "depositor",
             "cpi_signer",
             "system_program",
-            "cpi_authority",
+            "sol_interface",
             "sol_source",
             "self_program",
         ]
@@ -404,7 +402,7 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
             "tree",
             "depositor",
             "system_program",
-            "cpi_authority",
+            "sol_interface",
             "sol_source",
             "self_program",
         ]

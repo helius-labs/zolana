@@ -9,11 +9,11 @@ use zolana_interface::{
         TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
         PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
     },
-    SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
-    SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
-    SPL_ASSET_REGISTRY_MINT_OFFSET, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED,
-    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID,
-    SPL_TOKEN_TRANSFER_DISCRIMINATOR,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SOL_INTERFACE_PDA_SEED,
+    SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_MAGIC_END,
+    SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END, SPL_ASSET_REGISTRY_MINT_OFFSET,
+    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN,
+    SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_TRANSFER_DISCRIMINATOR,
 };
 
 use crate::{error::ShieldedPoolError, log::log};
@@ -24,8 +24,10 @@ pub struct SettlementAccounts<'a> {
     pub signer: &'a AccountView,
     pub solana_owner_pubkeys: Vec<[u8; 32]>,
     pub system_program: Option<&'a AccountView>,
-    pub cpi_authority: Option<&'a AccountView>,
-    pub cpi_authority_bump: Option<u8>,
+    pub sol_interface: Option<&'a AccountView>,
+    pub sol_interface_bump: Option<u8>,
+    pub spl_vault_authority: Option<&'a AccountView>,
+    pub spl_vault_authority_bump: Option<u8>,
     pub user_sol_account: Option<&'a AccountView>,
     pub user_spl_token_account: Option<&'a AccountView>,
     pub spl_token_interface: Option<&'a AccountView>,
@@ -39,8 +41,10 @@ impl<'a> SettlementAccounts<'a> {
             signer,
             solana_owner_pubkeys: Vec::new(),
             system_program: None,
-            cpi_authority: None,
-            cpi_authority_bump: None,
+            sol_interface: None,
+            sol_interface_bump: None,
+            spl_vault_authority: None,
+            spl_vault_authority_bump: None,
             user_sol_account: None,
             user_spl_token_account: None,
             spl_token_interface: None,
@@ -180,13 +184,13 @@ fn settle_public_sol(
     amount: u64,
 ) -> ProgramResult {
     let system_program = required(accounts.system_program)?;
-    let cpi_authority = required(accounts.cpi_authority)?;
+    let sol_interface = required(accounts.sol_interface)?;
     let user_sol_account = required(accounts.user_sol_account)?;
 
     if *system_program.address() != SYSTEM_PROGRAM_ID
-        || !cpi_authority.is_writable()
+        || !sol_interface.is_writable()
         || !user_sol_account.is_writable()
-        || !cpi_authority.owned_by(&SYSTEM_PROGRAM_ID)
+        || !sol_interface.owned_by(&SYSTEM_PROGRAM_ID)
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
@@ -197,19 +201,16 @@ fn settle_public_sol(
     let result = if is_deposit(public_amount_mode) {
         pinocchio_system::instructions::Transfer {
             from: user_sol_account,
-            to: cpi_authority,
+            to: sol_interface,
             lamports: amount,
         }
         .invoke()
     } else if is_withdraw(public_amount_mode) {
-        let bump = [required(accounts.cpi_authority_bump)?];
-        let seeds = [
-            Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-            Seed::from(&bump),
-        ];
+        let bump = [required(accounts.sol_interface_bump)?];
+        let seeds = [Seed::from(SOL_INTERFACE_PDA_SEED), Seed::from(&bump)];
         let signer = Signer::from(&seeds);
         pinocchio_system::instructions::Transfer {
-            from: cpi_authority,
+            from: sol_interface,
             to: user_sol_account,
             lamports: amount,
         }
@@ -228,24 +229,21 @@ fn settle_public_sol(
 
 fn settle_relayer_fee(accounts: &SettlementAccounts<'_>, relayer_fee: u64) -> ProgramResult {
     let system_program = required(accounts.system_program)?;
-    let cpi_authority = required(accounts.cpi_authority)?;
+    let sol_interface = required(accounts.sol_interface)?;
 
     if *system_program.address() != SYSTEM_PROGRAM_ID
-        || !cpi_authority.is_writable()
+        || !sol_interface.is_writable()
         || !accounts.signer.is_writable()
-        || !cpi_authority.owned_by(&SYSTEM_PROGRAM_ID)
+        || !sol_interface.owned_by(&SYSTEM_PROGRAM_ID)
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let bump = [required(accounts.cpi_authority_bump)?];
-    let seeds = [
-        Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-        Seed::from(&bump),
-    ];
+    let bump = [required(accounts.sol_interface_bump)?];
+    let seeds = [Seed::from(SOL_INTERFACE_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
     pinocchio_system::instructions::Transfer {
-        from: cpi_authority,
+        from: sol_interface,
         to: accounts.signer,
         lamports: relayer_fee,
     }
@@ -262,7 +260,6 @@ fn settle_spl(
     public_amount_mode: u8,
     amount: u64,
 ) -> ProgramResult {
-    let cpi_authority = required(accounts.cpi_authority)?;
     let user_token = required(accounts.user_spl_token_account)?;
     let vault = required(accounts.spl_token_interface)?;
     let registry = required(accounts.spl_asset_registry)?;
@@ -279,11 +276,12 @@ fn settle_spl(
     let user_token_state = read_token_account(user_token, token_program.address())?;
     let vault_state = read_token_account(vault, token_program.address())?;
     let registry_state = read_asset_registry(registry)?;
+    let spl_vault_authority_address = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
 
     if !registry.owned_by(program_id)
         || registry_state.mint != user_token_state.mint
         || registry_state.mint != vault_state.mint
-        || vault_state.owner != *cpi_authority.address()
+        || vault_state.owner != spl_vault_authority_address
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
@@ -313,7 +311,11 @@ fn settle_spl(
             &[],
         )
     } else if is_withdraw(public_amount_mode) {
-        let bump = [required(accounts.cpi_authority_bump)?];
+        let spl_vault_authority = required(accounts.spl_vault_authority)?;
+        if *spl_vault_authority.address() != spl_vault_authority_address {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+        }
+        let bump = [required(accounts.spl_vault_authority_bump)?];
         let seeds = [
             Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
             Seed::from(&bump),
@@ -323,7 +325,7 @@ fn settle_spl(
             token_program,
             vault,
             user_token,
-            cpi_authority,
+            spl_vault_authority,
             amount,
             core::slice::from_ref(&signer),
         )

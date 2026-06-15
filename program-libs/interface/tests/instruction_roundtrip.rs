@@ -8,9 +8,8 @@ use zolana_interface::{
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-        CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData,
-        ProoflessShieldIxData, TransactInput, TransactIxData, UpdateProtocolConfigData,
-        UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+        CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactInput,
+        TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
         PUBLIC_AMOUNT_DEPOSIT_SPL,
     },
 };
@@ -19,8 +18,8 @@ use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
     create_spl_interface, create_zone_config, proofless_shield, zone_proofless_shield_cpi,
-    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldSplAccounts,
-    ZoneProoflessShieldIxData,
+    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldIxData,
+    ProoflessShieldSplAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
@@ -289,14 +288,13 @@ fn create_spl_interface_builder_account_layout() {
         registry: Pubkey::new_unique(),
         mint: Pubkey::new_unique(),
         vault: Pubkey::new_unique(),
-        cpi_authority: Pubkey::new_unique(),
         system_program: Pubkey::default(),
         token_program: Pubkey::new_unique(),
     };
 
     let ix = create_spl_interface(accounts);
 
-    assert_eq!(ix.accounts.len(), 9);
+    assert_eq!(ix.accounts.len(), 8);
     assert!(ix.accounts[0].is_signer);
     assert!(ix.accounts[0].is_writable);
     assert!(ix.accounts[2].is_writable);
@@ -305,7 +303,6 @@ fn create_spl_interface_builder_account_layout() {
     assert!(ix.accounts[5].is_writable);
     assert!(!ix.accounts[6].is_writable);
     assert!(!ix.accounts[7].is_writable);
-    assert!(!ix.accounts[8].is_writable);
 }
 
 #[test]
@@ -352,6 +349,11 @@ fn proofless_shield_account_layouts() {
     assert_eq!(sol_accounts[1].pubkey, depositor);
     assert!(sol_accounts[1].is_signer);
     assert!(sol_accounts[1].is_writable);
+    assert_eq!(sol_accounts[2].pubkey, Pubkey::default());
+    assert!(!sol_accounts[2].is_writable);
+    assert!(sol_accounts[3].is_writable);
+    assert_eq!(sol_accounts[4].pubkey, depositor);
+    assert!(sol_accounts[4].is_writable);
 
     let data = ProoflessShieldIxData {
         view_tag: [1u8; 32],
@@ -378,16 +380,21 @@ fn proofless_shield_account_layouts() {
         ix.program_id,
         Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
     );
-    assert_eq!(ix.accounts.len(), 8);
+    assert_eq!(ix.accounts.len(), 7);
     assert_eq!(ix.accounts[0].pubkey, tree);
     assert!(ix.accounts[0].is_writable);
     assert_eq!(ix.accounts[1].pubkey, depositor);
     assert!(ix.accounts[1].is_signer);
     assert!(ix.accounts[1].is_writable);
-    assert!(ix.accounts[4].is_writable);
+    assert_eq!(ix.accounts[2].pubkey, spl_accounts.user_token);
+    assert!(ix.accounts[2].is_writable);
+    assert_eq!(ix.accounts[3].pubkey, spl_accounts.vault);
+    assert!(ix.accounts[3].is_writable);
+    assert_eq!(ix.accounts[4].pubkey, spl_accounts.registry);
+    assert!(!ix.accounts[4].is_writable);
+    assert_eq!(ix.accounts[5].pubkey, spl_accounts.token_program);
     assert!(!ix.accounts[5].is_writable);
     assert!(!ix.accounts[6].is_writable);
-    assert!(!ix.accounts[7].is_writable);
 }
 
 #[test]
@@ -404,7 +411,7 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
             view_tag: [1u8; 32],
             owner_utxo_hash: [2u8; 32],
             salt: [3u8; 16],
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(10),
             cpi_signer: CpiSignerData {
                 program_id: Pubkey::new_unique().to_bytes(),

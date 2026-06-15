@@ -21,7 +21,7 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("airdrop");
 
-    let vault = world.rpc().cpi_authority();
+    let vault = world.rpc().sol_interface();
     let vault_before_lamports = world
         .rpc()
         .svm

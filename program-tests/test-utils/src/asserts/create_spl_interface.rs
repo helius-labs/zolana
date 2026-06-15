@@ -21,7 +21,7 @@ fn read_le_u64(data: &[u8], offset: usize) -> u64 {
 /// `create_spl_interface` against the integration-test expectations: the
 /// registry carries the magic, the mint, and `expected_asset_id`; the counter
 /// now points at `expected_next_asset_id`; and the vault is an empty token
-/// account for the mint owned by the pool CPI authority.
+/// account for the mint owned by the SPL vault authority.
 #[track_caller]
 pub fn assert_create_spl_interface(
     program_test: &ZolanaProgramTest,
@@ -67,8 +67,8 @@ pub fn assert_create_spl_interface(
     );
     assert_eq!(
         &vault_data[TOKEN_ACCOUNT_OWNER_OFFSET..TOKEN_ACCOUNT_OWNER_END],
-        program_test.cpi_authority().as_ref(),
-        "vault owner is the cpi authority"
+        program_test.spl_vault_authority().as_ref(),
+        "vault owner is the SPL vault authority"
     );
     assert_eq!(program_test.token_balance(vault), Some(0), "vault balance");
 }

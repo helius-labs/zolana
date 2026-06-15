@@ -1,5 +1,5 @@
 use pinocchio::{
-    cpi::{invoke_signed, Seed, Signer},
+    cpi::{invoke, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
@@ -26,8 +26,11 @@ pub fn process_create_spl_interface(
     program_id: &Address,
     accounts: &mut [AccountView],
 ) -> ProgramResult {
-    if accounts.len() < 9 {
+    if accounts.len() < 8 {
         return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if accounts.len() != 8 {
+        return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
 
     let (head, tail) = accounts.split_at_mut(2);
@@ -41,8 +44,6 @@ pub fn process_create_spl_interface(
     let mint = &mint_slice[0];
     let (vault_slice, tail) = tail.split_at_mut(1);
     let vault = &mut vault_slice[0];
-    let (cpi_authority_slice, tail) = tail.split_at_mut(1);
-    let cpi_authority = &cpi_authority_slice[0];
     let (system_program_slice, tail) = tail.split_at_mut(1);
     let system_program = &system_program_slice[0];
     let token_program = &tail[0];
@@ -53,7 +54,6 @@ pub fn process_create_spl_interface(
         || !vault.is_writable()
         || *system_program.address() != SYSTEM_PROGRAM_ID
         || *token_program.address() != Address::from(SPL_TOKEN_PROGRAM_ID)
-        || *cpi_authority.address() != Address::from(SHIELDED_POOL_CPI_AUTHORITY)
     {
         return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
     }
@@ -109,7 +109,7 @@ pub fn process_create_spl_interface(
         &[SPL_ASSET_VAULT_PDA_SEED, mint.address().as_ref()],
         vault_bump,
     )?;
-    initialize_token_vault(token_program, vault, mint, cpi_authority)?;
+    initialize_token_vault(token_program, vault, mint)?;
 
     Ok(())
 }
@@ -229,7 +229,6 @@ fn initialize_token_vault(
     token_program: &AccountView,
     vault: &AccountView,
     mint: &AccountView,
-    cpi_authority: &AccountView,
 ) -> ProgramResult {
     let instruction_accounts = [
         InstructionAccount::writable(vault.address()),
@@ -237,13 +236,13 @@ fn initialize_token_vault(
     ];
     let mut instruction_data = [0u8; 33];
     instruction_data[0] = SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR;
-    instruction_data[1..33].copy_from_slice(cpi_authority.address().as_ref());
+    instruction_data[1..33].copy_from_slice(&SHIELDED_POOL_CPI_AUTHORITY);
     let instruction = InstructionView {
         program_id: token_program.address(),
         accounts: &instruction_accounts,
         data: &instruction_data,
     };
-    invoke_signed(&instruction, &[vault, mint], &[]).map_err(|_| {
+    invoke(&instruction, &[vault, mint]).map_err(|_| {
         log("create_spl_interface: SPL vault initialization failed");
         ProgramError::from(ShieldedPoolError::InvalidSplAssetRegistry)
     })

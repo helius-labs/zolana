@@ -1,9 +1,10 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
+use super::sol_interface_pda;
 use crate::{
     instruction::{tag, ZoneProoflessShieldIxData},
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
 pub fn zone_proofless_shield(
@@ -46,6 +47,7 @@ fn build_zone_proofless_shield(
             .serialize()
             .expect("zone proofless ix data serialization is infallible"),
     );
+    let sol_interface = sol_interface_pda();
 
     Instruction {
         program_id,
@@ -54,7 +56,7 @@ fn build_zone_proofless_shield(
             AccountMeta::new(depositor, true),
             AccountMeta::new_readonly(zone_auth, zone_auth_signer),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY), false),
+            AccountMeta::new(sol_interface, false),
             AccountMeta::new(depositor, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ],

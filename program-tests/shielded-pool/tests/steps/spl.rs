@@ -201,13 +201,13 @@ fn spl_shield_non_canonical_vault(world: &mut ShieldedPoolWorld) {
     let mint = world.mint();
     let user_token = world.user_token();
     let depositor = world.depositor().insecure_clone();
-    let cpi_authority = world.rpc().cpi_authority();
+    let spl_vault_authority = world.rpc().spl_vault_authority();
     let decoy_vault = world
         .rpc()
-        .create_token_account(&mint, &cpi_authority)
+        .create_token_account(&mint, &spl_vault_authority)
         .expect("decoy vault");
     let mut accounts = spl_accounts(world.rpc(), &tree, &depositor.pubkey(), &user_token, &mint);
-    accounts[4] = AccountMeta::new(decoy_vault, false);
+    accounts[3] = AccountMeta::new(decoy_vault, false);
     let err = world
         .rpc()
         .proofless_shield_with_accounts(

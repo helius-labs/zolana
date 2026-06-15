@@ -1,17 +1,20 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
+use super::sol_interface_pda;
 use crate::{
     instruction::{tag, ProoflessShieldIxData},
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProoflessShieldAccounts {
     pub tree: Pubkey,
     pub depositor: Pubkey,
     pub spl: Option<ProoflessShieldSplAccounts>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProoflessShieldSplAccounts {
     pub user_token: Pubkey,
     pub vault: Pubkey,
@@ -37,14 +40,12 @@ impl ProoflessShieldAccounts {
     }
 
     pub fn account_metas(self) -> Vec<AccountMeta> {
-        let cpi_authority = Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
         let mut accounts = vec![
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
         ];
         match self.spl {
             Some(spl) => accounts.extend([
-                AccountMeta::new_readonly(cpi_authority, false),
                 AccountMeta::new(spl.user_token, false),
                 AccountMeta::new(spl.vault, false),
                 AccountMeta::new_readonly(spl.registry, false),
@@ -52,7 +53,7 @@ impl ProoflessShieldAccounts {
             ]),
             None => accounts.extend([
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new(cpi_authority, false),
+                AccountMeta::new(sol_interface_pda(), false),
                 AccountMeta::new(self.depositor, false),
             ]),
         }

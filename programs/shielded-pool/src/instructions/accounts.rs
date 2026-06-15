@@ -1,7 +1,7 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
-    instruction::{InputUtxoSignerIndex, TransactIxData},
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
+    instruction::{InputUtxoSignerIndex, TransactIxData, PUBLIC_AMOUNT_WITHDRAW_SPL},
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP, SOL_INTERFACE_PDA_SEED,
 };
 
 use crate::{
@@ -65,7 +65,7 @@ pub(crate) fn load_transact_accounts<'a>(
             return Err(ProgramError::NotEnoughAccountKeys);
         }
         settlement.system_program = Some(&settlement_slice[cursor]);
-        settlement.cpi_authority = Some(&settlement_slice[cursor + 1]);
+        settlement.sol_interface = Some(&settlement_slice[cursor + 1]);
         cursor += 2;
     }
 
@@ -78,11 +78,13 @@ pub(crate) fn load_transact_accounts<'a>(
     }
 
     if settlement_requirements.has_public_spl() {
-        if settlement.cpi_authority.is_none() {
+        if settlement.spl_vault_authority.is_none()
+            && data.public_amount_mode == PUBLIC_AMOUNT_WITHDRAW_SPL
+        {
             if settlement_slice.len() <= cursor {
                 return Err(ProgramError::NotEnoughAccountKeys);
             }
-            settlement.cpi_authority = Some(&settlement_slice[cursor]);
+            settlement.spl_vault_authority = Some(&settlement_slice[cursor]);
             cursor += 1;
         }
         if settlement_slice.len() < cursor + 4 {
@@ -99,12 +101,22 @@ pub(crate) fn load_transact_accounts<'a>(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    if let Some(cpi_authority) = settlement.cpi_authority {
-        let expected = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
-        if *cpi_authority.address() != expected {
+    if let Some(sol_interface) = settlement.sol_interface {
+        let (expected, bump) =
+            Address::derive_program_address(&[SOL_INTERFACE_PDA_SEED], program_id)
+                .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        if *sol_interface.address() != expected {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
-        settlement.cpi_authority_bump = Some(SHIELDED_POOL_CPI_AUTHORITY_BUMP);
+        settlement.sol_interface_bump = Some(bump);
+    }
+
+    if let Some(spl_vault_authority) = settlement.spl_vault_authority {
+        let expected = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
+        if *spl_vault_authority.address() != expected {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+        }
+        settlement.spl_vault_authority_bump = Some(SHIELDED_POOL_CPI_AUTHORITY_BUMP);
     }
 
     Ok(TransactAccounts { tree, settlement })

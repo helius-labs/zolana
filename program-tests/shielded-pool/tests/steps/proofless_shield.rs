@@ -24,7 +24,7 @@ fn sol_accounts(
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
     let mut accounts = ProoflessShieldAccounts::sol(*tree, *depositor).account_metas();
-    accounts[3] = AccountMeta::new(program_test.cpi_authority(), false);
+    accounts[3] = AccountMeta::new(program_test.sol_interface(), false);
     accounts[5] = AccountMeta::new_readonly(program_test.program_id, false);
     accounts
 }

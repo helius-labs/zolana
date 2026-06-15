@@ -130,7 +130,6 @@ impl ZolanaProgramTest {
             registry,
             mint: *mint,
             vault,
-            cpi_authority: self.cpi_authority(),
             system_program: Pubkey::default(),
             token_program: Self::token_program_id(),
         });

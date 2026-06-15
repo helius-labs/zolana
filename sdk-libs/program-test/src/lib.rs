@@ -27,6 +27,7 @@ use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_interface::{
     state::state_root_offset, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
+    SOL_INTERFACE_PDA_SEED,
 };
 
 mod admin;
@@ -136,8 +137,11 @@ impl ZolanaProgramTest {
         &self.indexer
     }
 
-    /// The shielded-pool CPI authority PDA, also the pool's SOL vault.
-    pub fn cpi_authority(&self) -> Pubkey {
+    pub fn sol_interface(&self) -> Pubkey {
+        Pubkey::find_program_address(&[SOL_INTERFACE_PDA_SEED], &self.program_id).0
+    }
+
+    pub fn spl_vault_authority(&self) -> Pubkey {
         Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)
     }
 
