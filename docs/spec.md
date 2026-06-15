@@ -1264,6 +1264,58 @@ struct ProoflessShieldEvent {
 `program_data_hash`, `program_data`, and `zone_program_id` are set for program-owned deposits (`cpi_signer` present), else `None`/`0`. `policy_data_hash` and `zone_data` are set only by [`zone_proofless_shield`](#zone_proofless_shield). As in [`merge_zone`](#merge_zone), `program_data` is constrained by the invoking program, not by SPP; SPP copies the hash and preimage from instruction data into the event unchecked.
 
 
+### General Event
+
+The canonical event emitted via [`emit_event`](#instructions) self-CPI by
+state-changing instructions. It lets an indexer reconstruct nullifier insertions
+and UTXO appends without parsing instruction data, since output hashes and leaf
+indices are not present there.
+
+```rust
+struct GeneralEvent {
+    inputs: Vec<Input>,
+    outputs: Vec<Output>,
+    /// Leaf index of `outputs[0]`; later outputs append sequentially.
+    first_output_leaf_index: u64,
+    output_tree: Pubkey,
+    relay_fee: Option<u64>,
+    /// `Some` for shield/unshield, `None` for shielded transfer.
+    compression: Option<Compression>,
+}
+
+/// One spent input. Inputs may originate from different trees.
+struct Input {
+    tree: Pubkey,
+    input_queue_seq: u64,
+    nullifier: [u8; 32],
+}
+
+struct Output {
+    /// Fetch tag; the owner pubkey for proofless shield.
+    tag: [u8; 32],
+    hash: [u8; 32],
+    /// Serialized `Data`. Proofless shield: SPP serializes `Data::Proofless`;
+    /// otherwise the client serializes.
+    data: Vec<u8>,
+}
+
+/// Output payload. SPP treats it as opaque bytes except for proofless shield.
+enum Data {
+    Unknown(Vec<u8>),
+    Proofless(Utxo),
+    Transfer(EncryptedTransfer),
+    PublicTransfer(PublicTransfer),
+}
+
+/// Public token movement accompanying the transaction.
+struct Compression {
+    is_compress: bool,
+    amount: u64,
+    /// `None` = native SOL, `Some` = SPL mint.
+    asset: Option<Address>,
+}
+```
+
 ### `zone_proofless_shield`
 
 **Discriminator:** 15
