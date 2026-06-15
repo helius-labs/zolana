@@ -1,12 +1,8 @@
 pub const STATE_HEIGHT: usize = 26;
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
 
-// Light Protocol production batched-address-tree parameters (mirror
-// `InitAddressTreeAccountsInstructionData::default()` in light-batched-merkle-tree:
-// ADDRESS_BLOOM_FILTER_NUM_HASHES, DEFAULT_ADDRESS_BATCH_SIZE,
-// DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
-// DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, ADDRESS_BLOOM_FILTER_CAPACITY). Toy
-// values here make Light's tree init panic while sizing the bloom filters.
+// Production batched-address-tree parameters. Toy values make the underlying
+// tree init panic while sizing bloom filters.
 pub const ADDRESS_TREE_BLOOM_FILTER_NUM_ITERS: u64 = 10;
 pub const ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 30_000;
 pub const ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 250;

@@ -1,12 +1,4 @@
-//! Cucumber/Gherkin BDD suite for the shielded-pool litesvm program tests.
-//!
-//! Mirrors the SDK BDD harness (`sdk-libs/transaction/tests/bdd.rs`): a single
-//! `World` carries the booted program-test environment and the per-scenario
-//! fixtures, step definitions live under `tests/steps`, and the features live
-//! under `tests/features`.
-//!
-//! Requires `cargo build-sbf -p shielded-pool-program` (and, for the zone
-//! scenarios, `-p zone-test-program`) to have produced the `.so` binaries.
+//! Shielded-pool BDD tests over the LiteSVM program-test harness.
 
 mod common;
 mod steps;

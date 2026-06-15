@@ -14,8 +14,8 @@ Feature: Zone config admin
     When the old owner tries to update the zone config
     Then the new owner can update the zone config
 
-  Scenario: Creating a zone config rejects a fake zone authority
+  Scenario: Creating a zone config rejects an invalid zone authority
     Given a booted shielded pool
     And a funded payer
-    When a payer tries to create a zone config with a fake zone authority
+    When a payer tries to create a zone config with an invalid zone authority
     Then the operation is rejected as an invalid zone config

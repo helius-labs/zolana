@@ -184,12 +184,7 @@ impl SyncCtx<'_> {
         Ok(())
     }
 
-    /// Discover a proofless deposit under `key`. The blinding is derived from
-    /// the recipient viewing key, so each key in the wallet's history must be
-    /// tried — a deposit made to a rotated-away key still belongs to this
-    /// wallet. The public `owner_utxo_hash`/`utxo_hash` are recomputed and must
-    /// match, then the UTXO is stored through the same dedup path as transfer
-    /// outputs so the spent pass covers it too.
+    /// Try one historical viewing key against a public proofless deposit.
     fn discover_proofless(
         &mut self,
         key: &ViewingKey,
@@ -365,10 +360,7 @@ impl Wallet {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
-        // Proofless deposits are public, so there is no ciphertext to decrypt;
-        // each carries the recipient bootstrap view tag (see `wallet_shield`),
-        // exactly the tag the loop below already scans. Index them by that tag
-        // so discovery rides the same per-viewing-key path as transfer outputs.
+        // Use the same view-tag scan path for public deposits and encrypted outputs.
         let mut proofless_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         for (p, event) in proofless_deposits.iter().enumerate() {
             proofless_sites.entry(event.view_tag).or_default().push(p);

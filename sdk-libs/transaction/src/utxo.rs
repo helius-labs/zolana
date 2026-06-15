@@ -70,11 +70,7 @@ pub fn zone_program_id_field(
     }
 }
 
-/// Owner commitment (spec: `owner_utxo_hash`) — `Poseidon(owner_hash, blinding)`.
-/// Hides the owner. Transaction outputs and proofless deposits commit this from
-/// a recipient `owner_hash` alone (the committer does not know the recipient's
-/// keys); a `Utxo` you own derives `owner_hash` from its keys — see
-/// [`Utxo::owner_utxo_hash`].
+/// Owner commitment carried by transaction outputs and proofless deposits.
 pub fn owner_utxo_hash(
     owner_hash: &[u8; 32],
     blinding: &Blinding,
@@ -83,8 +79,7 @@ pub fn owner_utxo_hash(
     poseidon(&[owner_hash, &blinding])
 }
 
-/// Full UTXO commitment (the tree leaf) — binds asset, amount, zone, and the
-/// program/zone data hashes to an [`owner_utxo_hash`].
+/// Full UTXO commitment used as the state-tree leaf.
 pub fn utxo_hash(
     asset: Address,
     amount: u64,
@@ -110,14 +105,13 @@ pub fn utxo_hash(
 }
 
 impl Utxo {
-    /// This UTXO's owner commitment (spec: `owner_utxo_hash`), derived from its
-    /// owner keys.
+    /// Owner commitment derived from this wallet's keys.
     pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
         owner_utxo_hash(&owner_hash, &self.blinding)
     }
 
-    /// This UTXO's hash — the tree-leaf commitment (spec: UTXO Hash).
+    /// State-tree leaf commitment for this UTXO.
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],

@@ -166,8 +166,8 @@ fn new_owner_updates(world: &mut ShieldedPoolWorld) {
         .expect("new owner can update");
 }
 
-#[when(expr = "a payer tries to create a zone config with a fake zone authority")]
-fn create_zone_config_fake_auth(world: &mut ShieldedPoolWorld) {
+#[when(expr = "a payer tries to create a zone config with an invalid zone authority")]
+fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
     let payer = world.depositor().insecure_clone();
     let program_id = world.rpc().program_id;
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);

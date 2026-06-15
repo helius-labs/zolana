@@ -34,7 +34,7 @@ pub struct IndexedUtxo {
 /// Recipient-facing output data.
 #[derive(Clone, Debug)]
 pub enum IndexedPayload {
-    Plaintext(ProoflessOutput),
+    Proofless(ProoflessOutput),
     Encrypted(Vec<u8>),
 }
 
@@ -52,7 +52,7 @@ pub struct ProoflessOutput {
 impl IndexedUtxo {
     pub fn proofless(&self) -> Option<&ProoflessOutput> {
         match &self.payload {
-            IndexedPayload::Plaintext(fields) => Some(fields),
+            IndexedPayload::Proofless(fields) => Some(fields),
             IndexedPayload::Encrypted(_) => None,
         }
     }
@@ -98,7 +98,7 @@ impl TestIndexer {
             view_tag: event.view_tag,
             leaf_index,
             utxo_hash: event.utxo_hash,
-            payload: IndexedPayload::Plaintext(ProoflessOutput {
+            payload: IndexedPayload::Proofless(ProoflessOutput {
                 owner_utxo_hash: event.owner_utxo_hash,
                 asset: event.asset,
                 amount: event.amount,
@@ -131,7 +131,7 @@ impl TestIndexer {
     }
 }
 
-/// Recompute the UTXO commitment from event fields, mirroring the program.
+/// Recompute the UTXO commitment through the shared transaction helper.
 fn proofless_utxo_hash(event: &ProoflessShieldEvent) -> Result<[u8; 32], TransactionError> {
     let policy_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
     let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);

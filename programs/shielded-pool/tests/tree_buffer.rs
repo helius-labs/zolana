@@ -1,6 +1,4 @@
-//! Buffer-level coverage of the combined-account pool-tree init, state-append,
-//! and address-tree queue paths against an in-memory account buffer — no
-//! Solana runtime needed.
+//! Buffer-level coverage for the combined pool-tree account.
 
 use light_batched_merkle_tree::merkle_tree::{
     get_merkle_tree_account_size, BatchedMerkleTreeAccount,
