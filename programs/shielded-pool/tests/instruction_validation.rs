@@ -1,5 +1,5 @@
 use shielded_pool_program::process_instruction;
-use zolana_interface::instruction::{encode_instruction, tag, CreateTreeData};
+use zolana_interface::instruction::tag;
 
 fn program_id() -> pinocchio::Address {
     pinocchio::Address::new_from_array([0u8; 32])
@@ -7,7 +7,7 @@ fn program_id() -> pinocchio::Address {
 
 #[test]
 fn rejects_create_tree_without_accounts() {
-    let data = encode_instruction(tag::CREATE_TREE, &CreateTreeData);
+    let data = vec![tag::CREATE_TREE];
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 
@@ -25,6 +25,6 @@ fn rejects_unknown_instruction_tag() {
 
 #[test]
 fn encodes_first_byte_tags() {
-    let data = encode_instruction(tag::CREATE_TREE, &CreateTreeData);
+    let data = [tag::CREATE_TREE];
     assert_eq!(data[0], tag::CREATE_TREE);
 }

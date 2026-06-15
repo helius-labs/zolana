@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateSplInterfaceData},
+    instruction::tag,
     SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
     SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
@@ -136,7 +136,7 @@ impl ZolanaProgramTest {
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new_readonly(Self::token_program_id(), false),
             ],
-            data: encode_instruction(tag::CREATE_SPL_INTERFACE, &CreateSplInterfaceData),
+            data: vec![tag::CREATE_SPL_INTERFACE],
         };
         self.send(&[ix], &[authority])?;
         Ok((registry, vault))

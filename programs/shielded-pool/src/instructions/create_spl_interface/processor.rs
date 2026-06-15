@@ -5,7 +5,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
-    instruction::CreateSplInterfaceData, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_CPI_AUTHORITY,
     SPL_ASSET_COUNTER_ACCOUNT_LEN, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN,
     SPL_ASSET_REGISTRY_ASSET_ID_END, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC,
     SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
@@ -25,7 +25,6 @@ const FIRST_SPL_ASSET_ID: u64 = 2;
 pub fn process_create_spl_interface(
     program_id: &Address,
     accounts: &mut [AccountView],
-    _data: CreateSplInterfaceData,
 ) -> ProgramResult {
     if accounts.len() < 9 {
         return Err(ProgramError::NotEnoughAccountKeys);

@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CreateProtocolConfigData, CreateTreeData, ProoflessShieldIxData,
+        encode_instruction, tag, CreateProtocolConfigData, ProoflessShieldIxData,
         ZoneProoflessShieldIxData,
     },
     state::state_root_offset,
@@ -78,7 +78,7 @@ pub fn create_tree_instructions<R: Rpc>(
                 AccountMeta::new_readonly(protocol_config_pda(&program_id), false),
                 AccountMeta::new(*tree, false),
             ],
-            data: encode_instruction(tag::CREATE_TREE, &CreateTreeData),
+            data: vec![tag::CREATE_TREE],
         },
     ])
 }

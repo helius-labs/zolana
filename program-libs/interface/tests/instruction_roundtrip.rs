@@ -1,9 +1,8 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
     encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-    CreateSplInterfaceData, CreateTreeData, CreateZoneConfigData, InputUtxoSignerIndex,
-    InstructionTag, PauseTreeData, TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
+    CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactIxData,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
 };
 
 #[cfg(feature = "solana")]
@@ -14,17 +13,12 @@ use zolana_interface::instruction::{
 };
 
 #[test]
-fn create_tree_roundtrip() {
-    let payload = CreateTreeData;
-    let bytes = encode_instruction(tag::CREATE_TREE, &payload);
-    let decoded = CreateTreeData::try_from_slice(&bytes[1..]).unwrap();
-
-    assert_eq!(bytes[0], tag::CREATE_TREE);
+fn create_tree_is_tag_only() {
+    // create_tree carries no data beyond the tag byte.
     assert_eq!(
-        InstructionTag::try_from(bytes[0]),
+        InstructionTag::try_from(tag::CREATE_TREE),
         Ok(InstructionTag::CreateTree)
     );
-    assert_eq!(decoded, payload);
 }
 
 #[test]
@@ -78,17 +72,12 @@ fn transact_roundtrip() {
 }
 
 #[test]
-fn create_spl_interface_roundtrip() {
-    let payload = CreateSplInterfaceData;
-    let bytes = encode_instruction(tag::CREATE_SPL_INTERFACE, &payload);
-    let decoded = CreateSplInterfaceData::try_from_slice(&bytes[1..]).unwrap();
-
-    assert_eq!(bytes[0], tag::CREATE_SPL_INTERFACE);
+fn create_spl_interface_is_tag_only() {
+    // create_spl_interface carries no data beyond the tag byte.
     assert_eq!(
-        InstructionTag::try_from(bytes[0]),
+        InstructionTag::try_from(tag::CREATE_SPL_INTERFACE),
         Ok(InstructionTag::CreateSplInterface)
     );
-    assert_eq!(decoded, payload);
 }
 
 #[test]
@@ -124,7 +113,7 @@ fn protocol_config_roundtrips() {
 #[test]
 fn zone_config_update_roundtrips() {
     let create = CreateZoneConfigData {
-        policy_program_id: [9u8; 32],
+        program_id: [9u8; 32],
         zone_auth_bump: 255,
         authority: [4u8; 32],
         zone_authority_transact_is_enabled: true,
@@ -173,7 +162,7 @@ fn create_spl_interface_builder_account_layout() {
         token_program: Pubkey::new_unique(),
     };
 
-    let ix = create_spl_interface(accounts, CreateSplInterfaceData);
+    let ix = create_spl_interface(accounts);
 
     assert_eq!(ix.accounts.len(), 9);
     assert!(ix.accounts[0].is_signer);
@@ -198,7 +187,7 @@ fn create_zone_config_builder_account_layout() {
         config,
         zone_auth,
         CreateZoneConfigData {
-            policy_program_id: Pubkey::new_unique().to_bytes(),
+            program_id: Pubkey::new_unique().to_bytes(),
             zone_auth_bump: 255,
             authority: Pubkey::new_unique().to_bytes(),
             zone_authority_transact_is_enabled: true,

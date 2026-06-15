@@ -12,9 +12,11 @@ pub struct ParsedInstruction {
     pub data: Vec<u8>,
 }
 
+// Test-harness event holder; the large `ProoflessShield` variant is fine here.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum IndexedEventData {
-    ProoflessShield(Box<ProoflessShieldEvent>),
+    ProoflessShield(ProoflessShieldEvent),
     Unknown,
 }
 
@@ -89,7 +91,6 @@ pub fn indexed_events_from_instructions<'a>(
 
 pub fn indexed_event_from_emit_payload(payload: &[u8]) -> IndexedEvent {
     let data = <ProoflessShieldEvent as borsh::BorshDeserialize>::try_from_slice(payload)
-        .map(Box::new)
         .map(IndexedEventData::ProoflessShield)
         .unwrap_or(IndexedEventData::Unknown);
     IndexedEvent {
@@ -124,7 +125,7 @@ pub fn single_proofless_shield_event(
     events: &[IndexedEvent],
 ) -> Result<ProoflessShieldEvent, ProgramTestError> {
     let mut proofless_events = events.iter().map(|event| match &event.data {
-        IndexedEventData::ProoflessShield(event) => Ok(event.as_ref()),
+        IndexedEventData::ProoflessShield(event) => Ok(event),
         IndexedEventData::Unknown => Err(ProgramTestError::Event(format!(
             "unknown shielded-pool event tag={} payload_len={}",
             event.tag,
