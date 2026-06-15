@@ -217,12 +217,9 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
     fn decode(&self, data: &[u8], accounts: &[AccountMeta]) -> Option<DecodedInstruction> {
         let (&tag, payload) = data.split_first()?;
         match tag {
-            tag::TRANSACT => decode::<TransactIxData, _>(
-                "transact",
-                payload,
-                transact_fields,
-                &["authority", "tree"],
-            ),
+            tag::TRANSACT => TransactIxData::deserialize(payload).ok().and_then(|data| {
+                decoded_instruction("transact", transact_fields(data), &["authority", "tree"])
+            }),
             tag::PROOFLESS_SHIELD => {
                 ProoflessShieldIxData::deserialize(payload)
                     .ok()
@@ -426,7 +423,7 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
         field("relayer_fee", data.relayer_fee),
         field("public_amount_mode", data.public_amount_mode),
         field("public_amount", option_u64(data.public_amount)),
-        field("nullifiers", data.nullifiers.len()),
+        field("inputs", data.inputs.len()),
         field("output_utxo_hashes", data.output_utxo_hashes.len()),
         field("requires_p256", data.requires_p256),
     ]

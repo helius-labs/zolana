@@ -1,8 +1,8 @@
 use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
     encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-    CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactIxData,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactInput,
+    TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 
@@ -43,31 +43,42 @@ fn batch_update_nullifier_tree_roundtrip() {
 
 #[test]
 fn transact_roundtrip() {
+    // TransactIxData is wincode-encoded (not borsh); the grouped `inputs` vec is
+    // non-empty here to exercise the per-input grouping on the wire.
     let payload = TransactIxData {
         expiry_unix_ts: 123,
         sender_view_tag: [1u8; 32],
         proof: [2u8; 192],
+        private_tx_hash: [9u8; 32],
         relayer_fee: 3,
         public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
-        nullifiers: vec![[4u8; 32]],
-        output_utxo_hashes: vec![[5u8; 32], [6u8; 32]],
-        utxo_tree_root_index: vec![7],
-        nullifier_tree_root_index: vec![8],
-        private_tx_hash: [9u8; 32],
+        requires_p256: true,
         public_amount: Some(10),
         cpi_signer: None,
+        inputs: vec![
+            TransactInput {
+                nullifier: [4u8; 32],
+                utxo_tree_root_index: 7,
+                nullifier_tree_root_index: 8,
+            },
+            TransactInput {
+                nullifier: [14u8; 32],
+                utxo_tree_root_index: 17,
+                nullifier_tree_root_index: 18,
+            },
+        ],
+        output_utxo_hashes: vec![[5u8; 32], [6u8; 32]],
         in_utxo_signer_indices: Some(vec![InputUtxoSignerIndex {
             account_index: 1,
             input_index: 0,
         }]),
         encrypted_utxos: vec![12, 13],
-        requires_p256: true,
     };
-    let bytes = encode_instruction(tag::TRANSACT, &payload);
-    let decoded = TransactIxData::try_from_slice(&bytes[1..]).unwrap();
+    let bytes = payload.serialize().unwrap();
+    let decoded = TransactIxData::deserialize(&bytes).unwrap();
 
-    assert_eq!(bytes[0], tag::TRANSACT);
-    assert_eq!(InstructionTag::try_from(bytes[0]), Err(()));
+    // TRANSACT has no handler, so its tag must not map to an InstructionTag.
+    assert_eq!(InstructionTag::try_from(tag::TRANSACT), Err(()));
     assert_eq!(decoded, payload);
 }
 

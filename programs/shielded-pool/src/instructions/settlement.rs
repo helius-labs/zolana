@@ -436,18 +436,16 @@ mod tests {
             expiry_unix_ts: 0,
             sender_view_tag: [0u8; 32],
             proof: [0u8; 192],
+            private_tx_hash: [0u8; 32],
             relayer_fee,
             public_amount_mode,
-            nullifiers: Vec::new(),
-            output_utxo_hashes: Vec::new(),
-            utxo_tree_root_index: Vec::new(),
-            nullifier_tree_root_index: Vec::new(),
-            private_tx_hash: [0u8; 32],
+            requires_p256: false,
             public_amount,
             cpi_signer: None,
+            inputs: Vec::new(),
+            output_utxo_hashes: Vec::new(),
             in_utxo_signer_indices: None,
             encrypted_utxos: Vec::new(),
-            requires_p256: false,
         }
     }
 

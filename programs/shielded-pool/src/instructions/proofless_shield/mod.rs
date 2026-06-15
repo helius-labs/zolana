@@ -210,21 +210,19 @@ fn deposit_view(d: &Deposit) -> TransactIxData {
         expiry_unix_ts: 0,
         sender_view_tag: [0u8; 32],
         proof: [0u8; 192],
+        private_tx_hash: [0u8; 32],
         relayer_fee: 0,
         public_amount_mode: d.public_amount_mode,
-        nullifiers: Vec::new(),
-        output_utxo_hashes: Vec::new(),
-        utxo_tree_root_index: Vec::new(),
-        nullifier_tree_root_index: Vec::new(),
-        private_tx_hash: [0u8; 32],
+        // Proofless deposits verify no proof; the rail is irrelevant here (this
+        // view only drives settlement account loading).
+        requires_p256: false,
         public_amount: d.public_amount,
         // Drives the cpi_signer PDA check (seed per d.cpi_signer_seed) and
         // reserves account index 2 for the signer in the settlement layout.
         cpi_signer: d.cpi_signer,
+        inputs: Vec::new(),
+        output_utxo_hashes: Vec::new(),
         in_utxo_signer_indices: None,
         encrypted_utxos: Vec::new(),
-        // Proofless deposits verify no proof; the rail is irrelevant here (this
-        // view only drives settlement account loading).
-        requires_p256: false,
     }
 }
