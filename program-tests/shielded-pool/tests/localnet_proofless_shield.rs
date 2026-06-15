@@ -11,7 +11,7 @@ use zolana_interface::{
     event::ProoflessShieldEvent,
     instruction::{
         create_protocol_config, proofless_shield, tag, zone_proofless_shield,
-        CreateProtocolConfigData,
+        CreateProtocolConfigData, ProoflessShieldAccounts,
     },
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
@@ -103,7 +103,10 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         0,
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let direct_ix = proofless_shield(tree.pubkey(), depositor.pubkey(), &direct_data);
+    let direct_ix = proofless_shield(
+        ProoflessShieldAccounts::sol(tree.pubkey(), depositor.pubkey()),
+        &direct_data,
+    );
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
