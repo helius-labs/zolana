@@ -185,7 +185,7 @@ fn append_indexed_events(output: &mut String, events: &[IndexedEvent]) {
 }
 
 fn event_summary(event: &IndexedEvent) -> String {
-    match &event.event {
+    match &event.decoded {
         Ok(ShieldedPoolEvent::ProoflessShield(event)) => format!(
             "proofless_shield amount={} asset={} view_tag={} utxo_hash={}",
             event.amount,
