@@ -19,7 +19,7 @@ use zolana_program_test::{
     single_proofless_shield_event, zone_auth_pda, PoolIndexer, SolanaRpc, ZolanaProgramTest,
     ZONE_TEST_PROGRAM_ID,
 };
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
@@ -171,7 +171,13 @@ fn send_indexed(
 
 fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) -> TestResult {
     let event = zolana_program_test::proofless_event_for_wallet(event);
-    assert!(wallet.sync_proofless_deposit(&event)?);
+    wallet.sync(
+        &[],
+        std::slice::from_ref(&event),
+        &AssetRegistry::default(),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
     assert_eq!(wallet.utxos.len(), 1);
     assert_eq!(wallet.utxos[0].hash, event.utxo_hash);
     Ok(())

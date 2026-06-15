@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{ProoflessShieldEvent, ProoflessShieldIxData};
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SPL `proofless_shield` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -56,10 +56,19 @@ pub fn assert_spl_deposit(
         "indexer root must track the on-chain root"
     );
 
-    assert!(
-        recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(event))
-            .expect("wallet discovery"),
+    let before = recipient.utxos.len();
+    recipient
+        .sync(
+            &[],
+            &[proofless_event_for_wallet(event)],
+            &AssetRegistry::default(),
+            0,
+            DEFAULT_TAG_WINDOW,
+        )
+        .expect("wallet discovery");
+    assert_eq!(
+        recipient.utxos.len(),
+        before + 1,
         "recipient wallet must discover the SPL deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");

@@ -161,6 +161,16 @@ struct SyncCtx<'a> {
 }
 
 impl SyncCtx<'_> {
+    fn push(&mut self, utxo: Utxo, hash: [u8; 32], nullifier: [u8; 32]) {
+        self.utxos.push(WalletUtxo {
+            utxo,
+            hash,
+            nullifier,
+            spent: false,
+        });
+        self.report.stored_utxos += 1;
+    }
+
     fn store(&mut self, utxo: Utxo) -> Result<(), TransactionError> {
         if utxo.owner != self.owner {
             return Ok(());
@@ -170,13 +180,47 @@ impl SyncCtx<'_> {
             return Ok(());
         }
         let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
-        self.utxos.push(WalletUtxo {
-            utxo,
-            hash,
-            nullifier,
-            spent: false,
-        });
-        self.report.stored_utxos += 1;
+        self.push(utxo, hash, nullifier);
+        Ok(())
+    }
+
+    /// Discover a proofless deposit under `key`. The blinding is derived from
+    /// the recipient viewing key, so each key in the wallet's history must be
+    /// tried — a deposit made to a rotated-away key still belongs to this
+    /// wallet. The public `owner_utxo_hash`/`utxo_hash` are recomputed and must
+    /// match, then the UTXO is stored through the same dedup path as transfer
+    /// outputs so the spent pass covers it too.
+    fn discover_proofless(
+        &mut self,
+        key: &ViewingKey,
+        event: &ProoflessDepositEvent,
+    ) -> Result<(), TransactionError> {
+        let blinding = key.derive_proofless_blinding(&event.salt)?;
+        let owner_utxo_hash = owner_utxo_hash(&self.keypair.owner_hash()?, &blinding)?;
+        if owner_utxo_hash != event.owner_utxo_hash {
+            return Ok(());
+        }
+        let hash = utxo_hash(
+            event.asset,
+            event.amount,
+            &event.program_data_hash,
+            &event.zone_data_hash,
+            event.zone_program_id,
+            &event.owner_utxo_hash,
+        )?;
+        if hash != event.utxo_hash || !self.stored_hashes.insert(hash) {
+            return Ok(());
+        }
+        let utxo = Utxo {
+            owner: self.owner,
+            asset: event.asset,
+            amount: event.amount,
+            blinding,
+            zone_program_id: event.zone_program_id,
+            data: event.data.clone(),
+        };
+        let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
+        self.push(utxo, hash, nullifier);
         Ok(())
     }
 
@@ -322,67 +366,6 @@ impl Wallet {
         Ok(self.keypair.viewing_key.derive_proofless_blinding(salt)?)
     }
 
-    pub fn discover_proofless_deposit(
-        &self,
-        event: &ProoflessDepositEvent,
-    ) -> Result<Option<WalletUtxo>, TransactionError> {
-        let blinding = self.proofless_blinding(&event.salt)?;
-        self.discover_proofless_deposit_with_blinding(event, blinding)
-    }
-
-    fn discover_proofless_deposit_with_blinding(
-        &self,
-        event: &ProoflessDepositEvent,
-        blinding: Blinding,
-    ) -> Result<Option<WalletUtxo>, TransactionError> {
-        let owner_utxo_hash = self.proofless_owner_utxo_hash(&blinding)?;
-        if owner_utxo_hash != event.owner_utxo_hash {
-            return Ok(None);
-        }
-
-        let hash = utxo_hash(
-            event.asset,
-            event.amount,
-            &event.program_data_hash,
-            &event.zone_data_hash,
-            event.zone_program_id,
-            &event.owner_utxo_hash,
-        )?;
-        if hash != event.utxo_hash {
-            return Ok(None);
-        }
-
-        let utxo = Utxo {
-            owner: self.keypair.signing_pubkey(),
-            asset: event.asset,
-            amount: event.amount,
-            blinding,
-            zone_program_id: event.zone_program_id,
-            data: event.data.clone(),
-        };
-        let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
-        Ok(Some(WalletUtxo {
-            utxo,
-            hash,
-            nullifier,
-            spent: false,
-        }))
-    }
-
-    pub fn sync_proofless_deposit(
-        &mut self,
-        event: &ProoflessDepositEvent,
-    ) -> Result<bool, TransactionError> {
-        let Some(wallet_utxo) = self.discover_proofless_deposit(event)? else {
-            return Ok(false);
-        };
-        if self.utxos.iter().any(|u| u.hash == wallet_utxo.hash) {
-            return Ok(false);
-        }
-        self.utxos.push(wallet_utxo);
-        Ok(true)
-    }
-
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
@@ -393,6 +376,16 @@ impl Wallet {
     ) -> Result<SyncReport, TransactionError> {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
+
+        // Proofless deposits are public, so there is no ciphertext to decrypt;
+        // each carries the recipient bootstrap view tag (see `wallet_shield`),
+        // exactly the tag the loop below already scans. Index them by that tag
+        // so discovery rides the same per-viewing-key path as transfer outputs.
+        let mut proofless_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
+        for (p, event) in proofless_deposits.iter().enumerate() {
+            proofless_sites.entry(event.view_tag).or_default().push(p);
+        }
+
         let stored_hashes: HashSet<[u8; 32]> = self.utxos.iter().map(|u| u.hash).collect();
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),
@@ -421,6 +414,11 @@ impl Wallet {
                     if let Some(sender) = ctx.decrypt_recipient_slot(&index, key, assets, *site)? {
                         known_senders.entry(sender).or_insert(0);
                     }
+                }
+            }
+            if let Some(sites) = proofless_sites.get(&bootstrap) {
+                for &p in sites {
+                    ctx.discover_proofless(key, &proofless_deposits[p])?;
                 }
             }
 
@@ -529,15 +527,6 @@ impl Wallet {
 
         let report = ctx.report;
 
-        // Proofless deposits are public — there is no encrypted slot to scan,
-        // so the view-tag machinery above never sees them. Fold them in here so
-        // a single `sync` discovers both transfer outputs and proofless-shield
-        // deposits. Done before the spent pass so a deposit nullified by a
-        // transfer in the same batch is still marked spent below.
-        for event in proofless_deposits {
-            self.sync_proofless_deposit(event)?;
-        }
-
         for utxo in self.utxos.iter_mut() {
             if index.nullifiers.contains(&utxo.nullifier) {
                 utxo.spent = true;
@@ -601,7 +590,7 @@ mod tests {
         )
         .unwrap();
         ProoflessDepositEvent {
-            view_tag: [0u8; VIEW_TAG_LEN],
+            view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
             utxo_hash,
             owner_utxo_hash,
             salt,
