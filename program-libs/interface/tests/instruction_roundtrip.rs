@@ -130,7 +130,7 @@ fn event_parser_indexes_direct_proofless_self_emit() {
         )],
     };
 
-    let events = indexed_events_from_instruction_groups(spp, [&group]);
+    let events = indexed_events_from_instruction_groups(spp, std::slice::from_ref(&group));
 
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].decoded, Ok(event));
@@ -145,7 +145,7 @@ fn event_parser_ignores_direct_emit_event() {
         inner: Vec::new(),
     };
 
-    let events = indexed_events_from_instruction_groups(spp, [&group]);
+    let events = indexed_events_from_instruction_groups(spp, std::slice::from_ref(&group));
 
     assert!(events.is_empty());
 }
@@ -164,7 +164,7 @@ fn event_parser_rejects_wrapper_sibling_emit_event() {
         ],
     };
 
-    let events = indexed_events_from_instruction_groups(spp, [&group]);
+    let events = indexed_events_from_instruction_groups(spp, std::slice::from_ref(&group));
 
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].decoded, Ok(event));

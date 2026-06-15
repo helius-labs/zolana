@@ -1,5 +1,8 @@
 use light_hasher::{Hasher, Poseidon};
-use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, Address, ProgramResult};
+use pinocchio::{
+    cpi::invoke, error::ProgramError, instruction::InstructionView, AccountView, Address,
+    ProgramResult,
+};
 use zolana_interface::event::{encode_event_instruction, ProoflessShieldEvent, ShieldedPoolEvent};
 use zolana_interface::instruction::{
     CpiSignerData, ProoflessShieldIxData, TransactIxData, ZoneProoflessShieldIxData,
@@ -98,8 +101,10 @@ fn process_deposit(
     };
     let amount = d.public_amount.unwrap_or(0);
 
-    let (head, program_slice) = accounts.split_at_mut(accounts.len().saturating_sub(1));
-    if program_slice.len() != 1 || program_slice[0].address() != program_id {
+    let Some((program_account, head)) = accounts.split_last_mut() else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    if program_account.address() != program_id {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
@@ -179,12 +184,8 @@ fn deposit_view(d: &Deposit) -> TransactIxData {
         private_tx_hash: [0u8; 32],
         relayer_fee: 0,
         public_amount_mode: d.public_amount_mode,
-        // Proofless deposits verify no proof; the rail is irrelevant here (this
-        // view only drives settlement account loading).
         requires_p256: false,
         public_amount: d.public_amount,
-        // Drives the cpi_signer PDA check (seed per d.cpi_signer_seed) and
-        // reserves account index 2 for the signer in the settlement layout.
         cpi_signer: d.cpi_signer,
         inputs: Vec::new(),
         output_utxo_hashes: Vec::new(),

@@ -140,9 +140,9 @@ fn encode_event_payload_into(event: &ShieldedPoolEvent, data: &mut Vec<u8>) {
     }
 }
 
-pub fn indexed_events_from_instruction_groups<'a>(
+pub fn indexed_events_from_instruction_groups(
     shielded_pool_program_id: Pubkey,
-    groups: impl IntoIterator<Item = &'a InstructionGroup>,
+    groups: &[InstructionGroup],
 ) -> Vec<IndexedEvent> {
     let mut events = Vec::new();
     for group in groups {

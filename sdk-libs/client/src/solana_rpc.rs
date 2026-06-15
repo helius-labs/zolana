@@ -1,8 +1,8 @@
 //! Generic blocking Solana RPC backend.
 //!
 //! Wraps a `solana_rpc_client::RpcClient` and implements [`Rpc`] over
-//! it. This backend carries no shielded-pool indexing knowledge; callers that
-//! need indexed events build that on top using the raw client.
+//! it. It can expose confirmed instruction groups for event parsers, but it
+//! does not index shielded-pool state itself.
 
 use std::{
     thread::sleep,
