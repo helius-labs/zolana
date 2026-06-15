@@ -20,8 +20,11 @@ cpi = ["no-entrypoint"]
 test-sbf = []
 
 [dependencies]
+borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
-zolana-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+zolana-interface = { workspace = true, features = ["solana"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"
