@@ -3,7 +3,6 @@
 use cucumber::when;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::instruction::zone_proofless_shield_cpi;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -67,7 +66,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         .expect("fund");
 
     let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
-    let ix = zone_proofless_shield_cpi(depositor.pubkey(), tree, depositor.pubkey(), &data);
+    let ix = data.cpi_instruction(depositor.pubkey(), tree, depositor.pubkey());
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])

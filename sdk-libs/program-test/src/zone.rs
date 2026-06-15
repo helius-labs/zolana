@@ -6,8 +6,8 @@ use zolana_interface::{
     event::ProoflessShieldView,
     instruction::{
         encode_instruction, tag, update_zone_config as update_zone_config_ix,
-        update_zone_config_owner as update_zone_config_owner_ix, zone_proofless_shield,
-        CpiSignerData, CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        update_zone_config_owner as update_zone_config_owner_ix, CpiSignerData,
+        CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
         ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     },
     SPP_ZONE_CONFIG_PDA_SEED,
@@ -188,12 +188,11 @@ impl ZolanaProgramTest {
         data: &ZoneProoflessShieldIxData,
     ) -> Result<ProoflessShieldView, ProgramTestError> {
         let (zone_auth, _) = self.zone_auth_pda();
-        let ix = zone_proofless_shield(
+        let ix = data.instruction(
             Self::zone_test_program_id(),
             zone_auth,
             *tree,
             depositor.pubkey(),
-            data,
         );
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_proofless_shield_view(&outcome.events)

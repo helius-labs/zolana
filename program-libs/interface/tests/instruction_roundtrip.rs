@@ -17,9 +17,9 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
-    create_spl_interface, create_zone_config, zone_proofless_shield_cpi, CpiSignerData,
-    CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldIxData,
-    ProoflessShieldSplAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    create_spl_interface, create_zone_config, CpiSignerData, CreateSplInterfaceAccounts,
+    ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts,
+    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
@@ -398,26 +398,22 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
     let zone_auth = Pubkey::new_unique();
     let tree = Pubkey::new_unique();
     let depositor = Pubkey::new_unique();
-    let ix = zone_proofless_shield_cpi(
-        zone_auth,
-        tree,
-        depositor,
-        &ZoneProoflessShieldIxData {
-            view_tag: [1u8; 32],
-            owner_utxo_hash: [2u8; 32],
-            salt: [3u8; 16],
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
-            public_amount: Some(10),
-            cpi_signer: CpiSignerData {
-                program_id: Pubkey::new_unique().to_bytes(),
-                bump: 255,
-            },
-            policy_data_hash: None,
-            zone_data: None,
-            program_data_hash: None,
-            program_data: None,
+    let data = ZoneProoflessShieldIxData {
+        view_tag: [1u8; 32],
+        owner_utxo_hash: [2u8; 32],
+        salt: [3u8; 16],
+        public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+        public_amount: Some(10),
+        cpi_signer: CpiSignerData {
+            program_id: Pubkey::new_unique().to_bytes(),
+            bump: 255,
         },
-    );
+        policy_data_hash: None,
+        zone_data: None,
+        program_data_hash: None,
+        program_data: None,
+    };
+    let ix = data.cpi_instruction(zone_auth, tree, depositor);
 
     assert_eq!(
         ix.program_id,

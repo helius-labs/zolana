@@ -11,10 +11,7 @@ use zolana_interface::{
     event::{
         indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldView,
     },
-    instruction::{
-        create_protocol_config, tag, zone_proofless_shield, CreateProtocolConfigData,
-        ProoflessShieldAccounts,
-    },
+    instruction::{create_protocol_config, tag, CreateProtocolConfigData, ProoflessShieldAccounts},
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -135,12 +132,11 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     zone_data.policy_data_hash = Some([5u8; 32]);
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix = zone_proofless_shield(
+    let zone_ix = zone_data.instruction(
         zone_program_id,
         zone_auth,
         tree.pubkey(),
         depositor.pubkey(),
-        &zone_data,
     );
     let zone_tx = send_indexed(
         &mut rpc,

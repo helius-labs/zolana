@@ -10,10 +10,7 @@ use pinocchio::{
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{
-        create_zone_config, tag, zone_proofless_shield_cpi, CreateZoneConfigData,
-        ZoneProoflessShieldIxData,
-    },
+    instruction::{create_zone_config, tag, CreateZoneConfigData, ZoneProoflessShieldIxData},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -107,11 +104,10 @@ fn process_zone_proofless_shield(
 
     let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
-    let ix = zone_proofless_shield_cpi(
+    let ix = data.cpi_instruction(
         pubkey(&zone_auth),
         pubkey(accounts[TREE].address()),
         pubkey(accounts[PAYER].address()),
-        &data,
     );
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
