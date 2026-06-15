@@ -12,6 +12,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
@@ -80,30 +81,18 @@ fn process_create_zone_config(
         pubkey(&zone_auth),
         data,
     );
-    let metas = [
-        cpi_account(&accounts[CREATE_ZONE_PAYER], &ix.accounts[0]),
-        cpi_account(&accounts[CREATE_ZONE_CONFIG], &ix.accounts[1]),
-        cpi_account(&accounts[CREATE_ZONE_AUTH], &ix.accounts[2]),
-        cpi_account(&accounts[CREATE_ZONE_SYSTEM], &ix.accounts[3]),
-    ];
-    let cpi_program_id = Address::from(ix.program_id.to_bytes());
-    let instruction = InstructionView {
-        program_id: &cpi_program_id,
-        accounts: &metas,
-        data: &ix.data,
-    };
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    invoke_signed(
-        &instruction,
-        &[
+    invoke_interface_ix_signed(
+        &ix,
+        [
             &accounts[CREATE_ZONE_PAYER],
             &accounts[CREATE_ZONE_CONFIG],
             &accounts[CREATE_ZONE_AUTH],
             &accounts[CREATE_ZONE_SYSTEM],
         ],
-        core::slice::from_ref(&signer),
+        &signer,
     )
 }
 
@@ -129,27 +118,12 @@ fn process_zone_proofless_shield(
         pubkey(accounts[PAYER].address()),
         &data,
     );
-    let metas = [
-        cpi_account(&accounts[TREE], &ix.accounts[0]),
-        cpi_account(&accounts[PAYER], &ix.accounts[1]),
-        cpi_account(&accounts[ZONE_AUTH], &ix.accounts[2]),
-        cpi_account(&accounts[SYSTEM_PROGRAM], &ix.accounts[3]),
-        cpi_account(&accounts[CPI_AUTHORITY], &ix.accounts[4]),
-        cpi_account(&accounts[USER_SOL], &ix.accounts[5]),
-        cpi_account(&accounts[SHIELDED_POOL_PROGRAM], &ix.accounts[6]),
-    ];
-    let cpi_program_id = Address::from(ix.program_id.to_bytes());
-    let instruction = InstructionView {
-        program_id: &cpi_program_id,
-        accounts: &metas,
-        data: &ix.data,
-    };
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    invoke_signed(
-        &instruction,
-        &[
+    invoke_interface_ix_signed(
+        &ix,
+        [
             &accounts[TREE],
             &accounts[PAYER],
             &accounts[ZONE_AUTH],
@@ -158,7 +132,7 @@ fn process_zone_proofless_shield(
             &accounts[USER_SOL],
             &accounts[SHIELDED_POOL_PROGRAM],
         ],
-        core::slice::from_ref(&signer),
+        &signer,
     )
 }
 
@@ -177,9 +151,24 @@ fn pubkey(address: &Address) -> Pubkey {
     Pubkey::new_from_array(address.to_bytes())
 }
 
-fn cpi_account<'a>(
-    account: &'a AccountView,
-    meta: &solana_instruction::AccountMeta,
-) -> InstructionAccount<'a> {
-    InstructionAccount::new(account.address(), meta.is_writable, meta.is_signer)
+fn invoke_interface_ix_signed<const N: usize>(
+    ix: &Instruction,
+    accounts: [&AccountView; N],
+    signer: &Signer,
+) -> ProgramResult {
+    if ix.accounts.len() != N {
+        return Err(ProgramError::InvalidArgument);
+    }
+
+    let metas: [InstructionAccount<'_>; N] = core::array::from_fn(|i: usize| {
+        let meta = &ix.accounts[i];
+        InstructionAccount::new(accounts[i].address(), meta.is_writable, meta.is_signer)
+    });
+    let program_id = Address::from(ix.program_id.to_bytes());
+    let instruction = InstructionView {
+        program_id: &program_id,
+        accounts: &metas,
+        data: &ix.data,
+    };
+    invoke_signed(&instruction, &accounts, core::slice::from_ref(signer))
 }

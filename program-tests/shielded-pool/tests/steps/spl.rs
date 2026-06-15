@@ -6,6 +6,7 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_interface::instruction::ProoflessShieldSplAccounts;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -24,16 +25,17 @@ fn spl_accounts(
     user_token: &Pubkey,
     mint: &Pubkey,
 ) -> Vec<AccountMeta> {
-    vec![
-        AccountMeta::new(*tree, false),
-        AccountMeta::new(*depositor, true),
-        AccountMeta::new_readonly(program_test.cpi_authority(), false),
-        AccountMeta::new(*user_token, false),
-        AccountMeta::new(program_test.spl_asset_vault_pda(mint), false),
-        AccountMeta::new_readonly(program_test.spl_asset_registry_pda(mint), false),
-        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
-        AccountMeta::new_readonly(program_test.program_id, false),
-    ]
+    ProoflessShieldSplAccounts {
+        tree: *tree,
+        depositor: *depositor,
+        cpi_authority: program_test.cpi_authority(),
+        user_token: *user_token,
+        vault: program_test.spl_asset_vault_pda(mint),
+        registry: program_test.spl_asset_registry_pda(mint),
+        token_program: ZolanaProgramTest::token_program_id(),
+        shielded_pool_program: program_test.program_id,
+    }
+    .account_metas()
 }
 
 // === SPL interface registration ===

@@ -1,12 +1,11 @@
 //! Zone-config admin steps. Faithful port of `tests/zone_config.rs`.
 
 use cucumber::{given, then, when};
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateZoneConfigData},
+    instruction::{create_zone_config as create_zone_config_ix, CreateZoneConfigData},
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -176,23 +175,19 @@ fn create_zone_config_fake_auth(world: &mut PoolWorld) {
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
     let (zone_config, zone_config_bump) = world.rig().zone_config_pda(&zone_program);
     let (_, zone_auth_bump) = world.rig().zone_auth_pda();
-    let data = CreateZoneConfigData {
-        program_id: ZONE_TEST_PROGRAM_ID,
-        zone_auth_bump,
-        authority: payer.pubkey().to_bytes(),
-        zone_authority_transact_is_enabled: true,
-        zone_config_bump,
-    };
-    let ix = Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new(zone_config, false),
-            AccountMeta::new_readonly(payer.pubkey(), true),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-        ],
-        data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
-    };
+    let mut ix = create_zone_config_ix(
+        payer.pubkey(),
+        zone_config,
+        payer.pubkey(),
+        CreateZoneConfigData {
+            program_id: ZONE_TEST_PROGRAM_ID,
+            zone_auth_bump,
+            authority: payer.pubkey().to_bytes(),
+            zone_authority_transact_is_enabled: true,
+            zone_config_bump,
+        },
+    );
+    ix.program_id = program_id;
     let err = world
         .rig()
         .create_and_send_default_payer_transaction(&[ix], &[&payer])

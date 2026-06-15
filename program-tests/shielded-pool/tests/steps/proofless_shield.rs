@@ -5,7 +5,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    tag, CpiSignerData, ProoflessShieldIxData, PUBLIC_AMOUNT_WITHDRAW_SOL,
+    proofless_shield_sol_account_metas, tag, CpiSignerData, ProoflessShieldIxData,
+    PUBLIC_AMOUNT_WITHDRAW_SOL,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
@@ -23,14 +24,10 @@ fn sol_accounts(
     tree: &Pubkey,
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
-    vec![
-        AccountMeta::new(*tree, false),
-        AccountMeta::new(*depositor, true),
-        AccountMeta::new_readonly(Pubkey::default(), false),
-        AccountMeta::new(program_test.cpi_authority(), false),
-        AccountMeta::new(*depositor, false),
-        AccountMeta::new_readonly(program_test.program_id, false),
-    ]
+    let mut accounts = proofless_shield_sol_account_metas(*tree, *depositor);
+    accounts[3] = AccountMeta::new(program_test.cpi_authority(), false);
+    accounts[5] = AccountMeta::new_readonly(program_test.program_id, false);
+    accounts
 }
 
 /// Send a raw proofless-shield transaction with the given accounts, capturing
@@ -154,23 +151,14 @@ fn indexer_unchanged(world: &mut PoolWorld) {
 fn program_owned_wrong_signer(world: &mut PoolWorld) {
     let tree = world.tree().pubkey();
     let depositor = world.depositor().insecure_clone();
-    let cpi_authority = world.rig().cpi_authority();
-    let program_id = world.rig().program_id;
 
     let mut data = ZolanaProgramTest::sol_shield_data(1_000_000, [3u8; 32]);
     data.cpi_signer = Some(CpiSignerData {
         program_id: [9u8; 32],
         bump: 255,
     });
-    let accounts = vec![
-        AccountMeta::new(tree, false),
-        AccountMeta::new(depositor.pubkey(), true),
-        AccountMeta::new_readonly(depositor.pubkey(), true),
-        AccountMeta::new_readonly(Pubkey::default(), false),
-        AccountMeta::new(cpi_authority, false),
-        AccountMeta::new(depositor.pubkey(), false),
-        AccountMeta::new_readonly(program_id, false),
-    ];
+    let mut accounts = sol_accounts(world.rig(), &tree, &depositor.pubkey());
+    accounts.insert(2, AccountMeta::new_readonly(depositor.pubkey(), true));
     let err = world
         .rig()
         .proofless_shield_with_accounts(accounts, &depositor, &data)
