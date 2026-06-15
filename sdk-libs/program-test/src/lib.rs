@@ -37,7 +37,7 @@ pub use events::{
     IndexedEvent, IndexedEventData, ParsedInstruction,
 };
 pub mod indexer;
-pub use indexer::{IndexerError, PoolIndexer, UtxoRecord};
+pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, PoolIndexer, ProoflessOutput};
 pub mod instructions;
 pub use instructions::{
     create_tree_instructions, protocol_config_pda, rpc_state_root, system_create_account_ix,

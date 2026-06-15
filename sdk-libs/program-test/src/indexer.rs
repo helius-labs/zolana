@@ -27,24 +27,67 @@ pub enum IndexerError {
     MerkleTree(String),
 }
 
-/// One deposited UTXO as an indexer sees it: the event fields plus its
-/// position in the state tree.
+/// One indexed shielded output, in the shape a real indexer serves to wallets
+/// (cf. the client RPC `OutputSlot`): the recipient view tag it is scanned for,
+/// its position in the state tree, the on-chain leaf, and a [`payload`] that is
+/// either the public proofless fields or — once transfers exist — the encrypted
+/// ciphertext the recipient decrypts. Every output, regardless of rail, shares
+/// the same envelope so the indexer never branches on deposit kind for storage,
+/// lookup, or root tracking.
+///
+/// [`payload`]: IndexedUtxo::payload
 #[derive(Clone, Debug)]
-pub struct UtxoRecord {
+pub struct IndexedUtxo {
+    /// Recipient view tag the output is scanned for.
+    pub view_tag: [u8; 32],
+    /// Position of the leaf in the state tree.
+    pub leaf_index: u64,
+    /// The on-chain leaf (UTXO hash) appended to the tree.
     pub utxo_hash: [u8; 32],
+    pub payload: IndexedPayload,
+}
+
+/// The recipient-facing payload of an [`IndexedUtxo`].
+///
+/// Proofless deposits are plaintext (the `emit_event` payload is public, so the
+/// fields are visible without decryption); transfer/transact outputs are
+/// encrypted ciphertext the recipient decrypts with their viewing key. This is
+/// the `tx_viewing_pk: None` (plaintext) vs `Some(..)` (encrypted) distinction
+/// the client RPC already draws.
+#[derive(Clone, Debug)]
+pub enum IndexedPayload {
+    /// Public proofless deposit: fields are visible without decryption.
+    Plaintext(ProoflessOutput),
+    /// Encrypted transfer/transact output: opaque ciphertext for the recipient.
+    ///
+    /// Reserved for when the encrypted rail lands; nothing emits it yet.
+    Encrypted(Vec<u8>),
+}
+
+/// The public fields of a proofless deposit, as carried in its plaintext event.
+#[derive(Clone, Debug)]
+pub struct ProoflessOutput {
     pub owner_utxo_hash: [u8; 32],
     /// Mint address; all-zero for SOL.
     pub asset: [u8; 32],
     pub amount: u64,
-    pub view_tag: [u8; 32],
     /// Blinding-derivation salt (spec: Blinding derivation).
     pub salt: [u8; 16],
-    pub leaf_index: u64,
+}
+
+impl IndexedUtxo {
+    /// The public proofless fields, or `None` if this output is encrypted.
+    pub fn proofless(&self) -> Option<&ProoflessOutput> {
+        match &self.payload {
+            IndexedPayload::Plaintext(fields) => Some(fields),
+            IndexedPayload::Encrypted(_) => None,
+        }
+    }
 }
 
 pub struct PoolIndexer {
     tree: MerkleTree<Poseidon>,
-    utxos: Vec<UtxoRecord>,
+    utxos: Vec<IndexedUtxo>,
 }
 
 impl Default for PoolIndexer {
@@ -67,7 +110,7 @@ impl PoolIndexer {
     pub fn record_proofless_shield(
         &mut self,
         event: &ProoflessShieldEvent,
-    ) -> Result<&UtxoRecord, IndexerError> {
+    ) -> Result<&IndexedUtxo, IndexerError> {
         let recomputed = proofless_utxo_hash(event)?;
         if recomputed != event.utxo_hash {
             return Err(IndexerError::UtxoHashMismatch {
@@ -83,14 +126,16 @@ impl PoolIndexer {
         self.tree
             .append(&event.utxo_hash)
             .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?;
-        self.utxos.push(UtxoRecord {
-            utxo_hash: event.utxo_hash,
-            owner_utxo_hash: event.owner_utxo_hash,
-            asset: event.asset,
-            amount: event.amount,
+        self.utxos.push(IndexedUtxo {
             view_tag: event.view_tag,
-            salt: event.salt,
             leaf_index,
+            utxo_hash: event.utxo_hash,
+            payload: IndexedPayload::Plaintext(ProoflessOutput {
+                owner_utxo_hash: event.owner_utxo_hash,
+                asset: event.asset,
+                amount: event.amount,
+                salt: event.salt,
+            }),
         });
         Ok(&self.utxos[record_index])
     }
@@ -102,11 +147,13 @@ impl PoolIndexer {
     }
 
     /// Locate a deposit the way the depositor would: by the opaque
-    /// `owner_utxo_hash` they committed to.
-    pub fn fetch_by_owner_utxo_hash(&self, owner_utxo_hash: &[u8; 32]) -> Option<&UtxoRecord> {
-        self.utxos
-            .iter()
-            .find(|u| &u.owner_utxo_hash == owner_utxo_hash)
+    /// `owner_utxo_hash` they committed to. Only proofless deposits expose one;
+    /// encrypted outputs hide it, so they never match.
+    pub fn fetch_by_owner_utxo_hash(&self, owner_utxo_hash: &[u8; 32]) -> Option<&IndexedUtxo> {
+        self.utxos.iter().find(|u| {
+            u.proofless()
+                .is_some_and(|p| &p.owner_utxo_hash == owner_utxo_hash)
+        })
     }
 
     /// Locate deposits the way a recipient would: by scanning for their view
@@ -114,11 +161,11 @@ impl PoolIndexer {
     pub fn fetch_by_view_tag<'a>(
         &'a self,
         tag: &'a [u8; 32],
-    ) -> impl Iterator<Item = &'a UtxoRecord> + 'a {
+    ) -> impl Iterator<Item = &'a IndexedUtxo> + 'a {
         self.utxos.iter().filter(move |u| &u.view_tag == tag)
     }
 
-    pub fn utxos(&self) -> &[UtxoRecord] {
+    pub fn utxos(&self) -> &[IndexedUtxo] {
         &self.utxos
     }
 }

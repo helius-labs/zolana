@@ -118,7 +118,10 @@ fn bootstrap_deposits(world: &mut PoolWorld) {
         let record = indexer
             .fetch_by_owner_utxo_hash(&owner_utxo_hashes[i])
             .expect("fetch by owner commitment");
-        assert_eq!(record.amount, amount);
+        assert_eq!(
+            record.proofless().expect("proofless deposit").amount,
+            amount
+        );
         assert_eq!(record.leaf_index, i as u64);
 
         let by_tag: Vec<_> = indexer.fetch_by_view_tag(&view_tags[i]).collect();
