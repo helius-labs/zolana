@@ -151,72 +151,69 @@ pub struct ProveResult {
 }
 
 /// Combined Solana RPC, SPP indexer, and proving surface used by clients.
-///
-/// Every method defaults to `unimplemented!()`; implementors override the subset
-/// they support.
 #[allow(unused_variables)]
 pub trait Rpc {
     // ===== Accounts =====
 
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_account"))
     }
 
     fn get_multiple_accounts(
         &self,
         addresses: Vec<Address>,
     ) -> Result<Vec<Option<Account>>, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_multiple_accounts"))
     }
 
     fn get_program_accounts(
         &self,
         program_id: Address,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_program_accounts"))
     }
 
     // ===== Chain state =====
 
     fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_balance"))
     }
 
     fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
-        unimplemented!()
+        Err(unsupported("get_latest_blockhash"))
     }
 
     fn get_block_height(&self) -> Result<u64, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_block_height"))
     }
 
     fn get_slot(&self) -> Result<u64, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_slot"))
     }
 
     fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_transaction_slot"))
     }
 
     fn get_signature_statuses(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_signature_statuses"))
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_minimum_balance_for_rent_exemption"))
     }
 
     fn health(&self) -> Result<(), ClientError> {
-        unimplemented!()
+        Err(unsupported("health"))
     }
 
     // ===== Transactions =====
 
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("send_transaction"))
     }
 
     fn send_transaction_with_config(
@@ -224,7 +221,7 @@ pub trait Rpc {
         transaction: &Transaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("send_transaction_with_config"))
     }
 
     fn send_versioned_transaction_with_config(
@@ -232,25 +229,25 @@ pub trait Rpc {
         transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("send_versioned_transaction_with_config"))
     }
 
     fn process_transaction(&self, transaction: Transaction) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("process_transaction"))
     }
 
     fn process_transaction_with_context(
         &self,
         transaction: Transaction,
     ) -> Result<(Signature, Slot), ClientError> {
-        unimplemented!()
+        Err(unsupported("process_transaction_with_context"))
     }
 
     fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("process_versioned_transaction"))
     }
 
     fn create_and_send_transaction(
@@ -273,17 +270,17 @@ pub trait Rpc {
         signers: &[&Keypair],
         address_lookup_tables: &[AddressLookupTableAccount],
     ) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("create_and_send_versioned_transaction"))
     }
 
     // ===== Misc =====
 
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
-        unimplemented!()
+        Err(unsupported("confirm_transaction"))
     }
 
     fn should_retry(&self, error: &ClientError) -> bool {
-        unimplemented!()
+        false
     }
 
     // ===== Indexer (SPP) =====
@@ -294,7 +291,7 @@ pub trait Rpc {
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_encrypted_utxos_by_tags"))
     }
 
     fn get_shielded_transactions_by_tags(
@@ -303,14 +300,14 @@ pub trait Rpc {
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_shielded_transactions_by_tags"))
     }
 
     fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
-        unimplemented!()
+        Err(unsupported("subscribe_to_shielded_transactions_by_tags"))
     }
 
     fn get_merkle_proofs(
@@ -318,7 +315,7 @@ pub trait Rpc {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_merkle_proofs"))
     }
 
     fn get_non_inclusion_proofs(
@@ -326,7 +323,7 @@ pub trait Rpc {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_non_inclusion_proofs"))
     }
 
     /// Resolve the state-inclusion and nullifier-non-inclusion proofs for each
@@ -335,18 +332,22 @@ pub trait Rpc {
         &self,
         input_utxo_commitments: &[InputCommitment],
     ) -> Result<Vec<SpendProof>, ClientError> {
-        unimplemented!()
+        Err(unsupported("get_input_merkle_proofs"))
     }
 
     // ===== Proving =====
 
     /// Build the SPP proof for a signed transaction (server-side proving).
     fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
-        unimplemented!()
+        Err(unsupported("prove"))
     }
 
     /// Build the SPP proof and submit the resulting transaction in one call.
     fn send_and_prove(&self, transaction: SignedTransaction) -> Result<Signature, ClientError> {
-        unimplemented!()
+        Err(unsupported("send_and_prove"))
     }
+}
+
+fn unsupported(method: &'static str) -> ClientError {
+    ClientError::UnsupportedRpcMethod(method)
 }

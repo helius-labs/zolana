@@ -8,7 +8,7 @@ mod zone_proofless_shield;
 
 use solana_pubkey::Pubkey;
 
-use crate::{SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED};
+use crate::{DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED};
 
 pub use batch_update_nullifier_tree::batch_update_nullifier_tree;
 pub use create_spl_interface::{create_spl_interface, CreateSplInterfaceAccounts};
@@ -20,7 +20,7 @@ pub use zone_proofless_shield::{zone_proofless_shield, zone_proofless_shield_cpi
 
 fn sol_interface_pda() -> Pubkey {
     Pubkey::find_program_address(
-        &[SOL_INTERFACE_PDA_SEED],
+        &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
         &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
     )
     .0

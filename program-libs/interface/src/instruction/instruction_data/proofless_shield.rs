@@ -7,7 +7,8 @@ use super::transact::CpiSignerData;
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
 /// The program commits the settled amount/asset into the UTXO hash and emits a
-/// [`crate::event::ProoflessShieldEvent`] for wallet discovery.
+/// [`crate::event::GeneralEvent`] carrying a proofless output for wallet
+/// discovery.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ProoflessShieldIxData {
     /// Indexing tag for the single output slot; chosen per the spec's View

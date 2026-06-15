@@ -26,8 +26,8 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_interface::{
-    state::state_root_offset, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SOL_INTERFACE_PDA_SEED,
+    state::state_root_offset, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED,
 };
 
 mod admin;
@@ -138,7 +138,11 @@ impl ZolanaProgramTest {
     }
 
     pub fn sol_interface(&self) -> Pubkey {
-        Pubkey::find_program_address(&[SOL_INTERFACE_PDA_SEED], &self.program_id).0
+        Pubkey::find_program_address(
+            &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
+            &self.program_id,
+        )
+        .0
     }
 
     pub fn spl_vault_authority(&self) -> Pubkey {

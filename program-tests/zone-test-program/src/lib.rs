@@ -1,9 +1,4 @@
-//! Test policy-zone program for litesvm.
-//!
-//! Pinocchio-based: built against `solana-program`'s entrypoint ABI this
-//! program crashed litesvm 0.12's loader during entrypoint deserialization
-//! (access violation before any CPI). Pinocchio's entrypoint is ABI-compatible
-//! with the loader the SPP program already uses, so this fixture matches it.
+//! Test policy-zone program for shielded-pool integration tests.
 
 use borsh::BorshDeserialize;
 use pinocchio::{
@@ -27,7 +22,7 @@ const TREE: usize = 0;
 const PAYER: usize = 1;
 const ZONE_AUTH: usize = 2;
 const SYSTEM_PROGRAM: usize = 3;
-const CPI_AUTHORITY: usize = 4;
+const SOL_INTERFACE: usize = 4;
 const USER_SOL: usize = 5;
 const SHIELDED_POOL_PROGRAM: usize = 6;
 const FORWARDED_ACCOUNTS: usize = 7;
@@ -128,7 +123,7 @@ fn process_zone_proofless_shield(
             &accounts[PAYER],
             &accounts[ZONE_AUTH],
             &accounts[SYSTEM_PROGRAM],
-            &accounts[CPI_AUTHORITY],
+            &accounts[SOL_INTERFACE],
             &accounts[USER_SOL],
             &accounts[SHIELDED_POOL_PROGRAM],
         ],

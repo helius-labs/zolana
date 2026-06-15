@@ -9,11 +9,12 @@ use zolana_interface::{
         TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
         PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
     },
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SOL_INTERFACE_PDA_SEED,
-    SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_MAGIC_END,
-    SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END, SPL_ASSET_REGISTRY_MINT_OFFSET,
-    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN,
-    SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_TRANSFER_DISCRIMINATOR,
+    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SOL_INTERFACE_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN,
+    SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET,
+    SPL_ASSET_REGISTRY_MINT_END, SPL_ASSET_REGISTRY_MINT_OFFSET, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET,
+    SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_TRANSFER_DISCRIMINATOR,
 };
 
 use crate::{error::ShieldedPoolError, log::log};
@@ -207,7 +208,11 @@ fn settle_public_sol(
         .invoke()
     } else if is_withdraw(public_amount_mode) {
         let bump = [required(accounts.sol_interface_bump)?];
-        let seeds = [Seed::from(SOL_INTERFACE_PDA_SEED), Seed::from(&bump)];
+        let seeds = [
+            Seed::from(SOL_INTERFACE_PDA_SEED),
+            Seed::from(DEFAULT_SOL_INTERFACE_INDEX_SEED),
+            Seed::from(&bump),
+        ];
         let signer = Signer::from(&seeds);
         pinocchio_system::instructions::Transfer {
             from: sol_interface,
@@ -240,7 +245,11 @@ fn settle_relayer_fee(accounts: &SettlementAccounts<'_>, relayer_fee: u64) -> Pr
     }
 
     let bump = [required(accounts.sol_interface_bump)?];
-    let seeds = [Seed::from(SOL_INTERFACE_PDA_SEED), Seed::from(&bump)];
+    let seeds = [
+        Seed::from(SOL_INTERFACE_PDA_SEED),
+        Seed::from(DEFAULT_SOL_INTERFACE_INDEX_SEED),
+        Seed::from(&bump),
+    ];
     let signer = Signer::from(&seeds);
     pinocchio_system::instructions::Transfer {
         from: sol_interface,

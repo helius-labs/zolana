@@ -1,7 +1,8 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
     instruction::{InputUtxoSignerIndex, TransactIxData, PUBLIC_AMOUNT_WITHDRAW_SPL},
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP, SOL_INTERFACE_PDA_SEED,
+    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_CPI_AUTHORITY_BUMP, SOL_INTERFACE_PDA_SEED,
 };
 
 use crate::{
@@ -102,9 +103,11 @@ pub(crate) fn load_transact_accounts<'a>(
     }
 
     if let Some(sol_interface) = settlement.sol_interface {
-        let (expected, bump) =
-            Address::derive_program_address(&[SOL_INTERFACE_PDA_SEED], program_id)
-                .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        let (expected, bump) = Address::derive_program_address(
+            &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
+            program_id,
+        )
+        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
         if *sol_interface.address() != expected {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }

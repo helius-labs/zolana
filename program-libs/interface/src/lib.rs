@@ -23,6 +23,7 @@ pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
 
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
+pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];
 
 /// Seed for the shielded-pool program's own CPI authority PDA, used as the SPL
 /// vault authority for public SPL settlement.
