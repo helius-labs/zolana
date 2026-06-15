@@ -1123,38 +1123,48 @@ Usage by instruction:
 `M` = number of output UTXOs, `N` = number of spent inputs.
 
 ```rust
+struct InputUtxo {
+    /// Nullifier of the spent input; inserted into the nullifier queue.
+    nullifier_hash: [u8;32],
+    /// Index into the root cache of the input's nullifier tree.
+    nullifier_tree_root_index: u16,
+    /// Index into the root cache of the input's UTXO tree.
+    utxo_tree_root_index: u16,
+    /// Account index of the input's tree; 0 means the output tree.
+    tree_index: u8,
+    /// Account index of the input's Ed25519 signer; 0 when P256-owned.
+    eddsa_signer_index: u8,
+}
+
+struct OutputUtxo {
+    view_tag: [u8;32],
+    utxo_hash: [u8;32],
+    /// Not parsed by the program. Layout per Output UTXO Serialization,
+    /// encrypted or [Plaintext Transfer](#plaintext-transfer).
+    data: Vec<u8>,
+}
+
 struct TransactIxData {
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    /// View tag from sender's `get_sender_view_tag(tx_count)`;
-    /// signed alongside the input UTXOs (prover-replay protection) and
-    /// inserted into the nullifier tree (reuse protection).
-    sender_view_tag: [u8; 32],
     proof: SPPProof,
     /// Zero on shield (payer = user).
     relayer_fee: u16,
-    /// One per output; appended to the UTXO tree. Length M.
-    output_utxo_hashes: Vec<[u8; 32]>,
-    /// Per input UTXO: index into the root cache of that input's UTXO tree. Length N.
-    utxo_tree_root_index: Vec<u16>,
-    /// Per input UTXO: index into the root cache of that input's nullifier tree. Length N.
-    nullifier_tree_root_index: Vec<u16>,
-    /// Public input to the SPP proof; defined under
-    /// [SPP Proof](#spp-proof---solana-privacy-zk-proof). The proof verifies the
-    /// owner's P256 signature over this value.
-    private_tx_hash: [u8; 32],
+    inputs: Vec<InputUtxo>,
     /// `Some` for shield/unshield SOL, `None` for shielded transfer.
     public_sol_amount: Option<u64>,
     /// `Some` for shield/unshield SPL, `None` for shielded transfer.
     public_spl_amount: Option<u64>,
     /// Declares that a program is signer, and checks that the pda derivation matches seed ["auth"] with program id and bump. Passes program as signer into the zk proof verification.
-    cpi_signer: Option<(program_id, bump)>,
-    /// (account index, input utxo index); names an input UTXO's Ed25519
-    /// owner-signer. `None` when all inputs are P256-owned.
-    in_utxo_signer_indices: Option<Vec<(u8, u8)>>,
-    /// Not parsed by the program. Layout per Output UTXO Serialization,
-    /// encrypted or [Plaintext Transfer](#plaintext-transfer).
-    encrypted_utxos: Vec<u8>,
+    /// private_tx_hash is used by zk programs to ensure that those compute over the same data as the SPP proof.
+    cpi_signer: Option<(program_id, bump, private_tx_hash)>,
+    /// The sender's own output (change) slot. Its `view_tag` is
+    /// `get_sender_view_tag(tx_count)`, signed alongside the inputs
+    /// (prover-replay protection) and inserted into the nullifier tree
+    /// (reuse protection).
+    sender_utxo_data: OutputUtxo,
+    /// Recipient output slots.
+    recipient_utxo_data: Vec<OutputUtxo>,
 }
 ```
 
@@ -1174,15 +1184,64 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`)
-2. Each `utxo_tree_root_index[i]` and each `nullifier_tree_root_index[i]` references a non-stale root.
+2. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root.
 3. `tree_account` is not paused.
 4. Proof verifies against public inputs.
-5. Append each `output_utxo_hashes[i]` to the UTXO sparse Merkle tree.
-6. Insert each nullifier into the nullifier queue.
-7. Insert `sender_view_tag` into the nullifier queue. Rejects on duplicate, so each sender `tx_count` slot is used at most once in the nullifier tree. SPP does not check the contents of `encrypted_utxos`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt).
+5. Append each output `utxo_hash` (sender slot, then recipients) to the UTXO sparse Merkle tree.
+6. Insert each input's `nullifier_hash` into the nullifier queue.
+7. Insert `sender_utxo_data.view_tag` into the nullifier queue. Rejects on duplicate, so each sender `tx_count` slot is used at most once in the nullifier tree. SPP does not check the `data` of any `OutputUtxo`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt).
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
-10. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
+10. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
+11. Only UTXOs owned by the invoking program can hold data. The easiest is probably that only the signer can write to UTXOs it owns and so that all utxos are owned by the pda derived from [b'auth'].
+
+**Event**
+
+The event records the values assigned at execution (input queue sequence numbers, output leaf indices) together with the instruction-data fields an indexer needs. For a transact the [`GeneralEvent`](#general-event) is populated as:
+
+```rust
+GeneralEvent {
+    inputs: instruction_data
+        .inputs
+        .iter()
+        .zip(input_queue_seqs) // assigned at nullifier queue insert
+        .map(|(input, input_queue_seq)| Input {
+            // tree_index 0 means the output tree.
+            tree: input_tree(input.tree_index),
+            input_queue_seq,
+            nullifier: input.nullifier_hash,
+        })
+        .collect(),
+    // Sender's change output first, then recipients.
+    outputs: once(&instruction_data.sender_utxo_data)
+        .chain(&instruction_data.recipient_utxo_data)
+        .map(|slot| Output {
+            tag: slot.view_tag,
+            hash: slot.utxo_hash,
+            data: slot.data.clone(),
+        })
+        .collect(),
+    first_output_leaf_index,
+    output_tree: tree_account,
+    // None on shield (payer = user), Some on relayed transfer/unshield.
+    relay_fee: (instruction_data.relayer_fee != 0)
+        .then_some(instruction_data.relayer_fee as u64),
+    // Some for shield/unshield, None for shielded transfer. is_deposit = true
+    // when value enters the pool (shield).
+    deposit_withdraw: match (
+        instruction_data.public_sol_amount,
+        instruction_data.public_spl_amount,
+    ) {
+        (Some(amount), None) => Some(DepositWithdraw { is_deposit, amount, asset: None }),
+        (None, Some(amount)) => Some(DepositWithdraw { is_deposit, amount, asset: Some(mint) }),
+        (None, None) => None,
+        // Checks reject a deposit that is both SOL and SPL.
+        (Some(_), Some(_)) => unreachable!(),
+    },
+}
+```
+
+`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`0` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a shield).
 
 ### `proofless_shield`
 
@@ -1241,9 +1300,9 @@ blinding := HKDF-SHA256(salt=∅, IKM=ikm, info="TSPP/proofless_shield/blinding"
 
 **Event**
 
-The event lets an indexer index the created UTXO: its hash, asset, and the
-recipient-recognition fields do not exist in instruction data. For a proofless
-shield the [`GeneralEvent`](#general-event) is populated as:
+The event lets an indexer index the created UTXO: its hash and mint do not
+exist in instruction data. For a proofless shield the
+[`GeneralEvent`](#general-event) is populated as:
 
 ```rust
 GeneralEvent {
@@ -1285,10 +1344,10 @@ the event unchecked.
 
 ### General Event
 
-The canonical event emitted via [`emit_event`](#instructions) self-CPI by
-state-changing instructions. It lets an indexer reconstruct nullifier insertions
-and UTXO appends without parsing instruction data, since output hashes and leaf
-indices are not present there.
+The event emitted via [`emit_event`](#instructions) self-CPI by state-changing
+instructions. It records the queue sequence numbers and leaf indices assigned at
+execution, which are absent from instruction data, so an indexer can reconstruct
+nullifier insertions and UTXO appends.
 
 ```rust
 struct GeneralEvent {
@@ -1318,7 +1377,7 @@ struct Output {
     data: Vec<u8>,
 }
 
-/// Output payload. SPP treats it as opaque bytes except for proofless shield.
+/// Output payload. SPP does not parse it except for proofless shield.
 enum Data {
     Unknown(Vec<u8>),
     Proofless(ProoflessOutput),
@@ -1588,8 +1647,9 @@ struct ShieldedTransaction {
     /// [Plaintext Transfer](#plaintext-transfer) blob.
     tx_viewing_pk: Option<P256Pubkey>,
     /// Output slots in UTXO-tree-append order. For `proofless_shield`,
-    /// each slot's `payload` is the `ProoflessShieldEvent` bytes as emitted;
-    /// for [Plaintext Transfer](#plaintext-transfer), the plaintext bytes.
+    /// each slot's `payload` is the serialized [`ProoflessOutput`](#general-event)
+    /// from the emitted [`GeneralEvent`](#general-event); for
+    /// [Plaintext Transfer](#plaintext-transfer), the plaintext bytes.
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
