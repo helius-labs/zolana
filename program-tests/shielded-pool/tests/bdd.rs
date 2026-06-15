@@ -1,9 +1,9 @@
 //! Cucumber/Gherkin BDD suite for the shielded-pool litesvm program tests.
 //!
 //! Mirrors the SDK BDD harness (`sdk-libs/transaction/tests/bdd.rs`): a single
-//! `World` carries the booted litesvm rig and the per-scenario fixtures, step
-//! definitions live under `tests/steps`, and the features live under
-//! `tests/features`.
+//! `World` carries the booted program-test environment and the per-scenario
+//! fixtures, step definitions live under `tests/steps`, and the features live
+//! under `tests/features`.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` (and, for the zone
 //! scenarios, `-p zone-test-program`) to have produced the `.so` binaries.
@@ -19,8 +19,8 @@ use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 use zolana_transaction::Wallet;
 
 #[derive(Default, World)]
-pub struct PoolWorld {
-    rig: Option<ZolanaProgramTest>,
+pub struct ShieldedPoolWorld {
+    rpc: Option<ZolanaProgramTest>,
     authority: Option<Keypair>,
     tree: Option<Keypair>,
     depositor: Option<Keypair>,
@@ -39,15 +39,19 @@ pub struct PoolWorld {
     zone_program_loaded: bool,
 }
 
-impl std::fmt::Debug for PoolWorld {
+impl std::fmt::Debug for ShieldedPoolWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PoolWorld")
+        f.write_str("ShieldedPoolWorld")
     }
 }
 
-impl PoolWorld {
-    pub fn rig(&mut self) -> &mut ZolanaProgramTest {
-        self.rig.as_mut().expect("pool booted")
+impl ShieldedPoolWorld {
+    pub fn rpc(&mut self) -> &mut ZolanaProgramTest {
+        self.rpc.as_mut().expect("pool booted")
+    }
+
+    pub fn rpc_ref(&self) -> &ZolanaProgramTest {
+        self.rpc.as_ref().expect("pool booted")
     }
 
     pub fn authority(&self) -> &Keypair {
@@ -83,7 +87,7 @@ impl PoolWorld {
 
 #[tokio::main]
 async fn main() {
-    PoolWorld::cucumber()
+    ShieldedPoolWorld::cucumber()
         .fail_on_skipped()
         .run_and_exit("tests/features")
         .await;
