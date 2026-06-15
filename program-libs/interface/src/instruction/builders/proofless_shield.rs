@@ -65,23 +65,19 @@ impl ProoflessShieldAccounts {
     }
 }
 
-pub fn proofless_shield(
-    accounts: ProoflessShieldAccounts,
-    data: &ProoflessShieldIxData,
-) -> Instruction {
-    Instruction {
-        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        accounts: accounts.account_metas(),
-        data: proofless_shield_data(data),
-    }
-}
+impl ProoflessShieldIxData {
+    pub fn instruction(&self, accounts: ProoflessShieldAccounts) -> Instruction {
+        let mut data = vec![tag::PROOFLESS_SHIELD];
+        data.extend_from_slice(
+            &self
+                .serialize()
+                .expect("proofless ix data serialization is infallible"),
+        );
 
-fn proofless_shield_data(data: &ProoflessShieldIxData) -> Vec<u8> {
-    let mut instruction_data = vec![tag::PROOFLESS_SHIELD];
-    instruction_data.extend_from_slice(
-        &data
-            .serialize()
-            .expect("proofless ix data serialization is infallible"),
-    );
-    instruction_data
+        Instruction {
+            program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+            accounts: accounts.account_metas(),
+            data,
+        }
+    }
 }

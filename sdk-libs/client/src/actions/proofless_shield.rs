@@ -5,9 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
-    proofless_shield as proofless_shield_ix, ProoflessShieldAccounts, ProoflessShieldIxData,
-};
+use zolana_interface::instruction::{ProoflessShieldAccounts, ProoflessShieldIxData};
 
 use crate::error::ClientError;
 use crate::rpc::Rpc;
@@ -25,7 +23,7 @@ pub fn proofless_shield<R: Rpc>(
     depositor: &Keypair,
     data: &ProoflessShieldIxData,
 ) -> Result<Signature, ClientError> {
-    let ix = proofless_shield_ix(ProoflessShieldAccounts::sol(tree, depositor.pubkey()), data);
+    let ix = data.instruction(ProoflessShieldAccounts::sol(tree, depositor.pubkey()));
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);

@@ -17,8 +17,8 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
-    create_spl_interface, create_zone_config, proofless_shield, zone_proofless_shield_cpi,
-    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldIxData,
+    create_spl_interface, create_zone_config, zone_proofless_shield_cpi, CpiSignerData,
+    CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldIxData,
     ProoflessShieldSplAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
@@ -369,10 +369,7 @@ fn proofless_shield_account_layouts() {
         registry: Pubkey::new_unique(),
         token_program: Pubkey::new_unique(),
     };
-    let ix = proofless_shield(
-        ProoflessShieldAccounts::spl(tree, depositor, spl_accounts),
-        &data,
-    );
+    let ix = data.instruction(ProoflessShieldAccounts::spl(tree, depositor, spl_accounts));
 
     assert_eq!(
         ix.program_id,

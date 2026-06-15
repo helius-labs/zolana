@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::event::ProoflessShieldView;
 use zolana_interface::instruction::{
-    proofless_shield, ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts,
+    ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts,
 };
 
 use crate::{single_proofless_shield_view, ProgramTestError, ZolanaProgramTest};
@@ -16,10 +16,7 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let ix = proofless_shield(
-            ProoflessShieldAccounts::sol(*tree, depositor.pubkey()),
-            data,
-        );
+        let ix = data.instruction(ProoflessShieldAccounts::sol(*tree, depositor.pubkey()));
         self.send_proofless_shield_ix(ix, depositor)
     }
 
@@ -31,19 +28,16 @@ impl ZolanaProgramTest {
         mint: &Pubkey,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let ix = proofless_shield(
-            ProoflessShieldAccounts::spl(
-                *tree,
-                depositor.pubkey(),
-                ProoflessShieldSplAccounts {
-                    user_token: *user_token,
-                    vault: self.spl_asset_vault_pda(mint),
-                    registry: self.spl_asset_registry_pda(mint),
-                    token_program: Self::token_program_id(),
-                },
-            ),
-            data,
-        );
+        let ix = data.instruction(ProoflessShieldAccounts::spl(
+            *tree,
+            depositor.pubkey(),
+            ProoflessShieldSplAccounts {
+                user_token: *user_token,
+                vault: self.spl_asset_vault_pda(mint),
+                registry: self.spl_asset_registry_pda(mint),
+                token_program: Self::token_program_id(),
+            },
+        ));
         self.send_proofless_shield_ix(ix, depositor)
     }
 
@@ -53,10 +47,10 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let mut ix = proofless_shield(
-            ProoflessShieldAccounts::sol(Pubkey::default(), depositor.pubkey()),
-            data,
-        );
+        let mut ix = data.instruction(ProoflessShieldAccounts::sol(
+            Pubkey::default(),
+            depositor.pubkey(),
+        ));
         ix.program_id = self.program_id;
         ix.accounts = accounts;
         self.send_proofless_shield_ix(ix, depositor)
