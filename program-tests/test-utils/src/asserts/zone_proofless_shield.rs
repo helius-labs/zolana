@@ -1,7 +1,7 @@
 //! Post-instruction checks for `zone_proofless_shield` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{ProoflessShieldEvent, ZoneProoflessShieldIxData};
+use zolana_interface::{event::ProoflessShieldEvent, instruction::ZoneProoflessShieldIxData};
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 

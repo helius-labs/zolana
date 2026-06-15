@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::instruction::{tag, ProoflessShieldEvent};
+use crate::instruction::tag;
 
 pub mod kind {
     pub const PROOFLESS_SHIELD: u8 = 1;
@@ -26,6 +26,21 @@ impl TryFrom<u8> for EventKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShieldedPoolEvent {
     ProoflessShield(ProoflessShieldEvent),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ProoflessShieldEvent {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    pub asset: [u8; 32],
+    pub amount: u64,
+    pub zone_program_id: Option<[u8; 32]>,
+    pub policy_data_hash: Option<[u8; 32]>,
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub program_data_hash: Option<[u8; 32]>,
+    pub program_data: Option<Vec<u8>>,
+    pub zone_data: Option<Vec<u8>>,
 }
 
 impl ShieldedPoolEvent {

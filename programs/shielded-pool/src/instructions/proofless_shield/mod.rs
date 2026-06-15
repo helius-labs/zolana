@@ -5,10 +5,10 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::event::{encode_event_instruction, ShieldedPoolEvent};
+use zolana_interface::event::{encode_event_instruction, ProoflessShieldEvent, ShieldedPoolEvent};
 use zolana_interface::instruction::{
-    CpiSignerData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
+    CpiSignerData, ProoflessShieldIxData, TransactIxData, ZoneProoflessShieldIxData,
+    PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::{SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, UTXO_DOMAIN};
 

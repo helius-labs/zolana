@@ -1,9 +1,11 @@
-use zolana_interface::instruction::{
-    ProoflessShieldEvent, ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
-    PUBLIC_AMOUNT_DEPOSIT_SPL,
+use zolana_interface::{
+    event::ProoflessShieldEvent,
+    instruction::{ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL},
 };
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::{Address, Data, DataRecord, ProoflessDepositEvent, Wallet};
+use zolana_transaction::{
+    owner_utxo_hash, Address, Data, DataRecord, ProoflessDepositEvent, TransactionError, Wallet,
+};
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 
@@ -43,8 +45,16 @@ pub(crate) fn wallet_shield_fields(
     let mut salt = [0u8; 16];
     salt.copy_from_slice(&blinding_seed[..16]);
     salt[15] ^= position;
-    let blinding = recipient.proofless_blinding(&salt)?;
-    let owner_utxo_hash = recipient.proofless_owner_utxo_hash(&blinding)?;
+    let blinding = recipient
+        .keypair
+        .viewing_key
+        .derive_proofless_blinding(&salt)
+        .map_err(TransactionError::from)?;
+    let owner_hash = recipient
+        .keypair
+        .owner_hash()
+        .map_err(TransactionError::from)?;
+    let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
     Ok(WalletShieldFields {
         view_tag: recipient.keypair.recipient_bootstrap_view_tag(),
         owner_utxo_hash,

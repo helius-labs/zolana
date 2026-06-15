@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
@@ -9,7 +8,7 @@ use super::transact::CpiSignerData;
 ///
 /// The program hashes the recipient's UTXO from these fields plus the settled
 /// deposit amount/asset, appends the hash to the UTXO tree, and emits a
-/// [`ProoflessShieldEvent`] for indexing. The owner is committed as
+/// [`crate::event::ProoflessShieldEvent`] for indexing. The owner is committed as
 /// `owner_utxo_hash = Poseidon(owner, blinding)` with the blinding derived
 /// from the recipient's view-tag secret and `salt` (spec: Blinding
 /// derivation), so the recipient is hidden even though the deposit is public.
@@ -88,25 +87,4 @@ impl ZoneProoflessShieldIxData {
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
     }
-}
-
-/// Event emitted via [`tag::EMIT_EVENT`](crate::instruction::tag::EMIT_EVENT)
-/// self-CPI after a `proofless_shield`. It lets an indexer index the created
-/// UTXO: the utxo hash and the mint address do not exist in the instruction
-/// data.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct ProoflessShieldEvent {
-    pub view_tag: [u8; 32],
-    pub utxo_hash: [u8; 32],
-    /// Deposited mint; reaches the instruction via accounts only.
-    pub asset: [u8; 32],
-    pub amount: u64,
-    /// From `cpi_signer`.
-    pub zone_program_id: Option<[u8; 32]>,
-    pub policy_data_hash: Option<[u8; 32]>,
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; 16],
-    pub program_data_hash: Option<[u8; 32]>,
-    pub program_data: Option<Vec<u8>>,
-    pub zone_data: Option<Vec<u8>>,
 }

@@ -3,11 +3,12 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
+    event::ProoflessShieldEvent,
     instruction::{
         encode_instruction, tag, update_zone_config as update_zone_config_ix,
         update_zone_config_owner as update_zone_config_owner_ix, zone_proofless_shield,
-        CpiSignerData, CreateZoneConfigData, ProoflessShieldEvent, UpdateZoneConfigData,
-        UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+        CpiSignerData, CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     },
     SPP_ZONE_CONFIG_PDA_SEED,
 };
