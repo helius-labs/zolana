@@ -60,9 +60,9 @@ Feature: Proofless SOL shield
     When the depositor sends truncated instruction data
     Then the operation is rejected as invalid instruction data
 
-  Scenario: Directly invoking emit-event is rejected
+  Scenario: Directly invoking emit-event is ignored by the indexer
     When the payer invokes emit-event directly
-    Then the operation is rejected as unauthorized
+    Then no event is indexed
 
   Scenario: Too few accounts is rejected
     When the depositor shields with too few accounts

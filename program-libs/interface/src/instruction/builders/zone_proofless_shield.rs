@@ -6,10 +6,6 @@ use crate::{
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
 };
 
-/// Build a zone-mediated proofless SOL shield instruction. Unlike the direct
-/// path this targets the zone program (which CPIs into the pool), so the zone
-/// program id and its zone-auth PDA are caller-supplied; the canonical SPP
-/// program id and CPI authority remain fixed protocol constants.
 pub fn zone_proofless_shield(
     zone_program_id: Pubkey,
     zone_auth: Pubkey,
@@ -20,9 +16,6 @@ pub fn zone_proofless_shield(
     build_zone_proofless_shield(zone_program_id, zone_auth, tree, depositor, data, false)
 }
 
-/// Build the shielded-pool CPI made by a zone program after receiving
-/// [`zone_proofless_shield`]. The account layout is the same, but the CPI
-/// targets SPP and marks the zone-auth PDA as signer.
 pub fn zone_proofless_shield_cpi(
     zone_auth: Pubkey,
     tree: Pubkey,

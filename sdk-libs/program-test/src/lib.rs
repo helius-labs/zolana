@@ -32,10 +32,10 @@ use zolana_interface::{
 mod admin;
 pub mod events;
 pub use events::{
-    index_events, indexed_events_from_instructions, indexed_events_from_meta,
-    parsed_instruction_from_compiled, single_proofless_shield_event, IndexedEvent,
-    ParsedInstruction,
+    index_events, indexed_events_from_meta, parsed_instruction_from_compiled,
+    parsed_instruction_groups_from_meta, single_proofless_shield_event,
 };
+pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 pub mod indexer;
 pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};
 pub mod instructions;

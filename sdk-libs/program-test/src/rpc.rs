@@ -56,7 +56,12 @@ impl ZolanaProgramTest {
                 )));
             }
         };
-        let events = indexed_events_from_meta(self.program_id, &message.account_keys, &meta)?;
+        let events = indexed_events_from_meta(
+            self.program_id,
+            &message.account_keys,
+            &message.instructions,
+            &meta,
+        )?;
         index_events(&mut self.indexer, &events)?;
         log_transaction(self.program_id, slot, &message, &meta, &events);
         Ok(IndexedTransaction { signature, events })

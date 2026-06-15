@@ -376,17 +376,16 @@ fn truncated_data(world: &mut PoolWorld) {
 #[when(expr = "the payer invokes emit-event directly")]
 fn direct_emit_event(world: &mut PoolWorld) {
     let program_id = world.rig().program_id;
-    let payer = world.rig().payer.pubkey();
     let ix = Instruction {
         program_id,
-        accounts: vec![AccountMeta::new_readonly(payer, true)],
+        accounts: Vec::new(),
         data: vec![tag::EMIT_EVENT],
     };
-    let err = world
+    let outcome = world
         .rig()
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .unwrap_err();
-    world.last_error = Some(err);
+        .expect("emit_event no-op");
+    assert!(outcome.events.is_empty(), "direct emit_event was indexed");
 }
 
 // === not enough accounts ===

@@ -1,14 +1,16 @@
 //! Local-validator proofless shield test.
 
 use solana_keypair::Keypair;
-use solana_message::{compiled_instruction::CompiledInstruction, Message};
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
-    event::ProoflessShieldEvent,
+    event::{
+        indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldEvent,
+    },
     instruction::{
         create_protocol_config, proofless_shield, tag, zone_proofless_shield,
         CreateProtocolConfigData, ProoflessShieldAccounts,
@@ -18,10 +20,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
-    create_tree_instructions, index_events, indexed_events_from_instructions,
-    parsed_instruction_from_compiled, protocol_config_pda, rpc_state_root,
-    single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction, TestIndexer,
-    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, index_events, parsed_instruction_from_compiled, protocol_config_pda,
+    rpc_state_root, single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction,
+    TestIndexer, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -187,43 +188,17 @@ fn fetch_indexed_events(
     program_id: Pubkey,
     signature: &Signature,
 ) -> TestResult<Vec<IndexedEvent>> {
-    let inner = rpc.fetch_confirmed_inner_instructions(signature)?;
-    let instructions = inner
-        .instructions
-        .iter()
-        .map(|instruction| parsed_instruction_from_compiled(&inner.account_keys, instruction))
-        .collect::<Result<Vec<_>, _>>()?;
-    let events = indexed_events_from_instructions(program_id, &instructions)?;
+    let confirmed = rpc.fetch_confirmed_instruction_groups(signature)?;
+    let events = indexed_events_from_instruction_groups(program_id, &confirmed.groups);
     index_events(indexer, &events)?;
     Ok(events)
 }
 
 fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     message.instructions.iter().any(|instruction| {
-        let Some(ix_tag) = instruction.data.first().copied() else {
-            return false;
-        };
-        match ix_tag {
-            tag::PROOFLESS_SHIELD => {
-                instruction_program_id(message, instruction) == Some(program_id)
-            }
-            tag::ZONE_PROOFLESS_SHIELD => {
-                instruction_program_id(message, instruction) == Some(program_id)
-                    || instruction
-                        .accounts
-                        .iter()
-                        .any(|index| message.account_keys.get(*index as usize) == Some(&program_id))
-            }
-            _ => false,
-        }
+        parsed_instruction_from_compiled(&message.account_keys, instruction, Some(1))
+            .is_ok_and(|instruction| instruction_may_emit_events(program_id, &instruction))
     })
-}
-
-fn instruction_program_id(message: &Message, instruction: &CompiledInstruction) -> Option<Pubkey> {
-    message
-        .account_keys
-        .get(instruction.program_id_index as usize)
-        .copied()
 }
 
 fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) -> TestResult {
