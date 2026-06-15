@@ -222,12 +222,15 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 transact_fields,
                 &["authority", "tree"],
             ),
-            tag::PROOFLESS_SHIELD => decode(
-                "proofless_shield",
-                payload,
-                proofless_fields,
-                proofless_accounts(payload, accounts.len()),
-            ),
+            tag::PROOFLESS_SHIELD => ProoflessShieldIxData::deserialize(payload)
+                .ok()
+                .and_then(|data| {
+                    decoded_instruction(
+                        "proofless_shield",
+                        proofless_fields(data),
+                        proofless_accounts(payload, accounts.len()),
+                    )
+                }),
             tag::CREATE_SPL_INTERFACE => decode_no_data(
                 "create_spl_interface",
                 payload,
@@ -297,20 +300,23 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 proofless_event_fields,
                 &["event_authority"],
             ),
-            tag::ZONE_PROOFLESS_SHIELD => decode(
-                "zone_proofless_shield",
-                payload,
-                zone_proofless_fields,
-                &[
-                    "tree",
-                    "depositor",
-                    "zone_auth",
-                    "system_program",
-                    "cpi_authority",
-                    "sol_source",
-                    "self_program",
-                ],
-            ),
+            tag::ZONE_PROOFLESS_SHIELD => ZoneProoflessShieldIxData::deserialize(payload)
+                .ok()
+                .and_then(|data| {
+                    decoded_instruction(
+                        "zone_proofless_shield",
+                        zone_proofless_fields(data),
+                        &[
+                            "tree",
+                            "depositor",
+                            "zone_auth",
+                            "system_program",
+                            "cpi_authority",
+                            "sol_source",
+                            "self_program",
+                        ],
+                    )
+                }),
             tag::BATCH_UPDATE_NULLIFIER_TREE => decode(
                 "batch_update_nullifier_tree",
                 payload,
@@ -359,8 +365,23 @@ where
     })
 }
 
+/// Build a [`DecodedInstruction`] from already-parsed fields. Used for the
+/// wincode-encoded proofless shields, whose on-wire instruction data is decoded
+/// by the interface struct's inherent `deserialize` rather than borsh.
+fn decoded_instruction(
+    name: &'static str,
+    fields: Vec<DecodedField>,
+    account_names: &[&str],
+) -> Option<DecodedInstruction> {
+    Some(DecodedInstruction::with_fields_and_accounts(
+        name,
+        fields,
+        account_names.iter().map(|name| name.to_string()).collect(),
+    ))
+}
+
 fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'static str] {
-    let Ok(data) = ProoflessShieldIxData::try_from_slice(payload) else {
+    let Ok(data) = ProoflessShieldIxData::deserialize(payload) else {
         return &[];
     };
     if data.public_spl_amount.is_some() {
@@ -535,10 +556,7 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{
-        instruction::{encode_instruction, CpiSignerData},
-        SHIELDED_POOL_PROGRAM_ID,
-    };
+    use zolana_interface::{instruction::CpiSignerData, SHIELDED_POOL_PROGRAM_ID};
 
     use super::*;
 
@@ -547,8 +565,8 @@ mod tests {
         let decoder = ZolanaInstructionDecoder {
             program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         };
-        let data = encode_instruction(
-            tag::PROOFLESS_SHIELD,
+        let mut data = vec![tag::PROOFLESS_SHIELD];
+        data.extend_from_slice(
             &ProoflessShieldIxData {
                 view_tag: [1; 32],
                 owner_utxo_hash: [2; 32],
@@ -561,7 +579,9 @@ mod tests {
                     program_id: [4; 32],
                     bump: 255,
                 }),
-            },
+            }
+            .serialize()
+            .expect("serialize"),
         );
 
         let decoded = decoder.decode(&data, &[]).expect("decode");

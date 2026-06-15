@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{encode_instruction, tag, ZoneProoflessShieldIxData},
+    instruction::{tag, ZoneProoflessShieldIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -17,6 +17,13 @@ pub fn zone_proofless_shield(
     depositor: Pubkey,
     data: &ZoneProoflessShieldIxData,
 ) -> Instruction {
+    let mut instruction_data = vec![tag::ZONE_PROOFLESS_SHIELD];
+    instruction_data.extend_from_slice(
+        &data
+            .serialize()
+            .expect("zone proofless ix data serialization is infallible"),
+    );
+
     Instruction {
         program_id: zone_program_id,
         accounts: vec![
@@ -28,6 +35,6 @@ pub fn zone_proofless_shield(
             AccountMeta::new(depositor, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ],
-        data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
+        data: instruction_data,
     }
 }

@@ -7334,6 +7334,7 @@ dependencies = [
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "solana-instruction",
  "solana-pubkey 4.2.0",
+ "wincode",
 ]
 
 [[package]]

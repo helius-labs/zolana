@@ -1,4 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use wincode::containers;
+use wincode::len::FixIntLen;
+use wincode::{SchemaRead, SchemaWrite};
 
 use super::transact::CpiSignerData;
 
@@ -12,7 +15,7 @@ use super::transact::CpiSignerData;
 /// derivation), so the recipient is hidden even though the deposit is public.
 /// The amount is taken from the actual public deposit, so a depositor cannot
 /// mint a UTXO worth more than they deposited.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ProoflessShieldIxData {
     /// Indexing tag for the single output slot; chosen per the spec's View
     /// Tag Selection.
@@ -31,17 +34,28 @@ pub struct ProoflessShieldIxData {
     /// Program-defined data hash; requires `cpi_signer`.
     pub program_data_hash: Option<[u8; 32]>,
     /// Preimage of `program_data_hash`.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub program_data: Option<Vec<u8>>,
     /// Invoking program PDA (general program owner, seed `auth`); see
     /// `transact`. Policy-zone deposits use [`ZoneProoflessShieldIxData`].
     pub cpi_signer: Option<CpiSignerData>,
 }
 
+impl ProoflessShieldIxData {
+    pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
+        Ok(wincode::serialize(self)?)
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
+        Ok(wincode::deserialize_exact(data)?)
+    }
+}
+
 /// Policy-zone analog of [`ProoflessShieldIxData`] (spec:
 /// `zone_proofless_shield`, tag 15). A zone program CPIs into SPP signing with
 /// its `zone_auth` PDA (seed `zone_auth`); the created UTXO is owned by the
 /// zone and additionally carries the zone's `policy_data`.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ZoneProoflessShieldIxData {
     /// As in [`ProoflessShieldIxData`].
     pub view_tag: [u8; 32],
@@ -54,11 +68,23 @@ pub struct ZoneProoflessShieldIxData {
     /// Zone-defined policy data hash.
     pub policy_data_hash: Option<[u8; 32]>,
     /// Preimage of `policy_data_hash`.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub zone_data: Option<Vec<u8>>,
     /// Program-defined data hash.
     pub program_data_hash: Option<[u8; 32]>,
     /// Preimage of `program_data_hash`.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub program_data: Option<Vec<u8>>,
+}
+
+impl ZoneProoflessShieldIxData {
+    pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
+        Ok(wincode::serialize(self)?)
+    }
+
+    pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
+        Ok(wincode::deserialize_exact(data)?)
+    }
 }
 
 /// Event emitted via [`tag::EMIT_EVENT`](crate::instruction::tag::EMIT_EVENT)

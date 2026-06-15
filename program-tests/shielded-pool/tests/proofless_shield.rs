@@ -8,9 +8,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
-    encode_instruction, tag, CpiSignerData, ProoflessShieldIxData,
-};
+use zolana_interface::instruction::{tag, CpiSignerData, ProoflessShieldIxData};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -168,9 +166,11 @@ fn send_raw(
     depositor: &Keypair,
     accounts: Vec<AccountMeta>,
 ) -> Result<(), zolana_program_test::ProgramTestError> {
-    let data = encode_instruction(
-        tag::PROOFLESS_SHIELD,
-        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32]),
+    let mut data = vec![tag::PROOFLESS_SHIELD];
+    data.extend_from_slice(
+        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32])
+            .serialize()
+            .expect("proofless ix data serialization is infallible"),
     );
     let ix = Instruction {
         program_id: program_test.program_id,
