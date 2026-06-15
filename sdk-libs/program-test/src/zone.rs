@@ -4,8 +4,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CpiSignerData, CreateZoneConfigData, ProoflessShieldEvent,
-        UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+        encode_instruction, tag, zone_proofless_shield, CpiSignerData, CreateZoneConfigData,
+        ProoflessShieldEvent, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        ZoneProoflessShieldIxData,
     },
     SPP_ZONE_CONFIG_PDA_SEED,
 };
@@ -13,7 +14,7 @@ use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::Wallet;
 
 use crate::{
-    instructions::{zone_auth_pda, zone_proofless_shield_sol_instruction, ZONE_TEST_PROGRAM_ID},
+    instructions::{zone_auth_pda, ZONE_TEST_PROGRAM_ID},
     paths::default_zone_test_program_path,
     single_proofless_shield_event,
     wallet_data::wallet_shield_fields,
@@ -193,13 +194,11 @@ impl ZolanaProgramTest {
         data: &ZoneProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let (zone_auth, _) = self.zone_auth_pda();
-        let ix = zone_proofless_shield_sol_instruction(
-            self.program_id,
+        let ix = zone_proofless_shield(
             Self::zone_test_program_id(),
+            zone_auth,
             tree.pubkey(),
             depositor.pubkey(),
-            zone_auth,
-            self.cpi_authority(),
             data,
         );
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;

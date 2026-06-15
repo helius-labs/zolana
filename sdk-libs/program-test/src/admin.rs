@@ -3,13 +3,12 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    encode_instruction, tag, PauseTreeData, UpdateProtocolConfigData,
+    create_protocol_config, encode_instruction, tag, CreateProtocolConfigData, PauseTreeData,
+    UpdateProtocolConfigData,
 };
 
 use crate::{
-    instructions::{
-        create_protocol_config_instruction, create_tree_instructions, protocol_config_pda,
-    },
+    instructions::{create_tree_instructions, protocol_config_pda},
     ProgramTestError, ZolanaProgramTest,
 };
 
@@ -32,10 +31,13 @@ impl ZolanaProgramTest {
     ) -> Result<Pubkey, ProgramTestError> {
         self.airdrop(&authority.pubkey(), 1_000_000_000)?;
         let config = self.protocol_config_pda();
-        let ix = create_protocol_config_instruction(
-            self.program_id,
+        let ix = create_protocol_config(
             authority.pubkey(),
-            merge_authorities,
+            config,
+            CreateProtocolConfigData {
+                authority: authority.pubkey().to_bytes(),
+                merge_authorities,
+            },
         );
         self.send(&[ix], &[authority])?;
         Ok(config)

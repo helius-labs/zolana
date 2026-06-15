@@ -3,13 +3,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    encode_instruction, tag, ProoflessShieldEvent, ProoflessShieldIxData,
+    encode_instruction, proofless_shield, tag, ProoflessShieldEvent, ProoflessShieldIxData,
 };
 
-use crate::{
-    instructions::proofless_shield_sol_instruction, single_proofless_shield_event,
-    ProgramTestError, ZolanaProgramTest,
-};
+use crate::{single_proofless_shield_event, ProgramTestError, ZolanaProgramTest};
 
 impl ZolanaProgramTest {
     pub fn proofless_shield(
@@ -18,13 +15,7 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
-        let ix = proofless_shield_sol_instruction(
-            self.program_id,
-            tree.pubkey(),
-            depositor.pubkey(),
-            self.cpi_authority(),
-            data,
-        );
+        let ix = proofless_shield(tree.pubkey(), depositor.pubkey(), data);
         self.send_proofless_shield_ix(ix, depositor)
     }
 
