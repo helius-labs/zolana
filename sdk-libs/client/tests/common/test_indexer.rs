@@ -7,12 +7,12 @@ use num_bigint::BigUint;
 use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
     CircuitType, ClientError, InputCommitment, NullifierNonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, RpcBlocking, SignedTransaction, SpendProof, StateInclusionProof,
+    ProveResult, ProverClient, Rpc, SignedTransaction, SpendProof, StateInclusionProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 
 /// Wraps a Poseidon state tree (UTXO inclusion) and an indexed Poseidon nullifier
-/// tree (nullifier non-inclusion) so it can answer [`RpcBlocking`] proof queries with
+/// tree (nullifier non-inclusion) so it can answer [`Rpc`] proof queries with
 /// proofs consistent under one root each, and prove a transaction end to end.
 pub struct TestIndexer {
     state_tree: MerkleTree<Poseidon>,
@@ -93,7 +93,7 @@ impl Default for TestIndexer {
     }
 }
 
-impl RpcBlocking for TestIndexer {
+impl Rpc for TestIndexer {
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[InputCommitment],

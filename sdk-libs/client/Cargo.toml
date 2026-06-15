@@ -5,6 +5,10 @@ description = "Host-side Groth16 witness builder for SPP transaction circuits (t
 license = "Apache-2.0"
 edition.workspace = true
 
+[features]
+default = []
+solana-rpc = ["dep:solana-rpc-client", "dep:solana-commitment-config", "dep:solana-pubkey"]
+
 [dependencies]
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
@@ -28,6 +32,9 @@ solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-signature = { workspace = true }
 solana-rpc-client-api = { workspace = true }
+solana-rpc-client = { workspace = true, optional = true }
+solana-commitment-config = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }
 solana-transaction = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 

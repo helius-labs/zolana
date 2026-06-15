@@ -24,6 +24,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use thiserror::Error;
+use zolana_client::ClientError;
 use zolana_interface::{
     state::state_root_offset, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -47,9 +48,12 @@ mod paths;
 use paths::default_program_path;
 mod proofless;
 pub mod rpc;
+pub use rpc::IndexedTransaction;
 #[cfg(feature = "solana-rpc")]
-pub use rpc::SolanaRpc;
-pub use rpc::{IndexedTransaction, Rpc};
+pub use rpc::send_and_index;
+pub use zolana_client::Rpc;
+#[cfg(feature = "solana-rpc")]
+pub use zolana_client::SolanaRpc;
 mod spl;
 mod wallet_data;
 pub use wallet_data::proofless_event_for_wallet;
@@ -71,6 +75,12 @@ pub enum ProgramTestError {
     Event(String),
     #[error("rpc: {0}")]
     Rpc(String),
+}
+
+impl From<ClientError> for ProgramTestError {
+    fn from(e: ClientError) -> Self {
+        ProgramTestError::Rpc(e.to_string())
+    }
 }
 
 pub struct ZolanaProgramTest {
@@ -145,7 +155,10 @@ impl ZolanaProgramTest {
     }
 
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), ProgramTestError> {
-        Rpc::airdrop(self, pubkey, lamports).map(|_| ())
+        self.svm
+            .airdrop(pubkey, lamports)
+            .map(|_| ())
+            .map_err(|err| ProgramTestError::Litesvm(format!("airdrop: {err:?}")))
     }
 
     /// The on-chain state sub-tree root of a pool tree account.
@@ -173,7 +186,7 @@ impl ZolanaProgramTest {
         let mut all_signers = Vec::with_capacity(signers.len() + 1);
         all_signers.push(&payer);
         all_signers.extend_from_slice(signers);
-        Rpc::create_and_send_transaction(self, ixs, &payer_pubkey, &all_signers)
+        self.create_and_send_transaction(ixs, &payer_pubkey, &all_signers)
     }
 
     pub(crate) fn send(

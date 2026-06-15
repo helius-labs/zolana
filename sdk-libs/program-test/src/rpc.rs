@@ -1,20 +1,15 @@
-#[cfg(feature = "solana-rpc")]
-use std::{
-    thread::sleep,
-    time::{Duration, Instant},
-};
-
+use solana_account::Account;
+use solana_address::Address;
 use solana_clock::Clock;
 #[cfg(feature = "solana-rpc")]
 use solana_commitment_config::CommitmentConfig;
+use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 #[cfg(feature = "solana-rpc")]
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
-#[cfg(feature = "solana-rpc")]
-use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 #[cfg(feature = "solana-rpc")]
@@ -22,6 +17,9 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedTransaction, UiInstruction, UiLoadedAddresses,
     UiMessage, UiTransactionEncoding,
 };
+use zolana_client::{ClientError, Rpc};
+#[cfg(feature = "solana-rpc")]
+use zolana_client::SolanaRpc;
 #[cfg(feature = "solana-rpc")]
 use zolana_interface::instruction::tag;
 
@@ -41,29 +39,9 @@ pub struct IndexedTransaction {
     pub events: Vec<IndexedEvent>,
 }
 
-/// Backend interface shared by LiteSVM and Solana RPC tests.
-pub trait Rpc {
-    fn create_and_send_transaction(
-        &mut self,
-        ixs: &[Instruction],
-        payer: &Pubkey,
-        signers: &[&Keypair],
-    ) -> Result<IndexedTransaction, ProgramTestError>;
-
-    fn send_transaction(
-        &mut self,
-        transaction: Transaction,
-    ) -> Result<IndexedTransaction, ProgramTestError>;
-
-    fn account_data(&self, pubkey: &Pubkey) -> Result<Vec<u8>, ProgramTestError>;
-
-    fn minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ProgramTestError>;
-
-    fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<Signature, ProgramTestError>;
-}
-
-impl Rpc for ZolanaProgramTest {
-    fn create_and_send_transaction(
+impl ZolanaProgramTest {
+    /// Build, sign, send, and index a transaction against the litesvm backend.
+    pub fn create_and_send_transaction(
         &mut self,
         ixs: &[Instruction],
         payer: &Pubkey,
@@ -72,10 +50,10 @@ impl Rpc for ZolanaProgramTest {
         let blockhash = self.svm.latest_blockhash();
         let message = Message::new(ixs, Some(payer));
         let transaction = Transaction::new(signers, message, blockhash);
-        self.send_transaction(transaction)
+        self.send_indexed(transaction)
     }
 
-    fn send_transaction(
+    fn send_indexed(
         &mut self,
         transaction: Transaction,
     ) -> Result<IndexedTransaction, ProgramTestError> {
@@ -100,198 +78,101 @@ impl Rpc for ZolanaProgramTest {
         log_transaction(self.program_id, slot, &message, &meta, &events);
         Ok(IndexedTransaction { signature, events })
     }
+}
 
-    fn account_data(&self, pubkey: &Pubkey) -> Result<Vec<u8>, ProgramTestError> {
-        self.svm
-            .get_account(pubkey)
-            .map(|account| account.data)
-            .ok_or_else(|| ProgramTestError::Rpc(format!("account not found: {pubkey}")))
+impl Rpc for ZolanaProgramTest {
+    fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        let pubkey = Pubkey::new_from_array(address.to_bytes());
+        Ok(self.svm.get_account(&pubkey))
     }
 
-    fn minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ProgramTestError> {
+    fn get_minimum_balance_for_rent_exemption(
+        &self,
+        data_len: usize,
+    ) -> Result<u64, ClientError> {
         Ok(self.svm.minimum_balance_for_rent_exemption(data_len))
     }
 
-    fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<Signature, ProgramTestError> {
-        self.svm
-            .airdrop(pubkey, lamports)
-            .map(|meta| meta.signature)
-            .map_err(|err| ProgramTestError::Litesvm(format!("airdrop: {err:?}")))
+    fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        Ok((self.svm.latest_blockhash(), 0))
     }
 }
 
+/// Send a transaction to a live validator via [`SolanaRpc`] and, when it carries
+/// shielded events, fetch and index them into the supplied [`PoolIndexer`].
 #[cfg(feature = "solana-rpc")]
-pub struct SolanaRpc {
-    client: RpcClient,
-    indexer: PoolIndexer,
+pub fn send_and_index(
+    rpc: &mut SolanaRpc,
+    indexer: &mut PoolIndexer,
     shielded_pool_program_id: Pubkey,
-    confirmation_timeout: Duration,
+    transaction: Transaction,
+) -> Result<IndexedTransaction, ProgramTestError> {
+    let produces_events =
+        produces_shielded_events(shielded_pool_program_id, &transaction.message);
+    let signature = rpc
+        .client()
+        .send_and_confirm_transaction(&transaction)
+        .map_err(|err| ProgramTestError::Rpc(format!("send_transaction: {err}")))?;
+    let events = if produces_events {
+        fetch_indexed_events(rpc, indexer, shielded_pool_program_id, &signature)?
+    } else {
+        Vec::new()
+    };
+    Ok(IndexedTransaction { signature, events })
 }
 
 #[cfg(feature = "solana-rpc")]
-impl SolanaRpc {
-    pub fn new(url: impl Into<String>, shielded_pool_program_id: Pubkey) -> Self {
-        Self::with_client(
-            RpcClient::new_with_commitment(url.into(), CommitmentConfig::confirmed()),
-            shielded_pool_program_id,
-        )
-    }
+fn fetch_indexed_events(
+    rpc: &SolanaRpc,
+    indexer: &mut PoolIndexer,
+    shielded_pool_program_id: Pubkey,
+    signature: &Signature,
+) -> Result<Vec<IndexedEvent>, ProgramTestError> {
+    use std::{thread::sleep, time::{Duration, Instant}};
 
-    pub fn with_client(client: RpcClient, shielded_pool_program_id: Pubkey) -> Self {
-        Self {
-            client,
-            indexer: PoolIndexer::new(),
-            shielded_pool_program_id,
-            confirmation_timeout: Duration::from_secs(30),
-        }
-    }
+    use solana_rpc_client::api::config::RpcTransactionConfig;
 
-    pub fn indexer(&self) -> &PoolIndexer {
-        &self.indexer
-    }
-
-    pub fn client(&self) -> &RpcClient {
-        &self.client
-    }
-
-    pub fn assert_executable(&self, program_id: &Pubkey) -> Result<(), ProgramTestError> {
-        let account = self
-            .client
-            .get_account(program_id)
-            .map_err(|err| ProgramTestError::Rpc(format!("get_account {program_id}: {err}")))?;
-        if !account.executable {
-            return Err(ProgramTestError::Rpc(format!(
-                "program is not executable: {program_id}"
-            )));
-        }
-        Ok(())
-    }
-
-    fn wait_for_signature(&self, signature: &Signature) -> Result<(), ProgramTestError> {
-        let started = Instant::now();
-        while started.elapsed() < self.confirmation_timeout {
-            let confirmed = self.client.confirm_transaction(signature).map_err(|err| {
-                ProgramTestError::Rpc(format!("confirm_transaction {signature}: {err}"))
-            })?;
-            if confirmed {
-                return Ok(());
-            }
-            sleep(Duration::from_millis(250));
-        }
-        Err(ProgramTestError::Rpc(format!(
-            "signature not confirmed: {signature}"
-        )))
-    }
-
-    fn fetch_indexed_events(
-        &mut self,
-        signature: &Signature,
-    ) -> Result<Vec<IndexedEvent>, ProgramTestError> {
-        let started = Instant::now();
-        let transaction = loop {
-            let config = RpcTransactionConfig {
-                encoding: Some(UiTransactionEncoding::Json),
-                commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
-            };
-            match self.client.get_transaction_with_config(signature, config) {
-                Ok(transaction) => break transaction,
-                Err(_) if started.elapsed() < self.confirmation_timeout => {
-                    sleep(Duration::from_millis(250));
-                }
-                Err(err) => {
-                    return Err(ProgramTestError::Rpc(format!(
-                        "get_transaction {signature}: {err}"
-                    )));
-                }
-            }
+    let confirmation_timeout = Duration::from_secs(30);
+    let started = Instant::now();
+    let transaction = loop {
+        let config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Json),
+            commitment: Some(CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(0),
         };
-        let encoded = transaction.transaction;
-        let meta = encoded
-            .meta
-            .ok_or_else(|| ProgramTestError::Rpc("transaction missing metadata".into()))?;
-        let account_keys =
-            account_keys_from_transaction(encoded.transaction, &meta.loaded_addresses)?;
-        let inner = match meta.inner_instructions {
-            OptionSerializer::Some(inner) => inner,
-            OptionSerializer::None | OptionSerializer::Skip => {
+        match rpc.client().get_transaction_with_config(signature, config) {
+            Ok(transaction) => break transaction,
+            Err(_) if started.elapsed() < confirmation_timeout => {
+                sleep(Duration::from_millis(250));
+            }
+            Err(err) => {
                 return Err(ProgramTestError::Rpc(format!(
-                    "transaction missing inner instructions: {signature}"
+                    "get_transaction {signature}: {err}"
                 )));
             }
-        };
-        let instructions = inner
-            .iter()
-            .flat_map(|inner| inner.instructions.iter())
-            .map(|instruction| parsed_instruction_from_ui(instruction, &account_keys))
-            .collect::<Result<Vec<_>, _>>()?;
-        let events =
-            indexed_events_from_instructions(self.shielded_pool_program_id, &instructions)?;
-        index_events(&mut self.indexer, &events)?;
-        Ok(events)
-    }
-}
-
-#[cfg(feature = "solana-rpc")]
-impl Rpc for SolanaRpc {
-    fn create_and_send_transaction(
-        &mut self,
-        ixs: &[Instruction],
-        payer: &Pubkey,
-        signers: &[&Keypair],
-    ) -> Result<IndexedTransaction, ProgramTestError> {
-        let blockhash = self
-            .client
-            .get_latest_blockhash()
-            .map_err(|err| ProgramTestError::Rpc(format!("get_latest_blockhash: {err}")))?;
-        let message = Message::new(ixs, Some(payer));
-        let transaction = Transaction::new(signers, message, blockhash);
-        self.send_transaction(transaction)
-    }
-
-    fn send_transaction(
-        &mut self,
-        transaction: Transaction,
-    ) -> Result<IndexedTransaction, ProgramTestError> {
-        let produces_events =
-            produces_shielded_events(self.shielded_pool_program_id, &transaction.message);
-        let signature = self
-            .client
-            .send_and_confirm_transaction(&transaction)
-            .map_err(|err| ProgramTestError::Rpc(format!("send_transaction: {err}")))?;
-        let events = if produces_events {
-            self.fetch_indexed_events(&signature)?
-        } else {
-            Vec::new()
-        };
-        Ok(IndexedTransaction { signature, events })
-    }
-
-    fn account_data(&self, pubkey: &Pubkey) -> Result<Vec<u8>, ProgramTestError> {
-        self.client
-            .get_account(pubkey)
-            .map(|account| account.data)
-            .map_err(|err| ProgramTestError::Rpc(format!("get_account {pubkey}: {err}")))
-    }
-
-    fn minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ProgramTestError> {
-        self.client
-            .get_minimum_balance_for_rent_exemption(data_len)
-            .map_err(|err| {
-                ProgramTestError::Rpc(format!(
-                    "get_minimum_balance_for_rent_exemption {data_len}: {err}"
-                ))
-            })
-    }
-
-    fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<Signature, ProgramTestError> {
-        let signature = self
-            .client
-            .request_airdrop(pubkey, lamports)
-            .map_err(|err| ProgramTestError::Rpc(format!("request_airdrop {pubkey}: {err}")))?;
-        self.wait_for_signature(&signature)?;
-        Ok(signature)
-    }
+        }
+    };
+    let encoded = transaction.transaction;
+    let meta = encoded
+        .meta
+        .ok_or_else(|| ProgramTestError::Rpc("transaction missing metadata".into()))?;
+    let account_keys = account_keys_from_transaction(encoded.transaction, &meta.loaded_addresses)?;
+    let inner = match meta.inner_instructions {
+        OptionSerializer::Some(inner) => inner,
+        OptionSerializer::None | OptionSerializer::Skip => {
+            return Err(ProgramTestError::Rpc(format!(
+                "transaction missing inner instructions: {signature}"
+            )));
+        }
+    };
+    let instructions = inner
+        .iter()
+        .flat_map(|inner| inner.instructions.iter())
+        .map(|instruction| parsed_instruction_from_ui(instruction, &account_keys))
+        .collect::<Result<Vec<_>, _>>()?;
+    let events = indexed_events_from_instructions(shielded_pool_program_id, &instructions)?;
+    index_events(indexer, &events)?;
+    Ok(events)
 }
 
 #[cfg(feature = "solana-rpc")]

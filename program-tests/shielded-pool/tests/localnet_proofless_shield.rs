@@ -12,9 +12,12 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use solana_message::Message;
+use solana_transaction::Transaction;
 use zolana_program_test::{
-    create_tree_instructions, protocol_config_pda, rpc_state_root, single_proofless_shield_event,
-    zone_auth_pda, Rpc, SolanaRpc, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, protocol_config_pda, rpc_state_root, send_and_index,
+    single_proofless_shield_event, zone_auth_pda, PoolIndexer, SolanaRpc, ZolanaProgramTest,
+    ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::Wallet;
 
@@ -30,7 +33,8 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
-    let mut rpc = SolanaRpc::new(rpc_url.clone(), program_id);
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    let mut indexer = PoolIndexer::new();
     rpc.assert_executable(&program_id)?;
     rpc.assert_executable(&zone_program_id)?;
 
@@ -58,8 +62,14 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
             merge_authorities: Vec::new(),
         },
     );
-    let create_config_tx =
-        rpc.create_and_send_transaction(&[create_config], &authority.pubkey(), &[&authority])?;
+    let create_config_tx = send_indexed(
+        &mut rpc,
+        &mut indexer,
+        program_id,
+        &[create_config],
+        &authority.pubkey(),
+        &[&authority],
+    )?;
     print_signature("create_protocol_config", &create_config_tx.signature);
 
     let tree = Keypair::new();
@@ -71,7 +81,10 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         &tree.pubkey(),
         tree_account_size() as u64,
     )?;
-    let create_tree_tx = rpc.create_and_send_transaction(
+    let create_tree_tx = send_indexed(
+        &mut rpc,
+        &mut indexer,
+        program_id,
         &create_tree,
         &payer.pubkey(),
         &[&payer, &tree, &authority],
@@ -87,13 +100,19 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
     let direct_ix = proofless_shield(tree.pubkey(), depositor.pubkey(), &direct_data);
-    let direct_tx =
-        rpc.create_and_send_transaction(&[direct_ix], &payer.pubkey(), &[&payer, &depositor])?;
+    let direct_tx = send_indexed(
+        &mut rpc,
+        &mut indexer,
+        program_id,
+        &[direct_ix],
+        &payer.pubkey(),
+        &[&payer, &depositor],
+    )?;
     print_signature("proofless_shield", &direct_tx.signature);
     let direct_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(direct_root_after, direct_root_before);
     let direct_event = single_proofless_shield_event(&direct_tx.events)?;
-    assert_eq!(direct_root_after, rpc.indexer().root());
+    assert_eq!(direct_root_after, indexer.root());
     assert_wallet_discovers(&mut direct_recipient, &direct_event)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
@@ -115,17 +134,39 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         depositor.pubkey(),
         &zone_data,
     );
-    let zone_tx =
-        rpc.create_and_send_transaction(&[zone_ix], &payer.pubkey(), &[&payer, &depositor])?;
+    let zone_tx = send_indexed(
+        &mut rpc,
+        &mut indexer,
+        program_id,
+        &[zone_ix],
+        &payer.pubkey(),
+        &[&payer, &depositor],
+    )?;
     print_signature("zone_proofless_shield", &zone_tx.signature);
     let zone_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(zone_root_after, zone_root_before);
     let zone_event = single_proofless_shield_event(&zone_tx.events)?;
-    assert_eq!(zone_root_after, rpc.indexer().root());
+    assert_eq!(zone_root_after, indexer.root());
     assert_wallet_discovers(&mut zone_recipient, &zone_event)?;
 
     println!("localnet proofless shield test passed via {rpc_url}");
     Ok(())
+}
+
+fn send_indexed(
+    rpc: &mut SolanaRpc,
+    indexer: &mut PoolIndexer,
+    program_id: Pubkey,
+    ixs: &[solana_instruction::Instruction],
+    payer: &Pubkey,
+    signers: &[&Keypair],
+) -> TestResult<zolana_program_test::IndexedTransaction> {
+    use zolana_program_test::Rpc;
+
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    let message = Message::new(ixs, Some(payer));
+    let transaction = Transaction::new(signers, message, blockhash);
+    Ok(send_and_index(rpc, indexer, program_id, transaction)?)
 }
 
 fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) -> TestResult {

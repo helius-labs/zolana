@@ -13,9 +13,11 @@ anyhow = { workspace = true }
 shielded-pool-program = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
+solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
