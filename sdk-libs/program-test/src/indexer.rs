@@ -85,18 +85,18 @@ impl IndexedUtxo {
     }
 }
 
-pub struct PoolIndexer {
+pub struct TestIndexer {
     tree: MerkleTree<Poseidon>,
     utxos: Vec<IndexedUtxo>,
 }
 
-impl Default for PoolIndexer {
+impl Default for TestIndexer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PoolIndexer {
+impl TestIndexer {
     pub fn new() -> Self {
         Self {
             tree: MerkleTree::new(STATE_HEIGHT, 0),

@@ -19,7 +19,7 @@ use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_tree_instructions, index_events, indexed_events_from_instructions,
     parsed_instruction_from_compiled, protocol_config_pda, rpc_state_root,
-    single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction, PoolIndexer,
+    single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction, TestIndexer,
     ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
@@ -37,7 +37,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let mut indexer = PoolIndexer::new();
+    let mut indexer = TestIndexer::new();
     rpc.assert_executable(&program_id)?;
     rpc.assert_executable(&zone_program_id)?;
 
@@ -158,7 +158,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
 
 fn send_indexed(
     rpc: &mut SolanaRpc,
-    indexer: &mut PoolIndexer,
+    indexer: &mut TestIndexer,
     program_id: Pubkey,
     ixs: &[solana_instruction::Instruction],
     payer: &Pubkey,
@@ -179,7 +179,7 @@ fn send_indexed(
 
 fn fetch_indexed_events(
     rpc: &SolanaRpc,
-    indexer: &mut PoolIndexer,
+    indexer: &mut TestIndexer,
     program_id: Pubkey,
     signature: &Signature,
 ) -> TestResult<Vec<IndexedEvent>> {

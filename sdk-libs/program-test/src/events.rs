@@ -3,7 +3,7 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{tag, ProoflessShieldEvent};
 
-use crate::{PoolIndexer, ProgramTestError};
+use crate::{ProgramTestError, TestIndexer};
 
 #[derive(Clone, Debug)]
 pub struct ParsedInstruction {
@@ -101,7 +101,7 @@ pub fn indexed_event_from_emit_payload(payload: &[u8]) -> IndexedEvent {
 }
 
 pub fn index_events(
-    indexer: &mut PoolIndexer,
+    indexer: &mut TestIndexer,
     events: &[IndexedEvent],
 ) -> Result<(), ProgramTestError> {
     for event in events {
