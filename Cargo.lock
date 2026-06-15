@@ -3979,6 +3979,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "cucumber",
  "shielded-pool-program",
  "solana-instruction",
  "solana-keypair",
@@ -3987,6 +3988,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction",
+ "tokio",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
