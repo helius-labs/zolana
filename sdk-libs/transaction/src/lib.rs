@@ -24,7 +24,7 @@ pub use encryption::TransactionEncryption;
 pub use error::TransactionError;
 pub use solana_address::Address;
 pub use transaction::{EncryptedTransaction, ExternalData, InputUtxo, OutputUtxo};
-pub use utxo::{derive_blinding, owner_utxo_hash, utxo_commitment, Blinding, Utxo};
+pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
 pub use wallet::{
     AssetBalance, ProoflessDepositEvent, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW,

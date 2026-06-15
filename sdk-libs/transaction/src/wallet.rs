@@ -12,7 +12,7 @@ use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::{owner_utxo_hash, utxo_commitment, Blinding, Utxo};
+use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -340,7 +340,7 @@ impl Wallet {
             return Ok(None);
         }
 
-        let hash = utxo_commitment(
+        let hash = utxo_hash(
             event.asset,
             event.amount,
             &event.program_data_hash,
@@ -591,7 +591,7 @@ mod tests {
         let salt = [9u8; SALT_LEN];
         let blinding = wallet.proofless_blinding(&salt).unwrap();
         let owner_utxo_hash = wallet.proofless_owner_utxo_hash(&blinding).unwrap();
-        let utxo_hash = utxo_commitment(
+        let utxo_hash = utxo_hash(
             SOL_MINT,
             amount,
             &[0u8; 32],
