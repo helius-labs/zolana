@@ -97,7 +97,7 @@ fn spl_deposit_succeeds_and_event_is_faithful() {
         .expect("user token balance");
     let root_before = program_test.state_root(&tree.pubkey()).expect("root");
     let event = program_test
-        .proofless_shield_spl(&tree, &depositor, &user_token, &mint, &data)
+        .proofless_shield_spl(&tree.pubkey(), &depositor, &user_token, &mint, &data)
         .expect("deposit");
 
     assert_spl_deposit(
@@ -231,7 +231,7 @@ fn rejects_unaffordable_spl_deposit() {
 
     let err = program_test
         .proofless_shield_spl(
-            &tree,
+            &tree.pubkey(),
             &depositor,
             &user_token,
             &mint,

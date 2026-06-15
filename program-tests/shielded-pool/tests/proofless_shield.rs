@@ -31,7 +31,7 @@ fn assert_invalid_amount_shape(
 ) {
     assert_pool_error(
         program_test
-            .proofless_shield(tree, depositor, data)
+            .proofless_shield(&tree.pubkey(), depositor, data)
             .unwrap_err(),
         ShieldedPoolError::InvalidTransactShape,
     );
@@ -51,7 +51,7 @@ fn sol_deposit_succeeds_and_event_is_faithful() {
 
     let root_before = program_test.state_root(&tree.pubkey()).expect("root");
     let event = program_test
-        .proofless_shield(&tree, &depositor, &data)
+        .proofless_shield(&tree.pubkey(), &depositor, &data)
         .expect("deposit");
 
     assert_proofless_shield(
@@ -134,14 +134,14 @@ fn rejects_program_data_without_cpi_signer() {
     let mut with_program_data_hash = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
     with_program_data_hash.program_data_hash = Some([2u8; 32]);
     let err = program_test
-        .proofless_shield(&tree, &depositor, &with_program_data_hash)
+        .proofless_shield(&tree.pubkey(), &depositor, &with_program_data_hash)
         .expect_err("program_data_hash");
     assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
 
     let mut with_program_data = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
     with_program_data.program_data = Some(vec![4, 5]);
     let err = program_test
-        .proofless_shield(&tree, &depositor, &with_program_data)
+        .proofless_shield(&tree.pubkey(), &depositor, &with_program_data)
         .expect_err("program_data");
     assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
 }
@@ -240,7 +240,7 @@ fn rejects_deposit_into_paused_tree_until_unpaused() {
         .pause_tree(&authority, &tree, true)
         .expect("pause");
     let err = program_test
-        .proofless_shield_sol(&tree, &depositor, 1_000_000, [2u8; 32])
+        .proofless_shield_sol(&tree.pubkey(), &depositor, 1_000_000, [2u8; 32])
         .unwrap_err();
     assert_pool_error(err, ShieldedPoolError::TreePaused);
 
@@ -248,7 +248,7 @@ fn rejects_deposit_into_paused_tree_until_unpaused() {
         .pause_tree(&authority, &tree, false)
         .expect("unpause");
     program_test
-        .proofless_shield_sol(&tree, &depositor, 1_000_000, [5u8; 32])
+        .proofless_shield_sol(&tree.pubkey(), &depositor, 1_000_000, [5u8; 32])
         .expect("deposit after unpause");
 }
 
@@ -260,7 +260,7 @@ fn rejects_unaffordable_deposit() {
     let depositor = funded_depositor(&mut program_test);
 
     let err = program_test
-        .proofless_shield_sol(&tree, &depositor, 100_000_000_000, [3u8; 32])
+        .proofless_shield_sol(&tree.pubkey(), &depositor, 100_000_000_000, [3u8; 32])
         .unwrap_err();
     let msg = format!("{err}");
     assert!(
@@ -281,12 +281,12 @@ fn repeat_deposits_create_distinct_leaves() {
     let data = ZolanaProgramTest::sol_shield_data(1_000_000, [4u8; 32]);
     let root0 = program_test.state_root(&tree.pubkey()).expect("root");
     program_test
-        .proofless_shield(&tree, &depositor, &data)
+        .proofless_shield(&tree.pubkey(), &depositor, &data)
         .expect("d1");
     let root1 = program_test.state_root(&tree.pubkey()).expect("root");
     program_test.svm.expire_blockhash();
     program_test
-        .proofless_shield(&tree, &depositor, &data)
+        .proofless_shield(&tree.pubkey(), &depositor, &data)
         .expect("d2");
     let root2 = program_test.state_root(&tree.pubkey()).expect("root");
     assert_ne!(root0, root1);
