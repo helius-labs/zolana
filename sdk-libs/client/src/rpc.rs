@@ -7,7 +7,8 @@ use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::AddressLookupTableAccount;
+use solana_message::{AddressLookupTableAccount, Message};
+use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
@@ -204,10 +205,7 @@ pub trait Rpc {
         unimplemented!()
     }
 
-    fn get_minimum_balance_for_rent_exemption(
-        &self,
-        data_len: usize,
-    ) -> Result<u64, ClientError> {
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         unimplemented!()
     }
 
@@ -237,10 +235,7 @@ pub trait Rpc {
         unimplemented!()
     }
 
-    fn process_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Signature, ClientError> {
+    fn process_transaction(&self, transaction: Transaction) -> Result<Signature, ClientError> {
         unimplemented!()
     }
 
@@ -264,7 +259,11 @@ pub trait Rpc {
         payer: Address,
         signers: &[&Keypair],
     ) -> Result<Signature, ClientError> {
-        unimplemented!()
+        let (blockhash, _) = self.get_latest_blockhash()?;
+        let payer = Pubkey::new_from_array(payer.to_bytes());
+        let message = Message::new(instructions, Some(&payer));
+        let transaction = Transaction::new(signers, message, blockhash);
+        self.send_transaction(&transaction)
     }
 
     fn create_and_send_versioned_transaction(
@@ -347,10 +346,7 @@ pub trait Rpc {
     }
 
     /// Build the SPP proof and submit the resulting transaction in one call.
-    fn send_and_prove(
-        &self,
-        transaction: SignedTransaction,
-    ) -> Result<Signature, ClientError> {
+    fn send_and_prove(&self, transaction: SignedTransaction) -> Result<Signature, ClientError> {
         unimplemented!()
     }
 }
