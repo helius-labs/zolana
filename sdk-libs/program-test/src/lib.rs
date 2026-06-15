@@ -33,9 +33,9 @@ mod admin;
 pub mod events;
 pub use events::{
     index_events, indexed_events_from_meta, parsed_instruction_from_compiled,
-    parsed_instruction_groups_from_meta, single_proofless_shield_event,
+    parsed_instruction_groups_from_meta, single_proofless_shield_event, IndexedEvent,
+    InstructionGroup, ParsedInstruction,
 };
-pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 pub mod indexer;
 pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};
 pub mod instructions;
