@@ -1,8 +1,10 @@
 //! Local-validator proofless shield test.
 
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use solana_transaction::Transaction;
 use zolana_interface::{
     instruction::{
         create_protocol_config, proofless_shield, zone_proofless_shield, CreateProtocolConfigData,
@@ -12,8 +14,6 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use solana_message::Message;
-use solana_transaction::Transaction;
 use zolana_program_test::{
     create_tree_instructions, protocol_config_pda, rpc_state_root, send_and_index,
     single_proofless_shield_event, zone_auth_pda, PoolIndexer, SolanaRpc, ZolanaProgramTest,

@@ -14,9 +14,10 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{
-    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData, PauseTreeData,
-    ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
-    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
+    PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    ZoneProoflessShieldIxData,
 };
 
 use crate::events::{IndexedEvent, IndexedEventData};
@@ -222,15 +223,17 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 transact_fields,
                 &["authority", "tree"],
             ),
-            tag::PROOFLESS_SHIELD => ProoflessShieldIxData::deserialize(payload)
-                .ok()
-                .and_then(|data| {
-                    decoded_instruction(
-                        "proofless_shield",
-                        proofless_fields(data),
-                        proofless_accounts(payload, accounts.len()),
-                    )
-                }),
+            tag::PROOFLESS_SHIELD => {
+                ProoflessShieldIxData::deserialize(payload)
+                    .ok()
+                    .and_then(|data| {
+                        decoded_instruction(
+                            "proofless_shield",
+                            proofless_fields(data),
+                            proofless_accounts(payload, accounts.len()),
+                        )
+                    })
+            }
             tag::CREATE_SPL_INTERFACE => decode_no_data(
                 "create_spl_interface",
                 payload,
