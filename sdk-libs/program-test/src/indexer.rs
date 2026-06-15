@@ -12,7 +12,7 @@ use light_hasher::Poseidon;
 use light_merkle_tree_reference::MerkleTree;
 use thiserror::Error;
 use zolana_interface::{instruction::ProoflessShieldEvent, state::STATE_HEIGHT};
-use zolana_transaction::{utxo_commitment, Address, TransactionError};
+use zolana_transaction::{utxo_hash, Address, TransactionError};
 
 #[derive(Debug, Error)]
 pub enum IndexerError {
@@ -127,7 +127,7 @@ impl PoolIndexer {
 fn proofless_utxo_hash(event: &ProoflessShieldEvent) -> Result<[u8; 32], TransactionError> {
     let policy_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
     let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
-    utxo_commitment(
+    utxo_hash(
         Address::new_from_array(event.asset),
         event.amount,
         &program_data_hash,

@@ -89,7 +89,7 @@ pub fn owner_utxo_hash(
 
 /// Full UTXO commitment (the tree leaf) — binds asset, amount, zone, and the
 /// program/zone data hashes to an [`owner_utxo_hash`].
-pub fn utxo_commitment(
+pub fn utxo_hash(
     asset: Address,
     amount: u64,
     program_data_hash: &[u8; 32],
@@ -127,7 +127,7 @@ impl Utxo {
         program_data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        utxo_commitment(
+        utxo_hash(
             self.asset,
             self.amount,
             program_data_hash,
