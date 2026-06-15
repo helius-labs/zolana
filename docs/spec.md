@@ -1256,7 +1256,7 @@ GeneralEvent {
         hash: utxo_hash,
         // owner and blinding are absent, so the recipient stays hidden.
         // policy_data_hash and zone_data only set by zone_proofless_shield.
-        data: Data::Proofless(ProoflessOutput {
+        data: serialize(Data::Proofless(ProoflessOutput {
             owner_utxo_hash,
             salt,
             program_data_hash,
@@ -1264,14 +1264,14 @@ GeneralEvent {
             zone_program_id,
             policy_data_hash,
             zone_data,
-        }),
+        })),
     }],
     first_output_leaf_index,
     output_tree: tree_account,
     // The depositor funds the deposit directly.
     relay_fee: None,
     // asset is the deposited mint (SOL: Address::default()).
-    compression: Some(Compression { is_compress: true, amount, asset }),
+    deposit_withdraw: Some(DepositWithdraw { is_deposit: true, amount, asset }),
 }
 ```
 
@@ -1299,7 +1299,7 @@ struct GeneralEvent {
     output_tree: Pubkey,
     relay_fee: Option<u64>,
     /// `Some` for shield/unshield, `None` for shielded transfer.
-    compression: Option<Compression>,
+    deposit_withdraw: Option<DepositWithdraw>,
 }
 
 /// One spent input. Inputs may originate from different trees.
@@ -1321,9 +1321,24 @@ struct Output {
 /// Output payload. SPP treats it as opaque bytes except for proofless shield.
 enum Data {
     Unknown(Vec<u8>),
-    Proofless(Utxo),
+    Proofless(ProoflessOutput),
     Transfer(EncryptedTransfer),
     PublicTransfer(PublicTransfer),
+}
+
+/// Proofless-shield output. Carries `owner_utxo_hash` instead of `owner` and
+/// `blinding`, which never reach the program, so the recipient stays hidden.
+struct ProoflessOutput {
+    /// See [UTXO Hash](#utxo-hash).
+    owner_utxo_hash: [u8; 32],
+    salt: [u8; 16],
+    /// Set for program-owned deposits (`cpi_signer` present).
+    program_data_hash: Option<[u8; 32]>,
+    program_data: Option<Vec<u8>>,
+    zone_program_id: Option<Address>,
+    /// Set only by [`zone_proofless_shield`](#zone_proofless_shield).
+    policy_data_hash: Option<[u8; 32]>,
+    zone_data: Option<Vec<u8>>,
 }
 
 /// Public token movement accompanying the transaction.
