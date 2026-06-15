@@ -7368,7 +7368,7 @@ dependencies = [
  "bs58",
  "light-hasher",
  "light-instruction-decoder",
- "light-sparse-merkle-tree",
+ "light-merkle-tree-reference",
  "litesvm",
  "solana-account",
  "solana-address 2.6.1",
