@@ -87,7 +87,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         root_before,
         &mut recipient,
     );
-    world.last_proofless_event = Some(event);
+    world.last_proofless_view = Some(event);
     world.recipient = Some(recipient);
 }
 
@@ -98,7 +98,7 @@ fn recipient_owns(world: &mut ShieldedPoolWorld, count: usize) {
 
 #[then(expr = "a proofless shield event is emitted")]
 fn event_emitted(world: &mut ShieldedPoolWorld) {
-    assert!(world.last_proofless_event.is_some());
+    assert!(world.last_proofless_view.is_some());
 }
 
 // === bad amount shapes ===

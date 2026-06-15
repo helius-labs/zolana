@@ -14,7 +14,7 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::{decode_event_payload, proofless_output, GeneralEvent, ProoflessShieldEvent},
+    event::{decode_event_payload, proofless_output, GeneralEvent, ProoflessShieldView},
     instruction::{
         tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
         PauseTreeData, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
@@ -464,7 +464,7 @@ fn zone_proofless_fields(data: ZoneProoflessShieldIxData) -> Vec<DecodedField> {
     ]
 }
 
-fn proofless_event_fields(data: ProoflessShieldEvent) -> Vec<DecodedField> {
+fn proofless_view_fields(data: ProoflessShieldView) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
         field("utxo_hash", short_hex(&data.utxo_hash)),
@@ -499,7 +499,7 @@ fn event_fields(event: GeneralEvent) -> Vec<DecodedField> {
     }
     if let Ok(proofless) = proofless_output(&event) {
         fields.push(field("output_data", "proofless"));
-        fields.extend(proofless_event_fields(proofless));
+        fields.extend(proofless_view_fields(proofless));
     }
     fields
 }

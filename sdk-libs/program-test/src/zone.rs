@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    event::ProoflessShieldEvent,
+    event::ProoflessShieldView,
     instruction::{
         encode_instruction, tag, update_zone_config as update_zone_config_ix,
         update_zone_config_owner as update_zone_config_owner_ix, zone_proofless_shield,
@@ -18,7 +18,7 @@ use zolana_transaction::Wallet;
 use crate::{
     instructions::{zone_auth_pda, ZONE_TEST_PROGRAM_ID},
     paths::default_zone_test_program_path,
-    single_proofless_shield_event,
+    single_proofless_shield_view,
     wallet_data::wallet_shield_fields,
     ProgramTestError, ZolanaProgramTest,
 };
@@ -186,7 +186,7 @@ impl ZolanaProgramTest {
         tree: &Pubkey,
         depositor: &Keypair,
         data: &ZoneProoflessShieldIxData,
-    ) -> Result<ProoflessShieldEvent, ProgramTestError> {
+    ) -> Result<ProoflessShieldView, ProgramTestError> {
         let (zone_auth, _) = self.zone_auth_pda();
         let ix = zone_proofless_shield(
             Self::zone_test_program_id(),
@@ -196,6 +196,6 @@ impl ZolanaProgramTest {
             data,
         );
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_proofless_shield_event(&outcome.events)
+        single_proofless_shield_view(&outcome.events)
     }
 }

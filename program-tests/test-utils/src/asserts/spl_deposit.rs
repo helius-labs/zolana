@@ -1,7 +1,7 @@
 //! Post-instruction checks for a public SPL `proofless_shield` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::ProoflessShieldEvent, instruction::ProoflessShieldIxData};
+use zolana_interface::{event::ProoflessShieldView, instruction::ProoflessShieldIxData};
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -21,7 +21,7 @@ pub fn assert_spl_deposit(
     mint: &Pubkey,
     vault: &Pubkey,
     user_token: &Pubkey,
-    event: &ProoflessShieldEvent,
+    event: &ProoflessShieldView,
     data: &ProoflessShieldIxData,
     expected_amount: u64,
     vault_before: u64,

@@ -2,7 +2,7 @@ use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::event::{
-    indexed_events_from_instruction_groups, proofless_output, ProoflessShieldEvent,
+    indexed_events_from_instruction_groups, proofless_output, ProoflessShieldView,
 };
 pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 
@@ -122,10 +122,10 @@ pub fn index_events(
     Ok(())
 }
 
-pub fn single_proofless_shield_event(
+pub fn single_proofless_shield_view(
     events: &[IndexedEvent],
-) -> Result<ProoflessShieldEvent, ProgramTestError> {
-    let mut proofless_events = events.iter().map(|event| match &event.decoded {
+) -> Result<ProoflessShieldView, ProgramTestError> {
+    let mut proofless_views = events.iter().map(|event| match &event.decoded {
         Ok(general_event) => proofless_output(general_event).map_err(|err| {
             ProgramTestError::Event(format!(
                 "invalid proofless output tag={} payload_len={} error={err:?}",
@@ -139,15 +139,15 @@ pub fn single_proofless_shield_event(
             event.payload.len()
         ))),
     });
-    let Some(event) = proofless_events.next() else {
+    let Some(event) = proofless_views.next() else {
         return Err(ProgramTestError::Event(
             "no proofless shield event emitted by transaction".into(),
         ));
     };
     let event = event?;
-    if proofless_events.next().transpose()?.is_some() {
+    if proofless_views.next().transpose()?.is_some() {
         return Err(ProgramTestError::Event(
-            "expected one proofless shield event".into(),
+            "expected one proofless shield view".into(),
         ));
     }
     Ok(event)

@@ -6,7 +6,7 @@
 use light_hasher::Poseidon;
 use light_merkle_tree_reference::MerkleTree;
 use thiserror::Error;
-use zolana_interface::{event::ProoflessShieldEvent, state::STATE_HEIGHT};
+use zolana_interface::{event::ProoflessShieldView, state::STATE_HEIGHT};
 use zolana_transaction::{utxo_hash, Address, TransactionError};
 
 #[derive(Debug, Error)]
@@ -81,7 +81,7 @@ impl TestIndexer {
 
     pub fn record_proofless_shield(
         &mut self,
-        event: &ProoflessShieldEvent,
+        event: &ProoflessShieldView,
     ) -> Result<&IndexedUtxo, IndexerError> {
         let recomputed = proofless_utxo_hash(event)?;
         if recomputed != event.utxo_hash {
@@ -140,7 +140,7 @@ impl TestIndexer {
 }
 
 /// Recompute the UTXO commitment through the shared transaction helper.
-fn proofless_utxo_hash(event: &ProoflessShieldEvent) -> Result<[u8; 32], TransactionError> {
+fn proofless_utxo_hash(event: &ProoflessShieldView) -> Result<[u8; 32], TransactionError> {
     let policy_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
     let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
     utxo_hash(

@@ -1,5 +1,5 @@
 use zolana_interface::{
-    event::ProoflessShieldEvent,
+    event::ProoflessShieldView,
     instruction::{ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL},
 };
 use zolana_keypair::constants::BLINDING_LEN;
@@ -9,7 +9,7 @@ use zolana_transaction::{
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 
-pub fn proofless_event_for_wallet(event: &ProoflessShieldEvent) -> ProoflessDepositEvent {
+pub fn proofless_event_for_wallet(event: &ProoflessShieldView) -> ProoflessDepositEvent {
     let mut records = Vec::new();
     if let Some(zone_data) = event.zone_data.clone() {
         records.push(DataRecord::ZoneData(zone_data));

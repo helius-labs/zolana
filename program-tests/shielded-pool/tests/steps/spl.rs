@@ -165,7 +165,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         root_before,
         &mut recipient,
     );
-    world.last_proofless_event = Some(event);
+    world.last_proofless_view = Some(event);
     world.recipient = Some(recipient);
 }
 

@@ -52,7 +52,7 @@ pub struct ProoflessOutput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProoflessShieldEvent {
+pub struct ProoflessShieldView {
     pub view_tag: [u8; 32],
     pub utxo_hash: [u8; 32],
     pub asset: [u8; 32],
@@ -156,7 +156,7 @@ pub fn decode_output_data(data: &[u8]) -> Result<OutputData, EventDecodeError> {
     OutputData::try_from_slice(data).map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
-pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldEvent, EventDecodeError> {
+pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldView, EventDecodeError> {
     let output = event
         .outputs
         .first()
@@ -172,7 +172,7 @@ pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldEvent, Ev
         return Err(EventDecodeError::MissingDepositWithdraw);
     }
 
-    Ok(ProoflessShieldEvent {
+    Ok(ProoflessShieldView {
         view_tag: output.tag,
         utxo_hash: output.hash,
         asset: deposit_withdraw.asset.unwrap_or([0u8; 32]),

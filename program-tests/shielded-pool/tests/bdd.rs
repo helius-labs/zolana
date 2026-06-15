@@ -6,7 +6,7 @@ mod steps;
 use cucumber::World;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_interface::event::ProoflessShieldEvent;
+use zolana_interface::event::ProoflessShieldView;
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 use zolana_transaction::Wallet;
 
@@ -27,7 +27,7 @@ pub struct ShieldedPoolWorld {
     zone_authority: Option<Keypair>,
     previous_zone_authority: Option<Keypair>,
     rotated_authority: Option<Keypair>,
-    last_proofless_event: Option<ProoflessShieldEvent>,
+    last_proofless_view: Option<ProoflessShieldView>,
     last_error: Option<ProgramTestError>,
     merge_authority: Option<[u8; 32]>,
     sol_deposit: Option<SolDepositObservation>,

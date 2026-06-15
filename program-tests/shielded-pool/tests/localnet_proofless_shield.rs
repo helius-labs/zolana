@@ -9,7 +9,7 @@ use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     event::{
-        indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldEvent,
+        indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldView,
     },
     instruction::{
         create_protocol_config, proofless_shield, tag, zone_proofless_shield,
@@ -21,7 +21,7 @@ use zolana_interface::{
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, protocol_config_pda,
-    rpc_state_root, single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction,
+    rpc_state_root, single_proofless_shield_view, zone_auth_pda, IndexedEvent, IndexedTransaction,
     TestIndexer, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
@@ -119,9 +119,9 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     print_signature("proofless_shield", &direct_tx.signature);
     let direct_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(direct_root_after, direct_root_before);
-    let direct_event = single_proofless_shield_event(&direct_tx.events)?;
+    let direct_view = single_proofless_shield_view(&direct_tx.events)?;
     assert_eq!(direct_root_after, indexer.root());
-    assert_wallet_discovers(&mut direct_recipient, &direct_event)?;
+    assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
     let (zone_auth, zone_auth_bump) = zone_auth_pda(&zone_program_id);
@@ -153,9 +153,9 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     print_signature("zone_proofless_shield", &zone_tx.signature);
     let zone_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(zone_root_after, zone_root_before);
-    let zone_event = single_proofless_shield_event(&zone_tx.events)?;
+    let zone_view = single_proofless_shield_view(&zone_tx.events)?;
     assert_eq!(zone_root_after, indexer.root());
-    assert_wallet_discovers(&mut zone_recipient, &zone_event)?;
+    assert_wallet_discovers(&mut zone_recipient, &zone_view)?;
 
     println!("localnet proofless shield test passed via {rpc_url}");
     Ok(())
@@ -201,8 +201,8 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     })
 }
 
-fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) -> TestResult {
-    let event = zolana_program_test::proofless_event_for_wallet(event);
+fn assert_wallet_discovers(wallet: &mut Wallet, view: &ProoflessShieldView) -> TestResult {
+    let event = zolana_program_test::proofless_event_for_wallet(view);
     wallet.sync(
         &[],
         std::slice::from_ref(&event),
