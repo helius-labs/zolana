@@ -19,7 +19,6 @@ serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
 rand = { workspace = true }
-async-trait = { workspace = true }
 futures = { workspace = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }

@@ -7291,7 +7291,6 @@ dependencies = [
 name = "zolana-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "cucumber",
  "futures",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
