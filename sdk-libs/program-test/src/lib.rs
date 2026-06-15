@@ -48,9 +48,9 @@ mod paths;
 use paths::default_program_path;
 mod proofless;
 pub mod rpc;
-pub use rpc::IndexedTransaction;
 #[cfg(feature = "solana-rpc")]
 pub use rpc::send_and_index;
+pub use rpc::IndexedTransaction;
 pub use zolana_client::Rpc;
 #[cfg(feature = "solana-rpc")]
 pub use zolana_client::SolanaRpc;

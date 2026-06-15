@@ -17,9 +17,9 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedTransaction, UiInstruction, UiLoadedAddresses,
     UiMessage, UiTransactionEncoding,
 };
-use zolana_client::{ClientError, Rpc};
 #[cfg(feature = "solana-rpc")]
 use zolana_client::SolanaRpc;
+use zolana_client::{ClientError, Rpc};
 #[cfg(feature = "solana-rpc")]
 use zolana_interface::instruction::tag;
 
@@ -86,10 +86,7 @@ impl Rpc for ZolanaProgramTest {
         Ok(self.svm.get_account(&pubkey))
     }
 
-    fn get_minimum_balance_for_rent_exemption(
-        &self,
-        data_len: usize,
-    ) -> Result<u64, ClientError> {
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         Ok(self.svm.minimum_balance_for_rent_exemption(data_len))
     }
 
@@ -107,8 +104,7 @@ pub fn send_and_index(
     shielded_pool_program_id: Pubkey,
     transaction: Transaction,
 ) -> Result<IndexedTransaction, ProgramTestError> {
-    let produces_events =
-        produces_shielded_events(shielded_pool_program_id, &transaction.message);
+    let produces_events = produces_shielded_events(shielded_pool_program_id, &transaction.message);
     let signature = rpc
         .client()
         .send_and_confirm_transaction(&transaction)
@@ -128,7 +124,10 @@ fn fetch_indexed_events(
     shielded_pool_program_id: Pubkey,
     signature: &Signature,
 ) -> Result<Vec<IndexedEvent>, ProgramTestError> {
-    use std::{thread::sleep, time::{Duration, Instant}};
+    use std::{
+        thread::sleep,
+        time::{Duration, Instant},
+    };
 
     use solana_rpc_client::api::config::RpcTransactionConfig;
 
