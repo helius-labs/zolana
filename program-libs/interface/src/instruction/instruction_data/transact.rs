@@ -13,8 +13,7 @@ pub struct TransactIxData {
     pub utxo_tree_root_index: Vec<u16>,
     pub nullifier_tree_root_index: Vec<u16>,
     pub private_tx_hash: [u8; 32],
-    pub public_sol_amount: Option<u64>,
-    pub public_spl_amount: Option<u64>,
+    pub public_amount: Option<u64>,
     pub cpi_signer: Option<CpiSignerData>,
     pub in_utxo_signer_indices: Option<Vec<InputUtxoSignerIndex>>,
     pub encrypted_utxos: Vec<u8>,
@@ -40,5 +39,7 @@ pub struct InputUtxoSignerIndex {
 }
 
 pub const PUBLIC_AMOUNT_NONE: u8 = 0;
-pub const PUBLIC_AMOUNT_DEPOSIT: u8 = 1;
-pub const PUBLIC_AMOUNT_WITHDRAW: u8 = 2;
+pub const PUBLIC_AMOUNT_DEPOSIT_SOL: u8 = 1;
+pub const PUBLIC_AMOUNT_DEPOSIT_SPL: u8 = 2;
+pub const PUBLIC_AMOUNT_WITHDRAW_SOL: u8 = 3;
+pub const PUBLIC_AMOUNT_WITHDRAW_SPL: u8 = 4;

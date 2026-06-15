@@ -27,10 +27,11 @@ pub struct ProoflessShieldIxData {
     /// Fresh CSPRNG per deposit; the recipient re-derives `blinding` from it
     /// (spec: Blinding derivation).
     pub salt: [u8; 16],
-    /// `Some` for a SOL deposit. Exactly one of the two amounts is set.
-    pub public_sol_amount: Option<u64>,
-    /// `Some` for an SPL deposit.
-    pub public_spl_amount: Option<u64>,
+    /// Selects the deposited asset: `PUBLIC_AMOUNT_DEPOSIT_SOL` or
+    /// `PUBLIC_AMOUNT_DEPOSIT_SPL`. Proofless shields are deposit-only.
+    pub public_amount_mode: u8,
+    /// Deposited amount; the asset is decided by `public_amount_mode`.
+    pub public_amount: Option<u64>,
     /// Program-defined data hash; requires `cpi_signer`.
     pub program_data_hash: Option<[u8; 32]>,
     /// Preimage of `program_data_hash`.
@@ -61,8 +62,10 @@ pub struct ZoneProoflessShieldIxData {
     pub view_tag: [u8; 32],
     pub owner_utxo_hash: [u8; 32],
     pub salt: [u8; 16],
-    pub public_sol_amount: Option<u64>,
-    pub public_spl_amount: Option<u64>,
+    /// As in [`ProoflessShieldIxData`]: selects the deposited asset
+    /// (`PUBLIC_AMOUNT_DEPOSIT_SOL` or `PUBLIC_AMOUNT_DEPOSIT_SPL`).
+    pub public_amount_mode: u8,
+    pub public_amount: Option<u64>,
     /// Calling zone program; `zone_auth` is re-derived from it (seed `zone_auth`).
     pub cpi_signer: CpiSignerData,
     /// Zone-defined policy data hash.

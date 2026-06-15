@@ -2,7 +2,8 @@ use borsh::BorshDeserialize;
 use zolana_interface::instruction::{
     encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
     CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactIxData,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 
 #[cfg(feature = "solana")]
@@ -47,14 +48,13 @@ fn transact_roundtrip() {
         sender_view_tag: [1u8; 32],
         proof: [2u8; 192],
         relayer_fee: 3,
-        public_amount_mode: PUBLIC_AMOUNT_DEPOSIT,
+        public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
         nullifiers: vec![[4u8; 32]],
         output_utxo_hashes: vec![[5u8; 32], [6u8; 32]],
         utxo_tree_root_index: vec![7],
         nullifier_tree_root_index: vec![8],
         private_tx_hash: [9u8; 32],
-        public_sol_amount: None,
-        public_spl_amount: Some(10),
+        public_amount: Some(10),
         cpi_signer: None,
         in_utxo_signer_indices: Some(vec![InputUtxoSignerIndex {
             account_index: 1,

@@ -17,7 +17,7 @@ use zolana_interface::instruction::{
     tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
     PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
     UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-    ZoneProoflessShieldIxData,
+    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 
 use crate::events::{IndexedEvent, IndexedEventData};
@@ -387,7 +387,7 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
     let Ok(data) = ProoflessShieldIxData::deserialize(payload) else {
         return &[];
     };
-    if data.public_spl_amount.is_some() {
+    if data.public_amount_mode == PUBLIC_AMOUNT_DEPOSIT_SPL {
         &[
             "tree",
             "depositor",
@@ -425,8 +425,7 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
         field("expiry_unix_ts", data.expiry_unix_ts),
         field("relayer_fee", data.relayer_fee),
         field("public_amount_mode", data.public_amount_mode),
-        field("public_sol_amount", option_u64(data.public_sol_amount)),
-        field("public_spl_amount", option_u64(data.public_spl_amount)),
+        field("public_amount", option_u64(data.public_amount)),
         field("nullifiers", data.nullifiers.len()),
         field("output_utxo_hashes", data.output_utxo_hashes.len()),
         field("requires_p256", data.requires_p256),
@@ -438,8 +437,8 @@ fn proofless_fields(data: ProoflessShieldIxData) -> Vec<DecodedField> {
         field("view_tag", short_hex(&data.view_tag)),
         field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
         field("salt", short_hex(&data.salt)),
-        field("public_sol_amount", option_u64(data.public_sol_amount)),
-        field("public_spl_amount", option_u64(data.public_spl_amount)),
+        field("public_amount_mode", data.public_amount_mode),
+        field("public_amount", option_u64(data.public_amount)),
         field("program_data_hash", option_hash(data.program_data_hash)),
         field(
             "program_data_len",
@@ -454,8 +453,8 @@ fn zone_proofless_fields(data: ZoneProoflessShieldIxData) -> Vec<DecodedField> {
         field("view_tag", short_hex(&data.view_tag)),
         field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
         field("salt", short_hex(&data.salt)),
-        field("public_sol_amount", option_u64(data.public_sol_amount)),
-        field("public_spl_amount", option_u64(data.public_spl_amount)),
+        field("public_amount_mode", data.public_amount_mode),
+        field("public_amount", option_u64(data.public_amount)),
         field("cpi_signer", cpi_signer(Some(data.cpi_signer))),
         field("policy_data_hash", option_hash(data.policy_data_hash)),
         field("zone_data_len", data.zone_data.as_ref().map_or(0, Vec::len)),
@@ -559,7 +558,10 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{instruction::CpiSignerData, SHIELDED_POOL_PROGRAM_ID};
+    use zolana_interface::{
+        instruction::{CpiSignerData, PUBLIC_AMOUNT_DEPOSIT_SOL},
+        SHIELDED_POOL_PROGRAM_ID,
+    };
 
     use super::*;
 
@@ -574,8 +576,8 @@ mod tests {
                 view_tag: [1; 32],
                 owner_utxo_hash: [2; 32],
                 salt: [3; 16],
-                public_sol_amount: Some(42),
-                public_spl_amount: None,
+                public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+                public_amount: Some(42),
                 program_data_hash: None,
                 program_data: None,
                 cpi_signer: Some(CpiSignerData {
@@ -594,6 +596,6 @@ mod tests {
         assert!(decoded
             .fields
             .iter()
-            .any(|field| field.name == "public_sol_amount" && field.value == "42"));
+            .any(|field| field.name == "public_amount" && field.value == "42"));
     }
 }

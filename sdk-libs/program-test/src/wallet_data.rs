@@ -1,4 +1,7 @@
-use zolana_interface::instruction::{ProoflessShieldEvent, ProoflessShieldIxData};
+use zolana_interface::instruction::{
+    ProoflessShieldEvent, ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    PUBLIC_AMOUNT_DEPOSIT_SPL,
+};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{Address, Data, DataRecord, ProoflessDepositEvent, Wallet};
 
@@ -55,8 +58,8 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_sol_amount: Some(lamports),
-            public_spl_amount: None,
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+            public_amount: Some(lamports),
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
@@ -68,8 +71,8 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_sol_amount: None,
-            public_spl_amount: Some(amount),
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
+            public_amount: Some(amount),
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
@@ -87,8 +90,8 @@ impl ZolanaProgramTest {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_sol_amount: Some(lamports),
-            public_spl_amount: None,
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+            public_amount: Some(lamports),
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
@@ -106,8 +109,8 @@ impl ZolanaProgramTest {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_sol_amount: None,
-            public_spl_amount: Some(amount),
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
+            public_amount: Some(amount),
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
