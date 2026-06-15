@@ -41,7 +41,7 @@ fn zone_proofless_shield_succeeds_and_event_is_faithful() {
 
     let root_before = program_test.state_root(&tree.pubkey()).expect("root");
     let event = program_test
-        .zone_proofless_shield(&tree, &depositor, &data)
+        .zone_proofless_shield(&tree.pubkey(), &depositor, &data)
         .expect("zone deposit");
 
     assert_zone_proofless_shield(
