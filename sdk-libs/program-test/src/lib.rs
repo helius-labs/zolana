@@ -85,7 +85,7 @@ pub struct ZolanaProgramTest {
     pub program_id: Pubkey,
     indexer: TestIndexer,
     /// Monotonic counter mixed into the deterministic seed for each tree the
-    /// rig creates, so repeated `create_tree` calls yield distinct (but
+    /// test environment creates, so repeated `create_tree` calls yield distinct (but
     /// reproducible) addresses instead of colliding on a fixed key.
     tree_counter: u64,
 }
@@ -125,9 +125,10 @@ impl ZolanaProgramTest {
     }
 
     /// Deterministic tree keypair derived from a fixed seed prefix plus a
-    /// per-rig counter. The tree must still sign `system_create_account`, so we
-    /// hand back a real `Keypair`; seeding it keeps the address reproducible
-    /// across runs while staying unique within a single rig.
+    /// per-instance counter. The tree must still sign `system_create_account`,
+    /// so we hand back a real `Keypair`; seeding it keeps the address
+    /// reproducible across runs while staying unique within one test
+    /// environment.
     pub(crate) fn next_tree_keypair(&mut self) -> Keypair {
         let mut seed = [0u8; 32];
         seed[..16].copy_from_slice(b"zolana_pool_tree");

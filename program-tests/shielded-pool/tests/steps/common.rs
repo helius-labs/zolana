@@ -1,6 +1,4 @@
-//! Shared `Given` steps: boot the pool, create the protocol config, create a
-//! tree, and fund a depositor. These mirror `common::program_test` and
-//! `common::program_test_with_tree` from the original per-file litesvm tests.
+//! Shared setup and assertion steps.
 
 use cucumber::{given, then};
 use solana_keypair::Keypair;
@@ -11,16 +9,11 @@ use crate::ShieldedPoolWorld;
 
 use shielded_pool_program::error::ShieldedPoolError;
 
-/// Boot a fresh program-test environment with the shielded-pool program loaded.
-///
-/// The original tests skipped silently when the `.so` was missing; CI builds it
-/// first (`just build-programs`), so the BDD harness `.expect`s it instead.
 #[given(expr = "a booted shielded pool")]
 fn boot_pool(world: &mut ShieldedPoolWorld) {
     world.rpc = Some(program_test().expect("shielded_pool_program.so must be built"));
 }
 
-/// Boot the pool and create the protocol config under a fresh authority.
 #[given(expr = "a protocol config")]
 fn protocol_config(world: &mut ShieldedPoolWorld) {
     if world.rpc.is_none() {
@@ -34,9 +27,6 @@ fn protocol_config(world: &mut ShieldedPoolWorld) {
     world.authority = Some(authority);
 }
 
-/// Boot the pool, create the protocol config, and create a state tree.
-///
-/// Equivalent to `program_test_with_tree()` used by most original tests.
 #[given(expr = "a pool with a tree")]
 fn pool_with_tree(world: &mut ShieldedPoolWorld) {
     protocol_config(world);
@@ -48,7 +38,6 @@ fn pool_with_tree(world: &mut ShieldedPoolWorld) {
     world.tree = Some(tree);
 }
 
-/// Fund a fresh depositor with the given number of lamports.
 #[given(expr = "a depositor funded with {int} lamports")]
 fn funded_depositor(world: &mut ShieldedPoolWorld, lamports: u64) {
     let depositor = Keypair::new();

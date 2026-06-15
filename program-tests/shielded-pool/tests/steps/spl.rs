@@ -1,5 +1,4 @@
-//! SPL asset registration and SPL-deposit settlement steps. Faithful port of
-//! `tests/spl.rs`.
+//! SPL asset registration and SPL-deposit settlement steps.
 
 use cucumber::{given, then, when};
 use solana_instruction::AccountMeta;
@@ -50,15 +49,15 @@ fn register_spl_interface(world: &mut ShieldedPoolWorld) {
         .create_spl_interface(&authority, &mint)
         .expect("create_spl_interface");
     world.mint = Some(mint);
-    world.registry = Some(registry);
-    world.vault = Some(vault);
+    world.spl_registry = Some(registry);
+    world.spl_vault = Some(vault);
 }
 
 #[then(expr = "the registry and vault are initialized with indices {int} and {int}")]
 fn assert_interface(world: &mut ShieldedPoolWorld, registry_index: u64, vault_index: u64) {
     let mint = world.mint();
-    let registry = world.registry.expect("registry set");
-    let vault = world.vault.expect("vault set");
+    let registry = world.spl_registry.expect("registry set");
+    let vault = world.spl_vault.expect("vault set");
     let rpc = world.rpc_ref();
     assert_create_spl_interface(rpc, &registry, &vault, &mint, registry_index, vault_index);
 }
@@ -84,8 +83,8 @@ fn register_second_interface(world: &mut ShieldedPoolWorld) {
         .create_spl_interface(&authority, &mint_b)
         .expect("create_spl_interface mint B");
     world.mint = Some(mint_b);
-    world.registry = Some(registry_b);
-    world.vault = Some(vault_b);
+    world.spl_registry = Some(registry_b);
+    world.spl_vault = Some(vault_b);
 }
 
 #[when(expr = "a non-authority registers an SPL interface for a mint")]
@@ -105,8 +104,6 @@ fn register_interface_non_authority(world: &mut ShieldedPoolWorld) {
 
 // === SPL deposit setup ===
 
-/// Mirror of the original `spl_setup`: register a mint+interface, fund a
-/// depositor, create their token account, and mint `balance` tokens into it.
 #[given(expr = "an SPL depositor holding {int} tokens")]
 fn spl_depositor(world: &mut ShieldedPoolWorld, balance: u64) {
     register_spl_interface(world);

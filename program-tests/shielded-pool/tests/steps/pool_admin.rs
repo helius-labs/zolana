@@ -1,5 +1,4 @@
 //! Admin steps: protocol config, tree creation, authority rotation, pause.
-//! Faithful port of `tests/pool_admin.rs`.
 
 use cucumber::{then, when};
 use solana_keypair::Keypair;
@@ -26,12 +25,12 @@ fn create_protocol_config(world: &mut ShieldedPoolWorld) {
         .create_protocol_config(&authority)
         .expect("create_protocol_config");
     world.authority = Some(authority);
-    world.registry = Some(config);
+    world.protocol_config = Some(config);
 }
 
 #[then(expr = "the protocol config has the authority and no merge authorities")]
 fn assert_config_no_merge(world: &mut ShieldedPoolWorld) {
-    let config = world.registry.expect("config created");
+    let config = world.protocol_config.expect("config created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
     assert_protocol_config(rpc, &config, &authority, &[]);
@@ -52,7 +51,7 @@ fn donate_to_config(world: &mut ShieldedPoolWorld) {
         .rpc()
         .airdrop(&config, 1_000_000)
         .expect("donate lamports to config PDA");
-    world.vault = Some(config);
+    world.prefunded_protocol_config = Some(config);
 }
 
 #[when(expr = "the authority creates the protocol config on the pre-funded address")]
@@ -62,9 +61,14 @@ fn create_config_prefunded(world: &mut ShieldedPoolWorld) {
         .rpc()
         .create_protocol_config(&authority)
         .expect("create_protocol_config must survive a pre-funded PDA");
-    assert_eq!(created, world.vault.expect("donated config address"));
+    assert_eq!(
+        created,
+        world
+            .prefunded_protocol_config
+            .expect("donated config address")
+    );
     world.authority = Some(authority);
-    world.registry = Some(created);
+    world.protocol_config = Some(created);
 }
 
 #[when(expr = "the authority creates the protocol config with one merge authority")]
@@ -76,15 +80,14 @@ fn create_config_with_merge(world: &mut ShieldedPoolWorld) {
         .create_protocol_config_with_merge_authorities(&authority, vec![merge_a])
         .expect("create_protocol_config");
     world.authority = Some(authority);
-    world.registry = Some(config);
-    // Stash the first merge authority bytes for the assertion.
-    world.root_before = Some(merge_a);
+    world.protocol_config = Some(config);
+    world.merge_authority = Some(merge_a);
 }
 
 #[then(expr = "the protocol config records that merge authority")]
 fn assert_config_one_merge(world: &mut ShieldedPoolWorld) {
-    let config = world.registry.expect("config created");
-    let merge = world.root_before.expect("merge authority stashed");
+    let config = world.protocol_config.expect("config created");
+    let merge = world.merge_authority.expect("merge authority created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
     assert_protocol_config(rpc, &config, &authority, &[merge]);
@@ -104,7 +107,7 @@ fn update_config_with_merge(world: &mut ShieldedPoolWorld) {
         .update_protocol_config_with_merge_authorities(&authority, &next.pubkey(), vec![merge_b])
         .expect("update_protocol_config");
     world.authority = Some(next);
-    world.root_before = Some(merge_b);
+    world.merge_authority = Some(merge_b);
 }
 
 #[when(expr = "the authority tries to create a protocol config with too many merge authorities")]
@@ -179,7 +182,7 @@ fn rotate_authority(world: &mut ShieldedPoolWorld) {
         .rpc()
         .update_protocol_config(&authority, &next.pubkey())
         .expect("rotate");
-    world.zone_authority = Some(next);
+    world.rotated_authority = Some(next);
 }
 
 #[then(expr = "the old authority can no longer update the config")]
@@ -195,7 +198,7 @@ fn old_authority_rejected(world: &mut ShieldedPoolWorld) {
 #[then(expr = "the new authority can update the config and create trees")]
 fn new_authority_works(world: &mut ShieldedPoolWorld) {
     let next = world
-        .zone_authority
+        .rotated_authority
         .as_ref()
         .expect("rotated authority")
         .insecure_clone();

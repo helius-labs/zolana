@@ -1,4 +1,4 @@
-//! End-to-end happy-path steps. Faithful port of `tests/end_to_end.rs`.
+//! End-to-end happy-path steps.
 
 use cucumber::{then, when};
 use solana_keypair::Keypair;
@@ -59,8 +59,7 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
 
 #[then(expr = "the deposit lands in the pool vault and grows the tree")]
 fn deposit_landed(_world: &mut ShieldedPoolWorld) {
-    // Assertions are performed inline in the `When` step (mirrors the original
-    // single-test structure); this `Then` documents the expectation.
+    // Assertions are performed in the `When` step where before/after state is local.
 }
 
 #[when(expr = "the depositor makes the bootstrap deposit run")]
