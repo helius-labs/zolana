@@ -13,11 +13,14 @@ use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{
-    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
-    PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SPL,
+use zolana_interface::{
+    event::{decode_event_payload, ShieldedPoolEvent},
+    instruction::{
+        tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
+        PauseTreeData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
+        UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SPL,
+    },
 };
 
 use crate::events::{IndexedEvent, IndexedEventData};
@@ -294,12 +297,7 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 },
                 &["authority", "zone_config"],
             ),
-            tag::EMIT_EVENT => decode(
-                "emit_event",
-                payload,
-                proofless_event_fields,
-                &["event_authority"],
-            ),
+            tag::EMIT_EVENT => decode_emit_event(payload),
             tag::ZONE_PROOFLESS_SHIELD => ZoneProoflessShieldIxData::deserialize(payload)
                 .ok()
                 .and_then(|data| {
@@ -328,6 +326,12 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
             _ => None,
         }
     }
+}
+
+fn decode_emit_event(payload: &[u8]) -> Option<DecodedInstruction> {
+    decode_event_payload(payload).ok().and_then(|event| {
+        decoded_instruction("emit_event", event_fields(event), &["event_authority"])
+    })
 }
 
 /// Decode an instruction whose payload is just the tag byte (no data fields).
@@ -479,6 +483,16 @@ fn proofless_event_fields(data: ProoflessShieldEvent) -> Vec<DecodedField> {
         ),
         field("zone_data_len", data.zone_data.as_ref().map_or(0, Vec::len)),
     ]
+}
+
+fn event_fields(event: ShieldedPoolEvent) -> Vec<DecodedField> {
+    match event {
+        ShieldedPoolEvent::ProoflessShield(event) => {
+            let mut fields = vec![field("event_kind", "proofless_shield")];
+            fields.extend(proofless_event_fields(event));
+            fields
+        }
+    }
 }
 
 fn create_protocol_config_fields(data: CreateProtocolConfigData) -> Vec<DecodedField> {

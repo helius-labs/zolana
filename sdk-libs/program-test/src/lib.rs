@@ -32,7 +32,7 @@ use zolana_interface::{
 mod admin;
 pub mod events;
 pub use events::{
-    index_events, indexed_event_from_emit_payload, indexed_events_from_instructions,
+    index_events, indexed_event_from_instruction_data, indexed_events_from_instructions,
     indexed_events_from_meta, parsed_instruction_from_compiled, single_proofless_shield_event,
     IndexedEvent, IndexedEventData, ParsedInstruction,
 };
