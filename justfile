@@ -35,7 +35,9 @@ check-all:
 test: test-shielded-pool test-sdk-libs
 
 # Program/interface tests for the shielded-pool implementation.
-test-shielded-pool:
+# Depends on build-programs so the litesvm tests load a fresh .so and actually
+# run (without it `program_test()` finds no .so and the suite skips).
+test-shielded-pool: build-programs
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
