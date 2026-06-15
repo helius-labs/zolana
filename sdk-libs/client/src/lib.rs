@@ -2,6 +2,8 @@ pub mod error;
 pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
+#[cfg(feature = "solana-rpc")]
+pub mod solana_rpc;
 
 pub use error::ClientError;
 pub use private_transaction::{
@@ -18,6 +20,8 @@ pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
     GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, MerkleContext,
     MerkleProof, NonInclusionProof, NullifierNonInclusionProof, OutputSlot, ProveResult,
-    RpcBlocking, ShieldedTransaction, ShieldedTransactionStream, StateInclusionProof,
+    Rpc, ShieldedTransaction, ShieldedTransactionStream, StateInclusionProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+#[cfg(feature = "solana-rpc")]
+pub use solana_rpc::SolanaRpc;

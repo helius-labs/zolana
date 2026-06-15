@@ -8,6 +8,7 @@ edition.workspace = true
 [features]
 default = []
 solana-rpc = [
+    "zolana-client/solana-rpc",
     "dep:bs58",
     "dep:solana-commitment-config",
     "dep:solana-rpc-client",
@@ -21,7 +22,10 @@ solana-rpc = [
 bs58 = { workspace = true, optional = true }
 borsh = { workspace = true }
 litesvm = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
 solana-commitment-config = { workspace = true, optional = true }
+solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-clock = { workspace = true }
@@ -33,6 +37,7 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
+zolana-client = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

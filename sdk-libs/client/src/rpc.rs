@@ -154,7 +154,7 @@ pub struct ProveResult {
 /// Every method defaults to `unimplemented!()`; implementors override the subset
 /// they support.
 #[allow(unused_variables)]
-pub trait RpcBlocking: Send + Sync {
+pub trait Rpc {
     // ===== Accounts =====
 
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
