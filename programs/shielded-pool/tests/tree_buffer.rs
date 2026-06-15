@@ -87,7 +87,9 @@ fn append_state_leaf_matches_reference() {
     let mut buf = allocate_buffer();
     init_tree_account(&mut buf, &OWNER, &TREE).unwrap();
 
-    let new_root = append_state_leaves(&mut buf, &[[7u8; 32]]).unwrap();
+    let append = append_state_leaves(&mut buf, &[[7u8; 32]]).unwrap();
+    let new_root = append.new_root;
+    assert_eq!(append.first_output_leaf_index, 0);
     assert_eq!(read_state_next_index(&buf), 1);
     assert_eq!(read_state_root(&buf), new_root);
 

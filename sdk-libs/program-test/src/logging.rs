@@ -14,7 +14,7 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::{decode_event_payload, ProoflessShieldEvent, ShieldedPoolEvent},
+    event::{decode_event_payload, proofless_output, GeneralEvent, ProoflessShieldEvent},
     instruction::{
         tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
         PauseTreeData, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
@@ -186,13 +186,22 @@ fn append_indexed_events(output: &mut String, events: &[IndexedEvent]) {
 
 fn event_summary(event: &IndexedEvent) -> String {
     match &event.decoded {
-        Ok(ShieldedPoolEvent::ProoflessShield(event)) => format!(
-            "proofless_shield amount={} asset={} view_tag={} utxo_hash={}",
-            event.amount,
-            pubkey(&event.asset),
-            short_hex(&event.view_tag),
-            short_hex(&event.utxo_hash)
-        ),
+        Ok(event) => match proofless_output(event) {
+            Ok(output) => format!(
+                "proofless_shield amount={} asset={} view_tag={} utxo_hash={} leaf_index={}",
+                output.amount,
+                pubkey(&output.asset),
+                short_hex(&output.view_tag),
+                short_hex(&output.utxo_hash),
+                output.leaf_index
+            ),
+            Err(_) => format!(
+                "general_event inputs={} outputs={} first_output_leaf_index={}",
+                event.inputs.len(),
+                event.outputs.len(),
+                event.first_output_leaf_index
+            ),
+        },
         Err(err) => format!("invalid data_len={} error={err:?}", event.payload.len()),
     }
 }
@@ -457,10 +466,9 @@ fn zone_proofless_fields(data: ZoneProoflessShieldIxData) -> Vec<DecodedField> {
 
 fn proofless_event_fields(data: ProoflessShieldEvent) -> Vec<DecodedField> {
     vec![
-        field("amount", data.amount),
-        field("asset", pubkey(&data.asset)),
         field("view_tag", short_hex(&data.view_tag)),
         field("utxo_hash", short_hex(&data.utxo_hash)),
+        field("leaf_index", data.leaf_index),
         field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
         field("policy_data_hash", option_hash(data.policy_data_hash)),
@@ -473,14 +481,27 @@ fn proofless_event_fields(data: ProoflessShieldEvent) -> Vec<DecodedField> {
     ]
 }
 
-fn event_fields(event: ShieldedPoolEvent) -> Vec<DecodedField> {
-    match event {
-        ShieldedPoolEvent::ProoflessShield(event) => {
-            let mut fields = vec![field("event_kind", "proofless_shield")];
-            fields.extend(proofless_event_fields(event));
-            fields
-        }
+fn event_fields(event: GeneralEvent) -> Vec<DecodedField> {
+    let mut fields = vec![
+        field("event_kind", "general"),
+        field("inputs", event.inputs.len()),
+        field("outputs", event.outputs.len()),
+        field("first_output_leaf_index", event.first_output_leaf_index),
+        field("output_tree", pubkey(&event.output_tree)),
+        field("relay_fee", option_u64(event.relay_fee)),
+    ];
+    if let Some(deposit_withdraw) = &event.deposit_withdraw {
+        fields.extend([
+            field("is_deposit", deposit_withdraw.is_deposit),
+            field("amount", deposit_withdraw.amount),
+            field("asset", option_pubkey(deposit_withdraw.asset)),
+        ]);
     }
+    if let Ok(proofless) = proofless_output(&event) {
+        fields.push(field("output_data", "proofless"));
+        fields.extend(proofless_event_fields(proofless));
+    }
+    fields
 }
 
 fn create_protocol_config_fields(data: CreateProtocolConfigData) -> Vec<DecodedField> {

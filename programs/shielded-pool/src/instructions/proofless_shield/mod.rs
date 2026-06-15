@@ -3,7 +3,10 @@ use pinocchio::{
     cpi::invoke, error::ProgramError, instruction::InstructionView, AccountView, Address,
     ProgramResult,
 };
-use zolana_interface::event::{encode_event_instruction, ProoflessShieldEvent, ShieldedPoolEvent};
+use zolana_interface::event::{
+    encode_event_instruction, encode_output_data, DepositWithdraw, GeneralEvent, Output,
+    OutputData, ProoflessOutput,
+};
 use zolana_interface::instruction::{
     CpiSignerData, ProoflessShieldIxData, TransactIxData, ZoneProoflessShieldIxData,
     PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
@@ -138,33 +141,47 @@ fn process_deposit(
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    {
+    let mut output_tree = [0u8; 32];
+    output_tree.copy_from_slice(verified.tree.address().as_ref());
+    let append = {
         let bytes = loader::account_data_mut(verified.tree);
-        if append_to_pool(bytes, &[utxo_hash]).is_err() {
+        append_to_pool(bytes, &[utxo_hash]).map_err(|_| {
             log("proofless_shield: state sub-tree append failed");
-            return Err(ShieldedPoolError::StateAppendFailed.into());
-        }
-    }
+            ProgramError::from(ShieldedPoolError::StateAppendFailed)
+        })?
+    };
 
     settle_public_amounts(program_id, &verified.settlement, &tx)?;
 
-    let event = ProoflessShieldEvent {
-        view_tag: d.view_tag,
-        utxo_hash,
-        asset,
-        amount,
-        zone_program_id: d.cpi_signer.map(|cpi| cpi.program_id),
-        policy_data_hash: d.policy_data_hash,
+    let output_data = encode_output_data(&OutputData::Proofless(ProoflessOutput {
         owner_utxo_hash: d.owner_utxo_hash,
         salt: d.salt,
         program_data_hash: d.program_data_hash,
         program_data: d.program_data,
+        zone_program_id: d.cpi_signer.map(|cpi| cpi.program_id),
+        policy_data_hash: d.policy_data_hash,
         zone_data: d.zone_data,
+    }));
+    let event = GeneralEvent {
+        inputs: Vec::new(),
+        outputs: vec![Output {
+            tag: d.view_tag,
+            hash: utxo_hash,
+            data: output_data,
+        }],
+        first_output_leaf_index: append.first_output_leaf_index,
+        output_tree,
+        relay_fee: None,
+        deposit_withdraw: Some(DepositWithdraw {
+            is_deposit: true,
+            amount,
+            asset: needs_spl.then_some(asset),
+        }),
     };
-    emit_event(program_id, ShieldedPoolEvent::ProoflessShield(event))
+    emit_event(program_id, event)
 }
 
-fn emit_event(program_id: &Address, event: ShieldedPoolEvent) -> ProgramResult {
+fn emit_event(program_id: &Address, event: GeneralEvent) -> ProgramResult {
     let data = encode_event_instruction(&event);
     let instruction_accounts = [];
     let instruction = InstructionView {

@@ -52,6 +52,12 @@ pub enum TreeError {
     InvalidRootIndex,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateAppend {
+    pub first_output_leaf_index: u64,
+    pub new_root: [u8; 32],
+}
+
 pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
     InitAddressTreeAccountsInstructionData {
         index: 0,
@@ -144,7 +150,10 @@ fn init_state_sub_tree(state: &mut [u8]) {
     state[history..history + 32].copy_from_slice(&root);
 }
 
-pub fn append_state_leaves(bytes: &mut [u8], leaves: &[[u8; 32]]) -> Result<[u8; 32], TreeError> {
+pub fn append_state_leaves(
+    bytes: &mut [u8],
+    leaves: &[[u8; 32]],
+) -> Result<StateAppend, TreeError> {
     if bytes.len() < tree_account_size() {
         return Err(TreeError::BufferTooSmall);
     }
@@ -166,7 +175,10 @@ pub fn append_state_leaves(bytes: &mut [u8], leaves: &[[u8; 32]]) -> Result<[u8;
     write_state_subtrees(bytes, &smt.get_subtrees());
     push_state_root(bytes, new_root);
 
-    Ok(new_root)
+    Ok(StateAppend {
+        first_output_leaf_index: next_index as u64,
+        new_root,
+    })
 }
 
 pub fn state_root_by_index(bytes: &[u8], index: u16) -> Result<[u8; 32], TreeError> {

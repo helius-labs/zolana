@@ -2,9 +2,9 @@ use borsh::BorshDeserialize;
 use zolana_interface::{
     event::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
-        encode_event_payload, indexed_events_from_instruction_groups, kind as event_kind,
-        EventDecodeError, InstructionGroup, ParsedInstruction, ProoflessShieldEvent,
-        ShieldedPoolEvent,
+        encode_event_payload, encode_output_data, indexed_events_from_instruction_groups,
+        proofless_output, DepositWithdraw, EventDecodeError, GeneralEvent, InstructionGroup,
+        Output, OutputData, ParsedInstruction, ProoflessOutput,
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
@@ -23,15 +23,6 @@ use zolana_interface::instruction::{
 };
 #[cfg(feature = "solana")]
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-
-#[test]
-fn create_tree_is_tag_only() {
-    // create_tree carries no data beyond the tag byte.
-    assert_eq!(
-        InstructionTag::try_from(tag::CREATE_TREE),
-        Ok(InstructionTag::CreateTree)
-    );
-}
 
 #[test]
 fn batch_update_nullifier_tree_roundtrip() {
@@ -54,8 +45,6 @@ fn batch_update_nullifier_tree_roundtrip() {
 
 #[test]
 fn transact_roundtrip() {
-    // TransactIxData is wincode-encoded (not borsh); the grouped `inputs` vec is
-    // non-empty here to exercise the per-input grouping on the wire.
     let payload = TransactIxData {
         expiry_unix_ts: 123,
         sender_view_tag: [1u8; 32],
@@ -88,31 +77,33 @@ fn transact_roundtrip() {
     let bytes = payload.serialize().unwrap();
     let decoded = TransactIxData::deserialize(&bytes).unwrap();
 
-    // TRANSACT has no handler, so its tag must not map to an InstructionTag.
     assert_eq!(InstructionTag::try_from(tag::TRANSACT), Err(()));
     assert_eq!(decoded, payload);
 }
 
 #[test]
-fn create_spl_interface_is_tag_only() {
-    // create_spl_interface carries no data beyond the tag byte.
-    assert_eq!(
-        InstructionTag::try_from(tag::CREATE_SPL_INTERFACE),
-        Ok(InstructionTag::CreateSplInterface)
-    );
+fn general_event_roundtrip() {
+    let event = sample_event();
+    let instruction = encode_event_instruction(&event);
+    let payload = encode_event_payload(&event);
+
+    assert_eq!(instruction[0], tag::EMIT_EVENT);
+    assert_eq!(payload, instruction[1..]);
+    assert_eq!(decode_event_instruction(&instruction), Ok(event.clone()));
+    assert_eq!(decode_event_payload(&payload), Ok(event));
 }
 
 #[test]
-fn proofless_event_roundtrip() {
-    let wrapped = sample_event();
-    let instruction = encode_event_instruction(&wrapped);
-    let payload = encode_event_payload(&wrapped);
+fn proofless_output_decodes_from_general_event() {
+    let event = sample_event();
+    let proofless = proofless_output(&event).expect("proofless output");
 
-    assert_eq!(instruction[0], tag::EMIT_EVENT);
-    assert_eq!(instruction[1], event_kind::PROOFLESS_SHIELD);
-    assert_eq!(payload, instruction[1..]);
-    assert_eq!(decode_event_instruction(&instruction), Ok(wrapped.clone()));
-    assert_eq!(decode_event_payload(&payload), Ok(wrapped));
+    assert_eq!(proofless.view_tag, [1u8; 32]);
+    assert_eq!(proofless.utxo_hash, [2u8; 32]);
+    assert_eq!(proofless.asset, [3u8; 32]);
+    assert_eq!(proofless.amount, 42);
+    assert_eq!(proofless.owner_utxo_hash, [6u8; 32]);
+    assert_eq!(proofless.leaf_index, 9);
 }
 
 #[test]
@@ -183,28 +174,35 @@ fn event_decoder_rejects_bad_envelope() {
     );
     assert_eq!(
         decode_event_payload(&[]),
-        Err(EventDecodeError::MissingEventKind)
-    );
-    assert_eq!(
-        decode_event_payload(&[u8::MAX]),
-        Err(EventDecodeError::UnknownEventKind(u8::MAX))
+        Err(EventDecodeError::InvalidPayload)
     );
 }
 
-fn sample_event() -> ShieldedPoolEvent {
-    ShieldedPoolEvent::ProoflessShield(ProoflessShieldEvent {
-        view_tag: [1u8; 32],
-        utxo_hash: [2u8; 32],
-        asset: [3u8; 32],
-        amount: 42,
-        zone_program_id: Some([4u8; 32]),
-        policy_data_hash: Some([5u8; 32]),
-        owner_utxo_hash: [6u8; 32],
-        salt: [7u8; 16],
-        program_data_hash: Some([8u8; 32]),
-        program_data: Some(vec![9, 10]),
-        zone_data: Some(vec![11, 12]),
-    })
+fn sample_event() -> GeneralEvent {
+    GeneralEvent {
+        inputs: Vec::new(),
+        outputs: vec![Output {
+            tag: [1u8; 32],
+            hash: [2u8; 32],
+            data: encode_output_data(&OutputData::Proofless(ProoflessOutput {
+                owner_utxo_hash: [6u8; 32],
+                salt: [7u8; 16],
+                program_data_hash: Some([8u8; 32]),
+                program_data: Some(vec![9, 10]),
+                zone_program_id: Some([4u8; 32]),
+                policy_data_hash: Some([5u8; 32]),
+                zone_data: Some(vec![11, 12]),
+            })),
+        }],
+        first_output_leaf_index: 9,
+        output_tree: [10u8; 32],
+        relay_fee: None,
+        deposit_withdraw: Some(DepositWithdraw {
+            is_deposit: true,
+            amount: 42,
+            asset: Some([3u8; 32]),
+        }),
+    }
 }
 
 fn parsed_ix(program_id: Pubkey, ix_tag: u8, stack_height: Option<u32>) -> ParsedInstruction {
@@ -442,11 +440,16 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
 #[test]
 fn implemented_tags_map_to_instruction_tag() {
     let tags = [
+        (tag::CREATE_TREE, InstructionTag::CreateTree),
         (
             tag::BATCH_UPDATE_NULLIFIER_TREE,
             InstructionTag::BatchUpdateNullifierTree,
         ),
         (tag::PROOFLESS_SHIELD, InstructionTag::ProoflessShield),
+        (
+            tag::CREATE_SPL_INTERFACE,
+            InstructionTag::CreateSplInterface,
+        ),
         (
             tag::CREATE_PROTOCOL_CONFIG,
             InstructionTag::CreateProtocolConfig,
@@ -471,8 +474,6 @@ fn implemented_tags_map_to_instruction_tag() {
 
 #[test]
 fn unimplemented_tags_are_not_dispatchable() {
-    // Tags with no handler must not decode to an InstructionTag; the program
-    // dispatch treats them like any unknown byte.
     for tag in [
         tag::TRANSACT,
         tag::reserved::ZONE_TRANSACT,

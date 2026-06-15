@@ -18,6 +18,8 @@ pub enum IndexerError {
         expected: [u8; 32],
         actual: [u8; 32],
     },
+    #[error("event leaf_index mismatch: expected {expected}, got {actual}")]
+    LeafIndexMismatch { expected: u64, actual: u64 },
     #[error("reference merkle tree: {0}")]
     MerkleTree(String),
 }
@@ -90,6 +92,12 @@ impl TestIndexer {
         }
 
         let leaf_index = self.utxos.len() as u64;
+        if event.leaf_index != leaf_index {
+            return Err(IndexerError::LeafIndexMismatch {
+                expected: leaf_index,
+                actual: event.leaf_index,
+            });
+        }
         let record_index = self.utxos.len();
         self.tree
             .append(&event.utxo_hash)

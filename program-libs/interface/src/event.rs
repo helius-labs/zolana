@@ -3,33 +3,55 @@ use solana_pubkey::Pubkey;
 
 use crate::instruction::tag;
 
-pub mod kind {
-    pub const PROOFLESS_SHIELD: u8 = 1;
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum EventKind {
-    ProoflessShield = kind::PROOFLESS_SHIELD,
-}
-
-impl TryFrom<u8> for EventKind {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            kind::PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ShieldedPoolEvent {
-    ProoflessShield(ProoflessShieldEvent),
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct GeneralEvent {
+    pub inputs: Vec<Input>,
+    pub outputs: Vec<Output>,
+    pub first_output_leaf_index: u64,
+    pub output_tree: [u8; 32],
+    pub relay_fee: Option<u64>,
+    pub deposit_withdraw: Option<DepositWithdraw>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct Input {
+    pub tree: [u8; 32],
+    pub input_queue_seq: u64,
+    pub nullifier: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct Output {
+    pub tag: [u8; 32],
+    pub hash: [u8; 32],
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct DepositWithdraw {
+    pub is_deposit: bool,
+    pub amount: u64,
+    pub asset: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub enum OutputData {
+    Unknown(Vec<u8>),
+    Proofless(ProoflessOutput),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ProoflessOutput {
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub program_data_hash: Option<[u8; 32]>,
+    pub program_data: Option<Vec<u8>>,
+    pub zone_program_id: Option<[u8; 32]>,
+    pub policy_data_hash: Option<[u8; 32]>,
+    pub zone_data: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProoflessShieldEvent {
     pub view_tag: [u8; 32],
     pub utxo_hash: [u8; 32],
@@ -42,6 +64,8 @@ pub struct ProoflessShieldEvent {
     pub program_data_hash: Option<[u8; 32]>,
     pub program_data: Option<Vec<u8>>,
     pub zone_data: Option<Vec<u8>>,
+    pub output_tree: [u8; 32],
+    pub leaf_index: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,39 +102,36 @@ pub struct InstructionGroup {
 pub struct IndexedEvent {
     pub tag: u8,
     pub payload: Vec<u8>,
-    pub decoded: Result<ShieldedPoolEvent, EventDecodeError>,
-}
-
-impl ShieldedPoolEvent {
-    pub fn kind(&self) -> EventKind {
-        match self {
-            Self::ProoflessShield(_) => EventKind::ProoflessShield,
-        }
-    }
+    pub decoded: Result<GeneralEvent, EventDecodeError>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventDecodeError {
     MissingInstructionTag,
     InvalidInstructionTag(u8),
-    MissingEventKind,
-    UnknownEventKind(u8),
     InvalidPayload,
+    InvalidOutputData,
+    MissingOutput,
+    MissingDepositWithdraw,
 }
 
-pub fn encode_event_instruction(event: &ShieldedPoolEvent) -> Vec<u8> {
+pub fn encode_event_instruction(event: &GeneralEvent) -> Vec<u8> {
     let mut data = vec![tag::EMIT_EVENT];
-    encode_event_payload_into(event, &mut data);
+    event
+        .serialize(&mut data)
+        .expect("shielded-pool event serialization is infallible");
     data
 }
 
-pub fn encode_event_payload(event: &ShieldedPoolEvent) -> Vec<u8> {
+pub fn encode_event_payload(event: &GeneralEvent) -> Vec<u8> {
     let mut data = Vec::new();
-    encode_event_payload_into(event, &mut data);
+    event
+        .serialize(&mut data)
+        .expect("shielded-pool event serialization is infallible");
     data
 }
 
-pub fn decode_event_instruction(data: &[u8]) -> Result<ShieldedPoolEvent, EventDecodeError> {
+pub fn decode_event_instruction(data: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
     let (&instruction_tag, payload) = data
         .split_first()
         .ok_or(EventDecodeError::MissingInstructionTag)?;
@@ -120,24 +141,52 @@ pub fn decode_event_instruction(data: &[u8]) -> Result<ShieldedPoolEvent, EventD
     decode_event_payload(payload)
 }
 
-pub fn decode_event_payload(payload: &[u8]) -> Result<ShieldedPoolEvent, EventDecodeError> {
-    let (&kind, payload) = payload
-        .split_first()
-        .ok_or(EventDecodeError::MissingEventKind)?;
-    match EventKind::try_from(kind).map_err(|_| EventDecodeError::UnknownEventKind(kind))? {
-        EventKind::ProoflessShield => ProoflessShieldEvent::try_from_slice(payload)
-            .map(ShieldedPoolEvent::ProoflessShield)
-            .map_err(|_| EventDecodeError::InvalidPayload),
-    }
+pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
+    GeneralEvent::try_from_slice(payload).map_err(|_| EventDecodeError::InvalidPayload)
 }
 
-fn encode_event_payload_into(event: &ShieldedPoolEvent, data: &mut Vec<u8>) {
-    data.push(event.kind() as u8);
-    match event {
-        ShieldedPoolEvent::ProoflessShield(event) => event
-            .serialize(data)
-            .expect("shielded-pool event serialization is infallible"),
+pub fn encode_output_data(data: &OutputData) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    data.serialize(&mut bytes)
+        .expect("shielded-pool output data serialization is infallible");
+    bytes
+}
+
+pub fn decode_output_data(data: &[u8]) -> Result<OutputData, EventDecodeError> {
+    OutputData::try_from_slice(data).map_err(|_| EventDecodeError::InvalidOutputData)
+}
+
+pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldEvent, EventDecodeError> {
+    let output = event
+        .outputs
+        .first()
+        .ok_or(EventDecodeError::MissingOutput)?;
+    let OutputData::Proofless(proofless) = decode_output_data(&output.data)? else {
+        return Err(EventDecodeError::InvalidOutputData);
+    };
+    let deposit_withdraw = event
+        .deposit_withdraw
+        .as_ref()
+        .ok_or(EventDecodeError::MissingDepositWithdraw)?;
+    if !deposit_withdraw.is_deposit {
+        return Err(EventDecodeError::MissingDepositWithdraw);
     }
+
+    Ok(ProoflessShieldEvent {
+        view_tag: output.tag,
+        utxo_hash: output.hash,
+        asset: deposit_withdraw.asset.unwrap_or([0u8; 32]),
+        amount: deposit_withdraw.amount,
+        zone_program_id: proofless.zone_program_id,
+        policy_data_hash: proofless.policy_data_hash,
+        owner_utxo_hash: proofless.owner_utxo_hash,
+        salt: proofless.salt,
+        program_data_hash: proofless.program_data_hash,
+        program_data: proofless.program_data,
+        zone_data: proofless.zone_data,
+        output_tree: event.output_tree,
+        leaf_index: event.first_output_leaf_index,
+    })
 }
 
 pub fn indexed_events_from_instruction_groups(
