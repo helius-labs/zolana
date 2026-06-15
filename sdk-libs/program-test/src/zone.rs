@@ -189,7 +189,7 @@ impl ZolanaProgramTest {
 
     pub fn zone_proofless_shield(
         &mut self,
-        tree: &Keypair,
+        tree: &Pubkey,
         depositor: &Keypair,
         data: &ZoneProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
@@ -197,7 +197,7 @@ impl ZolanaProgramTest {
         let ix = zone_proofless_shield(
             Self::zone_test_program_id(),
             zone_auth,
-            tree.pubkey(),
+            *tree,
             depositor.pubkey(),
             data,
         );
