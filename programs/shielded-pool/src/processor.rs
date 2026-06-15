@@ -1,9 +1,8 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
-    CreateTreeData, CreateZoneConfigData, PauseTreeData, ProoflessShieldIxData,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData, PauseTreeData,
+    ProoflessShieldIxData, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     ZoneProoflessShieldIxData,
 };
 use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY;
@@ -26,19 +25,29 @@ use crate::{
 macro_rules! dispatch {
     (
         $tag:expr, $payload:expr, $program_id:expr, $accounts:expr,
-        { $($const:path => ($data:ty, $handler:path)),+ $(,)? }
+        { $($const:path => $arm:tt),+ $(,)? }
     ) => {
         match $tag {
             $(
-                $const => {
-                    let data = <$data>::try_from_slice($payload)
-                        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-                    $handler($program_id, $accounts, data)
-                }
+                $const => dispatch!(@arm $arm, $payload, $program_id, $accounts),
             )+
             _ => Err(ProgramError::InvalidInstructionData),
         }
     };
+    // Handler that parses typed instruction data.
+    (@arm ($data:ty, $handler:path), $payload:expr, $program_id:expr, $accounts:expr) => {{
+        let data = <$data>::try_from_slice($payload)
+            .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        $handler($program_id, $accounts, data)
+    }};
+    // Handler for instructions whose payload is just the tag byte; reject any
+    // trailing bytes so the wire format stays exactly one byte.
+    (@arm $handler:path, $payload:expr, $program_id:expr, $accounts:expr) => {{
+        if !$payload.is_empty() {
+            return Err(ShieldedPoolError::InvalidInstructionData.into());
+        }
+        $handler($program_id, $accounts)
+    }};
 }
 
 pub fn process_instruction(
@@ -61,11 +70,11 @@ pub fn process_instruction(
     }
 
     dispatch!(*ix_tag, payload, program_id, accounts, {
-        tag::CREATE_TREE => (CreateTreeData, process_create_tree),
+        tag::CREATE_TREE => process_create_tree,
         tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
         tag::PROOFLESS_SHIELD => (ProoflessShieldIxData, process_proofless_shield),
         tag::ZONE_PROOFLESS_SHIELD => (ZoneProoflessShieldIxData, process_zone_proofless_shield),
-        tag::CREATE_SPL_INTERFACE => (CreateSplInterfaceData, process_create_spl_interface),
+        tag::CREATE_SPL_INTERFACE => process_create_spl_interface,
         tag::CREATE_PROTOCOL_CONFIG => (CreateProtocolConfigData, process_create_protocol_config),
         tag::UPDATE_PROTOCOL_CONFIG => (UpdateProtocolConfigData, process_update_protocol_config),
         tag::PAUSE_TREE => (PauseTreeData, process_pause_tree),

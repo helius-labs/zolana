@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct CreateZoneConfigData {
-    pub policy_program_id: [u8; 32],
+    pub program_id: [u8; 32],
     pub zone_auth_bump: u8,
     pub authority: [u8; 32],
     pub zone_authority_transact_is_enabled: bool,

@@ -1,10 +1,7 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-use crate::{
-    instruction::{encode_instruction, tag, CreateSplInterfaceData},
-    SHIELDED_POOL_PROGRAM_ID,
-};
+use crate::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
 
 pub struct CreateSplInterfaceAccounts {
     pub authority: Pubkey,
@@ -18,10 +15,7 @@ pub struct CreateSplInterfaceAccounts {
     pub token_program: Pubkey,
 }
 
-pub fn create_spl_interface(
-    accounts: CreateSplInterfaceAccounts,
-    data: CreateSplInterfaceData,
-) -> Instruction {
+pub fn create_spl_interface(accounts: CreateSplInterfaceAccounts) -> Instruction {
     Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
@@ -35,6 +29,6 @@ pub fn create_spl_interface(
             AccountMeta::new_readonly(accounts.system_program, false),
             AccountMeta::new_readonly(accounts.token_program, false),
         ],
-        data: encode_instruction(tag::CREATE_SPL_INTERFACE, &data),
+        data: vec![tag::CREATE_SPL_INTERFACE],
     }
 }

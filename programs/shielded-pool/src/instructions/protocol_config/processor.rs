@@ -116,13 +116,13 @@ pub fn process_create_zone_config(
     if !payer.is_signer() || !config.is_writable() {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
-    validate_zone_auth(zone_auth, &data.policy_program_id, data.zone_auth_bump)?;
+    validate_zone_auth(zone_auth, &data.program_id, data.zone_auth_bump)?;
 
-    let (expected, bump) = zone_config_pda(program_id, &data.policy_program_id)?;
+    let (expected, bump) = zone_config_pda(program_id, &data.program_id)?;
     if *config.address() != expected || data.zone_config_bump != bump {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
-    create_zone_config_pda(payer, config, program_id, &data.policy_program_id, bump)?;
+    create_zone_config_pda(payer, config, program_id, &data.program_id, bump)?;
 
     let bytes = loader::account_data_mut(config);
     write_zone_config(

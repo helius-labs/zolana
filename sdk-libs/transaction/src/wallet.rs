@@ -12,7 +12,7 @@ use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::{owner_utxo_hash, Blinding, Utxo};
+use crate::utxo::{owner_utxo_hash_from_owner_hash, Blinding, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -314,11 +314,8 @@ impl Wallet {
         &self,
         blinding: &Blinding,
     ) -> Result<[u8; 32], TransactionError> {
-        owner_utxo_hash(
-            &self.keypair.signing_pubkey(),
-            &self.keypair.nullifier_key.pubkey()?,
-            blinding,
-        )
+        let owner_hash = self.keypair.owner_hash()?;
+        owner_utxo_hash_from_owner_hash(&owner_hash, blinding)
     }
 
     pub fn proofless_blinding(&self, salt: &[u8; SALT_LEN]) -> Result<Blinding, TransactionError> {

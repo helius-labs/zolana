@@ -1,5 +1,4 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
-use zolana_interface::instruction::CreateTreeData;
 
 use crate::{
     error::ShieldedPoolError,
@@ -15,7 +14,6 @@ use crate::{
 pub fn verify<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
-    _data: &CreateTreeData,
 ) -> Result<MutableTreeAccounts<'a>, ProgramError> {
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);

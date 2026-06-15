@@ -14,10 +14,9 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{
-    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateSplInterfaceData,
-    CreateTreeData, CreateZoneConfigData, PauseTreeData, ProoflessShieldEvent,
-    ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData, PauseTreeData,
+    ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
 };
 
 use crate::events::{IndexedEvent, IndexedEventData};
@@ -229,10 +228,9 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 proofless_fields,
                 proofless_accounts(payload, accounts.len()),
             ),
-            tag::CREATE_SPL_INTERFACE => decode::<CreateSplInterfaceData, _>(
+            tag::CREATE_SPL_INTERFACE => decode_no_data(
                 "create_spl_interface",
                 payload,
-                |_| Vec::new(),
                 &[
                     "authority",
                     "protocol_config",
@@ -245,10 +243,9 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                     "token_program",
                 ],
             ),
-            tag::CREATE_TREE => decode::<CreateTreeData, _>(
+            tag::CREATE_TREE => decode_no_data(
                 "create_tree",
                 payload,
-                |_| Vec::new(),
                 &["authority", "protocol_config", "tree"],
             ),
             tag::CREATE_PROTOCOL_CONFIG => decode::<CreateProtocolConfigData, _>(
@@ -325,6 +322,22 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
             _ => None,
         }
     }
+}
+
+/// Decode an instruction whose payload is just the tag byte (no data fields).
+fn decode_no_data(
+    name: &'static str,
+    payload: &[u8],
+    account_names: &[&str],
+) -> Option<DecodedInstruction> {
+    if !payload.is_empty() {
+        return None;
+    }
+    Some(DecodedInstruction::with_fields_and_accounts(
+        name,
+        Vec::new(),
+        account_names.iter().map(|name| name.to_string()).collect(),
+    ))
 }
 
 fn decode<T, F>(
@@ -465,7 +478,7 @@ fn protocol_config_fields(authority: [u8; 32], merge_authorities: usize) -> Vec<
 
 fn create_zone_config_fields(data: CreateZoneConfigData) -> Vec<DecodedField> {
     vec![
-        field("policy_program_id", pubkey(&data.policy_program_id)),
+        field("program_id", pubkey(&data.program_id)),
         field("authority", pubkey(&data.authority)),
         field("zone_auth_bump", data.zone_auth_bump),
         field("zone_config_bump", data.zone_config_bump),

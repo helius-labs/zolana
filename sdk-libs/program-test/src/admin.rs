@@ -97,7 +97,7 @@ impl ZolanaProgramTest {
         account_size: u64,
         authority: &Keypair,
     ) -> Result<Keypair, ProgramTestError> {
-        let tree = Keypair::new();
+        let tree = self.next_tree_keypair();
         let program_id = self.program_id;
         let payer = self.payer.pubkey();
         let authority_key = authority.pubkey();

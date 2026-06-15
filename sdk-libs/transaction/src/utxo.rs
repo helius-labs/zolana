@@ -83,8 +83,7 @@ pub fn hash_from_owner_hash(
     program_data_hash: &[u8; 32],
     zone_data_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
-    let blinding = right_align(blinding);
-    let owner_utxo_hash = poseidon(&[owner_hash, &blinding])?;
+    let owner_utxo_hash = owner_utxo_hash_from_owner_hash(owner_hash, blinding)?;
     Utxo::commitment_from_owner_utxo_hash(
         *asset,
         amount,
@@ -101,8 +100,15 @@ pub fn owner_utxo_hash(
     blinding: &Blinding,
 ) -> Result<[u8; 32], TransactionError> {
     let owner_hash = zolana_keypair::hash::owner_hash(owner, nullifier_pk)?;
+    owner_utxo_hash_from_owner_hash(&owner_hash, blinding)
+}
+
+pub fn owner_utxo_hash_from_owner_hash(
+    owner_hash: &[u8; 32],
+    blinding: &Blinding,
+) -> Result<[u8; 32], TransactionError> {
     let blinding = right_align(blinding);
-    poseidon(&[&owner_hash, &blinding])
+    poseidon(&[owner_hash, &blinding])
 }
 
 impl Utxo {

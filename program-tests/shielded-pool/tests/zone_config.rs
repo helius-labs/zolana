@@ -117,7 +117,7 @@ fn create_zone_config_rejects_fake_zone_auth() {
     let (zone_config, zone_config_bump) = program_test.zone_config_pda(&zone_program);
     let (_, zone_auth_bump) = program_test.zone_auth_pda();
     let data = CreateZoneConfigData {
-        policy_program_id: ZONE_TEST_PROGRAM_ID,
+        program_id: ZONE_TEST_PROGRAM_ID,
         zone_auth_bump,
         authority: payer.pubkey().to_bytes(),
         zone_authority_transact_is_enabled: true,

@@ -58,7 +58,7 @@ impl ZolanaProgramTest {
         let (zone_config, zone_config_bump) = self.zone_config_pda(&zone_program);
         let (zone_auth, zone_auth_bump) = self.zone_auth_pda();
         let data = CreateZoneConfigData {
-            policy_program_id: ZONE_TEST_PROGRAM_ID,
+            program_id: ZONE_TEST_PROGRAM_ID,
             zone_auth_bump,
             authority: authority.to_bytes(),
             zone_authority_transact_is_enabled,
