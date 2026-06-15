@@ -1,12 +1,8 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{
-        encode_instruction, tag, CreateProtocolConfigData, ProoflessShieldIxData,
-        ZoneProoflessShieldIxData,
-    },
-    state::state_root_offset,
-    SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+    instruction::create_tree, state::state_root_offset, SPP_PROTOCOL_CONFIG_PDA_SEED,
+    ZONE_AUTH_PDA_SEED,
 };
 
 use crate::{rpc::Rpc, ProgramTestError};
@@ -38,28 +34,6 @@ pub fn system_create_account_ix(
     }
 }
 
-pub fn create_protocol_config_instruction(
-    program_id: Pubkey,
-    authority: Pubkey,
-    merge_authorities: Vec<[u8; 32]>,
-) -> Instruction {
-    Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(authority, true),
-            AccountMeta::new(protocol_config_pda(&program_id), false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-        ],
-        data: encode_instruction(
-            tag::CREATE_PROTOCOL_CONFIG,
-            &CreateProtocolConfigData {
-                authority: authority.to_bytes(),
-                merge_authorities,
-            },
-        ),
-    }
-}
-
 pub fn create_tree_instructions<R: Rpc>(
     rpc: &R,
     program_id: Pubkey,
@@ -71,15 +45,7 @@ pub fn create_tree_instructions<R: Rpc>(
     let rent = rpc.minimum_balance_for_rent_exemption(account_size as usize)?;
     Ok(vec![
         system_create_account_ix(payer, tree, rent, account_size, &program_id),
-        Instruction {
-            program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(*authority, true),
-                AccountMeta::new_readonly(protocol_config_pda(&program_id), false),
-                AccountMeta::new(*tree, false),
-            ],
-            data: vec![tag::CREATE_TREE],
-        },
+        create_tree(*authority, protocol_config_pda(&program_id), *tree),
     ])
 }
 
@@ -96,49 +62,4 @@ pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], Progra
 
 pub fn zone_auth_pda(zone_program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], zone_program_id)
-}
-
-pub fn proofless_shield_sol_instruction(
-    program_id: Pubkey,
-    tree: Pubkey,
-    depositor: Pubkey,
-    cpi_authority: Pubkey,
-    data: &ProoflessShieldIxData,
-) -> Instruction {
-    Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(tree, false),
-            AccountMeta::new(depositor, true),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(cpi_authority, false),
-            AccountMeta::new(depositor, false),
-            AccountMeta::new_readonly(program_id, false),
-        ],
-        data: encode_instruction(tag::PROOFLESS_SHIELD, data),
-    }
-}
-
-pub fn zone_proofless_shield_sol_instruction(
-    shielded_pool_program_id: Pubkey,
-    zone_program_id: Pubkey,
-    tree: Pubkey,
-    depositor: Pubkey,
-    zone_auth: Pubkey,
-    cpi_authority: Pubkey,
-    data: &ZoneProoflessShieldIxData,
-) -> Instruction {
-    Instruction {
-        program_id: zone_program_id,
-        accounts: vec![
-            AccountMeta::new(tree, false),
-            AccountMeta::new(depositor, true),
-            AccountMeta::new_readonly(zone_auth, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new(cpi_authority, false),
-            AccountMeta::new(depositor, false),
-            AccountMeta::new_readonly(shielded_pool_program_id, false),
-        ],
-        data: encode_instruction(tag::ZONE_PROOFLESS_SHIELD, data),
-    }
 }

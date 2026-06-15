@@ -39,9 +39,8 @@ pub mod indexer;
 pub use indexer::{IndexerError, PoolIndexer, UtxoRecord};
 pub mod instructions;
 pub use instructions::{
-    create_protocol_config_instruction, create_tree_instructions, proofless_shield_sol_instruction,
-    protocol_config_pda, rpc_state_root, system_create_account_ix, zone_auth_pda,
-    zone_proofless_shield_sol_instruction, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, protocol_config_pda, rpc_state_root, system_create_account_ix,
+    zone_auth_pda, ZONE_TEST_PROGRAM_ID,
 };
 mod logging;
 mod paths;
