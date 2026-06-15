@@ -6,7 +6,8 @@ use pinocchio::{
 };
 use zolana_interface::{
     instruction::{
-        TransactIxData, PUBLIC_AMOUNT_DEPOSIT, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW,
+        TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
+        PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
     },
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
     SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
@@ -99,48 +100,69 @@ impl PublicSettlement {
     }
 }
 
+fn is_deposit(mode: u8) -> bool {
+    matches!(mode, PUBLIC_AMOUNT_DEPOSIT_SOL | PUBLIC_AMOUNT_DEPOSIT_SPL)
+}
+
+fn is_withdraw(mode: u8) -> bool {
+    matches!(
+        mode,
+        PUBLIC_AMOUNT_WITHDRAW_SOL | PUBLIC_AMOUNT_WITHDRAW_SPL
+    )
+}
+
+fn is_spl(mode: u8) -> bool {
+    matches!(mode, PUBLIC_AMOUNT_DEPOSIT_SPL | PUBLIC_AMOUNT_WITHDRAW_SPL)
+}
+
 impl TryFrom<&TransactIxData> for PublicSettlement {
     type Error = ProgramError;
 
     fn try_from(data: &TransactIxData) -> Result<Self, Self::Error> {
-        let has_sol = data.public_sol_amount.is_some();
-        let has_spl = data.public_spl_amount.is_some();
-        if has_sol && has_spl {
-            return Err(ShieldedPoolError::InvalidTransactShape.into());
-        }
+        let relayer_fee = u64::from(data.relayer_fee);
+        let mode = data.public_amount_mode;
 
-        let settlement = Self {
-            sol_amount: public_amount(data.public_sol_amount)?,
-            spl_amount: public_amount(data.public_spl_amount)?,
-            relayer_fee: u64::from(data.relayer_fee),
-        };
-
-        match data.public_amount_mode {
+        match mode {
             PUBLIC_AMOUNT_NONE => {
-                if has_sol || has_spl || settlement.relayer_fee != 0 {
+                if data.public_amount.is_some() || relayer_fee != 0 {
                     return Err(ShieldedPoolError::InvalidTransactShape.into());
+                }
+                Ok(Self {
+                    sol_amount: 0,
+                    spl_amount: 0,
+                    relayer_fee: 0,
+                })
+            }
+            _ if is_deposit(mode) || is_withdraw(mode) => {
+                // Deposit/withdraw must carry a non-zero amount (`public_amount`
+                // errors on `Some(0)`/`None`). An SPL withdrawal cannot also pay
+                // a relayer fee, which is settled out of public SOL only.
+                let amount = public_amount(data.public_amount)?;
+                if amount == 0 {
+                    return Err(ShieldedPoolError::InvalidTransactShape.into());
+                }
+                if is_deposit(mode) && relayer_fee != 0 {
+                    return Err(ShieldedPoolError::InvalidTransactShape.into());
+                }
+                if is_spl(mode) {
+                    if relayer_fee != 0 {
+                        return Err(ShieldedPoolError::InvalidTransactShape.into());
+                    }
+                    Ok(Self {
+                        sol_amount: 0,
+                        spl_amount: amount,
+                        relayer_fee,
+                    })
+                } else {
+                    Ok(Self {
+                        sol_amount: amount,
+                        spl_amount: 0,
+                        relayer_fee,
+                    })
                 }
             }
-            PUBLIC_AMOUNT_DEPOSIT => {
-                if !has_sol && !has_spl {
-                    return Err(ShieldedPoolError::InvalidTransactShape.into());
-                }
-                if settlement.relayer_fee != 0 {
-                    return Err(ShieldedPoolError::InvalidTransactShape.into());
-                }
-            }
-            PUBLIC_AMOUNT_WITHDRAW => {
-                if !has_sol && !has_spl {
-                    return Err(ShieldedPoolError::InvalidTransactShape.into());
-                }
-                if settlement.relayer_fee != 0 && !has_sol {
-                    return Err(ShieldedPoolError::InvalidTransactShape.into());
-                }
-            }
-            _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
+            _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
         }
-
-        Ok(settlement)
     }
 }
 
@@ -168,36 +190,34 @@ fn settle_public_sol(
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    if public_amount_mode == PUBLIC_AMOUNT_DEPOSIT
-        && *user_sol_account.address() != *accounts.signer.address()
-    {
+    if is_deposit(public_amount_mode) && *user_sol_account.address() != *accounts.signer.address() {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let result = match public_amount_mode {
-        PUBLIC_AMOUNT_DEPOSIT => pinocchio_system::instructions::Transfer {
+    let result = if is_deposit(public_amount_mode) {
+        pinocchio_system::instructions::Transfer {
             from: user_sol_account,
             to: cpi_authority,
             lamports: amount,
         }
-        .invoke(),
-        PUBLIC_AMOUNT_WITHDRAW => {
-            let bump = [required(accounts.cpi_authority_bump)?];
-            let seeds = [
-                Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-                Seed::from(&bump),
-            ];
-            let signer = Signer::from(&seeds);
-            pinocchio_system::instructions::Transfer {
-                from: cpi_authority,
-                to: user_sol_account,
-                lamports: amount,
-            }
-            .invoke_signed(core::slice::from_ref(&signer))?;
-
-            Ok(())
+        .invoke()
+    } else if is_withdraw(public_amount_mode) {
+        let bump = [required(accounts.cpi_authority_bump)?];
+        let seeds = [
+            Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
+            Seed::from(&bump),
+        ];
+        let signer = Signer::from(&seeds);
+        pinocchio_system::instructions::Transfer {
+            from: cpi_authority,
+            to: user_sol_account,
+            lamports: amount,
         }
-        _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
+        .invoke_signed(core::slice::from_ref(&signer))?;
+
+        Ok(())
+    } else {
+        Err(ShieldedPoolError::InvalidTransactShape.into())
     };
 
     result.map_err(|_| {
@@ -280,37 +300,35 @@ fn settle_spl(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let result = match public_amount_mode {
-        PUBLIC_AMOUNT_DEPOSIT => {
-            if user_token_state.owner != *accounts.signer.address() {
-                return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-            }
-            invoke_token_transfer(
-                token_program,
-                user_token,
-                vault,
-                accounts.signer,
-                amount,
-                &[],
-            )
+    let result = if is_deposit(public_amount_mode) {
+        if user_token_state.owner != *accounts.signer.address() {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
-        PUBLIC_AMOUNT_WITHDRAW => {
-            let bump = [required(accounts.cpi_authority_bump)?];
-            let seeds = [
-                Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-                Seed::from(&bump),
-            ];
-            let signer = Signer::from(&seeds);
-            invoke_token_transfer(
-                token_program,
-                vault,
-                user_token,
-                cpi_authority,
-                amount,
-                core::slice::from_ref(&signer),
-            )
-        }
-        _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
+        invoke_token_transfer(
+            token_program,
+            user_token,
+            vault,
+            accounts.signer,
+            amount,
+            &[],
+        )
+    } else if is_withdraw(public_amount_mode) {
+        let bump = [required(accounts.cpi_authority_bump)?];
+        let seeds = [
+            Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
+            Seed::from(&bump),
+        ];
+        let signer = Signer::from(&seeds);
+        invoke_token_transfer(
+            token_program,
+            vault,
+            user_token,
+            cpi_authority,
+            amount,
+            core::slice::from_ref(&signer),
+        )
+    } else {
+        Err(ShieldedPoolError::InvalidTransactShape.into())
     };
 
     result.map_err(|_| {
@@ -413,12 +431,7 @@ fn required<T: Copy>(value: Option<T>) -> Result<T, ProgramError> {
 mod tests {
     use super::*;
 
-    fn tx(
-        public_amount_mode: u8,
-        public_sol_amount: Option<u64>,
-        public_spl_amount: Option<u64>,
-        relayer_fee: u16,
-    ) -> TransactIxData {
+    fn tx(public_amount_mode: u8, public_amount: Option<u64>, relayer_fee: u16) -> TransactIxData {
         TransactIxData {
             expiry_unix_ts: 0,
             sender_view_tag: [0u8; 32],
@@ -430,8 +443,7 @@ mod tests {
             utxo_tree_root_index: Vec::new(),
             nullifier_tree_root_index: Vec::new(),
             private_tx_hash: [0u8; 32],
-            public_sol_amount,
-            public_spl_amount,
+            public_amount,
             cpi_signer: None,
             in_utxo_signer_indices: None,
             encrypted_utxos: Vec::new(),
@@ -441,13 +453,12 @@ mod tests {
 
     #[test]
     fn relayer_fee_requires_public_sol_withdrawal() {
-        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_NONE, None, None, 7)).is_err());
-        assert!(
-            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW, None, Some(11), 7)).is_err()
-        );
+        // NONE can never carry a fee, and an SPL withdrawal cannot pay one.
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_NONE, None, 7)).is_err());
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW_SPL, Some(11), 7)).is_err());
 
         let sol_withdraw_fee =
-            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW, Some(11), None, 7))
+            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW_SOL, Some(11), 7))
                 .expect("SOL withdraw fee");
         assert_eq!(
             sol_withdraw_fee,
@@ -461,31 +472,29 @@ mod tests {
 
     #[test]
     fn spl_without_fee_does_not_require_system_program() {
-        let spl_withdraw =
-            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW, None, Some(11), 0))
-                .expect("SPL withdraw");
+        let spl_withdraw = PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW_SPL, Some(11), 0))
+            .expect("SPL withdraw");
         assert!(!spl_withdraw.needs_system_program());
     }
 
     #[test]
     fn deposits_cannot_carry_relayer_fee() {
-        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_DEPOSIT, Some(10), None, 1)).is_err());
-        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_DEPOSIT, None, Some(10), 1)).is_err());
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_DEPOSIT_SOL, Some(10), 1)).is_err());
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_DEPOSIT_SPL, Some(10), 1)).is_err());
     }
 
     #[test]
     fn zero_public_amount_options_are_not_canonical() {
-        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_NONE, Some(0), None, 0)).is_err());
-        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW, None, Some(0), 1)).is_err());
+        // A mode that wants an amount but carries none, and an explicit Some(0).
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_NONE, Some(0), 0)).is_err());
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW_SOL, None, 0)).is_err());
+        assert!(PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW_SPL, Some(0), 1)).is_err());
     }
 
     #[test]
-    fn mixed_public_assets_are_not_canonical() {
-        assert!(
-            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_DEPOSIT, Some(10), Some(11), 0)).is_err()
-        );
-        assert!(
-            PublicSettlement::try_from(&tx(PUBLIC_AMOUNT_WITHDRAW, Some(10), Some(11), 1)).is_err()
-        );
+    fn unknown_mode_byte_is_not_canonical() {
+        // The old "both amounts set" case is structurally unrepresentable now;
+        // an out-of-range mode byte must still be rejected.
+        assert!(PublicSettlement::try_from(&tx(5, Some(10), 0)).is_err());
     }
 }

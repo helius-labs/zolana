@@ -8,7 +8,7 @@ use pinocchio::{
 };
 use zolana_interface::instruction::{
     tag, CpiSignerData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT,
+    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::{SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, UTXO_DOMAIN};
 
@@ -27,8 +27,8 @@ struct Deposit {
     view_tag: [u8; 32],
     owner_utxo_hash: [u8; 32],
     salt: [u8; 16],
-    public_sol_amount: Option<u64>,
-    public_spl_amount: Option<u64>,
+    public_amount: Option<u64>,
+    public_amount_mode: u8,
     cpi_signer: Option<CpiSignerData>,
     cpi_signer_seed: &'static [u8],
     program_data_hash: Option<[u8; 32]>,
@@ -54,8 +54,8 @@ pub fn process_proofless_shield(
             view_tag: data.view_tag,
             owner_utxo_hash: data.owner_utxo_hash,
             salt: data.salt,
-            public_sol_amount: data.public_sol_amount,
-            public_spl_amount: data.public_spl_amount,
+            public_amount: data.public_amount,
+            public_amount_mode: data.public_amount_mode,
             cpi_signer: data.cpi_signer,
             cpi_signer_seed: CPI_SIGNER_SEED,
             program_data_hash: data.program_data_hash,
@@ -78,8 +78,8 @@ pub fn process_zone_proofless_shield(
             view_tag: data.view_tag,
             owner_utxo_hash: data.owner_utxo_hash,
             salt: data.salt,
-            public_sol_amount: data.public_sol_amount,
-            public_spl_amount: data.public_spl_amount,
+            public_amount: data.public_amount,
+            public_amount_mode: data.public_amount_mode,
             cpi_signer: Some(data.cpi_signer),
             cpi_signer_seed: ZONE_AUTH_SEED,
             program_data_hash: data.program_data_hash,
@@ -95,7 +95,13 @@ fn process_deposit(
     accounts: &mut [AccountView],
     d: Deposit,
 ) -> ProgramResult {
-    let needs_spl = d.public_spl_amount.is_some();
+    // Proofless shields are deposit-only; reject withdraw / NONE / unknown modes.
+    let needs_spl = match d.public_amount_mode {
+        PUBLIC_AMOUNT_DEPOSIT_SOL => false,
+        PUBLIC_AMOUNT_DEPOSIT_SPL => true,
+        _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
+    };
+    let amount = d.public_amount.unwrap_or(0);
 
     if accounts.len() < 2 {
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -109,21 +115,13 @@ fn process_deposit(
     let tx = deposit_view(&d);
     let verified = load_transact_accounts(program_id, head, &tx, d.cpi_signer_seed)?;
 
-    let (asset, asset_field, amount) = if needs_spl {
+    let (asset, asset_field) = if needs_spl {
         let mint = spl_asset_pubkey(&verified.settlement)?;
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(mint.as_ref());
-        (
-            bytes,
-            solana_pk_hash(&bytes)?,
-            d.public_spl_amount.unwrap_or(0),
-        )
+        (bytes, solana_pk_hash(&bytes)?)
     } else {
-        (
-            [0u8; 32],
-            solana_pk_hash(&[0u8; 32])?,
-            d.public_sol_amount.unwrap_or(0),
-        )
+        ([0u8; 32], solana_pk_hash(&[0u8; 32])?)
     };
 
     let zero = [0u8; 32];
@@ -213,14 +211,13 @@ fn deposit_view(d: &Deposit) -> TransactIxData {
         sender_view_tag: [0u8; 32],
         proof: [0u8; 192],
         relayer_fee: 0,
-        public_amount_mode: PUBLIC_AMOUNT_DEPOSIT,
+        public_amount_mode: d.public_amount_mode,
         nullifiers: Vec::new(),
         output_utxo_hashes: Vec::new(),
         utxo_tree_root_index: Vec::new(),
         nullifier_tree_root_index: Vec::new(),
         private_tx_hash: [0u8; 32],
-        public_sol_amount: d.public_sol_amount,
-        public_spl_amount: d.public_spl_amount,
+        public_amount: d.public_amount,
         // Drives the cpi_signer PDA check (seed per d.cpi_signer_seed) and
         // reserves account index 2 for the signer in the settlement layout.
         cpi_signer: d.cpi_signer,

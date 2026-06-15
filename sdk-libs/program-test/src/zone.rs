@@ -6,7 +6,7 @@ use zolana_interface::{
     instruction::{
         encode_instruction, tag, zone_proofless_shield, CpiSignerData, CreateZoneConfigData,
         ProoflessShieldEvent, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        ZoneProoflessShieldIxData,
+        ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     },
     SPP_ZONE_CONFIG_PDA_SEED,
 };
@@ -130,8 +130,8 @@ impl ZolanaProgramTest {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_sol_amount: Some(lamports),
-            public_spl_amount: None,
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+            public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: ZONE_TEST_PROGRAM_ID,
                 bump,
@@ -174,8 +174,8 @@ impl ZolanaProgramTest {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_sol_amount: Some(lamports),
-            public_spl_amount: None,
+            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
+            public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: zone_program_id,
                 bump: zone_auth_bump,

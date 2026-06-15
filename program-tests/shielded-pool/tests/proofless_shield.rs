@@ -8,7 +8,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{tag, CpiSignerData, ProoflessShieldIxData};
+use zolana_interface::instruction::{
+    tag, CpiSignerData, ProoflessShieldIxData, PUBLIC_AMOUNT_WITHDRAW_SOL,
+};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -75,24 +77,26 @@ fn rejects_bad_amount_shapes() {
     let depositor = funded_depositor(&mut program_test);
     let indexed_before = program_test.indexer().utxos().len();
 
-    let mut both = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
-    both.public_spl_amount = Some(5);
-    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &both);
-
+    // A deposit mode with no amount is malformed.
     let mut none = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
-    none.public_sol_amount = None;
+    none.public_amount = None;
     assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &none);
 
+    // Some(0) is not canonical for either asset.
     let zero = ZolanaProgramTest::sol_shield_data(0, [1u8; 32]);
     assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &zero);
 
-    let mut sol_zero_with_spl = ZolanaProgramTest::spl_shield_data(5, [1u8; 32]);
-    sol_zero_with_spl.public_sol_amount = Some(0);
-    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &sol_zero_with_spl);
+    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [1u8; 32]);
+    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &zero_spl);
 
-    let mut spl_zero_with_sol = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
-    spl_zero_with_sol.public_spl_amount = Some(0);
-    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &spl_zero_with_sol);
+    // Proofless shields are deposit-only: withdraw / unknown modes are rejected.
+    let mut withdraw_mode = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
+    withdraw_mode.public_amount_mode = PUBLIC_AMOUNT_WITHDRAW_SOL;
+    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &withdraw_mode);
+
+    let mut unknown_mode = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32]);
+    unknown_mode.public_amount_mode = 9;
+    assert_invalid_amount_shape(&mut program_test, &tree, &depositor, &unknown_mode);
 
     assert_eq!(program_test.indexer().utxos().len(), indexed_before);
 }
