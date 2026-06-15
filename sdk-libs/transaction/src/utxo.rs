@@ -74,36 +74,12 @@ pub fn zone_program_id_field(
     }
 }
 
-pub fn hash_from_owner_hash(
-    owner_hash: &[u8; 32],
-    asset: &Address,
-    amount: u64,
-    blinding: &Blinding,
-    zone_program_id: &Option<Address>,
-    program_data_hash: &[u8; 32],
-    zone_data_hash: &[u8; 32],
-) -> Result<[u8; 32], TransactionError> {
-    let owner_utxo_hash = owner_utxo_hash_from_owner_hash(owner_hash, blinding)?;
-    Utxo::commitment_from_owner_utxo_hash(
-        *asset,
-        amount,
-        program_data_hash,
-        zone_data_hash,
-        *zone_program_id,
-        &owner_utxo_hash,
-    )
-}
-
+/// Owner commitment (spec: `owner_utxo_hash`) — `Poseidon(owner_hash, blinding)`.
+/// Hides the owner. Transaction outputs and proofless deposits commit this from
+/// a recipient `owner_hash` alone (the committer does not know the recipient's
+/// keys); a `Utxo` you own derives `owner_hash` from its keys — see
+/// [`Utxo::owner_utxo_hash`].
 pub fn owner_utxo_hash(
-    owner: &PublicKey,
-    nullifier_pk: &[u8; 32],
-    blinding: &Blinding,
-) -> Result<[u8; 32], TransactionError> {
-    let owner_hash = zolana_keypair::hash::owner_hash(owner, nullifier_pk)?;
-    owner_utxo_hash_from_owner_hash(&owner_hash, blinding)
-}
-
-pub fn owner_utxo_hash_from_owner_hash(
     owner_hash: &[u8; 32],
     blinding: &Blinding,
 ) -> Result<[u8; 32], TransactionError> {
@@ -111,48 +87,53 @@ pub fn owner_utxo_hash_from_owner_hash(
     poseidon(&[owner_hash, &blinding])
 }
 
+/// Full UTXO commitment (the tree leaf) — binds asset, amount, zone, and the
+/// program/zone data hashes to an [`owner_utxo_hash`].
+pub fn utxo_commitment(
+    asset: Address,
+    amount: u64,
+    program_data_hash: &[u8; 32],
+    zone_data_hash: &[u8; 32],
+    zone_program_id: Option<Address>,
+    owner_utxo_hash: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
+    let asset = asset_field(&asset)?;
+    let amount = right_align(&amount.to_be_bytes());
+    let zone_program_id = zone_program_id_field(&zone_program_id)?;
+    poseidon(&[
+        &domain,
+        &asset,
+        &amount,
+        program_data_hash,
+        zone_data_hash,
+        &zone_program_id,
+        owner_utxo_hash,
+    ])
+}
+
 impl Utxo {
+    /// This UTXO's owner commitment (spec: `owner_utxo_hash`), derived from its
+    /// owner keys.
     pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
-        owner_utxo_hash(&self.owner, nullifier_pk, &self.blinding)
+        let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
+        owner_utxo_hash(&owner_hash, &self.blinding)
     }
 
-    pub fn commitment_from_owner_utxo_hash(
-        asset: Address,
-        amount: u64,
-        program_data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
-        zone_program_id: Option<Address>,
-        owner_utxo_hash: &[u8; 32],
-    ) -> Result<[u8; 32], TransactionError> {
-        let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
-        let asset = asset_field(&asset)?;
-        let amount = right_align(&amount.to_be_bytes());
-        let zone_program_id = zone_program_id_field(&zone_program_id)?;
-        poseidon(&[
-            &domain,
-            &asset,
-            &amount,
-            program_data_hash,
-            zone_data_hash,
-            &zone_program_id,
-            owner_utxo_hash,
-        ])
-    }
-
+    /// This UTXO's hash — the tree-leaf commitment (spec: UTXO Hash).
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
         program_data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        let owner_utxo_hash = self.owner_utxo_hash(nullifier_pk)?;
-        Self::commitment_from_owner_utxo_hash(
+        utxo_commitment(
             self.asset,
             self.amount,
             program_data_hash,
             zone_data_hash,
             self.zone_program_id,
-            &owner_utxo_hash,
+            &self.owner_utxo_hash(nullifier_pk)?,
         )
     }
 

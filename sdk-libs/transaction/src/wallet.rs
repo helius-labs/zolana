@@ -12,7 +12,7 @@ use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::{owner_utxo_hash_from_owner_hash, Blinding, Utxo};
+use crate::utxo::{owner_utxo_hash, utxo_commitment, Blinding, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -315,7 +315,7 @@ impl Wallet {
         blinding: &Blinding,
     ) -> Result<[u8; 32], TransactionError> {
         let owner_hash = self.keypair.owner_hash()?;
-        owner_utxo_hash_from_owner_hash(&owner_hash, blinding)
+        owner_utxo_hash(&owner_hash, blinding)
     }
 
     pub fn proofless_blinding(&self, salt: &[u8; SALT_LEN]) -> Result<Blinding, TransactionError> {
@@ -340,7 +340,7 @@ impl Wallet {
             return Ok(None);
         }
 
-        let hash = Utxo::commitment_from_owner_utxo_hash(
+        let hash = utxo_commitment(
             event.asset,
             event.amount,
             &event.program_data_hash,
@@ -591,7 +591,7 @@ mod tests {
         let salt = [9u8; SALT_LEN];
         let blinding = wallet.proofless_blinding(&salt).unwrap();
         let owner_utxo_hash = wallet.proofless_owner_utxo_hash(&blinding).unwrap();
-        let utxo_hash = Utxo::commitment_from_owner_utxo_hash(
+        let utxo_hash = utxo_commitment(
             SOL_MINT,
             amount,
             &[0u8; 32],
