@@ -48,12 +48,8 @@ mod paths;
 use paths::default_program_path;
 mod proofless;
 pub mod rpc;
-#[cfg(feature = "solana-rpc")]
-pub use rpc::send_and_index;
 pub use rpc::IndexedTransaction;
 pub use zolana_client::Rpc;
-#[cfg(feature = "solana-rpc")]
-pub use zolana_client::SolanaRpc;
 mod spl;
 mod wallet_data;
 pub use wallet_data::proofless_event_for_wallet;

@@ -7,7 +7,7 @@ edition.workspace = true
 
 [features]
 default = []
-solana-rpc = ["dep:solana-rpc-client", "dep:solana-commitment-config"]
+solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
@@ -25,6 +25,7 @@ solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
 rand = { workspace = true }
 futures = { workspace = true }
+bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
 solana-hash = { workspace = true }

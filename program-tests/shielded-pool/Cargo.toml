@@ -6,7 +6,7 @@ publish = false
 
 [features]
 default = []
-localnet = ["zolana-program-test/solana-rpc"]
+localnet = ["zolana-client/solana-rpc"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -20,6 +20,7 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-client = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
 
