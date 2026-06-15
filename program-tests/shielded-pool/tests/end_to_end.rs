@@ -45,7 +45,7 @@ fn proofless_shield_sol_deposits_into_pool() {
     )
     .expect("wallet deposit data");
     program_test
-        .proofless_shield(&tree, &depositor, &data)
+        .proofless_shield(&tree.pubkey(), &depositor, &data)
         .expect("proofless_shield");
 
     // The deposit landed in the pool's SOL vault (the CPI authority PDA).
@@ -97,7 +97,7 @@ fn indexer_matches_onchain_root_and_locates_deposits() {
         let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
             .expect("wallet deposit data");
         let event = program_test
-            .proofless_shield(&tree, &depositor, &data)
+            .proofless_shield(&tree.pubkey(), &depositor, &data)
             .expect("deposit");
         assert_eq!(event.amount, amount, "event must carry the settled amount");
         assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");

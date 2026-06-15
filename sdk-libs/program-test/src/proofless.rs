@@ -11,24 +11,24 @@ use crate::{single_proofless_shield_event, ProgramTestError, ZolanaProgramTest};
 impl ZolanaProgramTest {
     pub fn proofless_shield(
         &mut self,
-        tree: &Keypair,
+        tree: &Pubkey,
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
-        let ix = proofless_shield(tree.pubkey(), depositor.pubkey(), data);
+        let ix = proofless_shield(*tree, depositor.pubkey(), data);
         self.send_proofless_shield_ix(ix, depositor)
     }
 
     pub fn proofless_shield_spl(
         &mut self,
-        tree: &Keypair,
+        tree: &Pubkey,
         depositor: &Keypair,
         user_token: &Pubkey,
         mint: &Pubkey,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
         let accounts = vec![
-            AccountMeta::new(tree.pubkey(), false),
+            AccountMeta::new(*tree, false),
             AccountMeta::new(depositor.pubkey(), true),
             AccountMeta::new_readonly(self.cpi_authority(), false),
             AccountMeta::new(*user_token, false),
@@ -71,7 +71,7 @@ impl ZolanaProgramTest {
 
     pub fn proofless_shield_sol(
         &mut self,
-        tree: &Keypair,
+        tree: &Pubkey,
         depositor: &Keypair,
         lamports: u64,
         owner_utxo_hash: [u8; 32],
