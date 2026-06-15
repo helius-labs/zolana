@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{ProoflessShieldEvent, ProoflessShieldIxData};
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SOL `proofless_shield` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -56,13 +56,20 @@ pub fn assert_proofless_shield(
     );
 
     let before = recipient.utxos.len();
-    assert!(
-        recipient
-            .sync_proofless_deposit(&proofless_event_for_wallet(event))
-            .expect("wallet discovery"),
+    recipient
+        .sync(
+            &[],
+            &[proofless_event_for_wallet(event)],
+            &AssetRegistry::default(),
+            0,
+            DEFAULT_TAG_WINDOW,
+        )
+        .expect("wallet discovery");
+    assert_eq!(
+        recipient.utxos.len(),
+        before + 1,
         "recipient wallet must discover the deposit"
     );
-    assert_eq!(recipient.utxos.len(), before + 1, "one new wallet UTXO");
     let utxo = recipient.utxos.last().expect("discovered UTXO");
     assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
     assert_eq!(utxo.utxo.amount, event.amount, "wallet UTXO amount");

@@ -6,7 +6,7 @@ use solana_signer::Signer;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use crate::PoolWorld;
 
@@ -95,10 +95,19 @@ fn bootstrap_deposits(world: &mut PoolWorld) {
         assert_eq!(event.amount, amount, "event must carry the settled amount");
         assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");
         assert_eq!(event.salt, data.salt);
-        assert!(
-            recipient
-                .sync_proofless_deposit(&proofless_event_for_wallet(&event))
-                .expect("wallet discovery"),
+        let before = recipient.utxos.len();
+        recipient
+            .sync(
+                &[],
+                &[proofless_event_for_wallet(&event)],
+                &AssetRegistry::default(),
+                0,
+                DEFAULT_TAG_WINDOW,
+            )
+            .expect("wallet discovery");
+        assert_eq!(
+            recipient.utxos.len(),
+            before + 1,
             "wallet must discover deposit {i}"
         );
         owner_utxo_hashes.push(data.owner_utxo_hash);
