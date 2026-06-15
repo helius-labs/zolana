@@ -79,12 +79,7 @@ mod tests {
         proofless_shield(&rpc, &payer, tree, &depositor, &data).expect("action");
 
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
-        // The action must submit exactly the interface builder's instruction
-        // (same wincode-encoded data), with both payer and depositor signing.
-        let expected = proofless_shield_ix(
-            ProoflessShieldAccounts::sol(tree, depositor.pubkey()),
-            &data,
-        );
+        let expected = data.instruction(ProoflessShieldAccounts::sol(tree, depositor.pubkey()));
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));
