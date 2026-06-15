@@ -118,7 +118,7 @@ base64 = "0.13"
 bb8 = "0.8.6"
 bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"
-bytemuck = "1.19.0"
+bytemuck = { version = "1.19.0", features = ["derive"] }
 chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 dashmap = "6.1.0"

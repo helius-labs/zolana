@@ -10,10 +10,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{encode_instruction, tag, CreateZoneConfigData},
-    state::{
-        discriminator::ZONE_CONFIG, CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET,
-        ZONE_CONFIG_ACCOUNT_LEN, ZONE_CONFIG_BUMP_OFFSET, ZONE_CONFIG_ENABLED_OFFSET,
-    },
+    state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 
@@ -91,16 +88,14 @@ fn create_and_update_zone_config() {
 }
 
 fn read_zone_config(bytes: &[u8]) -> ZoneConfigState {
-    assert_eq!(bytes.len(), ZONE_CONFIG_ACCOUNT_LEN);
+    assert_eq!(bytes.len(), ZoneConfig::SIZE);
     assert_eq!(bytes[0], ZONE_CONFIG);
 
-    let authority: [u8; 32] = bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
-        .try_into()
-        .expect("authority field");
+    let cfg: &ZoneConfig = bytemuck::from_bytes(bytes);
     ZoneConfigState {
-        authority: Pubkey::new_from_array(authority),
-        zone_authority_transact_is_enabled: bytes[ZONE_CONFIG_ENABLED_OFFSET] != 0,
-        bump: bytes[ZONE_CONFIG_BUMP_OFFSET],
+        authority: Pubkey::new_from_array(cfg.authority),
+        zone_authority_transact_is_enabled: cfg.enabled(),
+        bump: cfg.bump,
     }
 }
 

@@ -3962,6 +3962,7 @@ name = "shielded-pool-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "bytemuck",
  "light-batched-merkle-tree",
  "light-hasher",
  "light-sparse-merkle-tree",
@@ -3977,6 +3978,7 @@ name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "shielded-pool-program",
  "solana-instruction",
  "solana-keypair",
@@ -7332,6 +7334,7 @@ name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "bytemuck",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "solana-instruction",
  "solana-pubkey 4.2.0",
@@ -7390,6 +7393,7 @@ dependencies = [
 name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "solana-pubkey 4.2.0",
  "zolana-interface",
  "zolana-program-test",

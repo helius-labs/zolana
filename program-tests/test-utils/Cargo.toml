@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+bytemuck = { workspace = true }
 solana-pubkey = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program-test = { workspace = true }

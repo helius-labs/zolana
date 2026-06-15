@@ -2,12 +2,7 @@ pub mod config;
 pub mod discriminator;
 pub mod tree;
 
-pub use config::{
-    CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET, PROTOCOL_CONFIG_ACCOUNT_LEN,
-    PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES, PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET,
-    PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET, ZONE_CONFIG_ACCOUNT_LEN, ZONE_CONFIG_BUMP_OFFSET,
-    ZONE_CONFIG_ENABLED_OFFSET,
-};
+pub use config::{ProtocolConfig, ZoneConfig, PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES};
 pub use tree::{
     address_sub_tree_size, state_next_index_offset, state_root_history_meta_offset,
     state_root_history_offset, state_root_offset, state_sub_tree_offset, state_subtrees_offset,

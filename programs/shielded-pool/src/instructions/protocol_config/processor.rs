@@ -1,3 +1,4 @@
+use bytemuck::Zeroable;
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
@@ -10,10 +11,7 @@ use zolana_interface::{
     },
     state::{
         discriminator::{PROTOCOL_CONFIG, ZONE_CONFIG},
-        CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET, PROTOCOL_CONFIG_ACCOUNT_LEN,
-        PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES, PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET,
-        PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET, ZONE_CONFIG_ACCOUNT_LEN,
-        ZONE_CONFIG_BUMP_OFFSET, ZONE_CONFIG_ENABLED_OFFSET,
+        ProtocolConfig, ZoneConfig, PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
     },
     SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
 };
@@ -144,12 +142,7 @@ pub fn process_update_zone_config_owner(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     let bytes = loader::account_data_mut(config);
-    write_zone_config(
-        bytes,
-        &data.new_authority,
-        current.zone_authority_transact_is_enabled,
-        current.zone_config_bump,
-    )
+    write_zone_config(bytes, &data.new_authority, current.enabled(), current.bump)
 }
 
 pub fn process_update_zone_config(
@@ -167,7 +160,7 @@ pub fn process_update_zone_config(
         bytes,
         &current.authority,
         data.zone_authority_transact_is_enabled,
-        current.zone_config_bump,
+        current.bump,
     )
 }
 
@@ -181,17 +174,6 @@ pub fn assert_tree_not_paused(tree: &AccountView) -> ProgramResult {
         return Err(ShieldedPoolError::TreePaused.into());
     }
     Ok(())
-}
-
-pub struct ProtocolConfigState {
-    pub authority: [u8; 32],
-    pub merge_authorities: Vec<[u8; 32]>,
-}
-
-struct ZoneConfigState {
-    authority: [u8; 32],
-    zone_authority_transact_is_enabled: bool,
-    zone_config_bump: u8,
 }
 
 fn protocol_config_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {
@@ -219,7 +201,7 @@ fn create_config_pda(
         payer,
         config,
         program_id,
-        PROTOCOL_CONFIG_ACCOUNT_LEN,
+        ProtocolConfig::SIZE,
         &seeds,
         ShieldedPoolError::InvalidProtocolConfig,
     )
@@ -242,7 +224,7 @@ fn create_zone_config_pda(
         payer,
         config,
         program_id,
-        ZONE_CONFIG_ACCOUNT_LEN,
+        ZoneConfig::SIZE,
         &seeds,
         ShieldedPoolError::InvalidZoneConfig,
     )
@@ -286,7 +268,7 @@ fn load_authority_and_config<'a>(
     let config = &mut tail[0];
     if !authority.is_signer()
         || !config.owned_by(program_id)
-        || config.data_len() < PROTOCOL_CONFIG_ACCOUNT_LEN
+        || config.data_len() != ProtocolConfig::SIZE
         || (config_writable && !config.is_writable())
     {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
@@ -307,7 +289,7 @@ fn load_authority_and_zone_config<'a>(
     if !authority.is_signer()
         || !config.is_writable()
         || !config.owned_by(program_id)
-        || config.data_len() < ZONE_CONFIG_ACCOUNT_LEN
+        || config.data_len() != ZoneConfig::SIZE
     {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
@@ -317,11 +299,11 @@ fn load_authority_and_zone_config<'a>(
 pub fn read_protocol_config(
     program_id: &Address,
     account: &AccountView,
-) -> Result<ProtocolConfigState, ProgramError> {
+) -> Result<ProtocolConfig, ProgramError> {
     let (expected, _) = protocol_config_pda(program_id)?;
     if *account.address() != expected
         || !account.owned_by(program_id)
-        || account.data_len() < PROTOCOL_CONFIG_ACCOUNT_LEN
+        || account.data_len() != ProtocolConfig::SIZE
     {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
@@ -331,11 +313,10 @@ pub fn read_protocol_config(
     if bytes[0] != PROTOCOL_CONFIG {
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
-    let merge_authorities = read_merge_authorities(&bytes)?;
-    Ok(ProtocolConfigState {
-        authority: read_authority(&bytes),
-        merge_authorities,
-    })
+    // Owned copy: `ProtocolConfig` is `Copy`, so the borrow is released here.
+    Ok(*bytemuck::from_bytes::<ProtocolConfig>(
+        &bytes[..ProtocolConfig::SIZE],
+    ))
 }
 
 fn write_protocol_config(
@@ -344,20 +325,19 @@ fn write_protocol_config(
     merge_authorities: &[[u8; 32]],
 ) -> Result<(), ProgramError> {
     validate_merge_authorities(merge_authorities)?;
-    bytes[..PROTOCOL_CONFIG_ACCOUNT_LEN].fill(0);
-    bytes[0] = PROTOCOL_CONFIG;
-    authority_bytes_mut(bytes).copy_from_slice(authority);
-    bytes[PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET..PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET]
-        .copy_from_slice(&(merge_authorities.len() as u64).to_le_bytes());
+    let cfg: &mut ProtocolConfig = bytemuck::from_bytes_mut(&mut bytes[..ProtocolConfig::SIZE]);
+    *cfg = ProtocolConfig::zeroed();
+    cfg.discriminator = PROTOCOL_CONFIG;
+    cfg.authority = *authority;
+    cfg.merge_authority_count = merge_authorities.len() as u64;
     for (index, authority) in merge_authorities.iter().enumerate() {
-        let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + index * 32;
-        bytes[offset..offset + 32].copy_from_slice(authority);
+        cfg.merge_authorities[index] = *authority;
     }
     Ok(())
 }
 
-fn read_zone_config(account: &AccountView) -> Result<ZoneConfigState, ProgramError> {
-    if account.data_len() < ZONE_CONFIG_ACCOUNT_LEN {
+fn read_zone_config(account: &AccountView) -> Result<ZoneConfig, ProgramError> {
+    if account.data_len() != ZoneConfig::SIZE {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
     let bytes = account
@@ -366,27 +346,27 @@ fn read_zone_config(account: &AccountView) -> Result<ZoneConfigState, ProgramErr
     if bytes[0] != ZONE_CONFIG {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
-    Ok(ZoneConfigState {
-        authority: read_authority(&bytes),
-        zone_authority_transact_is_enabled: bytes[ZONE_CONFIG_ENABLED_OFFSET] != 0,
-        zone_config_bump: bytes[ZONE_CONFIG_BUMP_OFFSET],
-    })
+    // Owned copy: `ZoneConfig` is `Copy`, so the borrow is released here.
+    Ok(*bytemuck::from_bytes::<ZoneConfig>(
+        &bytes[..ZoneConfig::SIZE],
+    ))
 }
 
 fn write_zone_config(
     bytes: &mut [u8],
     authority: &[u8; 32],
-    zone_authority_transact_is_enabled: bool,
-    zone_config_bump: u8,
+    enabled: bool,
+    bump: u8,
 ) -> ProgramResult {
-    if bytes.len() < ZONE_CONFIG_ACCOUNT_LEN {
+    if bytes.len() != ZoneConfig::SIZE {
         return Err(ShieldedPoolError::InvalidZoneConfig.into());
     }
-    bytes[..ZONE_CONFIG_ACCOUNT_LEN].fill(0);
-    bytes[0] = ZONE_CONFIG;
-    authority_bytes_mut(bytes).copy_from_slice(authority);
-    bytes[ZONE_CONFIG_ENABLED_OFFSET] = u8::from(zone_authority_transact_is_enabled);
-    bytes[ZONE_CONFIG_BUMP_OFFSET] = zone_config_bump;
+    let cfg: &mut ZoneConfig = bytemuck::from_bytes_mut(&mut bytes[..ZoneConfig::SIZE]);
+    *cfg = ZoneConfig::zeroed();
+    cfg.discriminator = ZONE_CONFIG;
+    cfg.authority = *authority;
+    cfg.zone_authority_transact_is_enabled = u8::from(enabled);
+    cfg.bump = bump;
     Ok(())
 }
 
@@ -428,43 +408,6 @@ fn validate_merge_authorities(merge_authorities: &[[u8; 32]]) -> Result<(), Prog
         return Err(ShieldedPoolError::InvalidProtocolConfig.into());
     }
     Ok(())
-}
-
-fn read_merge_authorities(bytes: &[u8]) -> Result<Vec<[u8; 32]>, ProgramError> {
-    let mut count = [0u8; 8];
-    count.copy_from_slice(
-        &bytes[PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET
-            ..PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET],
-    );
-    let count = u64::from_le_bytes(count) as usize;
-    if count > PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-
-    let mut authorities = Vec::with_capacity(count);
-    for index in 0..count {
-        let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + index * 32;
-        authorities.push(read_pubkey_bytes(&bytes[offset..offset + 32]));
-    }
-    Ok(authorities)
-}
-
-fn read_authority(bytes: &[u8]) -> [u8; 32] {
-    read_pubkey_bytes(authority_bytes(bytes))
-}
-
-fn read_pubkey_bytes(bytes: &[u8]) -> [u8; 32] {
-    let mut value = [0u8; 32];
-    value.copy_from_slice(bytes);
-    value
-}
-
-fn authority_bytes(bytes: &[u8]) -> &[u8] {
-    &bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
-}
-
-fn authority_bytes_mut(bytes: &mut [u8]) -> &mut [u8] {
-    &mut bytes[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END]
 }
 
 fn authority_matches(account: &AccountView, authority: &[u8; 32]) -> bool {
