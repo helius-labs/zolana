@@ -1,16 +1,11 @@
 use light_hasher::{Hasher, Poseidon};
-use pinocchio::{
-    cpi::{invoke_signed, Seed, Signer},
-    error::ProgramError,
-    instruction::{InstructionAccount, InstructionView},
-    AccountView, Address, ProgramResult,
-};
+use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, Address, ProgramResult};
 use zolana_interface::event::{encode_event_instruction, ProoflessShieldEvent, ShieldedPoolEvent};
 use zolana_interface::instruction::{
     CpiSignerData, ProoflessShieldIxData, TransactIxData, ZoneProoflessShieldIxData,
     PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
-use zolana_interface::{SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, UTXO_DOMAIN};
+use zolana_interface::UTXO_DOMAIN;
 
 use crate::instructions::{
     accounts::{load_transact_accounts, CPI_SIGNER_SEED, ZONE_AUTH_SEED},
@@ -103,12 +98,8 @@ fn process_deposit(
     };
     let amount = d.public_amount.unwrap_or(0);
 
-    if accounts.len() < 2 {
-        return Err(ProgramError::NotEnoughAccountKeys);
-    }
-    // The trailing self-program account is required for `emit_event` self-CPI.
-    let (head, program_slice) = accounts.split_at_mut(accounts.len() - 1);
-    if program_slice[0].address() != program_id {
+    let (head, program_slice) = accounts.split_at_mut(accounts.len().saturating_sub(1));
+    if program_slice.len() != 1 || program_slice[0].address() != program_id {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
@@ -165,46 +156,19 @@ fn process_deposit(
         program_data: d.program_data,
         zone_data: d.zone_data,
     };
-    let cpi_authority = verified
-        .settlement
-        .cpi_authority
-        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-    let cpi_authority_bump = verified
-        .settlement
-        .cpi_authority_bump
-        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-    emit_event(
-        program_id,
-        cpi_authority,
-        cpi_authority_bump,
-        ShieldedPoolEvent::ProoflessShield(event),
-    )
+    emit_event(program_id, ShieldedPoolEvent::ProoflessShield(event))
 }
 
-fn emit_event(
-    program_id: &Address,
-    cpi_authority: &AccountView,
-    cpi_authority_bump: u8,
-    event: ShieldedPoolEvent,
-) -> ProgramResult {
+fn emit_event(program_id: &Address, event: ShieldedPoolEvent) -> ProgramResult {
     let data = encode_event_instruction(&event);
-    let instruction_accounts = [InstructionAccount::readonly_signer(cpi_authority.address())];
+    let instruction_accounts = [];
     let instruction = InstructionView {
         program_id,
         accounts: &instruction_accounts,
         data: &data,
     };
-    let bump = [cpi_authority_bump];
-    let seeds = [
-        Seed::from(SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED),
-        Seed::from(&bump),
-    ];
-    let signer = Signer::from(&seeds);
-    invoke_signed(
-        &instruction,
-        &[cpi_authority],
-        core::slice::from_ref(&signer),
-    )
+    let accounts: [&AccountView; 0] = [];
+    invoke(&instruction, &accounts)
 }
 
 fn deposit_view(d: &Deposit) -> TransactIxData {

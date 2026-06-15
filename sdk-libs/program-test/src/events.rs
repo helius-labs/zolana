@@ -1,30 +1,17 @@
 use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::{
-    event::{decode_event_instruction, EventDecodeError, ProoflessShieldEvent, ShieldedPoolEvent},
-    instruction::tag,
+use zolana_interface::event::{
+    indexed_events_from_instruction_groups, ProoflessShieldEvent, ShieldedPoolEvent,
 };
+pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 
 use crate::{ProgramTestError, TestIndexer};
-
-#[derive(Clone, Debug)]
-pub struct ParsedInstruction {
-    pub program_id: Pubkey,
-    pub accounts: Vec<Pubkey>,
-    pub data: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexedEvent {
-    pub tag: u8,
-    pub payload: Vec<u8>,
-    pub decoded: Result<ShieldedPoolEvent, EventDecodeError>,
-}
 
 pub fn parsed_instruction_from_compiled(
     account_keys: &[Pubkey],
     instruction: &CompiledInstruction,
+    stack_height: Option<u32>,
 ) -> Result<ParsedInstruction, ProgramTestError> {
     let program_id = account_keys
         .get(instruction.program_id_index as usize)
@@ -48,49 +35,63 @@ pub fn parsed_instruction_from_compiled(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(ParsedInstruction {
+    Ok(ParsedInstruction::new(
         program_id,
         accounts,
-        data: instruction.data.clone(),
-    })
+        instruction.data.clone(),
+        stack_height,
+    ))
+}
+
+pub fn parsed_instruction_groups_from_meta(
+    account_keys: &[Pubkey],
+    outer_instructions: &[CompiledInstruction],
+    meta: &TransactionMetadata,
+) -> Result<Vec<InstructionGroup>, ProgramTestError> {
+    let mut groups = outer_instructions
+        .iter()
+        .map(|instruction| {
+            parsed_instruction_from_compiled(account_keys, instruction, Some(1)).map(|outer| {
+                InstructionGroup {
+                    outer,
+                    inner: Vec::new(),
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (outer_index, inner_instructions) in meta.inner_instructions.iter().enumerate() {
+        let Some(group) = groups.get_mut(outer_index) else {
+            return Err(ProgramTestError::Event(format!(
+                "inner instruction group {outer_index} has no outer instruction"
+            )));
+        };
+        group.inner = inner_instructions
+            .iter()
+            .map(|inner| {
+                parsed_instruction_from_compiled(
+                    account_keys,
+                    &inner.instruction,
+                    Some(u32::from(inner.stack_height)),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+
+    Ok(groups)
 }
 
 pub fn indexed_events_from_meta(
     shielded_pool_program_id: Pubkey,
     account_keys: &[Pubkey],
+    outer_instructions: &[CompiledInstruction],
     meta: &TransactionMetadata,
 ) -> Result<Vec<IndexedEvent>, ProgramTestError> {
-    let instructions = meta
-        .inner_instructions
-        .iter()
-        .flatten()
-        .map(|inner| parsed_instruction_from_compiled(account_keys, &inner.instruction))
-        .collect::<Result<Vec<_>, _>>()?;
-    indexed_events_from_instructions(shielded_pool_program_id, &instructions)
-}
-
-pub fn indexed_events_from_instructions<'a>(
-    shielded_pool_program_id: Pubkey,
-    instructions: impl IntoIterator<Item = &'a ParsedInstruction>,
-) -> Result<Vec<IndexedEvent>, ProgramTestError> {
-    let mut events = Vec::new();
-    for instruction in instructions {
-        if instruction.program_id == shielded_pool_program_id
-            && instruction.data.first() == Some(&tag::EMIT_EVENT)
-        {
-            events.push(parse_indexed_event(&instruction.data));
-        }
-    }
-    Ok(events)
-}
-
-fn parse_indexed_event(data: &[u8]) -> IndexedEvent {
-    let payload = data.get(1..).unwrap_or_default().to_vec();
-    IndexedEvent {
-        tag: tag::EMIT_EVENT,
-        payload,
-        decoded: decode_event_instruction(data),
-    }
+    let groups = parsed_instruction_groups_from_meta(account_keys, outer_instructions, meta)?;
+    Ok(indexed_events_from_instruction_groups(
+        shielded_pool_program_id,
+        &groups,
+    ))
 }
 
 pub fn index_events(

@@ -97,6 +97,11 @@ fn rejected_invalid_instruction_data(world: &mut PoolWorld) {
     );
 }
 
+#[then(expr = "no event is indexed")]
+fn no_event_indexed(world: &mut PoolWorld) {
+    assert!(world.rig().indexer().utxos().is_empty());
+}
+
 #[then(expr = "the operation is rejected as an invalid SPL asset registry")]
 fn rejected_invalid_spl_registry(world: &mut PoolWorld) {
     assert_pool_error(

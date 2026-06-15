@@ -2,7 +2,8 @@ use borsh::BorshDeserialize;
 use zolana_interface::{
     event::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
-        encode_event_payload, kind as event_kind, EventDecodeError, ProoflessShieldEvent,
+        encode_event_payload, indexed_events_from_instruction_groups, kind as event_kind,
+        EventDecodeError, InstructionGroup, ParsedInstruction, ProoflessShieldEvent,
         ShieldedPoolEvent,
     },
     instruction::{
@@ -14,7 +15,6 @@ use zolana_interface::{
     },
 };
 
-#[cfg(feature = "solana")]
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
@@ -105,20 +105,7 @@ fn create_spl_interface_is_tag_only() {
 
 #[test]
 fn proofless_event_roundtrip() {
-    let event = ProoflessShieldEvent {
-        view_tag: [1u8; 32],
-        utxo_hash: [2u8; 32],
-        asset: [3u8; 32],
-        amount: 42,
-        zone_program_id: Some([4u8; 32]),
-        policy_data_hash: Some([5u8; 32]),
-        owner_utxo_hash: [6u8; 32],
-        salt: [7u8; 16],
-        program_data_hash: Some([8u8; 32]),
-        program_data: Some(vec![9, 10]),
-        zone_data: Some(vec![11, 12]),
-    };
-    let wrapped = ShieldedPoolEvent::ProoflessShield(event);
+    let wrapped = sample_event();
     let instruction = encode_event_instruction(&wrapped);
     let payload = encode_event_payload(&wrapped);
 
@@ -127,6 +114,60 @@ fn proofless_event_roundtrip() {
     assert_eq!(payload, instruction[1..]);
     assert_eq!(decode_event_instruction(&instruction), Ok(wrapped.clone()));
     assert_eq!(decode_event_payload(&payload), Ok(wrapped));
+}
+
+#[test]
+fn event_parser_indexes_direct_proofless_self_emit() {
+    let spp = Pubkey::new_unique();
+    let event = sample_event();
+    let group = InstructionGroup {
+        outer: parsed_ix(spp, tag::PROOFLESS_SHIELD, Some(1)),
+        inner: vec![ParsedInstruction::new(
+            spp,
+            Vec::new(),
+            encode_event_instruction(&event),
+            Some(2),
+        )],
+    };
+
+    let events = indexed_events_from_instruction_groups(spp, [&group]);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].decoded, Ok(event));
+}
+
+#[test]
+fn event_parser_ignores_direct_emit_event() {
+    let spp = Pubkey::new_unique();
+    let event = sample_event();
+    let group = InstructionGroup {
+        outer: ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(1)),
+        inner: Vec::new(),
+    };
+
+    let events = indexed_events_from_instruction_groups(spp, [&group]);
+
+    assert!(events.is_empty());
+}
+
+#[test]
+fn event_parser_rejects_wrapper_sibling_emit_event() {
+    let spp = Pubkey::new_unique();
+    let zone = Pubkey::new_unique();
+    let event = sample_event();
+    let group = InstructionGroup {
+        outer: parsed_ix(zone, tag::ZONE_PROOFLESS_SHIELD, Some(1)),
+        inner: vec![
+            parsed_ix(spp, tag::ZONE_PROOFLESS_SHIELD, Some(2)),
+            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(3)),
+            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(2)),
+        ],
+    };
+
+    let events = indexed_events_from_instruction_groups(spp, [&group]);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].decoded, Ok(event));
 }
 
 #[test]
@@ -149,6 +190,26 @@ fn event_decoder_rejects_bad_envelope() {
         decode_event_payload(&[u8::MAX]),
         Err(EventDecodeError::UnknownEventKind(u8::MAX))
     );
+}
+
+fn sample_event() -> ShieldedPoolEvent {
+    ShieldedPoolEvent::ProoflessShield(ProoflessShieldEvent {
+        view_tag: [1u8; 32],
+        utxo_hash: [2u8; 32],
+        asset: [3u8; 32],
+        amount: 42,
+        zone_program_id: Some([4u8; 32]),
+        policy_data_hash: Some([5u8; 32]),
+        owner_utxo_hash: [6u8; 32],
+        salt: [7u8; 16],
+        program_data_hash: Some([8u8; 32]),
+        program_data: Some(vec![9, 10]),
+        zone_data: Some(vec![11, 12]),
+    })
+}
+
+fn parsed_ix(program_id: Pubkey, ix_tag: u8, stack_height: Option<u32>) -> ParsedInstruction {
+    ParsedInstruction::new(program_id, Vec::new(), vec![ix_tag], stack_height)
 }
 
 #[test]

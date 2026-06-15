@@ -25,4 +25,4 @@ pub use rpc::{
     STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
-pub use solana_rpc::{ConfirmedInnerInstructions, SolanaRpc};
+pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};

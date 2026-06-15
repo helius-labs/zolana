@@ -322,9 +322,9 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
 }
 
 fn decode_emit_event(payload: &[u8]) -> Option<DecodedInstruction> {
-    decode_event_payload(payload).ok().and_then(|event| {
-        decoded_instruction("emit_event", event_fields(event), &["event_authority"])
-    })
+    decode_event_payload(payload)
+        .ok()
+        .and_then(|event| decoded_instruction("emit_event", event_fields(event), &[]))
 }
 
 /// Decode an instruction whose payload is just the tag byte (no data fields).
