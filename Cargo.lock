@@ -3989,6 +3989,7 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "tokio",
+ "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
@@ -7297,6 +7298,7 @@ dependencies = [
 name = "zolana-client"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "cucumber",
  "futures",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
@@ -7365,7 +7367,6 @@ name = "zolana-program-test"
 version = "0.23.0"
 dependencies = [
  "borsh",
- "bs58",
  "light-hasher",
  "light-instruction-decoder",
  "light-merkle-tree-reference",
@@ -7373,17 +7374,14 @@ dependencies = [
  "solana-account",
  "solana-address 2.6.1",
  "solana-clock",
- "solana-commitment-config",
  "solana-hash 4.4.0",
  "solana-instruction",
  "solana-keypair",
  "solana-message",
  "solana-pubkey 4.2.0",
- "solana-rpc-client",
  "solana-signature",
  "solana-signer",
  "solana-transaction",
- "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "zolana-client",
  "zolana-interface",

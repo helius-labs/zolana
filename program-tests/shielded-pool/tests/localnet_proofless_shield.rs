@@ -1,23 +1,26 @@
 //! Local-validator proofless shield test.
 
 use solana_keypair::Keypair;
-use solana_message::Message;
+use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
+use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{
-        create_protocol_config, proofless_shield, zone_proofless_shield, CreateProtocolConfigData,
-        ProoflessShieldEvent,
+        create_protocol_config, proofless_shield, tag, zone_proofless_shield,
+        CreateProtocolConfigData, ProoflessShieldEvent,
     },
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
-    create_tree_instructions, protocol_config_pda, rpc_state_root, send_and_index,
-    single_proofless_shield_event, zone_auth_pda, PoolIndexer, SolanaRpc, ZolanaProgramTest,
-    ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, index_events, indexed_events_from_instructions,
+    parsed_instruction_from_compiled, protocol_config_pda, rpc_state_root,
+    single_proofless_shield_event, zone_auth_pda, IndexedEvent, IndexedTransaction, PoolIndexer,
+    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -161,12 +164,62 @@ fn send_indexed(
     payer: &Pubkey,
     signers: &[&Keypair],
 ) -> TestResult<zolana_program_test::IndexedTransaction> {
-    use zolana_program_test::Rpc;
-
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     let message = Message::new(ixs, Some(payer));
+    let produces_events = produces_shielded_events(program_id, &message);
     let transaction = Transaction::new(signers, message, blockhash);
-    Ok(send_and_index(rpc, indexer, program_id, transaction)?)
+    let signature = rpc.send_transaction(&transaction)?;
+    let events = if produces_events {
+        fetch_indexed_events(rpc, indexer, program_id, &signature)?
+    } else {
+        Vec::new()
+    };
+    Ok(IndexedTransaction { signature, events })
+}
+
+fn fetch_indexed_events(
+    rpc: &SolanaRpc,
+    indexer: &mut PoolIndexer,
+    program_id: Pubkey,
+    signature: &Signature,
+) -> TestResult<Vec<IndexedEvent>> {
+    let inner = rpc.fetch_confirmed_inner_instructions(signature)?;
+    let instructions = inner
+        .instructions
+        .iter()
+        .map(|instruction| parsed_instruction_from_compiled(&inner.account_keys, instruction))
+        .collect::<Result<Vec<_>, _>>()?;
+    let events = indexed_events_from_instructions(program_id, &instructions)?;
+    index_events(indexer, &events)?;
+    Ok(events)
+}
+
+fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
+    message.instructions.iter().any(|instruction| {
+        let Some(ix_tag) = instruction.data.first().copied() else {
+            return false;
+        };
+        match ix_tag {
+            tag::PROOFLESS_SHIELD => {
+                instruction_program_id(message, instruction) == Some(program_id)
+            }
+            tag::ZONE_PROOFLESS_SHIELD => {
+                instruction_program_id(message, instruction) == Some(program_id)
+                    || instruction
+                        .accounts
+                        .iter()
+                        .any(|index| message.account_keys.get(*index as usize) == Some(&program_id))
+            }
+            _ => false,
+        }
+    })
+}
+
+fn instruction_program_id(message: &Message, instruction: &CompiledInstruction) -> Option<Pubkey> {
+    message
+        .account_keys
+        .get(instruction.program_id_index as usize)
+        .copied()
 }
 
 fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) -> TestResult {
@@ -185,4 +238,42 @@ fn assert_wallet_discovers(wallet: &mut Wallet, event: &ProoflessShieldEvent) ->
 
 fn print_signature(label: &str, signature: &solana_signature::Signature) {
     println!("{label}: {signature}");
+}
+
+#[test]
+fn shielded_event_detection_checks_program_context() {
+    use solana_instruction::{AccountMeta, Instruction};
+
+    let shielded_pool = Pubkey::new_unique();
+    let other_program = Pubkey::new_unique();
+
+    let unrelated = Message::new(
+        &[Instruction {
+            program_id: other_program,
+            accounts: Vec::new(),
+            data: vec![tag::PROOFLESS_SHIELD],
+        }],
+        None,
+    );
+    assert!(!produces_shielded_events(shielded_pool, &unrelated));
+
+    let direct = Message::new(
+        &[Instruction {
+            program_id: shielded_pool,
+            accounts: Vec::new(),
+            data: vec![tag::PROOFLESS_SHIELD],
+        }],
+        None,
+    );
+    assert!(produces_shielded_events(shielded_pool, &direct));
+
+    let zone_wrapper = Message::new(
+        &[Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::ZONE_PROOFLESS_SHIELD],
+        }],
+        None,
+    );
+    assert!(produces_shielded_events(shielded_pool, &zone_wrapper));
 }
