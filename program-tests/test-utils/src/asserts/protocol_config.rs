@@ -1,17 +1,8 @@
 //! Post-instruction checks for the protocol config account.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::state::{
-    CONFIG_AUTHORITY_END, CONFIG_AUTHORITY_OFFSET, PROTOCOL_CONFIG_ACCOUNT_LEN,
-    PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET, PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET,
-};
+use zolana_interface::state::ProtocolConfig;
 use zolana_program_test::ZolanaProgramTest;
-
-fn read_u64(data: &[u8], offset: usize) -> u64 {
-    let mut bytes = [0u8; 8];
-    bytes.copy_from_slice(&data[offset..offset + 8]);
-    u64::from_le_bytes(bytes)
-}
 
 /// Verify the protocol config account at `config` against the integration-test
 /// expectations: the account has the canonical length, stores `authority`, and
@@ -28,21 +19,19 @@ pub fn assert_protocol_config(
         .expect("config PDA exists");
     assert_eq!(
         data.len(),
-        PROTOCOL_CONFIG_ACCOUNT_LEN,
+        ProtocolConfig::SIZE,
         "protocol config account length"
     );
+    let cfg: &ProtocolConfig = bytemuck::from_bytes(&data);
+    assert_eq!(cfg.authority, authority.to_bytes(), "config authority");
     assert_eq!(
-        &data[CONFIG_AUTHORITY_OFFSET..CONFIG_AUTHORITY_END],
-        authority.as_ref(),
-        "config authority"
-    );
-    assert_eq!(
-        read_u64(&data, PROTOCOL_CONFIG_MERGE_AUTHORITY_COUNT_OFFSET),
+        cfg.merge_authority_count,
         merge_authorities.len() as u64,
         "merge authority count"
     );
-    for (i, expected) in merge_authorities.iter().enumerate() {
-        let offset = PROTOCOL_CONFIG_MERGE_AUTHORITIES_OFFSET + i * 32;
-        assert_eq!(&data[offset..offset + 32], expected, "merge authority {i}");
-    }
+    assert_eq!(
+        cfg.active_merge_authorities(),
+        merge_authorities,
+        "merge authorities"
+    );
 }

@@ -16,6 +16,7 @@ test-sbf = []
 
 [dependencies]
 borsh = { workspace = true }
+bytemuck = { workspace = true }
 light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
 light-verifier = { workspace = true }
 light-hasher = { workspace = true, features = ["keccak", "poseidon"] }

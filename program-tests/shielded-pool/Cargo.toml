@@ -24,6 +24,7 @@ zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
+bytemuck = { workspace = true }
 zolana-test-utils = { workspace = true }
 
 [[test]]
