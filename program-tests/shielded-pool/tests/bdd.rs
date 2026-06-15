@@ -27,16 +27,27 @@ pub struct ShieldedPoolWorld {
     recipient: Option<Wallet>,
     mint: Option<Pubkey>,
     user_token: Option<Pubkey>,
-    registry: Option<Pubkey>,
-    vault: Option<Pubkey>,
+    protocol_config: Option<Pubkey>,
+    prefunded_protocol_config: Option<Pubkey>,
+    spl_registry: Option<Pubkey>,
+    spl_vault: Option<Pubkey>,
     zone_config: Option<Pubkey>,
     zone_authority: Option<Keypair>,
-    last_event: Option<ProoflessShieldEvent>,
+    previous_zone_authority: Option<Keypair>,
+    rotated_authority: Option<Keypair>,
+    last_proofless_event: Option<ProoflessShieldEvent>,
     last_error: Option<ProgramTestError>,
-    root_before: Option<[u8; 32]>,
-    indexed_before: Option<usize>,
-    indexed_roots: Vec<[u8; 32]>,
-    zone_program_loaded: bool,
+    merge_authority: Option<[u8; 32]>,
+    sol_deposit: Option<SolDepositObservation>,
+    indexed_utxo_count_before: Option<usize>,
+    state_roots: Vec<[u8; 32]>,
+}
+
+struct SolDepositObservation {
+    amount: u64,
+    vault_before_lamports: u64,
+    vault_after_lamports: u64,
+    tree_changed: bool,
 }
 
 impl std::fmt::Debug for ShieldedPoolWorld {

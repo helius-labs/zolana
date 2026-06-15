@@ -1,4 +1,4 @@
-//! Proofless SOL deposit steps. Faithful port of `tests/proofless_shield.rs`.
+//! Proofless SOL deposit steps.
 
 use cucumber::{given, then, when};
 use solana_instruction::{AccountMeta, Instruction};
@@ -29,8 +29,6 @@ fn sol_accounts(
     accounts
 }
 
-/// Send a raw proofless-shield transaction with the given accounts, capturing
-/// the result into `last_error`. Mirrors the original `send_raw` helper.
 fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
     let depositor = world.depositor().insecure_clone();
     let program_id = world.rpc().program_id;
@@ -89,7 +87,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         root_before,
         &mut recipient,
     );
-    world.last_event = Some(event);
+    world.last_proofless_event = Some(event);
     world.recipient = Some(recipient);
 }
 
@@ -100,14 +98,14 @@ fn recipient_owns(world: &mut ShieldedPoolWorld, count: usize) {
 
 #[then(expr = "a proofless shield event is emitted")]
 fn event_emitted(world: &mut ShieldedPoolWorld) {
-    assert!(world.last_event.is_some());
+    assert!(world.last_proofless_event.is_some());
 }
 
 // === bad amount shapes ===
 
 #[given(expr = "the indexer UTXO count is recorded")]
 fn record_indexer(world: &mut ShieldedPoolWorld) {
-    world.indexed_before = Some(world.rpc().indexer().utxos().len());
+    world.indexed_utxo_count_before = Some(world.rpc().indexer().utxos().len());
 }
 
 #[when(expr = "the depositor shields with no public amount")]
@@ -145,7 +143,9 @@ fn shield_unknown_mode(world: &mut ShieldedPoolWorld) {
 
 #[then(expr = "the indexer UTXO count is unchanged")]
 fn indexer_unchanged(world: &mut ShieldedPoolWorld) {
-    let before = world.indexed_before.expect("indexer count recorded");
+    let before = world
+        .indexed_utxo_count_before
+        .expect("indexer count recorded");
     assert_eq!(world.rpc().indexer().utxos().len(), before);
 }
 
@@ -343,12 +343,12 @@ fn repeat_deposits(world: &mut ShieldedPoolWorld, amount: u64) {
         .proofless_shield(&tree, &depositor, &data)
         .expect("d2");
     let root2 = world.rpc().state_root(&tree).expect("root");
-    world.indexed_roots = vec![root0, root1, root2];
+    world.state_roots = vec![root0, root1, root2];
 }
 
 #[then(expr = "the two deposits create distinct leaves and the indexer tracks them")]
 fn distinct_leaves(world: &mut ShieldedPoolWorld) {
-    let roots = world.indexed_roots.clone();
+    let roots = world.state_roots.clone();
     assert_ne!(roots[0], roots[1]);
     assert_ne!(roots[1], roots[2]);
     assert_eq!(world.rpc().indexer().utxos().len(), 2);

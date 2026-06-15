@@ -1,4 +1,4 @@
-//! Zone-config admin steps. Faithful port of `tests/zone_config.rs`.
+//! Zone-config admin steps.
 
 use cucumber::{given, then, when};
 use solana_keypair::Keypair;
@@ -49,7 +49,6 @@ fn load_zone_program(world: &mut ShieldedPoolWorld) {
         .rpc()
         .load_zone_test_program()
         .expect("zone_test_program.so must be built");
-    world.zone_program_loaded = true;
 }
 
 #[given(expr = "a funded payer")]
@@ -127,8 +126,7 @@ fn rotate_zone_owner(world: &mut ShieldedPoolWorld) {
         .rpc()
         .update_zone_config_owner(&authority, &zone_config, &next.pubkey())
         .expect("rotate owner");
-    // Remember the now-stale owner so a later "old owner" step can replay it.
-    world.authority = Some(authority);
+    world.previous_zone_authority = Some(authority);
     world.zone_authority = Some(next);
 }
 
@@ -142,7 +140,7 @@ fn assert_zone_new_owner(world: &mut ShieldedPoolWorld) {
 #[when(expr = "the old owner tries to update the zone config")]
 fn old_owner_updates(world: &mut ShieldedPoolWorld) {
     let stale = world
-        .authority
+        .previous_zone_authority
         .as_ref()
         .expect("prior owner")
         .insecure_clone();

@@ -1,5 +1,4 @@
-//! Policy-zone proofless deposit steps. Faithful port of
-//! `tests/zone_proofless_shield.rs`.
+//! Policy-zone proofless deposit steps.
 
 use cucumber::when;
 use solana_keypair::Keypair;
