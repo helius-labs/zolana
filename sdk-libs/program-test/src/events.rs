@@ -1,7 +1,10 @@
 use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{tag, ProoflessShieldEvent};
+use zolana_interface::{
+    event::{decode_event_instruction, ShieldedPoolEvent},
+    instruction::{tag, ProoflessShieldEvent},
+};
 
 use crate::{ProgramTestError, TestIndexer};
 
@@ -83,20 +86,27 @@ pub fn indexed_events_from_instructions<'a>(
         if instruction.program_id == shielded_pool_program_id
             && instruction.data.first() == Some(&tag::EMIT_EVENT)
         {
-            events.push(indexed_event_from_emit_payload(&instruction.data[1..]));
+            events.push(indexed_event_from_instruction_data(&instruction.data));
         }
     }
     Ok(events)
 }
 
-pub fn indexed_event_from_emit_payload(payload: &[u8]) -> IndexedEvent {
-    let data = <ProoflessShieldEvent as borsh::BorshDeserialize>::try_from_slice(payload)
-        .map(IndexedEventData::ProoflessShield)
+pub fn indexed_event_from_instruction_data(data: &[u8]) -> IndexedEvent {
+    let payload = data.get(1..).unwrap_or_default().to_vec();
+    let data = decode_event_instruction(data)
+        .map(indexed_event_data)
         .unwrap_or(IndexedEventData::Unknown);
     IndexedEvent {
         tag: tag::EMIT_EVENT,
-        payload: payload.to_vec(),
+        payload,
         data,
+    }
+}
+
+fn indexed_event_data(event: ShieldedPoolEvent) -> IndexedEventData {
+    match event {
+        ShieldedPoolEvent::ProoflessShield(event) => IndexedEventData::ProoflessShield(event),
     }
 }
 

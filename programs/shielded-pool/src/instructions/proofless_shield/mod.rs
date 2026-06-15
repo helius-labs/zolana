@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use light_hasher::{Hasher, Poseidon};
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
@@ -6,8 +5,9 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
+use zolana_interface::event::{encode_event_instruction, ShieldedPoolEvent};
 use zolana_interface::instruction::{
-    tag, CpiSignerData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
+    CpiSignerData, ProoflessShieldEvent, ProoflessShieldIxData, TransactIxData,
     ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::{SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, UTXO_DOMAIN};
@@ -173,19 +173,21 @@ fn process_deposit(
         .settlement
         .cpi_authority_bump
         .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-    emit_event(program_id, cpi_authority, cpi_authority_bump, &event)
+    emit_event(
+        program_id,
+        cpi_authority,
+        cpi_authority_bump,
+        ShieldedPoolEvent::ProoflessShield(event),
+    )
 }
 
 fn emit_event(
     program_id: &Address,
     cpi_authority: &AccountView,
     cpi_authority_bump: u8,
-    event: &ProoflessShieldEvent,
+    event: ShieldedPoolEvent,
 ) -> ProgramResult {
-    let mut data = vec![tag::EMIT_EVENT];
-    event
-        .serialize(&mut data)
-        .map_err(|_| ProgramError::from(ShieldedPoolError::InvalidInstructionData))?;
+    let data = encode_event_instruction(&event);
     let instruction_accounts = [InstructionAccount::readonly_signer(cpi_authority.address())];
     let instruction = InstructionView {
         program_id,

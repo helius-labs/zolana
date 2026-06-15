@@ -1,10 +1,16 @@
 use borsh::BorshDeserialize;
-use zolana_interface::instruction::{
-    encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-    CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData,
-    ProoflessShieldIxData, TransactInput, TransactIxData, UpdateProtocolConfigData,
-    UpdateZoneConfigData, UpdateZoneConfigOwnerData, PUBLIC_AMOUNT_DEPOSIT_SOL,
-    PUBLIC_AMOUNT_DEPOSIT_SPL,
+use zolana_interface::{
+    event::{
+        decode_event_instruction, decode_event_payload, encode_event_instruction,
+        encode_event_payload, kind as event_kind, EventDecodeError, ShieldedPoolEvent,
+    },
+    instruction::{
+        encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
+        CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData,
+        ProoflessShieldEvent, ProoflessShieldIxData, TransactInput, TransactIxData,
+        UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
+    },
 };
 
 #[cfg(feature = "solana")]
@@ -93,6 +99,54 @@ fn create_spl_interface_is_tag_only() {
     assert_eq!(
         InstructionTag::try_from(tag::CREATE_SPL_INTERFACE),
         Ok(InstructionTag::CreateSplInterface)
+    );
+}
+
+#[test]
+fn proofless_event_roundtrip() {
+    let event = ProoflessShieldEvent {
+        view_tag: [1u8; 32],
+        utxo_hash: [2u8; 32],
+        asset: [3u8; 32],
+        amount: 42,
+        zone_program_id: Some([4u8; 32]),
+        policy_data_hash: Some([5u8; 32]),
+        owner_utxo_hash: [6u8; 32],
+        salt: [7u8; 16],
+        program_data_hash: Some([8u8; 32]),
+        program_data: Some(vec![9, 10]),
+        zone_data: Some(vec![11, 12]),
+    };
+    let wrapped = ShieldedPoolEvent::ProoflessShield(event);
+    let instruction = encode_event_instruction(&wrapped);
+    let payload = encode_event_payload(&wrapped);
+
+    assert_eq!(instruction[0], tag::EMIT_EVENT);
+    assert_eq!(instruction[1], event_kind::PROOFLESS_SHIELD);
+    assert_eq!(payload, instruction[1..]);
+    assert_eq!(decode_event_instruction(&instruction), Ok(wrapped.clone()));
+    assert_eq!(decode_event_payload(&payload), Ok(wrapped));
+}
+
+#[test]
+fn event_decoder_rejects_bad_envelope() {
+    assert_eq!(
+        decode_event_instruction(&[]),
+        Err(EventDecodeError::MissingInstructionTag)
+    );
+    assert_eq!(
+        decode_event_instruction(&[tag::PROOFLESS_SHIELD]),
+        Err(EventDecodeError::InvalidInstructionTag(
+            tag::PROOFLESS_SHIELD
+        ))
+    );
+    assert_eq!(
+        decode_event_payload(&[]),
+        Err(EventDecodeError::MissingEventKind)
+    );
+    assert_eq!(
+        decode_event_payload(&[u8::MAX]),
+        Err(EventDecodeError::UnknownEventKind(u8::MAX))
     );
 }
 
