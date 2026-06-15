@@ -10,7 +10,7 @@ pub use proofless_shield::{
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use transact::{
-    CpiSignerData, InputUtxoSignerIndex, TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    CpiSignerData, InputUtxoSignerIndex, TransactInput, TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW_SOL,
     PUBLIC_AMOUNT_WITHDRAW_SPL,
 };

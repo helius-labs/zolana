@@ -150,8 +150,8 @@ fn validate_input_signer_indices(
     accounts: &[AccountSnapshot],
     data: &TransactIxData,
 ) -> Result<Vec<[u8; 32]>, ProgramError> {
-    let mut owner_pubkeys = vec![[0u8; 32]; data.nullifiers.len()];
-    if data.nullifiers.is_empty() {
+    let mut owner_pubkeys = vec![[0u8; 32]; data.inputs.len()];
+    if data.inputs.is_empty() {
         if data
             .in_utxo_signer_indices
             .as_ref()
@@ -163,15 +163,15 @@ fn validate_input_signer_indices(
     }
 
     let indices = data.in_utxo_signer_indices.as_deref().unwrap_or(&[]);
-    if indices.len() > data.nullifiers.len() {
+    if indices.len() > data.inputs.len() {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    let mut seen = vec![false; data.nullifiers.len()];
+    let mut seen = vec![false; data.inputs.len()];
     for index in indices {
         validate_input_signer_index(
             accounts,
-            data.nullifiers.len(),
+            data.inputs.len(),
             index,
             &mut seen,
             &mut owner_pubkeys,
