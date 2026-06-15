@@ -7391,9 +7391,7 @@ name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
  "solana-pubkey 4.2.0",
- "solana-signer",
  "zolana-interface",
- "zolana-keypair",
  "zolana-program-test",
  "zolana-transaction",
 ]
