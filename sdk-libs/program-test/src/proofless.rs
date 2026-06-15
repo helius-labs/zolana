@@ -3,7 +3,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    proofless_shield, tag, ProoflessShieldEvent, ProoflessShieldIxData,
+    proofless_shield, proofless_shield_spl as proofless_shield_spl_ix, ProoflessShieldEvent,
+    ProoflessShieldIxData, ProoflessShieldSplAccounts,
 };
 
 use crate::{single_proofless_shield_event, ProgramTestError, ZolanaProgramTest};
@@ -27,17 +28,20 @@ impl ZolanaProgramTest {
         mint: &Pubkey,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
-        let accounts = vec![
-            AccountMeta::new(*tree, false),
-            AccountMeta::new(depositor.pubkey(), true),
-            AccountMeta::new_readonly(self.cpi_authority(), false),
-            AccountMeta::new(*user_token, false),
-            AccountMeta::new(self.spl_asset_vault_pda(mint), false),
-            AccountMeta::new_readonly(self.spl_asset_registry_pda(mint), false),
-            AccountMeta::new_readonly(Self::token_program_id(), false),
-            AccountMeta::new_readonly(self.program_id, false),
-        ];
-        self.proofless_shield_with_accounts(accounts, depositor, data)
+        let ix = proofless_shield_spl_ix(
+            ProoflessShieldSplAccounts {
+                tree: *tree,
+                depositor: depositor.pubkey(),
+                cpi_authority: self.cpi_authority(),
+                user_token: *user_token,
+                vault: self.spl_asset_vault_pda(mint),
+                registry: self.spl_asset_registry_pda(mint),
+                token_program: Self::token_program_id(),
+                shielded_pool_program: self.program_id,
+            },
+            data,
+        );
+        self.send_proofless_shield_ix(ix, depositor)
     }
 
     pub fn proofless_shield_with_accounts(
@@ -46,17 +50,9 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ProoflessShieldIxData,
     ) -> Result<ProoflessShieldEvent, ProgramTestError> {
-        let mut instruction_data = vec![tag::PROOFLESS_SHIELD];
-        instruction_data.extend_from_slice(
-            &data
-                .serialize()
-                .expect("proofless ix data serialization is infallible"),
-        );
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts,
-            data: instruction_data,
-        };
+        let mut ix = proofless_shield(Pubkey::default(), depositor.pubkey(), data);
+        ix.program_id = self.program_id;
+        ix.accounts = accounts;
         self.send_proofless_shield_ix(ix, depositor)
     }
 

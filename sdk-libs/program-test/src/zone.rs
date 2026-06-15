@@ -4,9 +4,10 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, zone_proofless_shield, CpiSignerData, CreateZoneConfigData,
-        ProoflessShieldEvent, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+        encode_instruction, tag, update_zone_config as update_zone_config_ix,
+        update_zone_config_owner as update_zone_config_owner_ix, zone_proofless_shield,
+        CpiSignerData, CreateZoneConfigData, ProoflessShieldEvent, UpdateZoneConfigData,
+        UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     },
     SPP_ZONE_CONFIG_PDA_SEED,
 };
@@ -86,17 +87,13 @@ impl ZolanaProgramTest {
         zone_config: &Pubkey,
         new_authority: &Pubkey,
     ) -> Result<(), ProgramTestError> {
-        let data = UpdateZoneConfigOwnerData {
-            new_authority: new_authority.to_bytes(),
-        };
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new(*zone_config, false),
-            ],
-            data: encode_instruction(tag::UPDATE_ZONE_CONFIG_OWNER, &data),
-        };
+        let ix = update_zone_config_owner_ix(
+            authority.pubkey(),
+            *zone_config,
+            UpdateZoneConfigOwnerData {
+                new_authority: new_authority.to_bytes(),
+            },
+        );
         self.send(&[ix], &[authority])
     }
 
@@ -106,17 +103,13 @@ impl ZolanaProgramTest {
         zone_config: &Pubkey,
         zone_authority_transact_is_enabled: bool,
     ) -> Result<(), ProgramTestError> {
-        let data = UpdateZoneConfigData {
-            zone_authority_transact_is_enabled,
-        };
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new(*zone_config, false),
-            ],
-            data: encode_instruction(tag::UPDATE_ZONE_CONFIG, &data),
-        };
+        let ix = update_zone_config_ix(
+            authority.pubkey(),
+            *zone_config,
+            UpdateZoneConfigData {
+                zone_authority_transact_is_enabled,
+            },
+        );
         self.send(&[ix], &[authority])
     }
 

@@ -2,12 +2,11 @@
 //! Faithful port of `tests/pool_admin.rs`.
 
 use cucumber::{then, when};
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateProtocolConfigData},
+    instruction::{create_protocol_config as create_protocol_config_ix, CreateProtocolConfigData},
     state::PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
 };
 use zolana_test_utils::asserts::assert_protocol_config;
@@ -127,24 +126,15 @@ fn create_config_mismatched_authority(world: &mut PoolWorld) {
         .airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund");
     let named = Keypair::new();
-    let program_id = world.rig().program_id;
     let config_pda = world.rig().protocol_config_pda();
-    let data = encode_instruction(
-        tag::CREATE_PROTOCOL_CONFIG,
-        &CreateProtocolConfigData {
+    let ix = create_protocol_config_ix(
+        signer.pubkey(),
+        config_pda,
+        CreateProtocolConfigData {
             authority: named.pubkey().to_bytes(),
             merge_authorities: Vec::new(),
         },
     );
-    let ix = Instruction {
-        program_id,
-        accounts: vec![
-            AccountMeta::new(signer.pubkey(), true),
-            AccountMeta::new(config_pda, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-        ],
-        data,
-    };
     let err = world
         .rig()
         .create_and_send_default_payer_transaction(&[ix], &[&signer])

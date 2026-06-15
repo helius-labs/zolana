@@ -2,11 +2,9 @@
 //! `tests/zone_proofless_shield.rs`.
 
 use cucumber::when;
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::tag;
+use zolana_interface::instruction::zone_proofless_shield_cpi;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -69,28 +67,7 @@ fn zone_shield_wrong_signer(world: &mut PoolWorld) {
         .expect("fund");
 
     let data = world.rig().zone_sol_shield_data(1_000_000, [3u8; 32]);
-    let cpi_authority = world.rig().cpi_authority();
-    let program_id = world.rig().program_id;
-    let accounts = vec![
-        AccountMeta::new(tree, false),
-        AccountMeta::new(depositor.pubkey(), true),
-        AccountMeta::new_readonly(depositor.pubkey(), true),
-        AccountMeta::new_readonly(Pubkey::default(), false),
-        AccountMeta::new(cpi_authority, false),
-        AccountMeta::new(depositor.pubkey(), false),
-        AccountMeta::new_readonly(program_id, false),
-    ];
-    let mut instruction_data = vec![tag::ZONE_PROOFLESS_SHIELD];
-    instruction_data.extend_from_slice(
-        &data
-            .serialize()
-            .expect("zone proofless ix data serialization is infallible"),
-    );
-    let ix = Instruction {
-        program_id,
-        accounts,
-        data: instruction_data,
-    };
+    let ix = zone_proofless_shield_cpi(depositor.pubkey(), tree, depositor.pubkey(), &data);
     let err = world
         .rig()
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])

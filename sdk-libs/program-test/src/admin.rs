@@ -1,9 +1,9 @@
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::instruction::{
-    create_protocol_config, encode_instruction, tag, CreateProtocolConfigData, PauseTreeData,
+    create_protocol_config, pause_tree as pause_tree_ix,
+    update_protocol_config as update_protocol_config_ix, CreateProtocolConfigData, PauseTreeData,
     UpdateProtocolConfigData,
 };
 
@@ -57,21 +57,14 @@ impl ZolanaProgramTest {
         new_authority: &Pubkey,
         merge_authorities: Vec<[u8; 32]>,
     ) -> Result<(), ProgramTestError> {
-        let data = encode_instruction(
-            tag::UPDATE_PROTOCOL_CONFIG,
-            &UpdateProtocolConfigData {
+        let ix = update_protocol_config_ix(
+            authority.pubkey(),
+            self.protocol_config_pda(),
+            UpdateProtocolConfigData {
                 authority: new_authority.to_bytes(),
                 merge_authorities,
             },
         );
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new(self.protocol_config_pda(), false),
-            ],
-            data,
-        };
         self.send(&[ix], &[authority])
     }
 
@@ -81,16 +74,12 @@ impl ZolanaProgramTest {
         tree: &Keypair,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
-        let data = encode_instruction(tag::PAUSE_TREE, &PauseTreeData { paused });
-        let ix = Instruction {
-            program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(authority.pubkey(), true),
-                AccountMeta::new_readonly(self.protocol_config_pda(), false),
-                AccountMeta::new(tree.pubkey(), false),
-            ],
-            data,
-        };
+        let ix = pause_tree_ix(
+            authority.pubkey(),
+            self.protocol_config_pda(),
+            tree.pubkey(),
+            PauseTreeData { paused },
+        );
         self.send(&[ix], &[authority])
     }
 
