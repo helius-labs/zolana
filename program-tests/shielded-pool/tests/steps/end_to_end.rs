@@ -8,27 +8,27 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-use crate::PoolWorld;
+use crate::ShieldedPoolWorld;
 
 const E2E_AMOUNTS: [u64; 3] = [1_000_000_000, 250_000_000, 1_000_000];
 
 #[when(expr = "the depositor shields {int} lamports into the pool")]
-fn shield_into_pool(world: &mut PoolWorld, amount: u64) {
+fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let depositor = Keypair::new();
     world
-        .rig()
+        .rpc()
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("airdrop");
 
-    let vault = world.rig().cpi_authority();
+    let vault = world.rpc().cpi_authority();
     let vault_before_lamports = world
-        .rig()
+        .rpc()
         .svm
         .get_account(&vault)
         .map(|a| a.lamports)
         .unwrap_or(0);
-    let tree_before = world.rig().account_data(&tree).expect("tree data");
+    let tree_before = world.rpc().account_data(&tree).expect("tree data");
     let recipient =
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
 
@@ -36,13 +36,13 @@ fn shield_into_pool(world: &mut PoolWorld, amount: u64) {
     let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet deposit data");
     world
-        .rig()
+        .rpc()
         .proofless_shield(&tree, &depositor, &data)
         .expect("proofless_shield");
 
     // The deposit landed in the pool's SOL vault (the CPI authority PDA).
     let vault_lamports = world
-        .rig()
+        .rpc()
         .svm
         .get_account(&vault)
         .map(|a| a.lamports)
@@ -53,29 +53,29 @@ fn shield_into_pool(world: &mut PoolWorld, amount: u64) {
     );
 
     // The UTXO was appended: the state sub-tree root / next_index changed.
-    let tree_after = world.rig().account_data(&tree).expect("tree data");
+    let tree_after = world.rpc().account_data(&tree).expect("tree data");
     assert_ne!(tree_before, tree_after, "tree must record the new leaf");
 }
 
 #[then(expr = "the deposit lands in the pool vault and grows the tree")]
-fn deposit_landed(_world: &mut PoolWorld) {
+fn deposit_landed(_world: &mut ShieldedPoolWorld) {
     // Assertions are performed inline in the `When` step (mirrors the original
     // single-test structure); this `Then` documents the expectation.
 }
 
 #[when(expr = "the depositor makes the bootstrap deposit run")]
-fn bootstrap_deposits(world: &mut PoolWorld) {
+fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     // Empty trees must agree before any deposits.
     assert_eq!(
-        world.rig().indexer().root(),
-        world.rig().state_root(&tree).expect("state root"),
+        world.rpc().indexer().root(),
+        world.rpc().state_root(&tree).expect("state root"),
         "empty trees must agree"
     );
 
     let depositor = Keypair::new();
     world
-        .rig()
+        .rpc()
         .airdrop(&depositor.pubkey(), 10_000_000_000)
         .expect("airdrop");
     let mut recipient =
@@ -89,7 +89,7 @@ fn bootstrap_deposits(world: &mut PoolWorld) {
         let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
             .expect("wallet deposit data");
         let event = world
-            .rig()
+            .rpc()
             .proofless_shield(&tree, &depositor, &data)
             .expect("deposit");
         assert_eq!(event.amount, amount, "event must carry the settled amount");
@@ -114,15 +114,15 @@ fn bootstrap_deposits(world: &mut PoolWorld) {
         view_tags.push(data.view_tag);
 
         assert_eq!(
-            world.rig().indexer().root(),
-            world.rig().state_root(&tree).expect("state root"),
+            world.rpc().indexer().root(),
+            world.rpc().state_root(&tree).expect("state root"),
             "indexed tree must track the on-chain root after deposit {i}"
         );
     }
 
     // The depositor locates each UTXO by its opaque owner commitment; the
     // recipient by scanning their view tag.
-    let indexer = world.rig().indexer();
+    let indexer = world.rpc().indexer();
     for (i, amount) in E2E_AMOUNTS.into_iter().enumerate() {
         let record = indexer
             .fetch_by_owner_utxo_hash(&owner_utxo_hashes[i])
@@ -145,6 +145,6 @@ fn bootstrap_deposits(world: &mut PoolWorld) {
 }
 
 #[then(expr = "the indexer matches the on-chain root and the recipient owns {int} UTXOs")]
-fn indexer_matches(world: &mut PoolWorld, count: usize) {
+fn indexer_matches(world: &mut ShieldedPoolWorld, count: usize) {
     assert_eq!(world.recipient().utxos.len(), count);
 }

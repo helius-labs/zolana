@@ -11,19 +11,19 @@ use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 use zolana_test_utils::asserts::assert_zone_proofless_shield;
 use zolana_transaction::Wallet;
 
-use crate::PoolWorld;
+use crate::ShieldedPoolWorld;
 
 #[when(expr = "the depositor zone-shields {int} lamports to a fresh recipient")]
-fn zone_shield(world: &mut PoolWorld, amount: u64) {
+fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     world
-        .rig()
+        .rpc()
         .load_zone_test_program()
         .expect("zone_test_program.so must be built");
 
     let tree = world.tree().pubkey();
     let depositor = Keypair::new();
     world
-        .rig()
+        .rpc()
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("fund");
     let mut recipient =
@@ -31,19 +31,19 @@ fn zone_shield(world: &mut PoolWorld, amount: u64) {
 
     let seed = [5u8; BLINDING_LEN];
     let mut data = world
-        .rig()
+        .rpc()
         .wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone deposit data");
     data.policy_data_hash = Some([5u8; 32]);
 
-    let root_before = world.rig().state_root(&tree).expect("root");
+    let root_before = world.rpc().state_root(&tree).expect("root");
     let event = world
-        .rig()
+        .rpc()
         .zone_proofless_shield(&tree, &depositor, &data)
         .expect("zone deposit");
 
     assert_zone_proofless_shield(
-        world.rig(),
+        world.rpc(),
         &tree,
         &event,
         &data,
@@ -58,18 +58,18 @@ fn zone_shield(world: &mut PoolWorld, amount: u64) {
 }
 
 #[when(expr = "a zone proofless deposit is sent straight to the pool with the wrong signer")]
-fn zone_shield_wrong_signer(world: &mut PoolWorld) {
+fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let depositor = Keypair::new();
     world
-        .rig()
+        .rpc()
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("fund");
 
-    let data = world.rig().zone_sol_shield_data(1_000_000, [3u8; 32]);
+    let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
     let ix = zone_proofless_shield_cpi(depositor.pubkey(), tree, depositor.pubkey(), &data);
     let err = world
-        .rig()
+        .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .unwrap_err();
     world.last_error = Some(err);

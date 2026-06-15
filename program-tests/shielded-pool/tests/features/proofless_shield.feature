@@ -8,7 +8,8 @@ Feature: Proofless SOL shield
 
   Scenario: A SOL deposit succeeds and the event is faithful
     When the depositor shields 750000000 lamports to a fresh recipient
-    Then the recipient owns 1 UTXO
+    Then a proofless shield event is emitted
+    And the recipient owns 1 UTXO
 
   Scenario: Bad amount shapes are rejected and leave the indexer unchanged
     Given the indexer UTXO count is recorded
