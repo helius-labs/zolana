@@ -90,6 +90,10 @@ jobs:
       AGAVE_VERSION: v4.0.2
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: litesvm
@@ -119,6 +123,10 @@ jobs:
       AGAVE_VERSION: v4.0.2
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: programs

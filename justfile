@@ -36,8 +36,9 @@ test: test-shielded-pool test-sdk-libs
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
-# run (without it `program_test()` finds no .so and the suite skips).
-test-shielded-pool: build-programs
+# run (without it `program_test()` finds no .so and the suite skips). Builds
+# the prover server and zolana CLI because transact tests spawn a local prover.
+test-shielded-pool: build-programs build-prover-server build-cli
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
@@ -62,8 +63,9 @@ test-sdk-libs:
 test-client-integration: build-prover-server build-cli
     cargo test -p zolana-client
 
-# Program integration tests backed by LiteSVM.
-test-programs: build-programs
+# Program integration tests backed by LiteSVM. Transact tests spawn the prover
+# through the zolana CLI.
+test-programs: build-programs build-prover-server build-cli
     cargo test -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
