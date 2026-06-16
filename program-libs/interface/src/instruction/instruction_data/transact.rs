@@ -130,7 +130,10 @@ impl<'a> TransactIxDataRef<'a> {
     /// amount), `false` withdraws (negative amount). Meaningless for a pure
     /// shielded transfer, where no public amount is present.
     pub fn is_deposit(&self) -> bool {
-        self.public_spl_amount.or(self.public_sol_amount).unwrap_or(0) > 0
+        self.public_spl_amount
+            .or(self.public_sol_amount)
+            .unwrap_or(0)
+            > 0
     }
 }
 

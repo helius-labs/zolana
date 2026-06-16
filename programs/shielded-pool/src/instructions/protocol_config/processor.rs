@@ -90,9 +90,12 @@ pub fn process_pause_tree(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    let mut tree_account =
-        TreeAccount::from_account_view_mut_allow_paused(tree, program_id, TREE_ACCOUNT_DISCRIMINATOR)
-            .map_err(ShieldedPoolError::from)?;
+    let mut tree_account = TreeAccount::from_account_view_mut_allow_paused(
+        tree,
+        program_id,
+        TREE_ACCOUNT_DISCRIMINATOR,
+    )
+    .map_err(ShieldedPoolError::from)?;
     tree_account.set_paused(data.paused);
     Ok(())
 }

@@ -14,6 +14,7 @@ use crate::error::ShieldedPoolError;
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub tree: &'a mut AccountView,
+    #[allow(dead_code)]
     pub cpi_signer: Option<&'a AccountView>,
     pub settlement: Option<Settlement<'a>>,
 }

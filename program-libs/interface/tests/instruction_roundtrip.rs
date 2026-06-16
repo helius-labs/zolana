@@ -17,8 +17,9 @@ use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
     create_spl_interface, create_zone_config, proofless_shield, zone_proofless_shield_cpi,
-    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldSplAccounts,
-    ZoneProoflessShieldIxData,
+    CpiSignerData, CreateSplInterfaceAccounts, ProoflessShieldAccounts, ProoflessShieldIxData,
+    ProoflessShieldSplAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 #[cfg(feature = "solana")]
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
