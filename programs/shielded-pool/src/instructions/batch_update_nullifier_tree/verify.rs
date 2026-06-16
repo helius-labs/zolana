@@ -3,10 +3,7 @@ use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 
 use crate::{
     error::ShieldedPoolError,
-    instructions::{
-        loader::MutableTreeAccounts,
-        protocol_config::processor::read_protocol_config,
-    },
+    instructions::{loader::MutableTreeAccounts, protocol_config::processor::read_protocol_config},
 };
 
 /// Validate `[authority, protocol_config, tree]`. Forester maintenance is a

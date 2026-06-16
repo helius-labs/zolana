@@ -58,8 +58,15 @@ fn init_then_reload() {
 fn root_history_wraps_around() {
     let params = InitAddressTreeAccountsInstructionData::default();
     let mut bytes = vec![0u8; TreeAccount::account_size(HEIGHT, params)];
-    let mut tree =
-        TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, [1u8; 32], [2u8; 32], params).unwrap();
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [1u8; 32],
+        [2u8; 32],
+        params,
+    )
+    .unwrap();
 
     // Append past capacity so the ring buffer wraps. Cursor starts at 0 (the
     // empty root), so after N appends it sits at N % capacity.

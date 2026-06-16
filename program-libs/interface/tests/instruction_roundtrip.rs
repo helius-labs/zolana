@@ -93,7 +93,12 @@ fn event_parser_ignores_direct_emit_event() {
     let spp = Pubkey::new_unique();
     let event = sample_event();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(1)),
+        outer: ParsedInstruction::new(
+            spp,
+            Vec::new(),
+            encode_event_instruction(EventKind::ProoflessShield, &event),
+            Some(1),
+        ),
         inner: Vec::new(),
     };
 
@@ -111,8 +116,18 @@ fn event_parser_rejects_wrapper_sibling_emit_event() {
         outer: parsed_ix(zone, tag::ZONE_PROOFLESS_SHIELD, Some(1)),
         inner: vec![
             parsed_ix(spp, tag::ZONE_PROOFLESS_SHIELD, Some(2)),
-            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(3)),
-            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(2)),
+            ParsedInstruction::new(
+                spp,
+                Vec::new(),
+                encode_event_instruction(EventKind::ProoflessShield, &event),
+                Some(3),
+            ),
+            ParsedInstruction::new(
+                spp,
+                Vec::new(),
+                encode_event_instruction(EventKind::ProoflessShield, &event),
+                Some(2),
+            ),
         ],
     };
 

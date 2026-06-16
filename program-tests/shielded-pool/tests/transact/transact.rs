@@ -127,7 +127,11 @@ fn transact_public_input_hash(
 /// and payer owner hash. `is_dummy = 1` waives the merkle/nullifier proofs, so
 /// the path elements are zero, but the nullifier, roots, and owner hash are the
 /// values the program reconstructs and the public-input hash binds.
-fn dummy_input(nullifier: &[u8; 32], roots: ([u8; 32], [u8; 32]), owner_hash: &[u8; 32]) -> TransferInput {
+fn dummy_input(
+    nullifier: &[u8; 32],
+    roots: ([u8; 32], [u8; 32]),
+    owner_hash: &[u8; 32],
+) -> TransferInput {
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
     TransferInput {
@@ -234,12 +238,8 @@ fn transact_sends_valid_proof() {
     .expect("external data hash");
 
     // Dummy inputs/outputs contribute zero hashes to private_tx_hash.
-    let private_tx = private_tx_hash(
-        &[zero, zero],
-        &[zero, zero, zero],
-        &external_data_hash,
-    )
-    .expect("private tx hash");
+    let private_tx = private_tx_hash(&[zero, zero], &[zero, zero, zero], &external_data_hash)
+        .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");

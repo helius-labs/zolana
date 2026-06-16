@@ -1,8 +1,8 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
     instruction::{instruction_data::proofless_shield::CpiSignerData, PUBLIC_AMOUNT_WITHDRAW_SPL},
-    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
-    SOL_INTERFACE_PDA_SEED,
+    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_CPI_AUTHORITY_BUMP, SOL_INTERFACE_PDA_SEED,
 };
 
 use crate::{
