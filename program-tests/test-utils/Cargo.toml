@@ -1,0 +1,12 @@
+[package]
+name = "zolana-test-utils"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { workspace = true }
+solana-pubkey = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-transaction = { workspace = true }

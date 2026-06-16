@@ -86,11 +86,31 @@ jobs:
     name: tests / shielded-pool
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+      # The spawned prover lazily fetches transfer proving keys from this repo's
+      # release via `gh`; expose the workflow token to that child process.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
+          shared-key: litesvm
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - run: cargo build-sbf --version
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v2
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -103,24 +123,36 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
 
-  test-litesvm:
-    name: tests / litesvm
+  test-programs:
+    name: tests / programs
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
+      # The spawned prover lazily fetches transfer proving keys from this repo's
+      # release via `gh`; expose the workflow token to that child process.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: litesvm
+          shared-key: programs
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
-      - run: just test-litesvm
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v2
+      - run: just test-programs
 
   test-user-registry-litesvm:
     name: tests / user-registry litesvm

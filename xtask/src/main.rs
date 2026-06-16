@@ -33,6 +33,7 @@ fn main() {
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
             println!("wrote {out_dir}/{filename}");
         }
+        Some("program-ids") => print_program_ids(),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");
@@ -40,6 +41,17 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn print_program_ids() {
+    println!(
+        "SHIELDED_POOL_PROGRAM_ID={}",
+        bs58::encode(zolana_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
+    );
+    println!(
+        "ZONE_TEST_PROGRAM_ID={}",
+        bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
+    );
 }
 
 #[derive(Debug)]
@@ -244,6 +256,8 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
+    println!("  bsb22-vk                 Export one binary verifying key as Rust source");
+    println!("  program-ids              Print local validator program ids as shell assignments");
 }
 
 fn print_create_verifying_keys_help() {

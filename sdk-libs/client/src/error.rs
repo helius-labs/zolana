@@ -59,4 +59,10 @@ pub enum ClientError {
 
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
+
+    #[error("rpc error: {0}")]
+    Rpc(String),
+
+    #[error("rpc backend does not implement method `{0}`")]
+    UnsupportedRpcMethod(&'static str),
 }

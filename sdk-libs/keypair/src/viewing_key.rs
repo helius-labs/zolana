@@ -16,10 +16,10 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::constants::{
-    INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
-    INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
-    INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P_CONST_SEC1,
-    SALT_LEN, VIEW_TAG_LEN,
+    BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
+    INFO_PAIR_HINT_PREFIX, INFO_PROOFLESS_SHIELD_BLINDING, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+    INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
+    INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
 };
 use crate::encryption;
 use crate::error::KeypairError;
@@ -156,6 +156,21 @@ impl ViewingKey {
                 &request_count.to_be_bytes(),
             ],
         )
+    }
+
+    pub fn derive_proofless_blinding(
+        &self,
+        salt: &Salt,
+    ) -> Result<[u8; BLINDING_LEN], KeypairError> {
+        let secret = self.recipient_view_tag_secret()?;
+        let mut out = [0u8; BLINDING_LEN];
+        hkdf_expand(
+            None,
+            &secret,
+            &[INFO_PROOFLESS_SHIELD_BLINDING, salt],
+            &mut out,
+        )?;
+        Ok(out)
     }
 
     /// Merge view tag for the merged output at `merge_count`, namespaced by the

@@ -6,7 +6,7 @@ use solana_address::Address;
 use zolana_keypair::hash::{poseidon, sha256_be};
 
 use crate::error::TransactionError;
-use crate::utxo::{hash_from_owner_hash, Blinding, Utxo};
+use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
 
 /// Transaction-level public data bound into the proofs through its hash. SPP
 /// recomputes the hash on-chain, so the field order in [`ExternalData::hash`]
@@ -79,14 +79,13 @@ pub struct OutputUtxo {
 
 impl OutputUtxo {
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        hash_from_owner_hash(
-            &self.owner_hash,
-            &self.asset,
+        utxo_hash(
+            self.asset,
             self.amount,
-            &self.blinding,
-            &self.zone_program_id,
             &self.program_data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
+            self.zone_program_id,
+            &owner_utxo_hash(&self.owner_hash, &self.blinding)?,
         )
     }
 }

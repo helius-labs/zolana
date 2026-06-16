@@ -2,15 +2,17 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
+use zolana_interface::event::ProoflessShieldView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
 use crate::asset::AssetRegistry;
+use crate::data::{Data, DataRecord};
 use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::TransferEncryptedUtxos;
-use crate::utxo::Utxo;
+use crate::utxo::{owner_utxo_hash, utxo_hash, Utxo};
 use crate::{SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
@@ -145,6 +147,16 @@ struct SyncCtx<'a> {
 }
 
 impl SyncCtx<'_> {
+    fn push(&mut self, utxo: Utxo, hash: [u8; 32], nullifier: [u8; 32]) {
+        self.utxos.push(WalletUtxo {
+            utxo,
+            hash,
+            nullifier,
+            spent: false,
+        });
+        self.report.stored_utxos += 1;
+    }
+
     fn store(&mut self, utxo: Utxo) -> Result<(), TransactionError> {
         if utxo.owner != self.owner {
             return Ok(());
@@ -154,13 +166,46 @@ impl SyncCtx<'_> {
             return Ok(());
         }
         let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
-        self.utxos.push(WalletUtxo {
-            utxo,
-            hash,
-            nullifier,
-            spent: false,
-        });
-        self.report.stored_utxos += 1;
+        self.push(utxo, hash, nullifier);
+        Ok(())
+    }
+
+    /// Try one historical viewing key against a public proofless deposit.
+    fn discover_proofless(
+        &mut self,
+        key: &ViewingKey,
+        event: &ProoflessShieldView,
+    ) -> Result<(), TransactionError> {
+        let blinding = key.derive_proofless_blinding(&event.salt)?;
+        let owner_utxo_hash = owner_utxo_hash(&self.keypair.owner_hash()?, &blinding)?;
+        if owner_utxo_hash != event.owner_utxo_hash {
+            return Ok(());
+        }
+        let asset = Address::new_from_array(event.asset);
+        let zone_program_id = event.zone_program_id.map(Address::new_from_array);
+        let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
+        let hash = utxo_hash(
+            asset,
+            event.amount,
+            &program_data_hash,
+            &zone_data_hash,
+            zone_program_id,
+            &event.owner_utxo_hash,
+        )?;
+        if hash != event.utxo_hash || !self.stored_hashes.insert(hash) {
+            return Ok(());
+        }
+        let utxo = Utxo {
+            owner: self.owner,
+            asset,
+            amount: event.amount,
+            blinding,
+            zone_program_id,
+            data: proofless_data(event),
+        };
+        let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
+        self.push(utxo, hash, nullifier);
         Ok(())
     }
 
@@ -297,12 +342,20 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
+        proofless_deposits: &[ProoflessShieldView],
         assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
+
+        // Use the same view-tag scan path for public deposits and encrypted outputs.
+        let mut proofless_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
+        for (p, event) in proofless_deposits.iter().enumerate() {
+            proofless_sites.entry(event.view_tag).or_default().push(p);
+        }
+
         let stored_hashes: HashSet<[u8; 32]> = self.utxos.iter().map(|u| u.hash).collect();
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),
@@ -331,6 +384,11 @@ impl Wallet {
                     if let Some(sender) = ctx.decrypt_recipient_slot(&index, key, assets, *site)? {
                         known_senders.entry(sender).or_insert(0);
                     }
+                }
+            }
+            if let Some(sites) = proofless_sites.get(&bootstrap) {
+                for &p in sites {
+                    ctx.discover_proofless(key, &proofless_deposits[p])?;
                 }
             }
 
@@ -438,6 +496,7 @@ impl Wallet {
         }
 
         let report = ctx.report;
+
         for utxo in self.utxos.iter_mut() {
             if index.nullifiers.contains(&utxo.nullifier) {
                 utxo.spent = true;
@@ -476,4 +535,15 @@ impl Wallet {
         balances.sort_by_key(|b| b.asset_id);
         Ok(balances)
     }
+}
+
+fn proofless_data(event: &ProoflessShieldView) -> Data {
+    let mut records = Vec::new();
+    if let Some(zone_data) = event.zone_data.clone() {
+        records.push(DataRecord::ZoneData(zone_data));
+    }
+    if let Some(program_data) = event.program_data.clone() {
+        records.push(DataRecord::ProgramData(program_data));
+    }
+    Data::new(records)
 }

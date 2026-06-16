@@ -89,7 +89,7 @@ Use `just` recipes for normal workflows:
 just check-all
 just test-shielded-pool
 just test-sdk-libs
-just test-litesvm
+just test-programs
 just test-cli
 just clippy
 ```
@@ -238,6 +238,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 
 ### Instruction data
 
+1. use [instruction-decoder](https://github.com/helius-labs/privacy-program-libs/tree/main/crates/instruction-decoder)
 1. default light-zero-copy
 3. if not hot path can use borsh
 
@@ -368,3 +369,6 @@ only (empty `committed_wires`). Committing a **public** input (e.g.
 The worktree may contain user changes. Do not revert unrelated edits. Keep PRs
 small when possible: protocol/program changes, tooling cleanup, and prover
 renames should be split unless the task explicitly asks for a combined change.
+
+## Solana account deserialization
+- never deserialize an account twice

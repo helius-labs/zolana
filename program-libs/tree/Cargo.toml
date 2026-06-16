@@ -1,0 +1,11 @@
+[package]
+name = "zolana-tree"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
+light-hasher = { workspace = true }
+pinocchio = { workspace = true }
+wincode = { workspace = true }

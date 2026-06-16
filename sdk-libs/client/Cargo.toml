@@ -5,7 +5,12 @@ description = "Host-side Groth16 witness builder for SPP transaction circuits (t
 license = "Apache-2.0"
 edition.workspace = true
 
+[features]
+default = []
+solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
+
 [dependencies]
+zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 num-bigint = { workspace = true }
@@ -19,8 +24,8 @@ serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
 rand = { workspace = true }
-async-trait = { workspace = true }
 futures = { workspace = true }
+bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
 solana-hash = { workspace = true }
@@ -29,15 +34,16 @@ solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-signature = { workspace = true }
 solana-rpc-client-api = { workspace = true }
-solana-transaction = { workspace = true }
+solana-rpc-client = { workspace = true, optional = true }
+solana-commitment-config = { workspace = true, optional = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
-hex = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
 light-merkle-tree-reference = { workspace = true }
-zolana-interface = { workspace = true }
-serial_test = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

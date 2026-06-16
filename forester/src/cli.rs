@@ -9,6 +9,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Skeleton placeholder — no foresting logic is currently compiled in.
+    /// Start the forester worker.
     Start,
 }

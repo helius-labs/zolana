@@ -874,15 +874,18 @@ Hash over the public fields of the invoking SPP instruction and the Solana token
 external_data_hash := Sha256BE(
     u8(spp_instruction_discriminator)                ||
     u64_be(expiry_unix_ts)                           ||
-    sender_view_tag                                  ||
     u16_be(relayer_fee)                              ||
-    u64_be(public_sol_amount.unwrap_or(0))           ||
-    u64_be(public_spl_amount.unwrap_or(0))           ||
+    i64_be(public_sol_amount.unwrap_or(0))           ||
+    i64_be(public_spl_amount.unwrap_or(0))           ||
     user_sol_account.unwrap_or([0; 32])              ||
     user_spl_token_account.unwrap_or([0; 32])        ||
     spl_token_interface.unwrap_or([0; 32])           ||
-    encrypted_utxos
+    cpi_signer.map_or([0; 33], |s| s.program_id || u8(s.bump)) ||
+    output_utxo(sender_utxo_data)                    ||
+    output_utxo(recipient_utxo_data[0]) || ...
 )
+
+output_utxo(o) := o.view_tag || o.utxo_hash || u16_be(o.data.len()) || o.data
 ```
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
@@ -1114,8 +1117,8 @@ Usage by instruction:
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
-| 2 | payer |   | x | relayer (transfer/unshield) or user (shield) |
+| 1 | payer |   | x | relayer (transfer/unshield) or user (shield) |
+| 2 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 3 | cpi_signer |   | x | invoking program pda, optional |
 
 **Instruction data**
@@ -1130,9 +1133,9 @@ struct InputUtxo {
     nullifier_tree_root_index: u16,
     /// Index into the root cache of the input's UTXO tree.
     utxo_tree_root_index: u16,
-    /// Account index of the input's tree; 0 means the output tree.
+    /// Account index of the input's tree; 255 means the output tree.
     tree_index: u8,
-    /// Account index of the input's Ed25519 signer; 0 when P256-owned.
+    /// Account index of the input's Ed25519 signer; 255 when P256-owned.
     eddsa_signer_index: u8,
 }
 
@@ -1145,19 +1148,27 @@ struct OutputUtxo {
 }
 
 struct TransactIxData {
+    proof: SPPProof,
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    proof: SPPProof,
     /// Zero on shield (payer = user).
     relayer_fee: u16,
+    /// Always present. The SPP and any zk co-proof take it as a public input.
+    /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
+    /// is supplied directly rather than derived on-chain.
+    private_tx_hash: [u8; 32],
     inputs: Vec<InputUtxo>,
     /// `Some` for shield/unshield SOL, `None` for shielded transfer.
     public_sol_amount: Option<u64>,
     /// `Some` for shield/unshield SPL, `None` for shielded transfer.
     public_spl_amount: Option<u64>,
     /// Declares that a program is signer, and checks that the pda derivation matches seed ["auth"] with program id and bump. Passes program as signer into the zk proof verification.
-    /// private_tx_hash is used by zk programs to ensure that those compute over the same data as the SPP proof.
-    cpi_signer: Option<(program_id, bump, private_tx_hash)>,
+    /// The zk program proves over the same top-level `private_tx_hash`.
+    cpi_signer: Option<(program_id, bump)>,
+    /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
+    /// the emitted `GeneralEvent` so an indexer need not parse the opaque
+    /// payloads. Always present.
+    tx_viewing_pk: P256Pubkey,
     /// The sender's own output (change) slot. Its `view_tag` is
     /// `get_sender_view_tag(tx_count)`, signed alongside the inputs
     /// (prover-replay protection) and inserted into the nullifier tree
@@ -1206,7 +1217,7 @@ GeneralEvent {
         .iter()
         .zip(input_queue_seqs) // assigned at nullifier queue insert
         .map(|(input, input_queue_seq)| Input {
-            // tree_index 0 means the output tree.
+            // tree_index 255 means the output tree.
             tree: input_tree(input.tree_index),
             input_queue_seq,
             nullifier: input.nullifier_hash,
@@ -1221,6 +1232,8 @@ GeneralEvent {
             data: slot.data.clone(),
         })
         .collect(),
+    // Shared across every output ciphertext; supplied in instruction data.
+    tx_viewing_pk: Some(instruction_data.tx_viewing_pk),
     first_output_leaf_index,
     output_tree: tree_account,
     // None on shield (payer = user), Some on relayed transfer/unshield.
@@ -1241,7 +1254,7 @@ GeneralEvent {
 }
 ```
 
-`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`0` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a shield).
+`input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`255` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a shield).
 
 ### `proofless_shield`
 
@@ -1325,6 +1338,8 @@ GeneralEvent {
             zone_data,
         })),
     }],
+    // No ciphertext: owner and blinding are committed in owner_utxo_hash.
+    tx_viewing_pk: None,
     first_output_leaf_index,
     output_tree: tree_account,
     // The depositor funds the deposit directly.
@@ -1353,6 +1368,10 @@ nullifier insertions and UTXO appends.
 struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
+    /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
+    /// decrypt without parsing the opaque payloads. Always set by `transact`;
+    /// `None` for a proofless shield (nothing to decrypt).
+    tx_viewing_pk: Option<P256Pubkey>,
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     first_output_leaf_index: u64,
     output_tree: Pubkey,
@@ -1381,8 +1400,10 @@ struct Output {
 enum Data {
     Unknown(Vec<u8>),
     Proofless(ProoflessOutput),
-    Transfer(EncryptedTransfer),
-    PublicTransfer(PublicTransfer),
+    /// Encrypted transfer blob; see [Output UTXO Serialization § Transfer](#instruction-data-layout).
+    Transfer(TransferEncryptedUtxos),
+    /// Plaintext transfer blob; see [Plaintext Transfer](#plaintext-transfer).
+    PublicTransfer(TransferPlaintextUtxos),
 }
 
 /// Proofless-shield output. Carries `owner_utxo_hash` instead of `owner` and
@@ -1653,11 +1674,11 @@ struct ShieldedTransaction {
     output_slots: Vec<OutputSlot>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
-    proofless: bool,
 }
 
 struct OutputSlot {
     view_tag: [u8; 32],
+    hash: [u8;32],
     payload: Vec<u8>,
 }
 ```

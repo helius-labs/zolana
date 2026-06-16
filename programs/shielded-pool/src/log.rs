@@ -1,7 +1,4 @@
-//! Thin `sol_log_` wrapper. Used for short diagnostic strings before
-//! mapping an upstream error to our coarser `ShieldedPoolError` variant —
-//! so a runtime failure shows up in `solana logs` as a human-readable
-//! breadcrumb (which subsystem rejected) on top of the numeric Custom(N).
+//! Short diagnostic logs for failures that otherwise surface as Custom(N).
 
 #[inline]
 pub fn log(message: &str) {
