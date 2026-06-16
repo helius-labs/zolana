@@ -305,15 +305,7 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                     decoded_instruction(
                         "zone_proofless_shield",
                         zone_proofless_fields(data),
-                        &[
-                            "tree",
-                            "depositor",
-                            "zone_auth",
-                            "system_program",
-                            "sol_interface",
-                            "sol_source",
-                            "self_program",
-                        ],
+                        zone_proofless_accounts(payload),
                     )
                 }),
             tag::BATCH_UPDATE_NULLIFIER_TREE => decode(
@@ -410,6 +402,34 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
         &[
             "tree",
             "depositor",
+            "system_program",
+            "sol_interface",
+            "sol_source",
+            "self_program",
+        ]
+    }
+}
+
+fn zone_proofless_accounts(payload: &[u8]) -> &'static [&'static str] {
+    let Ok(data) = ZoneProoflessShieldIxData::deserialize(payload) else {
+        return &[];
+    };
+    if data.public_amount_mode == PUBLIC_AMOUNT_DEPOSIT_SPL {
+        &[
+            "tree",
+            "depositor",
+            "zone_auth",
+            "user_token",
+            "vault",
+            "asset_registry",
+            "token_program",
+            "self_program",
+        ]
+    } else {
+        &[
+            "tree",
+            "depositor",
+            "zone_auth",
             "system_program",
             "sol_interface",
             "sol_source",

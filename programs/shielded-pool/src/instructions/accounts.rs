@@ -30,9 +30,8 @@ pub(crate) fn load_transact_accounts<'a>(
         return Err(ProgramError::NotEnoughAccountKeys);
     }
 
-    let account_snapshot = account_snapshot(accounts);
-    validate_cpi_signer(&account_snapshot, data, cpi_signer_seed)?;
-    let input_owner_pubkeys = validate_input_signer_indices(&account_snapshot, data)?;
+    validate_cpi_signer_address(accounts, data, cpi_signer_seed)?;
+    let input_owner_pubkeys = collect_input_owner_pubkeys(accounts, data)?;
 
     let (tree_slice, tail) = accounts.split_at_mut(1);
     let tree = &mut tree_slice[0];
@@ -44,9 +43,6 @@ pub(crate) fn load_transact_accounts<'a>(
     }
     let (_cpi_signer_slice, settlement_slice) = tail.split_at_mut(cpi_signer_accounts);
 
-    if !signer.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     if !tree.is_writable() || !tree.owned_by(program_id) {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
@@ -121,24 +117,8 @@ pub(crate) fn load_transact_accounts<'a>(
     Ok(TransactAccounts { tree, settlement })
 }
 
-#[derive(Clone, Copy)]
-struct AccountSnapshot {
-    address: Address,
-    is_signer: bool,
-}
-
-fn account_snapshot(accounts: &[AccountView]) -> Vec<AccountSnapshot> {
-    accounts
-        .iter()
-        .map(|account| AccountSnapshot {
-            address: *account.address(),
-            is_signer: account.is_signer(),
-        })
-        .collect()
-}
-
-fn validate_cpi_signer(
-    accounts: &[AccountSnapshot],
+fn validate_cpi_signer_address(
+    accounts: &[AccountView],
     data: &TransactIxData,
     seed: &[u8],
 ) -> Result<(), ProgramError> {
@@ -146,19 +126,16 @@ fn validate_cpi_signer(
         return Ok(());
     };
     let account = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !account.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     let bump = [cpi_signer.bump];
     let expected = derive_cpi_signer_address(cpi_signer.program_id, &bump, seed)?;
-    if account.address != expected {
+    if *account.address() != expected {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(())
 }
 
-fn validate_input_signer_indices(
-    accounts: &[AccountSnapshot],
+fn collect_input_owner_pubkeys(
+    accounts: &[AccountView],
     data: &TransactIxData,
 ) -> Result<Vec<[u8; 32]>, ProgramError> {
     let mut owner_pubkeys = vec![[0u8; 32]; data.inputs.len()];
@@ -180,7 +157,7 @@ fn validate_input_signer_indices(
 
     let mut seen = vec![false; data.inputs.len()];
     for index in indices {
-        validate_input_signer_index(
+        collect_input_owner_pubkey(
             accounts,
             data.inputs.len(),
             index,
@@ -191,8 +168,8 @@ fn validate_input_signer_indices(
     Ok(owner_pubkeys)
 }
 
-fn validate_input_signer_index(
-    accounts: &[AccountSnapshot],
+fn collect_input_owner_pubkey(
+    accounts: &[AccountView],
     active_inputs: usize,
     index: &InputUtxoSignerIndex,
     seen: &mut [bool],
@@ -208,10 +185,7 @@ fn validate_input_signer_index(
     let account = accounts
         .get(index.account_index as usize)
         .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-    if !account.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-    owner_pubkeys[input_index] = account.address.to_bytes();
+    owner_pubkeys[input_index] = account.address().to_bytes();
     seen[input_index] = true;
     Ok(())
 }

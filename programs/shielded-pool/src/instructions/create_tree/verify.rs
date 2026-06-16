@@ -5,12 +5,8 @@ use crate::{
     instructions::{loader::MutableTreeAccounts, protocol_config::processor::read_protocol_config},
 };
 
-/// Validate `[authority(signer), protocol_config, tree]`. Tree creation is
-/// admin-gated: `authority` must be the signer named by the canonical
-/// protocol-config. The shared SOL/SPL vaults are global singletons and the
-/// tree's identity is not bound into transact proofs, so a permissionless tree
-/// would let an attacker satisfy a withdraw against roots they control and drain
-/// everyone's vault.
+/// Validate `[authority, protocol_config, tree]`. Tree creation is admin-gated
+/// by the authority named in the canonical protocol config.
 pub fn verify<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
@@ -23,9 +19,6 @@ pub fn verify<'a>(
     let protocol_config = &head[1];
     let tree = &mut tail[0];
 
-    if !authority.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     let config = read_protocol_config(program_id, protocol_config)?;
     if authority.address().as_ref() != config.authority {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
@@ -34,8 +27,5 @@ pub fn verify<'a>(
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
 
-    Ok(MutableTreeAccounts {
-        signer: authority,
-        tree,
-    })
+    Ok(MutableTreeAccounts { tree })
 }

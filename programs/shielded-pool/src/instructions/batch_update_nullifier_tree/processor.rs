@@ -2,7 +2,7 @@ use light_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataBatchNullifyInputs,
 };
 use light_verifier::CompressedProof;
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 
 use super::verify::verify;
@@ -17,6 +17,12 @@ pub fn process_batch_update_nullifier_tree(
     accounts: &mut [AccountView],
     data: BatchUpdateNullifierTreeData,
 ) -> ProgramResult {
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if !accounts[0].is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
     let verified = verify(program_id, accounts, &data)?;
     let tree_pubkey = *verified.tree.address();
 

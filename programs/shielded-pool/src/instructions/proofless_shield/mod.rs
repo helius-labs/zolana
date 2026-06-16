@@ -44,6 +44,18 @@ pub fn process_proofless_shield(
     accounts: &mut [AccountView],
     data: ProoflessShieldIxData,
 ) -> ProgramResult {
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if !accounts[1].is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    if data.cpi_signer.is_some() {
+        let cpi_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !cpi_signer.is_signer() {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+    }
     if (data.program_data_hash.is_some() || data.program_data.is_some())
         && data.cpi_signer.is_none()
     {
@@ -73,6 +85,12 @@ pub fn process_zone_proofless_shield(
     accounts: &mut [AccountView],
     data: ZoneProoflessShieldIxData,
 ) -> ProgramResult {
+    if accounts.len() < 4 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if !accounts[1].is_signer() || !accounts[2].is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
     process_deposit(
         program_id,
         accounts,

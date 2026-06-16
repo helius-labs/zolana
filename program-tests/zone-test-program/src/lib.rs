@@ -10,18 +10,30 @@ use pinocchio::{
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{create_zone_config, tag, CreateZoneConfigData, ZoneProoflessShieldIxData},
+    instruction::{
+        create_zone_config, tag, CreateZoneConfigData, ProoflessShieldSplAccounts,
+        ZoneProoflessShieldAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+        PUBLIC_AMOUNT_DEPOSIT_SPL,
+    },
     SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED,
 };
 
 const TREE: usize = 0;
-const PAYER: usize = 1;
+const DEPOSITOR: usize = 1;
 const ZONE_AUTH: usize = 2;
-const SYSTEM_PROGRAM: usize = 3;
+
+const SOL_SYSTEM_PROGRAM: usize = 3;
 const SOL_INTERFACE: usize = 4;
-const USER_SOL: usize = 5;
-const SHIELDED_POOL_PROGRAM: usize = 6;
-const FORWARDED_ACCOUNTS: usize = 7;
+const SOL_USER: usize = 5;
+const SOL_SHIELDED_POOL_PROGRAM: usize = 6;
+const SOL_FORWARDED_ACCOUNTS: usize = 7;
+
+const SPL_USER_TOKEN: usize = 3;
+const SPL_VAULT: usize = 4;
+const SPL_REGISTRY: usize = 5;
+const SPL_TOKEN_PROGRAM: usize = 6;
+const SPL_SHIELDED_POOL_PROGRAM: usize = 7;
+const SPL_FORWARDED_ACCOUNTS: usize = 8;
 
 const CREATE_ZONE_PAYER: usize = 0;
 const CREATE_ZONE_CONFIG: usize = 1;
@@ -88,22 +100,34 @@ fn process_zone_proofless_shield(
     accounts: &[AccountView],
     data: &[u8],
 ) -> ProgramResult {
+    let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    match data.public_amount_mode {
+        PUBLIC_AMOUNT_DEPOSIT_SOL => process_zone_proofless_sol(program_id, accounts, data),
+        PUBLIC_AMOUNT_DEPOSIT_SPL => process_zone_proofless_spl(program_id, accounts, data),
+        _ => Err(ProgramError::InvalidInstructionData),
+    }
+}
+
+fn process_zone_proofless_sol(
+    program_id: &Address,
+    accounts: &[AccountView],
+    data: ZoneProoflessShieldIxData,
+) -> ProgramResult {
     let accounts = accounts
-        .get(..FORWARDED_ACCOUNTS)
+        .get(..SOL_FORWARDED_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
     if accounts[ZONE_AUTH].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
-    check_shielded_pool(accounts[SHIELDED_POOL_PROGRAM].address())?;
+    check_shielded_pool(accounts[SOL_SHIELDED_POOL_PROGRAM].address())?;
 
-    let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
     let ix = data
-        .cpi_instruction(
+        .cpi_instruction(ZoneProoflessShieldAccounts::sol(
             pubkey(accounts[TREE].address()),
-            pubkey(accounts[PAYER].address()),
-        )
+            pubkey(accounts[DEPOSITOR].address()),
+        ))
         .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
@@ -112,12 +136,57 @@ fn process_zone_proofless_shield(
         &ix,
         [
             &accounts[TREE],
-            &accounts[PAYER],
+            &accounts[DEPOSITOR],
             &accounts[ZONE_AUTH],
-            &accounts[SYSTEM_PROGRAM],
+            &accounts[SOL_SYSTEM_PROGRAM],
             &accounts[SOL_INTERFACE],
-            &accounts[USER_SOL],
-            &accounts[SHIELDED_POOL_PROGRAM],
+            &accounts[SOL_USER],
+            &accounts[SOL_SHIELDED_POOL_PROGRAM],
+        ],
+        &signer,
+    )
+}
+
+fn process_zone_proofless_spl(
+    program_id: &Address,
+    accounts: &[AccountView],
+    data: ZoneProoflessShieldIxData,
+) -> ProgramResult {
+    let accounts = accounts
+        .get(..SPL_FORWARDED_ACCOUNTS)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
+    if accounts[ZONE_AUTH].address() != &zone_auth {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    check_shielded_pool(accounts[SPL_SHIELDED_POOL_PROGRAM].address())?;
+
+    let ix = data
+        .cpi_instruction(ZoneProoflessShieldAccounts::spl(
+            pubkey(accounts[TREE].address()),
+            pubkey(accounts[DEPOSITOR].address()),
+            ProoflessShieldSplAccounts {
+                user_token: pubkey(accounts[SPL_USER_TOKEN].address()),
+                vault: pubkey(accounts[SPL_VAULT].address()),
+                registry: pubkey(accounts[SPL_REGISTRY].address()),
+                token_program: pubkey(accounts[SPL_TOKEN_PROGRAM].address()),
+            },
+        ))
+        .map_err(|_| ProgramError::InvalidSeeds)?;
+    let bump = [bump];
+    let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
+    let signer = Signer::from(&seeds);
+    invoke_interface_ix_signed(
+        &ix,
+        [
+            &accounts[TREE],
+            &accounts[DEPOSITOR],
+            &accounts[ZONE_AUTH],
+            &accounts[SPL_USER_TOKEN],
+            &accounts[SPL_VAULT],
+            &accounts[SPL_REGISTRY],
+            &accounts[SPL_TOKEN_PROGRAM],
+            &accounts[SPL_SHIELDED_POOL_PROGRAM],
         ],
         &signer,
     )

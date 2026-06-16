@@ -9,8 +9,8 @@ use crate::{
     },
 };
 
-/// Validate `[authority(signer), protocol_config, tree]`. Forester maintenance
-/// is a tree write, so it is gated by the protocol authority and the pause bit.
+/// Validate `[authority, protocol_config, tree]`. Forester maintenance is a
+/// tree write, so it is gated by the protocol authority and the pause bit.
 pub fn verify<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
@@ -24,9 +24,6 @@ pub fn verify<'a>(
     let protocol_config = &head[1];
     let tree = &mut tail[0];
 
-    if !authority.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     let config = read_protocol_config(program_id, protocol_config)?;
     if authority.address().as_ref() != config.authority {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
@@ -36,8 +33,5 @@ pub fn verify<'a>(
     }
     assert_tree_not_paused(tree)?;
 
-    Ok(MutableTreeAccounts {
-        signer: authority,
-        tree,
-    })
+    Ok(MutableTreeAccounts { tree })
 }

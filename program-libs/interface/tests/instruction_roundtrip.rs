@@ -18,8 +18,8 @@ use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
     create_spl_interface, create_zone_config, CpiSignerData, ProoflessShieldAccounts,
-    ProoflessShieldIxData, ProoflessShieldSplAccounts, ZoneProoflessShieldIxData,
-    PUBLIC_AMOUNT_DEPOSIT_SOL,
+    ProoflessShieldIxData, ProoflessShieldSplAccounts, ZoneProoflessShieldAccounts,
+    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID};
@@ -422,13 +422,15 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
         program_data_hash: None,
         program_data: None,
     };
-    let direct_ix = data.instruction(tree, depositor).expect("zone auth PDA");
+    let direct_ix = data
+        .instruction(ZoneProoflessShieldAccounts::sol(tree, depositor))
+        .expect("zone auth PDA");
     assert_eq!(direct_ix.program_id, zone_program);
     assert_eq!(direct_ix.accounts[2].pubkey, zone_auth);
     assert!(!direct_ix.accounts[2].is_signer);
 
     let ix = data
-        .cpi_instruction(tree, depositor)
+        .cpi_instruction(ZoneProoflessShieldAccounts::sol(tree, depositor))
         .expect("zone auth PDA");
 
     assert_eq!(
@@ -453,9 +455,43 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
             program_id: zone_program.to_bytes(),
             bump: invalid_bump,
         },
-        ..data
+        ..data.clone()
     };
-    assert!(invalid.cpi_instruction(tree, depositor).is_err());
+    assert!(invalid
+        .cpi_instruction(ZoneProoflessShieldAccounts::sol(tree, depositor))
+        .is_err());
+
+    let spl_accounts = ProoflessShieldSplAccounts {
+        user_token: Pubkey::new_unique(),
+        vault: Pubkey::new_unique(),
+        registry: Pubkey::new_unique(),
+        token_program: Pubkey::new_unique(),
+    };
+    let spl_ix = data
+        .cpi_instruction(ZoneProoflessShieldAccounts::spl(
+            tree,
+            depositor,
+            spl_accounts,
+        ))
+        .expect("zone auth PDA");
+    assert_eq!(spl_ix.accounts.len(), 8);
+    assert_eq!(spl_ix.accounts[0].pubkey, tree);
+    assert_eq!(spl_ix.accounts[1].pubkey, depositor);
+    assert_eq!(spl_ix.accounts[2].pubkey, zone_auth);
+    assert!(spl_ix.accounts[2].is_signer);
+    assert_eq!(spl_ix.accounts[3].pubkey, spl_accounts.user_token);
+    assert!(spl_ix.accounts[3].is_writable);
+    assert_eq!(spl_ix.accounts[4].pubkey, spl_accounts.vault);
+    assert!(spl_ix.accounts[4].is_writable);
+    assert_eq!(spl_ix.accounts[5].pubkey, spl_accounts.registry);
+    assert!(!spl_ix.accounts[5].is_writable);
+    assert_eq!(spl_ix.accounts[6].pubkey, spl_accounts.token_program);
+    assert!(!spl_ix.accounts[6].is_writable);
+    assert_eq!(
+        spl_ix.accounts[7].pubkey,
+        Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
+    );
+    assert!(!spl_ix.accounts[7].is_writable);
 }
 
 #[test]
