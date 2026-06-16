@@ -110,7 +110,7 @@ impl<'a> SparseMerkleTree<'a> {
         for (subtree, zero_byte) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
             let left;
             let right;
-            if current_index % 2 == 0 {
+            if current_index.is_multiple_of(2) {
                 left = current_level_hash;
                 right = *zero_byte;
                 *subtree = current_level_hash;
