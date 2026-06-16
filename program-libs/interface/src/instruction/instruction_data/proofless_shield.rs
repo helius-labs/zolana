@@ -1,8 +1,7 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
-
-use super::transact::CpiSignerData;
 
 /// Public deposit without a proof (spec: `proofless_shield`, tag 1).
 ///
@@ -87,4 +86,13 @@ impl ZoneProoflessShieldIxData {
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
     }
+}
+/// Invoking-program signer for the proofless deposit paths (spec:
+/// `proofless_shield` / `zone_proofless_shield` `cpi_signer`).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
+)]
+pub struct CpiSignerData {
+    pub program_id: [u8; 32],
+    pub bump: u8,
 }

@@ -7,3 +7,4 @@ pub mod loader;
 pub mod proofless_shield;
 pub mod protocol_config;
 pub(crate) mod settlement;
+pub mod transact;

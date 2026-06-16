@@ -38,8 +38,8 @@ type Circuit struct {
 	PublicSplAssetPubkey frontend.Variable
 	ProgramIDHashchain   frontend.Variable
 	PayerPubkeyHash      frontend.Variable
-	DataHash             frontend.Variable
-	ZoneDataHash         frontend.Variable
+	DataHash             frontend.Variable // TODO: remove
+	ZoneDataHash         frontend.Variable // TODO: remove
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }

@@ -10,16 +10,14 @@ use zolana_interface::{
         UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     },
     state::{
-        discriminator::{PROTOCOL_CONFIG, ZONE_CONFIG},
+        discriminator::{PROTOCOL_CONFIG, TREE_ACCOUNT_DISCRIMINATOR, ZONE_CONFIG},
         ProtocolConfig, ZoneConfig, PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
     },
     SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
 };
+use zolana_tree::TreeAccount;
 
-use crate::{
-    error::ShieldedPoolError,
-    instructions::{create_tree::init::set_tree_paused, loader},
-};
+use crate::{error::ShieldedPoolError, instructions::loader};
 
 pub fn process_create_protocol_config(
     program_id: &Address,
@@ -92,8 +90,10 @@ pub fn process_pause_tree(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
 
-    let bytes = loader::account_data_mut(tree);
-    set_tree_paused(bytes, data.paused).map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+    let mut tree_account =
+        TreeAccount::from_account_view_mut_allow_paused(tree, program_id, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+    tree_account.set_paused(data.paused);
     Ok(())
 }
 
@@ -162,18 +162,6 @@ pub fn process_update_zone_config(
         data.zone_authority_transact_is_enabled,
         current.bump,
     )
-}
-
-pub fn assert_tree_not_paused(tree: &AccountView) -> ProgramResult {
-    let bytes = tree
-        .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
-    if crate::instructions::create_tree::init::is_tree_paused(&bytes)
-        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?
-    {
-        return Err(ShieldedPoolError::TreePaused.into());
-    }
-    Ok(())
 }
 
 fn protocol_config_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {

@@ -1,5 +1,6 @@
+use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+
 pub const STATE_HEIGHT: usize = 26;
-pub const STATE_ROOT_HISTORY_CAPACITY: usize = 200;
 
 // Light Protocol production batched-address-tree parameters (mirror
 // `InitAddressTreeAccountsInstructionData::default()` in light-batched-merkle-tree:
@@ -14,45 +15,31 @@ pub const ADDRESS_TREE_HEIGHT: u32 = 40;
 pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 = 120;
 pub const ADDRESS_TREE_BLOOM_FILTER_CAPACITY: u64 = 4_603_072;
 
-pub const DISCRIMINATOR_LEN: usize = 8;
-pub const DISCRIMINATOR_OFFSET: usize = 0;
-pub const PAUSED_FLAG: u8 = 1;
-pub const FLAGS_LEN: usize = 1;
-pub const ADDRESS_SUB_TREE_OFFSET: usize = DISCRIMINATOR_LEN;
-pub const ADDRESS_SUB_TREE_SIZE: usize = 1_163_024;
-
-pub const fn address_sub_tree_size() -> usize {
-    ADDRESS_SUB_TREE_SIZE
+/// Canonical nullifier (batched address) tree parameters for the shielded pool.
+pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
+    InitAddressTreeAccountsInstructionData {
+        index: 0,
+        program_owner: None,
+        forester: None,
+        bloom_filter_num_iters: ADDRESS_TREE_BLOOM_FILTER_NUM_ITERS,
+        input_queue_batch_size: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+        input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        height: ADDRESS_TREE_HEIGHT,
+        root_history_capacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+        bloom_filter_capacity: ADDRESS_TREE_BLOOM_FILTER_CAPACITY,
+        network_fee: None,
+        rollover_threshold: None,
+        close_threshold: None,
+    }
 }
 
-pub const fn state_sub_tree_offset() -> usize {
-    ADDRESS_SUB_TREE_OFFSET + address_sub_tree_size()
+/// Total tree-account byte length. Delegates to the canonical `zolana-tree`
+/// layout so the account allocator and `TreeAccount::init` agree exactly.
+pub fn tree_account_size() -> usize {
+    TreeAccount::account_size(STATE_HEIGHT as u8, address_tree_params())
 }
 
-pub const fn state_next_index_offset() -> usize {
-    state_sub_tree_offset()
-}
-
-pub const fn state_root_offset() -> usize {
-    state_sub_tree_offset() + 8
-}
-
-pub const fn state_subtrees_offset() -> usize {
-    state_sub_tree_offset() + 8 + 32
-}
-
-pub const fn state_root_history_meta_offset() -> usize {
-    state_subtrees_offset() + STATE_HEIGHT * 32
-}
-
-pub const fn state_root_history_offset() -> usize {
-    state_root_history_meta_offset() + 4
-}
-
-pub const fn tree_flags_offset() -> usize {
-    state_root_history_offset() + STATE_ROOT_HISTORY_CAPACITY * 32
-}
-
-pub const fn tree_account_size() -> usize {
-    tree_flags_offset() + FLAGS_LEN
+/// Byte offset of the state (utxo) tree's current root within the account.
+pub fn state_root_offset() -> usize {
+    TreeAccount::state_root_offset()
 }

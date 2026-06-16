@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use zolana_interface::{
     instruction::{
-        TransactIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
+        PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
         PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
     },
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_ASSET_REGISTRY_ACCOUNT_LEN, SPL_ASSET_REGISTRY_MAGIC,
@@ -16,7 +16,7 @@ use zolana_interface::{
     SPL_TOKEN_TRANSFER_DISCRIMINATOR,
 };
 
-use crate::{error::ShieldedPoolError, log::log};
+use crate::{error::ShieldedPoolError, instructions::accounts::TransactSettlement, log::log};
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 
@@ -53,7 +53,7 @@ impl<'a> SettlementAccounts<'a> {
 pub fn settle_public_amounts(
     program_id: &Address,
     accounts: &SettlementAccounts<'_>,
-    data: &TransactIxData,
+    data: &TransactSettlement<'_>,
 ) -> ProgramResult {
     let settlement = PublicSettlement::try_from(data)?;
 
@@ -115,10 +115,10 @@ fn is_spl(mode: u8) -> bool {
     matches!(mode, PUBLIC_AMOUNT_DEPOSIT_SPL | PUBLIC_AMOUNT_WITHDRAW_SPL)
 }
 
-impl TryFrom<&TransactIxData> for PublicSettlement {
+impl TryFrom<&TransactSettlement<'_>> for PublicSettlement {
     type Error = ProgramError;
 
-    fn try_from(data: &TransactIxData) -> Result<Self, Self::Error> {
+    fn try_from(data: &TransactSettlement<'_>) -> Result<Self, Self::Error> {
         let relayer_fee = u64::from(data.relayer_fee);
         let mode = data.public_amount_mode;
 
@@ -431,21 +431,18 @@ fn required<T: Copy>(value: Option<T>) -> Result<T, ProgramError> {
 mod tests {
     use super::*;
 
-    fn tx(public_amount_mode: u8, public_amount: Option<u64>, relayer_fee: u16) -> TransactIxData {
-        TransactIxData {
-            expiry_unix_ts: 0,
-            sender_view_tag: [0u8; 32],
-            proof: [0u8; 192],
-            private_tx_hash: [0u8; 32],
-            relayer_fee,
-            public_amount_mode,
-            requires_p256: false,
-            public_amount,
+    fn tx(
+        public_amount_mode: u8,
+        public_amount: Option<u64>,
+        relayer_fee: u16,
+    ) -> TransactSettlement<'static> {
+        TransactSettlement {
             cpi_signer: None,
-            inputs: Vec::new(),
-            output_utxo_hashes: Vec::new(),
+            inputs_len: 0,
             in_utxo_signer_indices: None,
-            encrypted_utxos: Vec::new(),
+            public_amount_mode,
+            public_amount,
+            relayer_fee,
         }
     }
 

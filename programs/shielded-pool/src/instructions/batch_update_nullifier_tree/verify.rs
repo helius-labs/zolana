@@ -5,7 +5,7 @@ use crate::{
     error::ShieldedPoolError,
     instructions::{
         loader::MutableTreeAccounts,
-        protocol_config::processor::{assert_tree_not_paused, read_protocol_config},
+        protocol_config::processor::read_protocol_config,
     },
 };
 
@@ -34,7 +34,8 @@ pub fn verify<'a>(
     if !tree.is_writable() || !tree.owned_by(program_id) {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
-    assert_tree_not_paused(tree)?;
+    // The not-paused check now lives in `TreeAccount::from_account_view_mut`, so
+    // it reads the migrated tree layout.
 
     Ok(MutableTreeAccounts {
         signer: authority,

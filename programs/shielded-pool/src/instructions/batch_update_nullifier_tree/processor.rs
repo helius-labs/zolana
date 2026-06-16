@@ -1,16 +1,12 @@
-use light_batched_merkle_tree::merkle_tree::{
-    BatchedMerkleTreeAccount, InstructionDataBatchNullifyInputs,
-};
+use light_batched_merkle_tree::merkle_tree::InstructionDataBatchNullifyInputs;
 use light_verifier::CompressedProof;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
+use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
+use zolana_tree::TreeAccount;
 
 use super::verify::verify;
-use crate::{
-    error::ShieldedPoolError,
-    instructions::{create_tree::init::address_sub_tree_slice_mut, loader},
-    log::log,
-};
+use crate::{error::ShieldedPoolError, log::log};
 
 pub fn process_batch_update_nullifier_tree(
     program_id: &Address,
@@ -18,13 +14,10 @@ pub fn process_batch_update_nullifier_tree(
     data: BatchUpdateNullifierTreeData,
 ) -> ProgramResult {
     let verified = verify(program_id, accounts, &data)?;
-    let tree_pubkey = *verified.tree.address();
 
-    let bytes = loader::account_data_mut(verified.tree);
-    let nullifier_slice =
-        address_sub_tree_slice_mut(bytes).map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
-    let mut tree = BatchedMerkleTreeAccount::address_from_bytes(nullifier_slice, &tree_pubkey)
-        .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+    let mut tree =
+        TreeAccount::from_account_view_mut(verified.tree, program_id, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
 
     let instruction = InstructionDataBatchNullifyInputs {
         new_root: data.new_root,
@@ -35,7 +28,11 @@ pub fn process_batch_update_nullifier_tree(
         },
     };
 
-    if tree.update_tree_from_address_queue(instruction).is_err() {
+    if tree
+        .nullifer_tree
+        .update_tree_from_address_queue(instruction)
+        .is_err()
+    {
         log("batch_update_nullifier_tree: proof verification or queue update failed");
         return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into());
     }

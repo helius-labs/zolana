@@ -3961,8 +3961,11 @@ dependencies = [
 name = "shielded-pool-program"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
  "borsh",
  "bytemuck",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "light-batched-merkle-tree",
  "light-hasher",
  "light-sparse-merkle-tree",
@@ -3971,6 +3974,7 @@ dependencies = [
  "pinocchio-system 0.6.1",
  "thiserror 2.0.18",
  "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -3980,6 +3984,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cucumber",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "shielded-pool-program",
  "solana-instruction",
  "solana-keypair",
@@ -7343,6 +7348,7 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "wincode",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -7416,6 +7422,16 @@ dependencies = [
  "wincode",
  "zolana-interface",
  "zolana-keypair",
+]
+
+[[package]]
+name = "zolana-tree"
+version = "0.1.0"
+dependencies = [
+ "light-batched-merkle-tree",
+ "light-hasher",
+ "pinocchio 0.11.2",
+ "wincode",
 ]
 
 [[package]]

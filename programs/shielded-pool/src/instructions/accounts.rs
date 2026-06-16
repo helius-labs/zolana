@@ -1,13 +1,35 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_interface::{
-    instruction::{InputUtxoSignerIndex, TransactIxData},
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
+    instruction::instruction_data::proofless_shield::CpiSignerData, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_CPI_AUTHORITY_BUMP,
 };
 
 use crate::{
     error::ShieldedPoolError,
     instructions::settlement::{PublicSettlement, SettlementAccounts},
 };
+
+/// Pairs an input UTXO with the transaction signer account that authorizes its
+/// Ed25519-owned spend. Resolved off the wire by the future `transact`
+/// processor; the proofless deposit paths pass none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputUtxoSignerIndex {
+    pub account_index: u8,
+    pub input_index: u8,
+}
+
+/// Settlement intent shared by every pool-tree instruction. It is the subset of
+/// the dispatched instruction the account loader and public-amount settlement
+/// need; the deposit/withdraw direction lives in `public_amount_mode` because
+/// the SPP proof (which proves it for `transact`) is not verified here.
+pub struct TransactSettlement<'a> {
+    pub cpi_signer: Option<CpiSignerData>,
+    pub inputs_len: usize,
+    pub in_utxo_signer_indices: Option<&'a [InputUtxoSignerIndex]>,
+    pub public_amount_mode: u8,
+    pub public_amount: Option<u64>,
+    pub relayer_fee: u16,
+}
 
 /// CPI-signer PDA seed for a general program owner (`transact`,
 /// `proofless_shield`). Distinct from [`ZONE_AUTH_SEED`]: a general program
@@ -26,7 +48,7 @@ pub struct TransactAccounts<'a> {
 pub(crate) fn load_transact_accounts<'a>(
     program_id: &Address,
     accounts: &'a mut [AccountView],
-    data: &TransactIxData,
+    data: &TransactSettlement<'_>,
     cpi_signer_seed: &[u8],
 ) -> Result<TransactAccounts<'a>, ProgramError> {
     if accounts.len() < 2 {
@@ -34,7 +56,7 @@ pub(crate) fn load_transact_accounts<'a>(
     }
 
     let account_snapshot = account_snapshot(accounts);
-    validate_cpi_signer(&account_snapshot, data, cpi_signer_seed)?;
+    validate_cpi_signer(&account_snapshot, data.cpi_signer, cpi_signer_seed)?;
     let input_owner_pubkeys = validate_input_signer_indices(&account_snapshot, data)?;
 
     let (tree_slice, tail) = accounts.split_at_mut(1);
@@ -53,7 +75,8 @@ pub(crate) fn load_transact_accounts<'a>(
     if !tree.is_writable() || !tree.owned_by(program_id) {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
-    crate::instructions::protocol_config::processor::assert_tree_not_paused(tree)?;
+    // The not-paused check now lives in `TreeAccount::from_account_view_mut` at
+    // the append site, so it reads the migrated tree layout.
 
     let mut settlement = SettlementAccounts::empty(signer);
     settlement.solana_owner_pubkeys = input_owner_pubkeys;
@@ -128,10 +151,10 @@ fn account_snapshot(accounts: &[AccountView]) -> Vec<AccountSnapshot> {
 
 fn validate_cpi_signer(
     accounts: &[AccountSnapshot],
-    data: &TransactIxData,
+    cpi_signer: Option<CpiSignerData>,
     seed: &[u8],
 ) -> Result<(), ProgramError> {
-    let Some(cpi_signer) = data.cpi_signer else {
+    let Some(cpi_signer) = cpi_signer else {
         return Ok(());
     };
     let account = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -148,13 +171,12 @@ fn validate_cpi_signer(
 
 fn validate_input_signer_indices(
     accounts: &[AccountSnapshot],
-    data: &TransactIxData,
+    data: &TransactSettlement<'_>,
 ) -> Result<Vec<[u8; 32]>, ProgramError> {
-    let mut owner_pubkeys = vec![[0u8; 32]; data.inputs.len()];
-    if data.inputs.is_empty() {
+    let mut owner_pubkeys = vec![[0u8; 32]; data.inputs_len];
+    if data.inputs_len == 0 {
         if data
             .in_utxo_signer_indices
-            .as_ref()
             .is_some_and(|indices| !indices.is_empty())
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
@@ -162,16 +184,16 @@ fn validate_input_signer_indices(
         return Ok(owner_pubkeys);
     }
 
-    let indices = data.in_utxo_signer_indices.as_deref().unwrap_or(&[]);
-    if indices.len() > data.inputs.len() {
+    let indices = data.in_utxo_signer_indices.unwrap_or(&[]);
+    if indices.len() > data.inputs_len {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    let mut seen = vec![false; data.inputs.len()];
+    let mut seen = vec![false; data.inputs_len];
     for index in indices {
         validate_input_signer_index(
             accounts,
-            data.inputs.len(),
+            data.inputs_len,
             index,
             &mut seen,
             &mut owner_pubkeys,

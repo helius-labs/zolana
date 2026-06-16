@@ -4,22 +4,21 @@ use pinocchio::{
     ProgramResult,
 };
 use zolana_interface::event::{encode_event_instruction, ProoflessShieldEvent, ShieldedPoolEvent};
+use zolana_interface::instruction::instruction_data::proofless_shield::CpiSignerData;
 use zolana_interface::instruction::{
-    CpiSignerData, ProoflessShieldIxData, TransactIxData, ZoneProoflessShieldIxData,
-    PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
+    ProoflessShieldIxData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::UTXO_DOMAIN;
 
 use crate::instructions::{
-    accounts::{load_transact_accounts, CPI_SIGNER_SEED, ZONE_AUTH_SEED},
+    accounts::{load_transact_accounts, TransactSettlement, CPI_SIGNER_SEED, ZONE_AUTH_SEED},
     hash::{field_from_u64, solana_pk_hash},
     settlement::{settle_public_amounts, spl_asset_pubkey},
 };
-use crate::{
-    error::ShieldedPoolError,
-    instructions::{create_tree::init::append_state_leaves as append_to_pool, loader},
-    log::log,
-};
+use crate::error::ShieldedPoolError;
+use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
+use zolana_tree::TreeAccount;
 
 struct Deposit {
     view_tag: [u8; 32],
@@ -108,7 +107,7 @@ fn process_deposit(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let tx = deposit_view(&d);
+    let tx = deposit_settlement(&d);
     let verified = load_transact_accounts(program_id, head, &tx, d.cpi_signer_seed)?;
 
     let (asset, asset_field) = if needs_spl {
@@ -139,11 +138,9 @@ fn process_deposit(
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     {
-        let bytes = loader::account_data_mut(verified.tree);
-        if append_to_pool(bytes, &[utxo_hash]).is_err() {
-            log("proofless_shield: state sub-tree append failed");
-            return Err(ShieldedPoolError::StateAppendFailed.into());
-        }
+        let mut tree = TreeAccount::from_account_view_mut(verified.tree, program_id, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+        tree.utxo_tree.append(utxo_hash);
     }
 
     settle_public_amounts(program_id, &verified.settlement, &tx)?;
@@ -176,20 +173,13 @@ fn emit_event(program_id: &Address, event: ShieldedPoolEvent) -> ProgramResult {
     invoke(&instruction, &accounts)
 }
 
-fn deposit_view(d: &Deposit) -> TransactIxData {
-    TransactIxData {
-        expiry_unix_ts: 0,
-        sender_view_tag: [0u8; 32],
-        proof: [0u8; 192],
-        private_tx_hash: [0u8; 32],
-        relayer_fee: 0,
-        public_amount_mode: d.public_amount_mode,
-        requires_p256: false,
-        public_amount: d.public_amount,
+fn deposit_settlement(d: &Deposit) -> TransactSettlement<'static> {
+    TransactSettlement {
         cpi_signer: d.cpi_signer,
-        inputs: Vec::new(),
-        output_utxo_hashes: Vec::new(),
+        inputs_len: 0,
         in_utxo_signer_indices: None,
-        encrypted_utxos: Vec::new(),
+        public_amount_mode: d.public_amount_mode,
+        public_amount: d.public_amount,
+        relayer_fee: 0,
     }
 }

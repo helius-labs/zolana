@@ -2,6 +2,7 @@
 members = [
     "forester",
     "program-libs/interface",
+    "program-libs/tree",
     "program-tests/shielded-pool",
     "program-tests/test-utils",
     "program-tests/user-registry",
@@ -32,6 +33,7 @@ time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
+zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
