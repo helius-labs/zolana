@@ -88,6 +88,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
+      # The spawned prover lazily fetches transfer proving keys from this repo's
+      # release via `gh`; expose the workflow token to that child process.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -103,6 +106,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v2
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -121,6 +129,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
+      # The spawned prover lazily fetches transfer proving keys from this repo's
+      # release via `gh`; expose the workflow token to that child process.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -136,6 +147,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v2
       - run: just test-programs
 
   test-user-registry-litesvm:
