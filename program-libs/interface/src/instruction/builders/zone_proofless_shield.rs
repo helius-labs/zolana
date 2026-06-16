@@ -1,5 +1,5 @@
 use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::Pubkey;
+use solana_pubkey::{Pubkey, PubkeyError};
 
 use super::sol_interface_pda;
 use crate::{
@@ -8,24 +8,28 @@ use crate::{
 };
 
 impl ZoneProoflessShieldIxData {
-    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Instruction {
-        self.build_instruction(
+    pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Result<Instruction, PubkeyError> {
+        Ok(self.build_instruction(
             Pubkey::new_from_array(self.cpi_signer.program_id),
-            self.zone_auth(),
+            self.zone_auth()?,
             tree,
             depositor,
             false,
-        )
+        ))
     }
 
-    pub fn cpi_instruction(&self, tree: Pubkey, depositor: Pubkey) -> Instruction {
-        self.build_instruction(
+    pub fn cpi_instruction(
+        &self,
+        tree: Pubkey,
+        depositor: Pubkey,
+    ) -> Result<Instruction, PubkeyError> {
+        Ok(self.build_instruction(
             Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-            self.zone_auth(),
+            self.zone_auth()?,
             tree,
             depositor,
             true,
-        )
+        ))
     }
 
     fn build_instruction(
@@ -58,12 +62,11 @@ impl ZoneProoflessShieldIxData {
         }
     }
 
-    fn zone_auth(&self) -> Pubkey {
+    fn zone_auth(&self) -> Result<Pubkey, PubkeyError> {
         let bump = [self.cpi_signer.bump];
         Pubkey::create_program_address(
             &[ZONE_AUTH_PDA_SEED, bump.as_slice()],
             &Pubkey::new_from_array(self.cpi_signer.program_id),
         )
-        .expect("zone auth PDA bump must be valid")
     }
 }

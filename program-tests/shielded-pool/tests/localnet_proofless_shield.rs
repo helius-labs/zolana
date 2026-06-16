@@ -132,7 +132,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     zone_data.policy_data_hash = Some([5u8; 32]);
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix = zone_data.instruction(tree.pubkey(), depositor.pubkey());
+    let zone_ix = zone_data.instruction(tree.pubkey(), depositor.pubkey())?;
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

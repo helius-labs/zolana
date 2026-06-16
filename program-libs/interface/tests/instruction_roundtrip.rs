@@ -415,12 +415,14 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
         program_data_hash: None,
         program_data: None,
     };
-    let direct_ix = data.instruction(tree, depositor);
+    let direct_ix = data.instruction(tree, depositor).expect("zone auth PDA");
     assert_eq!(direct_ix.program_id, zone_program);
     assert_eq!(direct_ix.accounts[2].pubkey, zone_auth);
     assert!(!direct_ix.accounts[2].is_signer);
 
-    let ix = data.cpi_instruction(tree, depositor);
+    let ix = data
+        .cpi_instruction(tree, depositor)
+        .expect("zone auth PDA");
 
     assert_eq!(
         ix.program_id,
@@ -435,6 +437,22 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
     assert_eq!(ix.accounts[2].pubkey, zone_auth);
     assert!(ix.accounts[2].is_signer);
     assert!(!ix.accounts[2].is_writable);
+
+    let invalid_bump = (0u8..=u8::MAX)
+        .find(|bump| {
+            let bump = [*bump];
+            Pubkey::create_program_address(&[ZONE_AUTH_PDA_SEED, bump.as_slice()], &zone_program)
+                .is_err()
+        })
+        .expect("invalid zone auth bump");
+    let invalid = ZoneProoflessShieldIxData {
+        cpi_signer: CpiSignerData {
+            program_id: zone_program.to_bytes(),
+            bump: invalid_bump,
+        },
+        ..data
+    };
+    assert!(invalid.cpi_instruction(tree, depositor).is_err());
 }
 
 #[test]

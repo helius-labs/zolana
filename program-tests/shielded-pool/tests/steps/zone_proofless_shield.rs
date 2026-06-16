@@ -66,7 +66,9 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         .expect("fund");
 
     let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
-    let mut ix = data.cpi_instruction(tree, depositor.pubkey());
+    let mut ix = data
+        .cpi_instruction(tree, depositor.pubkey())
+        .expect("zone auth PDA");
     ix.accounts[2].pubkey = depositor.pubkey();
     let err = world
         .rpc()

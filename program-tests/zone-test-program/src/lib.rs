@@ -103,10 +103,12 @@ fn process_zone_proofless_shield(
 
     let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
-    let ix = data.cpi_instruction(
-        pubkey(accounts[TREE].address()),
-        pubkey(accounts[PAYER].address()),
-    );
+    let ix = data
+        .cpi_instruction(
+            pubkey(accounts[TREE].address()),
+            pubkey(accounts[PAYER].address()),
+        )
+        .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
