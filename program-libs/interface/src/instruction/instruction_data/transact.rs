@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
@@ -131,4 +132,92 @@ impl<'a> TransactIxDataRef<'a> {
     pub fn is_deposit(&self) -> bool {
         self.public_spl_amount.or(self.public_sol_amount).unwrap_or(0) > 0
     }
+}
+
+/// Output-UTXO byte accessors shared by the owned [`OutputUtxo`] and the
+/// borrowed [`OutputUtxoRef`], so [`ExternalDataHash`] hashes either.
+pub trait OutputUtxoBytes {
+    fn view_tag(&self) -> &[u8; 32];
+    fn utxo_hash(&self) -> &[u8; 32];
+    fn data(&self) -> &[u8];
+}
+
+impl OutputUtxoBytes for OutputUtxo {
+    fn view_tag(&self) -> &[u8; 32] {
+        &self.view_tag
+    }
+    fn utxo_hash(&self) -> &[u8; 32] {
+        &self.utxo_hash
+    }
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl OutputUtxoBytes for OutputUtxoRef<'_> {
+    fn view_tag(&self) -> &[u8; 32] {
+        self.view_tag
+    }
+    fn utxo_hash(&self) -> &[u8; 32] {
+        self.utxo_hash
+    }
+    fn data(&self) -> &[u8] {
+        self.data
+    }
+}
+
+/// `external_data_hash` public input (spec: `transact` external_data_hash). The
+/// program recomputes it from the instruction and the committed Solana accounts;
+/// the client computes the identical value when building the proof. It covers
+/// the instruction's external fields and the output UTXO ciphertexts, but never
+/// `private_tx_hash` (which already commits this hash) or the input UTXOs (bound
+/// through `private_tx_hash`). Used in both the program and the client.
+pub struct ExternalDataHash<'a, O: OutputUtxoBytes> {
+    pub spp_instruction_discriminator: u8,
+    pub expiry_unix_ts: u64,
+    pub relayer_fee: u16,
+    pub public_sol_amount: Option<i64>,
+    pub public_spl_amount: Option<i64>,
+    pub user_sol_account: &'a [u8; 32],
+    pub user_spl_token_account: &'a [u8; 32],
+    pub spl_token_interface: &'a [u8; 32],
+    pub cpi_signer: Option<TransactCpiSigner>,
+    pub sender_utxo_data: &'a O,
+    pub recipient_utxo_data: &'a [O],
+}
+
+impl<O: OutputUtxoBytes> ExternalDataHash<'_, O> {
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        let mut preimage = Vec::new();
+        preimage.push(self.spp_instruction_discriminator);
+        preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
+        preimage.extend_from_slice(&self.relayer_fee.to_be_bytes());
+        preimage.extend_from_slice(&self.public_sol_amount.unwrap_or(0).to_be_bytes());
+        preimage.extend_from_slice(&self.public_spl_amount.unwrap_or(0).to_be_bytes());
+        preimage.extend_from_slice(self.user_sol_account);
+        preimage.extend_from_slice(self.user_spl_token_account);
+        preimage.extend_from_slice(self.spl_token_interface);
+        match &self.cpi_signer {
+            Some(signer) => {
+                preimage.extend_from_slice(&signer.program_id);
+                preimage.push(signer.bump);
+            }
+            None => preimage.extend_from_slice(&[0u8; 33]),
+        }
+        push_output(&mut preimage, self.sender_utxo_data);
+        for recipient in self.recipient_utxo_data {
+            push_output(&mut preimage, recipient);
+        }
+        Sha256BE::hash(&preimage)
+    }
+}
+
+fn push_output<O: OutputUtxoBytes>(preimage: &mut Vec<u8>, output: &O) {
+    preimage.extend_from_slice(output.view_tag());
+    preimage.extend_from_slice(output.utxo_hash());
+    // Length-prefix the variable-length `data` so the preimage is unambiguous:
+    // without it, bytes could shift between one output's `data` and the next
+    // output's fields, yielding the same hash for distinct instructions.
+    preimage.extend_from_slice(&(output.data().len() as u16).to_be_bytes());
+    preimage.extend_from_slice(output.data());
 }

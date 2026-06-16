@@ -874,15 +874,18 @@ Hash over the public fields of the invoking SPP instruction and the Solana token
 external_data_hash := Sha256BE(
     u8(spp_instruction_discriminator)                ||
     u64_be(expiry_unix_ts)                           ||
-    sender_view_tag                                  ||
     u16_be(relayer_fee)                              ||
-    u64_be(public_sol_amount.unwrap_or(0))           ||
-    u64_be(public_spl_amount.unwrap_or(0))           ||
+    i64_be(public_sol_amount.unwrap_or(0))           ||
+    i64_be(public_spl_amount.unwrap_or(0))           ||
     user_sol_account.unwrap_or([0; 32])              ||
     user_spl_token_account.unwrap_or([0; 32])        ||
     spl_token_interface.unwrap_or([0; 32])           ||
-    encrypted_utxos
+    cpi_signer.map_or([0; 33], |s| s.program_id || u8(s.bump)) ||
+    output_utxo(sender_utxo_data)                    ||
+    output_utxo(recipient_utxo_data[0]) || ...
 )
+
+output_utxo(o) := o.view_tag || o.utxo_hash || u16_be(o.data.len()) || o.data
 ```
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
