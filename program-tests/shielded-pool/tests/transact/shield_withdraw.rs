@@ -203,14 +203,19 @@ fn shield_then_withdraw_sol() {
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
-    let owner_utxo_h = utxo.owner_utxo_hash(&nullifier_pk).expect("owner utxo hash");
+    let owner_utxo_h = utxo
+        .owner_utxo_hash(&nullifier_pk)
+        .expect("owner utxo hash");
     let event = env
         .rpc
         .proofless_shield_sol(&tree, &payer, AMOUNT, owner_utxo_h)
         .expect("proofless shield");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    assert_eq!(utxo_hash, event.utxo_hash, "client utxo hash must match on-chain");
+    assert_eq!(
+        utxo_hash, event.utxo_hash,
+        "client utxo hash must match on-chain"
+    );
 
     // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
     // shield append (history index 1).
@@ -266,8 +271,14 @@ fn shield_then_withdraw_sol() {
 
     // Withdrawal: spend AMOUNT, no change. Recipient is an external SOL account.
     let recipient = Keypair::new().pubkey();
-    env.rpc.airdrop(&recipient, 1_000_000).expect("airdrop recipient");
-    let recipient_before = env.rpc.svm.get_balance(&recipient).expect("recipient balance");
+    env.rpc
+        .airdrop(&recipient, 1_000_000)
+        .expect("airdrop recipient");
+    let recipient_before = env
+        .rpc
+        .svm
+        .get_balance(&recipient)
+        .expect("recipient balance");
     let vault = Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
     // Draining the full amount closes the vault (a system account at 0 lamports
     // is reaped), so read balances with `unwrap_or(0)`.
@@ -410,6 +421,10 @@ fn shield_then_withdraw_sol() {
 
     let recipient_after = env.rpc.svm.get_balance(&recipient).unwrap_or(0);
     let vault_after = env.rpc.svm.get_balance(&vault).unwrap_or(0);
-    assert_eq!(recipient_after, recipient_before + AMOUNT, "recipient credited");
+    assert_eq!(
+        recipient_after,
+        recipient_before + AMOUNT,
+        "recipient credited"
+    );
     assert_eq!(vault_after, vault_before - AMOUNT, "vault debited");
 }
