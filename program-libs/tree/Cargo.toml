@@ -5,15 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-# `zolana-tree` is a pinocchio-based on-chain crate, so it must pull the
-# pinocchio variant of the batched tree, not the default `solana` backend.
-# `solana-msg` is still required: the tree logs via `solana_msg::msg!` under
-# `cfg(target_os = "solana")` regardless of backend, so an SBF build links it.
-# This matches the shielded-pool program's own feature selection.
-light-batched-merkle-tree = { workspace = true, default-features = false, features = [
-    "pinocchio",
-    "solana-msg",
-] }
+light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
 light-hasher = { workspace = true }
 pinocchio = { workspace = true }
 wincode = { workspace = true }

@@ -7,7 +7,7 @@ use pinocchio::{
 use zolana_interface::{
     event::Input,
     instruction::{
-        instruction_data::transact::{InputUtxo, TransactIxDataRef},
+        instruction_data::transact::{ExternalDataHash, InputUtxo, TransactIxDataRef},
         tag::TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -27,20 +27,12 @@ use crate::{
     },
 };
 
-const PROOF_LEN: usize = 192;
-
 #[inline(never)]
 pub fn process_transact_ix(
     _program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let after_proof = data
-        .get(PROOF_LEN..)
-        .ok_or(ProgramError::InvalidInstructionData)?;
-    let external_data_hash = Sha256BE::hashv(&[&[TRANSACT], after_proof])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-
     let ix =
         TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
 
@@ -50,22 +42,39 @@ pub fn process_transact_ix(
     }
 
     let mut proof_inputs = TransactProofInputs::default();
-    proof_inputs.external_data_hash = external_data_hash;
     check_input_signers(accounts, &ix.inputs, &mut proof_inputs)?;
+    let transact_accounts = TransactAccounts::validate_and_parse(accounts, &ix)?;
 
     let tree_write = {
-        let tree = accounts
-            .get_mut(1)
-            .ok_or(ProgramError::AccountBorrowFailed)?;
-        let output_tree = tree.address().to_bytes();
+        let output_tree = transact_accounts.tree.address().to_bytes();
         // Note currently only one tree is supported for the entire protocol
-        let mut tree =
-            TreeAccount::from_account_view_mut(tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(tree_error)?;
+        let mut tree = TreeAccount::from_account_view_mut(
+            transact_accounts.tree,
+            &crate::ID,
+            TREE_ACCOUNT_DISCRIMINATOR,
+        )
+        .map_err(tree_error)?;
 
         apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut proof_inputs)?
     };
-    let transact_accounts = TransactAccounts::validate_and_parse(accounts, &ix)?;
+
+    let (user_sol_account, user_spl_token_account, spl_token_interface) =
+        settlement_accounts(&transact_accounts);
+    proof_inputs.external_data_hash = ExternalDataHash {
+        spp_instruction_discriminator: TRANSACT,
+        expiry_unix_ts: ix.expiry_unix_ts,
+        relayer_fee: ix.relayer_fee,
+        public_sol_amount: ix.public_sol_amount,
+        public_spl_amount: ix.public_spl_amount,
+        user_sol_account: &user_sol_account,
+        user_spl_token_account: &user_spl_token_account,
+        spl_token_interface: &spl_token_interface,
+        cpi_signer: ix.cpi_signer,
+        sender_utxo_data: &ix.sender_utxo_data,
+        recipient_utxo_data: &ix.recipient_utxo_data,
+    }
+    .hash()
+    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -89,6 +98,21 @@ fn public_amount(amount: Option<i64>) -> Result<u64, ProgramError> {
     Ok(amount
         .ok_or(ShieldedPoolError::InvalidTransactShape)?
         .unsigned_abs())
+}
+
+// The settlement account addresses bound into `external_data_hash`: the external
+// SOL recipient, the user's SPL token account, and the pool's SPL interface
+// vault. Zeroed for a pure shielded transfer (no settlement).
+fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8; 32]) {
+    match accounts.settlement.as_ref() {
+        Some(Settlement::Sol(sol)) => (sol.recipient.address().to_bytes(), [0u8; 32], [0u8; 32]),
+        Some(Settlement::Spl(spl)) => (
+            [0u8; 32],
+            spl.user_token_account.address().to_bytes(),
+            spl.vault.address().to_bytes(),
+        ),
+        None => ([0u8; 32], [0u8; 32], [0u8; 32]),
+    }
 }
 
 fn apply_tree(

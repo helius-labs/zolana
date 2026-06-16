@@ -28,8 +28,10 @@ zolana-transaction = { workspace = true }
 bytemuck = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
+light-hasher = { workspace = true }
 tokio = { workspace = true }
 zolana-test-utils = { workspace = true }
+zolana-tree = { workspace = true }
 
 [[test]]
 name = "bdd"
