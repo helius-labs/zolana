@@ -95,10 +95,7 @@ impl<'a> TransactAccounts<'a> {
 /// Validate the `sol_interface` account is the canonical SOL-custody PDA and
 /// return its bump (needed to sign the withdrawal transfer).
 #[inline(always)]
-fn validate_sol_interface(
-    program_id: &Address,
-    account: &AccountView,
-) -> Result<u8, ProgramError> {
+fn validate_sol_interface(program_id: &Address, account: &AccountView) -> Result<u8, ProgramError> {
     let (expected, bump) = Address::derive_program_address(
         &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
         program_id,
