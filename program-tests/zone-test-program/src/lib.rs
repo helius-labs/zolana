@@ -11,10 +11,9 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{create_zone_config, tag, CreateZoneConfigData, ZoneProoflessShieldIxData},
-    SHIELDED_POOL_PROGRAM_ID,
+    SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED,
 };
 
-const ZONE_AUTH_SEED: &[u8] = b"zone_auth";
 const TREE: usize = 0;
 const PAYER: usize = 1;
 const ZONE_AUTH: usize = 2;
@@ -59,7 +58,7 @@ fn process_create_zone_config(
     let accounts = accounts
         .get(..CREATE_ZONE_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_SEED], program_id);
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
     if accounts[CREATE_ZONE_AUTH].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
@@ -74,7 +73,7 @@ fn process_create_zone_config(
         data,
     );
     let bump = [bump];
-    let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
+    let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
     invoke_interface_ix_signed(
         &ix,
@@ -96,7 +95,7 @@ fn process_zone_proofless_shield(
     let accounts = accounts
         .get(..FORWARDED_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_SEED], program_id);
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
     if accounts[ZONE_AUTH].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
@@ -105,12 +104,11 @@ fn process_zone_proofless_shield(
     let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
     let ix = data.cpi_instruction(
-        pubkey(&zone_auth),
         pubkey(accounts[TREE].address()),
         pubkey(accounts[PAYER].address()),
     );
     let bump = [bump];
-    let seeds = [Seed::from(ZONE_AUTH_SEED), Seed::from(&bump)];
+    let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
     invoke_interface_ix_signed(
         &ix,

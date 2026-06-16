@@ -121,7 +121,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
-    let (zone_auth, zone_auth_bump) = zone_auth_pda(&zone_program_id);
+    let (_, zone_auth_bump) = zone_auth_pda(&zone_program_id);
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
         DEPOSIT_LAMPORTS,
         &zone_recipient,
@@ -132,12 +132,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     zone_data.policy_data_hash = Some([5u8; 32]);
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix = zone_data.instruction(
-        zone_program_id,
-        zone_auth,
-        tree.pubkey(),
-        depositor.pubkey(),
-    );
+    let zone_ix = zone_data.instruction(tree.pubkey(), depositor.pubkey());
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

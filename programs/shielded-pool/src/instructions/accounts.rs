@@ -11,13 +11,9 @@ use crate::{
 };
 
 /// CPI-signer PDA seed for a general program owner (`transact`,
-/// `proofless_shield`). Distinct from [`ZONE_AUTH_SEED`]: a general program
+/// `proofless_shield`). Distinct from `ZONE_AUTH_PDA_SEED`: a general program
 /// owner and a policy zone are different capabilities.
 pub(crate) const CPI_SIGNER_SEED: &[u8] = b"auth";
-
-/// CPI-signer PDA seed for a policy zone (`zone_proofless_shield`, and the
-/// reserved zone instructions). See spec: Zone Accounts (`zone_auth`).
-pub(crate) const ZONE_AUTH_SEED: &[u8] = b"zone_auth";
 
 pub struct TransactAccounts<'a> {
     pub tree: &'a mut AccountView,

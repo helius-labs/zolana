@@ -187,13 +187,7 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ZoneProoflessShieldIxData,
     ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let (zone_auth, _) = self.zone_auth_pda();
-        let ix = data.instruction(
-            Self::zone_test_program_id(),
-            zone_auth,
-            *tree,
-            depositor.pubkey(),
-        );
+        let ix = data.instruction(*tree, depositor.pubkey());
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_proofless_shield_view(&outcome.events)
     }

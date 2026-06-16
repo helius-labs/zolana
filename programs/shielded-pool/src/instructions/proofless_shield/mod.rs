@@ -12,9 +12,10 @@ use zolana_interface::instruction::{
     PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::UTXO_DOMAIN;
+use zolana_interface::ZONE_AUTH_PDA_SEED;
 
 use crate::instructions::{
-    accounts::{load_transact_accounts, CPI_SIGNER_SEED, ZONE_AUTH_SEED},
+    accounts::{load_transact_accounts, CPI_SIGNER_SEED},
     hash::{field_from_u64, solana_pk_hash},
     settlement::{settle_public_amounts, spl_asset_pubkey},
 };
@@ -82,7 +83,7 @@ pub fn process_zone_proofless_shield(
             public_amount: data.public_amount,
             public_amount_mode: data.public_amount_mode,
             cpi_signer: Some(data.cpi_signer),
-            cpi_signer_seed: ZONE_AUTH_SEED,
+            cpi_signer_seed: ZONE_AUTH_PDA_SEED,
             program_data_hash: data.program_data_hash,
             program_data: data.program_data,
             policy_data_hash: data.policy_data_hash,

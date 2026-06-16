@@ -22,7 +22,7 @@ use zolana_interface::instruction::{
     ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use zolana_interface::{SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED};
 
 #[test]
 fn batch_update_nullifier_tree_roundtrip() {
@@ -395,7 +395,9 @@ fn proofless_shield_account_layouts() {
 #[test]
 #[cfg(feature = "solana")]
 fn zone_proofless_shield_cpi_builder_account_layout() {
-    let zone_auth = Pubkey::new_unique();
+    let zone_program = Pubkey::new_unique();
+    let (zone_auth, zone_auth_bump) =
+        Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], &zone_program);
     let tree = Pubkey::new_unique();
     let depositor = Pubkey::new_unique();
     let data = ZoneProoflessShieldIxData {
@@ -405,15 +407,20 @@ fn zone_proofless_shield_cpi_builder_account_layout() {
         public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
         public_amount: Some(10),
         cpi_signer: CpiSignerData {
-            program_id: Pubkey::new_unique().to_bytes(),
-            bump: 255,
+            program_id: zone_program.to_bytes(),
+            bump: zone_auth_bump,
         },
         policy_data_hash: None,
         zone_data: None,
         program_data_hash: None,
         program_data: None,
     };
-    let ix = data.cpi_instruction(zone_auth, tree, depositor);
+    let direct_ix = data.instruction(tree, depositor);
+    assert_eq!(direct_ix.program_id, zone_program);
+    assert_eq!(direct_ix.accounts[2].pubkey, zone_auth);
+    assert!(!direct_ix.accounts[2].is_signer);
+
+    let ix = data.cpi_instruction(tree, depositor);
 
     assert_eq!(
         ix.program_id,

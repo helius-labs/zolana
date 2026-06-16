@@ -66,7 +66,8 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         .expect("fund");
 
     let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
-    let ix = data.cpi_instruction(depositor.pubkey(), tree, depositor.pubkey());
+    let mut ix = data.cpi_instruction(tree, depositor.pubkey());
+    ix.accounts[2].pubkey = depositor.pubkey();
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
