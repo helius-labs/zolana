@@ -31,7 +31,6 @@ Add:
 - `pocket_transaction_payloads`
 - `pocket_outputs`
 - `pocket_output_payloads`
-- `pocket_proofless_outputs`
 - `pocket_tx_nullifiers`
 
 ## ERD
@@ -52,7 +51,6 @@ erDiagram
     pocket_transactions ||--o{ pocket_outputs : outputs
     pocket_transactions ||--o{ pocket_tx_nullifiers : nullifiers
     pocket_outputs ||--|| pocket_output_payloads : payload
-    pocket_outputs ||--o| pocket_proofless_outputs : proofless
 
     transactions {
         binary signature PK
@@ -353,26 +351,9 @@ pocket_output_payloads
 
 Split from `pocket_outputs` so tag lookup stays narrow.
 
-### `pocket_proofless_outputs`
-
-```sql
-pocket_proofless_outputs
-  output_id bigint primary key references pocket_outputs(output_id) on delete cascade
-  owner_utxo_hash binary(32) not null
-  salt binary(16) not null
-  asset binary(32) not null
-  amount numeric(20, 0) not null
-  zone_program_id binary(32) null
-  program_data_hash binary(32) not null
-  zone_data_hash binary(32) not null
-  data bytea not null
-```
-
-Decoded proofless deposit projection.
-
 ### `pocket_tx_nullifiers`
 
-Durable transaction nullifier history.
+Durable per-transaction nullifier set.
 
 ```sql
 pocket_tx_nullifiers
@@ -389,10 +370,6 @@ pocket_tx_nullifiers
   index (slot, nullifier_id)
 ```
 
-This is not queue state.
-
-Keep it because queue rows can be deleted after batch append, while wallet sync needs per-transaction nullifier sets.
-
 ## Ingestion
 
 For each decoded SPP event:
@@ -403,11 +380,10 @@ For each decoded SPP event:
 4. insert `pocket_transaction_payloads`
 5. insert `pocket_outputs`
 6. insert `pocket_output_payloads`
-7. insert `pocket_proofless_outputs` if proofless
-8. insert `pocket_tx_nullifiers`
-9. insert nullifier queue rows into `indexed_tree_queue_entries`
-10. persist UTXO leaves/path nodes into `state_trees`
-11. persist root history into `state_tree_histories` when available
+7. insert `pocket_tx_nullifiers`
+8. insert nullifier queue rows into `indexed_tree_queue_entries`
+9. persist UTXO leaves/path nodes into `state_trees`
+10. persist root history into `state_tree_histories` when available
 
 For nullifier batch append:
 
@@ -471,7 +447,6 @@ state_trees.tree = nullifier_tree_pubkey
 
 - full encrypted transaction blobs
 - view-tag lookup
-- proofless decoded rows
 - per-transaction nullifier sets
 
 Table mapping:
@@ -479,7 +454,6 @@ Table mapping:
 - full transaction blob: `pocket_transaction_payloads`
 - tag lookup: `pocket_outputs`
 - per-output payload: `pocket_output_payloads`
-- proofless deposit data: `pocket_proofless_outputs`
 - spend marking: `pocket_tx_nullifiers`
 
 ## Migration
