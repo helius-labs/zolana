@@ -198,16 +198,15 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
 }
 
 fn assert_wallet_discovers(wallet: &mut Wallet, view: &ProoflessShieldView) -> TestResult {
-    let event = zolana_program_test::proofless_event_for_wallet(view);
     wallet.sync(
         &[],
-        std::slice::from_ref(&event),
+        std::slice::from_ref(view),
         &AssetRegistry::default(),
         0,
         DEFAULT_TAG_WINDOW,
     )?;
     assert_eq!(wallet.utxos.len(), 1);
-    assert_eq!(wallet.utxos[0].hash, event.utxo_hash);
+    assert_eq!(wallet.utxos[0].hash, view.utxo_hash);
     Ok(())
 }
 

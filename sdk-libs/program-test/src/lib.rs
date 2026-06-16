@@ -49,7 +49,6 @@ pub use rpc::IndexedTransaction;
 pub use zolana_client::Rpc;
 mod spl;
 mod wallet_data;
-pub use wallet_data::proofless_event_for_wallet;
 mod zone;
 
 #[derive(Debug, Error)]

@@ -2,12 +2,12 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::constants::SALT_LEN;
+use zolana_interface::event::ProoflessShieldView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
 use crate::asset::AssetRegistry;
-use crate::data::Data;
+use crate::data::{Data, DataRecord};
 use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
@@ -25,20 +25,6 @@ pub struct SyncTransaction {
     pub encrypted_utxos: Vec<u8>,
     pub sender_view_tag: ViewTag,
     pub nullifiers: Vec<[u8; 32]>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProoflessDepositEvent {
-    pub view_tag: ViewTag,
-    pub utxo_hash: [u8; 32],
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; SALT_LEN],
-    pub asset: Address,
-    pub amount: u64,
-    pub zone_program_id: Option<Address>,
-    pub program_data_hash: [u8; 32],
-    pub zone_data_hash: [u8; 32],
-    pub data: Data,
 }
 
 pub struct ViewingKeyEntry {
@@ -188,19 +174,23 @@ impl SyncCtx<'_> {
     fn discover_proofless(
         &mut self,
         key: &ViewingKey,
-        event: &ProoflessDepositEvent,
+        event: &ProoflessShieldView,
     ) -> Result<(), TransactionError> {
         let blinding = key.derive_proofless_blinding(&event.salt)?;
         let owner_utxo_hash = owner_utxo_hash(&self.keypair.owner_hash()?, &blinding)?;
         if owner_utxo_hash != event.owner_utxo_hash {
             return Ok(());
         }
+        let asset = Address::new_from_array(event.asset);
+        let zone_program_id = event.zone_program_id.map(Address::new_from_array);
+        let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = event.policy_data_hash.unwrap_or([0u8; 32]);
         let hash = utxo_hash(
-            event.asset,
+            asset,
             event.amount,
-            &event.program_data_hash,
-            &event.zone_data_hash,
-            event.zone_program_id,
+            &program_data_hash,
+            &zone_data_hash,
+            zone_program_id,
             &event.owner_utxo_hash,
         )?;
         if hash != event.utxo_hash || !self.stored_hashes.insert(hash) {
@@ -208,11 +198,11 @@ impl SyncCtx<'_> {
         }
         let utxo = Utxo {
             owner: self.owner,
-            asset: event.asset,
+            asset,
             amount: event.amount,
             blinding,
-            zone_program_id: event.zone_program_id,
-            data: event.data.clone(),
+            zone_program_id,
+            data: proofless_data(event),
         };
         let nullifier = utxo.nullifier(&hash, &self.keypair.nullifier_key)?;
         self.push(utxo, hash, nullifier);
@@ -352,7 +342,7 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
-        proofless_deposits: &[ProoflessDepositEvent],
+        proofless_deposits: &[ProoflessShieldView],
         assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
@@ -545,4 +535,15 @@ impl Wallet {
         balances.sort_by_key(|b| b.asset_id);
         Ok(balances)
     }
+}
+
+fn proofless_data(event: &ProoflessShieldView) -> Data {
+    let mut records = Vec::new();
+    if let Some(zone_data) = event.zone_data.clone() {
+        records.push(DataRecord::ZoneData(zone_data));
+    }
+    if let Some(program_data) = event.program_data.clone() {
+        records.push(DataRecord::ProgramData(program_data));
+    }
+    Data::new(records)
 }

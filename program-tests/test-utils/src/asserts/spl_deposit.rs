@@ -2,7 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{event::ProoflessShieldView, instruction::ProoflessShieldIxData};
-use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SPL `proofless_shield` against the integration-test
@@ -60,7 +60,7 @@ pub fn assert_spl_deposit(
     recipient
         .sync(
             &[],
-            &[proofless_event_for_wallet(event)],
+            std::slice::from_ref(event),
             &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,

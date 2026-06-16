@@ -1,35 +1,10 @@
-use zolana_interface::{
-    event::ProoflessShieldView,
-    instruction::{ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL},
+use zolana_interface::instruction::{
+    ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::{
-    owner_utxo_hash, Address, Data, DataRecord, ProoflessDepositEvent, TransactionError, Wallet,
-};
+use zolana_transaction::{owner_utxo_hash, TransactionError, Wallet};
 
 use crate::{ProgramTestError, ZolanaProgramTest};
-
-pub fn proofless_event_for_wallet(event: &ProoflessShieldView) -> ProoflessDepositEvent {
-    let mut records = Vec::new();
-    if let Some(zone_data) = event.zone_data.clone() {
-        records.push(DataRecord::ZoneData(zone_data));
-    }
-    if let Some(program_data) = event.program_data.clone() {
-        records.push(DataRecord::ProgramData(program_data));
-    }
-    ProoflessDepositEvent {
-        view_tag: event.view_tag,
-        utxo_hash: event.utxo_hash,
-        owner_utxo_hash: event.owner_utxo_hash,
-        salt: event.salt,
-        asset: Address::new_from_array(event.asset),
-        amount: event.amount,
-        zone_program_id: event.zone_program_id.map(Address::new_from_array),
-        program_data_hash: event.program_data_hash.unwrap_or([0u8; 32]),
-        zone_data_hash: event.policy_data_hash.unwrap_or([0u8; 32]),
-        data: Data::new(records),
-    }
-}
 
 pub(crate) struct WalletShieldFields {
     pub view_tag: [u8; 32],

@@ -6,7 +6,7 @@ use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use crate::{ShieldedPoolWorld, SolDepositObservation};
@@ -106,7 +106,7 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
         recipient
             .sync(
                 &[],
-                &[proofless_event_for_wallet(&event)],
+                std::slice::from_ref(&event),
                 &AssetRegistry::default(),
                 0,
                 DEFAULT_TAG_WINDOW,

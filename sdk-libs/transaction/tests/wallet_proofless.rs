@@ -1,11 +1,12 @@
+use zolana_interface::event::ProoflessShieldView;
 use zolana_keypair::constants::{SALT_LEN, VIEW_TAG_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
-    owner_utxo_hash, utxo_hash, AssetRegistry, Data, ProoflessDepositEvent, SyncTransaction,
-    Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    owner_utxo_hash, utxo_hash, AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
+    SOL_MINT,
 };
 
-fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessDepositEvent {
+fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessShieldView {
     let salt = [9u8; SALT_LEN];
     let blinding = wallet
         .keypair
@@ -24,17 +25,20 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessDepositEven
     )
     .expect("UTXO hash");
 
-    ProoflessDepositEvent {
+    ProoflessShieldView {
         view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
         utxo_hash,
-        owner_utxo_hash,
-        salt,
-        asset: SOL_MINT,
+        asset: SOL_MINT.to_bytes(),
         amount,
         zone_program_id: None,
-        program_data_hash: [0u8; 32],
-        zone_data_hash: [0u8; 32],
-        data: Data::new(Vec::new()),
+        policy_data_hash: None,
+        owner_utxo_hash,
+        salt,
+        program_data_hash: None,
+        program_data: None,
+        zone_data: None,
+        output_tree: [0u8; 32],
+        leaf_index: 0,
     }
 }
 
