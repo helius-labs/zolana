@@ -209,7 +209,7 @@ Reuse for SPP nullifier queue hash chains.
 
 ### `transaction_protocols`
 
-```text
+```sql
 transaction_protocols
   signature binary(64) not null references transactions(signature) on delete cascade
   protocol smallint not null
@@ -231,7 +231,7 @@ Replacement for `address_queues`, not a rename.
 
 Current `address_queues`:
 
-```text
+```sql
 address_queues
   tree binary not null
   address binary not null
@@ -242,7 +242,7 @@ address_queues
 
 New generic queue:
 
-```text
+```sql
 indexed_tree_queue_entries
   tree binary(32) not null
   queue_type smallint not null
@@ -254,6 +254,9 @@ indexed_tree_queue_entries
   unique (tree, queue_type, value)
   index (tree, queue_type, value)
 ```
+
+`queue_type` values come from `light_compressed_account::QueueType`.
+Do not hardcode numeric discriminants in runtime code.
 
 AddressV2:
 
@@ -283,7 +286,7 @@ Batch append:
 
 One row per decoded wallet-visible SPP event.
 
-```text
+```sql
 pocket_transactions
   pocket_tx_id bigint primary key
   signature binary(64) not null references transactions(signature) on delete cascade
@@ -306,7 +309,7 @@ Do not group parent rows only by Solana signature. One Solana transaction can em
 
 ### `pocket_transaction_payloads`
 
-```text
+```sql
 pocket_transaction_payloads
   pocket_tx_id bigint primary key references pocket_transactions(pocket_tx_id) on delete cascade
   encrypted_utxos bytea null
@@ -320,7 +323,7 @@ Stores full encrypted transaction blob and raw event bytes.
 
 Hot view-tag index.
 
-```text
+```sql
 pocket_outputs
   output_id bigint primary key
   pocket_tx_id bigint not null references pocket_transactions(pocket_tx_id) on delete cascade
@@ -342,7 +345,7 @@ pocket_outputs
 
 ### `pocket_output_payloads`
 
-```text
+```sql
 pocket_output_payloads
   output_id bigint primary key references pocket_outputs(output_id) on delete cascade
   payload bytea not null
@@ -352,7 +355,7 @@ Split from `pocket_outputs` so tag lookup stays narrow.
 
 ### `pocket_proofless_outputs`
 
-```text
+```sql
 pocket_proofless_outputs
   output_id bigint primary key references pocket_outputs(output_id) on delete cascade
   owner_utxo_hash binary(32) not null
@@ -371,7 +374,7 @@ Decoded proofless deposit projection.
 
 Durable transaction nullifier history.
 
-```text
+```sql
 pocket_tx_nullifiers
   nullifier_id bigint primary key
   pocket_tx_id bigint not null references pocket_transactions(pocket_tx_id) on delete cascade
