@@ -43,7 +43,7 @@ pub fn process_transact_ix(
 
     let mut proof_inputs = TransactProofInputs::default();
     check_input_signers(accounts, &ix.inputs, &mut proof_inputs)?;
-    let transact_accounts = TransactAccounts::validate_and_parse(accounts, &ix)?;
+    let transact_accounts = TransactAccounts::validate_and_parse(&crate::ID, accounts, &ix)?;
 
     let tree_write = {
         let output_tree = transact_accounts.tree.address().to_bytes();
@@ -87,7 +87,9 @@ pub fn process_transact_ix(
     TransactProof::new(&ix, proof_inputs).verify()?;
 
     match transact_accounts.settlement.as_ref() {
-        Some(Settlement::Sol(sol)) => settle_sol(sol, public_amount(ix.public_sol_amount)?)?,
+        Some(Settlement::Sol(sol)) => {
+            settle_sol(sol, public_amount(ix.public_sol_amount)?, ix.is_deposit())?
+        }
         Some(Settlement::Spl(spl)) => settle_spl(spl, public_amount(ix.public_spl_amount)?)?,
         None => {}
     }

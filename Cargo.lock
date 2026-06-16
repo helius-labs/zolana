@@ -2605,19 +2605,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-sparse-merkle-tree"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4251e79b6c63f4946572dcfd7623680ad0f9e0efe1a761a944733333c5645063"
-dependencies = [
- "light-hasher",
- "light-indexed-array",
- "num-bigint 0.4.6",
- "num-traits",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "light-verifier"
 version = "10.0.0"
 source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
@@ -3959,7 +3946,6 @@ dependencies = [
  "light-account-checks",
  "light-batched-merkle-tree",
  "light-hasher",
- "light-sparse-merkle-tree",
  "light-verifier",
  "pinocchio 0.11.2",
  "pinocchio-system",

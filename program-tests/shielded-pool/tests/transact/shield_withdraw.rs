@@ -37,8 +37,8 @@ use zolana_interface::instruction::instruction_data::transact::{
     ExternalDataHash, InputUtxo, OutputUtxo, TransactIxData,
 };
 use zolana_interface::instruction::tag;
+use zolana_interface::pda;
 use zolana_interface::verifying_keys::transfer_2_3;
-use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY;
 use zolana_keypair::hash::{hash_field, owner_hash};
 use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
@@ -279,7 +279,9 @@ fn shield_then_withdraw_sol() {
         .svm
         .get_balance(&recipient)
         .expect("recipient balance");
-    let vault = Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
+    // SOL is custodied in the `sol_interface` PDA (funded by the deposit, drained
+    // on withdrawal) — shared with the proofless-shield deposit path.
+    let vault = pda::sol_interface();
     // Draining the full amount closes the vault (a system account at 0 lamports
     // is reaped), so read balances with `unwrap_or(0)`.
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
@@ -394,9 +396,9 @@ fn shield_then_withdraw_sol() {
     ix_data.proof = pack_proof(&proof);
     ix_data.private_tx_hash = private_tx;
 
-    // SOL withdrawal account layout: payer (signer/owner), tree, vault
-    // (cpi_authority), interface (unused for SOL), recipient, then the system
-    // program (settle_sol Transfer CPI) and the program (emit_event self-CPI).
+    // SOL withdrawal account layout: payer (signer/owner), tree, sol_interface
+    // (the SOL-custody PDA), recipient, then the system program (settle_sol
+    // Transfer CPI) and the program (emit_event self-CPI).
     let bytes = ix_data.serialize().expect("serialize transact ix data");
     let mut instruction_data = vec![tag::TRANSACT];
     instruction_data.extend_from_slice(&bytes);
@@ -406,7 +408,6 @@ fn shield_then_withdraw_sol() {
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new(tree, false),
             AccountMeta::new(vault, false),
-            AccountMeta::new_readonly(env.rpc.program_id, false),
             AccountMeta::new(recipient, false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             AccountMeta::new_readonly(env.rpc.program_id, false),

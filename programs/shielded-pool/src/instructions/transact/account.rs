@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{TransactCpiSigner, TransactIxDataRef},
-    SHIELDED_POOL_CPI_AUTHORITY,
+    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE_PDA_SEED,
 };
 
 use crate::error::ShieldedPoolError;
@@ -23,8 +23,8 @@ pub enum Settlement<'a> {
 }
 
 pub struct SettlementAccountsSol<'a> {
-    pub cpi_authority: Option<&'a AccountView>,
-    pub interface: &'a AccountView,
+    pub sol_interface: &'a AccountView,
+    pub sol_interface_bump: u8,
     pub recipient: &'a AccountView,
 }
 
@@ -38,6 +38,7 @@ pub struct SettlementAccountsSpl<'a> {
 
 impl<'a> TransactAccounts<'a> {
     pub fn validate_and_parse(
+        program_id: &Address,
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
     ) -> Result<Self, ProgramError> {
@@ -52,27 +53,30 @@ impl<'a> TransactAccounts<'a> {
         }
 
         let settlement = if ix.is_deposit_or_withdrawal() {
-            let cpi_authority = if ix.is_deposit() {
-                None
-            } else {
-                Some(validate_cpi_authority(iter.next_account("cpi_authority")?)?)
-            };
-            let interface = iter.next_account("interface")?;
-            let recipient = iter.next_account("recipient")?;
             if ix.is_spl() {
+                let cpi_authority = if ix.is_deposit() {
+                    None
+                } else {
+                    Some(validate_cpi_authority(iter.next_account("cpi_authority")?)?)
+                };
+                let vault = iter.next_account("vault")?;
+                let recipient = iter.next_account("recipient")?;
                 let user_token_account = iter.next_account("user_token_account")?;
                 let token_program = iter.next_account("token_program")?;
                 Some(Settlement::Spl(SettlementAccountsSpl {
                     cpi_authority,
-                    vault: interface,
+                    vault,
                     recipient,
                     user_token_account,
                     token_program,
                 }))
             } else {
+                let sol_interface = iter.next_account("sol_interface")?;
+                let sol_interface_bump = validate_sol_interface(program_id, sol_interface)?;
+                let recipient = iter.next_account("recipient")?;
                 Some(Settlement::Sol(SettlementAccountsSol {
-                    cpi_authority,
-                    interface,
+                    sol_interface,
+                    sol_interface_bump,
                     recipient,
                 }))
             }
@@ -86,6 +90,24 @@ impl<'a> TransactAccounts<'a> {
             settlement,
         })
     }
+}
+
+/// Validate the `sol_interface` account is the canonical SOL-custody PDA and
+/// return its bump (needed to sign the withdrawal transfer).
+#[inline(always)]
+fn validate_sol_interface(
+    program_id: &Address,
+    account: &AccountView,
+) -> Result<u8, ProgramError> {
+    let (expected, bump) = Address::derive_program_address(
+        &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
+        program_id,
+    )
+    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    if !address_eq(account.address(), &expected) {
+        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+    }
+    Ok(bump)
 }
 
 #[inline(always)]
