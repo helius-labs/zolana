@@ -3,11 +3,11 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{create_spl_interface, CreateSplInterfaceAccounts},
-    SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
-    SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
-    SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
-    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
+    instruction::create_spl_interface, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
+    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
+    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
+    SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
+    SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProgramTest};
@@ -123,16 +123,7 @@ impl ZolanaProgramTest {
     ) -> Result<(Pubkey, Pubkey), ProgramTestError> {
         let registry = self.spl_asset_registry_pda(mint);
         let vault = self.spl_asset_vault_pda(mint);
-        let ix = create_spl_interface(CreateSplInterfaceAccounts {
-            authority: authority.pubkey(),
-            protocol_config: self.protocol_config_pda(),
-            asset_counter: self.spl_asset_counter_pda(),
-            registry,
-            mint: *mint,
-            vault,
-            system_program: Pubkey::default(),
-            token_program: Self::token_program_id(),
-        });
+        let ix = create_spl_interface(authority.pubkey(), *mint);
         self.send(&[ix], &[authority])?;
         Ok((registry, vault))
     }

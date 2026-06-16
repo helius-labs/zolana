@@ -66,12 +66,8 @@ fn process_create_zone_config(
 
     let data = CreateZoneConfigData::try_from_slice(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
-    let ix = create_zone_config(
-        pubkey(accounts[CREATE_ZONE_PAYER].address()),
-        pubkey(accounts[CREATE_ZONE_CONFIG].address()),
-        pubkey(&zone_auth),
-        data,
-    );
+    let ix = create_zone_config(pubkey(accounts[CREATE_ZONE_PAYER].address()), data)
+        .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);

@@ -17,9 +17,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
-    create_tree_instructions, index_events, parsed_instruction_from_compiled, protocol_config_pda,
-    rpc_state_root, single_proofless_shield_view, zone_auth_pda, IndexedEvent, IndexedTransaction,
-    TestIndexer, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
+    single_proofless_shield_view, zone_auth_pda, IndexedEvent, IndexedTransaction, TestIndexer,
+    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -58,7 +58,6 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let create_config = create_protocol_config(
         authority.pubkey(),
-        protocol_config_pda(&program_id),
         CreateProtocolConfigData {
             authority: authority.pubkey().to_bytes(),
             merge_authorities: Vec::new(),

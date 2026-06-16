@@ -33,7 +33,6 @@ impl ZolanaProgramTest {
         let config = self.protocol_config_pda();
         let ix = create_protocol_config(
             authority.pubkey(),
-            config,
             CreateProtocolConfigData {
                 authority: authority.pubkey().to_bytes(),
                 merge_authorities,
@@ -59,7 +58,6 @@ impl ZolanaProgramTest {
     ) -> Result<(), ProgramTestError> {
         let ix = update_protocol_config_ix(
             authority.pubkey(),
-            self.protocol_config_pda(),
             UpdateProtocolConfigData {
                 authority: new_authority.to_bytes(),
                 merge_authorities,
@@ -74,12 +72,7 @@ impl ZolanaProgramTest {
         tree: &Keypair,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
-        let ix = pause_tree_ix(
-            authority.pubkey(),
-            self.protocol_config_pda(),
-            tree.pubkey(),
-            PauseTreeData { paused },
-        );
+        let ix = pause_tree_ix(authority.pubkey(), tree.pubkey(), PauseTreeData { paused });
         self.send(&[ix], &[authority])
     }
 

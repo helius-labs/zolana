@@ -49,7 +49,7 @@ pub fn create_tree_instructions<R: Rpc>(
         .map_err(ProgramTestError::from)?;
     Ok(vec![
         system_create_account_ix(payer, tree, rent, account_size, &program_id),
-        create_tree(*authority, protocol_config_pda(&program_id), *tree),
+        create_tree(*authority, *tree),
     ])
 }
 

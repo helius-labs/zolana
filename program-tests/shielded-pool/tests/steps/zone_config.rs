@@ -169,13 +169,10 @@ fn new_owner_updates(world: &mut ShieldedPoolWorld) {
 #[when(expr = "a payer tries to create a zone config with an invalid zone authority")]
 fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
     let payer = world.depositor().insecure_clone();
-    let program_id = world.rpc().program_id;
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
-    let (zone_config, zone_config_bump) = world.rpc().zone_config_pda(&zone_program);
+    let (_, zone_config_bump) = world.rpc().zone_config_pda(&zone_program);
     let (_, zone_auth_bump) = world.rpc().zone_auth_pda();
     let mut ix = create_zone_config_ix(
-        payer.pubkey(),
-        zone_config,
         payer.pubkey(),
         CreateZoneConfigData {
             program_id: ZONE_TEST_PROGRAM_ID,
@@ -184,8 +181,9 @@ fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
             zone_authority_transact_is_enabled: true,
             zone_config_bump,
         },
-    );
-    ix.program_id = program_id;
+    )
+    .expect("zone config PDA");
+    ix.accounts[2].pubkey = payer.pubkey();
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&payer])

@@ -17,12 +17,16 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 #[cfg(feature = "solana")]
 use zolana_interface::instruction::{
-    create_spl_interface, create_zone_config, CpiSignerData, CreateSplInterfaceAccounts,
-    ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    create_spl_interface, create_zone_config, CpiSignerData, ProoflessShieldAccounts,
+    ProoflessShieldIxData, ProoflessShieldSplAccounts, ZoneProoflessShieldIxData,
+    PUBLIC_AMOUNT_DEPOSIT_SOL,
 };
 #[cfg(feature = "solana")]
-use zolana_interface::{SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED};
+use zolana_interface::{
+    SHIELDED_POOL_PROGRAM_ID, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
+    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
+    SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+};
 
 #[test]
 fn batch_update_nullifier_tree_roundtrip() {
@@ -279,27 +283,42 @@ fn zone_config_update_roundtrips() {
 #[test]
 #[cfg(feature = "solana")]
 fn create_spl_interface_builder_account_layout() {
-    let accounts = CreateSplInterfaceAccounts {
-        authority: Pubkey::new_unique(),
-        protocol_config: Pubkey::new_unique(),
-        asset_counter: Pubkey::new_unique(),
-        registry: Pubkey::new_unique(),
-        mint: Pubkey::new_unique(),
-        vault: Pubkey::new_unique(),
-        system_program: Pubkey::default(),
-        token_program: Pubkey::new_unique(),
-    };
-
-    let ix = create_spl_interface(accounts);
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let authority = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let ix = create_spl_interface(authority, mint);
 
     assert_eq!(ix.accounts.len(), 8);
+    assert_eq!(ix.accounts[0].pubkey, authority);
     assert!(ix.accounts[0].is_signer);
     assert!(ix.accounts[0].is_writable);
+    assert_eq!(
+        ix.accounts[1].pubkey,
+        Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &program_id).0
+    );
     assert!(ix.accounts[2].is_writable);
+    assert_eq!(
+        ix.accounts[2].pubkey,
+        Pubkey::find_program_address(&[SPL_ASSET_COUNTER_PDA_SEED], &program_id).0
+    );
     assert!(ix.accounts[3].is_writable);
+    assert_eq!(
+        ix.accounts[3].pubkey,
+        Pubkey::find_program_address(&[SPL_ASSET_REGISTRY_PDA_SEED, mint.as_ref()], &program_id).0
+    );
+    assert_eq!(ix.accounts[4].pubkey, mint);
     assert!(!ix.accounts[4].is_writable);
     assert!(ix.accounts[5].is_writable);
+    assert_eq!(
+        ix.accounts[5].pubkey,
+        Pubkey::find_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &program_id).0
+    );
+    assert_eq!(ix.accounts[6].pubkey, Pubkey::default());
     assert!(!ix.accounts[6].is_writable);
+    assert_eq!(
+        ix.accounts[7].pubkey,
+        Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
+    );
     assert!(!ix.accounts[7].is_writable);
 }
 
@@ -307,20 +326,21 @@ fn create_spl_interface_builder_account_layout() {
 #[cfg(feature = "solana")]
 fn create_zone_config_builder_account_layout() {
     let payer = Pubkey::new_unique();
-    let config = Pubkey::new_unique();
-    let zone_auth = Pubkey::new_unique();
-    let ix = create_zone_config(
-        payer,
-        config,
-        zone_auth,
-        CreateZoneConfigData {
-            program_id: Pubkey::new_unique().to_bytes(),
-            zone_auth_bump: 255,
-            authority: Pubkey::new_unique().to_bytes(),
-            zone_authority_transact_is_enabled: true,
-            zone_config_bump: 254,
-        },
+    let zone_program = Pubkey::new_unique();
+    let (config, zone_config_bump) = Pubkey::find_program_address(
+        &[SPP_ZONE_CONFIG_PDA_SEED, zone_program.as_ref()],
+        &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
     );
+    let (zone_auth, zone_auth_bump) =
+        Pubkey::find_program_address(&[ZONE_AUTH_PDA_SEED], &zone_program);
+    let data = CreateZoneConfigData {
+        program_id: zone_program.to_bytes(),
+        zone_auth_bump,
+        authority: Pubkey::new_unique().to_bytes(),
+        zone_authority_transact_is_enabled: true,
+        zone_config_bump,
+    };
+    let ix = create_zone_config(payer, data.clone()).expect("zone config PDA");
 
     assert_eq!(ix.accounts.len(), 4);
     assert_eq!(ix.accounts[0].pubkey, payer);
@@ -332,6 +352,26 @@ fn create_zone_config_builder_account_layout() {
     assert!(ix.accounts[2].is_signer);
     assert!(!ix.accounts[2].is_writable);
     assert_eq!(ix.accounts[3].pubkey, Pubkey::default());
+
+    let invalid_bump = (0u8..=u8::MAX)
+        .find(|bump| {
+            let bump = [*bump];
+            Pubkey::create_program_address(
+                &[
+                    SPP_ZONE_CONFIG_PDA_SEED,
+                    zone_program.as_ref(),
+                    bump.as_slice(),
+                ],
+                &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+            )
+            .is_err()
+        })
+        .expect("invalid zone config bump");
+    let invalid = CreateZoneConfigData {
+        zone_config_bump: invalid_bump,
+        ..data
+    };
+    assert!(create_zone_config(payer, invalid).is_err());
 }
 
 #[test]

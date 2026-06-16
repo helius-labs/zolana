@@ -129,10 +129,8 @@ fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
         .airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund");
     let named = Keypair::new();
-    let config_pda = world.rpc().protocol_config_pda();
     let ix = create_protocol_config_ix(
         signer.pubkey(),
-        config_pda,
         CreateProtocolConfigData {
             authority: named.pubkey().to_bytes(),
             merge_authorities: Vec::new(),
