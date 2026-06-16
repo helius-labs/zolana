@@ -66,9 +66,6 @@ test-client-integration: build-prover-server build-cli
 test-programs: build-programs
     cargo test -p shielded-pool-tests
 
-# Backwards-compatible alias.
-test-litesvm: test-programs
-
 # Aggregate of all CI-runnable Rust tests.
 test-all: test test-programs test-user-registry-litesvm
 

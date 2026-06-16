@@ -89,7 +89,7 @@ Use `just` recipes for normal workflows:
 just check-all
 just test-shielded-pool
 just test-sdk-libs
-just test-litesvm
+just test-programs
 just test-cli
 just clippy
 ```

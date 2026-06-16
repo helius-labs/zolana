@@ -275,10 +275,10 @@ fn parsed_instruction(
 impl Rpc for SolanaRpc {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = pubkey_from_address(&address);
-        match self.client.get_account(&pubkey) {
-            Ok(account) => Ok(Some(account)),
-            Err(err) => Err(ClientError::Rpc(format!("get_account {pubkey}: {err}"))),
-        }
+        self.client
+            .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_account {pubkey}: {err}")))
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
