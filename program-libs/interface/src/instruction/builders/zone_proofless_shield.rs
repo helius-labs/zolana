@@ -1,21 +1,17 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
-use super::sol_interface_pda;
 use crate::{
     instruction::{tag, ZoneProoflessShieldIxData},
-    SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED,
+    pda, SHIELDED_POOL_PROGRAM_ID,
 };
 
 impl ZoneProoflessShieldIxData {
     pub fn instruction(&self, tree: Pubkey, depositor: Pubkey) -> Result<Instruction, PubkeyError> {
-        Ok(self.build_instruction(
-            Pubkey::new_from_array(self.cpi_signer.program_id),
-            self.zone_auth()?,
-            tree,
-            depositor,
-            false,
-        ))
+        let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
+        let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
+
+        Ok(self.build_instruction(zone_program, zone_auth, tree, depositor, false))
     }
 
     pub fn cpi_instruction(
@@ -23,9 +19,12 @@ impl ZoneProoflessShieldIxData {
         tree: Pubkey,
         depositor: Pubkey,
     ) -> Result<Instruction, PubkeyError> {
+        let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
+        let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
+
         Ok(self.build_instruction(
             Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-            self.zone_auth()?,
+            zone_auth,
             tree,
             depositor,
             true,
@@ -54,19 +53,11 @@ impl ZoneProoflessShieldIxData {
                 AccountMeta::new(depositor, true),
                 AccountMeta::new_readonly(zone_auth, zone_auth_signer),
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new(sol_interface_pda(), false),
+                AccountMeta::new(pda::sol_interface(), false),
                 AccountMeta::new(depositor, false),
                 AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             ],
             data,
         }
-    }
-
-    fn zone_auth(&self) -> Result<Pubkey, PubkeyError> {
-        let bump = [self.cpi_signer.bump];
-        Pubkey::create_program_address(
-            &[ZONE_AUTH_PDA_SEED, bump.as_slice()],
-            &Pubkey::new_from_array(self.cpi_signer.program_id),
-        )
     }
 }

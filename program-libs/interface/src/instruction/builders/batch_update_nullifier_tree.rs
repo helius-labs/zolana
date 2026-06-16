@@ -3,10 +3,8 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData},
-    SHIELDED_POOL_PROGRAM_ID,
+    pda, SHIELDED_POOL_PROGRAM_ID,
 };
-
-use super::protocol_config_pda;
 
 pub fn batch_update_nullifier_tree(
     authority: Pubkey,
@@ -17,7 +15,7 @@ pub fn batch_update_nullifier_tree(
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(protocol_config_pda(), false),
+            AccountMeta::new_readonly(pda::protocol_config(), false),
             AccountMeta::new(tree, false),
         ],
         data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),

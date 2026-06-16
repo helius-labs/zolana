@@ -3,6 +3,7 @@
 use cucumber::{then, when};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use zolana_interface::pda;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{proofless_event_for_wallet, ZolanaProgramTest};
@@ -21,7 +22,7 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("airdrop");
 
-    let vault = world.rpc().sol_interface();
+    let vault = pda::sol_interface();
     let vault_before_lamports = world
         .rpc()
         .svm

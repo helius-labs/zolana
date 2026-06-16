@@ -12,14 +12,15 @@ use zolana_interface::{
         indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldView,
     },
     instruction::{create_protocol_config, tag, CreateProtocolConfigData, ProoflessShieldAccounts},
+    pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_proofless_shield_view, zone_auth_pda, IndexedEvent, IndexedTransaction, TestIndexer,
-    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
+    single_proofless_shield_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
+    ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -76,7 +77,6 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     let tree = Keypair::new();
     let create_tree = create_tree_instructions(
         &rpc,
-        program_id,
         &payer.pubkey(),
         &authority.pubkey(),
         &tree.pubkey(),
@@ -120,7 +120,7 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
-    let (_, zone_auth_bump) = zone_auth_pda(&zone_program_id);
+    let (_, zone_auth_bump) = pda::zone_auth(&zone_program_id);
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
         DEPOSIT_LAMPORTS,
         &zone_recipient,

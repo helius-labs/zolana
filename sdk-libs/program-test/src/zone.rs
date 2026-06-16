@@ -10,33 +10,20 @@ use zolana_interface::{
         CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
         ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     },
-    SPP_ZONE_CONFIG_PDA_SEED,
+    pda,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::Wallet;
 
 use crate::{
-    instructions::{zone_auth_pda, ZONE_TEST_PROGRAM_ID},
-    paths::default_zone_test_program_path,
-    single_proofless_shield_view,
-    wallet_data::wallet_shield_fields,
-    ProgramTestError, ZolanaProgramTest,
+    instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path,
+    single_proofless_shield_view, wallet_data::wallet_shield_fields, ProgramTestError,
+    ZolanaProgramTest,
 };
 
 impl ZolanaProgramTest {
-    pub fn zone_config_pda(&self, zone_program_id: &Pubkey) -> (Pubkey, u8) {
-        Pubkey::find_program_address(
-            &[SPP_ZONE_CONFIG_PDA_SEED, zone_program_id.as_ref()],
-            &self.program_id,
-        )
-    }
-
     fn zone_test_program_id() -> Pubkey {
         Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)
-    }
-
-    pub fn zone_auth_pda(&self) -> (Pubkey, u8) {
-        zone_auth_pda(&Self::zone_test_program_id())
     }
 
     pub fn load_zone_test_program(&mut self) -> Result<(), ProgramTestError> {
@@ -58,8 +45,8 @@ impl ZolanaProgramTest {
         zone_authority_transact_is_enabled: bool,
     ) -> Result<Pubkey, ProgramTestError> {
         let zone_program = Self::zone_test_program_id();
-        let (zone_config, zone_config_bump) = self.zone_config_pda(&zone_program);
-        let (zone_auth, zone_auth_bump) = self.zone_auth_pda();
+        let (zone_config, zone_config_bump) = pda::zone_config(&zone_program);
+        let (zone_auth, zone_auth_bump) = pda::zone_auth(&zone_program);
         let data = CreateZoneConfigData {
             program_id: ZONE_TEST_PROGRAM_ID,
             zone_auth_bump,
@@ -119,7 +106,7 @@ impl ZolanaProgramTest {
         lamports: u64,
         owner_utxo_hash: [u8; 32],
     ) -> ZoneProoflessShieldIxData {
-        let (_, bump) = self.zone_auth_pda();
+        let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         ZoneProoflessShieldIxData {
             view_tag: [0u8; 32],
             owner_utxo_hash,
@@ -144,7 +131,7 @@ impl ZolanaProgramTest {
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
-        let (_, bump) = self.zone_auth_pda();
+        let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         Self::wallet_zone_sol_shield_data_for_zone(
             lamports,
             recipient,

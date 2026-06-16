@@ -1,10 +1,9 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-use super::sol_interface_pda;
 use crate::{
     instruction::{tag, ProoflessShieldIxData},
-    SHIELDED_POOL_PROGRAM_ID,
+    pda, SHIELDED_POOL_PROGRAM_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,7 +52,7 @@ impl ProoflessShieldAccounts {
             ]),
             None => accounts.extend([
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new(sol_interface_pda(), false),
+                AccountMeta::new(pda::sol_interface(), false),
                 AccountMeta::new(self.depositor, false),
             ]),
         }

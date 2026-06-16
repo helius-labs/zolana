@@ -6,6 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{create_protocol_config as create_protocol_config_ix, CreateProtocolConfigData},
+    pda,
     state::PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
 };
 use zolana_test_utils::asserts::assert_protocol_config;
@@ -46,7 +47,7 @@ fn create_again_rejected(world: &mut ShieldedPoolWorld) {
 
 #[when(expr = "lamports are donated to the protocol config address")]
 fn donate_to_config(world: &mut ShieldedPoolWorld) {
-    let config = world.rpc().protocol_config_pda();
+    let config = pda::protocol_config();
     world
         .rpc()
         .airdrop(&config, 1_000_000)

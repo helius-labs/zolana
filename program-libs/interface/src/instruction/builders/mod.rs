@@ -6,32 +6,9 @@ mod protocol_config;
 mod zone_config;
 mod zone_proofless_shield;
 
-use solana_pubkey::Pubkey;
-
-use crate::{
-    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED,
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
-};
-
 pub use batch_update_nullifier_tree::batch_update_nullifier_tree;
 pub use create_spl_interface::create_spl_interface;
 pub use create_tree::create_tree;
 pub use proofless_shield::{ProoflessShieldAccounts, ProoflessShieldSplAccounts};
 pub use protocol_config::{create_protocol_config, pause_tree, update_protocol_config};
 pub use zone_config::{create_zone_config, update_zone_config, update_zone_config_owner};
-
-fn sol_interface_pda() -> Pubkey {
-    Pubkey::find_program_address(
-        &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
-        &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-    )
-    .0
-}
-
-fn protocol_config_pda() -> Pubkey {
-    Pubkey::find_program_address(
-        &[SPP_PROTOCOL_CONFIG_PDA_SEED],
-        &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-    )
-    .0
-}

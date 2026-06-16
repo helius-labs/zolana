@@ -1,5 +1,6 @@
 pub mod event;
 pub mod instruction;
+pub mod pda;
 pub mod state;
 pub mod user_registry;
 pub mod verifying_keys;

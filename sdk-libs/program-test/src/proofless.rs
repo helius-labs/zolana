@@ -2,9 +2,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::event::ProoflessShieldView;
-use zolana_interface::instruction::{
-    ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts,
+use zolana_interface::{
+    event::ProoflessShieldView,
+    instruction::{ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts},
+    pda,
 };
 
 use crate::{single_proofless_shield_view, ProgramTestError, ZolanaProgramTest};
@@ -33,8 +34,8 @@ impl ZolanaProgramTest {
             depositor.pubkey(),
             ProoflessShieldSplAccounts {
                 user_token: *user_token,
-                vault: self.spl_asset_vault_pda(mint),
-                registry: self.spl_asset_registry_pda(mint),
+                vault: pda::spl_asset_vault(mint),
+                registry: pda::spl_asset_registry(mint),
                 token_program: Self::token_program_id(),
             },
         ));

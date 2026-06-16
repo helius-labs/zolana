@@ -1,22 +1,18 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
-    create_protocol_config, pause_tree as pause_tree_ix,
-    update_protocol_config as update_protocol_config_ix, CreateProtocolConfigData, PauseTreeData,
-    UpdateProtocolConfigData,
+use zolana_interface::{
+    instruction::{
+        create_protocol_config, pause_tree as pause_tree_ix,
+        update_protocol_config as update_protocol_config_ix, CreateProtocolConfigData,
+        PauseTreeData, UpdateProtocolConfigData,
+    },
+    pda,
 };
 
-use crate::{
-    instructions::{create_tree_instructions, protocol_config_pda},
-    ProgramTestError, ZolanaProgramTest,
-};
+use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
 
 impl ZolanaProgramTest {
-    pub fn protocol_config_pda(&self) -> Pubkey {
-        protocol_config_pda(&self.program_id)
-    }
-
     pub fn create_protocol_config(
         &mut self,
         authority: &Keypair,
@@ -30,7 +26,7 @@ impl ZolanaProgramTest {
         merge_authorities: Vec<[u8; 32]>,
     ) -> Result<Pubkey, ProgramTestError> {
         self.airdrop(&authority.pubkey(), 1_000_000_000)?;
-        let config = self.protocol_config_pda();
+        let config = pda::protocol_config();
         let ix = create_protocol_config(
             authority.pubkey(),
             CreateProtocolConfigData {
@@ -82,18 +78,10 @@ impl ZolanaProgramTest {
         authority: &Keypair,
     ) -> Result<Keypair, ProgramTestError> {
         let tree = self.next_tree_keypair();
-        let program_id = self.program_id;
         let payer = self.payer.pubkey();
         let authority_key = authority.pubkey();
         let tree_key = tree.pubkey();
-        let ixs = create_tree_instructions(
-            self,
-            program_id,
-            &payer,
-            &authority_key,
-            &tree_key,
-            account_size,
-        )?;
+        let ixs = create_tree_instructions(self, &payer, &authority_key, &tree_key, account_size)?;
         self.send(&ixs, &[&tree, authority])?;
         Ok(tree)
     }

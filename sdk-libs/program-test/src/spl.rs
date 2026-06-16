@@ -3,11 +3,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::create_spl_interface, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
-    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
-    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
-    SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
-    SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
+    instruction::create_spl_interface, pda, SPL_TOKEN_ACCOUNT_AMOUNT_END,
+    SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
+    SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
+    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProgramTest};
@@ -15,22 +14,6 @@ use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProg
 impl ZolanaProgramTest {
     pub fn token_program_id() -> Pubkey {
         Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
-    }
-
-    pub fn spl_asset_counter_pda(&self) -> Pubkey {
-        Pubkey::find_program_address(&[SPL_ASSET_COUNTER_PDA_SEED], &self.program_id).0
-    }
-
-    pub fn spl_asset_registry_pda(&self, mint: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(
-            &[SPL_ASSET_REGISTRY_PDA_SEED, mint.as_ref()],
-            &self.program_id,
-        )
-        .0
-    }
-
-    pub fn spl_asset_vault_pda(&self, mint: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()], &self.program_id).0
     }
 
     pub fn create_mint(&mut self) -> Result<Pubkey, ProgramTestError> {
@@ -121,8 +104,8 @@ impl ZolanaProgramTest {
         authority: &Keypair,
         mint: &Pubkey,
     ) -> Result<(Pubkey, Pubkey), ProgramTestError> {
-        let registry = self.spl_asset_registry_pda(mint);
-        let vault = self.spl_asset_vault_pda(mint);
+        let registry = pda::spl_asset_registry(mint);
+        let vault = pda::spl_asset_vault(mint);
         let ix = create_spl_interface(authority.pubkey(), *mint);
         self.send(&[ix], &[authority])?;
         Ok((registry, vault))

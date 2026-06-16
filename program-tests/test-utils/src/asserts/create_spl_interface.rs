@@ -2,8 +2,9 @@
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC, SPL_ASSET_REGISTRY_MAGIC_END,
-    SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END, SPL_ASSET_REGISTRY_MINT_OFFSET,
+    pda, SPL_ASSET_REGISTRY_ASSET_ID_OFFSET, SPL_ASSET_REGISTRY_MAGIC,
+    SPL_ASSET_REGISTRY_MAGIC_END, SPL_ASSET_REGISTRY_MAGIC_OFFSET, SPL_ASSET_REGISTRY_MINT_END,
+    SPL_ASSET_REGISTRY_MINT_OFFSET,
 };
 use zolana_program_test::ZolanaProgramTest;
 
@@ -51,7 +52,7 @@ pub fn assert_create_spl_interface(
     );
 
     let counter_data = program_test
-        .account_data(&program_test.spl_asset_counter_pda())
+        .account_data(&pda::spl_asset_counter())
         .expect("counter exists");
     assert_eq!(
         read_le_u64(&counter_data, 0),
@@ -67,7 +68,7 @@ pub fn assert_create_spl_interface(
     );
     assert_eq!(
         &vault_data[TOKEN_ACCOUNT_OWNER_OFFSET..TOKEN_ACCOUNT_OWNER_END],
-        program_test.spl_vault_authority().as_ref(),
+        pda::shielded_pool_cpi_authority().as_ref(),
         "vault owner is the SPL vault authority"
     );
     assert_eq!(program_test.token_balance(vault), Some(0), "vault balance");

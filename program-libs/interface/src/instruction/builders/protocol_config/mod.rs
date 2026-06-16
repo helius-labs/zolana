@@ -6,10 +6,8 @@ use crate::{
     instruction::{
         encode_instruction, tag, CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData,
     },
-    SHIELDED_POOL_PROGRAM_ID,
+    pda, SHIELDED_POOL_PROGRAM_ID,
 };
-
-use super::protocol_config_pda;
 
 /// Initialize the canonical protocol-config PDA. The program creates the PDA via
 /// CPI, so the authority is the rent payer (writable signer) and the system
@@ -19,7 +17,7 @@ pub fn create_protocol_config(authority: Pubkey, data: CreateProtocolConfigData)
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new(authority, true),
-            AccountMeta::new(protocol_config_pda(), false),
+            AccountMeta::new(pda::protocol_config(), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ],
         data: encode_instruction(tag::CREATE_PROTOCOL_CONFIG, &data),
@@ -42,7 +40,7 @@ fn build_config_ix<T: BorshSerialize>(
 ) -> Instruction {
     let mut accounts = vec![
         AccountMeta::new_readonly(authority, true),
-        AccountMeta::new(protocol_config_pda(), false),
+        AccountMeta::new(pda::protocol_config(), false),
     ];
     if let Some(tree) = tree {
         accounts.push(AccountMeta::new(tree, false));

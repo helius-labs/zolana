@@ -6,6 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{create_zone_config as create_zone_config_ix, CreateZoneConfigData},
+    pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -75,10 +76,7 @@ fn create_zone_config(world: &mut ShieldedPoolWorld) {
 
 #[then(expr = "the zone config is owned by the authority and enabled")]
 fn assert_zone_created(world: &mut ShieldedPoolWorld) {
-    let expected_bump = world
-        .rpc()
-        .zone_config_pda(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID))
-        .1;
+    let expected_bump = pda::zone_config(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)).1;
     let authority = world.zone_authority.as_ref().expect("authority").pubkey();
     let state = current_zone_state(world);
     assert_eq!(
@@ -170,8 +168,8 @@ fn new_owner_updates(world: &mut ShieldedPoolWorld) {
 fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
     let payer = world.depositor().insecure_clone();
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
-    let (_, zone_config_bump) = world.rpc().zone_config_pda(&zone_program);
-    let (_, zone_auth_bump) = world.rpc().zone_auth_pda();
+    let (_, zone_config_bump) = pda::zone_config(&zone_program);
+    let (_, zone_auth_bump) = pda::zone_auth(&zone_program);
     let mut ix = create_zone_config_ix(
         payer.pubkey(),
         CreateZoneConfigData {

@@ -7,15 +7,16 @@ use crate::{
         encode_instruction, tag, CreateZoneConfigData, UpdateZoneConfigData,
         UpdateZoneConfigOwnerData,
     },
-    SHIELDED_POOL_PROGRAM_ID, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+    pda, SHIELDED_POOL_PROGRAM_ID,
 };
 
 pub fn create_zone_config(
     payer: Pubkey,
     data: CreateZoneConfigData,
 ) -> Result<Instruction, PubkeyError> {
-    let zone_config = zone_config_pda(&data)?;
-    let zone_auth = zone_auth_pda(&data)?;
+    let zone_program = Pubkey::new_from_array(data.program_id);
+    let zone_config = pda::zone_config_with_bump(&zone_program, data.zone_config_bump)?;
+    let zone_auth = pda::zone_auth_with_bump(&zone_program, data.zone_auth_bump)?;
 
     Ok(Instruction {
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
@@ -59,24 +60,4 @@ fn build_update_ix<T: BorshSerialize>(
         ],
         data: encode_instruction(tag, &data),
     }
-}
-
-fn zone_config_pda(data: &CreateZoneConfigData) -> Result<Pubkey, PubkeyError> {
-    let bump = [data.zone_config_bump];
-    Pubkey::create_program_address(
-        &[
-            SPP_ZONE_CONFIG_PDA_SEED,
-            data.program_id.as_ref(),
-            bump.as_slice(),
-        ],
-        &Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-    )
-}
-
-fn zone_auth_pda(data: &CreateZoneConfigData) -> Result<Pubkey, PubkeyError> {
-    let bump = [data.zone_auth_bump];
-    Pubkey::create_program_address(
-        &[ZONE_AUTH_PDA_SEED, bump.as_slice()],
-        &Pubkey::new_from_array(data.program_id),
-    )
 }

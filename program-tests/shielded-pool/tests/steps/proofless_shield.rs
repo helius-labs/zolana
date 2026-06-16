@@ -4,8 +4,12 @@ use cucumber::{given, then, when};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{
-    tag, CpiSignerData, ProoflessShieldAccounts, ProoflessShieldIxData, PUBLIC_AMOUNT_WITHDRAW_SOL,
+use zolana_interface::{
+    instruction::{
+        tag, CpiSignerData, ProoflessShieldAccounts, ProoflessShieldIxData,
+        PUBLIC_AMOUNT_WITHDRAW_SOL,
+    },
+    pda,
 };
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
@@ -24,7 +28,7 @@ fn sol_accounts(
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
     let mut accounts = ProoflessShieldAccounts::sol(*tree, *depositor).account_metas();
-    accounts[3] = AccountMeta::new(program_test.sol_interface(), false);
+    accounts[3] = AccountMeta::new(pda::sol_interface(), false);
     accounts[5] = AccountMeta::new_readonly(program_test.program_id, false);
     accounts
 }

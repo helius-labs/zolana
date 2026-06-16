@@ -5,7 +5,10 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::instruction::{ProoflessShieldAccounts, ProoflessShieldSplAccounts};
+use zolana_interface::{
+    instruction::{ProoflessShieldAccounts, ProoflessShieldSplAccounts},
+    pda,
+};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -18,7 +21,6 @@ use crate::ShieldedPoolWorld;
 const TOKEN_INSUFFICIENT_FUNDS: u32 = 1;
 
 fn spl_accounts(
-    program_test: &ZolanaProgramTest,
     tree: &Pubkey,
     depositor: &Pubkey,
     user_token: &Pubkey,
@@ -29,8 +31,8 @@ fn spl_accounts(
         *depositor,
         ProoflessShieldSplAccounts {
             user_token: *user_token,
-            vault: program_test.spl_asset_vault_pda(mint),
-            registry: program_test.spl_asset_registry_pda(mint),
+            vault: pda::spl_asset_vault(mint),
+            registry: pda::spl_asset_registry(mint),
             token_program: ZolanaProgramTest::token_program_id(),
         },
     )
@@ -132,7 +134,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let mint = world.mint();
     let user_token = world.user_token();
-    let vault = world.rpc().spl_asset_vault_pda(&mint);
+    let vault = pda::spl_asset_vault(&mint);
     let mut recipient =
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
     let seed = [7u8; BLINDING_LEN];
@@ -183,7 +185,7 @@ fn spl_shield_foreign_token(world: &mut ShieldedPoolWorld) {
         .rpc()
         .mint_to(&mint, &other_token, 1_000_000)
         .expect("mint_to");
-    let accounts = spl_accounts(world.rpc(), &tree, &depositor.pubkey(), &other_token, &mint);
+    let accounts = spl_accounts(&tree, &depositor.pubkey(), &other_token, &mint);
     let err = world
         .rpc()
         .proofless_shield_with_accounts(
@@ -201,12 +203,12 @@ fn spl_shield_non_canonical_vault(world: &mut ShieldedPoolWorld) {
     let mint = world.mint();
     let user_token = world.user_token();
     let depositor = world.depositor().insecure_clone();
-    let spl_vault_authority = world.rpc().spl_vault_authority();
+    let spl_vault_authority = pda::shielded_pool_cpi_authority();
     let decoy_vault = world
         .rpc()
         .create_token_account(&mint, &spl_vault_authority)
         .expect("decoy vault");
-    let mut accounts = spl_accounts(world.rpc(), &tree, &depositor.pubkey(), &user_token, &mint);
+    let mut accounts = spl_accounts(&tree, &depositor.pubkey(), &user_token, &mint);
     accounts[3] = AccountMeta::new(decoy_vault, false);
     let err = world
         .rpc()
@@ -233,7 +235,7 @@ fn spl_shield_mint_mismatch(world: &mut ShieldedPoolWorld) {
         .rpc()
         .mint_to(&mint_b, &token_b, 1_000_000)
         .expect("mint_to");
-    let accounts = spl_accounts(world.rpc(), &tree, &depositor.pubkey(), &token_b, &mint_a);
+    let accounts = spl_accounts(&tree, &depositor.pubkey(), &token_b, &mint_a);
     let err = world
         .rpc()
         .proofless_shield_with_accounts(
