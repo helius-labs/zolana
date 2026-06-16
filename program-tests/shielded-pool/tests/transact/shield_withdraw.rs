@@ -13,63 +13,38 @@
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary; the test skips (does not fail) when it is missing.
 
-#[path = "../common/mod.rs"]
-#[allow(dead_code)] // shared helpers; this target uses only a subset
+#[path = "../common/setup.rs"]
 mod common;
+#[path = "../common/transact.rs"]
+mod transact_common;
 
-use groth16_solana::groth16::Groth16Verifier;
 use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use light_merkle_tree_reference::indexed::IndexedMerkleTree;
 use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::private_transaction::field::{
-    be, hash_chain, right_align_slice, signed_to_field, BN254_MODULUS_DEC,
-};
-use zolana_client::{
-    spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput, TransferInputs,
-    TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
-};
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, InputUtxo, OutputUtxo, TransactIxData,
-};
-use zolana_interface::instruction::tag;
+use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_interface::instruction::transact;
 use zolana_interface::pda;
-use zolana_interface::verifying_keys::transfer_2_3;
-use zolana_keypair::hash::{hash_field, owner_hash};
+use zolana_keypair::hash::owner_hash;
 use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{Data, Utxo, SOL_MINT};
+use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
+
+use crate::transact_common::{
+    build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
+    external_data_hash, fe, ix_output, new_transact_ix_data, nullifier_tree,
+    prove_and_verify_transfer, public_input_hash, public_sol_field, spend_input, start_prover,
+    transfer_output, SpendInputArgs, TransferProverInputsArgs,
+};
 
 const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
 const AMOUNT: u64 = 1_000_000_000;
-
-fn start_prover() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../prover/server/proving-keys"
-            ),
-        );
-    });
-    spawn_prover().expect("start prover");
-}
-
-/// A field element holding `value` in its low 8 bytes (big-endian).
-fn fe(value: u64) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[24..].copy_from_slice(&value.to_be_bytes());
-    out
-}
 
 /// Read on-chain tree roots: the UTXO root at `utxo_index` and the nullifier
 /// root at history index 0, exactly as the program reads them in `apply_tree`.
@@ -82,80 +57,6 @@ fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
     )
 }
 
-fn pack_proof(proof: &Proof) -> [u8; 192] {
-    let compressed = ProofCompressed::try_from(*proof).expect("compress proof");
-    let mut out = [0u8; 192];
-    out[0..32].copy_from_slice(&compressed.a);
-    out[32..96].copy_from_slice(&compressed.b);
-    out[96..128].copy_from_slice(&compressed.c);
-    if let Some(commitment) = compressed.commitment {
-        out[128..160].copy_from_slice(&commitment.commitment);
-        out[160..192].copy_from_slice(&commitment.commitment_pok);
-    }
-    out
-}
-
-/// Mirror of `transact::verify::TransactProof::public_input_hash` for the eddsa
-/// rail, parameterized by the public SOL amount field (non-zero for a withdrawal).
-#[allow(clippy::too_many_arguments)]
-fn transact_public_input_hash(
-    nullifiers: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    utxo_roots: &[[u8; 32]],
-    nullifier_tree_roots: &[[u8; 32]],
-    private_tx: &[u8; 32],
-    external_data_hash: &[u8; 32],
-    public_sol_amount: &[u8; 32],
-    payer_pubkey_hash: &[u8; 32],
-    solana_owner_pk_hashes: &[[u8; 32]],
-) -> [u8; 32] {
-    let zero = [0u8; 32];
-    let chain = [
-        hash_chain(nullifiers).expect("nullifier chain"),
-        hash_chain(output_hashes).expect("output chain"),
-        hash_chain(utxo_roots).expect("utxo root chain"),
-        hash_chain(nullifier_tree_roots).expect("nullifier root chain"),
-        *private_tx,
-        hash_field(&zero).expect("p256 message field"),
-        *external_data_hash,
-        *public_sol_amount,
-        zero, // public_spl_amount
-        zero, // public_spl_asset_pubkey
-        zero, // program_id_hashchain
-        *payer_pubkey_hash,
-        zero, // data_hash
-        zero, // zone_data_hash
-        hash_chain(solana_owner_pk_hashes).expect("owner chain"),
-    ];
-    hash_chain(&chain).expect("public input hash")
-}
-
-/// One circuit-dummy input carrying a chosen nullifier plus the real tree roots
-/// and payer owner hash.
-fn dummy_input(
-    nullifier: &[u8; 32],
-    roots: ([u8; 32], [u8; 32]),
-    owner_hash: &[u8; 32],
-) -> TransferInput {
-    let (utxo_root, nullifier_root) = roots;
-    let zero = [0u8; 32];
-    TransferInput {
-        utxo: UtxoInputs::new_dummy(),
-        is_dummy: be(&fe(1)),
-        state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
-        state_path_index: be(&zero),
-        nullifier_low_value: be(&zero),
-        nullifier_next_value: be(&zero),
-        nullifier_low_path_elements: vec![be(&zero); NULLIFIER_TREE_HEIGHT],
-        nullifier_low_path_index: be(&zero),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
-        nullifier: be(nullifier),
-        solana_owner_pk_hash: be(owner_hash),
-        nullifier_secret: be(&zero),
-    }
-}
-
 struct TransactEnv {
     rpc: ZolanaProgramTest,
     tree: Keypair,
@@ -164,7 +65,7 @@ struct TransactEnv {
 impl TransactEnv {
     fn boot() -> Option<Self> {
         let mut rpc = common::program_test()?;
-        start_prover();
+        start_prover().expect("start prover");
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)
             .expect("create protocol config");
@@ -232,14 +133,7 @@ fn shield_then_withdraw_sol() {
 
     // Nullifier non-inclusion proof (height 40). The reference tree is seeded
     // with the BN254 p-1 sentinel, matching the on-chain NULLIFIER_TREE_INIT_ROOT.
-    let modulus_minus_one =
-        BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("modulus") - 1u32;
-    let nf_tree = IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
-        NULLIFIER_TREE_HEIGHT,
-        0,
-        modulus_minus_one,
-    )
-    .expect("indexed nullifier tree");
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)
@@ -252,22 +146,18 @@ fn shield_then_withdraw_sol() {
     let dummy_nullifier = fe(2);
 
     // The real input spending the shielded UTXO (is_dummy = 0).
-    let real_input = TransferInput {
-        utxo: UtxoInputs::new(&owner_field, &utxo.asset, utxo.amount, &utxo.blinding)
-            .expect("utxo inputs"),
-        is_dummy: be(&fe(0)),
-        state_path_elements: state_path.iter().map(be).collect(),
-        state_path_index: be(&fe(0)),
-        nullifier_low_value: be(&non_inclusion.leaf_lower_range_value),
-        nullifier_next_value: be(&non_inclusion.leaf_higher_range_value),
-        nullifier_low_path_elements: non_inclusion.merkle_proof.iter().map(be).collect(),
-        nullifier_low_path_index: be(&fe(non_inclusion.leaf_index as u64)),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
-        nullifier: be(&nullifier),
-        solana_owner_pk_hash: be(&owner_pk_hash),
-        nullifier_secret: be(&right_align_slice(nullifier_key.secret()).expect("secret")),
-    };
+    let payer_spend_input = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("real input");
 
     // Withdrawal: spend AMOUNT, no change. Recipient is an external SOL account.
     let recipient = Keypair::new().pubkey();
@@ -286,65 +176,26 @@ fn shield_then_withdraw_sol() {
     // is reaped), so read balances with `unwrap_or(0)`.
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
 
-    let dummy_output = || OutputUtxo {
-        view_tag: zero,
-        utxo_hash: zero,
-        data: Vec::new(),
-    };
-
-    let mut ix_data = TransactIxData {
-        proof: [0u8; 192],
-        expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
-        private_tx_hash: zero,
-        inputs: vec![
-            InputUtxo {
-                nullifier_hash: nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 1,
-                tree_index: 0,
-                eddsa_signer_index: 0,
-            },
-            InputUtxo {
-                nullifier_hash: dummy_nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 1,
-                tree_index: 0,
-                eddsa_signer_index: 0,
-            },
+    let mut transact_ix_data = new_transact_ix_data(
+        vec![
+            eddsa_input_utxo(nullifier, 1),
+            eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        public_sol_amount: Some(-(AMOUNT as i64)),
-        public_spl_amount: None,
-        cpi_signer: None,
-        tx_viewing_pk: [0u8; 33],
-        sender_utxo_data: dummy_output(),
-        recipient_utxo_data: vec![dummy_output(), dummy_output()],
-    };
-
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: tag::TRANSACT,
-        expiry_unix_ts: ix_data.expiry_unix_ts,
-        relayer_fee: ix_data.relayer_fee,
-        public_sol_amount: ix_data.public_sol_amount,
-        public_spl_amount: ix_data.public_spl_amount,
-        user_sol_account: &recipient.to_bytes(),
-        user_spl_token_account: &zero,
-        spl_token_interface: &zero,
-        cpi_signer: ix_data.cpi_signer,
-        sender_utxo_data: &ix_data.sender_utxo_data,
-        recipient_utxo_data: &ix_data.recipient_utxo_data,
-    }
-    .hash()
-    .expect("external data hash");
+        Some(-(AMOUNT as i64)),
+        dummy_ix_output(),
+        vec![dummy_ix_output(); 2],
+    );
+    let external_data_hash =
+        external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
     let private_tx = private_tx_hash(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
         .expect("private tx hash");
-    let public_sol_field = signed_to_field(-(AMOUNT as i128));
+    let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
-    let public_input_hash = transact_public_input_hash(
+    let public_input_hash = public_input_hash(
         &[nullifier, dummy_nullifier],
         &[zero, zero, zero],
         &[utxo_root, utxo_root],
@@ -356,55 +207,28 @@ fn shield_then_withdraw_sol() {
         &[owner_pk_hash, owner_pk_hash],
     );
 
-    let witness = TransferInputs {
+    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
-            real_input,
+            payer_spend_input,
             dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
         ],
-        outputs: vec![
-            TransferOutput::new_dummy(),
-            TransferOutput::new_dummy(),
-            TransferOutput::new_dummy(),
-        ],
-        external_data_hash: be(&external_data_hash),
-        private_tx_hash: be(&private_tx),
-        public_sol_amount: be(&public_sol_field),
-        public_spl_amount: be(&zero),
-        public_spl_asset_pubkey: be(&zero),
-        program_id_hashchain: be(&zero),
-        payer_pubkey_hash: be(&payer_pubkey_hash),
-        data_hash: be(&zero),
-        zone_data_hash: be(&zero),
-        public_input_hash: be(&public_input_hash),
-    };
-
-    let proof = ProverClient::local()
-        .prove_transfer(&witness)
-        .expect("prove transact");
-
-    let public_inputs = [public_input_hash];
-    let mut verifier = Groth16Verifier::new(
-        &proof.a,
-        &proof.b,
-        &proof.c,
-        &public_inputs,
-        &transfer_2_3::VERIFYINGKEY,
-    )
-    .expect("construct verifier");
-    verifier.verify().expect("groth16 proof verifies");
-
-    ix_data.proof = pack_proof(&proof);
-    ix_data.private_tx_hash = private_tx;
+        outputs: vec![TransferOutput::new_dummy(); 3],
+        external_data_hash,
+        private_tx_hash: private_tx,
+        public_sol_amount: public_sol_field,
+        payer_pubkey_hash,
+        public_input_hash,
+    });
+    transact_ix_data.proof =
+        prove_and_verify_transfer(&prover_inputs, public_input_hash, "withdraw")
+            .expect("prove withdraw");
+    transact_ix_data.private_tx_hash = private_tx;
 
     // SOL withdrawal account layout: payer (signer/owner), tree, sol_interface
     // (the SOL-custody PDA), recipient, then the system program (settle_sol
     // Transfer CPI) and the program (emit_event self-CPI).
-    let bytes = ix_data.serialize().expect("serialize transact ix data");
-    let mut instruction_data = vec![tag::TRANSACT];
-    instruction_data.extend_from_slice(&bytes);
-    let ix = Instruction {
-        program_id: env.rpc.program_id,
-        accounts: vec![
+    let ix = transact(
+        vec![
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new(tree, false),
             AccountMeta::new(vault, false),
@@ -412,8 +236,8 @@ fn shield_then_withdraw_sol() {
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             AccountMeta::new_readonly(env.rpc.program_id, false),
         ],
-        data: instruction_data,
-    };
+        &transact_ix_data,
+    );
 
     let result = env
         .rpc
@@ -428,4 +252,331 @@ fn shield_then_withdraw_sol() {
         "recipient credited"
     );
     assert_eq!(vault_after, vault_before - AMOUNT, "vault debited");
+}
+
+#[test]
+fn shield_transfer_then_withdraw_sol() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    const TRANSFER_AMOUNT: u64 = 400_000_000;
+    const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
+
+    let tree = env.tree.pubkey();
+    let payer = env.rpc.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
+    let recipient_owner = Keypair::new();
+    env.rpc
+        .airdrop(&recipient_owner.pubkey(), 1_000_000)
+        .expect("airdrop recipient owner");
+    let zero = [0u8; 32];
+
+    // 1. Shield into a Solana-owned UTXO controlled by the payer.
+    let payer_blinding: [u8; 31] = [7u8; 31];
+    let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let payer_nullifier_pk = payer_nullifier_key.pubkey().expect("payer nullifier pk");
+    let payer_utxo = Utxo {
+        owner: PublicKey::from_ed25519(&payer_bytes),
+        asset: SOL_MINT,
+        amount: AMOUNT,
+        blinding: payer_blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let payer_owner_pk_hash = payer_utxo.owner.hash().expect("payer owner pk hash");
+    let payer_owner_field =
+        owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
+
+    let owner_utxo_h = payer_utxo
+        .owner_utxo_hash(&payer_nullifier_pk)
+        .expect("payer owner utxo hash");
+    let event = env
+        .rpc
+        .proofless_shield_sol(&tree, &payer, AMOUNT, owner_utxo_h)
+        .expect("proofless shield");
+    let payer_utxo_hash = payer_utxo
+        .hash(&payer_nullifier_pk, &zero, &zero)
+        .expect("payer utxo hash");
+    assert_eq!(payer_utxo_hash, event.utxo_hash);
+
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree
+        .append(&payer_utxo_hash)
+        .expect("append shield leaf");
+    let (shield_utxo_root, nullifier_root) = on_chain_roots(&env.rpc, &tree, 1);
+    assert_eq!(state_tree.root(), shield_utxo_root, "shield root gate");
+
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+
+    let payer_nullifier = payer_nullifier_key
+        .nullifier(&payer_utxo_hash, &payer_blinding)
+        .expect("payer nullifier");
+    let payer_non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&payer_nullifier))
+        .expect("payer non inclusion proof");
+    let payer_state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("payer state proof")
+        .to_vec();
+    let payer_spend_input = spend_input(SpendInputArgs {
+        utxo: &payer_utxo,
+        owner_field: &payer_owner_field,
+        state_path: &payer_state_path,
+        state_path_index: 0,
+        non_inclusion: &payer_non_inclusion,
+        roots: (shield_utxo_root, nullifier_root),
+        nullifier: &payer_nullifier,
+        owner_pk_hash: &payer_owner_pk_hash,
+        nullifier_key: &payer_nullifier_key,
+    })
+    .expect("payer real input");
+
+    // 2. Pure shielded transfer: payer keeps change, recipient gets one UTXO.
+    let recipient_bytes = recipient_owner.pubkey().to_bytes();
+    let recipient_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let recipient_nullifier_pk = recipient_nullifier_key
+        .pubkey()
+        .expect("recipient nullifier pk");
+    let recipient_public_key = PublicKey::from_ed25519(&recipient_bytes);
+    let recipient_owner_field =
+        owner_hash(&recipient_public_key, &recipient_nullifier_pk).expect("recipient owner field");
+
+    let change_output = OutputUtxo {
+        owner_hash: payer_owner_field,
+        asset: SOL_MINT,
+        amount: CHANGE_AMOUNT,
+        blinding: [13u8; 31],
+        ..Default::default()
+    };
+    let recipient_output = OutputUtxo {
+        owner_hash: recipient_owner_field,
+        asset: SOL_MINT,
+        amount: TRANSFER_AMOUNT,
+        blinding: [17u8; 31],
+        ..Default::default()
+    };
+    let change_hash = change_output.hash().expect("change output hash");
+    let recipient_hash = recipient_output.hash().expect("recipient output hash");
+    let transfer_dummy_nullifier = fe(20);
+    let transfer_roots = (shield_utxo_root, nullifier_root);
+
+    let mut transfer_ix_data = new_transact_ix_data(
+        vec![
+            eddsa_input_utxo(payer_nullifier, 1),
+            eddsa_input_utxo(transfer_dummy_nullifier, 1),
+        ],
+        None,
+        ix_output([1u8; 32], change_hash),
+        vec![ix_output([2u8; 32], recipient_hash), dummy_ix_output()],
+    );
+    let transfer_external_hash =
+        external_data_hash(&transfer_ix_data, &zero).expect("transfer external data hash");
+    let transfer_private_tx = private_tx_hash(
+        &[payer_utxo_hash, zero],
+        &[change_hash, recipient_hash, zero],
+        &transfer_external_hash,
+    )
+    .expect("transfer private tx hash");
+    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let transfer_public_input_hash = public_input_hash(
+        &[payer_nullifier, transfer_dummy_nullifier],
+        &[change_hash, recipient_hash, zero],
+        &[shield_utxo_root, shield_utxo_root],
+        &[nullifier_root, nullifier_root],
+        &transfer_private_tx,
+        &transfer_external_hash,
+        &zero,
+        &payer_pubkey_hash,
+        &[payer_owner_pk_hash, payer_owner_pk_hash],
+    );
+    let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+        inputs: vec![
+            payer_spend_input,
+            dummy_input(
+                &transfer_dummy_nullifier,
+                transfer_roots,
+                &payer_owner_pk_hash,
+            ),
+        ],
+        outputs: vec![
+            transfer_output(&change_output).expect("change transfer output"),
+            transfer_output(&recipient_output).expect("recipient transfer output"),
+            TransferOutput::new_dummy(),
+        ],
+        external_data_hash: transfer_external_hash,
+        private_tx_hash: transfer_private_tx,
+        public_sol_amount: zero,
+        payer_pubkey_hash,
+        public_input_hash: transfer_public_input_hash,
+    });
+    transfer_ix_data.proof = prove_and_verify_transfer(
+        &transfer_prover_inputs,
+        transfer_public_input_hash,
+        "transfer",
+    )
+    .expect("prove transfer");
+    transfer_ix_data.private_tx_hash = transfer_private_tx;
+
+    let transfer_ix = transact(
+        vec![
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(env.rpc.program_id, false),
+        ],
+        &transfer_ix_data,
+    );
+    let result = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[transfer_ix], &[]);
+    assert!(result.is_ok(), "shielded transfer failed: {result:?}");
+
+    state_tree.append(&change_hash).expect("append change leaf");
+    state_tree
+        .append(&recipient_hash)
+        .expect("append recipient leaf");
+    state_tree.append(&zero).expect("append dummy leaf");
+    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&env.rpc, &tree, 4);
+    assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
+    assert_eq!(transfer_nullifier_root, nullifier_root);
+
+    // 3. Withdraw the transferred recipient UTXO to a public SOL account.
+    let recipient_utxo = Utxo {
+        owner: recipient_public_key,
+        asset: SOL_MINT,
+        amount: TRANSFER_AMOUNT,
+        blinding: recipient_output.blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    assert_eq!(
+        recipient_hash,
+        recipient_utxo
+            .hash(&recipient_nullifier_pk, &zero, &zero)
+            .expect("recipient utxo hash")
+    );
+    let recipient_owner_pk_hash = recipient_utxo
+        .owner
+        .hash()
+        .expect("recipient owner pk hash");
+    let recipient_nullifier = recipient_nullifier_key
+        .nullifier(&recipient_hash, &recipient_utxo.blinding)
+        .expect("recipient nullifier");
+    let recipient_non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&recipient_nullifier))
+        .expect("recipient non inclusion proof");
+    let recipient_state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(2, true)
+        .expect("recipient state proof")
+        .to_vec();
+    let recipient_spend_input = spend_input(SpendInputArgs {
+        utxo: &recipient_utxo,
+        owner_field: &recipient_owner_field,
+        state_path: &recipient_state_path,
+        state_path_index: 2,
+        non_inclusion: &recipient_non_inclusion,
+        roots: (transfer_utxo_root, transfer_nullifier_root),
+        nullifier: &recipient_nullifier,
+        owner_pk_hash: &recipient_owner_pk_hash,
+        nullifier_key: &recipient_nullifier_key,
+    })
+    .expect("recipient real input");
+
+    let public_recipient = Keypair::new().pubkey();
+    env.rpc
+        .airdrop(&public_recipient, 1_000_000)
+        .expect("airdrop public recipient");
+    let public_recipient_before = env
+        .rpc
+        .svm
+        .get_balance(&public_recipient)
+        .expect("public recipient balance");
+    let vault = pda::sol_interface();
+    let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
+    let withdraw_dummy_nullifier = fe(21);
+
+    let mut withdraw_ix_data = new_transact_ix_data(
+        vec![
+            eddsa_input_utxo(recipient_nullifier, 4),
+            eddsa_input_utxo(withdraw_dummy_nullifier, 4),
+        ],
+        Some(-(TRANSFER_AMOUNT as i64)),
+        dummy_ix_output(),
+        vec![dummy_ix_output(); 2],
+    );
+    let withdraw_external_hash =
+        external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())
+            .expect("withdraw external data hash");
+    let withdraw_private_tx = private_tx_hash(
+        &[recipient_hash, zero],
+        &[zero, zero, zero],
+        &withdraw_external_hash,
+    )
+    .expect("withdraw private tx hash");
+    let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
+    let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes).expect("recipient payer hash");
+    let withdraw_public_input_hash = public_input_hash(
+        &[recipient_nullifier, withdraw_dummy_nullifier],
+        &[zero, zero, zero],
+        &[transfer_utxo_root, transfer_utxo_root],
+        &[transfer_nullifier_root, transfer_nullifier_root],
+        &withdraw_private_tx,
+        &withdraw_external_hash,
+        &public_sol_field,
+        &recipient_pubkey_hash,
+        &[recipient_owner_pk_hash, recipient_owner_pk_hash],
+    );
+    let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+        inputs: vec![
+            recipient_spend_input,
+            dummy_input(
+                &withdraw_dummy_nullifier,
+                (transfer_utxo_root, transfer_nullifier_root),
+                &recipient_owner_pk_hash,
+            ),
+        ],
+        outputs: vec![TransferOutput::new_dummy(); 3],
+        external_data_hash: withdraw_external_hash,
+        private_tx_hash: withdraw_private_tx,
+        public_sol_amount: public_sol_field,
+        payer_pubkey_hash: recipient_pubkey_hash,
+        public_input_hash: withdraw_public_input_hash,
+    });
+    withdraw_ix_data.proof = prove_and_verify_transfer(
+        &withdraw_prover_inputs,
+        withdraw_public_input_hash,
+        "withdraw",
+    )
+    .expect("prove withdraw");
+    withdraw_ix_data.private_tx_hash = withdraw_private_tx;
+
+    let withdraw_ix = transact(
+        vec![
+            AccountMeta::new(recipient_owner.pubkey(), true),
+            AccountMeta::new(tree, false),
+            AccountMeta::new(vault, false),
+            AccountMeta::new(public_recipient, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            AccountMeta::new_readonly(env.rpc.program_id, false),
+        ],
+        &withdraw_ix_data,
+    );
+    let result = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[withdraw_ix], &[&recipient_owner]);
+    assert!(result.is_ok(), "withdraw after transfer failed: {result:?}");
+
+    let public_recipient_after = env.rpc.svm.get_balance(&public_recipient).unwrap_or(0);
+    let vault_after = env.rpc.svm.get_balance(&vault).unwrap_or(0);
+    assert_eq!(
+        public_recipient_after,
+        public_recipient_before + TRANSFER_AMOUNT,
+        "public recipient credited"
+    );
+    assert_eq!(
+        vault_after,
+        vault_before - TRANSFER_AMOUNT,
+        "vault debited by transferred amount"
+    );
 }
