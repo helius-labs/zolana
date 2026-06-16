@@ -1,5 +1,6 @@
 use pinocchio::error::ProgramError;
 use thiserror::Error;
+use zolana_tree::TreeError;
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
 ///
@@ -46,6 +47,15 @@ pub enum ShieldedPoolError {
 impl From<ShieldedPoolError> for ProgramError {
     fn from(error: ShieldedPoolError) -> Self {
         ProgramError::Custom(error as u32)
+    }
+}
+
+impl From<TreeError> for ShieldedPoolError {
+    fn from(error: TreeError) -> Self {
+        match error {
+            TreeError::Paused => ShieldedPoolError::TreePaused,
+            _ => ShieldedPoolError::InvalidTreeAccounts,
+        }
     }
 }
 

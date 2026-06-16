@@ -15,3 +15,4 @@ solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true }
 wincode = { workspace = true }
+zolana-tree = { workspace = true }

@@ -47,7 +47,7 @@ pub fn create_tree_instructions<R: Rpc>(
             account_size,
             &pda::shielded_pool_program_id(),
         ),
-        create_tree(*authority, *tree),
+        create_tree(*authority, *tree, *authority),
     ])
 }
 

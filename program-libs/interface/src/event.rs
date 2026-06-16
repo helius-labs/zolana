@@ -1,30 +1,34 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_pubkey::Pubkey;
 
-use crate::instruction::tag;
+use crate::instruction::{tag, OutputUtxo};
 
+/// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
+/// instructions (spec: General Event). It records the queue sequence numbers and
+/// leaf indices assigned at execution, which are absent from instruction data,
+/// so an indexer can reconstruct nullifier insertions and UTXO appends.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct GeneralEvent {
     pub inputs: Vec<Input>,
-    pub outputs: Vec<Output>,
+    pub outputs: Vec<OutputUtxo>,
+    /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
+    /// indexer can decrypt without parsing the opaque payloads. Zeroed for
+    /// proofless shields, which carry no shared viewing key.
+    pub tx_viewing_pk: [u8; 33],
+    /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
     pub relay_fee: Option<u64>,
+    /// `Some` for shield/unshield, `None` for shielded transfer.
     pub deposit_withdraw: Option<DepositWithdraw>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+/// One spent input. Inputs may originate from different trees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct Input {
     pub tree: [u8; 32],
     pub input_queue_seq: u64,
     pub nullifier: [u8; 32],
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct Output {
-    pub tag: [u8; 32],
-    pub hash: [u8; 32],
-    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -110,21 +114,42 @@ pub enum EventDecodeError {
     MissingInstructionTag,
     InvalidInstructionTag(u8),
     InvalidPayload,
+    InvalidEventKind(u8),
     InvalidOutputData,
     MissingOutput,
     MissingDepositWithdraw,
 }
 
-pub fn encode_event_instruction(event: &GeneralEvent) -> Vec<u8> {
-    let mut data = vec![tag::EMIT_EVENT];
+/// First payload byte after `EMIT_EVENT`: names the emitting instruction so an
+/// indexer can dispatch (and version) the borsh body without trial-parsing.
+/// Every kind currently carries a [`GeneralEvent`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EventKind {
+    ProoflessShield = 1,
+    Transact = 2,
+}
+
+impl EventKind {
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            1 => Some(Self::ProoflessShield),
+            2 => Some(Self::Transact),
+            _ => None,
+        }
+    }
+}
+
+pub fn encode_event_instruction(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {
+    let mut data = vec![tag::EMIT_EVENT, kind as u8];
     event
         .serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
     data
 }
 
-pub fn encode_event_payload(event: &GeneralEvent) -> Vec<u8> {
-    let mut data = Vec::new();
+pub fn encode_event_payload(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {
+    let mut data = vec![kind as u8];
     event
         .serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
@@ -142,7 +167,14 @@ pub fn decode_event_instruction(data: &[u8]) -> Result<GeneralEvent, EventDecode
 }
 
 pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
-    GeneralEvent::try_from_slice(payload).map_err(|_| EventDecodeError::InvalidPayload)
+    let (&kind_byte, event_bytes) = payload
+        .split_first()
+        .ok_or(EventDecodeError::InvalidPayload)?;
+    // Validate the kind envelope up front; every known kind currently decodes to
+    // a `GeneralEvent`, so dispatch is a single arm until a kind needs its own
+    // payload struct.
+    EventKind::from_byte(kind_byte).ok_or(EventDecodeError::InvalidEventKind(kind_byte))?;
+    GeneralEvent::try_from_slice(event_bytes).map_err(|_| EventDecodeError::InvalidPayload)
 }
 
 pub fn encode_output_data(data: &OutputData) -> Vec<u8> {
@@ -173,8 +205,8 @@ pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldView, Eve
     }
 
     Ok(ProoflessShieldView {
-        view_tag: output.tag,
-        utxo_hash: output.hash,
+        view_tag: output.view_tag,
+        utxo_hash: output.utxo_hash,
         asset: deposit_withdraw.asset.unwrap_or([0u8; 32]),
         amount: deposit_withdraw.amount,
         zone_program_id: proofless.zone_program_id,

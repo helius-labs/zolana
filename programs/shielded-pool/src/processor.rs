@@ -1,9 +1,9 @@
 use borsh::BorshDeserialize;
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::{
-    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
-    PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+    tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateTreeData,
+    CreateZoneConfigData, PauseTreeData, ProoflessShieldIxData, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
 };
 
 use crate::{
@@ -18,6 +18,7 @@ use crate::{
             process_update_protocol_config, process_update_zone_config,
             process_update_zone_config_owner,
         },
+        transact::process_transact_ix,
     },
 };
 
@@ -60,6 +61,9 @@ pub fn process_instruction(
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
+    if !address_eq(program_id, &crate::ID) {
+        return Err(ProgramError::IncorrectProgramId);
+    }
     let (ix_tag, payload) = instruction_data
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
@@ -68,8 +72,15 @@ pub fn process_instruction(
         return Ok(());
     }
 
+    // `transact` parses the raw payload itself (it reads the proof prefix and
+    // computes the external-data hash over the trailing bytes), so it does not
+    // fit the parse-then-dispatch macro arms.
+    if *ix_tag == tag::TRANSACT {
+        return process_transact_ix(program_id, accounts, payload);
+    }
+
     dispatch!(*ix_tag, payload, program_id, accounts, {
-        tag::CREATE_TREE => process_create_tree,
+        tag::CREATE_TREE => (CreateTreeData, process_create_tree),
         tag::BATCH_UPDATE_NULLIFIER_TREE => (BatchUpdateNullifierTreeData, process_batch_update_nullifier_tree),
         tag::PROOFLESS_SHIELD => (wincode ProoflessShieldIxData, process_proofless_shield),
         tag::ZONE_PROOFLESS_SHIELD => (wincode ZoneProoflessShieldIxData, process_zone_proofless_shield),

@@ -9,3 +9,4 @@ pub use processor::process_instruction;
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
+pinocchio::address::declare_id!("8nhL4dQgcddkc8cNV5piaZ1zKGowap1XrS8EDKi4rywq");

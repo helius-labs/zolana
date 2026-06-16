@@ -442,11 +442,11 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
     vec![
         field("expiry_unix_ts", data.expiry_unix_ts),
         field("relayer_fee", data.relayer_fee),
-        field("public_amount_mode", data.public_amount_mode),
-        field("public_amount", option_u64(data.public_amount)),
         field("inputs", data.inputs.len()),
-        field("output_utxo_hashes", data.output_utxo_hashes.len()),
-        field("requires_p256", data.requires_p256),
+        field("public_sol_amount", option_i64(data.public_sol_amount)),
+        field("public_spl_amount", option_i64(data.public_spl_amount)),
+        field("recipient_utxo_data", data.recipient_utxo_data.len()),
+        field("cpi_signer", data.cpi_signer.is_some()),
     ]
 }
 
@@ -573,6 +573,12 @@ fn option_hash(value: Option<[u8; 32]>) -> String {
 }
 
 fn option_u64(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "None".to_string())
+}
+
+fn option_i64(value: Option<i64>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "None".to_string())

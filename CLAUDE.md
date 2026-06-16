@@ -369,3 +369,6 @@ only (empty `committed_wires`). Committing a **public** input (e.g.
 The worktree may contain user changes. Do not revert unrelated edits. Keep PRs
 small when possible: protocol/program changes, tooling cleanup, and prover
 renames should be split unless the task explicitly asks for a combined change.
+
+## Solana account deserialization
+- never deserialize an account twice

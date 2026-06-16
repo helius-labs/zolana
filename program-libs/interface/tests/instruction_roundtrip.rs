@@ -3,14 +3,13 @@ use zolana_interface::{
     event::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
         encode_event_payload, encode_output_data, indexed_events_from_instruction_groups,
-        proofless_output, DepositWithdraw, EventDecodeError, GeneralEvent, InstructionGroup,
-        Output, OutputData, ParsedInstruction, ProoflessOutput,
+        proofless_output, DepositWithdraw, EventDecodeError, EventKind, GeneralEvent,
+        InstructionGroup, OutputData, ParsedInstruction, ProoflessOutput,
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-        CreateZoneConfigData, InputUtxoSignerIndex, InstructionTag, PauseTreeData, TransactInput,
-        TransactIxData, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        PUBLIC_AMOUNT_DEPOSIT_SPL,
+        CreateZoneConfigData, InstructionTag, OutputUtxo, PauseTreeData, UpdateProtocolConfigData,
+        UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     },
 };
 
@@ -44,50 +43,13 @@ fn batch_update_nullifier_tree_roundtrip() {
 }
 
 #[test]
-fn transact_roundtrip() {
-    let payload = TransactIxData {
-        expiry_unix_ts: 123,
-        sender_view_tag: [1u8; 32],
-        proof: [2u8; 192],
-        private_tx_hash: [9u8; 32],
-        relayer_fee: 3,
-        public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
-        requires_p256: true,
-        public_amount: Some(10),
-        cpi_signer: None,
-        inputs: vec![
-            TransactInput {
-                nullifier: [4u8; 32],
-                utxo_tree_root_index: 7,
-                nullifier_tree_root_index: 8,
-            },
-            TransactInput {
-                nullifier: [14u8; 32],
-                utxo_tree_root_index: 17,
-                nullifier_tree_root_index: 18,
-            },
-        ],
-        output_utxo_hashes: vec![[5u8; 32], [6u8; 32]],
-        in_utxo_signer_indices: Some(vec![InputUtxoSignerIndex {
-            account_index: 1,
-            input_index: 0,
-        }]),
-        encrypted_utxos: vec![12, 13],
-    };
-    let bytes = payload.serialize().unwrap();
-    let decoded = TransactIxData::deserialize(&bytes).unwrap();
-
-    assert_eq!(InstructionTag::try_from(tag::TRANSACT), Err(()));
-    assert_eq!(decoded, payload);
-}
-
-#[test]
 fn general_event_roundtrip() {
     let event = sample_event();
-    let instruction = encode_event_instruction(&event);
-    let payload = encode_event_payload(&event);
+    let instruction = encode_event_instruction(EventKind::ProoflessShield, &event);
+    let payload = encode_event_payload(EventKind::ProoflessShield, &event);
 
     assert_eq!(instruction[0], tag::EMIT_EVENT);
+    assert_eq!(instruction[1], EventKind::ProoflessShield as u8);
     assert_eq!(payload, instruction[1..]);
     assert_eq!(decode_event_instruction(&instruction), Ok(event.clone()));
     assert_eq!(decode_event_payload(&payload), Ok(event));
@@ -115,7 +77,7 @@ fn event_parser_indexes_direct_proofless_self_emit() {
         inner: vec![ParsedInstruction::new(
             spp,
             Vec::new(),
-            encode_event_instruction(&event),
+            encode_event_instruction(EventKind::ProoflessShield, &event),
             Some(2),
         )],
     };
@@ -131,7 +93,7 @@ fn event_parser_ignores_direct_emit_event() {
     let spp = Pubkey::new_unique();
     let event = sample_event();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(1)),
+        outer: ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(1)),
         inner: Vec::new(),
     };
 
@@ -149,8 +111,8 @@ fn event_parser_rejects_wrapper_sibling_emit_event() {
         outer: parsed_ix(zone, tag::ZONE_PROOFLESS_SHIELD, Some(1)),
         inner: vec![
             parsed_ix(spp, tag::ZONE_PROOFLESS_SHIELD, Some(2)),
-            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(3)),
-            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(&event), Some(2)),
+            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(3)),
+            ParsedInstruction::new(spp, Vec::new(), encode_event_instruction(EventKind::ProoflessShield, &event), Some(2)),
         ],
     };
 
@@ -176,14 +138,23 @@ fn event_decoder_rejects_bad_envelope() {
         decode_event_payload(&[]),
         Err(EventDecodeError::InvalidPayload)
     );
+    // An unknown kind byte is rejected before the borsh body is parsed.
+    assert_eq!(
+        decode_event_payload(&[0xff]),
+        Err(EventDecodeError::InvalidEventKind(0xff))
+    );
+    assert_eq!(
+        decode_event_instruction(&[tag::EMIT_EVENT, 0xff]),
+        Err(EventDecodeError::InvalidEventKind(0xff))
+    );
 }
 
 fn sample_event() -> GeneralEvent {
     GeneralEvent {
         inputs: Vec::new(),
-        outputs: vec![Output {
-            tag: [1u8; 32],
-            hash: [2u8; 32],
+        outputs: vec![OutputUtxo {
+            view_tag: [1u8; 32],
+            utxo_hash: [2u8; 32],
             data: encode_output_data(&OutputData::Proofless(ProoflessOutput {
                 owner_utxo_hash: [6u8; 32],
                 salt: [7u8; 16],
@@ -194,6 +165,7 @@ fn sample_event() -> GeneralEvent {
                 zone_data: Some(vec![11, 12]),
             })),
         }],
+        tx_viewing_pk: [0u8; 33],
         first_output_leaf_index: 9,
         output_tree: [10u8; 32],
         relay_fee: None,

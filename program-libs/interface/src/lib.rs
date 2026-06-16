@@ -17,10 +17,8 @@ macro_rules! pubkey_array {
 pub const UTXO_DOMAIN: u16 = 1;
 
 /// Development program id for the shielded-pool program.
-pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] = [
-    6, 111, 11, 97, 110, 97, 95, 115, 104, 105, 101, 108, 100, 101, 100, 95, 112, 111, 111, 108,
-    95, 118, 48, 95, 95, 95, 95, 95, 95, 95, 95, 1,
-];
+pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
+    pubkey_array!("8nhL4dQgcddkc8cNV5piaZ1zKGowap1XrS8EDKi4rywq");
 
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
