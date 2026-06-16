@@ -2456,7 +2456,7 @@ dependencies = [
 [[package]]
 name = "light-account-checks"
 version = "0.8.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "solana-account-view 2.0.0",
  "solana-address 2.6.1",
@@ -2467,7 +2467,7 @@ dependencies = [
 [[package]]
 name = "light-batched-merkle-tree"
 version = "0.11.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "aligned-sized",
  "borsh",
@@ -2489,7 +2489,7 @@ dependencies = [
 [[package]]
 name = "light-bloom-filter"
 version = "0.6.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "bitvec",
  "num-bigint 0.4.6",
@@ -2501,7 +2501,7 @@ dependencies = [
 [[package]]
 name = "light-hasher"
 version = "5.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -2518,7 +2518,7 @@ dependencies = [
 [[package]]
 name = "light-indexed-array"
 version = "0.3.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "light-hasher",
  "num-bigint 0.4.6",
@@ -2529,7 +2529,7 @@ dependencies = [
 [[package]]
 name = "light-instruction-decoder"
 version = "0.23.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "borsh",
  "bs58",
@@ -2544,7 +2544,7 @@ dependencies = [
 [[package]]
 name = "light-instruction-decoder-derive"
 version = "0.4.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "bs58",
  "darling 0.21.3",
@@ -2558,7 +2558,7 @@ dependencies = [
 [[package]]
 name = "light-merkle-tree-metadata"
 version = "0.11.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -2571,7 +2571,7 @@ dependencies = [
 [[package]]
 name = "light-merkle-tree-reference"
 version = "4.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "light-hasher",
  "light-indexed-array",
@@ -2620,7 +2620,7 @@ dependencies = [
 [[package]]
 name = "light-verifier"
 version = "10.0.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "borsh",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=4e6cacff2f4ff53744fda0509f5e62545fd99aa6)",
@@ -2630,7 +2630,7 @@ dependencies = [
 [[package]]
 name = "light-zero-copy-vec"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"
 dependencies = [
  "solana-program-error",
  "wincode",
@@ -3977,6 +3977,8 @@ dependencies = [
  "cucumber",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "light-hasher",
+ "light-merkle-tree-reference",
+ "num-bigint 0.4.6",
  "shielded-pool-program",
  "solana-instruction",
  "solana-keypair",
@@ -7482,4 +7484,4 @@ dependencies = [
 [[patch.unused]]
 name = "light-macros"
 version = "2.2.0"
-source = "git+https://github.com/helius-labs/privacy-program-libs?rev=4fc052193024c878827f5c1329ef8da29291e260#4fc052193024c878827f5c1329ef8da29291e260"
+source = "git+https://github.com/helius-labs/privacy-program-libs?rev=dfaf338a92d746e41349706ab9f2b53280fc0673#dfaf338a92d746e41349706ab9f2b53280fc0673"

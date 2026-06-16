@@ -39,8 +39,8 @@ pub const SPL_ASSET_VAULT_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
 pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
-    85, 90, 130, 119, 99, 189, 124, 34, 25, 77, 186, 49, 37, 53, 39, 49, 7, 137, 62, 163, 187, 111,
-    36, 84, 136, 126, 165, 236, 8, 174, 36, 5,
+    156, 38, 12, 194, 254, 142, 150, 51, 213, 49, 20, 162, 117, 210, 37, 253, 125, 142, 232, 230,
+    4, 70, 84, 211, 121, 225, 145, 223, 38, 139, 193, 58,
 ];
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.

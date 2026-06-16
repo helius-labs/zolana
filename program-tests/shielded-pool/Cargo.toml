@@ -29,6 +29,8 @@ bytemuck = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
 light-hasher = { workspace = true }
+light-merkle-tree-reference = { workspace = true }
+num-bigint = { workspace = true }
 tokio = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
@@ -45,3 +47,7 @@ required-features = ["localnet"]
 [[test]]
 name = "transact"
 path = "tests/transact/transact.rs"
+
+[[test]]
+name = "shield_withdraw"
+path = "tests/transact/shield_withdraw.rs"

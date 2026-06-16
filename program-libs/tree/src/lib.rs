@@ -5,7 +5,7 @@ pub use light_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccou
 pub use smt::{SparseMerkleTree, TreeError};
 
 use light_batched_merkle_tree::initialize_address_tree::{
-    get_address_merkle_tree_account_size_from_params, init_batched_address_merkle_tree_account,
+    get_address_merkle_tree_account_size_from_params, init_batched_nullifier_merkle_tree_account,
 };
 use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use pinocchio::{AccountView, Address};
@@ -87,7 +87,7 @@ impl<'a> TreeAccount<'a> {
         SparseMerkleTree::init(utxo_bytes, utxo_tree_height as usize)?;
         let utxo_tree = SparseMerkleTree::from_bytes_mut(utxo_bytes)?;
 
-        let nullifer_tree = init_batched_address_merkle_tree_account(
+        let nullifer_tree = init_batched_nullifier_merkle_tree_account(
             owner.into(),
             nullifier_params,
             nullifier_bytes,
