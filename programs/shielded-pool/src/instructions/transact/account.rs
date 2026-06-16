@@ -14,7 +14,6 @@ use crate::error::ShieldedPoolError;
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub tree: &'a mut AccountView,
-    pub cpi_signer: Option<&'a AccountView>,
     pub settlement: Option<Settlement<'a>>,
 }
 
@@ -47,13 +46,10 @@ impl<'a> TransactAccounts<'a> {
         let payer: &AccountView = iter.next_signer("payer")?;
         let tree = iter.next_mut("tree")?;
 
-        let cpi_signer = if let Some(signer) = ix.cpi_signer.as_ref() {
+        if let Some(signer) = ix.cpi_signer.as_ref() {
             let account: &AccountView = iter.next_signer("cpi_signer")?;
             verify_cpi_signer_pda(account.address(), signer)?;
-            Some(account)
-        } else {
-            None
-        };
+        }
 
         let settlement = if ix.is_deposit_or_withdrawal() {
             let cpi_authority = if ix.is_deposit() {
@@ -87,7 +83,6 @@ impl<'a> TransactAccounts<'a> {
         Ok(Self {
             payer,
             tree,
-            cpi_signer,
             settlement,
         })
     }
