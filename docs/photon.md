@@ -27,12 +27,12 @@ Generalize:
 Add:
 
 - `transaction_protocols`
-- `spp_shielded_transactions`
-- `spp_shielded_transaction_payloads`
-- `spp_outputs`
-- `spp_output_payloads`
-- `spp_proofless_outputs`
-- `spp_tx_nullifiers`
+- `pocket_transactions`
+- `pocket_transaction_payloads`
+- `pocket_outputs`
+- `pocket_output_payloads`
+- `pocket_proofless_outputs`
+- `pocket_tx_nullifiers`
 
 ## ERD
 
@@ -40,7 +40,7 @@ Add:
 erDiagram
     blocks ||--o{ transactions : contains
     transactions ||--o{ transaction_protocols : classified_as
-    transactions ||--o{ spp_shielded_transactions : emits
+    transactions ||--o{ pocket_transactions : emits
     transactions ||--o{ indexed_tree_queue_entries : source
 
     tree_metadata ||--o{ state_trees : tree
@@ -48,11 +48,11 @@ erDiagram
     tree_metadata ||--o{ indexed_tree_queue_entries : queue
     tree_metadata ||--o{ state_tree_histories : history
 
-    spp_shielded_transactions ||--|| spp_shielded_transaction_payloads : payload
-    spp_shielded_transactions ||--o{ spp_outputs : outputs
-    spp_shielded_transactions ||--o{ spp_tx_nullifiers : nullifiers
-    spp_outputs ||--|| spp_output_payloads : payload
-    spp_outputs ||--o| spp_proofless_outputs : proofless
+    pocket_transactions ||--|| pocket_transaction_payloads : payload
+    pocket_transactions ||--o{ pocket_outputs : outputs
+    pocket_transactions ||--o{ pocket_tx_nullifiers : nullifiers
+    pocket_outputs ||--|| pocket_output_payloads : payload
+    pocket_outputs ||--o| pocket_proofless_outputs : proofless
 
     transactions {
         binary signature PK
@@ -97,21 +97,21 @@ erDiagram
         binary source_signature FK
     }
 
-    spp_shielded_transactions {
-        bigint shielded_tx_id PK
+    pocket_transactions {
+        bigint pocket_tx_id PK
         binary signature FK
         smallint event_index
         bigint slot
-        binary spp_program_id
+        binary pocket_program_id
         binary output_tree
         bigint first_output_leaf_index
         binary tx_viewing_pk
         boolean proofless
     }
 
-    spp_outputs {
+    pocket_outputs {
         bigint output_id PK
-        bigint shielded_tx_id FK
+        bigint pocket_tx_id FK
         bigint slot
         smallint output_index
         binary output_tree
@@ -121,9 +121,9 @@ erDiagram
         smallint output_kind
     }
 
-    spp_tx_nullifiers {
+    pocket_tx_nullifiers {
         bigint nullifier_id PK
-        bigint shielded_tx_id FK
+        bigint pocket_tx_id FK
         bigint slot
         smallint input_index
         binary nullifier_tree
@@ -277,38 +277,38 @@ Batch append:
 3. persist hash nodes into `state_trees`
 4. delete processed rows for that tree/type/range
 
-## SPP Tables
+## Pocket Tables
 
-### `spp_shielded_transactions`
+### `pocket_transactions`
 
 One row per decoded wallet-visible SPP event.
 
 ```text
-spp_shielded_transactions
-  shielded_tx_id bigint primary key
+pocket_transactions
+  pocket_tx_id bigint primary key
   signature binary(64) not null references transactions(signature) on delete cascade
   event_index smallint not null
   slot bigint not null
-  spp_program_id binary(32) not null
+  pocket_program_id binary(32) not null
   source_instruction_tag smallint not null
   output_tree binary(32) not null
   first_output_leaf_index bigint not null
   tx_viewing_pk binary(33) null
   proofless boolean not null
   unique (signature, event_index)
-  index (slot, shielded_tx_id)
-  index (spp_program_id, slot, shielded_tx_id)
+  index (slot, pocket_tx_id)
+  index (pocket_program_id, slot, pocket_tx_id)
 ```
 
-Use `shielded_tx_id` as DB parent.
+Use `pocket_tx_id` as DB parent.
 
 Do not group parent rows only by Solana signature. One Solana transaction can emit multiple SPP events.
 
-### `spp_shielded_transaction_payloads`
+### `pocket_transaction_payloads`
 
 ```text
-spp_shielded_transaction_payloads
-  shielded_tx_id bigint primary key references spp_shielded_transactions(shielded_tx_id) on delete cascade
+pocket_transaction_payloads
+  pocket_tx_id bigint primary key references pocket_transactions(pocket_tx_id) on delete cascade
   encrypted_utxos bytea null
   raw_event bytea null
   parse_version smallint not null
@@ -316,14 +316,14 @@ spp_shielded_transaction_payloads
 
 Stores full encrypted transaction blob and raw event bytes.
 
-### `spp_outputs`
+### `pocket_outputs`
 
 Hot view-tag index.
 
 ```text
-spp_outputs
+pocket_outputs
   output_id bigint primary key
-  shielded_tx_id bigint not null references spp_shielded_transactions(shielded_tx_id) on delete cascade
+  pocket_tx_id bigint not null references pocket_transactions(pocket_tx_id) on delete cascade
   slot bigint not null
   output_index smallint not null
   output_tree binary(32) not null
@@ -332,7 +332,7 @@ spp_outputs
   utxo_hash binary(32) not null
   output_kind smallint not null
   tx_viewing_pk binary(33) null
-  unique (shielded_tx_id, output_index)
+  unique (pocket_tx_id, output_index)
   unique (output_tree, leaf_index)
   index (view_tag, slot, output_id)
   index (slot, output_id)
@@ -340,21 +340,21 @@ spp_outputs
 
 `output_index` follows UTXO append order inside the SPP event.
 
-### `spp_output_payloads`
+### `pocket_output_payloads`
 
 ```text
-spp_output_payloads
-  output_id bigint primary key references spp_outputs(output_id) on delete cascade
+pocket_output_payloads
+  output_id bigint primary key references pocket_outputs(output_id) on delete cascade
   payload bytea not null
 ```
 
-Split from `spp_outputs` so tag lookup stays narrow.
+Split from `pocket_outputs` so tag lookup stays narrow.
 
-### `spp_proofless_outputs`
+### `pocket_proofless_outputs`
 
 ```text
-spp_proofless_outputs
-  output_id bigint primary key references spp_outputs(output_id) on delete cascade
+pocket_proofless_outputs
+  output_id bigint primary key references pocket_outputs(output_id) on delete cascade
   owner_utxo_hash binary(32) not null
   salt binary(16) not null
   asset binary(32) not null
@@ -367,22 +367,22 @@ spp_proofless_outputs
 
 Decoded proofless deposit projection.
 
-### `spp_tx_nullifiers`
+### `pocket_tx_nullifiers`
 
 Durable transaction nullifier history.
 
 ```text
-spp_tx_nullifiers
+pocket_tx_nullifiers
   nullifier_id bigint primary key
-  shielded_tx_id bigint not null references spp_shielded_transactions(shielded_tx_id) on delete cascade
+  pocket_tx_id bigint not null references pocket_transactions(pocket_tx_id) on delete cascade
   slot bigint not null
   input_index smallint not null
   nullifier_tree binary(32) not null
   input_queue_seq bigint not null
   nullifier binary(32) not null
-  unique (shielded_tx_id, input_index)
+  unique (pocket_tx_id, input_index)
   unique (nullifier_tree, nullifier)
-  index (shielded_tx_id, input_index)
+  index (pocket_tx_id, input_index)
   index (slot, nullifier_id)
 ```
 
@@ -396,12 +396,12 @@ For each decoded SPP event:
 
 1. upsert `transactions`
 2. insert `transaction_protocols(signature, Spp)`
-3. insert `spp_shielded_transactions`
-4. insert `spp_shielded_transaction_payloads`
-5. insert `spp_outputs`
-6. insert `spp_output_payloads`
-7. insert `spp_proofless_outputs` if proofless
-8. insert `spp_tx_nullifiers`
+3. insert `pocket_transactions`
+4. insert `pocket_transaction_payloads`
+5. insert `pocket_outputs`
+6. insert `pocket_output_payloads`
+7. insert `pocket_proofless_outputs` if proofless
+8. insert `pocket_tx_nullifiers`
 9. insert nullifier queue rows into `indexed_tree_queue_entries`
 10. persist UTXO leaves/path nodes into `state_trees`
 11. persist root history into `state_tree_histories` when available
@@ -418,9 +418,9 @@ For nullifier batch append:
 
 ### `get_encrypted_utxos_by_tags`
 
-1. query `spp_outputs` by `view_tag`
+1. query `pocket_outputs` by `view_tag`
 2. order by `(slot, output_id)`
-3. join `spp_output_payloads`
+3. join `pocket_output_payloads`
 
 Cursor:
 
@@ -430,12 +430,12 @@ Cursor:
 
 ### `get_shielded_transactions_by_tags`
 
-1. query `spp_outputs` by `view_tag`
-2. collect distinct `shielded_tx_id`
-3. fetch `spp_shielded_transactions`
-4. fetch all sibling `spp_outputs`
-5. fetch `spp_output_payloads`
-6. fetch `spp_tx_nullifiers`
+1. query `pocket_outputs` by `view_tag`
+2. collect distinct `pocket_tx_id`
+3. fetch `pocket_transactions`
+4. fetch all sibling `pocket_outputs`
+5. fetch `pocket_output_payloads`
+6. fetch `pocket_tx_nullifiers`
 
 Cursor:
 
@@ -443,7 +443,7 @@ Cursor:
 (slot, signature, event_index)
 ```
 
-Client display may group by `signature`. DB grouping is by `shielded_tx_id`.
+Client display may group by `signature`. DB grouping is by `pocket_tx_id`.
 
 ### `get_merkle_proofs`
 
@@ -473,11 +473,11 @@ state_trees.tree = nullifier_tree_pubkey
 
 Table mapping:
 
-- full transaction blob: `spp_shielded_transaction_payloads`
-- tag lookup: `spp_outputs`
-- per-output payload: `spp_output_payloads`
-- proofless deposit data: `spp_proofless_outputs`
-- spend marking: `spp_tx_nullifiers`
+- full transaction blob: `pocket_transaction_payloads`
+- tag lookup: `pocket_outputs`
+- per-output payload: `pocket_output_payloads`
+- proofless deposit data: `pocket_proofless_outputs`
+- spend marking: `pocket_tx_nullifiers`
 
 ## Migration
 
