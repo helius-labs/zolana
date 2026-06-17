@@ -6,7 +6,10 @@
 use light_hasher::Poseidon;
 use light_merkle_tree_reference::MerkleTree;
 use thiserror::Error;
-use zolana_interface::{event::ProoflessShieldView, state::STATE_HEIGHT};
+use zolana_interface::{
+    event::{GeneralEvent, ProoflessShieldView},
+    state::STATE_HEIGHT,
+};
 use zolana_transaction::{utxo_hash, Address, TransactionError};
 
 #[derive(Debug, Error)]
@@ -91,29 +94,29 @@ impl TestIndexer {
             });
         }
 
-        let leaf_index = self.utxos.len() as u64;
-        if event.leaf_index != leaf_index {
-            return Err(IndexerError::LeafIndexMismatch {
-                expected: leaf_index,
-                actual: event.leaf_index,
-            });
-        }
-        let record_index = self.utxos.len();
-        self.tree
-            .append(&event.utxo_hash)
-            .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?;
-        self.utxos.push(IndexedUtxo {
-            view_tag: event.view_tag,
-            leaf_index,
-            utxo_hash: event.utxo_hash,
-            payload: IndexedPayload::Proofless(ProoflessOutput {
+        self.record_output(
+            event.view_tag,
+            event.leaf_index,
+            event.utxo_hash,
+            IndexedPayload::Proofless(ProoflessOutput {
                 owner_utxo_hash: event.owner_utxo_hash,
                 asset: event.asset,
                 amount: event.amount,
                 salt: event.salt,
             }),
-        });
-        Ok(&self.utxos[record_index])
+        )
+    }
+
+    pub fn record_transact(&mut self, event: &GeneralEvent) -> Result<(), IndexerError> {
+        for (offset, output) in event.outputs.iter().enumerate() {
+            self.record_output(
+                output.view_tag,
+                event.first_output_leaf_index + offset as u64,
+                output.utxo_hash,
+                IndexedPayload::Encrypted(output.data.clone()),
+            )?;
+        }
+        Ok(())
     }
 
     pub fn root(&self) -> [u8; 32] {
@@ -136,6 +139,33 @@ impl TestIndexer {
 
     pub fn utxos(&self) -> &[IndexedUtxo] {
         &self.utxos
+    }
+
+    fn record_output(
+        &mut self,
+        view_tag: [u8; 32],
+        leaf_index: u64,
+        utxo_hash: [u8; 32],
+        payload: IndexedPayload,
+    ) -> Result<&IndexedUtxo, IndexerError> {
+        let expected = self.utxos.len() as u64;
+        if leaf_index != expected {
+            return Err(IndexerError::LeafIndexMismatch {
+                expected,
+                actual: leaf_index,
+            });
+        }
+        let record_index = self.utxos.len();
+        self.tree
+            .append(&utxo_hash)
+            .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?;
+        self.utxos.push(IndexedUtxo {
+            view_tag,
+            leaf_index,
+            utxo_hash,
+            payload,
+        });
+        Ok(&self.utxos[record_index])
     }
 }
 
