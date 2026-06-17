@@ -13,6 +13,13 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_mut("protocol_config")?;
 
+    if let UpdateProtocolConfigData::ProtocolAuthority(a) = &data {
+        let new_authority = iter.next_signer("new_authority")?;
+        if new_authority.address().to_bytes() != a.to_bytes() {
+            return Err(ShieldedPoolError::InvalidInstructionData.into());
+        }
+    }
+
     let mut current = load_and_validate_protocol_authority_mut(protocol_config, authority)?;
     match data {
         UpdateProtocolConfigData::ProtocolAuthority(a) => current.protocol_authority = a,

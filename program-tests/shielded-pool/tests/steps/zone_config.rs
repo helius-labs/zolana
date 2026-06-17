@@ -127,7 +127,7 @@ fn rotate_zone_owner(world: &mut ShieldedPoolWorld) {
     let next = Keypair::new();
     world
         .rpc()
-        .update_zone_config_owner(&authority, &zone_config, &next.pubkey())
+        .update_zone_config_owner(&authority, &zone_config, &next)
         .expect("rotate owner");
     world.previous_zone_authority = Some(authority);
     world.zone_authority = Some(next);

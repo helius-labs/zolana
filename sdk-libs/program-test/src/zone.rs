@@ -73,16 +73,20 @@ impl ZolanaProgramTest {
         &mut self,
         authority: &Keypair,
         zone_config: &Pubkey,
-        new_authority: &Pubkey,
+        new_authority: &Keypair,
     ) -> Result<(), ProgramTestError> {
         let ix = update_zone_config_owner_ix(
             authority.pubkey(),
             *zone_config,
             UpdateZoneConfigOwnerData {
-                new_authority: new_authority.to_bytes().into(),
+                new_authority: new_authority.pubkey().to_bytes().into(),
             },
         );
-        self.send(&[ix], &[authority])
+        let mut signers = vec![authority];
+        if new_authority.pubkey() != authority.pubkey() {
+            signers.push(new_authority);
+        }
+        self.send(&[ix], &signers)
     }
 
     pub fn update_zone_config(

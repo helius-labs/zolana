@@ -104,7 +104,7 @@ fn update_config_with_merge(world: &mut ShieldedPoolWorld) {
     let authority = world.authority().insecure_clone();
     world
         .rpc()
-        .update_protocol_config_with_merge_authority(&authority, &next.pubkey(), merge_b)
+        .update_protocol_config_with_merge_authority(&authority, &next, merge_b)
         .expect("update_protocol_config");
     world.authority = Some(next);
     world.merge_authority = Some(merge_b);
@@ -172,7 +172,7 @@ fn rotate_authority(world: &mut ShieldedPoolWorld) {
     let authority = world.authority().insecure_clone();
     world
         .rpc()
-        .update_protocol_config(&authority, &next.pubkey())
+        .update_protocol_config(&authority, &next)
         .expect("rotate");
     world.rotated_authority = Some(next);
 }
@@ -182,7 +182,7 @@ fn old_authority_rejected(world: &mut ShieldedPoolWorld) {
     let authority = world.authority().insecure_clone();
     let err = world
         .rpc()
-        .update_protocol_config(&authority, &authority.pubkey())
+        .update_protocol_config(&authority, &authority)
         .unwrap_err();
     assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
 }
@@ -196,7 +196,7 @@ fn new_authority_works(world: &mut ShieldedPoolWorld) {
         .insecure_clone();
     world
         .rpc()
-        .update_protocol_config(&next, &next.pubkey())
+        .update_protocol_config(&next, &next)
         .expect("new authority works");
     world
         .rpc()
@@ -213,7 +213,7 @@ fn impostor_updates_config(world: &mut ShieldedPoolWorld) {
         .expect("fund");
     let err = world
         .rpc()
-        .update_protocol_config(&impostor, &impostor.pubkey())
+        .update_protocol_config(&impostor, &impostor)
         .unwrap_err();
     world.last_error = Some(err);
 }

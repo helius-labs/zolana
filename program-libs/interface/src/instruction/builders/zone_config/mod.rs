@@ -36,7 +36,16 @@ pub fn update_zone_config_owner(
     zone_config: Pubkey,
     data: UpdateZoneConfigOwnerData,
 ) -> Instruction {
-    build_update_ix(tag::UPDATE_ZONE_CONFIG_OWNER, authority, zone_config, data)
+    let new_authority = Pubkey::new_from_array(data.new_authority.to_bytes());
+    Instruction {
+        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        accounts: vec![
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new(zone_config, false),
+            AccountMeta::new_readonly(new_authority, true),
+        ],
+        data: encode_instruction(tag::UPDATE_ZONE_CONFIG_OWNER, &data),
+    }
 }
 
 pub fn update_zone_config(

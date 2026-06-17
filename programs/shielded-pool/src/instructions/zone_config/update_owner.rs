@@ -15,6 +15,11 @@ pub fn process_update_zone_config_owner(
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let config = iter.next_mut("zone_config")?;
+    let new_authority = iter.next_signer("new_authority")?;
+
+    if new_authority.address().to_bytes() != data.new_authority.to_bytes() {
+        return Err(ShieldedPoolError::InvalidInstructionData.into());
+    }
 
     let mut current = load_and_validate_zone_authority_mut(config, authority)?;
     current.authority = data.new_authority;

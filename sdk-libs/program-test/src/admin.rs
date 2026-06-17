@@ -56,20 +56,20 @@ impl ZolanaProgramTest {
     pub fn update_protocol_config(
         &mut self,
         authority: &Keypair,
-        new_authority: &Pubkey,
+        new_authority: &Keypair,
     ) -> Result<(), ProgramTestError> {
-        let merge_authority = new_authority.to_bytes();
+        let merge_authority = new_authority.pubkey().to_bytes();
         self.update_protocol_config_with_merge_authority(authority, new_authority, merge_authority)
     }
 
     pub fn update_protocol_config_with_merge_authority(
         &mut self,
         authority: &Keypair,
-        new_authority: &Pubkey,
+        new_authority: &Keypair,
         merge_authority: [u8; 32],
     ) -> Result<(), ProgramTestError> {
         let payer = authority.pubkey();
-        let next = new_authority.to_bytes();
+        let next = new_authority.pubkey().to_bytes();
         // Rotate `protocol_authority` last so the current authority signs every
         // instruction in the batch.
         let ixs = [
@@ -94,7 +94,11 @@ impl ZolanaProgramTest {
                 UpdateProtocolConfigData::ProtocolAuthority(next.into()),
             ),
         ];
-        self.send(&ixs, &[authority])
+        let mut signers = vec![authority];
+        if new_authority.pubkey() != authority.pubkey() {
+            signers.push(new_authority);
+        }
+        self.send(&ixs, &signers)
     }
 
     pub fn pause_tree(

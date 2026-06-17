@@ -25,7 +25,21 @@ pub fn create_protocol_config(authority: Pubkey, data: CreateProtocolConfigData)
 }
 
 pub fn update_protocol_config(authority: Pubkey, data: UpdateProtocolConfigData) -> Instruction {
-    build_config_ix(tag::UPDATE_PROTOCOL_CONFIG, authority, None, data)
+    let mut accounts = vec![
+        AccountMeta::new_readonly(authority, true),
+        AccountMeta::new(pda::protocol_config(), false),
+    ];
+    if let UpdateProtocolConfigData::ProtocolAuthority(a) = &data {
+        accounts.push(AccountMeta::new_readonly(
+            Pubkey::new_from_array(a.to_bytes()),
+            true,
+        ));
+    }
+    Instruction {
+        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        accounts,
+        data: encode_instruction(tag::UPDATE_PROTOCOL_CONFIG, &data),
+    }
 }
 
 pub fn pause_tree(authority: Pubkey, tree: Pubkey, data: PauseTreeData) -> Instruction {
