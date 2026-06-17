@@ -9,6 +9,7 @@ localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", "8899")
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:8899")
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", "8784")
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:8784")
+photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -102,11 +103,11 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer.
-test-localnet-e2e-photon: build-programs build-prover-server build-cli build-photon
+test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- test-validator --skip-prover --with-photon --no-use-surfpool --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    env ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p zolana-cli -- test-validator --skip-prover --with-photon --no-use-surfpool --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
 
 install-surfpool:
@@ -146,7 +147,27 @@ build-prover-server:
     cd prover/server && go build -o ../../target/prover-server .
 
 build-photon:
-    cd ../photon && cargo build --bin photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --manifest-path ../photon/Cargo.toml --target-dir target/photon-build --bin photon
+    mkdir -p "$(dirname "{{photon-bin}}")"
+    cp target/photon-build/debug/photon "{{photon-bin}}"
+
+install-photon:
+    ./tools/install-photon.sh
+
+ensure-photon:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -x "{{photon-bin}}" ]]; then
+      echo "Using Photon binary at {{photon-bin}}"
+      exit 0
+    fi
+    if [[ -n "${ZOLANA_PHOTON_BIN:-}" ]]; then
+      echo "ZOLANA_PHOTON_BIN is set to ${ZOLANA_PHOTON_BIN}, but it is not executable" >&2
+      exit 1
+    fi
+    just build-photon
 
 # === Formatting and linting ===
 
