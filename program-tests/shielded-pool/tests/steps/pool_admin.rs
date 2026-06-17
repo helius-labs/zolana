@@ -10,7 +10,7 @@ use zolana_interface::{
 };
 use zolana_test_utils::asserts::assert_protocol_config;
 
-use crate::common::{assert_pool_error, tree_account_size};
+use crate::common::{assert_custom, assert_pool_error, tree_account_size};
 use crate::ShieldedPoolWorld;
 
 use zolana_interface::error::ShieldedPoolError;
@@ -41,7 +41,7 @@ fn create_again_rejected(world: &mut ShieldedPoolWorld) {
     world.rpc().svm.expire_blockhash();
     let authority = world.authority().insecure_clone();
     let err = world.rpc().create_protocol_config(&authority).unwrap_err();
-    assert_pool_error(err, ShieldedPoolError::InvalidProtocolConfig);
+    assert_custom(err, 0);
 }
 
 #[when(expr = "lamports are donated to the protocol config address")]

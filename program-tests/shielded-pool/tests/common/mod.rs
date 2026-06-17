@@ -16,9 +16,3 @@ pub fn assert_custom(err: ProgramTestError, code: u32) {
 pub fn assert_pool_error(err: ProgramTestError, error: ShieldedPoolError) {
     assert_custom(err, error as u32);
 }
-
-#[track_caller]
-pub fn assert_instruction_error(err: ProgramTestError, name: &str) {
-    let msg = format!("{err}");
-    assert!(msg.contains(name), "expected {name}, got: {msg}");
-}

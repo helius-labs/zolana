@@ -293,8 +293,8 @@ fn shield_transfer_then_withdraw_sol() {
         .expect("payer owner utxo hash");
     let event = env
         .rpc
-        .proofless_shield_sol(&tree, &payer, AMOUNT, owner_utxo_h)
-        .expect("proofless shield");
+        .deposit_sol(&tree, &payer, AMOUNT, owner_utxo_h)
+        .expect("deposit");
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero)
         .expect("payer utxo hash");

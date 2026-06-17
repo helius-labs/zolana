@@ -33,7 +33,7 @@ use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_proofless_shield_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
+    single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
@@ -146,9 +146,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &payer.pubkey(),
         &[&payer],
     )?;
-    print_signature("proofless_shield", &shield_tx.signature);
+    print_signature("deposit", &shield_tx.signature);
 
-    let shield_view = single_proofless_shield_view(&shield_tx.events)?;
+    let shield_view = single_deposit_view(&shield_tx.events)?;
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 

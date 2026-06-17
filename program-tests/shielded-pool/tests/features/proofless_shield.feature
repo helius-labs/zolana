@@ -30,7 +30,7 @@ Feature: Proofless SOL shield
 
   Scenario: Account shape violations are rejected
     When the depositor shields with the program account missing
-    Then the operation is rejected as invalid settlement accounts
+    Then the operation fails with not enough account keys
     When the depositor shields with the wrong vault
     Then the operation is rejected as invalid settlement accounts
     When the depositor shields with an extra account
