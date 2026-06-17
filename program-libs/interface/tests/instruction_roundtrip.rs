@@ -4,11 +4,12 @@ use zolana_interface::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
         encode_event_payload, encode_output_data, indexed_events_from_instruction_groups,
         instruction_may_emit_events, proofless_output, DepositWithdraw, EventDecodeError,
-        EventKind, GeneralEvent, InstructionGroup, OutputData, ParsedInstruction, ProoflessOutput,
+        EventKind, GeneralEvent, InstructionGroup, OutputData, OutputUtxo, ParsedInstruction,
+        ProoflessOutput,
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
-        CreateZoneConfigData, InstructionTag, OutputUtxo, PauseTreeData, UpdateProtocolConfigData,
+        CreateZoneConfigData, InstructionTag, PauseTreeData, UpdateProtocolConfigData,
         UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     },
 };

@@ -1,7 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_pubkey::Pubkey;
-#[cfg(feature = "instructions")]
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use crate::instruction::tag;
 
@@ -37,14 +35,9 @@ pub struct Input {
 /// serialized output payload (Output UTXO Serialization); the program does not
 /// parse it.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-#[cfg_attr(feature = "instructions", derive(SchemaRead, SchemaWrite))]
 pub struct OutputUtxo {
     pub view_tag: [u8; 32],
     pub utxo_hash: [u8; 32],
-    #[cfg_attr(
-        feature = "instructions",
-        wincode(with = "containers::Vec<u8, FixIntLen<u16>>")
-    )]
     pub data: Vec<u8>,
 }
 

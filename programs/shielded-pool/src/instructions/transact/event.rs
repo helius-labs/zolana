@@ -1,10 +1,9 @@
 use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, ProgramResult};
 use zolana_interface::{
-    event::{encode_event_instruction, DepositWithdraw, EventKind, GeneralEvent, Input},
-    instruction::{
-        instruction_data::transact::{OutputUtxoRef, TransactIxDataRef},
-        OutputUtxo,
+    event::{
+        encode_event_instruction, DepositWithdraw, EventKind, GeneralEvent, Input, OutputUtxo,
     },
+    instruction::instruction_data::transact::{OutputUtxoRef, TransactIxDataRef},
 };
 
 use super::verify::TransactProofInputs;

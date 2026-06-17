@@ -5,11 +5,11 @@ use pinocchio::{
 };
 use zolana_interface::event::{
     encode_event_instruction, encode_output_data, DepositWithdraw, EventKind, GeneralEvent,
-    OutputData, ProoflessOutput,
+    OutputData, OutputUtxo, ProoflessOutput,
 };
 use zolana_interface::instruction::instruction_data::proofless_shield::CpiSignerData;
 use zolana_interface::instruction::{
-    OutputUtxo, ProoflessShieldIxData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
+    ProoflessShieldIxData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
     PUBLIC_AMOUNT_DEPOSIT_SPL,
 };
 use zolana_interface::UTXO_DOMAIN;

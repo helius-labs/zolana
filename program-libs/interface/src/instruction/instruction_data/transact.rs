@@ -4,8 +4,6 @@ use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
 
-pub use crate::event::OutputUtxo;
-
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct InputUtxo {
@@ -14,6 +12,15 @@ pub struct InputUtxo {
     pub utxo_tree_root_index: u16,
     pub tree_index: u8,
     pub eddsa_signer_index: u8,
+}
+
+/// One created output UTXO slot in `transact` instruction data.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct OutputUtxo {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub data: Vec<u8>,
 }
 
 /// Declared invoking-program signer (spec: `transact` `cpi_signer`). The zk
