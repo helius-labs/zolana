@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "forester",
+    "program-libs/event",
     "program-libs/interface",
     "program-libs/tree",
     "program-tests/shielded-pool",
@@ -32,6 +33,7 @@ edition = "2021"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
+zolana-event = { path = "program-libs/event", version = "0.1.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }

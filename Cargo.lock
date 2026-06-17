@@ -7321,6 +7321,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-event"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-pubkey 4.2.0",
+ "wincode",
+]
+
+[[package]]
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
@@ -7334,6 +7343,7 @@ dependencies = [
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "wincode",
+ "zolana-event",
  "zolana-tree",
 ]
 

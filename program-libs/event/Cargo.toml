@@ -1,0 +1,10 @@
+[package]
+name = "zolana-event"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+borsh = { workspace = true }
+solana-pubkey = { workspace = true }
+wincode = { workspace = true }

@@ -19,4 +19,5 @@ light-hasher = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
+zolana-event = { workspace = true }
 zolana-tree = { workspace = true }

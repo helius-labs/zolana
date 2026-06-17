@@ -1,7 +1,7 @@
 #[cfg(feature = "solana")]
 pub mod builders;
 pub mod instruction_data;
-pub mod tag;
+pub use zolana_event::tag;
 
 use borsh::BorshSerialize;
 
@@ -11,7 +11,7 @@ pub use instruction_data::{
     TransactIxData, TransactIxDataRef, UpdateProtocolConfigData, UpdateZoneConfigData,
     UpdateZoneConfigOwnerData, ZoneDepositIxData,
 };
-pub use tag::InstructionTag;
+pub use zolana_event::tag::InstructionTag;
 
 #[cfg(feature = "solana")]
 pub use builders::*;

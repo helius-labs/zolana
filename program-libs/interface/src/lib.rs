@@ -1,5 +1,5 @@
 pub mod error;
-pub mod event;
+pub use zolana_event as event;
 pub mod instruction;
 pub mod pda;
 pub mod state;

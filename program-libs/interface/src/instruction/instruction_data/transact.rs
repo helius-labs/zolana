@@ -1,10 +1,10 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::deposit::CpiSignerData;
+pub use zolana_event::OutputUtxo;
 
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -14,19 +14,6 @@ pub struct InputUtxo {
     pub utxo_tree_root_index: u16,
     pub tree_index: u8,
     pub eddsa_signer_index: u8,
-}
-
-/// One created output UTXO slot (spec: `transact` `OutputUtxo`). `data` is the
-/// serialized output payload (Output UTXO Serialization); the program does not
-/// parse it.
-#[derive(
-    Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite, BorshDeserialize, BorshSerialize,
-)]
-pub struct OutputUtxo {
-    pub view_tag: [u8; 32],
-    pub utxo_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub data: Vec<u8>,
 }
 
 /// `transact` instruction data (spec: SPP `transact`).
