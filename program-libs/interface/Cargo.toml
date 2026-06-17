@@ -7,18 +7,16 @@ publish = false
 [features]
 default = ["full"]
 events = []
-full = ["events", "instructions", "state-tree", "verifying-keys"]
+full = ["events", "instructions"]
 instructions = ["events", "dep:light-hasher", "dep:wincode"]
 solana = ["dep:solana-instruction", "instructions"]
-state-tree = ["dep:zolana-tree"]
-verifying-keys = ["dep:groth16-solana"]
 
 [dependencies]
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
-groth16-solana = { workspace = true, optional = true }
+groth16-solana = { workspace = true }
 light-hasher = { workspace = true, optional = true }
 wincode = { workspace = true, optional = true }
-zolana-tree = { workspace = true, optional = true }
+zolana-tree = { workspace = true }
