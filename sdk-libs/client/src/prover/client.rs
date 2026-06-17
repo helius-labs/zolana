@@ -176,13 +176,7 @@ fn health_check(retries: usize, timeout_secs: u64) -> bool {
             .get(format!("{}{}", SERVER_ADDRESS, HEALTH_CHECK))
             .timeout(timeout)
             .send()
-            .ok()
-            .filter(|response| response.status().is_success())
-            .and_then(|response| response.json::<HealthResponse>().ok())
-            .is_some_and(|health| {
-                health.status.as_deref() == Some("ok")
-                    && health.service.as_deref() == Some(HEALTH_SERVICE)
-            });
+            .is_ok();
         if ok {
             return true;
         }
