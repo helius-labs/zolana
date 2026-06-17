@@ -5,8 +5,8 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef
 use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::settlement::{
-    validate_cpi_authority, validate_sol_interface, Settlement, SettlementAccountsSol,
-    SettlementAccountsSpl,
+    validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
+    SettlementAccountsSol, SettlementAccountsSpl,
 };
 use crate::instructions::shared::{verify_cpi_signer, CPI_SIGNER_SEED};
 
@@ -14,6 +14,7 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub tree: &'a mut AccountView,
     pub settlement: Option<Settlement<'a>>,
+    pub spl_mint: Option<[u8; 32]>,
 }
 
 impl<'a> TransactAccounts<'a> {
@@ -38,6 +39,7 @@ impl<'a> TransactAccounts<'a> {
             )?;
         }
 
+        let mut spl_mint = None;
         let settlement = if ix.is_deposit_or_withdrawal() {
             if ix.is_spl() {
                 let cpi_authority = if ix.is_deposit() {
@@ -49,6 +51,12 @@ impl<'a> TransactAccounts<'a> {
                 let recipient = iter.next_account("recipient")?;
                 let user_token_account = iter.next_account("user_token_account")?;
                 let token_program = iter.next_account("token_program")?;
+                spl_mint = Some(validate_spl_settlement(
+                    program_id,
+                    vault,
+                    user_token_account,
+                    token_program,
+                )?);
                 Some(Settlement::Spl(SettlementAccountsSpl {
                     cpi_authority,
                     vault,
@@ -74,6 +82,7 @@ impl<'a> TransactAccounts<'a> {
             payer,
             tree,
             settlement,
+            spl_mint,
         })
     }
 }

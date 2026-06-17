@@ -1,6 +1,6 @@
 use bytemuck::from_bytes_mut;
 use light_account_checks::AccountIterator;
-use pinocchio::{account::RefMut, error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::{error::ShieldedPoolError, state::SplAssetCounter};
 
 use crate::instructions::{
@@ -11,10 +11,10 @@ use crate::instructions::{
 /// Create the singleton SPL asset counter PDA. The counter is a prerequisite of
 /// [`crate::instructions::create_spl_interface`], which only ever reads and
 /// advances it; this instruction is the one place that allocates and stamps it.
-pub fn process_create_asset_counter(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-) -> ProgramResult {
+pub fn process_create_asset_counter(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    if !data.is_empty() {
+        return Err(ShieldedPoolError::InvalidInstructionData.into());
+    }
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -35,14 +35,14 @@ pub fn process_create_asset_counter(
     let bump = verify_pda(
         asset_counter.address(),
         &[SplAssetCounter::SEED],
-        program_id,
+        &crate::ID,
     )?;
 
     CreatePdaAccount {
         fee_payer: authority,
         new_account: &mut *asset_counter,
         space: SplAssetCounter::SIZE,
-        owner: program_id,
+        owner: &crate::ID,
         signer_seeds: [SplAssetCounter::SEED],
         bump,
     }

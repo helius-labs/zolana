@@ -1,7 +1,7 @@
 //! First-byte instruction dispatch tags for the shielded-pool program.
 
 pub const TRANSACT: u8 = 0;
-pub const PROOFLESS_SHIELD: u8 = 1;
+pub const DEPOSIT: u8 = 1;
 pub const CREATE_SPL_INTERFACE: u8 = 4;
 pub const CREATE_TREE: u8 = 5;
 pub const CREATE_PROTOCOL_CONFIG: u8 = 6;
@@ -11,7 +11,7 @@ pub const CREATE_ZONE_CONFIG: u8 = 9;
 pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
 pub const UPDATE_ZONE_CONFIG: u8 = 11;
 pub const EMIT_EVENT: u8 = 14;
-pub const ZONE_PROOFLESS_SHIELD: u8 = 15;
+pub const ZONE_DEPOSIT: u8 = 15;
 pub const CREATE_ASSET_COUNTER: u8 = 16;
 
 /// Spec-reserved tags without handlers in this program version.
@@ -31,7 +31,7 @@ pub enum InstructionTag {
     Transact = TRANSACT,
     CreateTree = CREATE_TREE,
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
-    ProoflessShield = PROOFLESS_SHIELD,
+    Deposit = DEPOSIT,
     CreateSplInterface = CREATE_SPL_INTERFACE,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
     UpdateProtocolConfig = UPDATE_PROTOCOL_CONFIG,
@@ -40,7 +40,7 @@ pub enum InstructionTag {
     UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
     UpdateZoneConfig = UPDATE_ZONE_CONFIG,
     EmitEvent = EMIT_EVENT,
-    ZoneProoflessShield = ZONE_PROOFLESS_SHIELD,
+    ZoneDeposit = ZONE_DEPOSIT,
     CreateAssetCounter = CREATE_ASSET_COUNTER,
 }
 
@@ -52,7 +52,7 @@ impl TryFrom<u8> for InstructionTag {
             TRANSACT => Ok(Self::Transact),
             CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
-            PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
+            DEPOSIT => Ok(Self::Deposit),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
             UPDATE_PROTOCOL_CONFIG => Ok(Self::UpdateProtocolConfig),
@@ -61,7 +61,7 @@ impl TryFrom<u8> for InstructionTag {
             UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
             UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
             EMIT_EVENT => Ok(Self::EmitEvent),
-            ZONE_PROOFLESS_SHIELD => Ok(Self::ZoneProoflessShield),
+            ZONE_DEPOSIT => Ok(Self::ZoneDeposit),
             CREATE_ASSET_COUNTER => Ok(Self::CreateAssetCounter),
             _ => Err(()),
         }

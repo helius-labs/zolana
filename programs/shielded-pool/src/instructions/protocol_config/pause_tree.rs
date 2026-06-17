@@ -8,7 +8,9 @@ use zolana_tree::TreeAccount;
 
 use crate::instructions::protocol_config::loader::load_and_validate_protocol_authority;
 
-pub fn process_pause_tree(accounts: &mut [AccountView], data: PauseTreeData) -> ProgramResult {
+pub fn process_pause_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = *bytemuck::try_from_bytes::<PauseTreeData>(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;

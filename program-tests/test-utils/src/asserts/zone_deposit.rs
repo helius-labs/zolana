@@ -1,11 +1,11 @@
-//! Post-instruction checks for `zone_proofless_shield` (policy-zone deposits).
+//! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::ProoflessShieldView, instruction::ZoneProoflessShieldIxData};
+use zolana_interface::{event::DepositView, instruction::ZoneDepositIxData};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-/// Verify a settled `zone_proofless_shield` against the integration-test
+/// Verify a settled `zone_deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
 /// the settled amount, the created UTXO is owned by the zone program and
 /// carries its policy hash, the state tree advanced, the indexer agrees with
@@ -16,11 +16,11 @@ use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 /// the on-chain state root captured before the deposit.
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
-pub fn assert_zone_proofless_shield(
+pub fn assert_zone_deposit(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
-    event: &ProoflessShieldView,
-    data: &ZoneProoflessShieldIxData,
+    event: &DepositView,
+    data: &ZoneDepositIxData,
     expected_amount: u64,
     expected_asset: [u8; 32],
     expected_zone_program_id: [u8; 32],

@@ -3,13 +3,12 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    event::ProoflessShieldView,
+    event::DepositView,
     instruction::{
         encode_instruction, tag, update_zone_config as update_zone_config_ix,
         update_zone_config_owner as update_zone_config_owner_ix, CpiSignerData,
-        CreateZoneConfigData, ProoflessShieldSplAccounts, UpdateZoneConfigData,
-        UpdateZoneConfigOwnerData, ZoneProoflessShieldAccounts, ZoneProoflessShieldIxData,
-        PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
+        CreateZoneConfigData, DepositSplAccounts, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+        ZoneDepositAccounts, ZoneDepositIxData,
     },
     pda,
 };
@@ -17,9 +16,8 @@ use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::Wallet;
 
 use crate::{
-    instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path,
-    single_proofless_shield_view, wallet_data::wallet_shield_fields, ProgramTestError,
-    ZolanaProgramTest,
+    instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path, single_deposit_view,
+    wallet_data::wallet_shield_fields, ProgramTestError, ZolanaProgramTest,
 };
 
 impl ZolanaProgramTest {
@@ -107,13 +105,12 @@ impl ZolanaProgramTest {
         &self,
         lamports: u64,
         owner_utxo_hash: [u8; 32],
-    ) -> ZoneProoflessShieldIxData {
+    ) -> ZoneDepositIxData {
         let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
-        ZoneProoflessShieldIxData {
+        ZoneDepositIxData {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: ZONE_TEST_PROGRAM_ID,
@@ -132,7 +129,7 @@ impl ZolanaProgramTest {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
+    ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         Self::wallet_zone_sol_shield_data_for_zone(
             lamports,
@@ -151,13 +148,12 @@ impl ZolanaProgramTest {
         position: u8,
         zone_program_id: [u8; 32],
         zone_auth_bump: u8,
-    ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
+    ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ZoneProoflessShieldIxData {
+        Ok(ZoneDepositIxData {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: zone_program_id,
@@ -176,14 +172,13 @@ impl ZolanaProgramTest {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneProoflessShieldIxData, ProgramTestError> {
+    ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ZoneProoflessShieldIxData {
+        Ok(ZoneDepositIxData {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
             public_amount: Some(amount),
             cpi_signer: CpiSignerData {
                 program_id: ZONE_TEST_PROGRAM_ID,
@@ -196,32 +191,32 @@ impl ZolanaProgramTest {
         })
     }
 
-    pub fn zone_proofless_shield(
+    pub fn zone_deposit(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
-        data: &ZoneProoflessShieldIxData,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
+        data: &ZoneDepositIxData,
+    ) -> Result<DepositView, ProgramTestError> {
         let ix = data
-            .instruction(ZoneProoflessShieldAccounts::sol(*tree, depositor.pubkey()))
+            .instruction(ZoneDepositAccounts::sol(*tree, depositor.pubkey()))
             .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_proofless_shield_view(&outcome.events)
+        single_deposit_view(&outcome.events)
     }
 
-    pub fn zone_proofless_shield_spl(
+    pub fn zone_deposit_spl(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
         user_token: &Pubkey,
         mint: &Pubkey,
-        data: &ZoneProoflessShieldIxData,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
+        data: &ZoneDepositIxData,
+    ) -> Result<DepositView, ProgramTestError> {
         let ix = data
-            .instruction(ZoneProoflessShieldAccounts::spl(
+            .instruction(ZoneDepositAccounts::spl(
                 *tree,
                 depositor.pubkey(),
-                ProoflessShieldSplAccounts {
+                DepositSplAccounts {
                     user_token: *user_token,
                     vault: pda::spl_asset_vault(mint),
                     registry: pda::spl_asset_registry(mint),
@@ -230,6 +225,6 @@ impl ZolanaProgramTest {
             ))
             .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_proofless_shield_view(&outcome.events)
+        single_deposit_view(&outcome.events)
     }
 }

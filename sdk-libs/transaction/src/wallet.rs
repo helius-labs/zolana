@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_interface::event::ProoflessShieldView;
+use zolana_interface::event::DepositView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
@@ -174,7 +174,7 @@ impl SyncCtx<'_> {
     fn discover_proofless(
         &mut self,
         key: &ViewingKey,
-        event: &ProoflessShieldView,
+        event: &DepositView,
     ) -> Result<(), TransactionError> {
         let blinding = key.derive_proofless_blinding(&event.salt)?;
         let owner_utxo_hash = owner_utxo_hash(&self.keypair.owner_hash()?, &blinding)?;
@@ -342,7 +342,7 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[SyncTransaction],
-        proofless_deposits: &[ProoflessShieldView],
+        proofless_deposits: &[DepositView],
         assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
@@ -537,7 +537,7 @@ impl Wallet {
     }
 }
 
-fn proofless_data(event: &ProoflessShieldView) -> Data {
+fn proofless_data(event: &DepositView) -> Data {
     let mut records = Vec::new();
     if let Some(zone_data) = event.zone_data.clone() {
         records.push(DataRecord::ZoneData(zone_data));

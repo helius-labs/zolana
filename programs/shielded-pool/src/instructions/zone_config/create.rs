@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use light_account_checks::AccountIterator;
 use pinocchio::{
     cpi::{Seed, Signer},
@@ -13,11 +14,9 @@ use zolana_interface::{
 
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
-pub fn process_create_zone_config(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    data: CreateZoneConfigData,
-) -> ProgramResult {
+pub fn process_create_zone_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = CreateZoneConfigData::try_from_slice(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer("payer")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -44,7 +43,7 @@ pub fn process_create_zone_config(
     let bump = CreatePdaAccount {
         fee_payer: payer,
         new_account: &mut *config,
-        owner: program_id,
+        owner: &crate::ID,
         policy_program_id: &data.program_id,
         bump: data.zone_config_bump,
     }

@@ -12,10 +12,10 @@ use crate::instructions::{
     shared::{verify_pda, CreatePdaAccount},
 };
 
-pub fn process_create_spl_interface(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-) -> ProgramResult {
+pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    if !data.is_empty() {
+        return Err(ShieldedPoolError::InvalidInstructionData.into());
+    }
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -29,6 +29,7 @@ pub fn process_create_spl_interface(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(ProgramError::IncorrectProgramId);
     }
+    // TODO: add t22 support
     if *token_program.address() != Address::from(SPL_TOKEN_PROGRAM_ID) {
         return Err(ProgramError::IncorrectProgramId);
     }
@@ -45,12 +46,12 @@ pub fn process_create_spl_interface(
     let registry_bump = verify_pda(
         registry.address(),
         &[SplAssetRegistry::SEED, mint_key.as_ref()],
-        program_id,
+        &crate::ID,
     )?;
     let vault_bump = verify_pda(
         vault.address(),
         &[SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
-        program_id,
+        &crate::ID,
     )?;
 
     if registry.data_len() != 0 {
@@ -71,7 +72,7 @@ pub fn process_create_spl_interface(
         fee_payer: authority,
         new_account: &mut *registry,
         space: SplAssetRegistry::SIZE,
-        owner: program_id,
+        owner: &crate::ID,
         signer_seeds: [SplAssetRegistry::SEED, mint_key.as_ref()],
         bump: registry_bump,
     }

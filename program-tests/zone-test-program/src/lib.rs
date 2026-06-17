@@ -11,9 +11,8 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
-        create_zone_config, tag, CreateZoneConfigData, ProoflessShieldSplAccounts,
-        ZoneProoflessShieldAccounts, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
-        PUBLIC_AMOUNT_DEPOSIT_SPL,
+        create_zone_config, tag, CreateZoneConfigData, DepositSplAccounts, ZoneDepositAccounts,
+        ZoneDepositIxData,
     },
     SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED,
 };
@@ -58,7 +57,7 @@ pub fn process_instruction(
     };
     match *ix_tag {
         tag::CREATE_ZONE_CONFIG => process_create_zone_config(program_id, accounts, data),
-        tag::ZONE_PROOFLESS_SHIELD => process_zone_proofless_shield(program_id, accounts, data),
+        tag::ZONE_DEPOSIT => process_zone_deposit(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -97,16 +96,18 @@ fn process_create_zone_config(
     )
 }
 
-fn process_zone_proofless_shield(
+fn process_zone_deposit(
     program_id: &Address,
     accounts: &[AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let data = ZoneProoflessShieldIxData::deserialize(payload(data)?)
+    let data = ZoneDepositIxData::deserialize(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
-    match data.public_amount_mode {
-        PUBLIC_AMOUNT_DEPOSIT_SOL => process_zone_proofless_sol(program_id, accounts, data),
-        PUBLIC_AMOUNT_DEPOSIT_SPL => process_zone_proofless_spl(program_id, accounts, data),
+    // SOL forwards 7 accounts, SPL forwards 8; the asset is inferred from which
+    // settlement set the caller passed.
+    match accounts.len() {
+        SOL_FORWARDED_ACCOUNTS => process_zone_proofless_sol(program_id, accounts, data),
+        SPL_FORWARDED_ACCOUNTS => process_zone_proofless_spl(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -114,7 +115,7 @@ fn process_zone_proofless_shield(
 fn process_zone_proofless_sol(
     program_id: &Address,
     accounts: &[AccountView],
-    data: ZoneProoflessShieldIxData,
+    data: ZoneDepositIxData,
 ) -> ProgramResult {
     let accounts = accounts
         .get(..SOL_FORWARDED_ACCOUNTS)
@@ -126,7 +127,7 @@ fn process_zone_proofless_sol(
     check_shielded_pool(accounts[SOL_SHIELDED_POOL_PROGRAM].address())?;
 
     let ix = data
-        .cpi_instruction(ZoneProoflessShieldAccounts::sol(
+        .cpi_instruction(ZoneDepositAccounts::sol(
             pubkey(accounts[TREE].address()),
             pubkey(accounts[DEPOSITOR].address()),
         ))
@@ -152,7 +153,7 @@ fn process_zone_proofless_sol(
 fn process_zone_proofless_spl(
     program_id: &Address,
     accounts: &[AccountView],
-    data: ZoneProoflessShieldIxData,
+    data: ZoneDepositIxData,
 ) -> ProgramResult {
     let accounts = accounts
         .get(..SPL_FORWARDED_ACCOUNTS)
@@ -164,10 +165,10 @@ fn process_zone_proofless_spl(
     check_shielded_pool(accounts[SPL_SHIELDED_POOL_PROGRAM].address())?;
 
     let ix = data
-        .cpi_instruction(ZoneProoflessShieldAccounts::spl(
+        .cpi_instruction(ZoneDepositAccounts::spl(
             pubkey(accounts[TREE].address()),
             pubkey(accounts[DEPOSITOR].address()),
-            ProoflessShieldSplAccounts {
+            DepositSplAccounts {
                 user_token: pubkey(accounts[SPL_USER_TOKEN].address()),
                 vault: pubkey(accounts[SPL_VAULT].address()),
                 registry: pubkey(accounts[SPL_REGISTRY].address()),

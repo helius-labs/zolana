@@ -6,7 +6,7 @@ use pinocchio::{
 use zolana_interface::error::ShieldedPoolError;
 
 /// CPI-signer PDA seed for a general invoking-program owner (a `transact` or
-/// `proofless_shield` carrying a `cpi_signer`). Distinct from
+/// `deposit` carrying a `cpi_signer`). Distinct from
 /// `ZONE_AUTH_PDA_SEED`: a general program owner and a policy zone are different
 /// capabilities.
 pub(crate) const CPI_SIGNER_SEED: &[u8] = b"auth";

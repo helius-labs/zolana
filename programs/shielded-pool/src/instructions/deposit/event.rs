@@ -47,5 +47,5 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
             asset: ctx.needs_spl.then_some(ctx.asset),
         }),
     };
-    emit_general_event(EventKind::ProoflessShield, event)
+    emit_general_event(EventKind::Deposit, event)
 }

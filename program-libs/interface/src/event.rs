@@ -13,7 +13,7 @@ pub struct GeneralEvent {
     pub outputs: Vec<OutputUtxo>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
     /// indexer can decrypt without parsing the opaque payloads. Zeroed for
-    /// proofless shields, which carry no shared viewing key.
+    /// proofless deposits, which carry no shared viewing key.
     pub tx_viewing_pk: [u8; 33],
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
@@ -56,7 +56,7 @@ pub struct ProoflessOutput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProoflessShieldView {
+pub struct DepositView {
     pub view_tag: [u8; 32],
     pub utxo_hash: [u8; 32],
     pub asset: [u8; 32],
@@ -126,14 +126,14 @@ pub enum EventDecodeError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EventKind {
-    ProoflessShield = 1,
+    Deposit = 1,
     Transact = 2,
 }
 
 impl EventKind {
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
-            1 => Some(Self::ProoflessShield),
+            1 => Some(Self::Deposit),
             2 => Some(Self::Transact),
             _ => None,
         }
@@ -188,7 +188,7 @@ pub fn decode_output_data(data: &[u8]) -> Result<OutputData, EventDecodeError> {
     OutputData::try_from_slice(data).map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
-pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldView, EventDecodeError> {
+pub fn proofless_output(event: &GeneralEvent) -> Result<DepositView, EventDecodeError> {
     let output = event
         .outputs
         .first()
@@ -204,7 +204,7 @@ pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessShieldView, Eve
         return Err(EventDecodeError::MissingDepositWithdraw);
     }
 
-    Ok(ProoflessShieldView {
+    Ok(DepositView {
         view_tag: output.view_tag,
         utxo_hash: output.utxo_hash,
         asset: deposit_withdraw.asset.unwrap_or([0u8; 32]),
@@ -243,7 +243,7 @@ pub fn instruction_may_emit_events(
     instruction: &ParsedInstruction,
 ) -> bool {
     is_event_source(shielded_pool_program_id, instruction)
-        || (instruction.data.first() == Some(&tag::ZONE_PROOFLESS_SHIELD)
+        || (instruction.data.first() == Some(&tag::ZONE_DEPOSIT)
             && instruction.accounts.contains(&shielded_pool_program_id))
 }
 
@@ -280,7 +280,7 @@ fn is_event_source(shielded_pool_program_id: Pubkey, instruction: &ParsedInstruc
     instruction.program_id == shielded_pool_program_id
         && matches!(
             instruction.data.first().copied(),
-            Some(tag::PROOFLESS_SHIELD | tag::ZONE_PROOFLESS_SHIELD)
+            Some(tag::DEPOSIT | tag::ZONE_DEPOSIT)
         )
 }
 

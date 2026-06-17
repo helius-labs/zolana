@@ -4,7 +4,7 @@ use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
 
-use super::proofless_shield::CpiSignerData;
+use super::deposit::CpiSignerData;
 
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

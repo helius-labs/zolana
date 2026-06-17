@@ -5,39 +5,38 @@ use pinocchio::{
     AccountView,
 };
 use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::instruction::instruction_data::proofless_shield::CpiSignerData;
+use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
 use zolana_interface::state::SplAssetRegistry;
 use zolana_interface::{
-    SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED,
-    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID,
+    SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::instructions::settlement::{
-    validate_sol_interface, Settlement, SettlementAccountsSol, SettlementAccountsSpl,
+    read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
+    SettlementAccountsSpl,
 };
 use crate::instructions::shared::verify_cpi_signer;
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 
-/// Validated accounts for a proofless deposit. `proofless_shield` carries no SPP
+/// Validated accounts for a proofless deposit. `deposit` carries no SPP
 /// proof, so the settlement accounts the proof would otherwise constrain (vault
 /// PDA, asset registry, token-account mints/owners) are verified here on-chain.
-pub struct ProoflessShieldAccounts<'a> {
+pub struct DepositAccounts<'a> {
     pub tree: &'a mut AccountView,
-    /// Reuses `transact`'s settlement shape; proofless shields only ever produce
+    /// Reuses `transact`'s settlement shape; proofless deposits only ever produce
     /// the deposit variants (SOL into the interface, SPL into the vault).
     pub settlement: Settlement<'a>,
     /// Deposited asset: the SPL mint, or all-zero for native SOL.
     pub asset: [u8; 32],
 }
 
-impl<'a> ProoflessShieldAccounts<'a> {
+impl<'a> DepositAccounts<'a> {
     pub fn validate_and_parse(
         program_id: &Address,
         accounts: &'a mut [AccountView],
         cpi_signer: Option<CpiSignerData>,
         cpi_signer_seed: &[u8],
-        needs_spl: bool,
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
 
@@ -54,6 +53,13 @@ impl<'a> ProoflessShieldAccounts<'a> {
                 ShieldedPoolError::InvalidSettlementAccounts,
             )?;
         }
+
+        // SOL settlement is 3 accounts, SPL is 4; with the trailing program
+        // account that is 4 (SOL) or 5 (SPL) remaining. Pick the branch by
+        // count and let each validator pin its own accounts. Malformed counts
+        // fall out of the reads below: too few hits NotEnoughAccountKeys, too
+        // many leaves the iterator non-empty (InvalidSettlementAccounts).
+        let needs_spl = iter.len().saturating_sub(iter.position()) >= 5;
 
         let (settlement, asset) = if needs_spl {
             let user_token = iter.next_account("user_token")?;
@@ -182,39 +188,6 @@ fn validate_spl(
     }
 
     Ok(mint)
-}
-
-struct TokenAccountState {
-    mint: [u8; 32],
-    owner: [u8; 32],
-}
-
-fn read_token_account(
-    account: &AccountView,
-    token_program: &Address,
-) -> Result<TokenAccountState, ProgramError> {
-    if !account.owned_by(token_program) || account.data_len() != SPL_TOKEN_ACCOUNT_LEN {
-        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-    }
-
-    let data = account
-        .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
-    if data.get(SPL_TOKEN_ACCOUNT_STATE_OFFSET).copied() != Some(SPL_TOKEN_ACCOUNT_INITIALIZED) {
-        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-    }
-
-    let mint = data
-        .get(0..32)
-        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?
-        .try_into()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
-    let owner = data
-        .get(32..64)
-        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?
-        .try_into()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
-    Ok(TokenAccountState { mint, owner })
 }
 
 fn read_asset_registry_mint(

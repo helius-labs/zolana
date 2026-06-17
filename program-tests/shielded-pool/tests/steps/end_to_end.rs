@@ -38,8 +38,8 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .expect("wallet deposit data");
     world
         .rpc()
-        .proofless_shield(&tree, &depositor, &data)
-        .expect("proofless_shield");
+        .deposit(&tree, &depositor, &data)
+        .expect("deposit");
 
     let vault_lamports = world
         .rpc()
@@ -97,7 +97,7 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
             .expect("wallet deposit data");
         let event = world
             .rpc()
-            .proofless_shield(&tree, &depositor, &data)
+            .deposit(&tree, &depositor, &data)
             .expect("deposit");
         assert_eq!(event.amount, amount, "event must carry the settled amount");
         assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");

@@ -8,7 +8,7 @@ Feature: Proofless SOL shield
 
   Scenario: A SOL deposit succeeds and the event is faithful
     When the depositor shields 750000000 lamports to a fresh recipient
-    Then a proofless shield event is emitted
+    Then a proofless deposit event is emitted
     And the recipient owns 1 UTXO
 
   Scenario: Bad amount shapes are rejected and leave the indexer unchanged
@@ -16,8 +16,6 @@ Feature: Proofless SOL shield
     When the depositor shields with no public amount
     And the depositor shields zero lamports
     And the depositor shields zero SPL tokens
-    And the depositor shields in withdraw mode
-    And the depositor shields in an unknown mode
     Then the indexer UTXO count is unchanged
 
   Scenario: A program-owned proofless deposit with the wrong signer is rejected

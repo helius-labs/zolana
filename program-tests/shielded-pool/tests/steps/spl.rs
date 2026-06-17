@@ -6,7 +6,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{ProoflessShieldAccounts, ProoflessShieldSplAccounts},
+    instruction::{DepositAccounts, DepositSplAccounts},
     pda,
 };
 use zolana_keypair::constants::BLINDING_LEN;
@@ -26,10 +26,10 @@ fn spl_accounts(
     user_token: &Pubkey,
     mint: &Pubkey,
 ) -> Vec<AccountMeta> {
-    ProoflessShieldAccounts::spl(
+    DepositAccounts::spl(
         *tree,
         *depositor,
-        ProoflessShieldSplAccounts {
+        DepositSplAccounts {
             user_token: *user_token,
             vault: pda::spl_asset_vault(mint),
             registry: pda::spl_asset_registry(mint),
@@ -163,7 +163,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let event = world
         .rpc()
-        .proofless_shield_spl(&tree, &depositor, &user_token, &mint, &data)
+        .deposit_spl(&tree, &depositor, &user_token, &mint, &data)
         .expect("deposit");
 
     assert_spl_deposit(
@@ -201,7 +201,7 @@ fn spl_shield_foreign_token(world: &mut ShieldedPoolWorld) {
     let accounts = spl_accounts(&tree, &depositor.pubkey(), &other_token, &mint);
     let err = world
         .rpc()
-        .proofless_shield_with_accounts(
+        .deposit_with_accounts(
             accounts,
             &depositor,
             &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32]),
@@ -225,7 +225,7 @@ fn spl_shield_non_canonical_vault(world: &mut ShieldedPoolWorld) {
     accounts[3] = AccountMeta::new(decoy_vault, false);
     let err = world
         .rpc()
-        .proofless_shield_with_accounts(
+        .deposit_with_accounts(
             accounts,
             &depositor,
             &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32]),
@@ -251,7 +251,7 @@ fn spl_shield_mint_mismatch(world: &mut ShieldedPoolWorld) {
     let accounts = spl_accounts(&tree, &depositor.pubkey(), &token_b, &mint_a);
     let err = world
         .rpc()
-        .proofless_shield_with_accounts(
+        .deposit_with_accounts(
             accounts,
             &depositor,
             &ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32]),
@@ -268,7 +268,7 @@ fn spl_shield_unaffordable(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let err = world
         .rpc()
-        .proofless_shield_spl(
+        .deposit_spl(
             &tree,
             &depositor,
             &user_token,

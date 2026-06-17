@@ -46,6 +46,11 @@ path = "tests/localnet_e2e.rs"
 required-features = ["localnet"]
 
 [[test]]
+name = "localnet_deposit"
+path = "tests/localnet_deposit.rs"
+required-features = ["localnet"]
+
+[[test]]
 name = "transact"
 path = "tests/transact/transact.rs"
 

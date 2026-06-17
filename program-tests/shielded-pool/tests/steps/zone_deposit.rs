@@ -3,11 +3,11 @@
 use cucumber::when;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::{instruction::ZoneProoflessShieldAccounts, pda};
+use zolana_interface::{instruction::ZoneDepositAccounts, pda};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::asserts::assert_zone_proofless_shield;
+use zolana_test_utils::asserts::assert_zone_deposit;
 use zolana_transaction::Wallet;
 
 use crate::ShieldedPoolWorld;
@@ -38,10 +38,10 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let root_before = world.rpc().state_root(&tree).expect("root");
     let event = world
         .rpc()
-        .zone_proofless_shield(&tree, &depositor, &data)
+        .zone_deposit(&tree, &depositor, &data)
         .expect("zone deposit");
 
-    assert_zone_proofless_shield(
+    assert_zone_deposit(
         world.rpc(),
         &tree,
         &event,
@@ -87,7 +87,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let root_before = world.rpc().state_root(&tree).expect("root");
     let event = world
         .rpc()
-        .zone_proofless_shield_spl(&tree, &depositor, &user_token, &mint, &data)
+        .zone_deposit_spl(&tree, &depositor, &user_token, &mint, &data)
         .expect("zone SPL deposit");
 
     assert_eq!(
@@ -100,7 +100,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         Some(user_token_before - amount),
         "user token account shrinks by the deposit"
     );
-    assert_zone_proofless_shield(
+    assert_zone_deposit(
         world.rpc(),
         &tree,
         &event,
@@ -127,7 +127,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
 
     let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
     let mut ix = data
-        .cpi_instruction(ZoneProoflessShieldAccounts::sol(tree, depositor.pubkey()))
+        .cpi_instruction(ZoneDepositAccounts::sol(tree, depositor.pubkey()))
         .expect("zone auth PDA");
     ix.accounts[2].pubkey = depositor.pubkey();
     let err = world

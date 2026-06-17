@@ -3,77 +3,74 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    event::ProoflessShieldView,
-    instruction::{ProoflessShieldAccounts, ProoflessShieldIxData, ProoflessShieldSplAccounts},
+    event::DepositView,
+    instruction::{DepositAccounts, DepositIxData, DepositSplAccounts},
     pda,
 };
 
-use crate::{single_proofless_shield_view, ProgramTestError, ZolanaProgramTest};
+use crate::{single_deposit_view, ProgramTestError, ZolanaProgramTest};
 
 impl ZolanaProgramTest {
-    pub fn proofless_shield(
+    pub fn deposit(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
-        data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let ix = data.instruction(ProoflessShieldAccounts::sol(*tree, depositor.pubkey()));
-        self.send_proofless_shield_ix(ix, depositor)
+        data: &DepositIxData,
+    ) -> Result<DepositView, ProgramTestError> {
+        let ix = data.instruction(DepositAccounts::sol(*tree, depositor.pubkey()));
+        self.send_deposit_ix(ix, depositor)
     }
 
-    pub fn proofless_shield_spl(
+    pub fn deposit_spl(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
         user_token: &Pubkey,
         mint: &Pubkey,
-        data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let ix = data.instruction(ProoflessShieldAccounts::spl(
+        data: &DepositIxData,
+    ) -> Result<DepositView, ProgramTestError> {
+        let ix = data.instruction(DepositAccounts::spl(
             *tree,
             depositor.pubkey(),
-            ProoflessShieldSplAccounts {
+            DepositSplAccounts {
                 user_token: *user_token,
                 vault: pda::spl_asset_vault(mint),
                 registry: pda::spl_asset_registry(mint),
                 token_program: Self::token_program_id(),
             },
         ));
-        self.send_proofless_shield_ix(ix, depositor)
+        self.send_deposit_ix(ix, depositor)
     }
 
-    pub fn proofless_shield_with_accounts(
+    pub fn deposit_with_accounts(
         &mut self,
         accounts: Vec<AccountMeta>,
         depositor: &Keypair,
-        data: &ProoflessShieldIxData,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
-        let mut ix = data.instruction(ProoflessShieldAccounts::sol(
-            Pubkey::default(),
-            depositor.pubkey(),
-        ));
+        data: &DepositIxData,
+    ) -> Result<DepositView, ProgramTestError> {
+        let mut ix = data.instruction(DepositAccounts::sol(Pubkey::default(), depositor.pubkey()));
         ix.program_id = self.program_id;
         ix.accounts = accounts;
-        self.send_proofless_shield_ix(ix, depositor)
+        self.send_deposit_ix(ix, depositor)
     }
 
-    pub(crate) fn send_proofless_shield_ix(
+    pub(crate) fn send_deposit_ix(
         &mut self,
         ix: Instruction,
         depositor: &Keypair,
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
+    ) -> Result<DepositView, ProgramTestError> {
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
-        single_proofless_shield_view(&outcome.events)
+        single_deposit_view(&outcome.events)
     }
 
-    pub fn proofless_shield_sol(
+    pub fn deposit_sol(
         &mut self,
         tree: &Pubkey,
         depositor: &Keypair,
         lamports: u64,
         owner_utxo_hash: [u8; 32],
-    ) -> Result<ProoflessShieldView, ProgramTestError> {
+    ) -> Result<DepositView, ProgramTestError> {
         let data = Self::sol_shield_data(lamports, owner_utxo_hash);
-        self.proofless_shield(tree, depositor, &data)
+        self.deposit(tree, depositor, &data)
     }
 }

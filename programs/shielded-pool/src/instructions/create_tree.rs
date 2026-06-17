@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use light_account_checks::{checks::check_owner, AccountIterator};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::{
@@ -10,7 +11,9 @@ use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
-pub fn process_create_tree(accounts: &mut [AccountView], data: CreateTreeData) -> ProgramResult {
+pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = CreateTreeData::try_from_slice(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;

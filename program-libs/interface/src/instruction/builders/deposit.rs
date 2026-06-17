@@ -2,26 +2,26 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, ProoflessShieldIxData},
+    instruction::{tag, DepositIxData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProoflessShieldAccounts {
+pub struct DepositAccounts {
     pub tree: Pubkey,
     pub depositor: Pubkey,
-    pub spl: Option<ProoflessShieldSplAccounts>,
+    pub spl: Option<DepositSplAccounts>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProoflessShieldSplAccounts {
+pub struct DepositSplAccounts {
     pub user_token: Pubkey,
     pub vault: Pubkey,
     pub registry: Pubkey,
     pub token_program: Pubkey,
 }
 
-impl ProoflessShieldAccounts {
+impl DepositAccounts {
     pub fn sol(tree: Pubkey, depositor: Pubkey) -> Self {
         Self {
             tree,
@@ -30,7 +30,7 @@ impl ProoflessShieldAccounts {
         }
     }
 
-    pub fn spl(tree: Pubkey, depositor: Pubkey, spl: ProoflessShieldSplAccounts) -> Self {
+    pub fn spl(tree: Pubkey, depositor: Pubkey, spl: DepositSplAccounts) -> Self {
         Self {
             tree,
             depositor,
@@ -64,9 +64,9 @@ impl ProoflessShieldAccounts {
     }
 }
 
-impl ProoflessShieldIxData {
-    pub fn instruction(&self, accounts: ProoflessShieldAccounts) -> Instruction {
-        let mut data = vec![tag::PROOFLESS_SHIELD];
+impl DepositIxData {
+    pub fn instruction(&self, accounts: DepositAccounts) -> Instruction {
+        let mut data = vec![tag::DEPOSIT];
         data.extend_from_slice(
             &self
                 .serialize()

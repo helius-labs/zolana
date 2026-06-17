@@ -1,4 +1,4 @@
-//! Local-validator proofless shield test.
+//! Local-validator proofless deposit test.
 
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -8,12 +8,9 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
-    event::{
-        indexed_events_from_instruction_groups, instruction_may_emit_events, ProoflessShieldView,
-    },
+    event::{indexed_events_from_instruction_groups, instruction_may_emit_events, DepositView},
     instruction::{
-        create_protocol_config, tag, CreateProtocolConfigData, ProoflessShieldAccounts,
-        ZoneProoflessShieldAccounts,
+        create_protocol_config, tag, CreateProtocolConfigData, DepositAccounts, ZoneDepositAccounts,
     },
     pda,
     state::tree_account_size,
@@ -22,7 +19,7 @@ use zolana_interface::{
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_proofless_shield_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
+    single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
     ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
@@ -34,7 +31,7 @@ const DEPOSIT_LAMPORTS: u64 = 750_000_000;
 type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
-fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
+fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
@@ -109,10 +106,8 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         0,
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let direct_ix = direct_data.instruction(ProoflessShieldAccounts::sol(
-        tree.pubkey(),
-        depositor.pubkey(),
-    ));
+    let direct_ix =
+        direct_data.instruction(DepositAccounts::sol(tree.pubkey(), depositor.pubkey()));
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -121,10 +116,10 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         &payer.pubkey(),
         &[&payer, &depositor],
     )?;
-    print_signature("proofless_shield", &direct_tx.signature);
+    print_signature("deposit", &direct_tx.signature);
     let direct_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(direct_root_after, direct_root_before);
-    let direct_view = single_proofless_shield_view(&direct_tx.events)?;
+    let direct_view = single_deposit_view(&direct_tx.events)?;
     assert_eq!(direct_root_after, indexer.root());
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
@@ -140,10 +135,8 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     zone_data.policy_data_hash = Some([5u8; 32]);
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix = zone_data.instruction(ZoneProoflessShieldAccounts::sol(
-        tree.pubkey(),
-        depositor.pubkey(),
-    ))?;
+    let zone_ix =
+        zone_data.instruction(ZoneDepositAccounts::sol(tree.pubkey(), depositor.pubkey()))?;
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -152,14 +145,14 @@ fn proofless_shield_sol_on_localnet_prints_signatures() -> TestResult {
         &payer.pubkey(),
         &[&payer, &depositor],
     )?;
-    print_signature("zone_proofless_shield", &zone_tx.signature);
+    print_signature("zone_deposit", &zone_tx.signature);
     let zone_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
     assert_ne!(zone_root_after, zone_root_before);
-    let zone_view = single_proofless_shield_view(&zone_tx.events)?;
+    let zone_view = single_deposit_view(&zone_tx.events)?;
     assert_eq!(zone_root_after, indexer.root());
     assert_wallet_discovers(&mut zone_recipient, &zone_view)?;
 
-    println!("localnet proofless shield test passed via {rpc_url}");
+    println!("localnet proofless deposit test passed via {rpc_url}");
     Ok(())
 }
 
@@ -203,7 +196,7 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     })
 }
 
-fn assert_wallet_discovers(wallet: &mut Wallet, view: &ProoflessShieldView) -> TestResult {
+fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositView) -> TestResult {
     wallet.sync(
         &[],
         std::slice::from_ref(view),
@@ -231,7 +224,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: other_program,
             accounts: Vec::new(),
-            data: vec![tag::PROOFLESS_SHIELD],
+            data: vec![tag::DEPOSIT],
         }],
         None,
     );
@@ -241,7 +234,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: shielded_pool,
             accounts: Vec::new(),
-            data: vec![tag::PROOFLESS_SHIELD],
+            data: vec![tag::DEPOSIT],
         }],
         None,
     );
@@ -251,7 +244,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: other_program,
             accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-            data: vec![tag::ZONE_PROOFLESS_SHIELD],
+            data: vec![tag::ZONE_DEPOSIT],
         }],
         None,
     );

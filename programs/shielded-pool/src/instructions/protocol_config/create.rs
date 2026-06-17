@@ -9,11 +9,9 @@ use zolana_interface::{
 
 use crate::instructions::shared::{verify_pda, CreatePdaAccount};
 
-pub fn process_create_protocol_config(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    data: CreateProtocolConfigData,
-) -> ProgramResult {
+pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = *bytemuck::try_from_bytes::<CreateProtocolConfigData>(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     let mut iter = AccountIterator::new(accounts);
     let fee_payer = iter.next_signer("fee_payer")?;
     let protocol_config = iter.next_mut("protocol_config")?;
@@ -29,14 +27,14 @@ pub fn process_create_protocol_config(
     let bump = verify_pda(
         protocol_config.address(),
         &[SPP_PROTOCOL_CONFIG_PDA_SEED],
-        program_id,
+        &crate::ID,
     )?;
 
     CreatePdaAccount {
         fee_payer,
         new_account: &mut *protocol_config,
         space: ProtocolConfig::SIZE,
-        owner: program_id,
+        owner: &crate::ID,
         signer_seeds: [SPP_PROTOCOL_CONFIG_PDA_SEED],
         bump,
     }

@@ -1,11 +1,11 @@
-//! Post-instruction checks for `proofless_shield` (SOL deposits).
+//! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::ProoflessShieldView, instruction::ProoflessShieldIxData};
+use zolana_interface::{event::DepositView, instruction::DepositIxData};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-/// Verify a settled SOL `proofless_shield` against the integration-test
+/// Verify a settled SOL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
 /// the settled amount, the state tree advanced, the in-memory indexer agrees
 /// with the on-chain root, the recipient view tag locates exactly one deposit,
@@ -14,11 +14,11 @@ use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 /// `root_before` is the on-chain state root captured before the deposit.
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
-pub fn assert_proofless_shield(
+pub fn assert_deposit(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
-    event: &ProoflessShieldView,
-    data: &ProoflessShieldIxData,
+    event: &DepositView,
+    data: &DepositIxData,
     expected_amount: u64,
     expected_asset: [u8; 32],
     root_before: [u8; 32],

@@ -14,12 +14,11 @@ use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    event::{decode_event_payload, proofless_output, GeneralEvent, ProoflessShieldView},
+    event::{decode_event_payload, proofless_output, DepositView, GeneralEvent},
     instruction::{
         tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
-        PauseTreeData, ProoflessShieldIxData, TransactIxData, UpdateProtocolConfigData,
-        UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
-        PUBLIC_AMOUNT_DEPOSIT_SPL,
+        DepositIxData, PauseTreeData, TransactIxData, UpdateProtocolConfigData,
+        UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneDepositIxData,
     },
 };
 
@@ -188,7 +187,7 @@ fn event_summary(event: &IndexedEvent) -> String {
     match &event.decoded {
         Ok(event) => match proofless_output(event) {
             Ok(output) => format!(
-                "proofless_shield amount={} asset={} view_tag={} utxo_hash={} leaf_index={}",
+                "deposit amount={} asset={} view_tag={} utxo_hash={} leaf_index={}",
                 output.amount,
                 pubkey(&output.asset),
                 short_hex(&output.view_tag),
@@ -225,17 +224,13 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
             tag::TRANSACT => TransactIxData::deserialize(payload).ok().and_then(|data| {
                 decoded_instruction("transact", transact_fields(data), &["authority", "tree"])
             }),
-            tag::PROOFLESS_SHIELD => {
-                ProoflessShieldIxData::deserialize(payload)
-                    .ok()
-                    .and_then(|data| {
-                        decoded_instruction(
-                            "proofless_shield",
-                            proofless_fields(data),
-                            proofless_accounts(payload, accounts.len()),
-                        )
-                    })
-            }
+            tag::DEPOSIT => DepositIxData::deserialize(payload).ok().and_then(|data| {
+                decoded_instruction(
+                    "deposit",
+                    proofless_fields(data),
+                    proofless_accounts(payload, accounts.len()),
+                )
+            }),
             tag::CREATE_SPL_INTERFACE => decode_no_data(
                 "create_spl_interface",
                 payload,
@@ -302,13 +297,13 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 &["authority", "zone_config"],
             ),
             tag::EMIT_EVENT => decode_emit_event(payload),
-            tag::ZONE_PROOFLESS_SHIELD => ZoneProoflessShieldIxData::deserialize(payload)
+            tag::ZONE_DEPOSIT => ZoneDepositIxData::deserialize(payload)
                 .ok()
                 .and_then(|data| {
                     decoded_instruction(
-                        "zone_proofless_shield",
+                        "zone_deposit",
                         zone_proofless_fields(data),
-                        zone_proofless_accounts(payload),
+                        zone_proofless_accounts(payload, accounts.len()),
                     )
                 }),
             tag::BATCH_UPDATE_NULLIFIER_TREE => decode(
@@ -378,10 +373,14 @@ fn decoded_instruction(
 }
 
 fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'static str] {
-    let Ok(data) = ProoflessShieldIxData::deserialize(payload) else {
+    let Ok(data) = DepositIxData::deserialize(payload) else {
         return &[];
     };
-    if data.public_amount_mode == PUBLIC_AMOUNT_DEPOSIT_SPL {
+    let has_cpi_signer = data.cpi_signer.is_some();
+    // SPL settlement carries one account more than SOL; cpi_signer (known from
+    // the data) shifts both by one. This mirrors the program's own inference.
+    let is_spl = account_count == 7 + usize::from(has_cpi_signer);
+    if is_spl {
         &[
             "tree",
             "depositor",
@@ -391,7 +390,7 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
             "token_program",
             "self_program",
         ]
-    } else if data.cpi_signer.is_some() || account_count == 7 {
+    } else if has_cpi_signer || account_count == 7 {
         &[
             "tree",
             "depositor",
@@ -413,11 +412,13 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
     }
 }
 
-fn zone_proofless_accounts(payload: &[u8]) -> &'static [&'static str] {
-    let Ok(data) = ZoneProoflessShieldIxData::deserialize(payload) else {
+fn zone_proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'static str] {
+    let Ok(_data) = ZoneDepositIxData::deserialize(payload) else {
         return &[];
     };
-    if data.public_amount_mode == PUBLIC_AMOUNT_DEPOSIT_SPL {
+    // Zone deposits always carry the zone_auth signer; SPL settlement adds one
+    // account over SOL (8 vs 7), matching the program's own inference.
+    if account_count == 8 {
         &[
             "tree",
             "depositor",
@@ -453,12 +454,11 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
     ]
 }
 
-fn proofless_fields(data: ProoflessShieldIxData) -> Vec<DecodedField> {
+fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
         field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
         field("salt", short_hex(&data.salt)),
-        field("public_amount_mode", data.public_amount_mode),
         field("public_amount", option_u64(data.public_amount)),
         field("program_data_hash", option_hash(data.program_data_hash)),
         field(
@@ -469,12 +469,11 @@ fn proofless_fields(data: ProoflessShieldIxData) -> Vec<DecodedField> {
     ]
 }
 
-fn zone_proofless_fields(data: ZoneProoflessShieldIxData) -> Vec<DecodedField> {
+fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
         field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
         field("salt", short_hex(&data.salt)),
-        field("public_amount_mode", data.public_amount_mode),
         field("public_amount", option_u64(data.public_amount)),
         field("cpi_signer", cpi_signer(Some(data.cpi_signer))),
         field("policy_data_hash", option_hash(data.policy_data_hash)),
@@ -487,7 +486,7 @@ fn zone_proofless_fields(data: ZoneProoflessShieldIxData) -> Vec<DecodedField> {
     ]
 }
 
-fn proofless_view_fields(data: ProoflessShieldView) -> Vec<DecodedField> {
+fn proofless_view_fields(data: DepositView) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
         field("utxo_hash", short_hex(&data.utxo_hash)),
@@ -658,25 +657,21 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{
-        instruction::{CpiSignerData, PUBLIC_AMOUNT_DEPOSIT_SOL},
-        SHIELDED_POOL_PROGRAM_ID,
-    };
+    use zolana_interface::{instruction::CpiSignerData, SHIELDED_POOL_PROGRAM_ID};
 
     use super::*;
 
     #[test]
-    fn decodes_proofless_shield() {
+    fn decodes_deposit() {
         let decoder = ZolanaInstructionDecoder {
             program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         };
-        let mut data = vec![tag::PROOFLESS_SHIELD];
+        let mut data = vec![tag::DEPOSIT];
         data.extend_from_slice(
-            &ProoflessShieldIxData {
+            &DepositIxData {
                 view_tag: [1; 32],
                 owner_utxo_hash: [2; 32],
                 salt: [3; 16],
-                public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
                 public_amount: Some(42),
                 program_data_hash: None,
                 program_data: None,
@@ -691,7 +686,7 @@ mod tests {
 
         let decoded = decoder.decode(&data, &[]).expect("decode");
 
-        assert_eq!(decoded.name, "proofless_shield");
+        assert_eq!(decoded.name, "deposit");
         assert_eq!(decoded.account_names[2], "cpi_signer");
         assert!(decoded
             .fields

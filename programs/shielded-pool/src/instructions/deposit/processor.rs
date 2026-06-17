@@ -1,16 +1,13 @@
 use light_hasher::{Hasher, Poseidon};
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::instruction::instruction_data::proofless_shield::CpiSignerData;
-use zolana_interface::instruction::{
-    ProoflessShieldIxData, ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL,
-    PUBLIC_AMOUNT_DEPOSIT_SPL,
-};
+use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
+use zolana_interface::instruction::{DepositIxData, ZoneDepositIxData};
 use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
 use zolana_interface::{UTXO_DOMAIN, ZONE_AUTH_PDA_SEED};
 use zolana_tree::TreeAccount;
 
-use super::account::ProoflessShieldAccounts;
+use super::account::DepositAccounts;
 use super::event::{emit_proofless_event, ProoflessOutputCtx};
 use crate::instructions::hash::{field_from_u64, solana_pk_hash};
 use crate::instructions::settlement::{settle_sol, settle_spl, Settlement};
@@ -22,7 +19,6 @@ pub(crate) struct DepositParams {
     pub owner_utxo_hash: [u8; 32],
     pub salt: [u8; 16],
     pub public_amount: Option<u64>,
-    pub public_amount_mode: u8,
     pub cpi_signer: Option<CpiSignerData>,
     pub cpi_signer_seed: &'static [u8],
     pub program_data_hash: Option<[u8; 32]>,
@@ -31,11 +27,9 @@ pub(crate) struct DepositParams {
     pub zone_data: Option<Vec<u8>>,
 }
 
-pub fn process_proofless_shield(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    data: ProoflessShieldIxData,
-) -> ProgramResult {
+pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data =
+        DepositIxData::deserialize(data).map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
@@ -54,15 +48,13 @@ pub fn process_proofless_shield(
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
-    process_deposit(
-        program_id,
+    process_deposit_internal(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner_utxo_hash: data.owner_utxo_hash,
             salt: data.salt,
             public_amount: data.public_amount,
-            public_amount_mode: data.public_amount_mode,
             cpi_signer: data.cpi_signer,
             cpi_signer_seed: CPI_SIGNER_SEED,
             program_data_hash: data.program_data_hash,
@@ -73,11 +65,9 @@ pub fn process_proofless_shield(
     )
 }
 
-pub fn process_zone_proofless_shield(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    data: ZoneProoflessShieldIxData,
-) -> ProgramResult {
+pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = ZoneDepositIxData::deserialize(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     if accounts.len() < 4 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
@@ -89,15 +79,13 @@ pub fn process_zone_proofless_shield(
     if !zone_auth.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    process_deposit(
-        program_id,
+    process_deposit_internal(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner_utxo_hash: data.owner_utxo_hash,
             salt: data.salt,
             public_amount: data.public_amount,
-            public_amount_mode: data.public_amount_mode,
             cpi_signer: Some(data.cpi_signer),
             cpi_signer_seed: ZONE_AUTH_PDA_SEED,
             program_data_hash: data.program_data_hash,
@@ -108,26 +96,17 @@ pub fn process_zone_proofless_shield(
     )
 }
 
-fn process_deposit(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    d: DepositParams,
-) -> ProgramResult {
-    // Proofless shields are deposit-only; reject withdraw / NONE / unknown modes.
-    let needs_spl = match d.public_amount_mode {
-        PUBLIC_AMOUNT_DEPOSIT_SOL => false,
-        PUBLIC_AMOUNT_DEPOSIT_SPL => true,
+fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> ProgramResult {
+    // A deposit must shield a positive amount; reject a missing or zero amount.
+    let amount = match d.public_amount {
+        Some(amount) if amount > 0 => amount,
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
-    let amount = d.public_amount.unwrap_or(0);
 
-    let parsed = ProoflessShieldAccounts::validate_and_parse(
-        program_id,
-        accounts,
-        d.cpi_signer,
-        d.cpi_signer_seed,
-        needs_spl,
-    )?;
+    // SOL vs SPL is inferred from the settlement accounts the caller passes.
+    let parsed =
+        DepositAccounts::validate_and_parse(&crate::ID, accounts, d.cpi_signer, d.cpi_signer_seed)?;
+    let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
     let asset_field = solana_pk_hash(&asset)?;
@@ -154,7 +133,7 @@ fn process_deposit(
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
     let first_output_leaf_index = {
         let mut tree =
-            TreeAccount::from_account_view_mut(parsed.tree, program_id, TREE_ACCOUNT_DISCRIMINATOR)
+            TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
         let index = tree.utxo_tree.next_index();
         tree.utxo_tree.append(utxo_hash);

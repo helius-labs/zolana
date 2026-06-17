@@ -1,7 +1,7 @@
 //! Litesvm program-test for a SOL shield then unshield (withdrawal) via the
 //! `transact` instruction with a real Groth16 proof.
 //!
-//! Flow: `proofless_shield` deposits SOL into one UTXO owned by the payer's
+//! Flow: `deposit` deposits SOL into one UTXO owned by the payer's
 //! Ed25519 key, then `transact` spends that UTXO (a real, non-dummy input) to
 //! withdraw the full amount to an external account. The input carries a real
 //! state-inclusion proof against the on-chain UTXO tree root and a real
@@ -109,8 +109,8 @@ fn shield_then_withdraw_sol() {
         .expect("owner utxo hash");
     let event = env
         .rpc
-        .proofless_shield_sol(&tree, &payer, AMOUNT, owner_utxo_h)
-        .expect("proofless shield");
+        .deposit_sol(&tree, &payer, AMOUNT, owner_utxo_h)
+        .expect("proofless deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(

@@ -1,4 +1,4 @@
-use zolana_interface::event::ProoflessShieldView;
+use zolana_interface::event::DepositView;
 use zolana_keypair::constants::{SALT_LEN, VIEW_TAG_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
@@ -6,7 +6,7 @@ use zolana_transaction::{
     SOL_MINT,
 };
 
-fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessShieldView {
+fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> DepositView {
     let salt = [9u8; SALT_LEN];
     let blinding = wallet
         .keypair
@@ -25,7 +25,7 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ProoflessShieldView 
     )
     .expect("UTXO hash");
 
-    ProoflessShieldView {
+    DepositView {
         view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
         utxo_hash,
         asset: SOL_MINT.to_bytes(),

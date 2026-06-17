@@ -1,11 +1,11 @@
-//! Post-instruction checks for a public SPL `proofless_shield` deposit.
+//! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::ProoflessShieldView, instruction::ProoflessShieldIxData};
+use zolana_interface::{event::DepositView, instruction::DepositIxData};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-/// Verify a settled SPL `proofless_shield` against the integration-test
+/// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
 /// the mint, the deposit amount moved from the user token account into the
 /// asset vault, the state tree advanced, the indexer agrees with the on-chain
@@ -21,8 +21,8 @@ pub fn assert_spl_deposit(
     mint: &Pubkey,
     vault: &Pubkey,
     user_token: &Pubkey,
-    event: &ProoflessShieldView,
-    data: &ProoflessShieldIxData,
+    event: &DepositView,
+    data: &DepositIxData,
     expected_amount: u64,
     vault_before: u64,
     user_token_before: u64,

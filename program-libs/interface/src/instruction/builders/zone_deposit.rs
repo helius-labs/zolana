@@ -2,18 +2,18 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    instruction::{tag, ProoflessShieldSplAccounts, ZoneProoflessShieldIxData},
+    instruction::{tag, DepositSplAccounts, ZoneDepositIxData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ZoneProoflessShieldAccounts {
+pub struct ZoneDepositAccounts {
     pub tree: Pubkey,
     pub depositor: Pubkey,
-    pub spl: Option<ProoflessShieldSplAccounts>,
+    pub spl: Option<DepositSplAccounts>,
 }
 
-impl ZoneProoflessShieldAccounts {
+impl ZoneDepositAccounts {
     pub fn sol(tree: Pubkey, depositor: Pubkey) -> Self {
         Self {
             tree,
@@ -22,7 +22,7 @@ impl ZoneProoflessShieldAccounts {
         }
     }
 
-    pub fn spl(tree: Pubkey, depositor: Pubkey, spl: ProoflessShieldSplAccounts) -> Self {
+    pub fn spl(tree: Pubkey, depositor: Pubkey, spl: DepositSplAccounts) -> Self {
         Self {
             tree,
             depositor,
@@ -31,11 +31,8 @@ impl ZoneProoflessShieldAccounts {
     }
 }
 
-impl ZoneProoflessShieldIxData {
-    pub fn instruction(
-        &self,
-        accounts: ZoneProoflessShieldAccounts,
-    ) -> Result<Instruction, PubkeyError> {
+impl ZoneDepositIxData {
+    pub fn instruction(&self, accounts: ZoneDepositAccounts) -> Result<Instruction, PubkeyError> {
         let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
         let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
 
@@ -44,7 +41,7 @@ impl ZoneProoflessShieldIxData {
 
     pub fn cpi_instruction(
         &self,
-        accounts: ZoneProoflessShieldAccounts,
+        accounts: ZoneDepositAccounts,
     ) -> Result<Instruction, PubkeyError> {
         let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
         let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
@@ -61,10 +58,10 @@ impl ZoneProoflessShieldIxData {
         &self,
         program_id: Pubkey,
         zone_auth: Pubkey,
-        accounts: ZoneProoflessShieldAccounts,
+        accounts: ZoneDepositAccounts,
         zone_auth_signer: bool,
     ) -> Instruction {
-        let mut data = vec![tag::ZONE_PROOFLESS_SHIELD];
+        let mut data = vec![tag::ZONE_DEPOSIT];
         data.extend_from_slice(
             &self
                 .serialize()

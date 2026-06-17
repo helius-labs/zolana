@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{ProoflessShieldAccounts, ProoflessShieldIxData};
+use zolana_interface::instruction::{DepositAccounts, DepositIxData};
 
 use crate::error::ClientError;
 use crate::rpc::Rpc;
@@ -16,14 +16,14 @@ use crate::rpc::Rpc;
 /// `payer` funds the transaction fee; `depositor` signs the deposit and is the
 /// public funding source for the shielded amount (they may be the same key).
 /// Returns the transaction signature; event indexing is the caller's concern.
-pub fn proofless_shield<R: Rpc>(
+pub fn deposit<R: Rpc>(
     rpc: &R,
     payer: &Keypair,
     tree: Pubkey,
     depositor: &Keypair,
-    data: &ProoflessShieldIxData,
+    data: &DepositIxData,
 ) -> Result<Signature, ClientError> {
-    let ix = data.instruction(ProoflessShieldAccounts::sol(tree, depositor.pubkey()));
+    let ix = data.instruction(DepositAccounts::sol(tree, depositor.pubkey()));
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
@@ -60,26 +60,25 @@ mod tests {
     }
 
     #[test]
-    fn proofless_shield_sends_the_interface_instruction() {
+    fn deposit_sends_the_interface_instruction() {
         let rpc = MockRpc::default();
         let payer = Keypair::new();
         let depositor = Keypair::new();
         let tree = Pubkey::new_unique();
-        let data = ProoflessShieldIxData {
+        let data = DepositIxData {
             view_tag: [1u8; 32],
             owner_utxo_hash: [2u8; 32],
             salt: [3u8; 16],
-            public_amount_mode: zolana_interface::instruction::PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(1_000),
             program_data_hash: None,
             program_data: None,
             cpi_signer: None,
         };
 
-        proofless_shield(&rpc, &payer, tree, &depositor, &data).expect("action");
+        deposit(&rpc, &payer, tree, &depositor, &data).expect("action");
 
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
-        let expected = data.instruction(ProoflessShieldAccounts::sol(tree, depositor.pubkey()));
+        let expected = data.instruction(DepositAccounts::sol(tree, depositor.pubkey()));
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));
