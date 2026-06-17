@@ -11,7 +11,7 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
-        create_zone_config, tag, CreateZoneConfigData, DepositSplAccounts, ZoneDepositAccounts,
+        tag, CreateZoneConfig, CreateZoneConfigData, DepositSplAccounts, ZoneDeposit,
         ZoneDepositIxData,
     },
     SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED,
@@ -78,8 +78,16 @@ fn process_create_zone_config(
 
     let data = CreateZoneConfigData::try_from_slice(payload(data)?)
         .map_err(|_| ProgramError::InvalidInstructionData)?;
-    let ix = create_zone_config(pubkey(accounts[CREATE_ZONE_PAYER].address()), data)
-        .map_err(|_| ProgramError::InvalidSeeds)?;
+    let ix = CreateZoneConfig {
+        payer: pubkey(accounts[CREATE_ZONE_PAYER].address()),
+        program_id: data.program_id,
+        zone_auth_bump: data.zone_auth_bump,
+        authority: data.authority,
+        zone_authority_transact_is_enabled: data.zone_authority_transact_is_enabled,
+        zone_config_bump: data.zone_config_bump,
+    }
+    .instruction()
+    .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
@@ -126,12 +134,22 @@ fn process_zone_proofless_sol(
     }
     check_shielded_pool(accounts[SOL_SHIELDED_POOL_PROGRAM].address())?;
 
-    let ix = data
-        .cpi_instruction(ZoneDepositAccounts::sol(
-            pubkey(accounts[TREE].address()),
-            pubkey(accounts[DEPOSITOR].address()),
-        ))
-        .map_err(|_| ProgramError::InvalidSeeds)?;
+    let ix = ZoneDeposit {
+        tree: pubkey(accounts[TREE].address()),
+        depositor: pubkey(accounts[DEPOSITOR].address()),
+        spl: None,
+        view_tag: data.view_tag,
+        owner_utxo_hash: data.owner_utxo_hash,
+        salt: data.salt,
+        public_amount: data.public_amount,
+        cpi_signer: data.cpi_signer,
+        policy_data_hash: data.policy_data_hash,
+        zone_data: data.zone_data,
+        program_data_hash: data.program_data_hash,
+        program_data: data.program_data,
+    }
+    .cpi_instruction()
+    .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
@@ -164,18 +182,27 @@ fn process_zone_proofless_spl(
     }
     check_shielded_pool(accounts[SPL_SHIELDED_POOL_PROGRAM].address())?;
 
-    let ix = data
-        .cpi_instruction(ZoneDepositAccounts::spl(
-            pubkey(accounts[TREE].address()),
-            pubkey(accounts[DEPOSITOR].address()),
-            DepositSplAccounts {
-                user_token: pubkey(accounts[SPL_USER_TOKEN].address()),
-                vault: pubkey(accounts[SPL_VAULT].address()),
-                registry: pubkey(accounts[SPL_REGISTRY].address()),
-                token_program: pubkey(accounts[SPL_TOKEN_PROGRAM].address()),
-            },
-        ))
-        .map_err(|_| ProgramError::InvalidSeeds)?;
+    let ix = ZoneDeposit {
+        tree: pubkey(accounts[TREE].address()),
+        depositor: pubkey(accounts[DEPOSITOR].address()),
+        spl: Some(DepositSplAccounts {
+            user_token: pubkey(accounts[SPL_USER_TOKEN].address()),
+            vault: pubkey(accounts[SPL_VAULT].address()),
+            registry: pubkey(accounts[SPL_REGISTRY].address()),
+            token_program: pubkey(accounts[SPL_TOKEN_PROGRAM].address()),
+        }),
+        view_tag: data.view_tag,
+        owner_utxo_hash: data.owner_utxo_hash,
+        salt: data.salt,
+        public_amount: data.public_amount,
+        cpi_signer: data.cpi_signer,
+        policy_data_hash: data.policy_data_hash,
+        zone_data: data.zone_data,
+        program_data_hash: data.program_data_hash,
+        program_data: data.program_data,
+    }
+    .cpi_instruction()
+    .map_err(|_| ProgramError::InvalidSeeds)?;
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);

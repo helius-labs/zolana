@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{create_zone_config as create_zone_config_ix, CreateZoneConfigData},
+    instruction::CreateZoneConfig,
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
@@ -175,16 +175,15 @@ fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
     let (_, zone_config_bump) = pda::zone_config(&zone_program);
     let (_, zone_auth_bump) = pda::zone_auth(&zone_program);
-    let mut ix = create_zone_config_ix(
-        payer.pubkey(),
-        CreateZoneConfigData {
-            program_id: ZONE_TEST_PROGRAM_ID.into(),
-            zone_auth_bump,
-            authority: payer.pubkey().to_bytes().into(),
-            zone_authority_transact_is_enabled: true,
-            zone_config_bump,
-        },
-    )
+    let mut ix = CreateZoneConfig {
+        payer: payer.pubkey(),
+        program_id: ZONE_TEST_PROGRAM_ID.into(),
+        zone_auth_bump,
+        authority: payer.pubkey().to_bytes().into(),
+        zone_authority_transact_is_enabled: true,
+        zone_config_bump,
+    }
+    .instruction()
     .expect("zone config PDA");
     ix.accounts[3].pubkey = payer.pubkey();
     let err = world

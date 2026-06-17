@@ -21,12 +21,11 @@ mod transact_common;
 use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
-use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
-use zolana_interface::instruction::transact;
+use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
 use zolana_interface::pda;
 use zolana_keypair::hash::owner_hash;
 use zolana_keypair::pubkey::PublicKey;
@@ -43,7 +42,6 @@ use crate::transact_common::{
     transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
 
-const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
 const AMOUNT: u64 = 1_000_000_000;
 
 /// Read on-chain tree roots: the UTXO root at `utxo_index` and the nullifier
@@ -227,17 +225,14 @@ fn shield_then_withdraw_sol() {
     // SOL withdrawal account layout: payer (signer/owner), tree, sol_interface
     // (the SOL-custody PDA), recipient, then the system program (settle_sol
     // Transfer CPI) and the program (emit_event self-CPI).
-    let ix = transact(
-        vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new(vault, false),
-            AccountMeta::new(recipient, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-            AccountMeta::new_readonly(env.rpc.program_id, false),
-        ],
-        &transact_ix_data,
-    );
+    let ix = Transact {
+        payer: payer.pubkey(),
+        tree,
+        cpi_signer: None,
+        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+        data: transact_ix_data,
+    }
+    .instruction();
 
     let result = env
         .rpc
@@ -419,14 +414,14 @@ fn shield_transfer_then_withdraw_sol() {
     .expect("prove transfer");
     transfer_ix_data.private_tx_hash = transfer_private_tx;
 
-    let transfer_ix = transact(
-        vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new_readonly(env.rpc.program_id, false),
-        ],
-        &transfer_ix_data,
-    );
+    let transfer_ix = Transact {
+        payer: payer.pubkey(),
+        tree,
+        cpi_signer: None,
+        withdrawal: None,
+        data: transfer_ix_data,
+    }
+    .instruction();
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[transfer_ix], &[]);
@@ -551,17 +546,16 @@ fn shield_transfer_then_withdraw_sol() {
     .expect("prove withdraw");
     withdraw_ix_data.private_tx_hash = withdraw_private_tx;
 
-    let withdraw_ix = transact(
-        vec![
-            AccountMeta::new(recipient_owner.pubkey(), true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new(vault, false),
-            AccountMeta::new(public_recipient, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-            AccountMeta::new_readonly(env.rpc.program_id, false),
-        ],
-        &withdraw_ix_data,
-    );
+    let withdraw_ix = Transact {
+        payer: recipient_owner.pubkey(),
+        tree,
+        cpi_signer: None,
+        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+            recipient: public_recipient,
+        })),
+        data: withdraw_ix_data,
+    }
+    .instruction();
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[withdraw_ix], &[&recipient_owner]);

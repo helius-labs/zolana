@@ -2,16 +2,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, DepositIxData},
-    pda, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{tag, CpiSignerData, DepositIxData},
+    pda, PROGRAM_ID_PUBKEY,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DepositAccounts {
-    pub tree: Pubkey,
-    pub depositor: Pubkey,
-    pub spl: Option<DepositSplAccounts>,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DepositSplAccounts {
@@ -21,24 +14,38 @@ pub struct DepositSplAccounts {
     pub token_program: Pubkey,
 }
 
-impl DepositAccounts {
-    pub fn sol(tree: Pubkey, depositor: Pubkey) -> Self {
-        Self {
-            tree,
-            depositor,
-            spl: None,
-        }
-    }
+pub struct Deposit {
+    pub tree: Pubkey,
+    pub depositor: Pubkey,
+    pub spl: Option<DepositSplAccounts>,
+    pub view_tag: [u8; 32],
+    pub owner_utxo_hash: [u8; 32],
+    pub salt: [u8; 16],
+    pub public_amount: Option<u64>,
+    pub program_data_hash: Option<[u8; 32]>,
+    pub program_data: Option<Vec<u8>>,
+    pub cpi_signer: Option<CpiSignerData>,
+}
 
-    pub fn spl(tree: Pubkey, depositor: Pubkey, spl: DepositSplAccounts) -> Self {
-        Self {
-            tree,
-            depositor,
-            spl: Some(spl),
-        }
-    }
+impl Deposit {
+    pub fn instruction(&self) -> Instruction {
+        let ix_data = DepositIxData {
+            view_tag: self.view_tag,
+            owner_utxo_hash: self.owner_utxo_hash,
+            salt: self.salt,
+            public_amount: self.public_amount,
+            program_data_hash: self.program_data_hash,
+            program_data: self.program_data.clone(),
+            cpi_signer: self.cpi_signer,
+        };
 
-    pub fn account_metas(self) -> Vec<AccountMeta> {
+        let mut data = vec![tag::DEPOSIT];
+        data.extend_from_slice(
+            &ix_data
+                .serialize()
+                .expect("proofless ix data serialization is infallible"),
+        );
+
         let mut accounts = vec![
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
@@ -56,26 +63,11 @@ impl DepositAccounts {
                 AccountMeta::new(self.depositor, false),
             ]),
         }
-        accounts.push(AccountMeta::new_readonly(
-            Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-            false,
-        ));
-        accounts
-    }
-}
-
-impl DepositIxData {
-    pub fn instruction(&self, accounts: DepositAccounts) -> Instruction {
-        let mut data = vec![tag::DEPOSIT];
-        data.extend_from_slice(
-            &self
-                .serialize()
-                .expect("proofless ix data serialization is infallible"),
-        );
+        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
-            program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-            accounts: accounts.account_metas(),
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts,
             data,
         }
     }

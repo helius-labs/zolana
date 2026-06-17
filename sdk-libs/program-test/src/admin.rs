@@ -3,9 +3,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        create_protocol_config, pause_tree as pause_tree_ix,
-        update_protocol_config as update_protocol_config_ix, CreateProtocolConfigData,
-        PauseTreeData, UpdateProtocolConfigData,
+        CreateProtocolConfig, CreateProtocolConfigData, PauseTree, UpdateProtocolConfig,
+        UpdateProtocolConfigData,
     },
     pda,
 };
@@ -48,7 +47,17 @@ impl ZolanaProgramTest {
     ) -> Result<Pubkey, ProgramTestError> {
         self.airdrop(&authority.pubkey(), 1_000_000_000)?;
         let config = pda::protocol_config();
-        let ix = create_protocol_config(authority.pubkey(), data);
+        let ix = CreateProtocolConfig {
+            authority: authority.pubkey(),
+            protocol_authority: data.protocol_authority,
+            tree_creation_authority: data.tree_creation_authority,
+            tree_creation_is_permissionless: data.tree_creation_is_permissionless != 0,
+            forester_authority: data.forester_authority,
+            zone_creation_authority: data.zone_creation_authority,
+            zone_creation_is_permissionless: data.zone_creation_is_permissionless != 0,
+            merge_authority: data.merge_authority,
+        }
+        .instruction();
         self.send(&[ix], &[authority])?;
         Ok(config)
     }
@@ -72,27 +81,21 @@ impl ZolanaProgramTest {
         let next = new_authority.pubkey().to_bytes();
         // Rotate `protocol_authority` last so the current authority signs every
         // instruction in the batch.
+        let update = |variant| {
+            UpdateProtocolConfig {
+                authority: payer,
+                update: variant,
+            }
+            .instruction()
+        };
         let ixs = [
-            update_protocol_config_ix(
-                payer,
-                UpdateProtocolConfigData::TreeCreationAuthority(next.into()),
-            ),
-            update_protocol_config_ix(
-                payer,
-                UpdateProtocolConfigData::ForesterAuthority(next.into()),
-            ),
-            update_protocol_config_ix(
-                payer,
-                UpdateProtocolConfigData::ZoneCreationAuthority(next.into()),
-            ),
-            update_protocol_config_ix(
-                payer,
-                UpdateProtocolConfigData::MergeAuthority(merge_authority.into()),
-            ),
-            update_protocol_config_ix(
-                payer,
-                UpdateProtocolConfigData::ProtocolAuthority(next.into()),
-            ),
+            update(UpdateProtocolConfigData::TreeCreationAuthority(next.into())),
+            update(UpdateProtocolConfigData::ForesterAuthority(next.into())),
+            update(UpdateProtocolConfigData::ZoneCreationAuthority(next.into())),
+            update(UpdateProtocolConfigData::MergeAuthority(
+                merge_authority.into(),
+            )),
+            update(UpdateProtocolConfigData::ProtocolAuthority(next.into())),
         ];
         let mut signers = vec![authority];
         if new_authority.pubkey() != authority.pubkey() {
@@ -107,13 +110,12 @@ impl ZolanaProgramTest {
         tree: &Keypair,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
-        let ix = pause_tree_ix(
-            authority.pubkey(),
-            tree.pubkey(),
-            PauseTreeData {
-                paused: u8::from(paused),
-            },
-        );
+        let ix = PauseTree {
+            authority: authority.pubkey(),
+            tree: tree.pubkey(),
+            paused,
+        }
+        .instruction();
         self.send(&[ix], &[authority])
     }
 

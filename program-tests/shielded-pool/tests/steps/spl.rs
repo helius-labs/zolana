@@ -5,10 +5,7 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    instruction::{DepositAccounts, DepositSplAccounts},
-    pda,
-};
+use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
@@ -26,17 +23,15 @@ fn spl_accounts(
     user_token: &Pubkey,
     mint: &Pubkey,
 ) -> Vec<AccountMeta> {
-    DepositAccounts::spl(
-        *tree,
-        *depositor,
-        DepositSplAccounts {
-            user_token: *user_token,
-            vault: pda::spl_asset_vault(mint),
-            registry: pda::spl_asset_registry(mint),
-            token_program: ZolanaProgramTest::token_program_id(),
-        },
-    )
-    .account_metas()
+    vec![
+        AccountMeta::new(*tree, false),
+        AccountMeta::new(*depositor, true),
+        AccountMeta::new(*user_token, false),
+        AccountMeta::new(pda::spl_asset_vault(mint), false),
+        AccountMeta::new_readonly(pda::spl_asset_registry(mint), false),
+        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+    ]
 }
 
 // === SPL interface registration ===

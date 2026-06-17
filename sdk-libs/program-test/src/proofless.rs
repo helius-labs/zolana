@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     event::DepositView,
-    instruction::{DepositAccounts, DepositIxData, DepositSplAccounts},
+    instruction::{Deposit, DepositIxData, DepositSplAccounts},
     pda,
 };
 
@@ -17,7 +17,19 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &DepositIxData,
     ) -> Result<DepositView, ProgramTestError> {
-        let ix = data.instruction(DepositAccounts::sol(*tree, depositor.pubkey()));
+        let ix = Deposit {
+            tree: *tree,
+            depositor: depositor.pubkey(),
+            spl: None,
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+            cpi_signer: data.cpi_signer,
+        }
+        .instruction();
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -29,16 +41,24 @@ impl ZolanaProgramTest {
         mint: &Pubkey,
         data: &DepositIxData,
     ) -> Result<DepositView, ProgramTestError> {
-        let ix = data.instruction(DepositAccounts::spl(
-            *tree,
-            depositor.pubkey(),
-            DepositSplAccounts {
+        let ix = Deposit {
+            tree: *tree,
+            depositor: depositor.pubkey(),
+            spl: Some(DepositSplAccounts {
                 user_token: *user_token,
                 vault: pda::spl_asset_vault(mint),
                 registry: pda::spl_asset_registry(mint),
                 token_program: Self::token_program_id(),
-            },
-        ));
+            }),
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+            cpi_signer: data.cpi_signer,
+        }
+        .instruction();
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -48,7 +68,19 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &DepositIxData,
     ) -> Result<DepositView, ProgramTestError> {
-        let mut ix = data.instruction(DepositAccounts::sol(Pubkey::default(), depositor.pubkey()));
+        let mut ix = Deposit {
+            tree: Pubkey::default(),
+            depositor: depositor.pubkey(),
+            spl: None,
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+            cpi_signer: data.cpi_signer,
+        }
+        .instruction();
         ix.program_id = self.program_id;
         ix.accounts = accounts;
         self.send_deposit_ix(ix, depositor)

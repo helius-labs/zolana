@@ -5,7 +5,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{tag, CpiSignerData, DepositAccounts, DepositIxData},
+    instruction::{tag, CpiSignerData, DepositIxData},
     pda,
 };
 use zolana_keypair::constants::BLINDING_LEN;
@@ -24,10 +24,14 @@ fn sol_accounts(
     tree: &Pubkey,
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
-    let mut accounts = DepositAccounts::sol(*tree, *depositor).account_metas();
-    accounts[3] = AccountMeta::new(pda::sol_interface(), false);
-    accounts[5] = AccountMeta::new_readonly(program_test.program_id, false);
-    accounts
+    vec![
+        AccountMeta::new(*tree, false),
+        AccountMeta::new(*depositor, true),
+        AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(pda::sol_interface(), false),
+        AccountMeta::new(*depositor, false),
+        AccountMeta::new_readonly(program_test.program_id, false),
+    ]
 }
 
 fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {

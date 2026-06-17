@@ -4,10 +4,7 @@ use cucumber::{then, when};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    instruction::{create_protocol_config as create_protocol_config_ix, CreateProtocolConfigData},
-    pda,
-};
+use zolana_interface::{instruction::CreateProtocolConfig, pda};
 use zolana_test_utils::asserts::assert_protocol_config;
 
 use crate::common::{assert_custom, assert_pool_error, tree_account_size};
@@ -118,18 +115,17 @@ fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
         .airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund");
     let named = Keypair::new().pubkey().to_bytes();
-    let ix = create_protocol_config_ix(
-        signer.pubkey(),
-        CreateProtocolConfigData {
-            protocol_authority: named.into(),
-            tree_creation_authority: named.into(),
-            tree_creation_is_permissionless: 0,
-            forester_authority: named.into(),
-            zone_creation_authority: named.into(),
-            zone_creation_is_permissionless: 0,
-            merge_authority: named.into(),
-        },
-    );
+    let ix = CreateProtocolConfig {
+        authority: signer.pubkey(),
+        protocol_authority: named.into(),
+        tree_creation_authority: named.into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: named.into(),
+        zone_creation_authority: named.into(),
+        zone_creation_is_permissionless: false,
+        merge_authority: named.into(),
+    }
+    .instruction();
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&signer])

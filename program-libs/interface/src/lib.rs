@@ -21,6 +21,10 @@ pub const UTXO_DOMAIN: u16 = 1;
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
     pubkey_array!("8nhL4dQgcddkc8cNV5piaZ1zKGowap1XrS8EDKi4rywq");
 
+/// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
+pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
 pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];
@@ -50,6 +54,19 @@ pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
 pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 255;
+
+/// Canonical native-SOL custody PDA:
+/// `find_program_address(&[b"sol_interface", &[0]], SHIELDED_POOL_PROGRAM_ID)`.
+/// Hardcoded so builders and the SBF program avoid the runtime derivation; the
+/// `pda::sol_interface_const_matches_derivation` test pins it.
+pub const SOL_INTERFACE: [u8; 32] = [
+    80, 117, 177, 137, 17, 234, 160, 230, 56, 200, 169, 120, 142, 232, 95, 53, 133, 251, 22, 119,
+    74, 190, 106, 84, 69, 214, 163, 215, 107, 64, 243, 108,
+];
+
+/// [`SOL_INTERFACE`] as a `Pubkey`.
+pub const SOL_INTERFACE_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::new_from_array(SOL_INTERFACE);
 
 /// SPL Token v3 program id: `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`.
 pub const SPL_TOKEN_PROGRAM_ID: [u8; 32] = [

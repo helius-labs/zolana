@@ -3949,7 +3949,6 @@ dependencies = [
  "light-verifier",
  "pinocchio 0.11.2",
  "pinocchio-system",
- "thiserror 2.0.18",
  "zolana-interface",
  "zolana-tree",
 ]
@@ -3965,7 +3964,6 @@ dependencies = [
  "light-hasher",
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
- "shielded-pool-program",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",

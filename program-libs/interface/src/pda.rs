@@ -74,3 +74,13 @@ pub fn zone_auth_with_bump(zone_program: &Pubkey, bump: u8) -> Result<Pubkey, Pu
     let bump = [bump];
     Pubkey::create_program_address(&[ZONE_AUTH_PDA_SEED, bump.as_slice()], zone_program)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::SOL_INTERFACE;
+
+    #[test]
+    fn sol_interface_const_matches_derivation() {
+        assert_eq!(super::sol_interface().to_bytes(), SOL_INTERFACE);
+    }
+}

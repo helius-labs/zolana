@@ -5,10 +5,8 @@ use solana_signer::Signer;
 use zolana_interface::{
     event::DepositView,
     instruction::{
-        encode_instruction, tag, update_zone_config as update_zone_config_ix,
-        update_zone_config_owner as update_zone_config_owner_ix, CpiSignerData,
-        CreateZoneConfigData, DepositSplAccounts, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-        ZoneDepositAccounts, ZoneDepositIxData,
+        encode_instruction, tag, CpiSignerData, CreateZoneConfigData, DepositSplAccounts,
+        UpdateZoneConfig, UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
     },
     pda,
 };
@@ -75,13 +73,12 @@ impl ZolanaProgramTest {
         zone_config: &Pubkey,
         new_authority: &Keypair,
     ) -> Result<(), ProgramTestError> {
-        let ix = update_zone_config_owner_ix(
-            authority.pubkey(),
-            *zone_config,
-            UpdateZoneConfigOwnerData {
-                new_authority: new_authority.pubkey().to_bytes().into(),
-            },
-        );
+        let ix = UpdateZoneConfigOwner {
+            authority: authority.pubkey(),
+            zone_config: *zone_config,
+            new_authority: new_authority.pubkey().to_bytes().into(),
+        }
+        .instruction();
         let mut signers = vec![authority];
         if new_authority.pubkey() != authority.pubkey() {
             signers.push(new_authority);
@@ -95,13 +92,12 @@ impl ZolanaProgramTest {
         zone_config: &Pubkey,
         zone_authority_transact_is_enabled: bool,
     ) -> Result<(), ProgramTestError> {
-        let ix = update_zone_config_ix(
-            authority.pubkey(),
-            *zone_config,
-            UpdateZoneConfigData {
-                zone_authority_transact_is_enabled,
-            },
-        );
+        let ix = UpdateZoneConfig {
+            authority: authority.pubkey(),
+            zone_config: *zone_config,
+            zone_authority_transact_is_enabled,
+        }
+        .instruction();
         self.send(&[ix], &[authority])
     }
 
@@ -201,9 +197,22 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         data: &ZoneDepositIxData,
     ) -> Result<DepositView, ProgramTestError> {
-        let ix = data
-            .instruction(ZoneDepositAccounts::sol(*tree, depositor.pubkey()))
-            .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        let ix = ZoneDeposit {
+            tree: *tree,
+            depositor: depositor.pubkey(),
+            spl: None,
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            cpi_signer: data.cpi_signer,
+            policy_data_hash: data.policy_data_hash,
+            zone_data: data.zone_data.clone(),
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+        }
+        .instruction()
+        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }
@@ -216,18 +225,27 @@ impl ZolanaProgramTest {
         mint: &Pubkey,
         data: &ZoneDepositIxData,
     ) -> Result<DepositView, ProgramTestError> {
-        let ix = data
-            .instruction(ZoneDepositAccounts::spl(
-                *tree,
-                depositor.pubkey(),
-                DepositSplAccounts {
-                    user_token: *user_token,
-                    vault: pda::spl_asset_vault(mint),
-                    registry: pda::spl_asset_registry(mint),
-                    token_program: Self::token_program_id(),
-                },
-            ))
-            .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        let ix = ZoneDeposit {
+            tree: *tree,
+            depositor: depositor.pubkey(),
+            spl: Some(DepositSplAccounts {
+                user_token: *user_token,
+                vault: pda::spl_asset_vault(mint),
+                registry: pda::spl_asset_registry(mint),
+                token_program: Self::token_program_id(),
+            }),
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            cpi_signer: data.cpi_signer,
+            policy_data_hash: data.policy_data_hash,
+            zone_data: data.zone_data.clone(),
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+        }
+        .instruction()
+        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }

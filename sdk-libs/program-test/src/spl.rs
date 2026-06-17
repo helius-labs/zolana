@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{create_asset_counter, create_spl_interface},
+    instruction::{CreateAssetCounter, CreateSplInterface},
     pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
     SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
@@ -104,7 +104,10 @@ impl ZolanaProgramTest {
         authority: &Keypair,
     ) -> Result<Pubkey, ProgramTestError> {
         let counter = pda::spl_asset_counter();
-        let ix = create_asset_counter(authority.pubkey());
+        let ix = CreateAssetCounter {
+            authority: authority.pubkey(),
+        }
+        .instruction();
         self.send(&[ix], &[authority])?;
         Ok(counter)
     }
@@ -124,7 +127,11 @@ impl ZolanaProgramTest {
     ) -> Result<(Pubkey, Pubkey), ProgramTestError> {
         let registry = pda::spl_asset_registry(mint);
         let vault = pda::spl_asset_vault(mint);
-        let ix = create_spl_interface(authority.pubkey(), *mint);
+        let ix = CreateSplInterface {
+            authority: authority.pubkey(),
+            mint: *mint,
+        }
+        .instruction();
         self.send(&[ix], &[authority])?;
         Ok((registry, vault))
     }

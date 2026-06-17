@@ -9,9 +9,7 @@ use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     event::{indexed_events_from_instruction_groups, instruction_may_emit_events, DepositView},
-    instruction::{
-        create_protocol_config, tag, CreateProtocolConfigData, DepositAccounts, ZoneDepositAccounts,
-    },
+    instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
     pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
@@ -58,18 +56,17 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     );
 
     let authority_bytes = authority.pubkey().to_bytes();
-    let create_config = create_protocol_config(
-        authority.pubkey(),
-        CreateProtocolConfigData {
-            protocol_authority: authority_bytes.into(),
-            tree_creation_authority: authority_bytes.into(),
-            tree_creation_is_permissionless: 0,
-            forester_authority: authority_bytes.into(),
-            zone_creation_authority: authority_bytes.into(),
-            zone_creation_is_permissionless: 0,
-            merge_authority: authority_bytes.into(),
-        },
-    );
+    let create_config = CreateProtocolConfig {
+        authority: authority.pubkey(),
+        protocol_authority: authority_bytes.into(),
+        tree_creation_authority: authority_bytes.into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: authority_bytes.into(),
+        zone_creation_authority: authority_bytes.into(),
+        zone_creation_is_permissionless: false,
+        merge_authority: authority_bytes.into(),
+    }
+    .instruction();
     let create_config_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -106,8 +103,19 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         0,
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let direct_ix =
-        direct_data.instruction(DepositAccounts::sol(tree.pubkey(), depositor.pubkey()));
+    let direct_ix = Deposit {
+        tree: tree.pubkey(),
+        depositor: depositor.pubkey(),
+        spl: None,
+        view_tag: direct_data.view_tag,
+        owner_utxo_hash: direct_data.owner_utxo_hash,
+        salt: direct_data.salt,
+        public_amount: direct_data.public_amount,
+        program_data_hash: direct_data.program_data_hash,
+        program_data: direct_data.program_data,
+        cpi_signer: direct_data.cpi_signer,
+    }
+    .instruction();
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -135,8 +143,21 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     zone_data.policy_data_hash = Some([5u8; 32]);
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix =
-        zone_data.instruction(ZoneDepositAccounts::sol(tree.pubkey(), depositor.pubkey()))?;
+    let zone_ix = ZoneDeposit {
+        tree: tree.pubkey(),
+        depositor: depositor.pubkey(),
+        spl: None,
+        view_tag: zone_data.view_tag,
+        owner_utxo_hash: zone_data.owner_utxo_hash,
+        salt: zone_data.salt,
+        public_amount: zone_data.public_amount,
+        cpi_signer: zone_data.cpi_signer,
+        policy_data_hash: zone_data.policy_data_hash,
+        zone_data: zone_data.zone_data,
+        program_data_hash: zone_data.program_data_hash,
+        program_data: zone_data.program_data,
+    }
+    .instruction()?;
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

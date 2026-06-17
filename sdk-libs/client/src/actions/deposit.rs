@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{DepositAccounts, DepositIxData};
+use zolana_interface::instruction::{Deposit, DepositIxData};
 
 use crate::error::ClientError;
 use crate::rpc::Rpc;
@@ -23,7 +23,19 @@ pub fn deposit<R: Rpc>(
     depositor: &Keypair,
     data: &DepositIxData,
 ) -> Result<Signature, ClientError> {
-    let ix = data.instruction(DepositAccounts::sol(tree, depositor.pubkey()));
+    let ix = Deposit {
+        tree,
+        depositor: depositor.pubkey(),
+        spl: None,
+        view_tag: data.view_tag,
+        owner_utxo_hash: data.owner_utxo_hash,
+        salt: data.salt,
+        public_amount: data.public_amount,
+        program_data_hash: data.program_data_hash,
+        program_data: data.program_data.clone(),
+        cpi_signer: data.cpi_signer,
+    }
+    .instruction();
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
@@ -78,7 +90,19 @@ mod tests {
         deposit(&rpc, &payer, tree, &depositor, &data).expect("action");
 
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
-        let expected = data.instruction(DepositAccounts::sol(tree, depositor.pubkey()));
+        let expected = Deposit {
+            tree,
+            depositor: depositor.pubkey(),
+            spl: None,
+            view_tag: data.view_tag,
+            owner_utxo_hash: data.owner_utxo_hash,
+            salt: data.salt,
+            public_amount: data.public_amount,
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+            cpi_signer: data.cpi_signer,
+        }
+        .instruction();
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));

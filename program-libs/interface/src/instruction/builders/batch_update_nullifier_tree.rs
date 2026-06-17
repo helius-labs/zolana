@@ -3,21 +3,35 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData},
-    pda, SHIELDED_POOL_PROGRAM_ID,
+    pda, PROGRAM_ID_PUBKEY,
 };
 
-pub fn batch_update_nullifier_tree(
-    authority: Pubkey,
-    tree: Pubkey,
-    data: BatchUpdateNullifierTreeData,
-) -> Instruction {
-    Instruction {
-        program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        accounts: vec![
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(pda::protocol_config(), false),
-            AccountMeta::new(tree, false),
-        ],
-        data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
+pub struct BatchUpdateNullifierTree {
+    pub authority: Pubkey,
+    pub tree: Pubkey,
+    pub new_root: [u8; 32],
+    pub compressed_proof_a: [u8; 32],
+    pub compressed_proof_b: [u8; 64],
+    pub compressed_proof_c: [u8; 32],
+}
+
+impl BatchUpdateNullifierTree {
+    pub fn instruction(&self) -> Instruction {
+        let data = BatchUpdateNullifierTreeData {
+            new_root: self.new_root,
+            compressed_proof_a: self.compressed_proof_a,
+            compressed_proof_b: self.compressed_proof_b,
+            compressed_proof_c: self.compressed_proof_c,
+        };
+
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new_readonly(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(self.tree, false),
+            ],
+            data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
+        }
     }
 }

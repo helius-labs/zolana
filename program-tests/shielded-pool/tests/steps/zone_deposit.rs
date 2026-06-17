@@ -3,7 +3,7 @@
 use cucumber::when;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::{instruction::ZoneDepositAccounts, pda};
+use zolana_interface::{instruction::ZoneDeposit, pda};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
@@ -126,9 +126,22 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         .expect("fund");
 
     let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
-    let mut ix = data
-        .cpi_instruction(ZoneDepositAccounts::sol(tree, depositor.pubkey()))
-        .expect("zone auth PDA");
+    let mut ix = ZoneDeposit {
+        tree,
+        depositor: depositor.pubkey(),
+        spl: None,
+        view_tag: data.view_tag,
+        owner_utxo_hash: data.owner_utxo_hash,
+        salt: data.salt,
+        public_amount: data.public_amount,
+        cpi_signer: data.cpi_signer,
+        policy_data_hash: data.policy_data_hash,
+        zone_data: data.zone_data,
+        program_data_hash: data.program_data_hash,
+        program_data: data.program_data,
+    }
+    .cpi_instruction()
+    .expect("zone auth PDA");
     ix.accounts[2].pubkey = depositor.pubkey();
     let err = world
         .rpc()
