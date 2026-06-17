@@ -1,8 +1,10 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::containers;
 use wincode::len::FixIntLen;
 use wincode::{SchemaRead, SchemaWrite};
+
+use super::deposit::CpiSignerData;
+pub use zolana_event::OutputUtxo;
 
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -12,29 +14,6 @@ pub struct InputUtxo {
     pub utxo_tree_root_index: u16,
     pub tree_index: u8,
     pub eddsa_signer_index: u8,
-}
-
-/// One created output UTXO slot (spec: `transact` `OutputUtxo`). `data` is the
-/// serialized output payload (Output UTXO Serialization); the program does not
-/// parse it.
-#[derive(
-    Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite, BorshDeserialize, BorshSerialize,
-)]
-pub struct OutputUtxo {
-    pub view_tag: [u8; 32],
-    pub utxo_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub data: Vec<u8>,
-}
-
-/// Declared invoking-program signer (spec: `transact` `cpi_signer`). The zk
-/// program proves over the top-level `TransactIxData::private_tx_hash`.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
-)]
-pub struct TransactCpiSigner {
-    pub program_id: [u8; 32],
-    pub bump: u8,
 }
 
 /// `transact` instruction data (spec: SPP `transact`).
@@ -50,7 +29,7 @@ pub struct TransactIxData {
     /// withdraws. `None` for a pure shielded transfer.
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
-    pub cpi_signer: Option<TransactCpiSigner>,
+    pub cpi_signer: Option<CpiSignerData>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
     /// this transaction; copied verbatim into the emitted `GeneralEvent` so an
     /// indexer need not parse the opaque output payloads.
@@ -102,7 +81,7 @@ pub struct TransactIxDataRef<'a> {
     pub inputs: Vec<InputUtxo>,
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
-    pub cpi_signer: Option<TransactCpiSigner>,
+    pub cpi_signer: Option<CpiSignerData>,
     pub tx_viewing_pk: &'a [u8; 33],
     pub sender_utxo_data: OutputUtxoRef<'a>,
     #[wincode(with = "containers::Vec<OutputUtxoRef<'a>, FixIntLen<u8>>")]
@@ -184,7 +163,7 @@ pub struct ExternalDataHash<'a, O: OutputUtxoBytes> {
     pub user_sol_account: &'a [u8; 32],
     pub user_spl_token_account: &'a [u8; 32],
     pub spl_token_interface: &'a [u8; 32],
-    pub cpi_signer: Option<TransactCpiSigner>,
+    pub cpi_signer: Option<CpiSignerData>,
     pub sender_utxo_data: &'a O,
     pub recipient_utxo_data: &'a [O],
 }

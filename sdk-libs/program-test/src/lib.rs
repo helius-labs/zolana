@@ -31,8 +31,8 @@ mod admin;
 pub mod events;
 pub use events::{
     index_events, indexed_events_from_meta, parsed_instruction_from_compiled,
-    parsed_instruction_groups_from_meta, single_proofless_shield_view, IndexedEvent,
-    InstructionGroup, ParsedInstruction,
+    parsed_instruction_groups_from_meta, single_deposit_view, IndexedEvent, InstructionGroup,
+    ParsedInstruction,
 };
 pub mod indexer;
 pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};

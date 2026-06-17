@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{create_zone_config as create_zone_config_ix, CreateZoneConfigData},
+    instruction::CreateZoneConfig,
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
@@ -14,7 +14,7 @@ use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 use crate::common::assert_pool_error;
 use crate::ShieldedPoolWorld;
 
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ZoneConfigState {
@@ -29,7 +29,7 @@ fn read_zone_config(bytes: &[u8]) -> ZoneConfigState {
 
     let cfg: &ZoneConfig = bytemuck::from_bytes(bytes);
     ZoneConfigState {
-        authority: Pubkey::new_from_array(cfg.authority),
+        authority: Pubkey::new_from_array(cfg.authority.to_bytes()),
         zone_authority_transact_is_enabled: cfg.enabled(),
         bump: cfg.bump,
     }
@@ -64,6 +64,11 @@ fn funded_payer(world: &mut ShieldedPoolWorld) {
 
 #[when(expr = "the payer creates an enabled zone config")]
 fn create_zone_config(world: &mut ShieldedPoolWorld) {
+    let admin = Keypair::new();
+    world
+        .rpc()
+        .create_protocol_config_permissionless(&admin)
+        .expect("create_protocol_config");
     let payer = world.depositor().insecure_clone();
     let authority = Keypair::new();
     let zone_config = world
@@ -122,7 +127,7 @@ fn rotate_zone_owner(world: &mut ShieldedPoolWorld) {
     let next = Keypair::new();
     world
         .rpc()
-        .update_zone_config_owner(&authority, &zone_config, &next.pubkey())
+        .update_zone_config_owner(&authority, &zone_config, &next)
         .expect("rotate owner");
     world.previous_zone_authority = Some(authority);
     world.zone_authority = Some(next);
@@ -170,18 +175,17 @@ fn create_zone_config_invalid_auth(world: &mut ShieldedPoolWorld) {
     let zone_program = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
     let (_, zone_config_bump) = pda::zone_config(&zone_program);
     let (_, zone_auth_bump) = pda::zone_auth(&zone_program);
-    let mut ix = create_zone_config_ix(
-        payer.pubkey(),
-        CreateZoneConfigData {
-            program_id: ZONE_TEST_PROGRAM_ID,
-            zone_auth_bump,
-            authority: payer.pubkey().to_bytes(),
-            zone_authority_transact_is_enabled: true,
-            zone_config_bump,
-        },
-    )
+    let mut ix = CreateZoneConfig {
+        payer: payer.pubkey(),
+        program_id: ZONE_TEST_PROGRAM_ID.into(),
+        zone_auth_bump,
+        authority: payer.pubkey().to_bytes().into(),
+        zone_authority_transact_is_enabled: true,
+        zone_config_bump,
+    }
+    .instruction()
     .expect("zone config PDA");
-    ix.accounts[2].pubkey = payer.pubkey();
+    ix.accounts[3].pubkey = payer.pubkey();
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&payer])

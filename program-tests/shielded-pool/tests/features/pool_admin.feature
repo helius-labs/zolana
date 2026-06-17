@@ -5,26 +5,21 @@ Feature: Shielded pool admin
   Scenario: Creating the protocol config succeeds exactly once
     Given a booted shielded pool
     When the authority creates the protocol config
-    Then the protocol config has the authority and no merge authorities
+    Then the protocol config has the authority
     And creating the protocol config again is rejected as invalid
 
   Scenario: Protocol config creation survives donated lamports
     Given a booted shielded pool
     When lamports are donated to the protocol config address
     And the authority creates the protocol config on the pre-funded address
-    Then the protocol config has the authority and no merge authorities
+    Then the protocol config has the authority
 
-  Scenario: Protocol config persists merge authorities across rotation
+  Scenario: Protocol config persists the merge authority across rotation
     Given a booted shielded pool
     When the authority creates the protocol config with one merge authority
     Then the protocol config records that merge authority
     When the authority rotates to a new authority with a new merge authority
     Then the protocol config records that merge authority
-
-  Scenario: Protocol config rejects too many merge authorities
-    Given a booted shielded pool
-    When the authority tries to create a protocol config with too many merge authorities
-    Then the operation is rejected as invalid protocol config
 
   Scenario: Creating the protocol config rejects a mismatched authority
     Given a booted shielded pool

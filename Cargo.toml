@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "forester",
+    "program-libs/event",
     "program-libs/interface",
     "program-libs/tree",
     "program-tests/shielded-pool",
@@ -32,6 +33,7 @@ edition = "2021"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
+zolana-event = { path = "program-libs/event", version = "0.1.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
@@ -52,7 +54,6 @@ light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-lib
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "5.0.0", default-features = false }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "0.3.0" }
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "0.23.0", default-features = false }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "2.2.0" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "0.11.0" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "4.0.0" }
 light-poseidon = "0.4.0"
@@ -177,7 +178,6 @@ light-bloom-filter = { git = "https://github.com/helius-labs/privacy-program-lib
 light-hasher = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-indexed-array = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
-light-macros = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-merkle-tree-metadata = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-verifier = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-merkle-tree-reference = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }

@@ -11,7 +11,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_interface::instruction::{batch_update_nullifier_tree, BatchUpdateNullifierTreeData};
+use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ForestError {
@@ -32,7 +32,16 @@ pub fn batch_update_nullifier_tree_once(
     params: ForestParams<'_>,
 ) -> Result<Signature, ForestError> {
     let authority = params.authority.pubkey();
-    let ix = batch_update_nullifier_tree(authority, params.pool_tree, params.batch_update);
+    let batch_update = params.batch_update;
+    let ix = BatchUpdateNullifierTree {
+        authority,
+        tree: params.pool_tree,
+        new_root: batch_update.new_root,
+        compressed_proof_a: batch_update.compressed_proof_a,
+        compressed_proof_b: batch_update.compressed_proof_b,
+        compressed_proof_c: batch_update.compressed_proof_c,
+    }
+    .instruction();
 
     let rpc =
         RpcClient::new_with_commitment(params.rpc_url.to_string(), CommitmentConfig::confirmed());
@@ -55,16 +64,15 @@ mod tests {
     fn maintenance_instruction_targets_spp() {
         let authority = Pubkey::new_unique();
         let tree = Pubkey::new_unique();
-        let ix = batch_update_nullifier_tree(
+        let ix = BatchUpdateNullifierTree {
             authority,
             tree,
-            BatchUpdateNullifierTreeData {
-                new_root: [1u8; 32],
-                compressed_proof_a: [2u8; 32],
-                compressed_proof_b: [3u8; 64],
-                compressed_proof_c: [4u8; 32],
-            },
-        );
+            new_root: [1u8; 32],
+            compressed_proof_a: [2u8; 32],
+            compressed_proof_b: [3u8; 64],
+            compressed_proof_c: [4u8; 32],
+        }
+        .instruction();
 
         assert_eq!(
             ix.program_id,

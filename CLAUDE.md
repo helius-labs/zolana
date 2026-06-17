@@ -172,32 +172,41 @@ Add discriminator constant to `program-libs/interface/src/state/discriminator.rs
 
 ## Error Pattern
 
-The error enum is defined in `programs/shielded-pool/src/error.rs`:
+All program errors must be defined in the interface crate
+(`program-libs/interface/src/error.rs`), including the `From<...> for
+ProgramError` conversion. The program crate does not define its own error enum;
+it imports `zolana_interface::error::ShieldedPoolError`, and clients import the
+same definition.
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ShieldedPoolError {
-    #[error("Description")]
-    Variant = N,
+    #[error("description")]
+    Variant = 7000,
 }
 ```
 
-The program crate adds the `From<> for ProgramError` impl (needed because
-`ProgramError` is from Pinocchio):
+- The `ProgramError` conversion target is `solana_program_error::ProgramError`,
+  which Pinocchio re-exports as `pinocchio::error::ProgramError` (same type), so
+  the interface crate depends on `solana-program-error`, not `pinocchio`:
 
-```rust
-impl From<ShieldedPoolError> for ProgramError {
-    fn from(e: ShieldedPoolError) -> Self {
-        ProgramError::Custom(e as u32)
-    }
-}
-```
+  ```rust
+  impl From<ShieldedPoolError> for ProgramError {
+      fn from(e: ShieldedPoolError) -> Self {
+          ProgramError::Custom(e as u32)
+      }
+  }
+  ```
 
-If an error enum is shared with clients, define the shared shape in the
-interface crate and keep the `ProgramError` conversion in the program crate.
-Once an error code is observable by tests or clients, do not renumber it
-casually.
+- Meaningful errors: every fallible path must return a specific, named variant
+  that describes what failed. Do not reuse an unrelated variant as a catch-all
+  and do not return a bare `ProgramError::Custom`/generic error at call sites
+  when a precise variant exists or could be added.
+
+- Error codes live in the `7000` space. Pin every code in the
+  `error_codes_are_stable` test. Once a code is observable by tests or clients,
+  do not renumber it casually.
 
 ## PDA Helpers
 

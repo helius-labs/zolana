@@ -4,15 +4,15 @@ use solana_pubkey::Pubkey;
 use zolana_interface::state::ProtocolConfig;
 use zolana_program_test::ZolanaProgramTest;
 
-/// Verify the protocol config account at `config` against the integration-test
-/// expectations: the account has the canonical length, stores `authority`, and
-/// holds exactly `merge_authorities` (count and per-slot value).
+/// Verify the protocol config account at `config`: canonical length, every role
+/// authority equals `authority`, the merge authority equals `merge_authority`,
+/// and both permissionless flags are off.
 #[track_caller]
 pub fn assert_protocol_config(
     program_test: &ZolanaProgramTest,
     config: &Pubkey,
     authority: &Pubkey,
-    merge_authorities: &[[u8; 32]],
+    merge_authority: &[u8; 32],
 ) {
     let data = program_test
         .account_data(config)
@@ -23,15 +23,37 @@ pub fn assert_protocol_config(
         "protocol config account length"
     );
     let cfg: &ProtocolConfig = bytemuck::from_bytes(&data);
-    assert_eq!(cfg.authority, authority.to_bytes(), "config authority");
     assert_eq!(
-        cfg.merge_authority_count,
-        merge_authorities.len() as u64,
-        "merge authority count"
+        cfg.protocol_authority.to_bytes(),
+        authority.to_bytes(),
+        "protocol authority"
     );
     assert_eq!(
-        cfg.active_merge_authorities(),
-        merge_authorities,
-        "merge authorities"
+        cfg.tree_creation_authority.to_bytes(),
+        authority.to_bytes(),
+        "tree creation authority"
+    );
+    assert_eq!(
+        cfg.forester_authority.to_bytes(),
+        authority.to_bytes(),
+        "forester authority"
+    );
+    assert_eq!(
+        cfg.zone_creation_authority.to_bytes(),
+        authority.to_bytes(),
+        "zone creation authority"
+    );
+    assert_eq!(
+        cfg.merge_authority.to_bytes(),
+        *merge_authority,
+        "merge authority"
+    );
+    assert_eq!(
+        cfg.tree_creation_is_permissionless, 0,
+        "tree creation permissionless"
+    );
+    assert_eq!(
+        cfg.zone_creation_is_permissionless, 0,
+        "zone creation permissionless"
     );
 }

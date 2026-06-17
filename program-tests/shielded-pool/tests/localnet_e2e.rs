@@ -11,7 +11,6 @@ use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
 use solana_address::Address;
-use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
@@ -22,7 +21,7 @@ use zolana_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
 use zolana_interface::{
     event::{indexed_events_from_instruction_groups, instruction_may_emit_events},
     instruction::{
-        create_protocol_config, tag, transact, CreateProtocolConfigData, ProoflessShieldAccounts,
+        tag, CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,
     },
     pda,
     state::tree_account_size,
@@ -33,7 +32,7 @@ use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_proofless_shield_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
+    single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
@@ -48,7 +47,6 @@ use crate::transact_common::{
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
-const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
 const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
@@ -82,13 +80,18 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &rpc.airdrop(&recipient_owner.pubkey(), 1_000_000)?,
     );
 
-    let create_config = create_protocol_config(
-        authority.pubkey(),
-        CreateProtocolConfigData {
-            authority: authority.pubkey().to_bytes(),
-            merge_authorities: Vec::new(),
-        },
-    );
+    let authority_bytes = authority.pubkey().to_bytes();
+    let create_config = CreateProtocolConfig {
+        authority: authority.pubkey(),
+        protocol_authority: authority_bytes.into(),
+        tree_creation_authority: authority_bytes.into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: authority_bytes.into(),
+        zone_creation_authority: authority_bytes.into(),
+        zone_creation_is_permissionless: false,
+        merge_authority: authority_bytes.into(),
+    }
+    .instruction();
     let create_config_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -136,8 +139,19 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let owner_utxo_hash = payer_utxo.owner_utxo_hash(&payer_nullifier_pk)?;
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_utxo_hash);
-    let shield_ix =
-        shield_data.instruction(ProoflessShieldAccounts::sol(tree_pubkey, payer.pubkey()));
+    let shield_ix = Deposit {
+        tree: tree_pubkey,
+        depositor: payer.pubkey(),
+        spl: None,
+        view_tag: shield_data.view_tag,
+        owner_utxo_hash: shield_data.owner_utxo_hash,
+        salt: shield_data.salt,
+        public_amount: shield_data.public_amount,
+        program_data_hash: shield_data.program_data_hash,
+        program_data: shield_data.program_data,
+        cpi_signer: shield_data.cpi_signer,
+    }
+    .instruction();
     let shield_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -146,9 +160,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &payer.pubkey(),
         &[&payer],
     )?;
-    print_signature("proofless_shield", &shield_tx.signature);
+    print_signature("deposit", &shield_tx.signature);
 
-    let shield_view = single_proofless_shield_view(&shield_tx.events)?;
+    let shield_view = single_deposit_view(&shield_tx.events)?;
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 
@@ -256,14 +270,14 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     transfer_ix_data.private_tx_hash = transfer_private_tx;
 
-    let transfer_ix = transact(
-        vec![
-            AccountMeta::new(payer.pubkey(), true),
-            AccountMeta::new(tree_pubkey, false),
-            AccountMeta::new_readonly(program_id, false),
-        ],
-        &transfer_ix_data,
-    );
+    let transfer_ix = Transact {
+        payer: payer.pubkey(),
+        tree: tree_pubkey,
+        cpi_signer: None,
+        withdrawal: None,
+        data: transfer_ix_data,
+    }
+    .instruction();
     let transfer_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -373,17 +387,16 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     withdraw_ix_data.private_tx_hash = withdraw_private_tx;
 
-    let withdraw_ix = transact(
-        vec![
-            AccountMeta::new(recipient_owner.pubkey(), true),
-            AccountMeta::new(tree_pubkey, false),
-            AccountMeta::new(vault, false),
-            AccountMeta::new(public_recipient, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-            AccountMeta::new_readonly(program_id, false),
-        ],
-        &withdraw_ix_data,
-    );
+    let withdraw_ix = Transact {
+        payer: recipient_owner.pubkey(),
+        tree: tree_pubkey,
+        cpi_signer: None,
+        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+            recipient: public_recipient,
+        })),
+        data: withdraw_ix_data,
+    }
+    .instruction();
     let withdraw_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -496,7 +509,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: other_program,
             accounts: Vec::new(),
-            data: vec![tag::PROOFLESS_SHIELD],
+            data: vec![tag::DEPOSIT],
         }],
         None,
     );
@@ -506,7 +519,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: shielded_pool,
             accounts: Vec::new(),
-            data: vec![tag::PROOFLESS_SHIELD],
+            data: vec![tag::DEPOSIT],
         }],
         None,
     );
@@ -516,7 +529,7 @@ fn shielded_event_detection_checks_program_context() {
         &[Instruction {
             program_id: other_program,
             accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-            data: vec![tag::ZONE_PROOFLESS_SHIELD],
+            data: vec![tag::ZONE_DEPOSIT],
         }],
         None,
     );

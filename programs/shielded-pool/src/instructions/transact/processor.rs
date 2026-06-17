@@ -2,10 +2,11 @@ use light_hasher::{sha256::Sha256BE, Hasher};
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
-    AccountView, Address, ProgramResult,
+    AccountView, ProgramResult,
 };
+use zolana_interface::error::ShieldedPoolError;
 use zolana_interface::{
-    event::Input,
+    event::{EventKind, Input},
     instruction::{
         instruction_data::transact::{ExternalDataHash, InputUtxo, TransactIxDataRef},
         tag::TRANSACT,
@@ -14,25 +15,18 @@ use zolana_interface::{
 };
 use zolana_tree::{TreeAccount, TreeError};
 
-use super::account::{validate_input_signer, Settlement, TransactAccounts};
-use super::event::{build_transact_event, emit_event, TreeWrite};
-use super::sol::settle_sol;
-use super::spl::settle_spl;
+use super::account::{validate_input_signer, TransactAccounts};
+use super::event::{build_transact_event, TreeWrite};
 use super::verify::P256_OWNED_SIGNER;
-use crate::{
-    error::ShieldedPoolError,
-    instructions::{
-        hash::solana_pk_hash,
-        transact::verify::{TransactProof, TransactProofInputs},
-    },
+use crate::instructions::{
+    event::emit_general_event,
+    hash::solana_pk_hash,
+    settlement::{settle_sol, settle_spl, Settlement},
+    transact::verify::{TransactProof, TransactProofInputs},
 };
 
 #[inline(never)]
-pub fn process_transact_ix(
-    _program_id: &Address,
-    accounts: &mut [AccountView],
-    data: &[u8],
-) -> ProgramResult {
+pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix =
         TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
 
@@ -79,9 +73,7 @@ pub fn process_transact_ix(
     proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    if let Some(Settlement::Spl(spl)) = transact_accounts.settlement.as_ref() {
-        proof_inputs.spl_mint = Some(read_spl_token_account_mint(spl.vault)?);
-    }
+    proof_inputs.spl_mint = transact_accounts.spl_mint;
 
     let event = build_transact_event(&ix, &proof_inputs, tree_write);
     TransactProof::new(&ix, proof_inputs).verify()?;
@@ -93,7 +85,7 @@ pub fn process_transact_ix(
         Some(Settlement::Spl(spl)) => settle_spl(spl, public_amount(ix.public_spl_amount)?)?,
         None => {}
     }
-    emit_event(&event)
+    emit_general_event(EventKind::Transact, event)
 }
 
 fn public_amount(amount: Option<i64>) -> Result<u64, ProgramError> {
@@ -155,15 +147,6 @@ fn apply_tree(
         first_output_leaf_index,
         output_tree,
     })
-}
-
-// The vault is an SPL token account; its mint is the first 32 bytes.
-fn read_spl_token_account_mint(account: &AccountView) -> Result<[u8; 32], ProgramError> {
-    let data = account.try_borrow()?;
-    data.get(..32)
-        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?
-        .try_into()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts.into())
 }
 
 fn tree_error(e: TreeError) -> ProgramError {

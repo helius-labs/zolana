@@ -2,7 +2,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
-use zolana_interface::{instruction::create_tree, pda, state::state_root_offset};
+use zolana_interface::{instruction::CreateTree, pda, state::state_root_offset};
 
 use crate::ProgramTestError;
 
@@ -47,7 +47,12 @@ pub fn create_tree_instructions<R: Rpc>(
             account_size,
             &pda::shielded_pool_program_id(),
         ),
-        create_tree(*authority, *tree, *authority),
+        CreateTree {
+            authority: *authority,
+            tree: *tree,
+            owner: *authority,
+        }
+        .instruction(),
     ])
 }
 

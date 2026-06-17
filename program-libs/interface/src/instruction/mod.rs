@@ -1,19 +1,17 @@
 #[cfg(feature = "solana")]
 pub mod builders;
 pub mod instruction_data;
-pub mod tag;
+pub use zolana_event::tag;
 
 use borsh::BorshSerialize;
 
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CpiSignerData, CreateProtocolConfigData, CreateTreeData,
-    CreateZoneConfigData, InputUtxo, OutputUtxo, OutputUtxoRef, PauseTreeData,
-    ProoflessShieldIxData, TransactCpiSigner, TransactIxData, TransactIxDataRef,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
-    PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
+    CreateZoneConfigData, DepositIxData, InputUtxo, OutputUtxo, OutputUtxoRef, PauseTreeData,
+    TransactIxData, TransactIxDataRef, UpdateProtocolConfigData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, ZoneDepositIxData,
 };
-pub use tag::InstructionTag;
+pub use zolana_event::tag::InstructionTag;
 
 #[cfg(feature = "solana")]
 pub use builders::*;

@@ -2,6 +2,6 @@
 //!
 //! [`Rpc`]: crate::rpc::Rpc
 
-pub mod proofless_shield;
+pub mod deposit;
 
-pub use proofless_shield::proofless_shield;
+pub use deposit::deposit;

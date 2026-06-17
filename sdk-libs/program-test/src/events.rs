@@ -2,7 +2,7 @@ use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::event::{
-    indexed_events_from_instruction_groups, proofless_output, ProoflessShieldView,
+    indexed_events_from_instruction_groups, proofless_output, DepositView,
 };
 pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 
@@ -108,7 +108,7 @@ pub fn index_events(
                         event.payload.len()
                     ))
                 })?;
-                indexer.record_proofless_shield(&event)?;
+                indexer.record_deposit(&event)?;
             }
             Err(err) => {
                 return Err(ProgramTestError::Event(format!(
@@ -122,9 +122,7 @@ pub fn index_events(
     Ok(())
 }
 
-pub fn single_proofless_shield_view(
-    events: &[IndexedEvent],
-) -> Result<ProoflessShieldView, ProgramTestError> {
+pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositView, ProgramTestError> {
     let mut proofless_views = events.iter().map(|event| match &event.decoded {
         Ok(general_event) => proofless_output(general_event).map_err(|err| {
             ProgramTestError::Event(format!(
@@ -141,13 +139,13 @@ pub fn single_proofless_shield_view(
     });
     let Some(event) = proofless_views.next() else {
         return Err(ProgramTestError::Event(
-            "no proofless shield event emitted by transaction".into(),
+            "no proofless deposit event emitted by transaction".into(),
         ));
     };
     let event = event?;
     if proofless_views.next().transpose()?.is_some() {
         return Err(ProgramTestError::Event(
-            "expected one proofless shield view".into(),
+            "expected one proofless deposit view".into(),
         ));
     }
     Ok(event)

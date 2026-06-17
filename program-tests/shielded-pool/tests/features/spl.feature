@@ -20,7 +20,7 @@ Feature: SPL asset registration and deposits
   Scenario: An SPL deposit succeeds and the event is faithful
     Given an SPL depositor holding 1000000 tokens
     When the SPL depositor shields 400000 tokens to a fresh recipient
-    Then a proofless shield event is emitted
+    Then a proofless deposit event is emitted
     And the recipient owns 1 UTXO
 
   Scenario: A deposit from a foreign token account is rejected

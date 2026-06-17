@@ -42,7 +42,7 @@ type Utxo struct {
 
 // OwnerUtxoHash nests the owner and blinding into a single field,
 // owner_utxo_hash = Poseidon(owner, blinding). The UTXO commitment carries this
-// instead of owner+blinding directly, so a proofless shield can commit to a
+// instead of owner+blinding directly, so a proofless deposit can commit to a
 // recipient without revealing the owner. The spend circuit re-derives it from
 // the (private) owner and blinding witnesses.
 func OwnerUtxoHash(owner, blinding *big.Int) (*big.Int, error) {

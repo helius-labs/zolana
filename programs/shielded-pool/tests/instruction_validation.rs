@@ -13,7 +13,7 @@ fn rejects_create_tree_without_accounts() {
 
 #[test]
 fn rejects_malformed_payload() {
-    let data = vec![tag::PROOFLESS_SHIELD, 1, 2, 3];
+    let data = vec![tag::DEPOSIT, 1, 2, 3];
     assert!(process_instruction(&program_id(), &mut [], &data).is_err());
 }
 

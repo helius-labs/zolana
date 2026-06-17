@@ -26,7 +26,6 @@ light-verifier = { workspace = true }
 light-hasher = { workspace = true, features = ["keccak", "poseidon", "sha256"] }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
-thiserror = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-tree = { workspace = true }
 

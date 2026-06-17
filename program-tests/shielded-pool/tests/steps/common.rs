@@ -4,10 +4,10 @@ use cucumber::{given, then};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 
-use crate::common::{assert_instruction_error, assert_pool_error, program_test, tree_account_size};
+use crate::common::{assert_custom, assert_pool_error, program_test, tree_account_size};
 use crate::ShieldedPoolWorld;
 
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 #[given(expr = "a booted shielded pool")]
 fn boot_pool(world: &mut ShieldedPoolWorld) {
@@ -106,5 +106,5 @@ fn rejected_invalid_zone_config(world: &mut ShieldedPoolWorld) {
 
 #[then(expr = "the operation fails with not enough account keys")]
 fn rejected_not_enough_accounts(world: &mut ShieldedPoolWorld) {
-    assert_instruction_error(world.last_error(), "NotEnoughAccountKeys");
+    assert_custom(world.last_error(), 20014);
 }

@@ -10,7 +10,6 @@ localnet = ["zolana-client/solana-rpc"]
 
 [dependencies]
 anyhow = { workspace = true }
-shielded-pool-program = { workspace = true }
 solana-instruction = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -43,6 +42,11 @@ harness = false
 [[test]]
 name = "localnet_e2e"
 path = "tests/localnet_e2e.rs"
+required-features = ["localnet"]
+
+[[test]]
+name = "localnet_deposit"
+path = "tests/localnet_deposit.rs"
 required-features = ["localnet"]
 
 [[test]]

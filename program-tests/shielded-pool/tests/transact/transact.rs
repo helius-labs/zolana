@@ -19,12 +19,11 @@ mod common;
 mod transact_common;
 
 use light_hasher::{sha256::Sha256BE, Hasher};
-use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
-use zolana_interface::instruction::transact;
+use zolana_interface::instruction::Transact;
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::transaction::private_tx_hash;
@@ -140,16 +139,14 @@ fn transact_sends_valid_proof() {
 
     // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
     // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
-    let ix = transact(
-        vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new(env.tree.pubkey(), false),
-            // Self-CPI target for `emit_event`; the program account must be
-            // loadable in the transaction.
-            AccountMeta::new_readonly(env.rpc.program_id, false),
-        ],
-        &transact_ix_data,
-    );
+    let ix = Transact {
+        payer,
+        tree: env.tree.pubkey(),
+        cpi_signer: None,
+        withdrawal: None,
+        data: transact_ix_data,
+    }
+    .instruction();
 
     let result = env
         .rpc

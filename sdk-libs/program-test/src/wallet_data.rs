@@ -1,6 +1,4 @@
-use zolana_interface::instruction::{
-    ProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
-};
+use zolana_interface::instruction::DepositIxData;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::{owner_utxo_hash, TransactionError, Wallet};
 
@@ -38,12 +36,11 @@ pub(crate) fn wallet_shield_fields(
 }
 
 impl ZolanaProgramTest {
-    pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldIxData {
-        ProoflessShieldIxData {
+    pub fn sol_shield_data(lamports: u64, owner_utxo_hash: [u8; 32]) -> DepositIxData {
+        DepositIxData {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(lamports),
             program_data_hash: None,
             program_data: None,
@@ -51,12 +48,11 @@ impl ZolanaProgramTest {
         }
     }
 
-    pub fn spl_shield_data(amount: u64, owner_utxo_hash: [u8; 32]) -> ProoflessShieldIxData {
-        ProoflessShieldIxData {
+    pub fn spl_shield_data(amount: u64, owner_utxo_hash: [u8; 32]) -> DepositIxData {
+        DepositIxData {
             view_tag: [0u8; 32],
             owner_utxo_hash,
             salt: [0u8; 16],
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
             public_amount: Some(amount),
             program_data_hash: None,
             program_data: None,
@@ -69,13 +65,12 @@ impl ZolanaProgramTest {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ProoflessShieldIxData, ProgramTestError> {
+    ) -> Result<DepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ProoflessShieldIxData {
+        Ok(DepositIxData {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SOL,
             public_amount: Some(lamports),
             program_data_hash: None,
             program_data: None,
@@ -88,13 +83,12 @@ impl ZolanaProgramTest {
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ProoflessShieldIxData, ProgramTestError> {
+    ) -> Result<DepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
-        Ok(ProoflessShieldIxData {
+        Ok(DepositIxData {
             view_tag: fields.view_tag,
             owner_utxo_hash: fields.owner_utxo_hash,
             salt: fields.salt,
-            public_amount_mode: PUBLIC_AMOUNT_DEPOSIT_SPL,
             public_amount: Some(amount),
             program_data_hash: None,
             program_data: None,

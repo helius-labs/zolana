@@ -136,7 +136,7 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or [`pr
 | --- | --- | --- |
 | 1 | create_spl_interface | Initialize SPL/Token-22 pool escrow per token mint |
 | 2 | create_tree | Initialize new Tree account (nullifier tree + queue and UTXO tree, co-located) |
-| 3 | create_protocol_config | Initialize protocol config (pause authority, `merge_authorities` whitelist) |
+| 3 | create_protocol_config | Initialize protocol config (role authorities, permissionless flags, `merge_authority`) |
 | 4 | update_protocol_config | Rotate the protocol config authority and add or remove merge service authorities |
 | 5 | pause_tree | Freeze writes to a Tree account |
 
@@ -1041,7 +1041,7 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
-| Protocol config | One global account per program; holds the pause authority, protocol-wide settings, and the `merge_authorities` whitelist (see struct below). |
+| Protocol config | One global account per program; holds the role authorities, permissionless flags, and the `merge_authority` (see struct below). |
 | `spp_zone_config` | SPP-owned PDA, one per zone program. Seeds `[b"spp_zone_config", zone_program_id]`. Gates `zone_authority_transact`. See [Zone Accounts](#zone-accounts). |
 | `zone_auth` | Signer PDA derived under the calling zone program. Seeds `[b"zone_auth"]`. Passed as a signer on every SPP zone instruction; SPP re-derives the address from `zone_program_id` + `bump` (both in instruction data) and matches against the signer. One zone per zone program. See [Zone Accounts](#zone-accounts). |
 
@@ -1049,13 +1049,24 @@ The merged output's hash and ciphertext contain no merge-service-specific fields
 
 ```rust
 struct ProtocolConfig {
-    /// Permitted to call `update_protocol_config` and `pause_tree`.
-    authority: Address,
-    /// Solana accounts allowed to sign `merge_transact`. A merge service must
-    /// be listed here to consolidate default-zone UTXOs; see [Merge Service](#merge-service-1).
-    merge_authorities: Vec<Address>,
+    /// Permitted to call `update_protocol_config` and `pause_tree`; rotates every authority.
+    protocol_authority: Address,
+    /// Permitted to call `create_tree` unless `tree_creation_is_permissionless`.
+    tree_creation_authority: Address,
+    tree_creation_is_permissionless: bool,
+    /// Permitted to call `batch_update_nullifier_tree` (forester maintenance).
+    forester_authority: Address,
+    /// Permitted to call `create_zone_config` unless `zone_creation_is_permissionless`.
+    zone_creation_authority: Address,
+    zone_creation_is_permissionless: bool,
+    /// Solana account allowed to sign `merge_transact`; see [Merge Service](#merge-service-1).
+    merge_authority: Address,
 }
 ```
+
+When a `*_is_permissionless` flag is set, any signer may call the corresponding
+creation instruction; otherwise the transaction signer must equal the matching
+creation authority.
 
 ### Zone Accounts
 
@@ -1094,12 +1105,12 @@ Usage by instruction:
 | zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
 | zone_proofless_shield | Tag 1; public deposit without a proof; hides the recipient behind `owner_utxo_hash`. See [`proofless_shield`](#proofless_shield). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
-| create_spl_interface | Tag 4; admin; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_tree | Tag 5; admin; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
-| create_protocol_config | Tag 6; admin |
-| update_protocol_config | Tag 7; admin |
-| pause_tree | Tag 8; admin can pause and unpause trees |
-| create_zone_config | Tag 9; creates the `spp_zone_config` PDA for a given `zone_program_id`. Requires `zone_auth` for that program as signer. See [Zone Accounts](#zone-accounts). |
+| create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
+| create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
+| create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes |
+| update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; rewrites every authority and flag |
+| pause_tree | Tag 8; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
+| create_zone_config | Tag 9; creates the `spp_zone_config` PDA for a given `zone_program_id`. Requires `zone_auth` for that program as signer, and the payer must equal `protocol_config.zone_creation_authority` unless `zone_creation_is_permissionless`. See [Zone Accounts](#zone-accounts). |
 | update_zone_config_owner | Tag 10; rotates `spp_zone_config.authority`. Signer must equal current `authority`. |
 | update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
 | merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by a whitelisted Solana signer; SPP checks the signer against `protocol_config.merge_authorities`. Input and output UTXOs are default-zone; extension slots are zero. |
