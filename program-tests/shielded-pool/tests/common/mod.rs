@@ -2,7 +2,7 @@
 mod setup;
 
 pub use setup::{program_test, tree_account_size};
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::ProgramTestError;
 
 #[track_caller]

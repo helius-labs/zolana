@@ -1,18 +1,32 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytemuck::{Pod, Zeroable};
+use solana_address::Address;
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, Pod, Zeroable)]
+#[repr(C)]
 pub struct CreateProtocolConfigData {
-    pub authority: [u8; 32],
-    pub merge_authorities: Vec<[u8; 32]>,
+    pub protocol_authority: Address,
+    pub tree_creation_authority: Address,
+    pub tree_creation_is_permissionless: u8,
+    pub forester_authority: Address,
+    pub zone_creation_authority: Address,
+    pub zone_creation_is_permissionless: u8,
+    pub merge_authority: Address,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct UpdateProtocolConfigData {
-    pub authority: [u8; 32],
-    pub merge_authorities: Vec<[u8; 32]>,
+pub enum UpdateProtocolConfigData {
+    ProtocolAuthority(Address),
+    TreeCreationAuthority(Address),
+    ForesterAuthority(Address),
+    ZoneCreationAuthority(Address),
+    MergeAuthority(Address),
+    TreeCreationPermissionless(bool),
+    ZoneCreationPermissionless(bool),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, Pod, Zeroable)]
+#[repr(C)]
 pub struct PauseTreeData {
-    pub paused: bool,
+    pub paused: u8,
 }

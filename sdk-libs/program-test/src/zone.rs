@@ -49,9 +49,9 @@ impl ZolanaProgramTest {
         let (zone_config, zone_config_bump) = pda::zone_config(&zone_program);
         let (zone_auth, zone_auth_bump) = pda::zone_auth(&zone_program);
         let data = CreateZoneConfigData {
-            program_id: ZONE_TEST_PROGRAM_ID,
+            program_id: ZONE_TEST_PROGRAM_ID.into(),
             zone_auth_bump,
-            authority: authority.to_bytes(),
+            authority: authority.to_bytes().into(),
             zone_authority_transact_is_enabled,
             zone_config_bump,
         };
@@ -59,6 +59,7 @@ impl ZolanaProgramTest {
             program_id: zone_program,
             accounts: vec![
                 AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
                 AccountMeta::new(zone_config, false),
                 AccountMeta::new_readonly(zone_auth, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
@@ -80,7 +81,7 @@ impl ZolanaProgramTest {
             authority.pubkey(),
             *zone_config,
             UpdateZoneConfigOwnerData {
-                new_authority: new_authority.to_bytes(),
+                new_authority: new_authority.to_bytes().into(),
             },
         );
         self.send(&[ix], &[authority])

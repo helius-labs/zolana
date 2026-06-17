@@ -46,6 +46,10 @@ fn spl_accounts(
 fn register_spl_interface(world: &mut ShieldedPoolWorld) {
     let mint = world.rpc().create_mint().expect("create_mint");
     let authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .ensure_asset_counter(&authority)
+        .expect("create_asset_counter");
     let (registry, vault) = world
         .rpc()
         .create_spl_interface(&authority, &mint)
@@ -80,6 +84,10 @@ fn register_same_interface(world: &mut ShieldedPoolWorld) {
 fn register_second_interface(world: &mut ShieldedPoolWorld) {
     let mint_b = world.rpc().create_mint().expect("create_mint");
     let authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .ensure_asset_counter(&authority)
+        .expect("create_asset_counter");
     let (registry_b, vault_b) = world
         .rpc()
         .create_spl_interface(&authority, &mint_b)
@@ -92,6 +100,11 @@ fn register_second_interface(world: &mut ShieldedPoolWorld) {
 #[when(expr = "a non-authority registers an SPL interface for a mint")]
 fn register_interface_non_authority(world: &mut ShieldedPoolWorld) {
     let mint = world.rpc().create_mint().expect("create_mint");
+    let authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .ensure_asset_counter(&authority)
+        .expect("create_asset_counter");
     let impostor = Keypair::new();
     world
         .rpc()

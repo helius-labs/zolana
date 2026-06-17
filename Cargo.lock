@@ -7328,8 +7328,11 @@ dependencies = [
  "bytemuck",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "light-hasher",
+ "solana-address 2.6.1",
  "solana-instruction",
+ "solana-program-error",
  "solana-pubkey 4.2.0",
+ "thiserror 2.0.18",
  "wincode",
  "zolana-tree",
 ]

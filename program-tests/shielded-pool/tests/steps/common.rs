@@ -7,7 +7,7 @@ use solana_signer::Signer;
 use crate::common::{assert_instruction_error, assert_pool_error, program_test, tree_account_size};
 use crate::ShieldedPoolWorld;
 
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 #[given(expr = "a booted shielded pool")]
 fn boot_pool(world: &mut ShieldedPoolWorld) {

@@ -7,14 +7,13 @@ use solana_signer::Signer;
 use zolana_interface::{
     instruction::{create_protocol_config as create_protocol_config_ix, CreateProtocolConfigData},
     pda,
-    state::PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES,
 };
 use zolana_test_utils::asserts::assert_protocol_config;
 
 use crate::common::{assert_pool_error, tree_account_size};
 use crate::ShieldedPoolWorld;
 
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 // === create protocol config ===
 
@@ -29,12 +28,12 @@ fn create_protocol_config(world: &mut ShieldedPoolWorld) {
     world.protocol_config = Some(config);
 }
 
-#[then(expr = "the protocol config has the authority and no merge authorities")]
+#[then(expr = "the protocol config has the authority")]
 fn assert_config_no_merge(world: &mut ShieldedPoolWorld) {
     let config = world.protocol_config.expect("config created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
-    assert_protocol_config(rpc, &config, &authority, &[]);
+    assert_protocol_config(rpc, &config, &authority, &authority.to_bytes());
 }
 
 #[then(expr = "creating the protocol config again is rejected as invalid")]
@@ -78,7 +77,7 @@ fn create_config_with_merge(world: &mut ShieldedPoolWorld) {
     let merge_a = Pubkey::new_unique().to_bytes();
     let config = world
         .rpc()
-        .create_protocol_config_with_merge_authorities(&authority, vec![merge_a])
+        .create_protocol_config_with_merge_authority(&authority, merge_a)
         .expect("create_protocol_config");
     world.authority = Some(authority);
     world.protocol_config = Some(config);
@@ -91,7 +90,7 @@ fn assert_config_one_merge(world: &mut ShieldedPoolWorld) {
     let merge = world.merge_authority.expect("merge authority created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
-    assert_protocol_config(rpc, &config, &authority, &[merge]);
+    assert_protocol_config(rpc, &config, &authority, &merge);
 }
 
 #[when(expr = "the authority rotates to a new authority with a new merge authority")]
@@ -105,21 +104,10 @@ fn update_config_with_merge(world: &mut ShieldedPoolWorld) {
     let authority = world.authority().insecure_clone();
     world
         .rpc()
-        .update_protocol_config_with_merge_authorities(&authority, &next.pubkey(), vec![merge_b])
+        .update_protocol_config_with_merge_authority(&authority, &next.pubkey(), merge_b)
         .expect("update_protocol_config");
     world.authority = Some(next);
     world.merge_authority = Some(merge_b);
-}
-
-#[when(expr = "the authority tries to create a protocol config with too many merge authorities")]
-fn create_config_too_many_merge(world: &mut ShieldedPoolWorld) {
-    let authority = Keypair::new();
-    let merge_authorities = vec![[9u8; 32]; PROTOCOL_CONFIG_MAX_MERGE_AUTHORITIES + 1];
-    let err = world
-        .rpc()
-        .create_protocol_config_with_merge_authorities(&authority, merge_authorities)
-        .unwrap_err();
-    world.last_error = Some(err);
 }
 
 #[when(expr = "a signer creates a protocol config naming a different authority")]
@@ -129,12 +117,17 @@ fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
         .rpc()
         .airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund");
-    let named = Keypair::new();
+    let named = Keypair::new().pubkey().to_bytes();
     let ix = create_protocol_config_ix(
         signer.pubkey(),
         CreateProtocolConfigData {
-            authority: named.pubkey().to_bytes(),
-            merge_authorities: Vec::new(),
+            protocol_authority: named.into(),
+            tree_creation_authority: named.into(),
+            tree_creation_is_permissionless: 0,
+            forester_authority: named.into(),
+            zone_creation_authority: named.into(),
+            zone_creation_is_permissionless: 0,
+            merge_authority: named.into(),
         },
     );
     let err = world

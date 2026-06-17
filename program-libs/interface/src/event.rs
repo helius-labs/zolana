@@ -140,7 +140,7 @@ impl EventKind {
     }
 }
 
-pub fn encode_event_instruction(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {
+pub fn encode_event_instruction(kind: EventKind, event: GeneralEvent) -> Vec<u8> {
     let mut data = vec![tag::EMIT_EVENT, kind as u8];
     event
         .serialize(&mut data)

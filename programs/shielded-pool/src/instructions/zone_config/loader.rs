@@ -1,0 +1,41 @@
+use bytemuck::from_bytes_mut;
+use pinocchio::{account::RefMut, error::ProgramError, AccountView};
+use zolana_interface::error::ShieldedPoolError;
+use zolana_interface::state::ZoneConfig;
+
+#[inline(always)]
+pub fn load_zone_config_mut<'a>(
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, ZoneConfig>, ProgramError> {
+    if !account.is_writable() || !account.owned_by(&crate::ID) {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let data = account
+        .try_borrow_mut()
+        .map_err(|_| ShieldedPoolError::InvalidZoneConfig)?;
+    if data.len() != ZoneConfig::SIZE {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let config = RefMut::map(data, |d| from_bytes_mut::<ZoneConfig>(d));
+    if !config.has_discriminator() {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    Ok(config)
+}
+
+/// Load the zone config mutably and require `authority` to be a signer that
+/// matches the stored zone authority.
+#[inline(always)]
+pub fn load_and_validate_zone_authority_mut<'a>(
+    config_account: &'a mut AccountView,
+    authority_account: &AccountView,
+) -> Result<RefMut<'a, ZoneConfig>, ProgramError> {
+    if !authority_account.is_signer() {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let config = load_zone_config_mut(config_account)?;
+    if !config.check_authority(authority_account.address()) {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
+    }
+    Ok(config)
+}

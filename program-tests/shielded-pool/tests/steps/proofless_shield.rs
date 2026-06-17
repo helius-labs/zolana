@@ -20,7 +20,7 @@ use zolana_transaction::Wallet;
 use crate::common::assert_pool_error;
 use crate::ShieldedPoolWorld;
 
-use shielded_pool_program::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 fn sol_accounts(
     program_test: &ZolanaProgramTest,

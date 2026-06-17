@@ -36,11 +36,12 @@ const SPL_SHIELDED_POOL_PROGRAM: usize = 7;
 const SPL_FORWARDED_ACCOUNTS: usize = 8;
 
 const CREATE_ZONE_PAYER: usize = 0;
-const CREATE_ZONE_CONFIG: usize = 1;
-const CREATE_ZONE_AUTH: usize = 2;
-const CREATE_ZONE_SYSTEM: usize = 3;
-const CREATE_ZONE_SHIELDED_POOL_PROGRAM: usize = 4;
-const CREATE_ZONE_ACCOUNTS: usize = 5;
+const CREATE_ZONE_PROTOCOL_CONFIG: usize = 1;
+const CREATE_ZONE_CONFIG: usize = 2;
+const CREATE_ZONE_AUTH: usize = 3;
+const CREATE_ZONE_SYSTEM: usize = 4;
+const CREATE_ZONE_SHIELDED_POOL_PROGRAM: usize = 5;
+const CREATE_ZONE_ACCOUNTS: usize = 6;
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
@@ -87,6 +88,7 @@ fn process_create_zone_config(
         &ix,
         [
             &accounts[CREATE_ZONE_PAYER],
+            &accounts[CREATE_ZONE_PROTOCOL_CONFIG],
             &accounts[CREATE_ZONE_CONFIG],
             &accounts[CREATE_ZONE_AUTH],
             &accounts[CREATE_ZONE_SYSTEM],

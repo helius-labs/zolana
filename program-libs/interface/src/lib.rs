@@ -1,3 +1,4 @@
+pub mod error;
 pub mod event;
 pub mod instruction;
 pub mod pda;
@@ -66,18 +67,3 @@ pub const SPL_TOKEN_TRANSFER_DISCRIMINATOR: u8 = 3;
 pub const SPL_TOKEN_MINT_TO_DISCRIMINATOR: u8 = 7;
 pub const SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR: u8 = 18;
 pub const SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR: u8 = 20;
-
-/// Canonical SPL asset counter layout: next_asset_id (8).
-pub const SPL_ASSET_COUNTER_ACCOUNT_LEN: usize = 8;
-
-/// Canonical layout for a shielded-pool SPL asset registry record:
-/// magic (8), mint pubkey (32), asset_id (8).
-pub const SPL_ASSET_REGISTRY_MAGIC: [u8; 8] = *b"SPASSET1";
-pub const SPL_ASSET_REGISTRY_MAGIC_OFFSET: usize = 0;
-pub const SPL_ASSET_REGISTRY_MAGIC_END: usize = SPL_ASSET_REGISTRY_MAGIC_OFFSET + 8;
-pub const SPL_ASSET_REGISTRY_MINT_OFFSET: usize = SPL_ASSET_REGISTRY_MAGIC_END;
-pub const SPL_ASSET_REGISTRY_MINT_END: usize = SPL_ASSET_REGISTRY_MINT_OFFSET + 32;
-pub const SPL_ASSET_REGISTRY_ASSET_ID_OFFSET: usize = SPL_ASSET_REGISTRY_MINT_END;
-pub const SPL_ASSET_REGISTRY_ASSET_ID_END: usize =
-    SPL_ASSET_REGISTRY_ASSET_ID_OFFSET + core::mem::size_of::<u64>();
-pub const SPL_ASSET_REGISTRY_ACCOUNT_LEN: usize = SPL_ASSET_REGISTRY_ASSET_ID_END;

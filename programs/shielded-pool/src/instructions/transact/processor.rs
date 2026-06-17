@@ -4,8 +4,9 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
+use zolana_interface::error::ShieldedPoolError;
 use zolana_interface::{
-    event::Input,
+    event::{EventKind, Input},
     instruction::{
         instruction_data::transact::{ExternalDataHash, InputUtxo, TransactIxDataRef},
         tag::TRANSACT,
@@ -14,17 +15,14 @@ use zolana_interface::{
 };
 use zolana_tree::{TreeAccount, TreeError};
 
-use super::account::{validate_input_signer, Settlement, TransactAccounts};
-use super::event::{build_transact_event, emit_event, TreeWrite};
-use super::sol::settle_sol;
-use super::spl::settle_spl;
+use super::account::{validate_input_signer, TransactAccounts};
+use super::event::{build_transact_event, TreeWrite};
 use super::verify::P256_OWNED_SIGNER;
-use crate::{
-    error::ShieldedPoolError,
-    instructions::{
-        hash::solana_pk_hash,
-        transact::verify::{TransactProof, TransactProofInputs},
-    },
+use crate::instructions::{
+    event::emit_general_event,
+    hash::solana_pk_hash,
+    settlement::{settle_sol, settle_spl, Settlement},
+    transact::verify::{TransactProof, TransactProofInputs},
 };
 
 #[inline(never)]
@@ -93,7 +91,7 @@ pub fn process_transact_ix(
         Some(Settlement::Spl(spl)) => settle_spl(spl, public_amount(ix.public_spl_amount)?)?,
         None => {}
     }
-    emit_event(&event)
+    emit_general_event(EventKind::Transact, event)
 }
 
 fn public_amount(amount: Option<i64>) -> Result<u64, ProgramError> {

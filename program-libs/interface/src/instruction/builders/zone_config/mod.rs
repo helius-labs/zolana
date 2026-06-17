@@ -14,7 +14,7 @@ pub fn create_zone_config(
     payer: Pubkey,
     data: CreateZoneConfigData,
 ) -> Result<Instruction, PubkeyError> {
-    let zone_program = Pubkey::new_from_array(data.program_id);
+    let zone_program = Pubkey::new_from_array(data.program_id.to_bytes());
     let zone_config = pda::zone_config_with_bump(&zone_program, data.zone_config_bump)?;
     let zone_auth = pda::zone_auth_with_bump(&zone_program, data.zone_auth_bump)?;
 
@@ -22,6 +22,7 @@ pub fn create_zone_config(
         program_id: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         accounts: vec![
             AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(pda::protocol_config(), false),
             AccountMeta::new(zone_config, false),
             AccountMeta::new_readonly(zone_auth, true),
             AccountMeta::new_readonly(Pubkey::default(), false),

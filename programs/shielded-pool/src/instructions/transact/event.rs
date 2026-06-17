@@ -1,6 +1,5 @@
-use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, ProgramResult};
 use zolana_interface::{
-    event::{encode_event_instruction, DepositWithdraw, EventKind, GeneralEvent, Input},
+    event::{DepositWithdraw, GeneralEvent, Input},
     instruction::{
         instruction_data::transact::{OutputUtxoRef, TransactIxDataRef},
         OutputUtxo,
@@ -53,16 +52,4 @@ fn output_utxo(slot: &OutputUtxoRef<'_>) -> OutputUtxo {
         utxo_hash: *slot.utxo_hash,
         data: slot.data.to_vec(),
     }
-}
-
-pub fn emit_event(event: &GeneralEvent) -> ProgramResult {
-    let data = encode_event_instruction(EventKind::Transact, event);
-    let instruction_accounts = [];
-    let instruction = InstructionView {
-        program_id: &crate::ID,
-        accounts: &instruction_accounts,
-        data: &data,
-    };
-    let accounts: [&AccountView; 0] = [];
-    invoke(&instruction, &accounts)
 }

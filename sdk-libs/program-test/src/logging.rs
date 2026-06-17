@@ -283,7 +283,10 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 "update_zone_config_owner",
                 payload,
                 |data: UpdateZoneConfigOwnerData| {
-                    vec![field("new_authority", pubkey(&data.new_authority))]
+                    vec![field(
+                        "new_authority",
+                        pubkey(data.new_authority.as_array()),
+                    )]
                 },
                 &["authority", "zone_config"],
             ),
@@ -525,24 +528,75 @@ fn event_fields(event: GeneralEvent) -> Vec<DecodedField> {
 }
 
 fn create_protocol_config_fields(data: CreateProtocolConfigData) -> Vec<DecodedField> {
-    protocol_config_fields(data.authority, data.merge_authorities.len())
+    protocol_config_fields(
+        data.protocol_authority.to_bytes(),
+        data.tree_creation_authority.to_bytes(),
+        data.tree_creation_is_permissionless != 0,
+        data.forester_authority.to_bytes(),
+        data.zone_creation_authority.to_bytes(),
+        data.zone_creation_is_permissionless != 0,
+        data.merge_authority.to_bytes(),
+    )
 }
 
 fn update_protocol_config_fields(data: UpdateProtocolConfigData) -> Vec<DecodedField> {
-    protocol_config_fields(data.authority, data.merge_authorities.len())
+    let decoded = match data {
+        UpdateProtocolConfigData::ProtocolAuthority(a) => {
+            field("protocol_authority", pubkey(&a.to_bytes()))
+        }
+        UpdateProtocolConfigData::TreeCreationAuthority(a) => {
+            field("tree_creation_authority", pubkey(&a.to_bytes()))
+        }
+        UpdateProtocolConfigData::ForesterAuthority(a) => {
+            field("forester_authority", pubkey(&a.to_bytes()))
+        }
+        UpdateProtocolConfigData::ZoneCreationAuthority(a) => {
+            field("zone_creation_authority", pubkey(&a.to_bytes()))
+        }
+        UpdateProtocolConfigData::MergeAuthority(a) => {
+            field("merge_authority", pubkey(&a.to_bytes()))
+        }
+        UpdateProtocolConfigData::TreeCreationPermissionless(b) => {
+            field("tree_creation_is_permissionless", b)
+        }
+        UpdateProtocolConfigData::ZoneCreationPermissionless(b) => {
+            field("zone_creation_is_permissionless", b)
+        }
+    };
+    vec![decoded]
 }
 
-fn protocol_config_fields(authority: [u8; 32], merge_authorities: usize) -> Vec<DecodedField> {
+#[allow(clippy::too_many_arguments)]
+fn protocol_config_fields(
+    protocol_authority: [u8; 32],
+    tree_creation_authority: [u8; 32],
+    tree_creation_is_permissionless: bool,
+    forester_authority: [u8; 32],
+    zone_creation_authority: [u8; 32],
+    zone_creation_is_permissionless: bool,
+    merge_authority: [u8; 32],
+) -> Vec<DecodedField> {
     vec![
-        field("authority", pubkey(&authority)),
-        field("merge_authorities", merge_authorities),
+        field("protocol_authority", pubkey(&protocol_authority)),
+        field("tree_creation_authority", pubkey(&tree_creation_authority)),
+        field(
+            "tree_creation_is_permissionless",
+            tree_creation_is_permissionless,
+        ),
+        field("forester_authority", pubkey(&forester_authority)),
+        field("zone_creation_authority", pubkey(&zone_creation_authority)),
+        field(
+            "zone_creation_is_permissionless",
+            zone_creation_is_permissionless,
+        ),
+        field("merge_authority", pubkey(&merge_authority)),
     ]
 }
 
 fn create_zone_config_fields(data: CreateZoneConfigData) -> Vec<DecodedField> {
     vec![
-        field("program_id", pubkey(&data.program_id)),
-        field("authority", pubkey(&data.authority)),
+        field("program_id", pubkey(data.program_id.as_array())),
+        field("authority", pubkey(data.authority.as_array())),
         field("zone_auth_bump", data.zone_auth_bump),
         field("zone_config_bump", data.zone_config_bump),
         field(

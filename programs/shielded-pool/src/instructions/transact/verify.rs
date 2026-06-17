@@ -11,7 +11,7 @@ use zolana_interface::{
     verifying_keys::{transfer_2_3, transfer_p256_2_3},
 };
 
-use crate::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 pub const MAX_INPUTS: usize = 5;
 

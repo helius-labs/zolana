@@ -1,7 +1,7 @@
 use light_hasher::{Hasher, Poseidon};
 use pinocchio::error::ProgramError;
 
-use crate::error::ShieldedPoolError;
+use zolana_interface::error::ShieldedPoolError;
 
 /// Encodes a u64 as a big-endian BN254 field element (value in the low 8 bytes).
 pub(crate) fn field_from_u64(value: u64) -> [u8; 32] {

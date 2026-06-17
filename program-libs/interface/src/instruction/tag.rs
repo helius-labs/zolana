@@ -12,6 +12,7 @@ pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
 pub const UPDATE_ZONE_CONFIG: u8 = 11;
 pub const EMIT_EVENT: u8 = 14;
 pub const ZONE_PROOFLESS_SHIELD: u8 = 15;
+pub const CREATE_ASSET_COUNTER: u8 = 16;
 
 /// Spec-reserved tags without handlers in this program version.
 pub mod reserved {
@@ -27,6 +28,7 @@ pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InstructionTag {
+    Transact = TRANSACT,
     CreateTree = CREATE_TREE,
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     ProoflessShield = PROOFLESS_SHIELD,
@@ -39,6 +41,7 @@ pub enum InstructionTag {
     UpdateZoneConfig = UPDATE_ZONE_CONFIG,
     EmitEvent = EMIT_EVENT,
     ZoneProoflessShield = ZONE_PROOFLESS_SHIELD,
+    CreateAssetCounter = CREATE_ASSET_COUNTER,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -46,6 +49,7 @@ impl TryFrom<u8> for InstructionTag {
 
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
+            TRANSACT => Ok(Self::Transact),
             CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             PROOFLESS_SHIELD => Ok(Self::ProoflessShield),
@@ -58,6 +62,7 @@ impl TryFrom<u8> for InstructionTag {
             UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
             EMIT_EVENT => Ok(Self::EmitEvent),
             ZONE_PROOFLESS_SHIELD => Ok(Self::ZoneProoflessShield),
+            CREATE_ASSET_COUNTER => Ok(Self::CreateAssetCounter),
             _ => Err(()),
         }
     }

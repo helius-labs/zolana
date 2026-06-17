@@ -9,9 +9,7 @@ pub use batch_update_nullifier_tree::BatchUpdateNullifierTreeData;
 pub use create_tree::CreateTreeData;
 pub use proofless_shield::{CpiSignerData, ProoflessShieldIxData, ZoneProoflessShieldIxData};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
-pub use transact::{
-    InputUtxo, OutputUtxo, OutputUtxoRef, TransactCpiSigner, TransactIxData, TransactIxDataRef,
-};
+pub use transact::{InputUtxo, OutputUtxo, OutputUtxoRef, TransactIxData, TransactIxDataRef};
 pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData};
 
 pub const PUBLIC_AMOUNT_NONE: u8 = 0;

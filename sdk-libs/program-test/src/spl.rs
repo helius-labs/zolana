@@ -3,8 +3,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::create_spl_interface, pda, SPL_TOKEN_ACCOUNT_AMOUNT_END,
-    SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
+    instruction::{create_asset_counter, create_spl_interface},
+    pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
     SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
@@ -97,6 +97,24 @@ impl ZolanaProgramTest {
             .try_into()
             .ok()?;
         Some(u64::from_le_bytes(bytes))
+    }
+
+    pub fn create_asset_counter(
+        &mut self,
+        authority: &Keypair,
+    ) -> Result<Pubkey, ProgramTestError> {
+        let counter = pda::spl_asset_counter();
+        let ix = create_asset_counter(authority.pubkey());
+        self.send(&[ix], &[authority])?;
+        Ok(counter)
+    }
+
+    /// Create the singleton SPL asset counter if it does not exist yet.
+    pub fn ensure_asset_counter(&mut self, authority: &Keypair) -> Result<(), ProgramTestError> {
+        if self.account_data(&pda::spl_asset_counter()).is_none() {
+            self.create_asset_counter(authority)?;
+        }
+        Ok(())
     }
 
     pub fn create_spl_interface(

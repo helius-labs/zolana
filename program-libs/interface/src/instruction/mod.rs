@@ -8,10 +8,10 @@ use borsh::BorshSerialize;
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CpiSignerData, CreateProtocolConfigData, CreateTreeData,
     CreateZoneConfigData, InputUtxo, OutputUtxo, OutputUtxoRef, PauseTreeData,
-    ProoflessShieldIxData, TransactCpiSigner, TransactIxData, TransactIxDataRef,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
-    PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
+    ProoflessShieldIxData, TransactIxData, TransactIxDataRef, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+    PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
+    PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
 };
 pub use tag::InstructionTag;
 

@@ -45,7 +45,7 @@ fn batch_update_nullifier_tree_roundtrip() {
 #[test]
 fn general_event_roundtrip() {
     let event = sample_event();
-    let instruction = encode_event_instruction(EventKind::ProoflessShield, &event);
+    let instruction = encode_event_instruction(EventKind::ProoflessShield, event.clone());
     let payload = encode_event_payload(EventKind::ProoflessShield, &event);
 
     assert_eq!(instruction[0], tag::EMIT_EVENT);
@@ -77,7 +77,7 @@ fn event_parser_indexes_direct_proofless_self_emit() {
         inner: vec![ParsedInstruction::new(
             spp,
             Vec::new(),
-            encode_event_instruction(EventKind::ProoflessShield, &event),
+            encode_event_instruction(EventKind::ProoflessShield, event.clone()),
             Some(2),
         )],
     };
@@ -96,7 +96,7 @@ fn event_parser_ignores_direct_emit_event() {
         outer: ParsedInstruction::new(
             spp,
             Vec::new(),
-            encode_event_instruction(EventKind::ProoflessShield, &event),
+            encode_event_instruction(EventKind::ProoflessShield, event),
             Some(1),
         ),
         inner: Vec::new(),
@@ -119,13 +119,13 @@ fn event_parser_rejects_wrapper_sibling_emit_event() {
             ParsedInstruction::new(
                 spp,
                 Vec::new(),
-                encode_event_instruction(EventKind::ProoflessShield, &event),
+                encode_event_instruction(EventKind::ProoflessShield, event.clone()),
                 Some(3),
             ),
             ParsedInstruction::new(
                 spp,
                 Vec::new(),
-                encode_event_instruction(EventKind::ProoflessShield, &event),
+                encode_event_instruction(EventKind::ProoflessShield, event.clone()),
                 Some(2),
             ),
         ],
