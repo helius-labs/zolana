@@ -1,7 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_pubkey::Pubkey;
+#[cfg(feature = "instructions")]
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
-use crate::instruction::{tag, OutputUtxo};
+use crate::instruction::tag;
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and
@@ -29,6 +31,21 @@ pub struct Input {
     pub tree: [u8; 32],
     pub input_queue_seq: u64,
     pub nullifier: [u8; 32],
+}
+
+/// One created output UTXO slot (spec: `transact` `OutputUtxo`). `data` is the
+/// serialized output payload (Output UTXO Serialization); the program does not
+/// parse it.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[cfg_attr(feature = "instructions", derive(SchemaRead, SchemaWrite))]
+pub struct OutputUtxo {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    #[cfg_attr(
+        feature = "instructions",
+        wincode(with = "containers::Vec<u8, FixIntLen<u16>>")
+    )]
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -280,7 +297,7 @@ fn is_event_source(shielded_pool_program_id: Pubkey, instruction: &ParsedInstruc
     instruction.program_id == shielded_pool_program_id
         && matches!(
             instruction.data.first().copied(),
-            Some(tag::PROOFLESS_SHIELD | tag::ZONE_PROOFLESS_SHIELD)
+            Some(tag::TRANSACT | tag::PROOFLESS_SHIELD | tag::ZONE_PROOFLESS_SHIELD)
         )
 }
 

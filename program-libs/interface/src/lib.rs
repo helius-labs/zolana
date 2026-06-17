@@ -1,8 +1,10 @@
+#[cfg(feature = "events")]
 pub mod event;
 pub mod instruction;
 pub mod pda;
 pub mod state;
 pub mod user_registry;
+#[cfg(feature = "verifying-keys")]
 pub mod verifying_keys;
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.

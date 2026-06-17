@@ -1,21 +1,25 @@
-#[cfg(feature = "solana")]
+#[cfg(all(feature = "solana", feature = "instructions"))]
 pub mod builders;
+#[cfg(feature = "instructions")]
 pub mod instruction_data;
 pub mod tag;
 
 use borsh::BorshSerialize;
 
+#[cfg(feature = "events")]
+pub use crate::event::OutputUtxo;
+#[cfg(feature = "instructions")]
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CpiSignerData, CreateProtocolConfigData, CreateTreeData,
-    CreateZoneConfigData, InputUtxo, OutputUtxo, OutputUtxoRef, PauseTreeData,
-    ProoflessShieldIxData, TransactCpiSigner, TransactIxData, TransactIxDataRef,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
-    ZoneProoflessShieldIxData, PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL,
-    PUBLIC_AMOUNT_NONE, PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
+    CreateZoneConfigData, InputUtxo, OutputUtxoRef, PauseTreeData, ProoflessShieldIxData,
+    TransactCpiSigner, TransactIxData, TransactIxDataRef, UpdateProtocolConfigData,
+    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneProoflessShieldIxData,
+    PUBLIC_AMOUNT_DEPOSIT_SOL, PUBLIC_AMOUNT_DEPOSIT_SPL, PUBLIC_AMOUNT_NONE,
+    PUBLIC_AMOUNT_WITHDRAW_SOL, PUBLIC_AMOUNT_WITHDRAW_SPL,
 };
 pub use tag::InstructionTag;
 
-#[cfg(feature = "solana")]
+#[cfg(all(feature = "solana", feature = "instructions"))]
 pub use builders::*;
 
 pub fn encode_instruction<T: BorshSerialize>(tag: u8, payload: &T) -> Vec<u8> {

@@ -3,8 +3,8 @@ use zolana_interface::{
     event::{
         decode_event_instruction, decode_event_payload, encode_event_instruction,
         encode_event_payload, encode_output_data, indexed_events_from_instruction_groups,
-        proofless_output, DepositWithdraw, EventDecodeError, EventKind, GeneralEvent,
-        InstructionGroup, OutputData, ParsedInstruction, ProoflessOutput,
+        instruction_may_emit_events, proofless_output, DepositWithdraw, EventDecodeError,
+        EventKind, GeneralEvent, InstructionGroup, OutputData, ParsedInstruction, ProoflessOutput,
     },
     instruction::{
         encode_instruction, tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData,
@@ -86,6 +86,41 @@ fn event_parser_indexes_direct_proofless_self_emit() {
 
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].decoded, Ok(event));
+}
+
+#[test]
+fn event_parser_indexes_direct_transact_self_emit() {
+    let spp = Pubkey::new_unique();
+    let event = sample_event();
+    let group = InstructionGroup {
+        outer: parsed_ix(spp, tag::TRANSACT, Some(1)),
+        inner: vec![ParsedInstruction::new(
+            spp,
+            Vec::new(),
+            encode_event_instruction(EventKind::Transact, &event),
+            Some(2),
+        )],
+    };
+
+    let events = indexed_events_from_instruction_groups(spp, std::slice::from_ref(&group));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].decoded, Ok(event));
+}
+
+#[test]
+fn instruction_may_emit_events_accepts_direct_transact() {
+    let spp = Pubkey::new_unique();
+    let other = Pubkey::new_unique();
+
+    assert!(instruction_may_emit_events(
+        spp,
+        &parsed_ix(spp, tag::TRANSACT, Some(1))
+    ));
+    assert!(!instruction_may_emit_events(
+        spp,
+        &parsed_ix(other, tag::TRANSACT, Some(1))
+    ));
 }
 
 #[test]
