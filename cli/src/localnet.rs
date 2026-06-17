@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use crate::{
     args::TestValidatorOptions,
     config::READINESS_TIMEOUT,
-    http::wait_for_rpc_with_child,
+    http::{wait_for_rpc_with_child, wait_for_tcp_with_child},
     process::{find_binary, remove_launchd_validators, spawn_service, stop_name, stop_port},
     prover::start_prover_service,
 };
@@ -57,6 +57,10 @@ pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
 
     if !opts.skip_prover {
         start_prover_service(opts.prover_port, None, &opts.log_dir)?;
+    }
+
+    if opts.with_photon {
+        start_photon_service(&opts)?;
     }
 
     println!("Local validator environment is ready");
@@ -144,6 +148,10 @@ fn stop_test_env(opts: &TestValidatorOptions) {
         stop_name("prover-server");
         stop_port(opts.prover_port);
     }
+    if opts.with_photon {
+        stop_name("photon");
+        stop_port(opts.photon_port);
+    }
     stop_test_validator(opts.rpc_port);
 }
 
@@ -152,6 +160,46 @@ fn stop_test_validator(rpc_port: u16) {
     stop_name("solana-test-validator");
     stop_name("surfpool");
     stop_port(rpc_port);
+}
+
+fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
+    stop_name("photon");
+    stop_port(opts.photon_port);
+
+    let photon = find_binary(
+        &["PHOTON_BIN", "ZOLANA_PHOTON_BIN"],
+        &[
+            "../photon/target/debug/photon",
+            "../photon/target/release/photon",
+        ],
+        &["photon"],
+    )?;
+    let rpc_url = format!("http://127.0.0.1:{}", opts.rpc_port);
+    let mut args = vec![
+        "--mode".to_string(),
+        "zolana".to_string(),
+        "--rpc-url".to_string(),
+        rpc_url,
+        "--port".to_string(),
+        opts.photon_port.to_string(),
+        "--start-slot".to_string(),
+        opts.photon_start_slot.clone(),
+    ];
+    if let Some(db_url) = &opts.photon_db_url {
+        args.push("--db-url".to_string());
+        args.push(db_url.clone());
+    }
+
+    println!("Starting Photon: {} {}", photon.display(), args.join(" "));
+    let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
+    wait_for_tcp_with_child(opts.photon_port, READINESS_TIMEOUT, &mut child, "photon")
+        .with_context(|| format!("Photon on port {} did not become ready", opts.photon_port))?;
+    println!(
+        "Photon indexer is ready at http://127.0.0.1:{}",
+        opts.photon_port
+    );
+    std::mem::forget(child);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -200,6 +248,14 @@ mod tests {
         ]);
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn finds_photon_binary_from_env_or_sibling_checkout() {
+        let opts = parse_validator(&["--with-photon", "--photon-port", "8785"]);
+        assert!(opts.with_photon);
+        assert_eq!(opts.photon_port, 8785);
+        assert_eq!(opts.photon_start_slot, "latest");
     }
 
     #[test]

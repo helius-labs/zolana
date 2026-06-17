@@ -1,8 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 
 use crate::config::{
-    DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PROVER_PORT,
-    DEFAULT_RPC_PORT,
+    DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
+    DEFAULT_PROVER_PORT, DEFAULT_RPC_PORT,
 };
 
 #[derive(Debug, Parser)]
@@ -42,6 +42,9 @@ pub(crate) struct TestValidatorOptions {
     #[arg(long, help = "Do not start the prover server")]
     pub(crate) skip_prover: bool,
 
+    #[arg(long, help = "Start a local Photon indexer in Zolana mode")]
+    pub(crate) with_photon: bool,
+
     #[arg(long, help = "Stop the local validator environment")]
     pub(crate) stop: bool,
 
@@ -78,6 +81,26 @@ pub(crate) struct TestValidatorOptions {
         help = "Prover server port"
     )]
     pub(crate) prover_port: u16,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_PHOTON_PORT,
+        help = "Photon indexer API port"
+    )]
+    pub(crate) photon_port: u16,
+
+    #[arg(
+        long,
+        help = "Photon database URL; omit for Photon's temporary SQLite database"
+    )]
+    pub(crate) photon_db_url: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "latest",
+        help = "Photon start slot, such as `latest` or an explicit slot"
+    )]
+    pub(crate) photon_start_slot: String,
 
     #[arg(
         long,
@@ -239,6 +262,7 @@ mod tests {
             "--faucet-port <PORT>",
             "--ledger <PATH>",
             "--log-dir <LOG_DIR>",
+            "--photon-port <PHOTON_PORT>",
             "--sbf-program <ADDRESS> <PATH>",
         ] {
             assert!(help.contains(flag), "missing help entry for {flag}");
@@ -266,6 +290,13 @@ mod tests {
             "8901",
             "--faucet-port",
             "9901",
+            "--with-photon",
+            "--photon-port",
+            "8785",
+            "--photon-db-url",
+            "sqlite:///tmp/zolana-photon-test.db",
+            "--photon-start-slot",
+            "latest",
             "--ledger",
             "target/localnet/ledger",
             "--log-dir",
@@ -280,8 +311,15 @@ mod tests {
 
         assert!(!opts.use_surfpool_backend());
         assert!(opts.skip_prover);
+        assert!(opts.with_photon);
         assert_eq!(opts.rpc_port, 8901);
         assert_eq!(opts.faucet_port, Some(9901));
+        assert_eq!(opts.photon_port, 8785);
+        assert_eq!(
+            opts.photon_db_url.as_deref(),
+            Some("sqlite:///tmp/zolana-photon-test.db")
+        );
+        assert_eq!(opts.photon_start_slot, "latest");
         assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));
         assert_eq!(opts.log_dir, "target/localnet/logs");
         let programs = opts.sbf_program_specs();

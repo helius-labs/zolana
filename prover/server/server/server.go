@@ -11,7 +11,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
-	"zolana/prover/prover/nullifier_tree"
+	nullifiertree "zolana/prover/prover/nullifier_tree"
 	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 

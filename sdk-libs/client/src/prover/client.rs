@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use serde::Deserialize;
+
 use crate::error::ClientError;
 use crate::prover::inputs::{TransferInputs, TransferP256Inputs};
 use crate::prover::json::{to_json, to_json_p256};
@@ -17,7 +19,14 @@ pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
 
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
+const HEALTH_SERVICE: &str = "zolana-prover";
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Deserialize)]
+struct HealthResponse {
+    service: Option<String>,
+    status: Option<String>,
+}
 
 fn build_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
@@ -167,7 +176,13 @@ fn health_check(retries: usize, timeout_secs: u64) -> bool {
             .get(format!("{}{}", SERVER_ADDRESS, HEALTH_CHECK))
             .timeout(timeout)
             .send()
-            .is_ok();
+            .ok()
+            .filter(|response| response.status().is_success())
+            .and_then(|response| response.json::<HealthResponse>().ok())
+            .is_some_and(|health| {
+                health.status.as_deref() == Some("ok")
+                    && health.service.as_deref() == Some(HEALTH_SERVICE)
+            });
         if ok {
             return true;
         }

@@ -7,6 +7,8 @@ surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
 localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", "8899")
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:8899")
+localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", "8784")
+localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:8784")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -99,6 +101,14 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
+# Local-validator SOL cycle backed by a real Photon Zolana indexer.
+test-localnet-e2e-photon: build-programs build-prover-server build-cli build-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cargo run -p zolana-cli -- test-validator --skip-prover --with-photon --no-use-surfpool --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
+
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -134,6 +144,9 @@ build-programs:
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
+
+build-photon:
+    cd ../photon && cargo build --bin photon
 
 # === Formatting and linting ===
 
