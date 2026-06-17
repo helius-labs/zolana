@@ -2,6 +2,7 @@ use std::time::Duration;
 
 pub(crate) const DEFAULT_RPC_PORT: u16 = 8899;
 pub(crate) const DEFAULT_PROVER_PORT: u16 = 3001;
+pub(crate) const DEFAULT_PHOTON_PORT: u16 = 8784;
 pub(crate) const DEFAULT_LIMIT_LEDGER_SIZE: u64 = 10_000;
 pub(crate) const DEFAULT_GOSSIP_HOST: &str = "127.0.0.1";
 pub(crate) const DEFAULT_LOG_DIR: &str = "test-ledger";

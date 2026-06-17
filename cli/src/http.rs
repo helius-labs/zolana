@@ -32,6 +32,15 @@ pub(crate) fn wait_for_http_get_with_child(
     })
 }
 
+pub(crate) fn wait_for_tcp_with_child(
+    port: u16,
+    timeout: Duration,
+    child: &mut Child,
+    label: &str,
+) -> Result<()> {
+    wait_until_with_child(timeout, child, label, || tcp_connect(port).is_ok())
+}
+
 fn wait_until_with_child<F>(
     timeout: Duration,
     child: &mut Child,
@@ -61,6 +70,13 @@ fn rpc_health(port: u16) -> bool {
         .and_then(|value| value.as_str().map(str::to_string))
         .as_deref()
         == Some("ok")
+}
+
+fn tcp_connect(port: u16) -> Result<()> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&address, Duration::from_secs(1))
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 fn rpc_request(port: u16, method: &str) -> Result<Value> {

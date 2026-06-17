@@ -1,5 +1,7 @@
 pub mod actions;
 pub mod error;
+#[cfg(feature = "indexer-api")]
+pub mod indexer;
 pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
@@ -7,6 +9,8 @@ pub mod rpc;
 pub mod solana_rpc;
 
 pub use error::ClientError;
+#[cfg(feature = "indexer-api")]
+pub use indexer::ZolanaIndexer;
 pub use private_transaction::{
     CircuitType, InputCommitment, SignedTransaction, SpendProof, SpendUtxo, Transaction,
     WithdrawalTarget,

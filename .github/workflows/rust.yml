@@ -154,6 +154,40 @@ jobs:
           key: proving-keys-transfer-keys-v2
       - run: just test-programs
 
+  test-localnet-photon:
+    name: tests / localnet photon
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PHOTON_ZOLANA_RELEASE_TAG: photon-zolana-ae5234d0c9e8
+      PHOTON_ZOLANA_SHA256: be260fd8b7f6fae86e8da258b07882698b4d6abbc0a22eba3ada5fb9d4a8ccee
+      ZOLANA_PHOTON_BIN: target/bin/photon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: localnet-photon
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - run: cargo build-sbf --version
+      - name: Cache transfer proving keys
+        uses: actions/cache@v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-transfer-keys-v2
+      - name: Install pinned Photon
+        run: ./tools/install-photon.sh
+      - run: just test-localnet-e2e-photon
+
   test-user-registry-litesvm:
     name: tests / user-registry litesvm
     runs-on: ubuntu-latest
