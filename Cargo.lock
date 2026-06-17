@@ -3966,6 +3966,7 @@ dependencies = [
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
  "shielded-pool-program",
+ "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
  "solana-message",

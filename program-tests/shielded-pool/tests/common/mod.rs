@@ -1,25 +1,9 @@
 //! Shared setup for shielded-pool program tests.
+mod setup;
+
+pub use setup::{program_test, tree_account_size};
 use shielded_pool_program::error::ShieldedPoolError;
-use zolana_interface::state;
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
-
-pub fn tree_account_size() -> u64 {
-    state::tree_account_size() as u64
-}
-
-pub fn program_test() -> Option<ZolanaProgramTest> {
-    match ZolanaProgramTest::new() {
-        Ok(r) => Some(r),
-        Err(ProgramTestError::MissingProgram(_)) => {
-            eprintln!(
-                "skipping program test: shielded_pool_program.so missing - \
-                 run `cargo build-sbf -p shielded-pool-program`"
-            );
-            None
-        }
-        Err(e) => panic!("program test boot failed: {e}"),
-    }
-}
+use zolana_program_test::ProgramTestError;
 
 #[track_caller]
 pub fn assert_custom(err: ProgramTestError, code: u32) {
