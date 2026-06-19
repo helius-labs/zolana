@@ -219,6 +219,7 @@ fn convert_shielded_transaction(
 fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, ClientError> {
     Ok(OutputSlot {
         view_tag: decode_hash(&slot.view_tag, &format!("{field}.view_tag"))?,
+        hash: decode_hash(&slot.hash, &format!("{field}.hash"))?,
         payload: decode_base64(&slot.payload, &format!("{field}.payload"))?,
     })
 }
@@ -379,7 +380,17 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
-    use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        sync::mpsc,
+        thread,
+        time::Duration,
+    };
+
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    use p256::SecretKey;
+    use serde_json::{json, Value};
 
     use super::*;
 
@@ -414,5 +425,407 @@ mod tests {
         let err = decode_hash(&ApiHash(bs58::encode([1u8; 31]).into_string()), "root")
             .expect_err("short hash must fail");
         assert!(err.to_string().contains("expected 32 bytes"));
+    }
+
+    #[test]
+    fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
+        let tag_a = bytes32(1);
+        let tag_b = bytes32(2);
+        let signature = signature(9);
+        let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
+        let response = rpc_result(json!({
+            "context": { "slot": 42 },
+            "matches": [{
+                "slot": 7,
+                "tx_signature": signature.to_string(),
+                "view_tag": encode_hash_string(tag_a),
+                "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
+                "ciphertext": base64::encode([8, 9, 10]),
+            }],
+            "next_cursor": base64::encode([5, 6]),
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(vec![1, 2, 3]), Some(7))
+            .expect("encrypted UTXO lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_encrypted_utxos_by_tags");
+        assert_json_rpc_request(&request.body, "get_encrypted_utxos_by_tags");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
+                "cursor": base64::encode([1, 2, 3]),
+                "limit": 7,
+            })
+        );
+        assert_eq!(got.context.slot, 42);
+        assert_eq!(got.next_cursor, Some(vec![5, 6]));
+        assert_eq!(got.matches.len(), 1);
+        assert_eq!(got.matches[0].slot, 7);
+        assert_eq!(got.matches[0].tx_signature, signature);
+        assert_eq!(got.matches[0].view_tag, tag_a);
+        assert_eq!(got.matches[0].tx_viewing_pk, Some(tx_viewing_pk));
+        assert_eq!(got.matches[0].ciphertext, vec![8, 9, 10]);
+    }
+
+    #[test]
+    fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
+        let tag = bytes32(11);
+        let output_hash = bytes32(12);
+        let nullifier = bytes32(13);
+        let signature = signature(14);
+        let response = rpc_result(json!({
+            "context": { "slot": 51 },
+            "transactions": [{
+                "slot": 50,
+                "tx_signature": signature.to_string(),
+                "tx_viewing_pk": null,
+                "output_slots": [{
+                    "view_tag": encode_hash_string(tag),
+                    "hash": encode_hash_string(output_hash),
+                    "payload": base64::encode([21, 22]),
+                }],
+                "nullifiers": [encode_hash_string(nullifier)],
+                "proofless": true,
+            }],
+            "next_cursor": base64::encode([23]),
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_shielded_transactions_by_tags(vec![tag], None, Some(1))
+            .expect("shielded transaction lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_shielded_transactions_by_tags");
+        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_tags");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "tags": [encode_hash_string(tag)],
+                "limit": 1,
+            })
+        );
+        assert_eq!(got.context.slot, 51);
+        assert_eq!(got.next_cursor, Some(vec![23]));
+        assert_eq!(got.transactions.len(), 1);
+        let tx = &got.transactions[0];
+        assert_eq!(tx.slot, 50);
+        assert_eq!(tx.tx_signature, signature);
+        assert_eq!(tx.tx_viewing_pk, None);
+        assert!(tx.proofless);
+        assert_eq!(tx.nullifiers, vec![nullifier]);
+        assert_eq!(tx.output_slots.len(), 1);
+        assert_eq!(tx.output_slots[0].view_tag, tag);
+        assert_eq!(tx.output_slots[0].hash, output_hash);
+        assert_eq!(tx.output_slots[0].payload, vec![21, 22]);
+    }
+
+    #[test]
+    fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
+        let tree = Address::new_from_array(bytes32(31));
+        let leaf_a = bytes32(32);
+        let leaf_b = bytes32(33);
+        let path = vec![bytes32(34), bytes32(35)];
+        let root = bytes32(36);
+        let response = rpc_result(json!({
+            "context": { "slot": 80 },
+            "proofs": [{
+                "leaf": encode_hash_string(leaf_a),
+                "merkle_context": {
+                    "tree_type": 1,
+                    "tree": encode_pubkey_string(tree),
+                },
+                "path": path.iter().copied().map(encode_hash_string).collect::<Vec<_>>(),
+                "leaf_index": 9,
+                "root": encode_hash_string(root),
+                "root_seq": 10,
+                "root_index": 11,
+            }],
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_merkle_proofs(tree, vec![leaf_a, leaf_b])
+            .expect("merkle proofs");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_merkle_proofs");
+        assert_json_rpc_request(&request.body, "get_merkle_proofs");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "tree_account": encode_pubkey_string(tree),
+                "leaves": [encode_hash_string(leaf_a), encode_hash_string(leaf_b)],
+            })
+        );
+        assert_eq!(got.context.slot, 80);
+        assert_eq!(got.proofs.len(), 1);
+        assert_eq!(got.proofs[0].leaf, leaf_a);
+        assert_eq!(got.proofs[0].merkle_context.tree_type, 1);
+        assert_eq!(got.proofs[0].merkle_context.tree, tree);
+        assert_eq!(got.proofs[0].path, path);
+        assert_eq!(got.proofs[0].leaf_index, 9);
+        assert_eq!(got.proofs[0].root, root);
+        assert_eq!(got.proofs[0].root_seq, 10);
+        assert_eq!(got.proofs[0].root_index, 11);
+    }
+
+    #[test]
+    fn get_non_inclusion_proofs_maps_adjacency_witness() {
+        let tree = Address::new_from_array(bytes32(41));
+        let leaf = bytes32(42);
+        let low = bytes32(43);
+        let high = bytes32(44);
+        let path = vec![bytes32(45), bytes32(46)];
+        let root = bytes32(47);
+        let response = rpc_result(json!({
+            "context": { "slot": 90 },
+            "proofs": [{
+                "leaf": encode_hash_string(leaf),
+                "merkle_context": {
+                    "tree_type": 2,
+                    "tree": encode_pubkey_string(tree),
+                },
+                "path": path.iter().copied().map(encode_hash_string).collect::<Vec<_>>(),
+                "low_element": encode_hash_string(low),
+                "low_element_index": 3,
+                "high_element": encode_hash_string(high),
+                "high_element_index": 4,
+                "root": encode_hash_string(root),
+                "root_seq": 12,
+                "root_index": 13,
+            }],
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_non_inclusion_proofs(tree, vec![leaf])
+            .expect("non-inclusion proofs");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_non_inclusion_proofs");
+        assert_json_rpc_request(&request.body, "get_non_inclusion_proofs");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "tree_account": encode_pubkey_string(tree),
+                "leaves": [encode_hash_string(leaf)],
+            })
+        );
+        assert_eq!(got.context.slot, 90);
+        assert_eq!(got.proofs.len(), 1);
+        assert_eq!(got.proofs[0].leaf, leaf);
+        assert_eq!(got.proofs[0].merkle_context.tree_type, 2);
+        assert_eq!(got.proofs[0].merkle_context.tree, tree);
+        assert_eq!(got.proofs[0].path, path);
+        assert_eq!(got.proofs[0].low_element, low);
+        assert_eq!(got.proofs[0].low_element_index, 3);
+        assert_eq!(got.proofs[0].high_element, high);
+        assert_eq!(got.proofs[0].high_element_index, 4);
+        assert_eq!(got.proofs[0].root, root);
+        assert_eq!(got.proofs[0].root_seq, 12);
+        assert_eq!(got.proofs[0].root_index, 13);
+    }
+
+    #[test]
+    fn wraps_json_rpc_errors() {
+        let response = json!({
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32602,
+                "message": "bad tag",
+            },
+        });
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let err = indexer
+            .get_encrypted_utxos_by_tags(vec![bytes32(1)], None, None)
+            .expect_err("JSON-RPC errors must surface");
+        let _ = server.request();
+
+        assert!(err.to_string().contains("indexer API"));
+        assert!(err.to_string().contains("bad tag"));
+    }
+
+    #[test]
+    fn rejects_malformed_output_slot_hash() {
+        let tag = bytes32(51);
+        let response = rpc_result(json!({
+            "context": { "slot": 1 },
+            "transactions": [{
+                "slot": 1,
+                "tx_signature": signature(52).to_string(),
+                "tx_viewing_pk": null,
+                "output_slots": [{
+                    "view_tag": encode_hash_string(tag),
+                    "hash": bs58::encode([1u8; 31]).into_string(),
+                    "payload": base64::encode([1]),
+                }],
+                "nullifiers": [],
+                "proofless": true,
+            }],
+            "next_cursor": null,
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let err = indexer
+            .get_shielded_transactions_by_tags(vec![tag], None, None)
+            .expect_err("short output hash must fail");
+        let _ = server.request();
+
+        assert!(err
+            .to_string()
+            .contains("transactions[0].output_slots[0].hash"));
+        assert!(err.to_string().contains("expected 32 bytes"));
+    }
+
+    fn assert_json_rpc_request(body: &Value, method: &str) {
+        assert_eq!(body["id"], "test-account");
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["method"], method);
+    }
+
+    fn rpc_result(result: Value) -> Value {
+        json!({
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "result": result,
+        })
+    }
+
+    fn bytes32(value: u8) -> [u8; 32] {
+        [value; 32]
+    }
+
+    fn signature(value: u8) -> Signature {
+        Signature::from([value; 64])
+    }
+
+    fn encode_hash_string(hash: [u8; 32]) -> String {
+        bs58::encode(hash).into_string()
+    }
+
+    fn encode_pubkey_string(pubkey: Address) -> String {
+        bs58::encode(pubkey.to_bytes()).into_string()
+    }
+
+    fn compressed_p256_pubkey(seed: u8) -> (Vec<u8>, P256Pubkey) {
+        let secret = SecretKey::from_slice(&[seed; 32]).unwrap();
+        let public = secret.public_key();
+        let point = public.to_encoded_point(true);
+        let bytes = point.as_bytes().to_vec();
+        let key_bytes: [u8; P256_PUBKEY_LEN] = bytes.clone().try_into().unwrap();
+        let key = P256Pubkey::from_bytes(key_bytes).unwrap();
+        (bytes, key)
+    }
+
+    struct RecordedRequest {
+        path: String,
+        body: Value,
+    }
+
+    struct MockServer {
+        url: String,
+        request_rx: mpsc::Receiver<RecordedRequest>,
+        handle: thread::JoinHandle<()>,
+    }
+
+    impl MockServer {
+        fn respond_once(response: Value) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let (request_tx, request_rx) = mpsc::channel();
+            let handle = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                request_tx.send(request).unwrap();
+                write_http_response(&mut stream, response);
+            });
+            Self {
+                url,
+                request_rx,
+                handle,
+            }
+        }
+
+        fn url(&self) -> &str {
+            &self.url
+        }
+
+        fn request(self) -> RecordedRequest {
+            let request = self
+                .request_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("mock server did not receive a request");
+            self.handle.join().unwrap();
+            request
+        }
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> RecordedRequest {
+        let mut data = Vec::new();
+        let mut buf = [0_u8; 1024];
+        let mut body_start = None;
+        let mut content_len = None;
+        loop {
+            let read = stream.read(&mut buf).unwrap();
+            assert!(read != 0, "HTTP client closed before sending a request");
+            data.extend_from_slice(&buf[..read]);
+            if body_start.is_none() {
+                if let Some(index) = data.windows(4).position(|window| window == b"\r\n\r\n") {
+                    body_start = Some(index + 4);
+                    let header = String::from_utf8_lossy(&data[..index]);
+                    content_len = parse_content_length(&header);
+                }
+            }
+            if let (Some(start), Some(len)) = (body_start, content_len) {
+                if data.len() >= start + len {
+                    break;
+                }
+            }
+        }
+
+        let body_start = body_start.expect("request has headers");
+        let header = String::from_utf8_lossy(&data[..body_start]);
+        let path = header
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .expect("request line has a path")
+            .to_string();
+        let body = serde_json::from_slice(&data[body_start..]).expect("request body is JSON");
+        RecordedRequest { path, body }
+    }
+
+    fn parse_content_length(header: &str) -> Option<usize> {
+        header.lines().find_map(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower
+                .strip_prefix("content-length:")
+                .map(str::trim)
+                .map(|value| value.parse().unwrap())
+        })
+    }
+
+    fn write_http_response(stream: &mut TcpStream, body: Value) {
+        let body = serde_json::to_string(&body).unwrap();
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
     }
 }

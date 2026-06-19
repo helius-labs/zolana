@@ -63,6 +63,7 @@ pub struct GetEncryptedUtxosByTagsResponse {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputSlot {
     pub view_tag: [u8; 32],
+    pub hash: [u8; 32],
     pub payload: Vec<u8>,
 }
 
