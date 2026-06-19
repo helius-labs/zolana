@@ -22,6 +22,33 @@ pub(crate) enum CliCommand {
 
     #[command(name = "start-prover", about = "Start the local prover server")]
     StartProver(StartProverOptions),
+
+    #[command(name = "wallet", about = "Private wallet commands")]
+    Wallet {
+        #[command(subcommand)]
+        command: WalletCommand,
+    },
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub(crate) enum WalletCommand {
+    #[command(name = "init", about = "Create filesystem private keypair")]
+    Init(InitOptions),
+
+    #[command(name = "sync", about = "Sync private wallet state")]
+    Sync(SyncOptions),
+
+    #[command(name = "balance", about = "Show private wallet balances")]
+    Balance(BalanceOptions),
+
+    #[command(name = "deposit", about = "Deposit into private wallet")]
+    Deposit(DepositOptions),
+
+    #[command(name = "transfer", about = "Send a private transfer")]
+    Transfer(TransferOptions),
+
+    #[command(name = "withdraw", about = "Withdraw to public address")]
+    Withdraw(WithdrawOptions),
 }
 
 #[derive(Debug)]
@@ -187,6 +214,104 @@ pub(crate) struct StartProverOptions {
     pub(crate) redis_url: Option<String>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub(crate) struct WalletKeypairOptions {
+    #[arg(
+        long = "keypair",
+        help = "Path to private keypair file (default: ~/.config/zolana/pid.json)",
+        value_name = "PATH"
+    )]
+    pub(crate) keypair: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct InitOptions {
+    #[arg(
+        long = "path",
+        help = "Output path for generated keypair (default: ~/.config/zolana/pid.json)",
+        value_name = "PATH"
+    )]
+    pub(crate) path: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct SyncOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long = "rpc-url",
+        default_value = "http://127.0.0.1:8899",
+        help = "Solana RPC URL"
+    )]
+    pub(crate) rpc_url: String,
+
+    #[arg(
+        long = "indexer-url",
+        default_value = "http://127.0.0.1:8784",
+        help = "Photon indexer URL"
+    )]
+    pub(crate) indexer_url: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct DepositOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Destination public address (inbox)")]
+    pub(crate) to: String,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to deposit")]
+    pub(crate) amount: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct TransferOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(
+        long = "to",
+        help = "Recipient as base58 pubkey or local keypair path",
+        value_name = "PUBKEY_OR_PATH"
+    )]
+    pub(crate) to: String,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to transfer")]
+    pub(crate) amount: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct WithdrawOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Destination public address")]
+    pub(crate) to: String,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to withdraw")]
+    pub(crate) amount: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct BalanceOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Optional mint filter (address or SOL)")]
+    pub(crate) mint: Option<String>,
+}
+
 impl TestValidatorOptions {
     pub(crate) fn use_surfpool_backend(&self) -> bool {
         self.use_surfpool || !self.no_use_surfpool
@@ -240,7 +365,7 @@ pub(crate) fn parse_validator(values: &[&str]) -> TestValidatorOptions {
     .expect("command")
     {
         CliCommand::TestValidator(opts) => *opts,
-        CliCommand::StartProver(_) => panic!("expected test-validator command"),
+        _ => panic!("expected test-validator command"),
     }
 }
 
@@ -275,6 +400,7 @@ mod tests {
             ["zolana", "--help"].as_slice(),
             ["zolana", "test-validator", "--help"].as_slice(),
             ["zolana", "start-prover", "--help"].as_slice(),
+            ["zolana", "wallet", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);

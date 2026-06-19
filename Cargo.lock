@@ -7823,7 +7823,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
+ "hex",
+ "serde",
  "serde_json",
+ "solana-pubkey 4.2.0",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
 ]
 
 [[package]]
