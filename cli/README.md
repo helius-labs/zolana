@@ -23,16 +23,17 @@ zolana --help
 Commands:
 
 ```bash
-zolana balance
-zolana deposit --amount 100 --mint SOL
-zolana transfer --to-wallet /tmp/bob.json --amount 30 --mint SOL
-zolana withdraw --amount 20 --mint SOL --to 11111111111111111111111111111111
+zolana wallet init
+zolana wallet sync
+zolana wallet balance
+zolana wallet deposit --to 11111111111111111111111111111111 --amount 100 --mint SOL
+zolana wallet transfer --to /tmp/bob.pid.json --amount 30 --mint SOL
+zolana wallet withdraw --to 11111111111111111111111111111111 --amount 20 --mint SOL
 ```
 
-Optional path overrides
+Optional keypair path
 
 ```bash
---wallet /path/to/wallet.json
---state-file /path/to/state.json
+--keypair /path/to/pid.json
 ```
 

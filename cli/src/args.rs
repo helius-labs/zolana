@@ -23,26 +23,32 @@ pub(crate) enum CliCommand {
     #[command(name = "start-prover", about = "Start the local prover server")]
     StartProver(StartProverOptions),
 
-    #[command(
-        name = "deposit",
-        about = "Create a private deposit in the local CLI state"
-    )]
-    Deposit(DepositOptions),
+    #[command(name = "wallet", about = "Private wallet commands")]
+    Wallet {
+        #[command(subcommand)]
+        command: WalletCommand,
+    },
+}
 
-    #[command(
-        name = "transfer",
-        about = "Send a private transfer to another filesystem wallet"
-    )]
-    Transfer(TransferOptions),
+#[derive(Debug, Subcommand, Clone)]
+pub(crate) enum WalletCommand {
+    #[command(name = "init", about = "Create filesystem private keypair")]
+    Init(InitOptions),
 
-    #[command(
-        name = "withdraw",
-        about = "Withdraw private funds to an external public address (simulated)"
-    )]
-    Withdraw(WithdrawOptions),
+    #[command(name = "sync", about = "Sync private wallet state")]
+    Sync(SyncOptions),
 
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
+
+    #[command(name = "deposit", about = "Deposit into private wallet")]
+    Deposit(DepositOptions),
+
+    #[command(name = "transfer", about = "Send a private transfer")]
+    Transfer(TransferOptions),
+
+    #[command(name = "withdraw", about = "Withdraw to public address")]
+    Withdraw(WithdrawOptions),
 }
 
 #[derive(Debug)]
@@ -209,26 +215,52 @@ pub(crate) struct StartProverOptions {
 }
 
 #[derive(Args, Debug, Clone)]
-pub(crate) struct WalletPathOptions {
+pub(crate) struct WalletKeypairOptions {
     #[arg(
-        long,
-        help = "Path to the filesystem wallet file (default: ~/.config/zolana/wallet.json)",
+        long = "keypair",
+        help = "Path to private keypair file (default: ~/.config/zolana/pid.json)",
         value_name = "PATH"
     )]
-    pub(crate) wallet: Option<String>,
+    pub(crate) keypair: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct InitOptions {
+    #[arg(
+        long = "path",
+        help = "Output path for generated keypair (default: ~/.config/zolana/pid.json)",
+        value_name = "PATH"
+    )]
+    pub(crate) path: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct SyncOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
 
     #[arg(
-        long = "state-file",
-        help = "Path to shared CLI state file (default: ~/.config/zolana/state.json)",
-        value_name = "PATH"
+        long = "rpc-url",
+        default_value = "http://127.0.0.1:8899",
+        help = "Solana RPC URL"
     )]
-    pub(crate) state_file: Option<String>,
+    pub(crate) rpc_url: String,
+
+    #[arg(
+        long = "indexer-url",
+        default_value = "http://127.0.0.1:8784",
+        help = "Photon indexer URL"
+    )]
+    pub(crate) indexer_url: String,
 }
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct DepositOptions {
     #[command(flatten)]
-    pub(crate) paths: WalletPathOptions,
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Destination public address (inbox)")]
+    pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
@@ -240,14 +272,14 @@ pub(crate) struct DepositOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct TransferOptions {
     #[command(flatten)]
-    pub(crate) paths: WalletPathOptions,
+    pub(crate) sync: SyncOptions,
 
     #[arg(
-        long = "to-wallet",
-        help = "Recipient wallet file path",
-        value_name = "PATH"
+        long = "to",
+        help = "Recipient as base58 pubkey or local keypair path",
+        value_name = "PUBKEY_OR_PATH"
     )]
-    pub(crate) to_wallet: String,
+    pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
@@ -259,22 +291,22 @@ pub(crate) struct TransferOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct WithdrawOptions {
     #[command(flatten)]
-    pub(crate) paths: WalletPathOptions,
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Destination public address")]
+    pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
 
     #[arg(long, help = "Amount to withdraw")]
     pub(crate) amount: u64,
-
-    #[arg(long, help = "Destination public address for bookkeeping")]
-    pub(crate) to: String,
 }
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct BalanceOptions {
     #[command(flatten)]
-    pub(crate) paths: WalletPathOptions,
+    pub(crate) sync: SyncOptions,
 
     #[arg(long, help = "Optional mint filter (address or SOL)")]
     pub(crate) mint: Option<String>,
@@ -368,6 +400,7 @@ mod tests {
             ["zolana", "--help"].as_slice(),
             ["zolana", "test-validator", "--help"].as_slice(),
             ["zolana", "start-prover", "--help"].as_slice(),
+            ["zolana", "wallet", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);

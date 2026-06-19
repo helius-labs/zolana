@@ -27,7 +27,7 @@ pub fn assert_zone_deposit(
     expected_zone_program_id: [u8; 32],
     root_before: [u8; 32],
     recipient: &mut Wallet,
-    recipient_keypair: &ShieldedKeypair,
+    _recipient_keypair: &ShieldedKeypair,
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, expected_asset, "event asset");
@@ -62,8 +62,7 @@ pub fn assert_zone_deposit(
 
     let before = recipient.utxos.len();
     recipient
-        .sync_keypair(
-            recipient_keypair,
+        .sync(
             &[],
             std::slice::from_ref(event),
             &AssetRegistry::default(),

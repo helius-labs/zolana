@@ -14,7 +14,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
@@ -96,7 +96,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     print_signature("create_tree", &create_tree_tx.signature);
 
     let direct_keypair = ShieldedKeypair::new()?;
-    let mut direct_recipient = Wallet::new_from_keypair(&direct_keypair)?;
+    let mut direct_recipient = Wallet::new(clone_keypair(&direct_keypair)?)?;
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_keypair,
@@ -133,7 +133,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(&mut direct_recipient, &direct_keypair, &direct_view)?;
 
     let zone_keypair = ShieldedKeypair::new()?;
-    let mut zone_recipient = Wallet::new_from_keypair(&zone_keypair)?;
+    let mut zone_recipient = Wallet::new(clone_keypair(&zone_keypair)?)?;
     let (_, zone_auth_bump) = pda::zone_auth(&zone_program_id);
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
         DEPOSIT_LAMPORTS,
@@ -221,11 +221,10 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
 
 fn assert_wallet_discovers(
     wallet: &mut Wallet,
-    keypair: &ShieldedKeypair,
+    _keypair: &ShieldedKeypair,
     view: &DepositView,
 ) -> TestResult {
-    wallet.sync_keypair(
-        keypair,
+    wallet.sync(
         &[],
         std::slice::from_ref(view),
         &AssetRegistry::default(),
@@ -239,6 +238,12 @@ fn assert_wallet_discovers(
 
 fn print_signature(label: &str, signature: &solana_signature::Signature) {
     println!("{label}: {signature}");
+}
+
+fn clone_keypair(keypair: &ShieldedKeypair) -> TestResult<ShieldedKeypair> {
+    let signing = SigningKey::from_bytes(&keypair.signing_key.secret_bytes())?;
+    let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())?;
+    Ok(ShieldedKeypair::from_keys(signing, viewing)?)
 }
 
 #[test]
