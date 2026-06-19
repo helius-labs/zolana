@@ -524,18 +524,18 @@ the output hash nor the ciphertext reveals whether the sender kept change.
 # Output UTXO Serialization
 
 Output UTXO serialization is the per-output ciphertext layout for shielded
-transactions. Each output's ciphertext is carried in its own
+transactions. Each output's ciphertext lives in its own
 [`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
 default-zone convention. Policy zones can define their own.
 UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
-[transact](#transact) instruction (and the emitted `GeneralEvent`), not part of
+[transact](#transact) instruction (and the logged `GeneralEvent`), not part of
 any per-output payload. Each output slot is tagged by its `view_tag`; see
 [View Tags](#view-tags). Output positions are fixed so any party can map a slot to
 its ciphertext index without the sender bundle: slot 0 is the sender's SPL change,
 slot 1 the SOL change (an empty UTXO when absent), and recipients follow at slot
-2+. The sender bundle ciphertext is carried in slot 0's `data`; the second sender
-change slot carries empty `data` (covered by the bundle).
+2+. The sender bundle ciphertext is in slot 0's `data`; the second sender
+change slot has empty `data` (covered by the bundle).
 
 Schemes:
 
@@ -665,7 +665,7 @@ in tree-append order, are:
   `sender_view_tag`.
 - **slot 1** (SOL change position): empty `data`; the slot-0 bundle already
   describes both SPL and SOL change.
-- **slots 2 .. 2 + R** (recipients): each carries one recipient ciphertext — a
+- **slots 2 .. 2 + R** (recipients): each holds one recipient ciphertext — a
   115-byte plaintext (plus `3 + len` per populated data record) + 16-byte GCM tag
   — under its own `view_tag`. Recipient `i` (at output position `2 + i`) is
   encrypted at AES slot index `i + 1` (see [AES Nonce
@@ -1166,14 +1166,14 @@ struct TransactIxData {
     /// The zk program proves over the same top-level `private_tx_hash`.
     cpi_signer: Option<(program_id, bump)>,
     /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
-    /// the emitted `GeneralEvent` so an indexer need not parse the opaque
-    /// payloads. Always present.
+    /// the logged `GeneralEvent` so an indexer need not parse the per-output
+    /// `data`. Always present.
     tx_viewing_pk: P256Pubkey,
     /// Shared AES `salt` for every output ciphertext (see [AES Nonce
-    /// derivation](#aes-nonce-derivation)). Hoisted to the transaction level
-    /// alongside `tx_viewing_pk` and copied verbatim into the emitted
+    /// derivation](#aes-nonce-derivation)). Stored at the transaction level
+    /// alongside `tx_viewing_pk` and copied verbatim into the logged
     /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
-    /// the opaque payloads. Always present.
+    /// the per-output `data`. Always present.
     salt: [u8; 16],
     /// The sender's own output (change) slot. Its `view_tag` is
     /// `get_sender_view_tag(tx_count)`, signed alongside the inputs
@@ -1375,7 +1375,7 @@ struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
-    /// decrypt without parsing the opaque payloads. Always set by `transact`;
+    /// decrypt without parsing the per-output `data`. Always set by `transact`;
     /// `None` for a proofless shield (nothing to decrypt).
     tx_viewing_pk: Option<P256Pubkey>,
     /// Shared AES `salt` for every output ciphertext, copied from the transact

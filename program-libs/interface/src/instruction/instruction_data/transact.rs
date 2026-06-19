@@ -31,12 +31,12 @@ pub struct TransactIxData {
     pub public_spl_amount: Option<i64>,
     pub cpi_signer: Option<CpiSignerData>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
-    /// this transaction; copied verbatim into the emitted `GeneralEvent` so an
-    /// indexer need not parse the opaque output payloads.
+    /// this transaction; copied verbatim into the logged `GeneralEvent` so an
+    /// indexer need not parse the per-output `data`.
     pub tx_viewing_pk: [u8; 33],
     /// Per-transaction encryption salt shared by every output ciphertext;
-    /// copied into the emitted `GeneralEvent` so wallets can derive the AES
-    /// key/nonce without parsing the opaque output payloads.
+    /// copied into the logged `GeneralEvent` so wallets can derive the AES
+    /// key/nonce without parsing the per-output `data`.
     pub salt: [u8; 16],
     pub sender_utxo_data: OutputUtxo,
     #[wincode(with = "containers::Vec<OutputUtxo, FixIntLen<u8>>")]

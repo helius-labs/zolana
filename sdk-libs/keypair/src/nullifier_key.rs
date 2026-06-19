@@ -7,6 +7,7 @@ use crate::error::KeypairError;
 use crate::hash::{fe_right_align, poseidon};
 use crate::signing_key::SigningKey;
 
+#[derive(Clone)]
 pub struct NullifierKey {
     secret: Zeroizing<[u8; BLINDING_LEN]>,
 }

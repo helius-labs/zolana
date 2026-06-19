@@ -30,7 +30,7 @@ pub struct SyncTransaction {
     pub tx_viewing_pk: P256Pubkey,
     /// Transaction-level AES salt for every output ciphertext.
     pub salt: [u8; SALT_LEN],
-    /// Per-output ciphertext slots in tree-append order. Slot 0 carries the
+    /// Per-output ciphertext slots in tree-append order. Slot 0 holds the
     /// sender bundle (transfer) or the single split ciphertext.
     pub output_slots: Vec<OutputCiphertext>,
     pub nullifiers: Vec<[u8; 32]>,
@@ -110,7 +110,7 @@ impl TxIndex {
         for (t, tx) in transactions.iter().enumerate() {
             nullifiers.extend(tx.nullifiers.iter().copied());
             // Slot 0's view tag is the sender bundle / split tag; the remaining
-            // slots carry recipient ciphertexts indexed by their own view tags.
+            // slots hold recipient ciphertexts indexed by their own view tags.
             let sender_view_tag = tx.output_slots.first().map(|slot| slot.view_tag);
             let blob = match tx.scheme {
                 TRANSFER => TransferEncryptedUtxos::from_output_ciphertexts(

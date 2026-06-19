@@ -37,6 +37,7 @@ impl PublicAmounts {
     }
 }
 // Why does this exist? What does Precomputed mean?
+#[derive(Clone)]
 pub enum P256Owner {
     Signer(SigningKey),
     Precomputed {

@@ -5,9 +5,11 @@ edition.workspace = true
 publish = false
 
 [features]
-default = []
+default = ["verifying-keys", "tree"]
 solana = ["dep:solana-instruction"]
 events = []
+verifying-keys = ["dep:groth16-solana"]
+tree = ["dep:zolana-tree"]
 
 [dependencies]
 borsh = { workspace = true }
@@ -15,10 +17,10 @@ bytemuck = { workspace = true }
 solana-address = { workspace = true, features = ["bytemuck", "borsh"] }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
-groth16-solana = { workspace = true }
+groth16-solana = { workspace = true, optional = true }
 light-hasher = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-event = { workspace = true }
-zolana-tree = { workspace = true }
+zolana-tree = { workspace = true, optional = true }

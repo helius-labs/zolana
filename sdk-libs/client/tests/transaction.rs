@@ -167,7 +167,7 @@ fn transfer_round_trip_outputs_and_bundle() {
         prover.external_data,
         ExternalData {
             instruction_discriminator: 0,
-            expiry_unix_ts: 0,
+            expiry_unix_ts: u64::MAX,
             relayer_fee: 0,
             public_sol_amount: None,
             public_spl_amount: None,
@@ -249,7 +249,7 @@ fn into_transact_ix_data_carries_ciphertext_and_decrypts() {
         .into_transact_ix_data([0u8; 192], &placements)
         .unwrap();
 
-    // Inputs carry each nullifier plus the supplied tree placement.
+    // Inputs hold each nullifier plus the supplied tree placement.
     assert_eq!(ix.inputs.len(), placements.len());
     assert_eq!(ix.inputs[0].nullifier_hash, first_nullifier);
     assert_eq!(ix.inputs[0].utxo_tree_root_index, 5);
@@ -259,7 +259,7 @@ fn into_transact_ix_data_carries_ciphertext_and_decrypts() {
     assert_eq!(ix.public_spl_amount, None);
 
     // Slot 0 is the sender bundle under the sender view tag; the recipient slot
-    // carries the recipient view tag and a non-empty ciphertext.
+    // holds the recipient view tag and a non-empty ciphertext.
     assert_eq!(
         ix.sender_utxo_data.view_tag,
         sender.get_sender_view_tag(0).unwrap()
@@ -361,7 +361,7 @@ fn withdrawal_sets_external_data_and_change() {
         prover.external_data,
         ExternalData {
             instruction_discriminator: 0,
-            expiry_unix_ts: 0,
+            expiry_unix_ts: u64::MAX,
             relayer_fee: 0,
             public_sol_amount: Some(-30),
             public_spl_amount: None,

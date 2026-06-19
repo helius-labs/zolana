@@ -353,7 +353,7 @@ fn assert_outputs(
         external_data,
         &ExternalData {
             instruction_discriminator: 0,
-            expiry_unix_ts: 0,
+            expiry_unix_ts: u64::MAX,
             relayer_fee: 0,
             public_sol_amount: (sol_public != 0).then_some(sol_public as i64),
             public_spl_amount: (spl_public != 0).then_some(spl_public as i64),

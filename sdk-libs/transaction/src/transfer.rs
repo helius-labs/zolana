@@ -164,11 +164,11 @@ impl TransferEncryptedUtxos {
         Ok(parsed)
     }
 
-    /// Spread the bundle across `n_outputs` on-chain output slots in canonical
-    /// order. Slot 0 carries the sender bundle ciphertext under `sender_view_tag`.
+    /// Spread the bundle across `n_outputs` output slots in canonical
+    /// order. Slot 0 holds the sender bundle ciphertext under `sender_view_tag`.
     /// The next `sender_slot_count - 1` slots are the sender's remaining change
-    /// outputs, covered by the slot-0 bundle, so they carry empty data. The
-    /// following slots carry each recipient ciphertext under its own view tag, and
+    /// outputs, covered by the slot-0 bundle, so they hold empty data. The
+    /// following slots hold each recipient ciphertext under its own view tag, and
     /// any remaining slots are empty padding. `tx_viewing_pk` and `salt` are shared
     /// at the transaction level and are not part of a slot.
     pub fn to_output_ciphertexts(
@@ -212,7 +212,7 @@ impl TransferEncryptedUtxos {
 
     /// Rebuild the bundle from the transaction-level `tx_viewing_pk` + `salt` and
     /// the ordered output ciphertexts. Slot 0 is the sender bundle; the first
-    /// `sender_slot_count` slots are sender-owned (slots 1.. carry empty data);
+    /// `sender_slot_count` slots are sender-owned (slots 1.. hold empty data);
     /// every later slot with non-empty data is a recipient ciphertext in order.
     pub fn from_output_ciphertexts(
         tx_viewing_pk: P256Pubkey,
@@ -255,7 +255,7 @@ impl TransferEncryptedUtxos {
     }
 }
 
-/// One on-chain output slot's encryption payload: its view tag and the per-output
+/// One output slot's encryption payload: its view tag and the per-output
 /// ciphertext (`OutputUtxo::data`). Empty `data` marks a slot with no ciphertext
 /// of its own (sender change covered by the slot-0 bundle, or padding).
 #[derive(Clone, Debug, PartialEq, Eq)]

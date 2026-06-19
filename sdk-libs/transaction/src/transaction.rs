@@ -11,9 +11,9 @@ use zolana_keypair::hash::poseidon;
 use crate::error::TransactionError;
 use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
 
-/// Transaction-level public data bound into the proofs through `external_data_hash`.
+/// Transaction-level public data the proofs commit to via `external_data_hash`.
 /// The hash is computed by the canonical [`ExternalDataHash`] from the interface
-/// crate, so the client and the on-chain program agree byte-for-byte. The output
+/// crate, so the client and the Solana program agree byte-for-byte. The output
 /// ciphertexts live per slot in `output_slots` (slot 0 is the sender bundle).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
@@ -40,7 +40,7 @@ impl ExternalData {
             .output_slots
             .split_first()
             .ok_or(TransactionError::MissingOutput)?;
-        Ok(ExternalDataHash {
+        ExternalDataHash {
             spp_instruction_discriminator: self.instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
             relayer_fee: self.relayer_fee,
@@ -54,7 +54,7 @@ impl ExternalData {
             recipient_utxo_data: recipients,
         }
         .hash()
-        .map_err(|e| TransactionError::Hash(format!("{e:?}")))?)
+        .map_err(|e| TransactionError::Hash(format!("{e:?}")))
     }
 }
 

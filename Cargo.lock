@@ -4349,6 +4349,7 @@ dependencies = [
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
  "solana-address 2.6.1",
+ "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
  "solana-message",

@@ -29,6 +29,7 @@ const SPL_CHANGE_POSITION: u8 = 0;
 const SOL_CHANGE_POSITION: u8 = 1;
 const RECIPIENT_POSITION_BASE: u8 = 2;
 
+#[derive(Clone)]
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
@@ -103,6 +104,7 @@ pub struct Transaction {
     payer_pubkey_hash: [u8; 32],
     blinding_seed: [u8; BLINDING_LEN],
     shape: Option<Shape>,
+    expiry_unix_ts: u64,
 }
 
 impl Transaction {
@@ -117,11 +119,19 @@ impl Transaction {
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed,
             shape: None,
+            // Never expires by default; the program rejects `current_ts > expiry`,
+            // so callers that want a relayer deadline set it explicitly.
+            expiry_unix_ts: u64::MAX,
         }
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
         self.shape = Some(shape);
+        self
+    }
+
+    pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
+        self.expiry_unix_ts = expiry_unix_ts;
         self
     }
 
@@ -387,7 +397,7 @@ impl Transaction {
 
         let external_data = ExternalData {
             instruction_discriminator: TRANSACT_DISCRIMINATOR,
-            expiry_unix_ts: 0,
+            expiry_unix_ts: self.expiry_unix_ts,
             relayer_fee: 0,
             public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
             public_spl_amount: (public_spl != 0).then_some(public_spl as i64),

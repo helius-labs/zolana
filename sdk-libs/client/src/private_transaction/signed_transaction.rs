@@ -1,5 +1,6 @@
 use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
 use zolana_keypair::hash::sha256;
+use zolana_keypair::SignatureType;
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo};
 
@@ -13,6 +14,7 @@ use crate::prover::transfer_p256::{
     P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
 };
 
+#[derive(Clone)]
 pub struct SignedTransaction {
     pub(crate) inputs: Vec<SpendUtxo>,
     pub(crate) outputs: Vec<OutputUtxo>,
@@ -23,8 +25,15 @@ pub struct SignedTransaction {
     pub(crate) p256_owner: Option<P256Owner>,
 }
 
-/// Tree placement for one spent input, resolved against the indexer/on-chain tree
+/// Sentinel `eddsa_signer_index` marking a P256-owned input; the program uses it
+/// to select the P256 verifying key and skip the eddsa signer check. Mirrors
+/// `P256_OWNED_SIGNER` in the shielded-pool program.
+const P256_OWNED_SIGNER: u8 = 255;
+
+/// Tree placement for one spent input, resolved against the indexer / Solana tree
 /// state: the root indices the proof was built against plus the eddsa signer slot.
+/// `eddsa_signer_index` is ignored for P256-owned inputs (overridden to the P256
+/// sentinel automatically).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputTreeIndices {
     pub utxo_tree_root_index: u16,
@@ -111,7 +120,7 @@ impl SignedTransaction {
         }
     }
 
-    /// Assemble the on-chain `Transact` instruction data from this signed
+    /// Assemble the `Transact` instruction data from this signed
     /// transaction, the proof bytes, and the per-input tree placement. The output
     /// ciphertext slots and `external_data_hash` come from [`ExternalData`], so the
     /// instruction and the proof commit to the same values.
@@ -130,14 +139,23 @@ impl SignedTransaction {
         let inputs = commitments
             .iter()
             .zip(input_tree_indices)
-            .map(|(commitment, placement)| InputUtxo {
-                nullifier_hash: commitment.nullifier,
-                nullifier_tree_root_index: placement.nullifier_tree_root_index,
-                utxo_tree_root_index: placement.utxo_tree_root_index,
-                tree_index: placement.tree_index,
-                eddsa_signer_index: placement.eddsa_signer_index,
+            .zip(&self.inputs)
+            .map(|((commitment, placement), spend)| {
+                let eddsa_signer_index =
+                    if spend.utxo.owner.signature_type()? == SignatureType::P256 {
+                        P256_OWNED_SIGNER
+                    } else {
+                        placement.eddsa_signer_index
+                    };
+                Ok(InputUtxo {
+                    nullifier_hash: commitment.nullifier,
+                    nullifier_tree_root_index: placement.nullifier_tree_root_index,
+                    utxo_tree_root_index: placement.utxo_tree_root_index,
+                    tree_index: placement.tree_index,
+                    eddsa_signer_index,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, ClientError>>()?;
 
         let external_data_hash = self.external_data.hash()?;
         let mut input_hashes: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();

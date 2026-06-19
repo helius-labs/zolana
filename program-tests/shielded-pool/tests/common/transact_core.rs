@@ -36,7 +36,7 @@ pub fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
+pub fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
     let compressed = ProofCompressed::try_from(*proof)?;
     let mut out = [0u8; 192];
     out[0..32].copy_from_slice(&compressed.a);
