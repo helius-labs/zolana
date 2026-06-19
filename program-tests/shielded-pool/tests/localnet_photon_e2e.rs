@@ -765,7 +765,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     };
     let proof = ProverClient::local().prove_transfer_p256(&prover.build()?.inputs)?;
     let packed = pack_proof(&proof)?;
-    let ix_data = signed.into_transact_ix_data(packed, &tree_indices)?;
+    let ix_data = signed.into_transact_ix_data(packed, Some(&tree_indices))?;
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),

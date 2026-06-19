@@ -33,8 +33,9 @@ const P256_OWNED_SIGNER: u8 = 255;
 /// Tree placement for one spent input, resolved against the indexer / Solana tree
 /// state: the root indices the proof was built against plus the eddsa signer slot.
 /// `eddsa_signer_index` is ignored for P256-owned inputs (overridden to the P256
-/// sentinel automatically).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// sentinel automatically). The default places the input at root indices 0 of the
+/// output tree (`tree_index` 0).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InputTreeIndices {
     pub utxo_tree_root_index: u16,
     pub nullifier_tree_root_index: u16,
@@ -123,19 +124,30 @@ impl SignedTransaction {
     /// Assemble the `Transact` instruction data from this signed
     /// transaction, the proof bytes, and the per-input tree placement. The output
     /// ciphertext slots and `external_data_hash` come from [`ExternalData`], so the
-    /// instruction and the proof commit to the same values.
+    /// instruction and the proof commit to the same values. `None` placements
+    /// default every input to the output tree at root indices 0.
     pub fn into_transact_ix_data(
         self,
         proof: [u8; 192],
-        input_tree_indices: &[InputTreeIndices],
+        input_tree_indices: Option<&[InputTreeIndices]>,
     ) -> Result<TransactIxData, ClientError> {
         let commitments = self.input_commitments()?;
-        if input_tree_indices.len() != commitments.len() {
-            return Err(ClientError::InputTreeIndexCountMismatch {
-                expected: commitments.len(),
-                actual: input_tree_indices.len(),
-            });
-        }
+        let default_indices;
+        let input_tree_indices = match input_tree_indices {
+            Some(indices) => {
+                if indices.len() != commitments.len() {
+                    return Err(ClientError::InputTreeIndexCountMismatch {
+                        expected: commitments.len(),
+                        actual: indices.len(),
+                    });
+                }
+                indices
+            }
+            None => {
+                default_indices = vec![InputTreeIndices::default(); commitments.len()];
+                &default_indices
+            }
+        };
         let inputs = commitments
             .iter()
             .zip(input_tree_indices)

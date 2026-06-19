@@ -246,7 +246,7 @@ fn into_transact_ix_data_carries_ciphertext_and_decrypts() {
         .collect();
 
     let ix = signed
-        .into_transact_ix_data([0u8; 192], &placements)
+        .into_transact_ix_data([0u8; 192], Some(&placements))
         .unwrap();
 
     // Inputs hold each nullifier plus the supplied tree placement.

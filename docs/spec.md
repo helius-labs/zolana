@@ -526,16 +526,11 @@ the output hash nor the ciphertext reveals whether the sender kept change.
 Output UTXO serialization is the per-output ciphertext layout for shielded
 transactions. Each output's ciphertext lives in its own
 [`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
-default-zone convention. Policy zones can define their own.
+default-zone convention; policy zones can define their own.
 UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
-[transact](#transact) instruction (and the logged `GeneralEvent`), not part of
-any per-output payload. Each output slot is tagged by its `view_tag`; see
-[View Tags](#view-tags). Output positions are fixed so any party can map a slot to
-its ciphertext index without the sender bundle: slot 0 is the sender's SPL change,
-slot 1 the SOL change (an empty UTXO when absent), and recipients follow at slot
-2+. The sender bundle ciphertext is in slot 0's `data`; the second sender
-change slot has empty `data` (covered by the bundle).
+[transact](#transact) instruction, not part of any per-output payload. Each output
+slot is tagged by its `view_tag`; see [View Tags](#view-tags).
 
 Schemes:
 
@@ -654,25 +649,49 @@ struct TransferSenderPlaintext {
 
 ### Instruction Data Layout
 
-The transfer ciphertexts are spread across the [transact](#transact)
-instruction's per-output slots rather than a single blob. `tx_viewing_pk` and
-`salt` are transaction-level fields of `TransactIxData`. The output `data` slots,
-in tree-append order, are:
+The sender serializes a `TransferEncryptedUtxos` bundle, then spreads its
+ciphertexts across the [transact](#transact) instruction's per-output `data`
+slots. `tx_viewing_pk` and `salt` are transaction-level fields of `TransactIxData`,
+shared by every slot. Fields are packed in declaration order; byte vectors are
+prefixed with a `u16_le` length, every other vector with a `u8` count.
 
-- **slot 0** (`sender_utxo_data`, SPL change position): the sender change bundle
-  ciphertext — a `92 + 33·R`-byte plaintext (when `data` fields are empty) + a
-  16-byte GCM tag — encrypted at AES slot index 0. Its `view_tag` is
-  `sender_view_tag`.
-- **slot 1** (SOL change position): empty `data`; the slot-0 bundle already
-  describes both SPL and SOL change.
-- **slots 2 .. 2 + R** (recipients): each holds one recipient ciphertext — a
-  115-byte plaintext (plus `3 + len` per populated data record) + 16-byte GCM tag
-  — under its own `view_tag`. Recipient `i` (at output position `2 + i`) is
-  encrypted at AES slot index `i + 1` (see [AES Nonce
-  derivation](#aes-nonce-derivation)).
+```rust
+/// `sender_ciphertext` is a `92 + 33·R`-byte plaintext (when `data` fields are
+/// empty) + 16-byte GCM tag. Each populated data record grows its ciphertext by
+/// `3 + len` bytes. See [Program Data](#program-data).
+struct TransferEncryptedUtxos {
+    /// Discriminator (TRANSFER).
+    type_prefix: u8,
+    tx_viewing_pk: P256Pubkey,
+    /// Per-transaction CSPRNG salt.
+    salt: [u8; 16],
+    /// Sender change bundle ciphertext. View tag is `sender_view_tag` from the
+    /// transact instruction data.
+    sender_ciphertext: Vec<u8>,
+    /// One per recipient.
+    recipient_slots: Vec<RecipientSlot>,
+}
+```
 
-Each populated [Program Data](#program-data) record grows the relevant ciphertext
-by `3 + len` bytes.
+#### Recipient slot
+
+```rust
+/// `ciphertext` is a 115-byte recipient plaintext (plus `3 + len` per populated
+/// data record) + 16-byte GCM tag.
+struct RecipientSlot {
+    /// See View Tags chapter for the four variants and selection rules.
+    view_tag: [u8; 32],
+    ciphertext: Vec<u8>,
+}
+```
+
+#### Output slot mapping
+
+The bundle maps onto the transact output `data` slots in tree-append order: slot 0
+holds `sender_ciphertext` under `sender_view_tag` (encrypted at AES slot index
+0), slot 1 (SOL change) is empty, and recipient `i` lands at output position
+`2 + i` under its own `view_tag` (encrypted at AES slot index `i + 1`; see
+[AES Nonce derivation](#aes-nonce-derivation)).
 
 #### Sizes
 
