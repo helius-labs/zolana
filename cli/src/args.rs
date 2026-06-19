@@ -41,7 +41,7 @@ pub(crate) enum WalletCommand {
     )]
     CreateTree(CreateTreeOptions),
 
-    #[command(name = "sync", about = "Sync private wallet state")]
+    #[command(name = "sync", about = "Sync private wallet state. Transfers run sync automatically.")]
     Sync(SyncOptions),
 
     #[command(name = "balance", about = "Show private wallet balances")]

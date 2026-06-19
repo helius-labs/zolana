@@ -594,7 +594,7 @@ fn submit_private_transaction(
         }
     };
     let proof_bytes = ProofCompressed::try_from(proof)?.to_transact_proof_bytes();
-    let data = signed.into_transact_ix_data(proof_bytes, &indices)?;
+    let data = signed.into_transact_ix_data(proof_bytes, Some(&indices))?;
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,
