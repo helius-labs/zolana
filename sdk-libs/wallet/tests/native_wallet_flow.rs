@@ -115,7 +115,7 @@ async fn create_private_wallet_and_read_empty_balances() {
 }
 
 #[tokio::test]
-async fn mock_airdrop_syncs_to_private_balance_once() {
+async fn mock_airdrop_proofless_syncs_to_private_balance_once() {
     let environment = DemoWalletEnvironment::new();
     let mut alice = DemoWallet::new("alice", environment).unwrap();
     alice.create_private_wallet().await.unwrap();
@@ -125,7 +125,11 @@ async fn mock_airdrop_syncs_to_private_balance_once() {
     let second = alice.sync_private_wallet().await.unwrap();
 
     assert_eq!(first.stored_utxos, 1);
+    assert_eq!(first.unparsed_transactions, 0);
+    assert_eq!(first.undecryptable_candidates, 0);
     assert_eq!(second.stored_utxos, 0);
+    assert_eq!(second.unparsed_transactions, 0);
+    assert_eq!(second.undecryptable_candidates, 0);
     assert_eq!(alice.private_balance(SOL_MINT).await.unwrap(), 100);
 }
 

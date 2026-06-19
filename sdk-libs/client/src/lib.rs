@@ -1,7 +1,6 @@
 pub mod actions;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -14,30 +13,34 @@ use sha2::Sha256;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use thiserror::Error;
+#[cfg(feature = "test-utils")]
+use zolana_interface::event::DepositView;
 use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, P_CONST_SEC1, SALT_LEN};
 #[cfg(feature = "test-utils")]
 use zolana_keypair::ShieldedKeypair;
-use zolana_keypair::{random_salt, P256Pubkey, PublicKey};
 #[cfg(feature = "test-utils")]
-use zolana_transaction::transfer::RecipientOutput;
+use zolana_keypair::random_salt;
+use zolana_keypair::{P256Pubkey, PublicKey};
+#[cfg(feature = "test-utils")]
 use zolana_transaction::transfer::{
     RecipientSlot, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
 use zolana_transaction::wallet::{SyncTransaction, Wallet, WalletKeyProvider};
 #[cfg(feature = "test-utils")]
-use zolana_transaction::TransactionEncryption;
-use zolana_transaction::{AssetRegistry, Data, TransactionError, Utxo, SOL_MINT, TRANSFER};
+use zolana_transaction::{owner_utxo_hash, utxo_hash};
+#[cfg(feature = "test-utils")]
+use zolana_transaction::{Data, Utxo, SOL_MINT, TRANSFER};
+#[cfg(not(feature = "test-utils"))]
+use zolana_transaction::AssetRegistry;
+use zolana_transaction::TransactionError;
 
 
 pub mod error;
 pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
-
-#[cfg(feature = "indexer-api")]
-pub mod indexer;
-#[cfg(feature = "solana-rpc")]
-pub mod solana_rpc;
+#[cfg(feature = "test-utils")]
+pub mod testing;
 
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
@@ -634,76 +637,6 @@ impl WalletKeyProvider for HostWalletKeyProvider<'_> {
     }
 }
 
-#[derive(Clone)]
-struct PrivacyNetwork {
-    state: Arc<Mutex<NetworkState>>,
-}
-
-impl PrivacyNetwork {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl Default for PrivacyNetwork {
-    fn default() -> Self {
-        Self {
-            state: Arc::new(Mutex::new(NetworkState::default())),
-        }
-    }
-}
-
-#[cfg(feature = "test-utils")]
-pub mod testing;
-
-#[derive(Default)]
-struct NetworkState {
-    next_wallet_id: u64,
-    next_asset_id: u64,
-    next_counter: u64,
-    next_signature: u64,
-    wallets: HashMap<PrivateWalletId, PrivateWallet>,
-    inboxes: HashMap<Address, PrivateWalletId>,
-    transactions: Vec<SyncTransaction>,
-    history: HashMap<PrivateWalletId, Vec<PrivateTransaction>>,
-    assets: AssetRegistry,
-}
-
-impl NetworkState {
-    fn asset_id_for_mint(&mut self, mint: Address) -> Result<u64> {
-        if let Ok(asset_id) = self.assets.asset_id(&mint) {
-            return Ok(asset_id);
-        }
-        self.next_asset_id = self.next_asset_id.max(2);
-        let asset_id = self.next_asset_id;
-        self.next_asset_id += 1;
-        self.assets.insert(asset_id, mint)?;
-        Ok(asset_id)
-    }
-
-    fn unique_blinding(&mut self) -> [u8; BLINDING_LEN] {
-        self.next_counter += 1;
-        let mut out = [0u8; BLINDING_LEN];
-        out[0] = 0x42;
-        out[1..9].copy_from_slice(&self.next_counter.to_be_bytes());
-        out
-    }
-
-    #[cfg(feature = "test-utils")]
-    fn unique_nullifier(&mut self) -> [u8; 32] {
-        self.next_counter += 1;
-        let mut out = [0u8; 32];
-        out[0] = 0xAA;
-        out[1..9].copy_from_slice(&self.next_counter.to_be_bytes());
-        out
-    }
-
-    fn next_signature(&mut self) -> String {
-        self.next_signature += 1;
-        format!("mock-signature-{}", self.next_signature)
-    }
-}
-
 struct LocalPrivateWallet {
     metadata: PrivateWallet,
     wallet: Wallet,
@@ -712,20 +645,33 @@ struct LocalPrivateWallet {
 
 pub struct PrivacyClient {
     owner: Address,
-    network: PrivacyNetwork,
+    #[cfg(feature = "test-utils")]
+    network: testing::PrivacyNetwork,
     wallets: HashMap<PrivateWalletId, LocalPrivateWallet>,
     pending_host: Option<Box<dyn HeliusPrivacyInterface>>,
 }
 
 impl PrivacyClient {
     pub fn new(owner: Address, host: impl HeliusPrivacyInterface + 'static) -> Self {
-        Self::with_network(owner, Box::new(host), PrivacyNetwork::new())
+        #[cfg(feature = "test-utils")]
+        {
+            return Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new());
+        }
+        #[cfg(not(feature = "test-utils"))]
+        {
+            Self {
+                owner,
+                wallets: HashMap::new(),
+                pending_host: Some(Box::new(host)),
+            }
+        }
     }
 
+    #[cfg(feature = "test-utils")]
     fn with_network(
         owner: Address,
         host: Box<dyn HeliusPrivacyInterface>,
-        network: PrivacyNetwork,
+        network: testing::PrivacyNetwork,
     ) -> Self {
         Self {
             owner,
@@ -767,16 +713,21 @@ impl PrivacyClient {
         if self.pending_host.is_none() {
             return Err(WalletError::PrivateWalletAlreadyCreated);
         }
-        let mut network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        if network.inboxes.contains_key(&input.inbox) {
-            return Err(WalletError::InboxAlreadyRegistered);
-        }
-        network.next_wallet_id += 1;
-        let id = PrivateWalletId(network.next_wallet_id);
+        #[cfg(feature = "test-utils")]
+        let id = {
+            let mut network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            if network.inboxes.contains_key(&input.inbox) {
+                return Err(WalletError::InboxAlreadyRegistered);
+            }
+            network.next_wallet_id += 1;
+            PrivateWalletId(network.next_wallet_id)
+        };
+        #[cfg(not(feature = "test-utils"))]
+        let id = PrivateWalletId(self.wallets.len() as u64 + 1);
         let mut host = self
             .pending_host
             .take()
@@ -797,9 +748,16 @@ impl PrivacyClient {
             label: input.label,
             decryption_mode: input.decryption_mode,
         };
-        network.inboxes.insert(metadata.inbox, id);
-        network.wallets.insert(id, metadata.clone());
-        drop(network);
+        #[cfg(feature = "test-utils")]
+        {
+            let mut network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            network.inboxes.insert(metadata.inbox, id);
+            network.wallets.insert(id, metadata.clone());
+        }
         self.wallets.insert(
             id,
             LocalPrivateWallet {
@@ -820,6 +778,8 @@ impl PrivacyClient {
             .get_mut(&input.private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
         local.metadata.decryption_mode = input.mode;
+        #[cfg(feature = "test-utils")]
+        {
         let mut network = self
             .network
             .state
@@ -830,6 +790,7 @@ impl PrivacyClient {
             .get_mut(&input.private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
         remote.decryption_mode = input.mode;
+        }
         Ok(local.metadata.clone())
     }
 
@@ -841,14 +802,25 @@ impl PrivacyClient {
             .wallets
             .get_mut(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        let transactions = network.transactions.clone();
-        let assets = network.assets.clone();
-        drop(network);
+        #[cfg(feature = "test-utils")]
+        let (transactions, proofless_deposits, assets) = {
+            let network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            (
+                network.transactions.clone(),
+                network.proofless_deposits.clone(),
+                network.assets.clone(),
+            )
+        };
+        #[cfg(not(feature = "test-utils"))]
+        let (transactions, proofless_deposits, assets): (
+            Vec<SyncTransaction>,
+            Vec<zolana_interface::event::DepositView>,
+            AssetRegistry,
+        ) = (Vec::new(), Vec::new(), AssetRegistry::default());
         let _state = local.host.read_state(private_wallet_id)?;
         let _tags = local
             .host
@@ -856,7 +828,14 @@ impl PrivacyClient {
         let key_ops = HostWalletKeyProvider::new(private_wallet_id, local.host.as_ref())?;
         let report = local
             .wallet
-            .sync(&key_ops, &transactions, &[], &assets, 1_700_000_000, 64)?;
+            .sync(
+                &key_ops,
+                &transactions,
+                &proofless_deposits,
+                &assets,
+                1_700_000_000,
+                64,
+            )?;
         local.host.write_state(
             private_wallet_id,
             report.stored_utxos.to_be_bytes().to_vec(),
@@ -872,12 +851,17 @@ impl PrivacyClient {
             .wallets
             .get(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        let balances = local.wallet.balances(&network.assets, true)?;
+        #[cfg(feature = "test-utils")]
+        let balances = {
+            let network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            local.wallet.balances(&network.assets, true)?
+        };
+        #[cfg(not(feature = "test-utils"))]
+        let balances = local.wallet.balances(&AssetRegistry::default(), true)?;
         Ok(PrivateTokenBalances {
             status: SyncStatus::Synced,
             synced_at: Some(local.wallet.last_synced),
@@ -900,6 +884,8 @@ impl PrivacyClient {
         if !self.wallets.contains_key(&private_wallet_id) {
             return Err(WalletError::PrivateWalletNotFound);
         }
+        #[cfg(feature = "test-utils")]
+        {
         let network = self
             .network
             .state
@@ -914,6 +900,12 @@ impl PrivacyClient {
             history.truncate(input.limit);
         }
         Ok(history)
+        }
+        #[cfg(not(feature = "test-utils"))]
+        {
+            let _ = input;
+            Ok(Vec::new())
+        }
     }
 
     pub async fn get_deposit_instruction(
@@ -923,6 +915,7 @@ impl PrivacyClient {
         Err(WalletError::Unsupported("deposit instruction"))
     }
 
+    #[cfg(feature = "test-utils")]
     pub async fn send_private_transfer(
         &mut self,
         input: SendPrivateTransferInput,
@@ -1106,6 +1099,16 @@ impl PrivacyClient {
         })
     }
 
+    #[cfg(not(feature = "test-utils"))]
+    pub async fn send_private_transfer(
+        &mut self,
+        _input: SendPrivateTransferInput,
+    ) -> Result<SendPrivateTransferResult> {
+        Err(WalletError::Unsupported(
+            "private transfer requires test-utils in-memory backend",
+        ))
+    }
+
     #[cfg(feature = "test-utils")]
     pub async fn mock_airdrop(
         &mut self,
@@ -1120,48 +1123,39 @@ impl PrivacyClient {
             .wallets
             .get(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let faucet = ShieldedKeypair::new()?;
         let mut network = self
             .network
             .state
             .lock()
             .map_err(|_| WalletError::LockPoisoned)?;
-        let asset_id = network.asset_id_for_mint(mint)?;
-        let blinding = network.unique_blinding();
-        let blinding_seed = network.unique_blinding();
-        let first_nullifier = network.unique_nullifier();
-        let recipient_utxo = Utxo {
-            owner: local.metadata.shielded_public_key.signing_pubkey,
-            asset: mint,
+        network.asset_id_for_mint(mint)?;
+        let key_ops = HostWalletKeyProvider::new(private_wallet_id, local.host.as_ref())?;
+        let salt = random_salt();
+        let blinding = key_ops.derive_proofless_blinding(&salt)?;
+        let owner_hash = key_ops.owner_hash()?;
+        let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
+        let utxo_hash = utxo_hash(
+            mint,
             amount,
-            blinding,
-            zone_program_id: None,
-            data: Data::default(),
-        };
-        let recipient_plaintext =
-            recipient_utxo.to_recipient_plaintext(faucet.viewing_pubkey(), &network.assets)?;
-        let sender_plaintext = TransferSenderPlaintext {
-            owner_pubkey: faucet.signing_pubkey(),
-            spl_asset_id: asset_id,
-            spl_amount: 0,
-            sol_amount: 0,
-            blinding_seed,
-            recipient_viewing_pks: vec![local.metadata.shielded_public_key.viewing_pubkey],
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        };
-        let encrypted = faucet.viewing_key.encrypt_transfer(
-            &first_nullifier,
-            &sender_plaintext,
-            &[RecipientOutput {
-                view_tag: local.metadata.shielded_public_key.viewing_pubkey.x(),
-                plaintext: recipient_plaintext,
-            }],
+            &[0u8; 32],
+            &[0u8; 32],
+            None,
+            &owner_utxo_hash,
         )?;
-        network.transactions.push(SyncTransaction {
-            encrypted_utxos: encrypted.serialize()?,
-            sender_view_tag: faucet.get_sender_view_tag(0)?,
-            nullifiers: vec![first_nullifier],
+        network.proofless_deposits.push(DepositView {
+            view_tag: key_ops.recipient_bootstrap_view_tag(),
+            utxo_hash,
+            asset: mint.to_bytes(),
+            amount,
+            zone_program_id: None,
+            policy_data_hash: None,
+            owner_utxo_hash,
+            salt,
+            program_data_hash: None,
+            program_data: None,
+            zone_data: None,
+            output_tree: [0u8; 32],
+            leaf_index: 0,
         });
         let signature = network.next_signature();
         let slot = network.next_signature;

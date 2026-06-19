@@ -1,10 +1,15 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use zolana_interface::event::DepositView;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
+use zolana_transaction::wallet::SyncTransaction;
+use zolana_transaction::{Address, AssetRegistry};
 
-use super::PrivacyNetwork;
 use crate::{
     ApprovalRequest, DeriveViewTagsRequest, HeliusPrivacyInterface, P256Signature, PrivateWalletId,
-    Result, ShieldedPublicKey, ViewTag, WalletError,
+    PrivateTransaction, PrivateWallet, Result, ShieldedPublicKey, ViewTag, WalletError,
 };
 
 #[derive(Clone)]
@@ -23,6 +28,65 @@ impl Default for InMemoryPrivacyProvider {
         Self {
             network: PrivacyNetwork::new(),
         }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PrivacyNetwork {
+    pub(crate) state: Arc<Mutex<NetworkState>>,
+}
+
+impl PrivacyNetwork {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for PrivacyNetwork {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(NetworkState::default())),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct NetworkState {
+    pub(crate) next_wallet_id: u64,
+    pub(crate) next_asset_id: u64,
+    pub(crate) next_counter: u64,
+    pub(crate) next_signature: u64,
+    pub(crate) wallets: HashMap<PrivateWalletId, PrivateWallet>,
+    pub(crate) inboxes: HashMap<Address, PrivateWalletId>,
+    pub(crate) transactions: Vec<SyncTransaction>,
+    pub(crate) proofless_deposits: Vec<DepositView>,
+    pub(crate) history: HashMap<PrivateWalletId, Vec<PrivateTransaction>>,
+    pub(crate) assets: AssetRegistry,
+}
+
+impl NetworkState {
+    pub(crate) fn asset_id_for_mint(&mut self, mint: Address) -> Result<u64> {
+        if let Ok(asset_id) = self.assets.asset_id(&mint) {
+            return Ok(asset_id);
+        }
+        self.next_asset_id = self.next_asset_id.max(2);
+        let asset_id = self.next_asset_id;
+        self.next_asset_id += 1;
+        self.assets.insert(asset_id, mint)?;
+        Ok(asset_id)
+    }
+
+    pub(crate) fn unique_blinding(&mut self) -> [u8; BLINDING_LEN] {
+        self.next_counter += 1;
+        let mut out = [0u8; BLINDING_LEN];
+        out[0] = 0x42;
+        out[1..9].copy_from_slice(&self.next_counter.to_be_bytes());
+        out
+    }
+
+    pub(crate) fn next_signature(&mut self) -> String {
+        self.next_signature += 1;
+        format!("mock-signature-{}", self.next_signature)
     }
 }
 
