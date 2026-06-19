@@ -170,6 +170,7 @@ fn convert_encrypted_utxo_match(
             item.tx_viewing_pk,
             &format!("matches[{index}].tx_viewing_pk"),
         )?,
+        salt: decode_optional_salt(item.salt, &format!("matches[{index}].salt"))?,
         ciphertext: decode_base64(&item.ciphertext, &format!("matches[{index}].ciphertext"))?,
     })
 }
@@ -188,6 +189,7 @@ fn convert_shielded_transaction(
             item.tx_viewing_pk,
             &format!("transactions[{index}].tx_viewing_pk"),
         )?,
+        salt: decode_optional_salt(item.salt, &format!("transactions[{index}].salt"))?,
         output_slots: item
             .output_slots
             .into_iter()
@@ -346,6 +348,15 @@ fn decode_optional_p256(
             let bytes = fixed_bytes(decode_base64(&value, field)?, P256_PUBKEY_LEN, field)?;
             P256Pubkey::from_bytes(bytes).map_err(|error| decode_error(field, error))
         })
+        .transpose()
+}
+
+fn decode_optional_salt(
+    value: Option<Base64String>,
+    field: &str,
+) -> Result<Option<[u8; 16]>, ClientError> {
+    value
+        .map(|value| fixed_bytes(decode_base64(&value, field)?, 16, field))
         .transpose()
 }
 

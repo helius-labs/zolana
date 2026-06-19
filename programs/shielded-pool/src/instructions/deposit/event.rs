@@ -38,6 +38,7 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
         // Proofless shields are Solana-rail deposits with no shared P256 viewing
         // key; the field is zeroed so indexers skip ECDH decryption.
         tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         first_output_leaf_index: ctx.first_output_leaf_index,
         output_tree: ctx.output_tree,
         relay_fee: None,

@@ -60,6 +60,9 @@ pub struct EncryptedUtxoMatch {
     pub view_tag: [u8; 32],
     /// `None` when the payload is plaintext (nothing to decrypt).
     pub tx_viewing_pk: Option<P256Pubkey>,
+    /// Transaction-level AES salt shared by every output ciphertext; `None` for
+    /// plaintext/proofless payloads.
+    pub salt: Option<[u8; 16]>,
     pub ciphertext: Vec<u8>,
 }
 
@@ -85,6 +88,9 @@ pub struct ShieldedTransaction {
     pub tx_signature: Signature,
     /// `None` when there is nothing to decrypt (proofless or plaintext transfer).
     pub tx_viewing_pk: Option<P256Pubkey>,
+    /// Transaction-level AES salt shared by every output ciphertext; `None` for
+    /// proofless or plaintext transfers.
+    pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,

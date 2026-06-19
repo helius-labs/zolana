@@ -1,10 +1,12 @@
 use cucumber::{given, then, when};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::transfer::{RecipientOutput, TransferSenderPlaintext};
+use zolana_transaction::transfer::{
+    OutputCiphertext, RecipientOutput, TransferSenderPlaintext, SENDER_SLOT_COUNT,
+};
 use zolana_transaction::wallet::{AssetBalance, SyncTransaction, Wallet};
 use zolana_transaction::{
-    AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT, SPLIT, TRANSFER,
 };
 
 use crate::TransactionWorld;
@@ -90,12 +92,20 @@ fn record_transfer(
             }],
         )
         .unwrap();
-    let encrypted_utxos = blob.serialize().unwrap();
     let sender_view_tag = sender_kp.get_sender_view_tag(tx_count).unwrap();
+    let output_slots = blob
+        .to_output_ciphertexts(
+            sender_view_tag,
+            SENDER_SLOT_COUNT,
+            SENDER_SLOT_COUNT + blob.recipient_slots.len(),
+        )
+        .unwrap();
 
     world.sync_transactions.push(SyncTransaction {
-        encrypted_utxos,
-        sender_view_tag,
+        scheme: TRANSFER,
+        tx_viewing_pk: blob.tx_viewing_pk,
+        salt: blob.salt,
+        output_slots,
         nullifiers: vec![first_nullifier],
     });
     world.sent_counts.insert(sender.to_string(), tx_count + 1);
@@ -205,12 +215,16 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
         .viewing_key
         .encrypt_split(&first_nullifier, &bundle)
         .unwrap();
-    let encrypted_utxos = blob.serialize().unwrap();
     let sender_view_tag = owner_kp.get_sender_view_tag(tx_count).unwrap();
 
     world.sync_transactions.push(SyncTransaction {
-        encrypted_utxos,
-        sender_view_tag,
+        scheme: SPLIT,
+        tx_viewing_pk: blob.tx_viewing_pk,
+        salt: blob.salt,
+        output_slots: vec![OutputCiphertext {
+            view_tag: sender_view_tag,
+            data: blob.ciphertext.clone(),
+        }],
         nullifiers: vec![first_nullifier],
     });
     world.sent_counts.insert(owner.clone(), tx_count + 1);

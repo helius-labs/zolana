@@ -1,3 +1,4 @@
+use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
 use zolana_keypair::hash::sha256;
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo};
@@ -20,6 +21,16 @@ pub struct SignedTransaction {
     pub(crate) payer_pubkey_hash: [u8; 32],
     pub(crate) shape: Shape,
     pub(crate) p256_owner: Option<P256Owner>,
+}
+
+/// Tree placement for one spent input, resolved against the indexer/on-chain tree
+/// state: the root indices the proof was built against plus the eddsa signer slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputTreeIndices {
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
+    pub tree_index: u8,
+    pub eddsa_signer_index: u8,
 }
 
 impl SignedTransaction {
@@ -100,6 +111,67 @@ impl SignedTransaction {
         }
     }
 
+    /// Assemble the on-chain `Transact` instruction data from this signed
+    /// transaction, the proof bytes, and the per-input tree placement. The output
+    /// ciphertext slots and `external_data_hash` come from [`ExternalData`], so the
+    /// instruction and the proof commit to the same values.
+    pub fn into_transact_ix_data(
+        self,
+        proof: [u8; 192],
+        input_tree_indices: &[InputTreeIndices],
+    ) -> Result<TransactIxData, ClientError> {
+        let commitments = self.input_commitments()?;
+        if input_tree_indices.len() != commitments.len() {
+            return Err(ClientError::InputTreeIndexCountMismatch {
+                expected: commitments.len(),
+                actual: input_tree_indices.len(),
+            });
+        }
+        let inputs = commitments
+            .iter()
+            .zip(input_tree_indices)
+            .map(|(commitment, placement)| InputUtxo {
+                nullifier_hash: commitment.nullifier,
+                nullifier_tree_root_index: placement.nullifier_tree_root_index,
+                utxo_tree_root_index: placement.utxo_tree_root_index,
+                tree_index: placement.tree_index,
+                eddsa_signer_index: placement.eddsa_signer_index,
+            })
+            .collect();
+
+        let external_data_hash = self.external_data.hash()?;
+        let mut input_hashes: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
+        input_hashes.resize(self.shape.n_inputs, [0u8; 32]);
+        let output_hashes: Vec<[u8; 32]> = self
+            .external_data
+            .output_slots
+            .iter()
+            .map(|slot| slot.utxo_hash)
+            .collect();
+        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
+
+        let (sender_utxo_data, recipient_utxo_data) = self
+            .external_data
+            .output_slots
+            .split_first()
+            .ok_or(ClientError::MissingOutput)?;
+
+        Ok(TransactIxData {
+            proof,
+            expiry_unix_ts: self.external_data.expiry_unix_ts,
+            relayer_fee: self.external_data.relayer_fee,
+            private_tx_hash: private_tx,
+            inputs,
+            public_sol_amount: self.external_data.public_sol_amount,
+            public_spl_amount: self.external_data.public_spl_amount,
+            cpi_signer: self.external_data.cpi_signer,
+            tx_viewing_pk: self.external_data.tx_viewing_pk,
+            salt: self.external_data.salt,
+            sender_utxo_data: sender_utxo_data.clone(),
+            recipient_utxo_data: recipient_utxo_data.to_vec(),
+        })
+    }
+
     pub(crate) fn message_hash(&self) -> Result<[u8; 32], ClientError> {
         let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
         for spend in &self.inputs {
@@ -117,7 +189,7 @@ impl SignedTransaction {
         }
         output_hashes.resize(self.shape.n_outputs, [0u8; 32]);
 
-        let external_data_hash = self.external_data.hash();
+        let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
         Ok(sha256(&private_tx))
     }

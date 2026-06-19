@@ -3,45 +3,58 @@
 //! produces the `private_tx_hash` shared as a public input by the SPP and zone proofs.
 
 use solana_address::Address;
-use zolana_keypair::hash::{poseidon, sha256_be};
+use zolana_interface::event::OutputUtxo as OutputSlot;
+use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
+use zolana_interface::instruction::instruction_data::transact::ExternalDataHash;
+use zolana_keypair::hash::poseidon;
 
 use crate::error::TransactionError;
 use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
 
-/// Transaction-level public data bound into the proofs through its hash. SPP
-/// recomputes the hash on-chain, so the field order in [`ExternalData::hash`]
-/// must match the on-chain layout byte-for-byte.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Transaction-level public data bound into the proofs through `external_data_hash`.
+/// The hash is computed by the canonical [`ExternalDataHash`] from the interface
+/// crate, so the client and the on-chain program agree byte-for-byte. The output
+/// ciphertexts live per slot in `output_slots` (slot 0 is the sender bundle).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
-    pub sender_view_tag: [u8; 32],
     pub relayer_fee: u16,
-    pub public_sol_amount: u64,
-    pub public_spl_amount: u64,
+    pub public_sol_amount: Option<i64>,
+    pub public_spl_amount: Option<i64>,
     pub user_sol_account: Address,
     pub user_spl_token: Address,
     pub spl_token_interface: Address,
-    pub encrypted_utxos: Vec<u8>,
+    pub cpi_signer: Option<CpiSignerData>,
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    /// Per-output slots in tree-append order, length equal to the proof shape's
+    /// output count. Slot 0 is `sender_utxo_data`; the rest are `recipient_utxo_data`.
+    pub output_slots: Vec<OutputSlot>,
 }
 
 impl ExternalData {
-    /// `external_data_hash`: SHA-256 over the concatenated fields, reduced to the
-    /// field by zeroing the most-significant byte (see [`sha256_be`]).
-    pub fn hash(&self) -> [u8; 32] {
-        let mut preimage =
-            Vec::with_capacity(1 + 8 + 32 + 2 + 8 + 8 + 32 + 32 + 32 + self.encrypted_utxos.len());
-        preimage.push(self.instruction_discriminator);
-        preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
-        preimage.extend_from_slice(&self.sender_view_tag);
-        preimage.extend_from_slice(&self.relayer_fee.to_be_bytes());
-        preimage.extend_from_slice(&self.public_sol_amount.to_be_bytes());
-        preimage.extend_from_slice(&self.public_spl_amount.to_be_bytes());
-        preimage.extend_from_slice(self.user_sol_account.as_array());
-        preimage.extend_from_slice(self.user_spl_token.as_array());
-        preimage.extend_from_slice(self.spl_token_interface.as_array());
-        preimage.extend_from_slice(&self.encrypted_utxos);
-        sha256_be(&preimage)
+    /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
+    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        let (sender, recipients) = self
+            .output_slots
+            .split_first()
+            .ok_or(TransactionError::MissingOutput)?;
+        Ok(ExternalDataHash {
+            spp_instruction_discriminator: self.instruction_discriminator,
+            expiry_unix_ts: self.expiry_unix_ts,
+            relayer_fee: self.relayer_fee,
+            public_sol_amount: self.public_sol_amount,
+            public_spl_amount: self.public_spl_amount,
+            user_sol_account: self.user_sol_account.as_array(),
+            user_spl_token_account: self.user_spl_token.as_array(),
+            spl_token_interface: self.spl_token_interface.as_array(),
+            cpi_signer: self.cpi_signer,
+            sender_utxo_data: sender,
+            recipient_utxo_data: recipients,
+        }
+        .hash()
+        .map_err(|e| TransactionError::Hash(format!("{e:?}")))?)
     }
 }
 
@@ -112,7 +125,7 @@ impl EncryptedTransaction {
             .iter()
             .map(OutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        private_tx_hash(&input_hashes, &output_hashes, &self.external_data.hash())
+        private_tx_hash(&input_hashes, &output_hashes, &self.external_data.hash()?)
     }
 }
 

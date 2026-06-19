@@ -1,9 +1,9 @@
 use zolana_interface::event::DepositView;
-use zolana_keypair::constants::{SALT_LEN, VIEW_TAG_LEN};
+use zolana_keypair::constants::SALT_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     owner_utxo_hash, utxo_hash, AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
-    SOL_MINT,
+    SOL_MINT, TRANSFER,
 };
 
 fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> DepositView {
@@ -75,8 +75,10 @@ fn sync_discovers_and_spends_proofless_deposit() {
     assert_eq!(wallet.utxos.len(), 1, "idempotent on re-sync");
 
     let spend = SyncTransaction {
-        encrypted_utxos: Vec::new(),
-        sender_view_tag: [0u8; VIEW_TAG_LEN],
+        scheme: TRANSFER,
+        tx_viewing_pk: wallet.keypair.viewing_pubkey(),
+        salt: [0u8; SALT_LEN],
+        output_slots: Vec::new(),
         nullifiers: vec![nullifier],
     };
     wallet

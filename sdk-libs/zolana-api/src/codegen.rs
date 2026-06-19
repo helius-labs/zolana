@@ -141,6 +141,9 @@ pub mod types {
     ///    "ciphertext": {
     ///      "$ref": "#/components/schemas/Base64String"
     ///    },
+    ///    "salt": {
+    ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
     ///    "slot": {
     ///      "type": "integer",
     ///      "format": "uint64",
@@ -164,6 +167,8 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
         pub ciphertext: Base64String,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
         pub tx_signature: SerializableSignature,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -3128,9 +3133,9 @@ pub mod types {
     /// ```json
     ///{
     ///  "description": "A Solana public key represented as a base58 string.",
-    ///  "default": "111JV6iBiRLoJUtNieRJ9QmcpE2KPE3gLpDzAUkbNW",
+    ///  "default": "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs",
     ///  "examples": [
-    ///    "111JV6iBiRLoJUtNieRJ9QmcpE2KPE3gLpDzAUkbNW"
+    ///    "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs"
     ///  ],
     ///  "type": "string"
     ///}
@@ -3261,6 +3266,9 @@ pub mod types {
     ///    "proofless": {
     ///      "type": "boolean"
     ///    },
+    ///    "salt": {
+    ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
     ///    "slot": {
     ///      "type": "integer",
     ///      "format": "uint64",
@@ -3283,6 +3291,8 @@ pub mod types {
         pub nullifiers: ::std::vec::Vec<Hash>,
         pub output_slots: ::std::vec::Vec<ZolanaOutputSlot>,
         pub proofless: bool,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
         pub tx_signature: SerializableSignature,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -3378,6 +3388,10 @@ pub mod types {
                 super::Base64String,
                 ::std::string::String,
             >,
+            salt: ::std::result::Result<
+                ::std::option::Option<super::Base64String>,
+                ::std::string::String,
+            >,
             slot: ::std::result::Result<u64, ::std::string::String>,
             tx_signature: ::std::result::Result<
                 super::SerializableSignature,
@@ -3393,6 +3407,7 @@ pub mod types {
             fn default() -> Self {
                 Self {
                     ciphertext: Err("no value supplied for ciphertext".to_string()),
+                    salt: Ok(Default::default()),
                     slot: Err("no value supplied for slot".to_string()),
                     tx_signature: Err("no value supplied for tx_signature".to_string()),
                     tx_viewing_pk: Ok(Default::default()),
@@ -3410,6 +3425,18 @@ pub mod types {
                     .try_into()
                     .map_err(|e| {
                         format!("error converting supplied value for ciphertext: {e}")
+                    });
+                self
+            }
+            pub fn salt<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::option::Option<super::Base64String>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.salt = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for salt: {e}")
                     });
                 self
             }
@@ -3469,6 +3496,7 @@ pub mod types {
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
                     ciphertext: value.ciphertext?,
+                    salt: value.salt?,
                     slot: value.slot?,
                     tx_signature: value.tx_signature?,
                     tx_viewing_pk: value.tx_viewing_pk?,
@@ -3480,6 +3508,7 @@ pub mod types {
             fn from(value: super::EncryptedUtxoMatch) -> Self {
                 Self {
                     ciphertext: Ok(value.ciphertext),
+                    salt: Ok(value.salt),
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
@@ -5634,6 +5663,10 @@ pub mod types {
                 ::std::string::String,
             >,
             proofless: ::std::result::Result<bool, ::std::string::String>,
+            salt: ::std::result::Result<
+                ::std::option::Option<super::Base64String>,
+                ::std::string::String,
+            >,
             slot: ::std::result::Result<u64, ::std::string::String>,
             tx_signature: ::std::result::Result<
                 super::SerializableSignature,
@@ -5650,6 +5683,7 @@ pub mod types {
                     nullifiers: Err("no value supplied for nullifiers".to_string()),
                     output_slots: Err("no value supplied for output_slots".to_string()),
                     proofless: Err("no value supplied for proofless".to_string()),
+                    salt: Ok(Default::default()),
                     slot: Err("no value supplied for slot".to_string()),
                     tx_signature: Err("no value supplied for tx_signature".to_string()),
                     tx_viewing_pk: Ok(Default::default()),
@@ -5690,6 +5724,18 @@ pub mod types {
                     .try_into()
                     .map_err(|e| {
                         format!("error converting supplied value for proofless: {e}")
+                    });
+                self
+            }
+            pub fn salt<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::option::Option<super::Base64String>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.salt = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for salt: {e}")
                     });
                 self
             }
@@ -5740,6 +5786,7 @@ pub mod types {
                     nullifiers: value.nullifiers?,
                     output_slots: value.output_slots?,
                     proofless: value.proofless?,
+                    salt: value.salt?,
                     slot: value.slot?,
                     tx_signature: value.tx_signature?,
                     tx_viewing_pk: value.tx_viewing_pk?,
@@ -5752,6 +5799,7 @@ pub mod types {
                     nullifiers: Ok(value.nullifiers),
                     output_slots: Ok(value.output_slots),
                     proofless: Ok(value.proofless),
+                    salt: Ok(value.salt),
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
