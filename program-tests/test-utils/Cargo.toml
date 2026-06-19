@@ -8,5 +8,6 @@ publish = false
 bytemuck = { workspace = true }
 solana-pubkey = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }

@@ -13,7 +13,6 @@ test-utils = []
 
 [dependencies]
 aes-gcm = { workspace = true }
-async-trait = { workspace = true }
 futures = { workspace = true }
 groth16-solana = { workspace = true }
 hkdf = { workspace = true }
@@ -48,7 +47,6 @@ solana-signature = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }

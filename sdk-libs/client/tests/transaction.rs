@@ -11,8 +11,8 @@ use test_indexer::TestIndexer;
 use zolana_client::error::ClientError;
 use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
-    CircuitType, PublicAmounts, Rpc, SignedTransaction, SpendUtxo, Transaction,
-    TransferP256Prover, WithdrawalTarget,
+    CircuitType, PublicAmounts, Rpc, SignedTransaction, SpendUtxo, Transaction, TransferP256Prover,
+    WithdrawalTarget,
 };
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};

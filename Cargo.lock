@@ -7809,7 +7809,6 @@ name = "zolana-client"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "async-trait",
  "base64 0.13.1",
  "bs58",
  "cucumber",
@@ -7845,7 +7844,6 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",
- "tokio",
  "zolana-api",
  "zolana-interface",
  "zolana-keypair",
@@ -7930,6 +7928,7 @@ dependencies = [
  "bytemuck",
  "solana-pubkey 4.2.0",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-program-test",
  "zolana-transaction",
 ]

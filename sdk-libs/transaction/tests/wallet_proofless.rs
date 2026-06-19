@@ -1,9 +1,7 @@
 use zolana_interface::event::DepositView;
 use zolana_keypair::constants::{SALT_LEN, VIEW_TAG_LEN};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
-    AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
-};
+use zolana_transaction::{AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT};
 
 fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> DepositView {
     let salt = [9u8; SALT_LEN];

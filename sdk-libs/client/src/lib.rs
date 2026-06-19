@@ -17,23 +17,22 @@ use thiserror::Error;
 use zolana_interface::event::DepositView;
 use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, P_CONST_SEC1, SALT_LEN};
 #[cfg(feature = "test-utils")]
-use zolana_keypair::ShieldedKeypair;
-#[cfg(feature = "test-utils")]
 use zolana_keypair::random_salt;
+#[cfg(feature = "test-utils")]
+use zolana_keypair::ShieldedKeypair;
 use zolana_keypair::{P256Pubkey, PublicKey};
 #[cfg(feature = "test-utils")]
 use zolana_transaction::transfer::{
     RecipientSlot, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
 use zolana_transaction::wallet::{SyncTransaction, Wallet, WalletKeyProvider};
+#[cfg(not(feature = "test-utils"))]
+use zolana_transaction::AssetRegistry;
+use zolana_transaction::TransactionError;
 #[cfg(feature = "test-utils")]
 use zolana_transaction::{owner_utxo_hash, utxo_hash};
 #[cfg(feature = "test-utils")]
 use zolana_transaction::{Data, Utxo, SOL_MINT, TRANSFER};
-#[cfg(not(feature = "test-utils"))]
-use zolana_transaction::AssetRegistry;
-use zolana_transaction::TransactionError;
-
 
 pub mod error;
 pub mod private_transaction;
@@ -655,7 +654,7 @@ impl PrivacyClient {
     pub fn new(owner: Address, host: impl HeliusPrivacyInterface + 'static) -> Self {
         #[cfg(feature = "test-utils")]
         {
-            return Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new());
+            Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new())
         }
         #[cfg(not(feature = "test-utils"))]
         {
@@ -780,16 +779,16 @@ impl PrivacyClient {
         local.metadata.decryption_mode = input.mode;
         #[cfg(feature = "test-utils")]
         {
-        let mut network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        let remote = network
-            .wallets
-            .get_mut(&input.private_wallet_id)
-            .ok_or(WalletError::PrivateWalletNotFound)?;
-        remote.decryption_mode = input.mode;
+            let mut network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            let remote = network
+                .wallets
+                .get_mut(&input.private_wallet_id)
+                .ok_or(WalletError::PrivateWalletNotFound)?;
+            remote.decryption_mode = input.mode;
         }
         Ok(local.metadata.clone())
     }
@@ -826,16 +825,14 @@ impl PrivacyClient {
             .host
             .derive_view_tags(private_wallet_id, DeriveViewTagsRequest::RecipientBootstrap)?;
         let key_ops = HostWalletKeyProvider::new(private_wallet_id, local.host.as_ref())?;
-        let report = local
-            .wallet
-            .sync(
-                &key_ops,
-                &transactions,
-                &proofless_deposits,
-                &assets,
-                1_700_000_000,
-                64,
-            )?;
+        let report = local.wallet.sync(
+            &key_ops,
+            &transactions,
+            &proofless_deposits,
+            &assets,
+            1_700_000_000,
+            64,
+        )?;
         local.host.write_state(
             private_wallet_id,
             report.stored_utxos.to_be_bytes().to_vec(),
@@ -886,20 +883,20 @@ impl PrivacyClient {
         }
         #[cfg(feature = "test-utils")]
         {
-        let network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        let mut history = network
-            .history
-            .get(&private_wallet_id)
-            .cloned()
-            .unwrap_or_default();
-        if history.len() > input.limit {
-            history.truncate(input.limit);
-        }
-        Ok(history)
+            let network = self
+                .network
+                .state
+                .lock()
+                .map_err(|_| WalletError::LockPoisoned)?;
+            let mut history = network
+                .history
+                .get(&private_wallet_id)
+                .cloned()
+                .unwrap_or_default();
+            if history.len() > input.limit {
+                history.truncate(input.limit);
+            }
+            Ok(history)
         }
         #[cfg(not(feature = "test-utils"))]
         {
@@ -1134,14 +1131,7 @@ impl PrivacyClient {
         let blinding = key_ops.derive_proofless_blinding(&salt)?;
         let owner_hash = key_ops.owner_hash()?;
         let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
-        let utxo_hash = utxo_hash(
-            mint,
-            amount,
-            &[0u8; 32],
-            &[0u8; 32],
-            None,
-            &owner_utxo_hash,
-        )?;
+        let utxo_hash = utxo_hash(mint, amount, &[0u8; 32], &[0u8; 32], None, &owner_utxo_hash)?;
         network.proofless_deposits.push(DepositView {
             view_tag: key_ops.recipient_bootstrap_view_tag(),
             utxo_hash,

@@ -2,8 +2,10 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use common::helpers::{
+    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
+};
 use common::InMemoryWallet;
-use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::split::SplitBundlePlaintext;
@@ -335,7 +337,7 @@ fn defi_trader_full_sync_parallel() {
     let mut wallet = InMemoryWallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync_parallel(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)
+        .sync_parallel(&scenario.txs, &[], &scenario.assets, 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 

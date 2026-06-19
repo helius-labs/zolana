@@ -17,7 +17,6 @@ use zolana_client::{
     spawn_prover, CircuitType, ProverClient, PublicAmounts, Rpc, Shape, SpendUtxo, Transaction,
     TransferP256ProofResult, TransferProofResult, WithdrawalTarget,
 };
-use zolana_client::rpc::RpcBlocking;
 use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, PublicKey};

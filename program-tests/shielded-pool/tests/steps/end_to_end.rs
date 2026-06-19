@@ -31,7 +31,6 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .unwrap_or(0);
     let tree_before = world.rpc().account_data(&tree).expect("tree data");
     let keypair = ShieldedKeypair::new().expect("recipient keypair");
-    let recipient = Wallet::new_from_keypair(&keypair).expect("wallet");
 
     let seed = [42u8; BLINDING_LEN];
     let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &keypair, &seed, 0)

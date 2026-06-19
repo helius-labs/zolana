@@ -8,8 +8,9 @@ use zolana_transaction::wallet::SyncTransaction;
 use zolana_transaction::{Address, AssetRegistry};
 
 use crate::{
-    ApprovalRequest, DeriveViewTagsRequest, HeliusPrivacyInterface, P256Signature, PrivateWalletId,
-    PrivateTransaction, PrivateWallet, Result, ShieldedPublicKey, ViewTag, WalletError,
+    ApprovalRequest, DeriveViewTagsRequest, HeliusPrivacyInterface, P256Signature,
+    PrivateTransaction, PrivateWallet, PrivateWalletId, Result, ShieldedPublicKey, ViewTag,
+    WalletError,
 };
 
 #[derive(Clone)]

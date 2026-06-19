@@ -229,10 +229,7 @@ impl<C: WalletKeyProvider> SyncCtx<'_, C> {
         Ok(())
     }
 
-    fn discover_proofless(
-        &mut self,
-        event: &DepositView,
-    ) -> Result<(), TransactionError> {
+    fn discover_proofless(&mut self, event: &DepositView) -> Result<(), TransactionError> {
         let blinding = self.crypto.derive_proofless_blinding(&event.salt)?;
         let owner_utxo_hash = owner_utxo_hash(&self.crypto.owner_hash()?, &blinding)?;
         if owner_utxo_hash != event.owner_utxo_hash {
