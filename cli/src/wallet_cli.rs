@@ -15,7 +15,7 @@ use zolana_transaction::transfer::{
 };
 use zolana_transaction::wallet::SyncTransaction;
 use zolana_transaction::{
-    owner_utxo_hash, utxo_hash, Address, AssetRegistry, Data, Wallet, Utxo, DEFAULT_TAG_WINDOW,
+    owner_utxo_hash, utxo_hash, Address, AssetRegistry, Data, Utxo, Wallet, DEFAULT_TAG_WINDOW,
     SOL_ASSET_ID, SOL_MINT, TRANSFER,
 };
 
@@ -165,7 +165,9 @@ fn run_sync(opts: SyncOptions) -> Result<()> {
     let ctx = sync_context(&opts)?;
     println!(
         "ok sync stored={} unparsed={} undecryptable={}",
-        ctx.report.stored_utxos, ctx.report.unparsed_transactions, ctx.report.undecryptable_candidates
+        ctx.report.stored_utxos,
+        ctx.report.unparsed_transactions,
+        ctx.report.undecryptable_candidates
     );
     Ok(())
 }
@@ -194,7 +196,10 @@ fn run_deposit(opts: DepositOptions) -> Result<()> {
     let _ = ensure_asset(&mut ctx.ledger, &mut ctx.assets, mint)?;
     let signature = next_signature(&mut ctx.ledger);
     let salt = random_salt();
-    let blinding = recipient.keypair.viewing_key.derive_proofless_blinding(&salt)?;
+    let blinding = recipient
+        .keypair
+        .viewing_key
+        .derive_proofless_blinding(&salt)?;
     let recipient_owner_hash = recipient.keypair.owner_hash()?;
     let recipient_owner_utxo_hash = owner_utxo_hash(&recipient_owner_hash, &blinding)?;
     let hash = utxo_hash(
@@ -683,7 +688,9 @@ fn build_private_transfer(
             .get_send_shared_view_tag(&recipient_viewing, *index)?,
         None => recipient_viewing.x(),
     };
-    let sender_view_tag = sender.viewing_key.get_sender_view_tag(viewing_entry.tx_count)?;
+    let sender_view_tag = sender
+        .viewing_key
+        .get_sender_view_tag(viewing_entry.tx_count)?;
 
     let sender_plaintext = if mint == SOL_MINT {
         TransferSenderPlaintext {
@@ -733,8 +740,11 @@ fn build_private_transfer(
             ciphertext: recipient_ciphertext,
         }],
     };
-    let output_slots =
-        encrypted.to_output_ciphertexts(sender_view_tag, SENDER_SLOT_COUNT, SENDER_SLOT_COUNT + 1)?;
+    let output_slots = encrypted.to_output_ciphertexts(
+        sender_view_tag,
+        SENDER_SLOT_COUNT,
+        SENDER_SLOT_COUNT + 1,
+    )?;
     Ok(SyncTransaction {
         scheme: TRANSFER,
         tx_viewing_pk: encrypted.tx_viewing_pk,
@@ -833,8 +843,13 @@ mod tests {
                 rpc_url: "http://127.0.0.1:8899".to_string(),
                 indexer_url: "http://127.0.0.1:8784".to_string(),
             },
-            to: Pubkey::new_from_array(load_existing_wallet(&alice_wallet).unwrap().owner.to_bytes())
-                .to_string(),
+            to: Pubkey::new_from_array(
+                load_existing_wallet(&alice_wallet)
+                    .unwrap()
+                    .owner
+                    .to_bytes(),
+            )
+            .to_string(),
             mint: "SOL".to_string(),
             amount: 100,
         }))
