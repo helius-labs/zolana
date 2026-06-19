@@ -1,21 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-ae5234d0c9e8}"
-asset="${PHOTON_ZOLANA_ASSET:-photon-zolana-linux-x86_64.tar.gz}"
-expected_sha256="${PHOTON_ZOLANA_SHA256:-be260fd8b7f6fae86e8da258b07882698b4d6abbc0a22eba3ada5fb9d4a8ccee}"
+release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-3ce5854f0f24}"
 repo="${PHOTON_ZOLANA_RELEASE_REPO:-helius-labs/zolana}"
 out_dir="${PHOTON_BIN_DIR:-target/bin}"
 out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
 
+# Default asset + checksum per host platform; env vars override either. Both
+# platform assets live on the same release tag. A `__...__` placeholder means that
+# platform's binary has not been published for this tag yet (build it with the
+# `publish-photon` workflow, or set PHOTON_ZOLANA_SHA256 for a local build).
 case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64|Linux-amd64) ;;
+  Linux-x86_64|Linux-amd64)
+    default_asset="photon-zolana-linux-x86_64.tar.gz"
+    default_sha256="07aaed4c3f92c2d147091785978c72fb5d87c67100f878e8d4750463bcb4b62c"
+    ;;
+  Darwin-arm64)
+    default_asset="photon-zolana-macos-aarch64.tar.gz"
+    default_sha256="20200e4b244f39389ddced79e48353c71025304c09d64822fe3b08ff6e895764"
+    ;;
   *)
     echo "unsupported Photon release platform: $(uname -s)-$(uname -m)" >&2
-    echo "Only ${asset} is pinned right now; build Photon locally with 'just build-photon' on this host." >&2
+    echo "Build Photon locally with 'just build-photon' on this host." >&2
     exit 1
     ;;
 esac
+
+asset="${PHOTON_ZOLANA_ASSET:-$default_asset}"
+expected_sha256="${PHOTON_ZOLANA_SHA256:-$default_sha256}"
+
+if [[ "$expected_sha256" == __*__ ]]; then
+  echo "No published checksum for ${asset} on ${repo}@${release_tag} yet." >&2
+  echo "Build + publish it via the publish-photon workflow, or set PHOTON_ZOLANA_SHA256." >&2
+  exit 1
+fi
 
 url="https://github.com/${repo}/releases/download/${release_tag}/${asset}"
 tmpdir="$(mktemp -d)"
