@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod backend;
 
 use std::collections::HashMap;
 
@@ -635,24 +636,28 @@ struct LocalPrivateWallet {
 
 pub struct PrivacyClient {
     owner: Address,
-    network: testing::PrivacyNetwork,
+    backend: Box<dyn backend::PrivacyBackend>,
     wallets: HashMap<PrivateWalletId, LocalPrivateWallet>,
     pending_host: Option<Box<dyn HeliusPrivacyInterface>>,
 }
 
 impl PrivacyClient {
     pub fn new(owner: Address, host: impl HeliusPrivacyInterface + 'static) -> Self {
-        Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new())
+        Self::new_with_backend(
+            owner,
+            Box::new(host),
+            Box::new(backend::InMemoryPrivacyProvider::new()),
+        )
     }
 
-    fn with_network(
+    fn new_with_backend(
         owner: Address,
         host: Box<dyn HeliusPrivacyInterface>,
-        network: testing::PrivacyNetwork,
+        backend: Box<dyn backend::PrivacyBackend>,
     ) -> Self {
         Self {
             owner,
-            network,
+            backend,
             wallets: HashMap::new(),
             pending_host: Some(host),
         }
@@ -663,7 +668,21 @@ impl PrivacyClient {
         host: impl HeliusPrivacyInterface + 'static,
         provider: testing::InMemoryPrivacyProvider,
     ) -> Self {
-        Self::with_network(owner, Box::new(host), provider.network)
+        Self::new_with_backend(owner, Box::new(host), Box::new(provider))
+    }
+
+    #[cfg(all(feature = "solana-rpc", feature = "indexer-api"))]
+    pub fn new_with_localnet_backend(
+        owner: Address,
+        host: impl HeliusPrivacyInterface + 'static,
+        solana: SolanaRpc,
+        indexer: ZolanaIndexer,
+    ) -> Self {
+        Self::new_with_backend(
+            owner,
+            Box::new(host),
+            Box::new(backend::LocalnetBackend::new(solana, indexer)),
+        )
     }
 
     pub fn new_with_test_provider(
@@ -696,18 +715,7 @@ impl PrivacyClient {
         if self.pending_host.is_none() {
             return Err(WalletError::PrivateWalletAlreadyCreated);
         }
-        let id = {
-            let mut network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            if network.inboxes.contains_key(&input.inbox) {
-                return Err(WalletError::InboxAlreadyRegistered);
-            }
-            network.next_wallet_id += 1;
-            PrivateWalletId(network.next_wallet_id)
-        };
+        let id = self.backend.reserve_wallet_id(input.inbox)?;
         let mut host = self
             .pending_host
             .take()
@@ -728,15 +736,7 @@ impl PrivacyClient {
             label: input.label,
             decryption_mode: input.decryption_mode,
         };
-        {
-            let mut network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            network.inboxes.insert(metadata.inbox, id);
-            network.wallets.insert(id, metadata.clone());
-        }
+        self.backend.register_wallet(metadata.clone())?;
         self.wallets.insert(
             id,
             LocalPrivateWallet {
@@ -757,18 +757,8 @@ impl PrivacyClient {
             .get_mut(&input.private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
         local.metadata.decryption_mode = input.mode;
-        {
-            let mut network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            let remote = network
-                .wallets
-                .get_mut(&input.private_wallet_id)
-                .ok_or(WalletError::PrivateWalletNotFound)?;
-            remote.decryption_mode = input.mode;
-        }
+        self.backend
+            .set_decryption_mode(input.private_wallet_id, input.mode)?;
         Ok(local.metadata.clone())
     }
 
@@ -780,18 +770,7 @@ impl PrivacyClient {
             .wallets
             .get_mut(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let (transactions, proofless_deposits, assets) = {
-            let network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            (
-                network.transactions.clone(),
-                network.proofless_deposits.clone(),
-                network.assets.clone(),
-            )
-        };
+        let snapshot = self.backend.fetch_sync_snapshot()?;
         let _state = local.host.read_state(private_wallet_id)?;
         let _tags = local
             .host
@@ -799,9 +778,9 @@ impl PrivacyClient {
         let key_ops = HostWalletKeyProvider::new(private_wallet_id, local.host.as_ref())?;
         let report = local.wallet.sync(
             &key_ops,
-            &transactions,
-            &proofless_deposits,
-            &assets,
+            &snapshot.transactions,
+            &snapshot.proofless_deposits,
+            &snapshot.assets,
             1_700_000_000,
             64,
         )?;
@@ -820,14 +799,8 @@ impl PrivacyClient {
             .wallets
             .get(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let balances = {
-            let network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            local.wallet.balances(&network.assets, true)?
-        };
+        let snapshot = self.backend.fetch_sync_snapshot()?;
+        let balances = local.wallet.balances(&snapshot.assets, true)?;
         Ok(PrivateTokenBalances {
             status: SyncStatus::Synced,
             synced_at: Some(local.wallet.last_synced),
@@ -850,22 +823,7 @@ impl PrivacyClient {
         if !self.wallets.contains_key(&private_wallet_id) {
             return Err(WalletError::PrivateWalletNotFound);
         }
-        {
-            let network = self
-                .network
-                .state
-                .lock()
-                .map_err(|_| WalletError::LockPoisoned)?;
-            let mut history = network
-                .history
-                .get(&private_wallet_id)
-                .cloned()
-                .unwrap_or_default();
-            if history.len() > input.limit {
-                history.truncate(input.limit);
-            }
-            Ok(history)
-        }
+        self.backend.history(private_wallet_id, input.limit)
     }
 
     pub async fn get_deposit_instruction(
@@ -886,21 +844,11 @@ impl PrivacyClient {
             .wallets
             .get_mut(&input.private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let mut network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        let recipient_id = *network
-            .inboxes
-            .get(&input.recipient)
-            .ok_or(WalletError::RecipientPrivateWalletNotFound)?;
-        let recipient = network
-            .wallets
-            .get(&recipient_id)
-            .ok_or(WalletError::RecipientPrivateWalletNotFound)?
-            .clone();
-        let asset_id = network.asset_id_for_mint(input.mint)?;
+        let recipient = self.backend.resolve_wallet_by_inbox(input.recipient)?;
+        let recipient_id = recipient.id;
+        let asset_id = self.backend.asset_id_for_mint(input.mint)?;
+        let snapshot = self.backend.fetch_sync_snapshot()?;
+        let assets = snapshot.assets;
         sender.host.request_user_approval(&ApprovalRequest {
             private_wallet_id: input.private_wallet_id,
             recipient: input.recipient,
@@ -928,8 +876,8 @@ impl PrivacyClient {
         let first_nullifier = selected_nullifiers[0];
         let change_amount = selected_amount - input.amount;
         let sender_public_key = sender.metadata.shielded_public_key;
-        let output_blinding = network.unique_blinding();
-        let change_blinding_seed = network.unique_blinding();
+        let output_blinding = self.backend.unique_blinding();
+        let change_blinding_seed = self.backend.unique_blinding();
         let recipient_utxo = Utxo {
             owner: recipient.shielded_public_key.signing_pubkey,
             asset: input.mint,
@@ -938,8 +886,8 @@ impl PrivacyClient {
             zone_program_id: None,
             data: Data::default(),
         };
-        let recipient_plaintext = recipient_utxo
-            .to_recipient_plaintext(sender_public_key.viewing_pubkey, &network.assets)?;
+        let recipient_plaintext =
+            recipient_utxo.to_recipient_plaintext(sender_public_key.viewing_pubkey, &assets)?;
         let viewing_entry = sender
             .wallet
             .viewing_key_history
@@ -1020,37 +968,13 @@ impl PrivacyClient {
                 entry.spent = true;
             }
         }
-        network.transactions.push(transaction);
-        let signature = network.next_signature();
-        let slot = network.next_signature;
-        network
-            .history
-            .entry(input.private_wallet_id)
-            .or_default()
-            .insert(
-                0,
-                PrivateTransaction {
-                    kind: PrivateTransactionKind::PrivateTransfer,
-                    direction: TransactionDirection::Outbound,
-                    mint: input.mint,
-                    amount: input.amount,
-                    status: TransactionStatus::Confirmed,
-                    signature: Some(signature.clone()),
-                    slot: Some(slot),
-                },
-            );
-        network.history.entry(recipient_id).or_default().insert(
-            0,
-            PrivateTransaction {
-                kind: PrivateTransactionKind::PrivateTransfer,
-                direction: TransactionDirection::Inbound,
-                mint: input.mint,
-                amount: input.amount,
-                status: TransactionStatus::Confirmed,
-                signature: Some(signature.clone()),
-                slot: Some(slot),
-            },
-        );
+        let signature = self.backend.record_private_transfer(
+            input.private_wallet_id,
+            recipient_id,
+            input.mint,
+            input.amount,
+            transaction,
+        )?;
         Ok(SendPrivateTransferResult {
             status: TransactionStatus::Confirmed,
             route: PrivateTransferRoute::PrivateTransfer,
@@ -1071,19 +995,15 @@ impl PrivacyClient {
             .wallets
             .get(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        let mut network = self
-            .network
-            .state
-            .lock()
-            .map_err(|_| WalletError::LockPoisoned)?;
-        network.asset_id_for_mint(mint)?;
+        self.backend.asset_id_for_mint(mint)?;
+        let leaf_index = self.backend.fetch_sync_snapshot()?.proofless_deposits.len() as u64;
         let key_ops = HostWalletKeyProvider::new(private_wallet_id, local.host.as_ref())?;
         let salt = random_salt();
         let blinding = key_ops.derive_proofless_blinding(&salt)?;
         let owner_hash = key_ops.owner_hash()?;
         let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
         let utxo_hash = utxo_hash(mint, amount, &[0u8; 32], &[0u8; 32], None, &owner_utxo_hash)?;
-        network.proofless_deposits.push(DepositView {
+        let deposit = DepositView {
             view_tag: key_ops.recipient_bootstrap_view_tag(),
             utxo_hash,
             asset: mint.to_bytes(),
@@ -1096,27 +1016,10 @@ impl PrivacyClient {
             program_data: None,
             zone_data: None,
             output_tree: [0u8; 32],
-            leaf_index: 0,
-        });
-        let signature = network.next_signature();
-        let slot = network.next_signature;
-        network
-            .history
-            .entry(private_wallet_id)
-            .or_default()
-            .insert(
-                0,
-                PrivateTransaction {
-                    kind: PrivateTransactionKind::MockAirdrop,
-                    direction: TransactionDirection::Inbound,
-                    mint,
-                    amount,
-                    status: TransactionStatus::Confirmed,
-                    signature: Some(signature.clone()),
-                    slot: Some(slot),
-                },
-            );
-        Ok(signature)
+            leaf_index,
+        };
+        self.backend
+            .record_proofless_deposit(private_wallet_id, mint, amount, deposit)
     }
 
     pub async fn mock_airdrop(
