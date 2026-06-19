@@ -187,6 +187,13 @@ jobs:
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
       - run: just test-localnet-e2e-photon
+      - name: Dump prover and photon logs on failure
+        if: failure()
+        run: |
+          echo "=== prover-server.log ==="
+          tail -200 test-ledger/prover-server.log 2>/dev/null || echo "(no prover log)"
+          echo "=== photon log ==="
+          tail -100 /tmp/zolana-photon.log 2>/dev/null || echo "(no photon log)"
 
   test-user-registry-litesvm:
     name: tests / user-registry litesvm

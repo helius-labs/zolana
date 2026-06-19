@@ -20,15 +20,21 @@ program_id="${SHIELDED_POOL_PROGRAM_ID:?SHIELDED_POOL_PROGRAM_ID must be set}"
 so="target/deploy/shielded_pool_program.so"
 ledger="${ZOLANA_TEST_LEDGER:-/tmp/zolana-photon-test-ledger}"
 
+# Stop the validator + photon only, by their ports. The prover server (port 3001)
+# is deliberately never touched here: it is started once and must persist across
+# all serial tests so its proving keys stay loaded.
 stop() {
   lsof -ti "tcp:${rpc_port}" 2>/dev/null | xargs kill -9 2>/dev/null || true
   lsof -ti "tcp:${photon_port}" 2>/dev/null | xargs kill -9 2>/dev/null || true
   pkill -f solana-test-validator 2>/dev/null || true
-  pkill -f "$photon_bin" 2>/dev/null || true
 }
 
 stop
-sleep 1
+# Wait for the validator to actually die so the fresh one binds a free port.
+for _ in $(seq 1 30); do
+  lsof -ti "tcp:${rpc_port}" >/dev/null 2>&1 || break
+  sleep 1
+done
 rm -rf "$ledger"
 
 solana-test-validator --reset --quiet --rpc-port "$rpc_port" --bind-address 127.0.0.1 \
