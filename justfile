@@ -122,26 +122,6 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
 
-# BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
-# scenario (program-tests/spp-test-validator). The prover server persists; each
-# cucumber scenario restarts the validator + Photon via tools/restart-localnet.sh.
-test-spp-validator: build-programs build-prover-server build-cli ensure-photon
-    #!/usr/bin/env bash
-    set -euo pipefail
-    eval "$(cargo run -q -p xtask -- program-ids)"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
-    export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle
-
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail
