@@ -1,0 +1,29 @@
+[package]
+name = "light-verifier"
+version = "10.0.0"
+description = "ZKP proof verifier used in Light Protocol"
+readme = "README.md"
+repository = "https://github.com/helius-labs/privacy-program-libs"
+license = "Apache-2.0"
+edition = "2021"
+
+[features]
+default = []
+solana = [
+    "solana-program-error",
+    "solana-msg",
+]
+anchor = ["solana"]
+pinocchio = ["dep:pinocchio"]
+
+[dependencies]
+groth16-solana = "0.2.0"
+thiserror = { workspace = true }
+borsh = { workspace = true }
+solana-program-error = { workspace = true, optional = true }
+solana-msg = { workspace = true, optional = true, features = ["alloc"] }
+pinocchio = { workspace = true, optional = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']

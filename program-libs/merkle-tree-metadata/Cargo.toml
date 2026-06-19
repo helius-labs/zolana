@@ -1,0 +1,36 @@
+[package]
+name = "light-merkle-tree-metadata"
+version = "0.11.0"
+description = "Merkle tree metadata for light-batched-merkle-tree."
+readme = "README.md"
+repository = "https://github.com/helius-labs/privacy-program-libs"
+license = "Apache-2.0"
+edition = "2021"
+
+[features]
+default = []
+solana = [
+    "dep:solana-msg",
+    "dep:solana-sysvar",
+    "solana-program-error",
+    "solana-sysvar/bincode",
+]
+anchor = ["solana", "anchor-lang"]
+idl-build = ["anchor", "anchor-lang/idl-build"]
+pinocchio = ["dep:pinocchio"]
+
+[dependencies]
+thiserror = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+zerocopy = { workspace = true, features = ["derive"] }
+solana-address = { workspace = true, features = ["bytemuck", "copy"] }
+solana-msg = { workspace = true, optional = true, features = ["alloc"] }
+solana-sysvar = { workspace = true, optional = true }
+solana-program-error = { workspace = true, optional = true }
+anchor-lang = { workspace = true, optional = true }
+pinocchio = { workspace = true, optional = true }
+borsh = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']
