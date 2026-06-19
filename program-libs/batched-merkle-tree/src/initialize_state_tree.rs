@@ -182,7 +182,7 @@ pub fn init_batched_state_merkle_tree_accounts<'a>(
             None => 0,
         };
 
-        #[cfg(feature = "solana")]
+        #[cfg(feature = "log")]
         solana_msg::msg!(" Output queue rollover_fee: {}", rollover_fee);
         let metadata = QueueMetadata {
             next_queue: Pubkey::default(),

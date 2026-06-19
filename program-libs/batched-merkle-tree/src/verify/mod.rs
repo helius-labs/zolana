@@ -1,14 +1,10 @@
-//! # light-verifier
-//!
-//! ZK proof verifier for Light Protocol. Verifies Groth16 proofs
-//! for V2 inclusion, non-inclusion, combined address+state, and batch operations.
+//! Groth16 proof verification for batched Merkle tree operations.
 //!
 //! | Function | Description |
 //! |----------|-------------|
 //! | [`verify_batch_append_with_proofs`] | Verify batch append (10 or 500 leaves) |
 //! | [`verify_batch_update`] | Verify batch state update (10 or 500) |
 //! | [`verify_batch_address_update`] | Verify batch address update (10 or 250) |
-//! | [`select_verifying_key`] | Route to correct verifying key by leaf/address count |
 //! | [`verify`] | Generic Groth16 proof verification |
 
 use groth16_solana::{
@@ -17,7 +13,7 @@ use groth16_solana::{
 };
 use thiserror::Error;
 
-use crate::verifying_keys::*;
+use crate::verify::verifying_keys::*;
 
 pub mod verifying_keys;
 
@@ -83,7 +79,6 @@ impl From<VerifierError> for u32 {
     }
 }
 
-#[cfg(feature = "solana")]
 impl From<VerifierError> for solana_program_error::ProgramError {
     fn from(e: VerifierError) -> Self {
         solana_program_error::ProgramError::Custom(e.into())
@@ -109,96 +104,6 @@ impl TryFrom<&[u8]> for CompressedProof {
     }
 }
 
-pub fn select_verifying_key<'a>(
-    num_leaves: usize,
-    num_addresses: usize,
-) -> Result<&'a Groth16Verifyingkey<'static>, VerifierError> {
-    #[cfg(all(feature = "solana", target_os = "solana"))]
-    solana_msg::msg!(
-        "select_verifying_key num_leaves: {}, num_addresses: {}",
-        num_leaves,
-        num_addresses
-    );
-    match (num_leaves, num_addresses) {
-        // Combined cases (depend on both num_leaves and num_addresses)
-        (1, 1) => Ok(&v2_combined_32_40_1_1::VERIFYINGKEY),
-        (1, 2) => Ok(&v2_combined_32_40_1_2::VERIFYINGKEY),
-        (1, 3) => Ok(&v2_combined_32_40_1_3::VERIFYINGKEY),
-        (1, 4) => Ok(&v2_combined_32_40_1_4::VERIFYINGKEY),
-        (2, 1) => Ok(&v2_combined_32_40_2_1::VERIFYINGKEY),
-        (2, 2) => Ok(&v2_combined_32_40_2_2::VERIFYINGKEY),
-        (2, 3) => Ok(&v2_combined_32_40_2_3::VERIFYINGKEY),
-        (2, 4) => Ok(&v2_combined_32_40_2_4::VERIFYINGKEY),
-        (3, 1) => Ok(&v2_combined_32_40_3_1::VERIFYINGKEY),
-        (3, 2) => Ok(&v2_combined_32_40_3_2::VERIFYINGKEY),
-        (3, 3) => Ok(&v2_combined_32_40_3_3::VERIFYINGKEY),
-        (3, 4) => Ok(&v2_combined_32_40_3_4::VERIFYINGKEY),
-        (4, 1) => Ok(&v2_combined_32_40_4_1::VERIFYINGKEY),
-        (4, 2) => Ok(&v2_combined_32_40_4_2::VERIFYINGKEY),
-        (4, 3) => Ok(&v2_combined_32_40_4_3::VERIFYINGKEY),
-        (4, 4) => Ok(&v2_combined_32_40_4_4::VERIFYINGKEY),
-
-        // Inclusion cases (depend on num_leaves)
-        (1, _) => Ok(&v2_inclusion_32_1::VERIFYINGKEY),
-        (2, _) => Ok(&v2_inclusion_32_2::VERIFYINGKEY),
-        (3, _) => Ok(&v2_inclusion_32_3::VERIFYINGKEY),
-        (4, _) => Ok(&v2_inclusion_32_4::VERIFYINGKEY),
-        (5, _) => Ok(&v2_inclusion_32_5::VERIFYINGKEY),
-        (6, _) => Ok(&v2_inclusion_32_6::VERIFYINGKEY),
-        (7, _) => Ok(&v2_inclusion_32_7::VERIFYINGKEY),
-        (8, _) => Ok(&v2_inclusion_32_8::VERIFYINGKEY),
-        (9, _) => Ok(&v2_inclusion_32_9::VERIFYINGKEY),
-        (10, _) => Ok(&v2_inclusion_32_10::VERIFYINGKEY),
-        (11, _) => Ok(&v2_inclusion_32_11::VERIFYINGKEY),
-        (12, _) => Ok(&v2_inclusion_32_12::VERIFYINGKEY),
-        (13, _) => Ok(&v2_inclusion_32_13::VERIFYINGKEY),
-        (14, _) => Ok(&v2_inclusion_32_14::VERIFYINGKEY),
-        (15, _) => Ok(&v2_inclusion_32_15::VERIFYINGKEY),
-        (16, _) => Ok(&v2_inclusion_32_16::VERIFYINGKEY),
-        (17, _) => Ok(&v2_inclusion_32_17::VERIFYINGKEY),
-        (18, _) => Ok(&v2_inclusion_32_18::VERIFYINGKEY),
-        (19, _) => Ok(&v2_inclusion_32_19::VERIFYINGKEY),
-        (20, _) => Ok(&v2_inclusion_32_20::VERIFYINGKEY),
-
-        // Non-inclusion cases (depend on num_addresses)
-        (_, 1) => Ok(&v2_non_inclusion_40_1::VERIFYINGKEY),
-        (_, 2) => Ok(&v2_non_inclusion_40_2::VERIFYINGKEY),
-        (_, 3) => Ok(&v2_non_inclusion_40_3::VERIFYINGKEY),
-        (_, 4) => Ok(&v2_non_inclusion_40_4::VERIFYINGKEY),
-        (_, 5) => Ok(&v2_non_inclusion_40_5::VERIFYINGKEY),
-        (_, 6) => Ok(&v2_non_inclusion_40_6::VERIFYINGKEY),
-        (_, 7) => Ok(&v2_non_inclusion_40_7::VERIFYINGKEY),
-        (_, 8) => Ok(&v2_non_inclusion_40_8::VERIFYINGKEY),
-        (_, 9) => Ok(&v2_non_inclusion_40_9::VERIFYINGKEY),
-        (_, 10) => Ok(&v2_non_inclusion_40_10::VERIFYINGKEY),
-        (_, 11) => Ok(&v2_non_inclusion_40_11::VERIFYINGKEY),
-        (_, 12) => Ok(&v2_non_inclusion_40_12::VERIFYINGKEY),
-        (_, 13) => Ok(&v2_non_inclusion_40_13::VERIFYINGKEY),
-        (_, 14) => Ok(&v2_non_inclusion_40_14::VERIFYINGKEY),
-        (_, 15) => Ok(&v2_non_inclusion_40_15::VERIFYINGKEY),
-        (_, 16) => Ok(&v2_non_inclusion_40_16::VERIFYINGKEY),
-        (_, 17) => Ok(&v2_non_inclusion_40_17::VERIFYINGKEY),
-        (_, 18) => Ok(&v2_non_inclusion_40_18::VERIFYINGKEY),
-        (_, 19) => Ok(&v2_non_inclusion_40_19::VERIFYINGKEY),
-        (_, 20) => Ok(&v2_non_inclusion_40_20::VERIFYINGKEY),
-        (_, 21) => Ok(&v2_non_inclusion_40_21::VERIFYINGKEY),
-        (_, 22) => Ok(&v2_non_inclusion_40_22::VERIFYINGKEY),
-        (_, 23) => Ok(&v2_non_inclusion_40_23::VERIFYINGKEY),
-        (_, 24) => Ok(&v2_non_inclusion_40_24::VERIFYINGKEY),
-        (_, 25) => Ok(&v2_non_inclusion_40_25::VERIFYINGKEY),
-        (_, 26) => Ok(&v2_non_inclusion_40_26::VERIFYINGKEY),
-        (_, 27) => Ok(&v2_non_inclusion_40_27::VERIFYINGKEY),
-        (_, 28) => Ok(&v2_non_inclusion_40_28::VERIFYINGKEY),
-        (_, 29) => Ok(&v2_non_inclusion_40_29::VERIFYINGKEY),
-        (_, 30) => Ok(&v2_non_inclusion_40_30::VERIFYINGKEY),
-        (_, 31) => Ok(&v2_non_inclusion_40_31::VERIFYINGKEY),
-        (_, 32) => Ok(&v2_non_inclusion_40_32::VERIFYINGKEY),
-
-        // Invalid configuration
-        _ => Err(InvalidPublicInputsLength),
-    }
-}
-
 #[inline(never)]
 pub fn verify<const N: usize>(
     public_inputs: &[[u8; 32]; N],
@@ -210,7 +115,7 @@ pub fn verify<const N: usize>(
     let proof_c = decompress_g1(&proof.c).map_err(|_| DecompressG1Failed)?;
     let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, public_inputs, vk)
         .map_err(|_| {
-            #[cfg(all(target_os = "solana", feature = "solana"))]
+            #[cfg(feature = "log")]
             {
                 use solana_msg::msg;
                 msg!("Proof verification failed");
@@ -222,7 +127,7 @@ pub fn verify<const N: usize>(
             CreateGroth16VerifierFailed
         })?;
     verifier.verify().map_err(|_| {
-        #[cfg(all(target_os = "solana", feature = "solana"))]
+        #[cfg(feature = "log")]
         {
             use solana_msg::msg;
             msg!("Proof verification failed");

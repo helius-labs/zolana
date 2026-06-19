@@ -38,7 +38,6 @@ impl From<MerkleTreeMetadataError> for u32 {
     }
 }
 
-#[cfg(feature = "solana")]
 impl From<MerkleTreeMetadataError> for solana_program_error::ProgramError {
     fn from(e: MerkleTreeMetadataError) -> Self {
         solana_program_error::ProgramError::Custom(e.into())

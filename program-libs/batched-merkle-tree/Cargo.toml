@@ -9,50 +9,32 @@ edition = "2021"
 
 [package.metadata.cargo-machete]
 ignored = [
-    # Used through feature-gated Solana account traits and cfg paths.
-    "solana-account-info",
+    # Used only through cfg(target_os = "solana") sysvar paths.
     "solana-sysvar",
 ]
 
 [features]
-default = ["solana"]
+default = []
 test-only = []
-solana = [
-    "solana-program-error",
-    "solana-account-info",
-    "solana-sysvar",
-    "solana-msg",
-    "light-hasher/solana",
-    "light-hasher/keccak",
-    "light-bloom-filter/solana",
-    "light-merkle-tree-metadata/solana",
-]
-pinocchio = [
-    "dep:pinocchio",
-    "light-hasher/pinocchio",
-    "light-bloom-filter/pinocchio",
-    "light-merkle-tree-metadata/pinocchio",
-]
+log = ["dep:solana-msg", "light-merkle-tree-metadata/log"]
 
 [dependencies]
 light-account-checks = { workspace = true }
 aligned-sized = { workspace = true }
-solana-program-error = { workspace = true, optional = true }
-solana-sysvar = { workspace = true, optional = true }
-solana-msg = { workspace = true, optional = true, features = ["alloc"] }
-solana-account-info = { workspace = true, optional = true }
+solana-program-error = { workspace = true }
+solana-sysvar = { workspace = true }
+solana-msg = { workspace = true, features = ["alloc"], optional = true }
 solana-address = { workspace = true }
 light-zero-copy-vec = { workspace = true }
 wincode = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 light-bloom-filter = { workspace = true }
-light-verifier = { workspace = true }
+groth16-solana = { workspace = true }
 thiserror = { workspace = true }
 light-merkle-tree-metadata = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 zerocopy = { workspace = true }
-pinocchio = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }

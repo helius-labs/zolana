@@ -62,4 +62,6 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
             46u8, 253u8, 59u8, 16u8, 169u8, 213u8, 82u8, 157u8, 215u8, 89u8, 78u8, 214u8,
         ],
     ],
+    vk_commitment_g2: None,
+    vk_commitment_g_sigma_neg_g2: None,
 };

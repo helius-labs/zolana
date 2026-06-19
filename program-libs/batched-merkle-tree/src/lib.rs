@@ -119,7 +119,7 @@
 //!
 //! - **`light-bloom-filter`** - Bloom filter implementation for non-inclusion proofs
 //! - **`light-hasher`** - Poseidon hash implementation for hash chains and tree operations
-//! - **`light-verifier`** - ZKP verification for batch updates
+//! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
 //! - **`light-zero-copy`** - Zero-copy serialization for efficient account data access
 //! - **`light-merkle-tree-metadata`** - Shared metadata structures for merkle trees
 //! - **`light-account-checks`** - Account validation and discriminator checks
@@ -184,6 +184,7 @@ pub mod queue_batch_metadata;
 pub(crate) mod rent;
 pub mod rollover_address_tree;
 pub mod rollover_state_tree;
+pub mod verify;
 
 // Use the appropriate BorshDeserialize and BorshSerialize based on feature
 use borsh::{BorshDeserialize, BorshSerialize};

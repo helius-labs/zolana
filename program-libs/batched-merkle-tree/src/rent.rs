@@ -17,18 +17,7 @@ use crate::errors::BatchedMerkleTreeError;
 /// Mirrors the OLD light-account-checks behavior exactly: reads the rent
 /// sysvar on-chain, errors off-chain where the sysvar is unavailable.
 pub(crate) fn get_min_rent_balance(size: usize) -> Result<u64, BatchedMerkleTreeError> {
-    #[cfg(all(target_os = "solana", feature = "pinocchio"))]
-    {
-        use pinocchio::sysvars::Sysvar;
-        pinocchio::sysvars::rent::Rent::get()
-            .and_then(|rent| rent.try_minimum_balance(size))
-            .map_err(|_| {
-                BatchedMerkleTreeError::AccountError(
-                    light_account_checks::error::AccountError::InvalidAccountBalance,
-                )
-            })
-    }
-    #[cfg(all(target_os = "solana", not(feature = "pinocchio")))]
+    #[cfg(target_os = "solana")]
     {
         use solana_sysvar::Sysvar;
         solana_sysvar::rent::Rent::get()

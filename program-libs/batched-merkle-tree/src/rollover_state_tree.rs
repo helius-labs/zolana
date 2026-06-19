@@ -232,7 +232,7 @@ pub fn batched_tree_is_ready_for_rollover(
         return Err(MerkleTreeMetadataError::NotReadyForRollover.into());
     }
     if metadata.metadata.rollover_metadata.network_fee == 0 && network_fee.is_some() {
-        #[cfg(feature = "solana")]
+        #[cfg(feature = "log")]
         solana_msg::msg!("Network fee must be 0 for manually forested trees.");
         return Err(BatchedMerkleTreeError::InvalidNetworkFee);
     }

@@ -171,7 +171,7 @@ impl Batch {
             }
             self.num_full_zkp_batches = 0;
         } else {
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Inserted 1",
                 self.state
@@ -187,7 +187,7 @@ impl Batch {
         if self.get_state() == BatchState::Full {
             self.state = BatchState::Inserted.into();
         } else {
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Full 2",
                 self.state
@@ -203,7 +203,7 @@ impl Batch {
         if self.get_state() == BatchState::Fill {
             self.state = BatchState::Full.into();
         } else {
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Fill 0",
                 self.state

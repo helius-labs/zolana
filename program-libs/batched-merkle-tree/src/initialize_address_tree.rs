@@ -210,9 +210,9 @@ fn init_batched_indexed_merkle_tree_account(
         }
         None => 0,
     };
-    #[cfg(feature = "solana")]
+    #[cfg(feature = "log")]
     solana_msg::msg!("rollover fee {}", rollover_fee);
-    #[cfg(feature = "solana")]
+    #[cfg(feature = "log")]
     solana_msg::msg!("rollover threshold {:?}", params.rollover_threshold);
 
     let metadata = MerkleTreeMetadata {

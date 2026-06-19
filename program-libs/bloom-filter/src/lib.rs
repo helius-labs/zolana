@@ -31,7 +31,6 @@ impl From<BloomFilterError> for u32 {
     }
 }
 
-#[cfg(feature = "solana")]
 impl From<BloomFilterError> for solana_program_error::ProgramError {
     fn from(e: BloomFilterError) -> Self {
         solana_program_error::ProgramError::Custom(e.into())

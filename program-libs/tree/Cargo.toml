@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-light-batched-merkle-tree = { workspace = true, features = ["pinocchio", "solana-msg"] }
+light-batched-merkle-tree = { workspace = true }
 light-hasher = { workspace = true }
 pinocchio = { workspace = true }
 wincode = { workspace = true }

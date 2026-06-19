@@ -2,7 +2,7 @@ use light_account_checks::error::AccountError;
 use light_bloom_filter::BloomFilterError;
 use light_hasher::HasherError;
 use light_merkle_tree_metadata::errors::MerkleTreeMetadataError;
-use light_verifier::VerifierError;
+use crate::verify::VerifierError;
 use light_zero_copy_vec::errors::ZeroCopyError;
 use thiserror::Error;
 
@@ -30,10 +30,6 @@ pub enum BatchedMerkleTreeError {
     MerkleTreeMetadata(#[from] MerkleTreeMetadataError),
     #[error("Bloom filter error {0}")]
     BloomFilter(#[from] BloomFilterError),
-    #[cfg(feature = "pinocchio")]
-    #[error("Program error {0}")]
-    ProgramError(u64),
-    #[cfg(all(feature = "solana", not(feature = "pinocchio")))]
     #[error("Program error {0}")]
     ProgramError(#[from] solana_program_error::ProgramError),
     #[error("Verifier error {0}")]
@@ -72,7 +68,6 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
             BatchedMerkleTreeError::BloomFilter(e) => e.into(),
             BatchedMerkleTreeError::VerifierErrorError(e) => e.into(),
-            #[cfg(any(feature = "pinocchio", feature = "solana"))]
             #[allow(clippy::useless_conversion)]
             BatchedMerkleTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),
             BatchedMerkleTreeError::AccountError(e) => e.into(),
@@ -80,23 +75,8 @@ impl From<BatchedMerkleTreeError> for u32 {
     }
 }
 
-#[cfg(feature = "solana")]
 impl From<BatchedMerkleTreeError> for solana_program_error::ProgramError {
     fn from(e: BatchedMerkleTreeError) -> Self {
         solana_program_error::ProgramError::Custom(e.into())
-    }
-}
-
-#[cfg(all(feature = "pinocchio", not(feature = "solana")))]
-impl From<BatchedMerkleTreeError> for pinocchio::error::ProgramError {
-    fn from(e: BatchedMerkleTreeError) -> Self {
-        pinocchio::error::ProgramError::Custom(e.into())
-    }
-}
-
-#[cfg(all(feature = "pinocchio", not(feature = "solana")))]
-impl From<pinocchio::error::ProgramError> for BatchedMerkleTreeError {
-    fn from(error: pinocchio::error::ProgramError) -> Self {
-        BatchedMerkleTreeError::ProgramError(u64::from(error))
     }
 }

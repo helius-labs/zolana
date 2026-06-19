@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use light_account_checks::AccountIterator;
 use light_batched_merkle_tree::merkle_tree::InstructionDataBatchNullifyInputs;
-use light_verifier::CompressedProof;
+use light_batched_merkle_tree::verify::CompressedProof;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;

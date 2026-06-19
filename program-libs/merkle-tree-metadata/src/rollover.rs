@@ -67,16 +67,8 @@ impl RolloverMetadata {
         }
         #[cfg(target_os = "solana")]
         {
-            #[cfg(feature = "pinocchio")]
-            {
-                use pinocchio::sysvars::{clock::Clock, Sysvar};
-                self.rolledover_slot = Clock::get().unwrap().slot;
-            }
-            #[cfg(not(feature = "pinocchio"))]
-            {
-                use solana_sysvar::{clock::Clock, Sysvar};
-                self.rolledover_slot = Clock::get().unwrap().slot;
-            }
+            use solana_sysvar::{clock::Clock, Sysvar};
+            self.rolledover_slot = Clock::get().unwrap().slot;
         }
         #[cfg(not(target_os = "solana"))]
         {
@@ -126,7 +118,7 @@ pub fn check_rollover_fee_sufficient(
     if (rollover_fee * rollover_threshold * (2u64.pow(height))) / 100
         < queue_rent + merkle_tree_rent
     {
-        #[cfg(feature = "solana")]
+        #[cfg(feature = "log")]
         {
             use solana_msg::msg;
             msg!("rollover_fee: {}", rollover_fee);

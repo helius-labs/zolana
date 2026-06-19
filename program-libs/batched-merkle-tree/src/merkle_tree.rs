@@ -19,7 +19,7 @@ use light_merkle_tree_metadata::{
     QueueType, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2, ADDRESS_QUEUE_TYPE_V2,
     INPUT_STATE_QUEUE_TYPE_V2, OUTPUT_STATE_QUEUE_TYPE_V2, STATE_MERKLE_TREE_TYPE_V2,
 };
-use light_verifier::{
+use crate::verify::{
     verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
     CompressedProof,
 };
@@ -283,11 +283,11 @@ impl<'a> BatchedMerkleTreeAccount<'a> {
 
         account_metadata.queue_batches.bloom_filter_capacity = bloom_filter_capacity;
         if account_data_len != account_metadata.get_account_size()? {
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!("merkle_tree_metadata: {:?}", account_metadata);
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!("account_data.len(): {}", account_data_len);
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!(
                 "account.get_account_size(): {}",
                 account_metadata.get_account_size()?

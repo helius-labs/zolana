@@ -255,9 +255,9 @@ impl<'a> BatchedQueueAccount<'a> {
                 .batch_metadata
                 .queue_account_size(account_metadata.metadata.queue_type)?
         {
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!("account_data.len() {:?}", account_data_len);
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             solana_msg::msg!(
                 "queue_account_size {:?}",
                 account_metadata
@@ -349,7 +349,7 @@ impl<'a> BatchedQueueAccount<'a> {
                     }
                     return Ok(true);
                 } else {
-                    #[cfg(target_os = "solana")]
+                    #[cfg(feature = "log")]
                     {
                         solana_msg::msg!(
                             "Index found but value doesn't match leaf_index {} compressed account hash: {:?} expected compressed account hash {:?}. (If the expected element is [0u8;32] it was already spent. Other possibly causes, data hash, discriminator, leaf index, or Merkle tree mismatch.)",
@@ -380,7 +380,7 @@ impl<'a> BatchedQueueAccount<'a> {
         }
         // If no value is found and a check is not enforced return ok.
         if prove_by_index {
-            #[cfg(target_os = "solana")]
+            #[cfg(feature = "log")]
             {
                 solana_msg::msg!(
                    "leaf_index {} compressed account hash: {:?}. Possibly causes, leaf index, or Merkle tree mismatch.)",
@@ -512,7 +512,7 @@ pub(crate) fn insert_into_current_queue_batch(
             current_batch.advance_state_to_fill(current_index)?;
         } else {
             // We expect to insert into the current batch.
-            #[cfg(feature = "solana")]
+            #[cfg(feature = "log")]
             for batch in batch_metadata.batches.iter() {
                 solana_msg::msg!("batch {:?}", batch);
             }
