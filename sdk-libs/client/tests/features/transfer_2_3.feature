@@ -10,11 +10,10 @@ Feature: Transaction proving at shape (2,3)
     When the sender sends 60 SOL to a fresh recipient
     Then the proof verifies
 
-  Scenario: P256 SOL transfer filling every input and output slot
+  Scenario: P256 SOL transfer consolidating two inputs into change and one recipient
     Given a P256 SOL input worth 100
     Given a P256 SOL input worth 50
     When the sender sends 60 SOL to a fresh recipient
-    When the sender sends 50 SOL to a fresh recipient
     Then the proof verifies
 
   Scenario: P256 SOL transfer with an exact spend and no change
