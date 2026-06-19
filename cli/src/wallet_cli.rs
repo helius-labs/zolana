@@ -29,7 +29,9 @@ use zolana_interface::instruction::{
 };
 use zolana_interface::{pda, state::tree_account_size, PROGRAM_ID_PUBKEY};
 use zolana_keypair::random_salt;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{
+    P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
+};
 use zolana_transaction::transfer::OutputCiphertext;
 use zolana_transaction::{
     owner_utxo_hash, utxo_hash, Address, AssetRegistry, SyncTransaction, Wallet,
@@ -46,7 +48,6 @@ const INDEXER_POLL: Duration = Duration::from_millis(500);
 const TAG_QUERY_CHUNK: usize = 64;
 const QUERY_LIMIT: u32 = 1_000;
 const SYNC_ROUNDS: usize = 6;
-const P256_OWNED_SIGNER_INDEX: u8 = 255;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct KeypairFile {
@@ -65,9 +66,28 @@ struct SolanaKeypairFile {
     pubkey: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+struct LocalUserRegistryFile {
+    version: u8,
+    records: HashMap<String, LocalUserRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct LocalUserRecord {
+    owner_p256_hex: Option<String>,
+    nullifier_pubkey_hex: String,
+    viewing_pubkey_hex: String,
+}
+
 struct WalletMaterial {
     keypair: ShieldedKeypair,
     funding: Keypair,
+}
+
+struct RecipientLookup {
+    owner: Pubkey,
+    address: ShieldedAddress,
+    view_tag: [u8; 32],
 }
 
 struct SyncContext {
@@ -93,6 +113,7 @@ fn run_init(opts: InitOptions) -> Result<()> {
     let keypair_path = resolve_keypair_path(opts.path.as_deref());
     if keypair_path.exists() {
         let material = load_existing_wallet(&keypair_path)?;
+        register_wallet_locally(&keypair_path, &material)?;
         println!(
             "ok keypair {} owner_hash={} funding={}",
             keypair_path.display(),
@@ -105,6 +126,13 @@ fn run_init(opts: InitOptions) -> Result<()> {
     let keypair = ShieldedKeypair::new()?;
     let funding = Keypair::new();
     save_wallet(&keypair_path, &keypair, &funding)?;
+    register_wallet_locally(
+        &keypair_path,
+        &WalletMaterial {
+            keypair: clone_keypair(&keypair)?,
+            funding: funding.insecure_clone(),
+        },
+    )?;
     println!(
         "ok keypair {} owner_hash={} funding={}",
         keypair_path.display(),
@@ -252,7 +280,7 @@ fn run_transfer(opts: TransferOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(opts.network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, opts.network.airdrop_lamports)?;
-    let recipient = load_recipient_wallet(&opts.to)?;
+    let recipient = resolve_transfer_recipient(&opts.to, &opts.network.sync)?;
     let tree = parse_pubkey(&opts.network.tree)?;
 
     let sender_view_tag = next_sender_view_tag(&ctx)?;
@@ -263,10 +291,10 @@ fn run_transfer(opts: TransferOptions) -> Result<()> {
         Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
     );
     tx.send(
-        &recipient.keypair.shielded_address()?,
+        &recipient.address,
         SOL_MINT,
         opts.amount,
-        recipient.keypair.recipient_bootstrap_view_tag(),
+        recipient.view_tag,
     )?;
     let signed = tx.sign(&ctx.material.keypair, &ctx.assets, sender_view_tag)?;
     let signature = submit_private_transaction(
@@ -283,9 +311,7 @@ fn run_transfer(opts: TransferOptions) -> Result<()> {
     )?;
     println!(
         "ok transfer amount={} mint=SOL to={} signature={}",
-        opts.amount,
-        recipient.funding.pubkey(),
-        signature
+        opts.amount, recipient.owner, signature
     );
     Ok(())
 }
@@ -619,7 +645,7 @@ fn spend_proofs(
             utxo_tree_root_index: state.root_index,
             nullifier_tree_root_index: nullifier.root_index,
             tree_index: 0,
-            eddsa_signer_index: P256_OWNED_SIGNER_INDEX,
+            eddsa_signer_index: 0,
         });
         proofs.push(SpendProof {
             state: StateInclusionProof {
@@ -757,6 +783,79 @@ fn load_recipient_wallet(path: &str) -> Result<WalletMaterial> {
     load_existing_wallet(&path)
 }
 
+fn resolve_transfer_recipient(value: &str, opts: &SyncOptions) -> Result<RecipientLookup> {
+    if let Ok(owner) = value.parse::<Pubkey>() {
+        let keypair_path = resolve_keypair_path(opts.keypair.keypair.as_deref());
+        return lookup_registered_recipient(&local_user_registry_path(&keypair_path), &owner);
+    }
+
+    let material = load_recipient_wallet(value)?;
+    Ok(RecipientLookup {
+        owner: material.funding.pubkey(),
+        address: material.keypair.shielded_address()?,
+        view_tag: material.keypair.recipient_bootstrap_view_tag(),
+    })
+}
+
+fn register_wallet_locally(keypair_path: &Path, material: &WalletMaterial) -> Result<()> {
+    let path = local_user_registry_path(keypair_path);
+    let mut registry = read_local_user_registry(&path)?;
+    let owner = material.funding.pubkey().to_string();
+    let owner_p256 = material.keypair.signing_pubkey().as_p256()?;
+    let record = LocalUserRecord {
+        owner_p256_hex: Some(hex::encode(owner_p256.as_bytes())),
+        nullifier_pubkey_hex: hex::encode(material.keypair.nullifier_key.pubkey()?),
+        viewing_pubkey_hex: hex::encode(material.keypair.viewing_pubkey().as_bytes()),
+    };
+
+    registry.records.insert(owner, record);
+    registry.version = 1;
+    // TODO(user-registry): replace this JSON write with the user_registry register instruction.
+    // For now we stub with a local lookup.
+    write_json_secret(&path, &registry)
+}
+
+fn lookup_registered_recipient(path: &Path, owner: &Pubkey) -> Result<RecipientLookup> {
+    // TODO(user-registry): replace this JSON read with an RPC read of the user_registry PDA.
+    let registry = read_local_user_registry(path)?;
+    let record = registry.records.get(&owner.to_string()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "recipient {owner} not found in {}; run `zolana wallet init` for that user first",
+            path.display()
+        )
+    })?;
+    let signing_pubkey = if let Some(owner_p256_hex) = &record.owner_p256_hex {
+        PublicKey::from_p256(&P256Pubkey::from_bytes(parse_hex_array::<33>(
+            owner_p256_hex,
+        )?)?)
+    } else {
+        PublicKey::from_ed25519(&owner.to_bytes())
+    };
+    let viewing_pubkey =
+        P256Pubkey::from_bytes(parse_hex_array::<33>(&record.viewing_pubkey_hex)?)?;
+    let address = ShieldedAddress {
+        signing_pubkey,
+        nullifier_pubkey: parse_hex_array::<32>(&record.nullifier_pubkey_hex)?,
+        viewing_pubkey,
+    };
+    Ok(RecipientLookup {
+        owner: *owner,
+        address,
+        view_tag: viewing_pubkey.x(),
+    })
+}
+
+fn read_local_user_registry(path: &Path) -> Result<LocalUserRegistryFile> {
+    if !path.exists() {
+        return Ok(LocalUserRegistryFile {
+            version: 1,
+            records: HashMap::new(),
+        });
+    }
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_slice(&bytes).with_context(|| format!("failed to parse {}", path.display()))
+}
+
 fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
     let bytes =
         fs::read(path).with_context(|| format!("failed to read wallet {}", path.display()))?;
@@ -854,6 +953,14 @@ fn resolve_keypair_path(value: Option<&str>) -> PathBuf {
         Some(path) => PathBuf::from(path),
         None => default_config_dir().join("pid.json"),
     }
+}
+
+fn local_user_registry_path(keypair_path: &Path) -> PathBuf {
+    keypair_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(default_config_dir)
+        .join("user-registry.json")
 }
 
 fn default_config_dir() -> PathBuf {
@@ -977,6 +1084,34 @@ mod tests {
             .unwrap()
         );
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
+
+        let registry_path = local_user_registry_path(&wallet);
+        let registry = read_local_user_registry(&registry_path).expect("read registry");
+        assert_eq!(registry.records.len(), 1);
+        assert!(registry
+            .records
+            .contains_key(&loaded.funding.pubkey().to_string()));
+        let recipient = resolve_transfer_recipient(
+            &loaded.funding.pubkey().to_string(),
+            &SyncOptions {
+                keypair: crate::args::WalletKeypairOptions {
+                    keypair: Some(wallet.display().to_string()),
+                },
+                rpc_url: "http://127.0.0.1:8899".to_string(),
+                indexer_url: "http://127.0.0.1:8784".to_string(),
+            },
+        )
+        .expect("lookup recipient");
+        assert_eq!(recipient.owner, loaded.funding.pubkey());
+        assert_eq!(
+            recipient.address.owner_hash().unwrap(),
+            loaded
+                .keypair
+                .shielded_address()
+                .unwrap()
+                .owner_hash()
+                .unwrap()
+        );
     }
 
     #[test]

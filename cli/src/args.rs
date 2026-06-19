@@ -318,7 +318,11 @@ pub(crate) struct TransferOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
 
-    #[arg(long = "to", help = "Recipient wallet file path", value_name = "PATH")]
+    #[arg(
+        long = "to",
+        help = "Recipient Solana pubkey looked up in the local registry, or a wallet file path",
+        value_name = "PUBKEY_OR_PATH"
+    )]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
