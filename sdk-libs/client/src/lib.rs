@@ -13,32 +13,23 @@ use sha2::Sha256;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use thiserror::Error;
-#[cfg(feature = "test-utils")]
 use zolana_interface::event::DepositView;
 use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, P_CONST_SEC1, SALT_LEN};
-#[cfg(feature = "test-utils")]
 use zolana_keypair::random_salt;
-#[cfg(feature = "test-utils")]
 use zolana_keypair::ShieldedKeypair;
 use zolana_keypair::{P256Pubkey, PublicKey};
-#[cfg(feature = "test-utils")]
 use zolana_transaction::transfer::{
     RecipientSlot, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
 use zolana_transaction::wallet::{SyncTransaction, Wallet, WalletKeyProvider};
-#[cfg(not(feature = "test-utils"))]
-use zolana_transaction::AssetRegistry;
 use zolana_transaction::TransactionError;
-#[cfg(feature = "test-utils")]
 use zolana_transaction::{owner_utxo_hash, utxo_hash};
-#[cfg(feature = "test-utils")]
 use zolana_transaction::{Data, Utxo, SOL_MINT, TRANSFER};
 
 pub mod error;
 pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
-#[cfg(feature = "test-utils")]
 pub mod testing;
 
 #[cfg(feature = "indexer-api")]
@@ -644,7 +635,6 @@ struct LocalPrivateWallet {
 
 pub struct PrivacyClient {
     owner: Address,
-    #[cfg(feature = "test-utils")]
     network: testing::PrivacyNetwork,
     wallets: HashMap<PrivateWalletId, LocalPrivateWallet>,
     pending_host: Option<Box<dyn HeliusPrivacyInterface>>,
@@ -652,21 +642,9 @@ pub struct PrivacyClient {
 
 impl PrivacyClient {
     pub fn new(owner: Address, host: impl HeliusPrivacyInterface + 'static) -> Self {
-        #[cfg(feature = "test-utils")]
-        {
-            Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new())
-        }
-        #[cfg(not(feature = "test-utils"))]
-        {
-            Self {
-                owner,
-                wallets: HashMap::new(),
-                pending_host: Some(Box::new(host)),
-            }
-        }
+        Self::with_network(owner, Box::new(host), testing::PrivacyNetwork::new())
     }
 
-    #[cfg(feature = "test-utils")]
     fn with_network(
         owner: Address,
         host: Box<dyn HeliusPrivacyInterface>,
@@ -680,8 +658,7 @@ impl PrivacyClient {
         }
     }
 
-    #[cfg(feature = "test-utils")]
-    pub fn new_with_test_provider(
+    pub fn new_with_provider(
         owner: Address,
         host: impl HeliusPrivacyInterface + 'static,
         provider: testing::InMemoryPrivacyProvider,
@@ -689,13 +666,20 @@ impl PrivacyClient {
         Self::with_network(owner, Box::new(host), provider.network)
     }
 
-    #[cfg(feature = "test-utils")]
+    pub fn new_with_test_provider(
+        owner: Address,
+        host: impl HeliusPrivacyInterface + 'static,
+        provider: testing::InMemoryPrivacyProvider,
+    ) -> Self {
+        Self::new_with_provider(owner, host, provider)
+    }
+
     pub fn new_for_tests(
         owner: Address,
         keypair: ShieldedKeypair,
         provider: testing::InMemoryPrivacyProvider,
     ) -> Result<Self> {
-        Ok(Self::new_with_test_provider(
+        Ok(Self::new_with_provider(
             owner,
             testing::MockHost::new(keypair)?,
             provider,
@@ -712,7 +696,6 @@ impl PrivacyClient {
         if self.pending_host.is_none() {
             return Err(WalletError::PrivateWalletAlreadyCreated);
         }
-        #[cfg(feature = "test-utils")]
         let id = {
             let mut network = self
                 .network
@@ -725,8 +708,6 @@ impl PrivacyClient {
             network.next_wallet_id += 1;
             PrivateWalletId(network.next_wallet_id)
         };
-        #[cfg(not(feature = "test-utils"))]
-        let id = PrivateWalletId(self.wallets.len() as u64 + 1);
         let mut host = self
             .pending_host
             .take()
@@ -747,7 +728,6 @@ impl PrivacyClient {
             label: input.label,
             decryption_mode: input.decryption_mode,
         };
-        #[cfg(feature = "test-utils")]
         {
             let mut network = self
                 .network
@@ -777,7 +757,6 @@ impl PrivacyClient {
             .get_mut(&input.private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
         local.metadata.decryption_mode = input.mode;
-        #[cfg(feature = "test-utils")]
         {
             let mut network = self
                 .network
@@ -801,7 +780,6 @@ impl PrivacyClient {
             .wallets
             .get_mut(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        #[cfg(feature = "test-utils")]
         let (transactions, proofless_deposits, assets) = {
             let network = self
                 .network
@@ -814,12 +792,6 @@ impl PrivacyClient {
                 network.assets.clone(),
             )
         };
-        #[cfg(not(feature = "test-utils"))]
-        let (transactions, proofless_deposits, assets): (
-            Vec<SyncTransaction>,
-            Vec<zolana_interface::event::DepositView>,
-            AssetRegistry,
-        ) = (Vec::new(), Vec::new(), AssetRegistry::default());
         let _state = local.host.read_state(private_wallet_id)?;
         let _tags = local
             .host
@@ -848,7 +820,6 @@ impl PrivacyClient {
             .wallets
             .get(&private_wallet_id)
             .ok_or(WalletError::PrivateWalletNotFound)?;
-        #[cfg(feature = "test-utils")]
         let balances = {
             let network = self
                 .network
@@ -857,8 +828,6 @@ impl PrivacyClient {
                 .map_err(|_| WalletError::LockPoisoned)?;
             local.wallet.balances(&network.assets, true)?
         };
-        #[cfg(not(feature = "test-utils"))]
-        let balances = local.wallet.balances(&AssetRegistry::default(), true)?;
         Ok(PrivateTokenBalances {
             status: SyncStatus::Synced,
             synced_at: Some(local.wallet.last_synced),
@@ -881,7 +850,6 @@ impl PrivacyClient {
         if !self.wallets.contains_key(&private_wallet_id) {
             return Err(WalletError::PrivateWalletNotFound);
         }
-        #[cfg(feature = "test-utils")]
         {
             let network = self
                 .network
@@ -898,11 +866,6 @@ impl PrivacyClient {
             }
             Ok(history)
         }
-        #[cfg(not(feature = "test-utils"))]
-        {
-            let _ = input;
-            Ok(Vec::new())
-        }
     }
 
     pub async fn get_deposit_instruction(
@@ -912,7 +875,6 @@ impl PrivacyClient {
         Err(WalletError::Unsupported("deposit instruction"))
     }
 
-    #[cfg(feature = "test-utils")]
     pub async fn send_private_transfer(
         &mut self,
         input: SendPrivateTransferInput,
@@ -1096,18 +1058,7 @@ impl PrivacyClient {
         })
     }
 
-    #[cfg(not(feature = "test-utils"))]
-    pub async fn send_private_transfer(
-        &mut self,
-        _input: SendPrivateTransferInput,
-    ) -> Result<SendPrivateTransferResult> {
-        Err(WalletError::Unsupported(
-            "private transfer requires test-utils in-memory backend",
-        ))
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub async fn mock_airdrop(
+    pub async fn deposit_proofless(
         &mut self,
         private_wallet_id: PrivateWalletId,
         mint: Address,
@@ -1166,5 +1117,15 @@ impl PrivacyClient {
                 },
             );
         Ok(signature)
+    }
+
+    pub async fn mock_airdrop(
+        &mut self,
+        private_wallet_id: PrivateWalletId,
+        mint: Address,
+        amount: u64,
+    ) -> Result<String> {
+        self.deposit_proofless(private_wallet_id, mint, amount)
+            .await
     }
 }

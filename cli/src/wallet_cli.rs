@@ -1,33 +1,39 @@
 use std::env;
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
+use zolana_client::testing::{InMemoryPrivacyProvider, MockHost, ProviderParts};
+use zolana_client::{
+    CreatePrivateWalletInput, DecryptionMode, PrivacyClient, PrivateWalletId,
+    SendPrivateTransferInput,
+};
 use zolana_interface::event::DepositView;
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::{random_salt, ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::transfer::{
-    RecipientSlot, TransferEncryptedUtxos, TransferSenderPlaintext,
-};
-use zolana_transaction::wallet::{SyncTransaction, Wallet, DEFAULT_TAG_WINDOW};
-use zolana_transaction::{
-    owner_utxo_hash, utxo_hash, Address, AssetRegistry, Data, Utxo, SOL_MINT, TRANSFER,
-};
+use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::wallet::SyncTransaction;
+use zolana_transaction::{Address, AssetRegistry, SOL_ASSET_ID, SOL_MINT};
 
 use crate::args::{BalanceOptions, DepositOptions, TransferOptions, WithdrawOptions};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WalletFile {
     version: u8,
+    owner: String,
     signing_key_hex: String,
     viewing_key_hex: String,
 }
 
+struct WalletMaterial {
+    owner: Address,
+    keypair: ShieldedKeypair,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct LedgerFile {
+    next_wallet_id: u64,
     next_asset_id: u64,
     next_counter: u64,
     next_signature: u64,
@@ -78,31 +84,10 @@ impl LedgerFile {
         self
     }
 
-    fn ensure_asset_id(&mut self, mint: Address) -> u64 {
-        if mint == SOL_MINT {
-            return 1;
-        }
-        if let Some(entry) = self
-            .assets
-            .iter()
-            .find(|entry| parse_address(&entry.mint).ok() == Some(mint))
-        {
-            return entry.asset_id;
-        }
-        let asset_id = self.next_asset_id.max(2);
-        self.next_asset_id = asset_id.saturating_add(1);
-        self.assets.push(AssetEntry {
-            asset_id,
-            mint: format_address(mint),
-        });
-        asset_id
-    }
-
     fn asset_registry(&self) -> Result<AssetRegistry> {
         let mut assets = AssetRegistry::default();
         for entry in &self.assets {
-            let mint = parse_address(&entry.mint)?;
-            assets.insert(entry.asset_id, mint)?;
+            assets.insert(entry.asset_id, parse_address(&entry.mint)?)?;
         }
         Ok(assets)
     }
@@ -120,19 +105,6 @@ impl LedgerFile {
             .map(stored_deposit_to_runtime)
             .collect()
     }
-
-    fn unique_blinding(&mut self) -> [u8; BLINDING_LEN] {
-        self.next_counter = self.next_counter.saturating_add(1);
-        let mut out = [0u8; BLINDING_LEN];
-        out[0] = 0x42;
-        out[1..9].copy_from_slice(&self.next_counter.to_be_bytes());
-        out
-    }
-
-    fn next_signature(&mut self, prefix: &str) -> String {
-        self.next_signature = self.next_signature.saturating_add(1);
-        format!("{prefix}-{}", self.next_signature)
-    }
 }
 
 pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
@@ -143,29 +115,17 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let state_path = resolve_state_path(opts.paths.state_file.as_deref());
     let mint = parse_address(&opts.mint)?;
 
-    let keypair = load_or_create_wallet(&wallet_path)?;
+    let sender = load_or_create_wallet(&wallet_path)?;
     let mut ledger = load_or_create_ledger(&state_path)?;
-    ledger.ensure_asset_id(mint);
+    let provider = provider_from_ledger(&ledger)?;
 
-    let salt = random_salt();
-    let blinding = keypair.viewing_key.derive_proofless_blinding(&salt)?;
-    let owner_hash = keypair.owner_hash()?;
-    let owner_utxo = owner_utxo_hash(&owner_hash, &blinding)?;
-    let hash = utxo_hash(mint, opts.amount, &[0u8; 32], &[0u8; 32], None, &owner_utxo)?;
+    let signature = run_async(async {
+        let (mut client, wallet_id) = ready_client(sender, provider.clone()).await?;
+        client.deposit_proofless(wallet_id, mint, opts.amount).await
+    })?;
 
-    ledger.proofless_deposits.push(StoredDepositView {
-        view_tag_hex: hex::encode(keypair.recipient_bootstrap_view_tag()),
-        utxo_hash_hex: hex::encode(hash),
-        asset: format_address(mint),
-        amount: opts.amount,
-        owner_utxo_hash_hex: hex::encode(owner_utxo),
-        salt_hex: hex::encode(salt),
-        output_tree_hex: hex::encode([0u8; 32]),
-        leaf_index: ledger.proofless_deposits.len() as u64,
-    });
-    let signature = ledger.next_signature("deposit");
+    update_ledger_from_provider(&mut ledger, &provider)?;
     save_ledger(&state_path, &ledger)?;
-
     println!(
         "deposited {} {} ({signature})",
         opts.amount,
@@ -183,26 +143,35 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let recipient_wallet_path = PathBuf::from(&opts.to_wallet);
     let mint = parse_address(&opts.mint)?;
 
-    let sender_keypair = load_or_create_wallet(&wallet_path)?;
-    let recipient_keypair = load_existing_wallet(&recipient_wallet_path)?;
+    let sender = load_or_create_wallet(&wallet_path)?;
+    let recipient = load_existing_wallet(&recipient_wallet_path)?;
+    let recipient_owner = recipient.owner;
     let mut ledger = load_or_create_ledger(&state_path)?;
-    ledger.ensure_asset_id(mint);
-    let assets = ledger.asset_registry()?;
+    let provider = provider_from_ledger(&ledger)?;
 
-    let sender_wallet = synced_wallet(&sender_keypair, &ledger)?;
-    let tx = create_transfer_transaction(
-        &sender_keypair,
-        &sender_wallet,
-        &recipient_keypair,
-        &assets,
-        mint,
-        opts.amount,
-        &mut || ledger.unique_blinding(),
-    )?;
-    ledger.transactions.push(runtime_sync_to_stored(&tx));
-    let signature = ledger.next_signature("transfer");
+    let signature = run_async(async {
+        let _ = ready_client(recipient, provider.clone()).await?;
+        let (mut sender_client, sender_wallet_id) = ready_client(sender, provider.clone()).await?;
+        sender_client.sync_private_wallet(sender_wallet_id).await?;
+        let result = sender_client
+            .send_private_transfer(SendPrivateTransferInput {
+                private_wallet_id: sender_wallet_id,
+                recipient: recipient_owner,
+                mint,
+                amount: opts.amount,
+            })
+            .await?;
+        Ok::<String, anyhow::Error>(
+            result
+                .signatures
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "transfer-no-signature".to_string()),
+        )
+    })?;
+
+    update_ledger_from_provider(&mut ledger, &provider)?;
     save_ledger(&state_path, &ledger)?;
-
     println!(
         "transferred {} {} ({signature})",
         opts.amount,
@@ -218,25 +187,39 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let wallet_path = resolve_wallet_path(opts.paths.wallet.as_deref());
     let state_path = resolve_state_path(opts.paths.state_file.as_deref());
     let mint = parse_address(&opts.mint)?;
+    let _destination = parse_address(&opts.to)?;
 
-    let sender_keypair = load_or_create_wallet(&wallet_path)?;
-    let sink_keypair = ShieldedKeypair::new()?;
+    let sender = load_or_create_wallet(&wallet_path)?;
+    let sink_owner = Address::new_from_array(Pubkey::new_unique().to_bytes());
+    let sink = WalletMaterial {
+        owner: sink_owner,
+        keypair: ShieldedKeypair::new()?,
+    };
     let mut ledger = load_or_create_ledger(&state_path)?;
-    ledger.ensure_asset_id(mint);
-    let assets = ledger.asset_registry()?;
+    let provider = provider_from_ledger(&ledger)?;
 
-    let sender_wallet = synced_wallet(&sender_keypair, &ledger)?;
-    let tx = create_transfer_transaction(
-        &sender_keypair,
-        &sender_wallet,
-        &sink_keypair,
-        &assets,
-        mint,
-        opts.amount,
-        &mut || ledger.unique_blinding(),
-    )?;
-    ledger.transactions.push(runtime_sync_to_stored(&tx));
-    let signature = ledger.next_signature("withdraw");
+    let signature = run_async(async {
+        let _ = ready_client(sink, provider.clone()).await?;
+        let (mut sender_client, sender_wallet_id) = ready_client(sender, provider.clone()).await?;
+        sender_client.sync_private_wallet(sender_wallet_id).await?;
+        let result = sender_client
+            .send_private_transfer(SendPrivateTransferInput {
+                private_wallet_id: sender_wallet_id,
+                recipient: sink_owner,
+                mint,
+                amount: opts.amount,
+            })
+            .await?;
+        Ok::<String, anyhow::Error>(
+            result
+                .signatures
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "withdraw-no-signature".to_string()),
+        )
+    })?;
+
+    update_ledger_from_provider(&mut ledger, &provider)?;
     ledger.withdrawals.push(WithdrawalRecord {
         signature: signature.clone(),
         to: opts.to.clone(),
@@ -244,7 +227,6 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         amount: opts.amount,
     });
     save_ledger(&state_path, &ledger)?;
-
     println!(
         "withdrew {} {} to {} ({signature})",
         opts.amount,
@@ -257,11 +239,16 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
 pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
     let wallet_path = resolve_wallet_path(opts.paths.wallet.as_deref());
     let state_path = resolve_state_path(opts.paths.state_file.as_deref());
-    let keypair = load_or_create_wallet(&wallet_path)?;
+    let wallet = load_or_create_wallet(&wallet_path)?;
     let ledger = load_or_create_ledger(&state_path)?;
-    let assets = ledger.asset_registry()?;
-    let wallet = synced_wallet(&keypair, &ledger)?;
-    let balances = wallet.balances(&assets, true)?;
+    let provider = provider_from_ledger(&ledger)?;
+
+    let balances = run_async(async {
+        let (mut client, wallet_id) = ready_client(wallet, provider).await?;
+        client.sync_private_wallet(wallet_id).await?;
+        let private_balances = client.get_private_token_balances(wallet_id).await?;
+        Ok::<_, anyhow::Error>(private_balances.balances)
+    })?;
 
     if let Some(mint) = opts.mint {
         let mint = parse_address(&mint)?;
@@ -284,161 +271,113 @@ pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
     Ok(())
 }
 
-fn create_transfer_transaction(
-    sender_keypair: &ShieldedKeypair,
-    sender_wallet: &Wallet,
-    recipient_keypair: &ShieldedKeypair,
-    assets: &AssetRegistry,
-    mint: Address,
-    amount: u64,
-    unique_blinding: &mut impl FnMut() -> [u8; BLINDING_LEN],
-) -> Result<SyncTransaction> {
-    let mut nullifiers = Vec::new();
-    let mut selected_amount = 0u64;
-    for entry in &sender_wallet.utxos {
-        if entry.spent || entry.utxo.asset != mint {
-            continue;
-        }
-        nullifiers.push(entry.nullifier);
-        selected_amount = selected_amount.saturating_add(entry.utxo.amount);
-        if selected_amount >= amount {
-            break;
-        }
-    }
-    if selected_amount < amount {
-        bail!("insufficient private balance");
-    }
-
-    let first_nullifier = nullifiers[0];
-    let change_amount = selected_amount - amount;
-    let recipient_viewing = recipient_keypair.viewing_pubkey();
-    let output_blinding = unique_blinding();
-    let change_blinding_seed = unique_blinding();
-    let recipient_utxo = Utxo {
-        owner: recipient_keypair.signing_pubkey(),
-        asset: mint,
-        amount,
-        blinding: output_blinding,
-        zone_program_id: None,
-        data: Data::default(),
-    };
-    let recipient_plaintext =
-        recipient_utxo.to_recipient_plaintext(sender_keypair.viewing_pubkey(), assets)?;
-    let viewing_entry = sender_wallet
-        .viewing_key_history
-        .last()
-        .ok_or_else(|| anyhow!("missing viewing key history"))?;
-    let view_tag = match viewing_entry.known_recipients.get(&recipient_viewing) {
-        Some(index) => sender_keypair.get_send_shared_view_tag(&recipient_viewing, *index)?,
-        None => recipient_viewing.x(),
-    };
-    let sender_view_tag = sender_keypair.get_sender_view_tag(viewing_entry.tx_count)?;
-    let asset_id = assets.asset_id(&mint)?;
-    let sender_plaintext = if mint == SOL_MINT {
-        TransferSenderPlaintext {
-            owner_pubkey: sender_keypair.signing_pubkey(),
-            spl_asset_id: asset_id,
-            spl_amount: 0,
-            sol_amount: change_amount,
-            blinding_seed: change_blinding_seed,
-            recipient_viewing_pks: vec![recipient_viewing],
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        }
-    } else {
-        TransferSenderPlaintext {
-            owner_pubkey: sender_keypair.signing_pubkey(),
-            spl_asset_id: asset_id,
-            spl_amount: change_amount,
-            sol_amount: 0,
-            blinding_seed: change_blinding_seed,
-            recipient_viewing_pks: vec![recipient_viewing],
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        }
-    };
-    let salt = random_salt();
-    let tx_viewing_key = sender_keypair.get_transaction_viewing_key(&first_nullifier)?;
-    let tx_viewing_pk = tx_viewing_key.pubkey();
-    let sender_ciphertext = tx_viewing_key.encrypt_slot(
-        &sender_keypair.viewing_pubkey(),
-        &sender_plaintext.serialize()?,
-        salt,
-        0,
-    )?;
-    let recipient_ciphertext = tx_viewing_key.encrypt_slot(
-        &recipient_viewing,
-        &recipient_plaintext.serialize()?,
-        salt,
-        1,
-    )?;
-    let encrypted = TransferEncryptedUtxos {
-        type_prefix: TRANSFER,
-        tx_viewing_pk,
-        salt,
-        sender_ciphertext,
-        recipient_slots: vec![RecipientSlot {
-            view_tag,
-            ciphertext: recipient_ciphertext,
-        }],
-    };
-
-    Ok(SyncTransaction {
-        encrypted_utxos: encrypted.serialize()?,
-        sender_view_tag,
-        nullifiers,
-    })
+async fn ready_client(
+    wallet: WalletMaterial,
+    provider: InMemoryPrivacyProvider,
+) -> zolana_client::Result<(PrivacyClient, PrivateWalletId)> {
+    let host = MockHost::new(wallet.keypair)?;
+    let mut client = PrivacyClient::new_with_provider(wallet.owner, host, provider);
+    let private_wallet = client
+        .create_private_wallet(CreatePrivateWalletInput {
+            inbox: wallet.owner,
+            label: None,
+            decryption_mode: DecryptionMode::Local,
+        })
+        .await?;
+    Ok((client, private_wallet.id))
 }
 
-fn synced_wallet(keypair: &ShieldedKeypair, ledger: &LedgerFile) -> Result<Wallet> {
-    let mut wallet = Wallet::new_from_keypair(keypair)?;
-    let transactions = ledger.sync_transactions()?;
-    let proofless = ledger.deposit_views()?;
-    wallet.sync_keypair(
-        keypair,
-        &transactions,
-        &proofless,
-        &ledger.asset_registry()?,
-        unix_timestamp_now(),
-        DEFAULT_TAG_WINDOW,
-    )?;
-    Ok(wallet)
+fn provider_from_ledger(ledger: &LedgerFile) -> Result<InMemoryPrivacyProvider> {
+    Ok(InMemoryPrivacyProvider::from_parts(ProviderParts {
+        next_wallet_id: ledger.next_wallet_id,
+        next_asset_id: ledger.next_asset_id,
+        next_counter: ledger.next_counter,
+        next_signature: ledger.next_signature,
+        transactions: ledger.sync_transactions()?,
+        proofless_deposits: ledger.deposit_views()?,
+        assets: ledger.asset_registry()?,
+    }))
 }
 
-fn load_or_create_wallet(path: &Path) -> Result<ShieldedKeypair> {
+fn update_ledger_from_provider(
+    ledger: &mut LedgerFile,
+    provider: &InMemoryPrivacyProvider,
+) -> Result<()> {
+    let parts = provider.export_parts()?;
+    ledger.next_wallet_id = parts.next_wallet_id;
+    ledger.next_asset_id = parts.next_asset_id.max(2);
+    ledger.next_counter = parts.next_counter;
+    ledger.next_signature = parts.next_signature;
+    ledger.transactions = parts
+        .transactions
+        .iter()
+        .map(runtime_sync_to_stored)
+        .collect();
+    ledger.proofless_deposits = parts
+        .proofless_deposits
+        .iter()
+        .map(runtime_deposit_to_stored)
+        .collect();
+    ledger.assets = parts
+        .assets
+        .entries()
+        .into_iter()
+        .filter(|(asset_id, _)| *asset_id != SOL_ASSET_ID)
+        .map(|(asset_id, mint)| AssetEntry {
+            asset_id,
+            mint: format_address(mint),
+        })
+        .collect();
+    Ok(())
+}
+
+fn run_async<T, E>(future: impl Future<Output = std::result::Result<T, E>>) -> Result<T>
+where
+    E: Into<anyhow::Error>,
+{
+    futures::executor::block_on(future).map_err(Into::into)
+}
+
+fn load_or_create_wallet(path: &Path) -> Result<WalletMaterial> {
     if path.exists() {
         return load_existing_wallet(path);
     }
     let keypair = ShieldedKeypair::new()?;
-    save_wallet(path, &keypair)?;
+    let mut owner_bytes = [0u8; 32];
+    owner_bytes.copy_from_slice(keypair.signing_key.secret_bytes().as_slice());
+    let owner = Address::new_from_array(owner_bytes);
+    save_wallet(path, owner, &keypair)?;
     println!("created wallet at {}", path.display());
-    Ok(keypair)
+    Ok(WalletMaterial { owner, keypair })
 }
 
-fn load_existing_wallet(path: &Path) -> Result<ShieldedKeypair> {
+fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
     let bytes =
         fs::read(path).with_context(|| format!("failed to read wallet {}", path.display()))?;
     let file: WalletFile = serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to parse wallet {}", path.display()))?;
     let signing_bytes = parse_hex_array::<32>(&file.signing_key_hex)?;
     let viewing_bytes = parse_hex_array::<32>(&file.viewing_key_hex)?;
+    let owner = parse_address(&file.owner)?;
     let signing = SigningKey::from_bytes(&signing_bytes)?;
     let viewing = ViewingKey::from_bytes(&viewing_bytes)?;
-    ShieldedKeypair::from_keys(signing, viewing).map_err(Into::into)
+    let keypair = ShieldedKeypair::from_keys(signing, viewing)?;
+    Ok(WalletMaterial { owner, keypair })
 }
 
-fn save_wallet(path: &Path, keypair: &ShieldedKeypair) -> Result<()> {
+fn save_wallet(path: &Path, owner: Address, keypair: &ShieldedKeypair) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
     let file = WalletFile {
         version: 1,
+        owner: format_address(owner),
         signing_key_hex: hex::encode(keypair.signing_key.secret_bytes().as_slice()),
         viewing_key_hex: hex::encode(keypair.viewing_key.secret_bytes().as_slice()),
     };
-    let serialized = serde_json::to_vec_pretty(&file)?;
-    fs::write(path, serialized).with_context(|| format!("failed to write {}", path.display()))
+    fs::write(path, serde_json::to_vec_pretty(&file)?)
+        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn load_or_create_ledger(path: &Path) -> Result<LedgerFile> {
@@ -456,8 +395,8 @@ fn save_ledger(path: &Path, ledger: &LedgerFile) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let serialized = serde_json::to_vec_pretty(ledger)?;
-    fs::write(path, serialized).with_context(|| format!("failed to write {}", path.display()))
+    fs::write(path, serde_json::to_vec_pretty(ledger)?)
+        .with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn resolve_wallet_path(value: Option<&str>) -> PathBuf {
@@ -491,32 +430,41 @@ fn runtime_sync_to_stored(tx: &SyncTransaction) -> StoredSyncTransaction {
 }
 
 fn stored_sync_to_runtime(tx: &StoredSyncTransaction) -> Result<SyncTransaction> {
-    let encrypted = hex::decode(&tx.encrypted_utxos_hex)
-        .with_context(|| "invalid transaction encrypted_utxos hex")?;
-    let sender_view_tag = parse_hex_array::<32>(&tx.sender_view_tag_hex)?;
-    let mut nullifiers = Vec::with_capacity(tx.nullifiers_hex.len());
-    for value in &tx.nullifiers_hex {
-        nullifiers.push(parse_hex_array::<32>(value)?);
-    }
     Ok(SyncTransaction {
-        encrypted_utxos: encrypted,
-        sender_view_tag,
-        nullifiers,
+        encrypted_utxos: hex::decode(&tx.encrypted_utxos_hex)
+            .with_context(|| "invalid transaction encrypted_utxos hex")?,
+        sender_view_tag: parse_hex_array::<32>(&tx.sender_view_tag_hex)?,
+        nullifiers: tx
+            .nullifiers_hex
+            .iter()
+            .map(|value| parse_hex_array::<32>(value))
+            .collect::<Result<Vec<_>>>()?,
     })
 }
 
+fn runtime_deposit_to_stored(value: &DepositView) -> StoredDepositView {
+    StoredDepositView {
+        view_tag_hex: hex::encode(value.view_tag),
+        utxo_hash_hex: hex::encode(value.utxo_hash),
+        asset: format_address(Address::new_from_array(value.asset)),
+        amount: value.amount,
+        owner_utxo_hash_hex: hex::encode(value.owner_utxo_hash),
+        salt_hex: hex::encode(value.salt),
+        output_tree_hex: hex::encode(value.output_tree),
+        leaf_index: value.leaf_index,
+    }
+}
+
 fn stored_deposit_to_runtime(value: &StoredDepositView) -> Result<DepositView> {
-    let salt = parse_hex_array::<SALT_LEN>(&value.salt_hex)?;
-    let asset = parse_address(&value.asset)?;
     Ok(DepositView {
         view_tag: parse_hex_array::<32>(&value.view_tag_hex)?,
         utxo_hash: parse_hex_array::<32>(&value.utxo_hash_hex)?,
-        asset: asset.to_bytes(),
+        asset: parse_address(&value.asset)?.to_bytes(),
         amount: value.amount,
         zone_program_id: None,
         policy_data_hash: None,
         owner_utxo_hash: parse_hex_array::<32>(&value.owner_utxo_hash_hex)?,
-        salt,
+        salt: parse_hex_array::<16>(&value.salt_hex)?,
         program_data_hash: None,
         program_data: None,
         zone_data: None,
@@ -564,16 +512,11 @@ fn parse_hex_array<const N: usize>(value: &str) -> Result<[u8; N]> {
     Ok(out)
 }
 
-fn unix_timestamp_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use crate::args::WalletPathOptions;
 
     fn temp_root(prefix: &str) -> PathBuf {
@@ -585,15 +528,21 @@ mod tests {
     }
 
     fn balance_for(wallet: &Path, state: &Path, mint: Address) -> Result<u64> {
-        let keypair = load_existing_wallet(wallet)?;
+        let wallet = load_existing_wallet(wallet)?;
         let ledger = load_or_create_ledger(state)?;
-        let assets = ledger.asset_registry()?;
-        let wallet = synced_wallet(&keypair, &ledger)?;
-        Ok(wallet
-            .balances(&assets, true)?
-            .into_iter()
-            .find_map(|balance| (balance.mint == mint).then_some(balance.amount))
-            .unwrap_or(0))
+        let provider = provider_from_ledger(&ledger)?;
+        run_async(async {
+            let (mut client, wallet_id) = ready_client(wallet, provider).await?;
+            client.sync_private_wallet(wallet_id).await?;
+            let balances = client.get_private_token_balances(wallet_id).await?;
+            Ok::<_, anyhow::Error>(
+                balances
+                    .balances
+                    .into_iter()
+                    .find_map(|balance| (balance.mint == mint).then_some(balance.amount))
+                    .unwrap_or(0),
+            )
+        })
     }
 
     #[test]
@@ -610,7 +559,7 @@ mod tests {
             },
             mint: None,
         })
-        .expect("init bob wallet");
+        .expect("init bob");
         run_deposit(DepositOptions {
             paths: WalletPathOptions {
                 wallet: Some(alice_wallet.display().to_string()),

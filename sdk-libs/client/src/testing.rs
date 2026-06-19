@@ -18,9 +18,57 @@ pub struct InMemoryPrivacyProvider {
     pub(crate) network: PrivacyNetwork,
 }
 
+#[derive(Clone)]
+pub struct ProviderParts {
+    pub next_wallet_id: u64,
+    pub next_asset_id: u64,
+    pub next_counter: u64,
+    pub next_signature: u64,
+    pub transactions: Vec<SyncTransaction>,
+    pub proofless_deposits: Vec<DepositView>,
+    pub assets: AssetRegistry,
+}
+
 impl InMemoryPrivacyProvider {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_parts(parts: ProviderParts) -> Self {
+        let state = NetworkState {
+            next_wallet_id: parts.next_wallet_id,
+            next_asset_id: parts.next_asset_id,
+            next_counter: parts.next_counter,
+            next_signature: parts.next_signature,
+            wallets: HashMap::new(),
+            inboxes: HashMap::new(),
+            transactions: parts.transactions,
+            proofless_deposits: parts.proofless_deposits,
+            history: HashMap::new(),
+            assets: parts.assets,
+        };
+        Self {
+            network: PrivacyNetwork {
+                state: Arc::new(Mutex::new(state)),
+            },
+        }
+    }
+
+    pub fn export_parts(&self) -> Result<ProviderParts> {
+        let state = self
+            .network
+            .state
+            .lock()
+            .map_err(|_| WalletError::LockPoisoned)?;
+        Ok(ProviderParts {
+            next_wallet_id: state.next_wallet_id,
+            next_asset_id: state.next_asset_id,
+            next_counter: state.next_counter,
+            next_signature: state.next_signature,
+            transactions: state.transactions.clone(),
+            proofless_deposits: state.proofless_deposits.clone(),
+            assets: state.assets.clone(),
+        })
     }
 }
 

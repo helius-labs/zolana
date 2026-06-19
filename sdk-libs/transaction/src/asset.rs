@@ -48,6 +48,13 @@ impl AssetRegistry {
             .find_map(|(id, m)| (m == mint).then_some(*id))
             .ok_or(TransactionError::UnknownMint(*mint))
     }
+
+    pub fn entries(&self) -> Vec<(u64, Address)> {
+        let mut entries: Vec<(u64, Address)> =
+            self.0.iter().map(|(id, mint)| (*id, *mint)).collect();
+        entries.sort_by_key(|(id, _)| *id);
+        entries
+    }
 }
 
 impl Default for AssetRegistry {
