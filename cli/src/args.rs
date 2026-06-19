@@ -22,6 +22,27 @@ pub(crate) enum CliCommand {
 
     #[command(name = "start-prover", about = "Start the local prover server")]
     StartProver(StartProverOptions),
+
+    #[command(
+        name = "deposit",
+        about = "Create a private deposit in the local CLI state"
+    )]
+    Deposit(DepositOptions),
+
+    #[command(
+        name = "transfer",
+        about = "Send a private transfer to another filesystem wallet"
+    )]
+    Transfer(TransferOptions),
+
+    #[command(
+        name = "withdraw",
+        about = "Withdraw private funds to an external public address (simulated)"
+    )]
+    Withdraw(WithdrawOptions),
+
+    #[command(name = "balance", about = "Show private wallet balances")]
+    Balance(BalanceOptions),
 }
 
 #[derive(Debug)]
@@ -187,6 +208,78 @@ pub(crate) struct StartProverOptions {
     pub(crate) redis_url: Option<String>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub(crate) struct WalletPathOptions {
+    #[arg(
+        long,
+        help = "Path to the filesystem wallet file (default: ~/.config/zolana/wallet.json)",
+        value_name = "PATH"
+    )]
+    pub(crate) wallet: Option<String>,
+
+    #[arg(
+        long = "state-file",
+        help = "Path to shared CLI state file (default: ~/.config/zolana/state.json)",
+        value_name = "PATH"
+    )]
+    pub(crate) state_file: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct DepositOptions {
+    #[command(flatten)]
+    pub(crate) paths: WalletPathOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to deposit")]
+    pub(crate) amount: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct TransferOptions {
+    #[command(flatten)]
+    pub(crate) paths: WalletPathOptions,
+
+    #[arg(
+        long = "to-wallet",
+        help = "Recipient wallet file path",
+        value_name = "PATH"
+    )]
+    pub(crate) to_wallet: String,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to transfer")]
+    pub(crate) amount: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct WithdrawOptions {
+    #[command(flatten)]
+    pub(crate) paths: WalletPathOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(long, help = "Amount to withdraw")]
+    pub(crate) amount: u64,
+
+    #[arg(long, help = "Destination public address for bookkeeping")]
+    pub(crate) to: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct BalanceOptions {
+    #[command(flatten)]
+    pub(crate) paths: WalletPathOptions,
+
+    #[arg(long, help = "Optional mint filter (address or SOL)")]
+    pub(crate) mint: Option<String>,
+}
+
 impl TestValidatorOptions {
     pub(crate) fn use_surfpool_backend(&self) -> bool {
         self.use_surfpool || !self.no_use_surfpool
@@ -240,7 +333,7 @@ pub(crate) fn parse_validator(values: &[&str]) -> TestValidatorOptions {
     .expect("command")
     {
         CliCommand::TestValidator(opts) => *opts,
-        CliCommand::StartProver(_) => panic!("expected test-validator command"),
+        _ => panic!("expected test-validator command"),
     }
 }
 
