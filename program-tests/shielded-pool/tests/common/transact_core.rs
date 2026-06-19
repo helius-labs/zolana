@@ -135,6 +135,7 @@ pub fn new_transact_ix_data(
         public_spl_amount: None,
         cpi_signer: None,
         tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         sender_utxo_data,
         recipient_utxo_data,
     }

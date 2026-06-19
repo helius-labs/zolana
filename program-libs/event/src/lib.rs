@@ -18,6 +18,10 @@ pub struct GeneralEvent {
     /// indexer can decrypt without parsing the opaque payloads. Zeroed for
     /// proofless deposits, which carry no shared viewing key.
     pub tx_viewing_pk: [u8; 33],
+    /// Per-transaction encryption salt shared by every output ciphertext, so a
+    /// wallet can derive the AES key/nonce without parsing the opaque payloads.
+    /// Zeroed for proofless deposits, which carry no shared salt.
+    pub salt: [u8; 16],
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],

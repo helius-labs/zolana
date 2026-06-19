@@ -8,16 +8,16 @@ mod test_indexer;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use test_indexer::TestIndexer;
-use zolana_client::error::ClientError;
 use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
-    CircuitType, PublicAmounts, Rpc, SignedTransaction, SpendUtxo, Transaction, TransferP256Prover,
-    WithdrawalTarget,
+    CircuitType, ClientError, InputTreeIndices, PublicAmounts, Rpc, SignedTransaction, SpendUtxo,
+    Transaction, TransferP256Prover, WithdrawalTarget,
 };
 use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_keypair::{NullifierKey, PublicKey};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::transfer::{
-    TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+    OutputCiphertext, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+    SENDER_SLOT_COUNT,
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{
@@ -78,7 +78,22 @@ fn decrypt(
     first_nullifier: &[u8; 32],
     external_data: &ExternalData,
 ) -> (TransferSenderPlaintext, Vec<TransferRecipientPlaintext>) {
-    let blob = TransferEncryptedUtxos::deserialize(&external_data.encrypted_utxos).unwrap();
+    let slots: Vec<OutputCiphertext> = external_data
+        .output_slots
+        .iter()
+        .map(|slot| OutputCiphertext {
+            view_tag: slot.view_tag,
+            data: slot.data.clone(),
+        })
+        .collect();
+    let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
+    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
+        tx_viewing_pk,
+        external_data.salt,
+        &slots,
+        SENDER_SLOT_COUNT,
+    )
+    .unwrap();
     sender
         .viewing_key
         .decrypt_transfer(first_nullifier, &blob)
@@ -117,10 +132,15 @@ fn transfer_round_trip_outputs_and_bundle() {
     let (sender_pt, recipients_pt) = decrypt(&sender, &first_nullifier, &prover.external_data);
     let seed = sender_pt.blinding_seed;
 
-    // Proof outputs: SOL change (position 1) + recipient (position 2).
+    // Proof outputs: empty SPL slot (position 0), SOL change (position 1), and the
+    // recipient (position 2).
     assert_eq!(
         prover.outputs,
         vec![
+            OutputUtxo {
+                blinding: derive_blinding(&seed, 0),
+                ..Default::default()
+            },
             OutputUtxo {
                 owner_hash: sender_owner,
                 asset: SOL_MINT,
@@ -148,15 +168,21 @@ fn transfer_round_trip_outputs_and_bundle() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: 0,
-            sender_view_tag: sender.get_sender_view_tag(0).unwrap(),
             relayer_fee: 0,
-            public_sol_amount: 0,
-            public_spl_amount: 0,
+            public_sol_amount: None,
+            public_spl_amount: None,
             user_sol_account: Address::default(),
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
-            encrypted_utxos: prover.external_data.encrypted_utxos.clone(),
+            cpi_signer: None,
+            tx_viewing_pk: prover.external_data.tx_viewing_pk,
+            salt: prover.external_data.salt,
+            output_slots: prover.external_data.output_slots.clone(),
         }
+    );
+    assert_eq!(
+        prover.external_data.output_slots[0].view_tag,
+        sender.get_sender_view_tag(0).unwrap()
     );
 
     // The encrypted bundle decrypts back to the sender change + recipient.
@@ -184,6 +210,94 @@ fn transfer_round_trip_outputs_and_bundle() {
             data: Data::default(),
         }]
     );
+}
+
+#[test]
+fn into_transact_ix_data_carries_ciphertext_and_decrypts() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let recipient_view_tag = recipient.recipient_bootstrap_view_tag();
+
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        vec![p256_input(&sender, 100, &mut rng)],
+        Address::default(),
+    );
+    tx.send(
+        &recipient.shielded_address().unwrap(),
+        SOL_MINT,
+        60,
+        recipient_view_tag,
+    )
+    .unwrap();
+    let signed = sign(tx, &sender).unwrap();
+
+    let commitments = signed.input_commitments().unwrap();
+    let first_nullifier = commitments.first().unwrap().nullifier;
+    let placements: Vec<InputTreeIndices> = commitments
+        .iter()
+        .map(|_| InputTreeIndices {
+            utxo_tree_root_index: 5,
+            nullifier_tree_root_index: 0,
+            tree_index: 0,
+            eddsa_signer_index: 0,
+        })
+        .collect();
+
+    let ix = signed
+        .into_transact_ix_data([0u8; 192], &placements)
+        .unwrap();
+
+    // Inputs carry each nullifier plus the supplied tree placement.
+    assert_eq!(ix.inputs.len(), placements.len());
+    assert_eq!(ix.inputs[0].nullifier_hash, first_nullifier);
+    assert_eq!(ix.inputs[0].utxo_tree_root_index, 5);
+
+    // A pure transfer moves no public value.
+    assert_eq!(ix.public_sol_amount, None);
+    assert_eq!(ix.public_spl_amount, None);
+
+    // Slot 0 is the sender bundle under the sender view tag; the recipient slot
+    // carries the recipient view tag and a non-empty ciphertext.
+    assert_eq!(
+        ix.sender_utxo_data.view_tag,
+        sender.get_sender_view_tag(0).unwrap()
+    );
+    assert!(!ix.sender_utxo_data.data.is_empty());
+    let recipient_slot = ix
+        .recipient_utxo_data
+        .iter()
+        .find(|slot| slot.view_tag == recipient_view_tag)
+        .expect("recipient slot present");
+    assert!(!recipient_slot.data.is_empty());
+
+    // The per-output ciphertext slots reconstruct the bundle and decrypt back to
+    // the original transfer (sender slot 0 + one recipient).
+    let mut slots = vec![OutputCiphertext {
+        view_tag: ix.sender_utxo_data.view_tag,
+        data: ix.sender_utxo_data.data.clone(),
+    }];
+    slots.extend(ix.recipient_utxo_data.iter().map(|slot| OutputCiphertext {
+        view_tag: slot.view_tag,
+        data: slot.data.clone(),
+    }));
+    let tx_viewing_pk = P256Pubkey::from_bytes(ix.tx_viewing_pk).unwrap();
+    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
+        tx_viewing_pk,
+        ix.salt,
+        &slots,
+        SENDER_SLOT_COUNT,
+    )
+    .unwrap();
+    let (sender_pt, recipients_pt) = sender
+        .viewing_key
+        .decrypt_transfer(&first_nullifier, &blob)
+        .unwrap();
+    assert_eq!(sender_pt.sol_amount, 40);
+    assert_eq!(recipients_pt.len(), 1);
+    assert_eq!(recipients_pt[0].amount, 60);
+    assert_eq!(recipients_pt[0].owner_pubkey, recipient.signing_pubkey());
 }
 
 #[test]
@@ -220,13 +334,19 @@ fn withdrawal_sets_external_data_and_change() {
 
     assert_eq!(
         prover.outputs,
-        vec![OutputUtxo {
-            owner_hash: sender_owner,
-            asset: SOL_MINT,
-            amount: 70,
-            blinding: derive_blinding(&seed, 1),
-            ..Default::default()
-        }]
+        vec![
+            OutputUtxo {
+                blinding: derive_blinding(&seed, 0),
+                ..Default::default()
+            },
+            OutputUtxo {
+                owner_hash: sender_owner,
+                asset: SOL_MINT,
+                amount: 70,
+                blinding: derive_blinding(&seed, 1),
+                ..Default::default()
+            }
+        ]
     );
     assert!(recipients_pt.is_empty());
     assert_eq!(
@@ -242,14 +362,16 @@ fn withdrawal_sets_external_data_and_change() {
         ExternalData {
             instruction_discriminator: 0,
             expiry_unix_ts: 0,
-            sender_view_tag: sender.get_sender_view_tag(0).unwrap(),
             relayer_fee: 0,
-            public_sol_amount: 30,
-            public_spl_amount: 0,
+            public_sol_amount: Some(-30),
+            public_spl_amount: None,
             user_sol_account: dest,
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
-            encrypted_utxos: prover.external_data.encrypted_utxos.clone(),
+            cpi_signer: None,
+            tx_viewing_pk: prover.external_data.tx_viewing_pk,
+            salt: prover.external_data.salt,
+            output_slots: prover.external_data.output_slots.clone(),
         }
     );
 }

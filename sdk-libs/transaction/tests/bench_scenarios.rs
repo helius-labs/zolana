@@ -2,16 +2,15 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::helpers::{
-    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
-};
-use common::InMemoryWallet;
+use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::wallet::{SyncReport, SyncTransaction};
-use zolana_transaction::DEFAULT_TAG_WINDOW;
-use zolana_transaction::{AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID};
+use zolana_transaction::transfer::OutputCiphertext;
+use zolana_transaction::wallet::{SyncReport, SyncTransaction, Wallet};
+use zolana_transaction::{
+    AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SPLIT,
+};
 
 const KNOWN_SENDERS: usize = 100;
 const KNOWN_RECIPIENTS: usize = 50;
@@ -253,8 +252,13 @@ impl Scenario {
                 .encrypt_split(&first_nullifier, &bundle)
                 .unwrap();
             self.txs.push(SyncTransaction {
-                encrypted_utxos: blob.serialize().unwrap(),
-                sender_view_tag,
+                scheme: SPLIT,
+                tx_viewing_pk: blob.tx_viewing_pk,
+                salt: blob.salt,
+                output_slots: vec![OutputCiphertext {
+                    view_tag: sender_view_tag,
+                    data: blob.ciphertext.clone(),
+                }],
                 nullifiers: vec![first_nullifier],
             });
         }
@@ -271,7 +275,7 @@ fn build_scenario() -> Scenario {
     scenario
 }
 
-fn verify_sync(scenario: &Scenario, wallet: &InMemoryWallet, report: &SyncReport) {
+fn verify_sync(scenario: &Scenario, wallet: &Wallet, report: &SyncReport) {
     let own_transactions = BOOTSTRAP_RECEIVES
         + REQUEST_RECEIVES
         + total_shared_receives()
@@ -305,7 +309,7 @@ fn verify_sync(scenario: &Scenario, wallet: &InMemoryWallet, report: &SyncReport
 #[ignore]
 fn defi_trader_full_sync() {
     let scenario = build_scenario();
-    let mut wallet = InMemoryWallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
         .sync(&scenario.txs, &[], &scenario.assets, 1, DEFAULT_TAG_WINDOW)
@@ -334,10 +338,10 @@ fn defi_trader_full_sync() {
 #[ignore]
 fn defi_trader_full_sync_parallel() {
     let scenario = build_scenario();
-    let mut wallet = InMemoryWallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync_parallel(&scenario.txs, &[], &scenario.assets, 1, DEFAULT_TAG_WINDOW)
+        .sync_parallel(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 

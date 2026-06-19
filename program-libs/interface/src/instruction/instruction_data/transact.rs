@@ -34,6 +34,10 @@ pub struct TransactIxData {
     /// this transaction; copied verbatim into the emitted `GeneralEvent` so an
     /// indexer need not parse the opaque output payloads.
     pub tx_viewing_pk: [u8; 33],
+    /// Per-transaction encryption salt shared by every output ciphertext;
+    /// copied into the emitted `GeneralEvent` so wallets can derive the AES
+    /// key/nonce without parsing the opaque output payloads.
+    pub salt: [u8; 16],
     pub sender_utxo_data: OutputUtxo,
     #[wincode(with = "containers::Vec<OutputUtxo, FixIntLen<u8>>")]
     pub recipient_utxo_data: Vec<OutputUtxo>,
@@ -83,6 +87,7 @@ pub struct TransactIxDataRef<'a> {
     pub public_spl_amount: Option<i64>,
     pub cpi_signer: Option<CpiSignerData>,
     pub tx_viewing_pk: &'a [u8; 33],
+    pub salt: &'a [u8; 16],
     pub sender_utxo_data: OutputUtxoRef<'a>,
     #[wincode(with = "containers::Vec<OutputUtxoRef<'a>, FixIntLen<u8>>")]
     pub recipient_utxo_data: Vec<OutputUtxoRef<'a>>,

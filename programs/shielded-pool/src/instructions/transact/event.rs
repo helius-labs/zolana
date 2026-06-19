@@ -39,6 +39,7 @@ pub fn build_transact_event(
         inputs: tree_write.inputs,
         outputs,
         tx_viewing_pk: *ix.tx_viewing_pk,
+        salt: *ix.salt,
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: (ix.relayer_fee != 0).then_some(u64::from(ix.relayer_fee)),
@@ -51,5 +52,64 @@ fn output_utxo(slot: &OutputUtxoRef<'_>) -> OutputUtxo {
         view_tag: *slot.view_tag,
         utxo_hash: *slot.utxo_hash,
         data: slot.data.to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+
+    use super::super::verify::MAX_INPUTS;
+
+    fn empty_proof_inputs() -> TransactProofInputs {
+        TransactProofInputs {
+            utxo_roots: [[0u8; 32]; MAX_INPUTS],
+            nullifier_tree_roots: [[0u8; 32]; MAX_INPUTS],
+            solana_owner_pk_hashes: [[0u8; 32]; MAX_INPUTS],
+            external_data_hash: [0u8; 32],
+            spl_mint: None,
+            program_id_hashchain: [0u8; 32],
+            payer_pubkey_hash: [0u8; 32],
+        }
+    }
+
+    #[test]
+    fn copies_tx_viewing_pk_and_salt_from_instruction_data() {
+        let tx_viewing_pk = [9u8; 33];
+        let salt = [7u8; 16];
+        let ix_data = TransactIxData {
+            proof: [0u8; 192],
+            expiry_unix_ts: 0,
+            relayer_fee: 0,
+            private_tx_hash: [0u8; 32],
+            inputs: Vec::new(),
+            public_sol_amount: None,
+            public_spl_amount: None,
+            cpi_signer: None,
+            tx_viewing_pk,
+            salt,
+            sender_utxo_data: OutputUtxo {
+                view_tag: [1u8; 32],
+                utxo_hash: [2u8; 32],
+                data: Vec::new(),
+            },
+            recipient_utxo_data: Vec::new(),
+        };
+        let bytes = ix_data.serialize().expect("serialize");
+        let ix = TransactIxDataRef::from_bytes(&bytes).expect("ref");
+
+        let event = build_transact_event(
+            &ix,
+            &empty_proof_inputs(),
+            TreeWrite {
+                inputs: Vec::new(),
+                first_output_leaf_index: 0,
+                output_tree: [0u8; 32],
+            },
+        );
+
+        assert_eq!(event.tx_viewing_pk, tx_viewing_pk);
+        assert_eq!(event.salt, salt);
     }
 }

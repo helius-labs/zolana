@@ -8,7 +8,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::split::SplitBundlePlaintext;
 use zolana_transaction::transfer::{
-    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
+    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext, SENDER_SLOT_COUNT,
 };
 use zolana_transaction::{
     AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
@@ -156,7 +156,13 @@ fn decrypt(c: &mut Criterion) {
             blinding_seed: unique31(&mut counter, 0xCC),
         },
     );
-    let recipient_blob = TransferEncryptedUtxos::deserialize(&tx.encrypted_utxos).unwrap();
+    let recipient_blob = TransferEncryptedUtxos::from_output_ciphertexts(
+        tx.tx_viewing_pk,
+        tx.salt,
+        &tx.output_slots,
+        SENDER_SLOT_COUNT,
+    )
+    .unwrap();
     group.bench_function("decrypt_transfer_recipient", |b| {
         b.iter(|| {
             alice

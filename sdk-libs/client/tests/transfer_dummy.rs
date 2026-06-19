@@ -17,6 +17,7 @@
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{spawn_prover, ProverClient, PublicAmounts, Shape, TransferProver};
+use zolana_interface::event::OutputUtxo as OutputSlot;
 use zolana_interface::verifying_keys::transfer_2_3;
 use zolana_transaction::ExternalData;
 
@@ -38,14 +39,22 @@ fn dummy_external_data() -> ExternalData {
     ExternalData {
         instruction_discriminator: 0,
         expiry_unix_ts: 0,
-        sender_view_tag: [0u8; 32],
         relayer_fee: 0,
-        public_sol_amount: 0,
-        public_spl_amount: 0,
+        public_sol_amount: None,
+        public_spl_amount: None,
         user_sol_account: Address::default(),
         user_spl_token: Address::default(),
         spl_token_interface: Address::default(),
-        encrypted_utxos: Vec::new(),
+        cpi_signer: None,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        output_slots: (0..3)
+            .map(|_| OutputSlot {
+                view_tag: [0u8; 32],
+                utxo_hash: [0u8; 32],
+                data: Vec::new(),
+            })
+            .collect(),
     }
 }
 

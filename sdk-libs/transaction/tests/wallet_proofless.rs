@@ -1,18 +1,21 @@
 use zolana_interface::event::DepositView;
-use zolana_keypair::constants::{SALT_LEN, VIEW_TAG_LEN};
+use zolana_keypair::constants::SALT_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT};
+use zolana_transaction::{
+    owner_utxo_hash, utxo_hash, AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
+    SOL_MINT, TRANSFER,
+};
 
-fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> DepositView {
+fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> DepositView {
     let salt = [9u8; SALT_LEN];
-    let blinding = keypair
+    let blinding = wallet
+        .keypair
         .viewing_key
         .derive_proofless_blinding(&salt)
         .expect("derive proofless blinding");
-    let owner_hash = keypair.owner_hash().expect("owner hash");
-    let owner_utxo_hash =
-        zolana_transaction::owner_utxo_hash(&owner_hash, &blinding).expect("owner UTXO hash");
-    let utxo_hash = zolana_transaction::utxo_hash(
+    let owner_hash = wallet.keypair.owner_hash().expect("owner hash");
+    let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding).expect("owner UTXO hash");
+    let utxo_hash = utxo_hash(
         SOL_MINT,
         amount,
         &[0u8; 32],
@@ -23,7 +26,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> DepositVie
     .expect("UTXO hash");
 
     DepositView {
-        view_tag: keypair.recipient_bootstrap_view_tag(),
+        view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
         utxo_hash,
         asset: SOL_MINT.to_bytes(),
         amount,
@@ -41,14 +44,13 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> DepositVie
 
 #[test]
 fn sync_discovers_and_spends_proofless_deposit() {
-    let keypair = ShieldedKeypair::new().expect("shielded keypair");
-    let mut wallet = Wallet::new_from_keypair(&keypair).expect("wallet");
+    let mut wallet =
+        Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
     let assets = AssetRegistry::default();
-    let deposit = self_consistent_deposit(&keypair, 1_234);
+    let deposit = self_consistent_deposit(&wallet, 1_234);
 
     wallet
-        .sync_keypair(
-            &keypair,
+        .sync(
             &[],
             std::slice::from_ref(&deposit),
             &assets,
@@ -62,8 +64,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
     let nullifier = wallet.utxos[0].nullifier;
 
     wallet
-        .sync_keypair(
-            &keypair,
+        .sync(
             &[],
             std::slice::from_ref(&deposit),
             &assets,
@@ -74,12 +75,20 @@ fn sync_discovers_and_spends_proofless_deposit() {
     assert_eq!(wallet.utxos.len(), 1, "idempotent on re-sync");
 
     let spend = SyncTransaction {
-        encrypted_utxos: Vec::new(),
-        sender_view_tag: [0u8; VIEW_TAG_LEN],
+        scheme: TRANSFER,
+        tx_viewing_pk: wallet.keypair.viewing_pubkey(),
+        salt: [0u8; SALT_LEN],
+        output_slots: Vec::new(),
         nullifiers: vec![nullifier],
     };
     wallet
-        .sync_keypair(&keypair, &[spend], &[], &assets, 3, DEFAULT_TAG_WINDOW)
-        .expect("sync marks spent");
-    assert!(wallet.utxos[0].spent, "nullifier marks UTXO spent");
+        .sync(
+            std::slice::from_ref(&spend),
+            &[],
+            &assets,
+            3,
+            DEFAULT_TAG_WINDOW,
+        )
+        .expect("sync spend");
+    assert!(wallet.utxos[0].spent, "deposit spent by its nullifier");
 }

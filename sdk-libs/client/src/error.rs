@@ -60,6 +60,12 @@ pub enum ClientError {
     #[error("missing input merkle proof for input {index}")]
     MissingInputMerkleProof { index: usize },
 
+    #[error("expected {expected} input tree-index entries, got {actual}")]
+    InputTreeIndexCountMismatch { expected: usize, actual: usize },
+
+    #[error("transaction has no output slots")]
+    MissingOutput,
+
     #[error("rpc error: {0}")]
     Rpc(String),
 
