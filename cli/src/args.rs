@@ -35,6 +35,12 @@ pub(crate) enum WalletCommand {
     #[command(name = "init", about = "Create filesystem private keypair")]
     Init(InitOptions),
 
+    #[command(
+        name = "create-tree",
+        about = "Initialize protocol config and a pool tree on the configured RPC"
+    )]
+    CreateTree(CreateTreeOptions),
+
     #[command(name = "sync", about = "Sync private wallet state")]
     Sync(SyncOptions),
 
@@ -255,11 +261,49 @@ pub(crate) struct SyncOptions {
 }
 
 #[derive(Args, Debug, Clone)]
-pub(crate) struct DepositOptions {
+pub(crate) struct NetworkWalletOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
-    #[arg(long, help = "Destination public address (inbox)")]
+    #[arg(long, help = "Shielded-pool tree account")]
+    pub(crate) tree: String,
+
+    #[arg(
+        long = "prover-url",
+        default_value = "http://127.0.0.1:3001",
+        help = "Prover server URL"
+    )]
+    pub(crate) prover_url: String,
+
+    #[arg(
+        long = "airdrop-lamports",
+        help = "Request a localnet airdrop for the wallet funding key before submitting"
+    )]
+    pub(crate) airdrop_lamports: Option<u64>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct CreateTreeOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Tree keypair path to create or reuse")]
+    pub(crate) tree_keypair: String,
+
+    #[arg(
+        long = "airdrop-lamports",
+        default_value_t = 20_000_000_000,
+        help = "Localnet airdrop amount for the wallet funding key"
+    )]
+    pub(crate) airdrop_lamports: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct DepositOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, help = "Recipient wallet file path")]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
@@ -272,13 +316,9 @@ pub(crate) struct DepositOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct TransferOptions {
     #[command(flatten)]
-    pub(crate) sync: SyncOptions,
+    pub(crate) network: NetworkWalletOptions,
 
-    #[arg(
-        long = "to",
-        help = "Recipient as base58 pubkey or local keypair path",
-        value_name = "PUBKEY_OR_PATH"
-    )]
+    #[arg(long = "to", help = "Recipient wallet file path", value_name = "PATH")]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
@@ -291,7 +331,7 @@ pub(crate) struct TransferOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct WithdrawOptions {
     #[command(flatten)]
-    pub(crate) sync: SyncOptions,
+    pub(crate) network: NetworkWalletOptions,
 
     #[arg(long, help = "Destination public address")]
     pub(crate) to: String,

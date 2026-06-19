@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
+use zolana_keypair::hash::{hash_field, owner_hash, sha256, sha256_be, split_be_128};
 use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
@@ -267,13 +267,23 @@ pub(crate) fn assemble_inputs(
         solana_owner_pk_hashes.push(solana_owner_pk_hash);
     }
 
-    for _ in spends.len()..shape.n_inputs {
-        inputs.push(TransferInput::new_dummy());
+    let dummy_utxo_root = utxo_roots.first().copied().unwrap_or_default();
+    let dummy_nullifier_root = nullifier_tree_roots.first().copied().unwrap_or_default();
+    let dummy_owner_hash = solana_owner_pk_hashes.first().copied().unwrap_or_default();
+    let real_nullifiers = nullifiers.clone();
+    for pad_index in 0..shape.n_inputs.saturating_sub(spends.len()) {
+        let dummy_nullifier = dummy_nullifier(&real_nullifiers, pad_index);
+        inputs.push(dummy_input(
+            &dummy_nullifier,
+            &dummy_utxo_root,
+            &dummy_nullifier_root,
+            &dummy_owner_hash,
+        ));
         input_hashes.push([0u8; 32]);
-        nullifiers.push([0u8; 32]);
-        utxo_roots.push([0u8; 32]);
-        nullifier_tree_roots.push([0u8; 32]);
-        solana_owner_pk_hashes.push([0u8; 32]);
+        nullifiers.push(dummy_nullifier);
+        utxo_roots.push(dummy_utxo_root);
+        nullifier_tree_roots.push(dummy_nullifier_root);
+        solana_owner_pk_hashes.push(dummy_owner_hash);
     }
 
     Ok(AssembledInputs {
@@ -284,6 +294,40 @@ pub(crate) fn assemble_inputs(
         nullifier_tree_roots,
         solana_owner_pk_hashes,
     })
+}
+
+pub(crate) fn dummy_nullifier(real_nullifiers: &[[u8; 32]], pad_index: usize) -> [u8; 32] {
+    let mut preimage = Vec::with_capacity(32 + real_nullifiers.len() * 32 + 8);
+    preimage.extend_from_slice(b"zolana-dummy-nullifier-v1");
+    for nullifier in real_nullifiers {
+        preimage.extend_from_slice(nullifier);
+    }
+    preimage.extend_from_slice(&(pad_index as u64).to_be_bytes());
+    sha256_be(&preimage)
+}
+
+fn dummy_input(
+    nullifier: &[u8; 32],
+    utxo_root: &[u8; 32],
+    nullifier_root: &[u8; 32],
+    owner_hash: &[u8; 32],
+) -> TransferInput {
+    let zero_bytes = [0u8; 32];
+    TransferInput {
+        utxo: UtxoInputs::new_dummy(),
+        is_dummy: be(&one()),
+        state_path_elements: vec![be(&zero_bytes); crate::STATE_TREE_HEIGHT],
+        state_path_index: zero(),
+        nullifier_low_value: be(&zero_bytes),
+        nullifier_next_value: be(&zero_bytes),
+        nullifier_low_path_elements: vec![be(&zero_bytes); crate::NULLIFIER_TREE_HEIGHT],
+        nullifier_low_path_index: zero(),
+        utxo_tree_root: be(utxo_root),
+        nullifier_tree_root: be(nullifier_root),
+        nullifier: be(nullifier),
+        solana_owner_pk_hash: be(owner_hash),
+        nullifier_secret: be(&zero_bytes),
+    }
 }
 
 pub(crate) fn assemble_outputs(
@@ -358,4 +402,10 @@ impl PublicInputs<'_> {
 }
 fn zero() -> BigUint {
     BigUint::from(0u8)
+}
+
+fn one() -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[31] = 1;
+    out
 }

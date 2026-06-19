@@ -249,10 +249,12 @@ fn into_transact_ix_data_carries_ciphertext_and_decrypts() {
         .into_transact_ix_data([0u8; 192], Some(&placements))
         .unwrap();
 
-    // Inputs hold each nullifier plus the supplied tree placement.
-    assert_eq!(ix.inputs.len(), placements.len());
+    // Inputs carry each nullifier plus the supplied tree placement.
+    assert_eq!(ix.inputs.len(), 2);
     assert_eq!(ix.inputs[0].nullifier_hash, first_nullifier);
     assert_eq!(ix.inputs[0].utxo_tree_root_index, 5);
+    assert_ne!(ix.inputs[1].nullifier_hash, [0u8; 32]);
+    assert_eq!(ix.inputs[1].utxo_tree_root_index, 5);
 
     // A pure transfer moves no public value.
     assert_eq!(ix.public_sol_amount, None);

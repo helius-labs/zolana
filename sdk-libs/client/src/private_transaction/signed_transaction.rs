@@ -11,7 +11,7 @@ use crate::private_transaction::transaction::{
 use crate::prover::shape::Shape;
 use crate::prover::transfer::TransferProver;
 use crate::prover::transfer_p256::{
-    P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
+    dummy_nullifier, P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
 };
 
 #[derive(Clone)]
@@ -148,7 +148,8 @@ impl SignedTransaction {
                 &default_indices
             }
         };
-        let inputs = commitments
+        let uses_p256 = inputs_require_p256(&self.inputs)?;
+        let mut inputs: Vec<InputUtxo> = commitments
             .iter()
             .zip(input_tree_indices)
             .zip(&self.inputs)
@@ -168,6 +169,28 @@ impl SignedTransaction {
                 })
             })
             .collect::<Result<Vec<_>, ClientError>>()?;
+        if inputs.len() < self.shape.n_inputs {
+            let placement = input_tree_indices
+                .first()
+                .ok_or(ClientError::MissingInputMerkleProof { index: 0 })?;
+            let real_nullifiers = commitments
+                .iter()
+                .map(|commitment| commitment.nullifier)
+                .collect::<Vec<_>>();
+            for pad_index in 0..self.shape.n_inputs - inputs.len() {
+                inputs.push(InputUtxo {
+                    nullifier_hash: dummy_nullifier(&real_nullifiers, pad_index),
+                    nullifier_tree_root_index: placement.nullifier_tree_root_index,
+                    utxo_tree_root_index: placement.utxo_tree_root_index,
+                    tree_index: placement.tree_index,
+                    eddsa_signer_index: if uses_p256 {
+                        P256_OWNED_SIGNER
+                    } else {
+                        placement.eddsa_signer_index
+                    },
+                });
+            }
+        }
 
         let external_data_hash = self.external_data.hash()?;
         let mut input_hashes: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();

@@ -219,6 +219,7 @@ fn convert_shielded_transaction(
 fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, ClientError> {
     Ok(OutputSlot {
         view_tag: decode_hash(&slot.view_tag, &format!("{field}.view_tag"))?,
+        utxo_hash: decode_hash(&slot.hash, &format!("{field}.hash"))?,
         payload: decode_base64(&slot.payload, &format!("{field}.payload"))?,
     })
 }
