@@ -105,7 +105,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon (tools/restart-localnet.sh),
 # so the protocol-config singleton never collides across tests.
-test-localnet-e2e-photon: build-programs build-prover-server ensure-photon
+test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
