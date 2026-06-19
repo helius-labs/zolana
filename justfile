@@ -102,13 +102,25 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
-# Local-validator SOL cycle backed by a real Photon Zolana indexer.
-test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon
+# Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
+# `#[serial]` test restarts a fresh validator + Photon (tools/restart-localnet.sh),
+# so the protocol-config singleton never collides across tests.
+test-localnet-e2e-photon: build-programs build-prover-server ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    env ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo run -p zolana-cli -- test-validator --skip-prover --with-photon --no-use-surfpool --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash

@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::anyhow;
 use light_hasher::{sha256::Sha256BE, Hasher};
+use serial_test::serial;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -73,7 +74,9 @@ const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
+#[serial]
 fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
+    restart_localnet();
     start_prover()?;
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
@@ -581,6 +584,22 @@ fn print_signature(label: &str, signature: &Signature) {
     println!("{label}: {signature}");
 }
 
+/// Restart a fresh validator + Photon indexer so each test runs against clean
+/// chain state. The protocol config is a global singleton, so tests cannot share
+/// a validator; combined with `#[serial]` this gives every test an isolated
+/// localnet.
+fn restart_localnet() {
+    let script = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/restart-localnet.sh"
+    );
+    let status = std::process::Command::new("bash")
+        .arg(script)
+        .status()
+        .expect("run restart-localnet.sh");
+    assert!(status.success(), "restart-localnet.sh failed");
+}
+
 /// End-to-end encrypted transfer: shield two sender UTXOs, transfer one private
 /// output to a recipient using the high-level `Transaction` builder (real HPKE
 /// encryption), then recover the recipient UTXO purely by DECRYPTING the
@@ -590,7 +609,9 @@ fn print_signature(label: &str, signature: &Signature) {
 /// available `transfer_p256_2_3` key without padding the instruction with dummy
 /// (zero) nullifiers that the program would reject on insertion.
 #[test]
+#[serial]
 fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
+    restart_localnet();
     start_prover()?;
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
