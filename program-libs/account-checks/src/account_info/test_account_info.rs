@@ -3,7 +3,6 @@
 extern crate std;
 use std::vec::Vec;
 
-use rand::{prelude::Rng, thread_rng};
 use solana_account_view::{AccountView, RuntimeAccount};
 
 pub fn get_account_view(
@@ -58,6 +57,8 @@ pub fn get_account_view(
 
 #[test]
 fn test_get_account_view() {
+    use rand::{prelude::Rng, thread_rng};
+
     let mut rng = thread_rng();
     for _ in 0..1000 {
         let address = rng.gen::<[u8; 32]>();
