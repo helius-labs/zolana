@@ -6,9 +6,10 @@ use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, Tra
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::split::SplitBundlePlaintext;
+use zolana_transaction::transfer::OutputCiphertext;
 use zolana_transaction::wallet::{SyncReport, SyncTransaction, Wallet};
 use zolana_transaction::{
-    AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID,
+    AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SPLIT,
 };
 
 const KNOWN_SENDERS: usize = 100;
@@ -251,8 +252,13 @@ impl Scenario {
                 .encrypt_split(&first_nullifier, &bundle)
                 .unwrap();
             self.txs.push(SyncTransaction {
-                encrypted_utxos: blob.serialize().unwrap(),
-                sender_view_tag,
+                scheme: SPLIT,
+                tx_viewing_pk: blob.tx_viewing_pk,
+                salt: blob.salt,
+                output_slots: vec![OutputCiphertext {
+                    view_tag: sender_view_tag,
+                    data: blob.ciphertext.clone(),
+                }],
                 nullifiers: vec![first_nullifier],
             });
         }

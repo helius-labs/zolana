@@ -39,6 +39,7 @@ pub fn build_transact_event(
         inputs: tree_write.inputs,
         outputs,
         tx_viewing_pk: *ix.tx_viewing_pk,
+        salt: *ix.salt,
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: (ix.relayer_fee != 0).then_some(u64::from(ix.relayer_fee)),

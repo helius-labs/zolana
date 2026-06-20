@@ -6,12 +6,14 @@ use zolana_interface::event::DepositView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
+use zolana_keypair::constants::SALT_LEN;
+
 use crate::asset::AssetRegistry;
 use crate::data::{Data, DataRecord};
 use crate::encryption::TransactionEncryption;
 use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
-use crate::transfer::TransferEncryptedUtxos;
+use crate::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
 use crate::utxo::{owner_utxo_hash, utxo_hash, Utxo};
 use crate::{SPLIT, TRANSFER};
 
@@ -22,8 +24,15 @@ pub const DEFAULT_TAG_WINDOW: u64 = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncTransaction {
-    pub encrypted_utxos: Vec<u8>,
-    pub sender_view_tag: ViewTag,
+    /// Ciphertext scheme discriminator (`TRANSFER` or `SPLIT`).
+    pub scheme: u8,
+    /// Transaction-level shared viewing key for every output ciphertext.
+    pub tx_viewing_pk: P256Pubkey,
+    /// Transaction-level AES salt for every output ciphertext.
+    pub salt: [u8; SALT_LEN],
+    /// Per-output ciphertext slots in tree-append order. Slot 0 holds the
+    /// sender bundle (transfer) or the single split ciphertext.
+    pub output_slots: Vec<OutputCiphertext>,
     pub nullifiers: Vec<[u8; 32]>,
 }
 
@@ -100,19 +109,35 @@ impl TxIndex {
         let mut nullifiers = HashSet::new();
         for (t, tx) in transactions.iter().enumerate() {
             nullifiers.extend(tx.nullifiers.iter().copied());
-            let blob = match tx.encrypted_utxos.first() {
-                Some(&TRANSFER) => TransferEncryptedUtxos::deserialize(&tx.encrypted_utxos)
-                    .map(ParsedBlob::Transfer)
-                    .unwrap_or(ParsedBlob::Invalid),
-                Some(&SPLIT) => SplitEncryptedUtxos::deserialize(&tx.encrypted_utxos)
-                    .map(ParsedBlob::Split)
-                    .unwrap_or(ParsedBlob::Invalid),
+            // Slot 0's view tag is the sender bundle / split tag; the remaining
+            // slots hold recipient ciphertexts indexed by their own view tags.
+            let sender_view_tag = tx.output_slots.first().map(|slot| slot.view_tag);
+            let blob = match tx.scheme {
+                TRANSFER => TransferEncryptedUtxos::from_output_ciphertexts(
+                    tx.tx_viewing_pk,
+                    tx.salt,
+                    &tx.output_slots,
+                    SENDER_SLOT_COUNT,
+                )
+                .map(ParsedBlob::Transfer)
+                .unwrap_or(ParsedBlob::Invalid),
+                SPLIT => match tx.output_slots.first() {
+                    Some(slot) => ParsedBlob::Split(SplitEncryptedUtxos {
+                        type_prefix: SPLIT,
+                        tx_viewing_pk: tx.tx_viewing_pk,
+                        salt: tx.salt,
+                        ciphertext: slot.data.clone(),
+                    }),
+                    None => ParsedBlob::Invalid,
+                },
                 _ => ParsedBlob::Invalid,
             };
             match &blob {
                 ParsedBlob::Invalid => report.unparsed_transactions += 1,
                 ParsedBlob::Transfer(b) => {
-                    sender_sites.entry(tx.sender_view_tag).or_default().push(t);
+                    if let Some(tag) = sender_view_tag {
+                        sender_sites.entry(tag).or_default().push(t);
+                    }
                     for (slot, entry) in b.recipient_slots.iter().enumerate() {
                         recipient_sites
                             .entry(entry.view_tag)
@@ -121,7 +146,9 @@ impl TxIndex {
                     }
                 }
                 ParsedBlob::Split(_) => {
-                    sender_sites.entry(tx.sender_view_tag).or_default().push(t);
+                    if let Some(tag) = sender_view_tag {
+                        sender_sites.entry(tag).or_default().push(t);
+                    }
                 }
             }
             parsed.push(blob);

@@ -11,6 +11,8 @@ localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
 [dependencies]
 anyhow = { workspace = true }
 solana-instruction = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+serial_test = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }

@@ -19,9 +19,22 @@ pub const PROVE_PATH: &str = "/prove";
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
+// A heavy cold proof (the first P256 request loads a 63MB key and runs a
+// 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
+// contention while the server stays up. Proof generation is idempotent, so the
+// request is retried; the key is warm by the next attempt and proves quickly.
+const PROVE_MAX_ATTEMPTS: usize = 3;
+const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
+// Generous bound so a slow cold prove never hangs the client forever; the server
+// caps its own sync work at 120s, so a clean timeout returns well before this.
+const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
+const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
+
 fn build_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .no_proxy()
+        .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
         .build()
         .expect("failed to build HTTP client")
 }
@@ -64,14 +77,30 @@ impl ProverClient {
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
-        let response = self
-            .http
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .body(body)
-            .send()
-            .map_err(|e| ClientError::ProverServer(format!("request failed: {e}")))?;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let outcome = self
+                .http
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .body(body.clone())
+                .send();
+            match outcome {
+                Ok(response) => return Self::parse_response(response),
+                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                }
+                Err(e) => {
+                    return Err(ClientError::ProverServer(format!(
+                        "request failed after {attempt} attempt(s): {e}"
+                    )));
+                }
+            }
+        }
+    }
 
+    fn parse_response(response: reqwest::blocking::Response) -> Result<Proof, ClientError> {
         let status = response.status();
         let text = response
             .text()

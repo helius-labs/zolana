@@ -29,6 +29,7 @@ pub type ViewTag = [u8; VIEW_TAG_LEN];
 pub type Salt = [u8; SALT_LEN];
 
 /// A P-256 viewing keypair.
+#[derive(Clone)]
 pub struct ViewingKey {
     secret: SecretKey,
     view_root: Zeroizing<[u8; 32]>,

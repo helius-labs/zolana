@@ -49,6 +49,12 @@ pub enum TransactionError {
     #[error("poseidon hash failed: {0}")]
     Poseidon(String),
 
+    #[error("hash failed: {0}")]
+    Hash(String),
+
+    #[error("transaction has no output slots")]
+    MissingOutput,
+
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
 }

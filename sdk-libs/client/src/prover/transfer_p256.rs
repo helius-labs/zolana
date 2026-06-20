@@ -37,6 +37,7 @@ impl PublicAmounts {
     }
 }
 // Why does this exist? What does Precomputed mean?
+#[derive(Clone)]
 pub enum P256Owner {
     Signer(SigningKey),
     Precomputed {
@@ -69,7 +70,7 @@ impl TransferP256Prover {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         let assembled_inputs = assemble_inputs(&self.inputs, shape, true)?;
         let assembled_outputs = assemble_outputs(&self.outputs, shape)?;
-        let external_data_hash = self.external_data.hash();
+        let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.output_hashes,

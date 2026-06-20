@@ -1,9 +1,9 @@
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::transfer::{RecipientOutput, TransferSenderPlaintext};
+use zolana_transaction::transfer::{RecipientOutput, TransferSenderPlaintext, SENDER_SLOT_COUNT};
 use zolana_transaction::wallet::SyncTransaction;
-use zolana_transaction::{AssetRegistry, Data, TransactionEncryption, Utxo, SOL_MINT};
+use zolana_transaction::{AssetRegistry, Data, TransactionEncryption, Utxo, SOL_MINT, TRANSFER};
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut signing_bytes = [0u8; 32];
@@ -83,9 +83,18 @@ pub fn build_transfer(
             }],
         )
         .unwrap();
+    let output_slots = blob
+        .to_output_ciphertexts(
+            spec.sender_view_tag,
+            SENDER_SLOT_COUNT,
+            SENDER_SLOT_COUNT + blob.recipient_slots.len(),
+        )
+        .unwrap();
     let tx = SyncTransaction {
-        encrypted_utxos: blob.serialize().unwrap(),
-        sender_view_tag: spec.sender_view_tag,
+        scheme: TRANSFER,
+        tx_viewing_pk: blob.tx_viewing_pk,
+        salt: blob.salt,
+        output_slots,
         nullifiers: vec![spec.first_nullifier],
     };
     (tx, recipient_utxo, change)

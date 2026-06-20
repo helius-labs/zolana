@@ -5,6 +5,7 @@ members = [
     "program-libs/interface",
     "program-libs/tree",
     "program-tests/shielded-pool",
+    "program-tests/spp-test-validator",
     "program-tests/test-utils",
     "program-tests/user-registry",
     "programs/shielded-pool",

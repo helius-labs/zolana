@@ -1,10 +1,10 @@
-use std::{fs, path::Path, thread, time::Duration};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 
 use crate::{
     args::StartProverOptions,
-    config::{DEFAULT_LOG_DIR, READINESS_TIMEOUT},
+    config::{DEFAULT_LOG_DIR, PROVER_READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
     http::wait_for_http_get_with_child,
     process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
 };
@@ -50,11 +50,11 @@ pub(crate) fn start_prover_service(
         prover_port,
         "/health",
         READINESS_TIMEOUT,
+        PROVER_READINESS_STABLE_CHECKS,
         &mut child,
         "prover",
     )
     .with_context(|| format!("prover on port {prover_port} did not become ready"))?;
-    thread::sleep(Duration::from_secs(5));
     println!("Prover started successfully");
     std::mem::forget(child);
     Ok(())

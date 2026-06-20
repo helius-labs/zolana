@@ -15,9 +15,13 @@ pub struct GeneralEvent {
     pub inputs: Vec<Input>,
     pub outputs: Vec<OutputUtxo>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext, so an
-    /// indexer can decrypt without parsing the opaque payloads. Zeroed for
-    /// proofless deposits, which carry no shared viewing key.
+    /// indexer can decrypt without parsing the per-output `data`. Zeroed for
+    /// proofless deposits, which have no shared viewing key.
     pub tx_viewing_pk: [u8; 33],
+    /// Per-transaction encryption salt shared by every output ciphertext, so a
+    /// wallet can derive the AES key/nonce without parsing the per-output `data`.
+    /// Zeroed for proofless deposits, which have no shared salt.
+    pub salt: [u8; 16],
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],

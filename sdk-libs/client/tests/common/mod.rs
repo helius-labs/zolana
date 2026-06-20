@@ -19,9 +19,10 @@ use zolana_client::{
 };
 use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
 use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_keypair::{NullifierKey, PublicKey};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::transfer::{
-    TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+    OutputCiphertext, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+    SENDER_SLOT_COUNT,
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{
@@ -228,13 +229,6 @@ fn assert_outputs(
     recipients: &[ShieldedKeypair],
     first_nullifier: &[u8; 32],
 ) {
-    let blob = TransferEncryptedUtxos::deserialize(&external_data.encrypted_utxos).unwrap();
-    let (sender_pt, recipients_pt) = sender
-        .viewing_key
-        .decrypt_transfer(first_nullifier, &blob)
-        .unwrap();
-    let seed = sender_pt.blinding_seed;
-
     let net_public = |asset: Asset| -> i128 {
         match &plan.withdraw {
             Some(w) if w.asset == asset => -(w.amount as i128),
@@ -258,26 +252,60 @@ fn assert_outputs(
     let change =
         |asset: Asset| -> u64 { (input_sum(asset) + net_public(asset) - send_sum(asset)) as u64 };
 
+    let slots: Vec<OutputCiphertext> = external_data
+        .output_slots
+        .iter()
+        .map(|slot| OutputCiphertext {
+            view_tag: slot.view_tag,
+            data: slot.data.clone(),
+        })
+        .collect();
+    let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
+    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
+        tx_viewing_pk,
+        external_data.salt,
+        &slots,
+        SENDER_SLOT_COUNT,
+    )
+    .unwrap();
+    let (sender_pt, recipients_pt) = sender
+        .viewing_key
+        .decrypt_transfer(first_nullifier, &blob)
+        .unwrap();
+    let seed = sender_pt.blinding_seed;
+
     let owner_hash = sender.shielded_address().unwrap().owner_hash().unwrap();
     let mut expected = Vec::new();
-    if change(Asset::Spl) > 0 {
-        expected.push(OutputUtxo {
+    // Slots 0 and 1 are always present: real change when kept, otherwise an empty
+    // (owner = 0) UTXO whose blinding still derives from its fixed position.
+    expected.push(if change(Asset::Spl) > 0 {
+        OutputUtxo {
             owner_hash,
             asset: spl_mint(),
             amount: change(Asset::Spl),
             blinding: derive_blinding(&seed, 0),
             ..Default::default()
-        });
-    }
-    if change(Asset::Sol) > 0 {
-        expected.push(OutputUtxo {
+        }
+    } else {
+        OutputUtxo {
+            blinding: derive_blinding(&seed, 0),
+            ..Default::default()
+        }
+    });
+    expected.push(if change(Asset::Sol) > 0 {
+        OutputUtxo {
             owner_hash,
             asset: SOL_MINT,
             amount: change(Asset::Sol),
             blinding: derive_blinding(&seed, 1),
             ..Default::default()
-        });
-    }
+        }
+    } else {
+        OutputUtxo {
+            blinding: derive_blinding(&seed, 1),
+            ..Default::default()
+        }
+    });
     for (i, (recipient, send)) in recipients.iter().zip(&plan.sends).enumerate() {
         expected.push(OutputUtxo {
             owner_hash: recipient.shielded_address().unwrap().owner_hash().unwrap(),
@@ -319,20 +347,28 @@ fn assert_outputs(
         ),
         None => (Address::default(), Address::default(), Address::default()),
     };
+    let sol_public = net_public(Asset::Sol);
+    let spl_public = net_public(Asset::Spl);
     assert_eq!(
         external_data,
         &ExternalData {
             instruction_discriminator: 0,
-            expiry_unix_ts: 0,
-            sender_view_tag: sender.get_sender_view_tag(0).unwrap(),
+            expiry_unix_ts: u64::MAX,
             relayer_fee: 0,
-            public_sol_amount: net_public(Asset::Sol).unsigned_abs() as u64,
-            public_spl_amount: net_public(Asset::Spl).unsigned_abs() as u64,
+            public_sol_amount: (sol_public != 0).then_some(sol_public as i64),
+            public_spl_amount: (spl_public != 0).then_some(spl_public as i64),
             user_sol_account,
             user_spl_token,
             spl_token_interface,
-            encrypted_utxos: external_data.encrypted_utxos.clone(),
+            cpi_signer: None,
+            tx_viewing_pk: external_data.tx_viewing_pk,
+            salt: external_data.salt,
+            output_slots: external_data.output_slots.clone(),
         }
+    );
+    assert_eq!(
+        external_data.output_slots[0].view_tag,
+        sender.get_sender_view_tag(0).unwrap()
     );
 
     // The encrypted bundle decrypts to the same sender change and recipients.

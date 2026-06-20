@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::anyhow;
 use light_hasher::{sha256::Sha256BE, Hasher};
+use serial_test::serial;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -44,8 +45,21 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output, new_transact_ix_data, prove_and_verify_transfer,
+    external_data_hash, fe, ix_output, new_transact_ix_data, pack_proof, prove_and_verify_transfer,
     public_input_hash, public_sol_field, start_prover, transfer_output, TransferProverInputsArgs,
+};
+
+use zolana_client::{
+    CircuitType, InputTreeIndices, NullifierNonInclusionProof as ProverNullifierProof,
+    ProverClient, SpendProof, SpendUtxo, StateInclusionProof, Transaction as ClientTransaction,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+};
+use zolana_keypair::shielded::ShieldedKeypair;
+use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
+use zolana_transaction::utxo::derive_blinding;
+use zolana_transaction::{
+    AssetRegistry, SyncTransaction, TransactionEncryption, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    TRANSFER,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -60,7 +74,9 @@ const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
+#[serial]
 fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
+    restart_localnet();
     start_prover()?;
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
@@ -566,4 +582,306 @@ fn wait_for<T>(
 
 fn print_signature(label: &str, signature: &Signature) {
     println!("{label}: {signature}");
+}
+
+/// Restart a fresh validator + Photon indexer so each test runs against clean
+/// chain state. The protocol config is a global singleton, so tests cannot share
+/// a validator; combined with `#[serial]` this gives every test an isolated
+/// localnet.
+fn restart_localnet() {
+    let script = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/restart-localnet.sh"
+    );
+    let status = std::process::Command::new("bash")
+        .arg(script)
+        .status()
+        .expect("run restart-localnet.sh");
+    assert!(status.success(), "restart-localnet.sh failed");
+}
+
+/// End-to-end encrypted transfer: shield two sender UTXOs, transfer one private
+/// output to a recipient using the high-level `Transaction` builder (real HPKE
+/// encryption), then recover the recipient UTXO purely by DECRYPTING the
+/// ciphertext the Photon indexer returns -- no plaintext reconstruction.
+///
+/// Two real inputs are used so the proof shape is exactly (2, 3), matching the
+/// available `transfer_p256_2_3` key without padding the instruction with dummy
+/// (zero) nullifiers that the program would reject on insertion.
+#[test]
+#[serial]
+fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
+    restart_localnet();
+    start_prover()?;
+
+    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
+    let indexer_url =
+        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    let indexer = ZolanaIndexer::new(indexer_url.clone());
+    rpc.assert_executable(&program_id)?;
+
+    let payer = Keypair::new();
+    let authority = Keypair::new();
+    rpc.airdrop(&payer.pubkey(), 20_000_000_000)?;
+    rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
+
+    let authority_bytes = authority.pubkey().to_bytes();
+    let create_config = CreateProtocolConfig {
+        authority: authority.pubkey(),
+        protocol_authority: authority_bytes.into(),
+        tree_creation_authority: authority_bytes.into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: authority_bytes.into(),
+        zone_creation_authority: authority_bytes.into(),
+        zone_creation_is_permissionless: false,
+        merge_authority: authority_bytes.into(),
+    }
+    .instruction();
+    send_transaction(
+        &mut rpc,
+        &[create_config],
+        &authority.pubkey(),
+        &[&authority],
+    )?;
+
+    let tree = Keypair::new();
+    let create_tree = create_tree_instructions(
+        &rpc,
+        &payer.pubkey(),
+        &authority.pubkey(),
+        &tree.pubkey(),
+        tree_account_size() as u64,
+    )?;
+    send_transaction(
+        &mut rpc,
+        &create_tree,
+        &payer.pubkey(),
+        &[&payer, &tree, &authority],
+    )?;
+    let tree_pubkey = tree.pubkey();
+    let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
+    let zero = [0u8; 32];
+
+    let assets = AssetRegistry::default();
+    let sender = ShieldedKeypair::new()?;
+    let recipient = ShieldedKeypair::new()?;
+    let recipient_address = recipient.shielded_address()?;
+    let recipient_view_tag = recipient.recipient_bootstrap_view_tag();
+    let sender_view_tag = sender.get_sender_view_tag(0)?;
+    let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
+    let sender_nullifier_pk = sender_nullifier_key.pubkey()?;
+
+    // ---- shield two sender-owned UTXOs (reconstructable from fixed blindings) ----
+    let half = AMOUNT / 2;
+    let deposit_blindings: [[u8; 31]; 2] = [[7u8; 31], [8u8; 31]];
+    let mut spends = Vec::new();
+    for blinding in deposit_blindings {
+        let utxo = Utxo {
+            owner: sender.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: half,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let owner_utxo_hash = utxo.owner_utxo_hash(&sender_nullifier_pk)?;
+        let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_utxo_hash);
+        let shield_ix = Deposit {
+            tree: tree_pubkey,
+            depositor: payer.pubkey(),
+            spl: None,
+            view_tag: shield_data.view_tag,
+            owner_utxo_hash,
+            salt: shield_data.salt,
+            public_amount: shield_data.public_amount,
+            program_data_hash: shield_data.program_data_hash,
+            program_data: shield_data.program_data,
+            cpi_signer: shield_data.cpi_signer,
+        }
+        .instruction();
+        send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
+        let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
+        wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
+        spends.push(SpendUtxo::from((utxo, &sender)));
+    }
+
+    // ---- build the encrypted transfer with the high-level client builder ----
+    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+    let mut tx = ClientTransaction::new(sender.shielded_address()?, spends, payer_address);
+    tx.send(
+        &recipient_address,
+        SOL_MINT,
+        TRANSFER_AMOUNT,
+        recipient_view_tag,
+    )?;
+    let signed = tx.sign(&sender, &assets, sender_view_tag)?;
+
+    let commitments = signed.input_commitments()?;
+    let mut spend_proofs = Vec::new();
+    let mut tree_indices = Vec::new();
+    for commitment in &commitments {
+        let state_proof = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash)?;
+        let nullifier_proof =
+            wait_for_non_inclusion_proof(&indexer, tree_address, commitment.nullifier)?;
+        let state_path: [[u8; 32]; STATE_TREE_HEIGHT] = state_proof
+            .path
+            .clone()
+            .try_into()
+            .map_err(|_| anyhow!("unexpected state path length"))?;
+        let low_path: [[u8; 32]; NULLIFIER_TREE_HEIGHT] =
+            nullifier_proof
+                .path
+                .clone()
+                .try_into()
+                .map_err(|_| anyhow!("unexpected nullifier path length"))?;
+        spend_proofs.push(SpendProof {
+            state: StateInclusionProof {
+                path_elements: state_path,
+                leaf_index: state_proof.leaf_index,
+                root: state_proof.root,
+            },
+            nullifier: ProverNullifierProof {
+                low_value: nullifier_proof.low_element,
+                next_value: nullifier_proof.high_element,
+                low_path_elements: low_path,
+                low_leaf_index: nullifier_proof.low_element_index,
+                root: nullifier_proof.root,
+            },
+        });
+        tree_indices.push(InputTreeIndices {
+            utxo_tree_root_index: state_proof.root_index,
+            nullifier_tree_root_index: nullifier_proof.root_index,
+            tree_index: 0,
+            eddsa_signer_index: 0,
+        });
+    }
+
+    let prover = match signed.clone().into_prover(&spend_proofs)? {
+        CircuitType::P256(prover) => prover,
+        CircuitType::Eddsa(_) => return Err(anyhow!("expected the P256 rail for a keypair input")),
+    };
+    let proof = ProverClient::local().prove_transfer_p256(&prover.build()?.inputs)?;
+    let packed = pack_proof(&proof)?;
+    let ix_data = signed.into_transact_ix_data(packed, Some(&tree_indices))?;
+
+    let transfer_ix = Transact {
+        payer: payer.pubkey(),
+        tree: tree_pubkey,
+        cpi_signer: None,
+        withdrawal: None,
+        data: ix_data,
+    }
+    .instruction();
+    // The P256 rail's Groth16 proof carries an extra BSB22 Pedersen-PoK pairing,
+    // so verification exceeds the 200k default compute budget.
+    let compute_budget =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            1_400_000,
+        );
+    let transfer_sig = send_transaction(
+        &mut rpc,
+        &[compute_budget, transfer_ix],
+        &payer.pubkey(),
+        &[&payer],
+    )?;
+    print_signature("encrypted_transfer", &transfer_sig);
+
+    let indexed = wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
+    assert!(
+        indexed.tx_viewing_pk.is_some(),
+        "encrypted transfer must carry a tx viewing key"
+    );
+    assert!(
+        indexed.salt.is_some(),
+        "encrypted transfer must carry a salt"
+    );
+
+    // ---- recover the recipient UTXO purely by decrypting the indexed ciphertext ----
+    let tx_viewing_pk = indexed
+        .tx_viewing_pk
+        .ok_or_else(|| anyhow!("indexed transfer missing tx_viewing_pk"))?;
+    let salt = indexed
+        .salt
+        .ok_or_else(|| anyhow!("indexed transfer missing salt"))?;
+    let slots: Vec<OutputCiphertext> = indexed
+        .output_slots
+        .iter()
+        .map(|slot| OutputCiphertext {
+            view_tag: slot.view_tag,
+            data: slot.payload.clone(),
+        })
+        .collect();
+    let first_nullifier = commitments
+        .first()
+        .ok_or_else(|| anyhow!("no input commitment"))?
+        .nullifier;
+
+    // Independently reconstruct the expected recipient UTXO: the sender bundle in
+    // slot 0 decrypts to the shared blinding seed, from which the recipient's
+    // blinding (output position 2 = first recipient slot) derives.
+    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
+        tx_viewing_pk,
+        salt,
+        &slots,
+        SENDER_SLOT_COUNT,
+    )?;
+    let (sender_plaintext, _) = sender
+        .viewing_key
+        .decrypt_transfer(&first_nullifier, &blob)?;
+    let expected_utxo = Utxo {
+        owner: recipient_address.signing_pubkey,
+        asset: SOL_MINT,
+        amount: TRANSFER_AMOUNT,
+        blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+        zone_program_id: None,
+        data: Data::default(),
+    };
+
+    // The recipient wallet is handed only the on-chain ciphertext and recovers by
+    // decrypting it. `Wallet::store` keeps only recipient-owned notes, so the
+    // sender's change slot (encrypted to the sender) is not stored.
+    let sync_tx = SyncTransaction {
+        scheme: TRANSFER,
+        tx_viewing_pk,
+        salt,
+        output_slots: slots,
+        nullifiers: indexed.nullifiers,
+    };
+    let mut wallet = Wallet::new(recipient)?;
+    wallet.sync(&[sync_tx], &[], &assets, 0, DEFAULT_TAG_WINDOW)?;
+    assert_eq!(
+        wallet.utxos.len(),
+        1,
+        "recipient decrypts exactly its own transferred output"
+    );
+    let recovered = wallet
+        .utxos
+        .first()
+        .ok_or_else(|| anyhow!("recipient did not recover the transferred UTXO by decryption"))?;
+
+    // Full-struct comparison against an independently derived expected UTXO (hash
+    // and nullifier computed the same way the wallet does).
+    let nullifier_pk = wallet.keypair.nullifier_key.pubkey()?;
+    let expected_hash = expected_utxo.hash(&nullifier_pk, &zero, &zero)?;
+    let expected_nullifier =
+        expected_utxo.nullifier(&expected_hash, &wallet.keypair.nullifier_key)?;
+    let expected = WalletUtxo {
+        utxo: expected_utxo,
+        hash: expected_hash,
+        nullifier: expected_nullifier,
+        spent: false,
+    };
+    assert_eq!(*recovered, expected);
+
+    // The decrypted note is the exact committed on-chain output, so its hash is
+    // Merkle-provable (and therefore spendable by the recipient).
+    wait_for_merkle_proof(&indexer, tree_address, recovered.hash)?;
+
+    println!(
+        "encrypted shield-transfer recovered by decryption via rpc={rpc_url} indexer={indexer_url}"
+    );
+    Ok(())
 }

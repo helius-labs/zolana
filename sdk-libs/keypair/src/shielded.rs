@@ -36,6 +36,7 @@ impl TryFrom<&ShieldedAddress> for CompressedShieldedAddress {
     }
 }
 
+#[derive(Clone)]
 pub struct ShieldedKeypair {
     pub signing_key: SigningKey,
     pub nullifier_key: NullifierKey,

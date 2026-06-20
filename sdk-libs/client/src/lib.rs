@@ -12,8 +12,8 @@ pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
 pub use private_transaction::{
-    CircuitType, InputCommitment, SignedTransaction, SpendProof, SpendUtxo, Transaction,
-    WithdrawalTarget,
+    CircuitType, InputCommitment, InputTreeIndices, SignedTransaction, SpendProof, SpendUtxo,
+    Transaction, WithdrawalTarget,
 };
 pub use prover::{
     canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments, P256Owner,

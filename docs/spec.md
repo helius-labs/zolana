@@ -523,8 +523,14 @@ the output hash nor the ciphertext reveals whether the sender kept change.
 
 # Output UTXO Serialization
 
-Output UTXO serialization the layout of the `encrypted_utxos` blob included in shielded transactions. SPP does not parse the blob; serialization is a default-zone convention. Policy zones can define their own.
-UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme. One `tx_viewing_pk` is shared across all ciphertexts in a transaction. Ciphertexts are prefixed with (`view_tags`); see [View Tags](#view-tags).
+Output UTXO serialization is the per-output ciphertext layout for shielded
+transactions. Each output's ciphertext lives in its own
+[`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
+default-zone convention; policy zones can define their own.
+UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme.
+The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
+[transact](#transact) instruction, not part of any per-output payload. Each output
+slot is tagged by its `view_tag`; see [View Tags](#view-tags).
 
 Schemes:
 
@@ -643,25 +649,26 @@ struct TransferSenderPlaintext {
 
 ### Instruction Data Layout
 
-The bytes the sender writes into the `encrypted_utxos` field of the [transact](#transact) instruction. Fields are packed in declaration order; byte vectors are prefixed with a `u16_le` length, every other vector with a `u8` count.
+The sender serializes a `TransferEncryptedUtxos` bundle, then spreads its
+ciphertexts across the [transact](#transact) instruction's per-output `data`
+slots. `tx_viewing_pk` and `salt` are transaction-level fields of `TransactIxData`,
+shared by every slot. Fields are packed in declaration order; byte vectors are
+prefixed with a `u16_le` length, every other vector with a `u8` count.
 
 ```rust
-/// Total size: `161 + 198·R` bytes when every `data` field is empty (sender
-/// ciphertext grows by `33·R` from `recipient_viewing_pks`; each recipient
-/// slot is 165 B). Each populated data record grows its ciphertext (and thus
-/// the blob) by `3 + len` bytes. See [Program Data](#program-data).
+/// `sender_ciphertext` is a `92 + 33·R`-byte plaintext (when `data` fields are
+/// empty) + 16-byte GCM tag. Each populated data record grows its ciphertext by
+/// `3 + len` bytes. See [Program Data](#program-data).
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
     type_prefix: u8,
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
     salt: [u8; 16],
-    /// Sender change bundle ciphertext: `92 + 33·R`-byte plaintext (when data
-    /// fields are empty) + 16-byte GCM tag. View tag for this ciphertext is
-    /// `sender_view_tag` from the transact instruction data, not included in
-    /// this blob.
+    /// Sender change bundle ciphertext. View tag is `sender_view_tag` from the
+    /// transact instruction data.
     sender_ciphertext: Vec<u8>,
-    /// R recipient slots packed back-to-back.
+    /// One per recipient.
     recipient_slots: Vec<RecipientSlot>,
 }
 ```
@@ -669,21 +676,22 @@ struct TransferEncryptedUtxos {
 #### Recipient slot
 
 ```rust
-/// 165 bytes when the recipient `data` field is empty; populated records grow
-/// `ciphertext` by `3 + len` bytes each (and thus the slot total by the
-/// same).
+/// `ciphertext` is a 115-byte recipient plaintext (plus `3 + len` per populated
+/// data record) + 16-byte GCM tag.
 struct RecipientSlot {
-    /// View tag value; see View Tags chapter for the four variants and selection rules.
+    /// See View Tags chapter for the four variants and selection rules.
     view_tag: [u8; 32],
-    /// Variable-length: 115-byte recipient plaintext (plus `3 + len` per
-    /// populated data record) + 16-byte GCM tag.
     ciphertext: Vec<u8>,
 }
 ```
 
-#### Sender
+#### Output slot mapping
 
-The sender ciphertext sits inline at offset 50 with no slot wrapper. Its view tag is `sender_view_tag`, included in the [transact](#transact) instruction data, not in `encrypted_utxos`.
+The bundle maps onto the transact output `data` slots in tree-append order: slot 0
+holds `sender_ciphertext` under `sender_view_tag` (encrypted at AES slot index
+0), slot 1 (SOL change) is empty, and recipient `i` lands at output position
+`2 + i` under its own `view_tag` (encrypted at AES slot index `i + 1`; see
+[AES Nonce derivation](#aes-nonce-derivation)).
 
 #### Sizes
 
@@ -1177,9 +1185,15 @@ struct TransactIxData {
     /// The zk program proves over the same top-level `private_tx_hash`.
     cpi_signer: Option<(program_id, bump)>,
     /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
-    /// the emitted `GeneralEvent` so an indexer need not parse the opaque
-    /// payloads. Always present.
+    /// the logged `GeneralEvent` so an indexer need not parse the per-output
+    /// `data`. Always present.
     tx_viewing_pk: P256Pubkey,
+    /// Shared AES `salt` for every output ciphertext (see [AES Nonce
+    /// derivation](#aes-nonce-derivation)). Stored at the transaction level
+    /// alongside `tx_viewing_pk` and copied verbatim into the logged
+    /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
+    /// the per-output `data`. Always present.
+    salt: [u8; 16],
     /// The sender's own output (change) slot. Its `view_tag` is
     /// `get_sender_view_tag(tx_count)`, signed alongside the inputs
     /// (prover-replay protection) and inserted into the nullifier tree
@@ -1380,9 +1394,12 @@ struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
-    /// decrypt without parsing the opaque payloads. Always set by `transact`;
+    /// decrypt without parsing the per-output `data`. Always set by `transact`;
     /// `None` for a proofless shield (nothing to decrypt).
     tx_viewing_pk: Option<P256Pubkey>,
+    /// Shared AES `salt` for every output ciphertext, copied from the transact
+    /// instruction. `None` for a proofless shield (nothing to decrypt).
+    salt: Option<[u8; 16]>,
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     first_output_leaf_index: u64,
     output_tree: Pubkey,

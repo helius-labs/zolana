@@ -36,7 +36,7 @@ pub fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
+pub fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
     let compressed = ProofCompressed::try_from(*proof)?;
     let mut out = [0u8; 192];
     out[0..32].copy_from_slice(&compressed.a);
@@ -135,6 +135,7 @@ pub fn new_transact_ix_data(
         public_spl_amount: None,
         cpi_signer: None,
         tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         sender_utxo_data,
         recipient_utxo_data,
     }

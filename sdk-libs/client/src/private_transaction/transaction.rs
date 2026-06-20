@@ -3,6 +3,7 @@ use p256::ecdsa::{Signature, SigningKey as EcdsaSigningKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use solana_address::Address;
+use zolana_interface::event::OutputUtxo as OutputSlot;
 use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN};
 use zolana_keypair::hash::sha256_be;
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
@@ -10,7 +11,7 @@ use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
 use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
 use zolana_transaction::transfer::{
-    RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext,
+    RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, SENDER_SLOT_COUNT,
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_MINT};
@@ -28,6 +29,7 @@ const SPL_CHANGE_POSITION: u8 = 0;
 const SOL_CHANGE_POSITION: u8 = 1;
 const RECIPIENT_POSITION_BASE: u8 = 2;
 
+#[derive(Clone)]
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
@@ -102,6 +104,7 @@ pub struct Transaction {
     payer_pubkey_hash: [u8; 32],
     blinding_seed: [u8; BLINDING_LEN],
     shape: Option<Shape>,
+    expiry_unix_ts: u64,
 }
 
 impl Transaction {
@@ -116,11 +119,19 @@ impl Transaction {
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed,
             shape: None,
+            // Never expires by default; the program rejects `current_ts > expiry`,
+            // so callers that want a relayer deadline set it explicitly.
+            expiry_unix_ts: u64::MAX,
         }
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
         self.shape = Some(shape);
+        self
+    }
+
+    pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
+        self.expiry_unix_ts = expiry_unix_ts;
         self
     }
 
@@ -282,27 +293,39 @@ impl Transaction {
             None => 0,
         };
 
+        // Output positions are fixed so every party can locate slots without
+        // decrypting the sender bundle: slot 0 is the sender's SPL change, slot 1
+        // the SOL change, and recipients follow at slot 2+. Absent change is an
+        // empty (owner = 0) UTXO whose blinding still derives from its position, so
+        // the sender bundle ciphertext on slot 0 stays fixed-size.
         let mut outputs = Vec::new();
-        if let Some(asset) = spl_asset {
-            if spl_change > 0 {
-                outputs.push(OutputUtxo {
-                    owner_hash,
-                    asset,
-                    amount: spl_change,
-                    blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                    ..Default::default()
-                });
-            }
-        }
-        if sol_change > 0 {
-            outputs.push(OutputUtxo {
+        outputs.push(match spl_asset {
+            Some(asset) if spl_change > 0 => OutputUtxo {
+                owner_hash,
+                asset,
+                amount: spl_change,
+                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ..Default::default()
+            },
+            _ => OutputUtxo {
+                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ..Default::default()
+            },
+        });
+        outputs.push(if sol_change > 0 {
+            OutputUtxo {
                 owner_hash,
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 ..Default::default()
-            });
-        }
+            }
+        } else {
+            OutputUtxo {
+                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ..Default::default()
+            }
+        });
 
         let sender_pubkey = keypair.viewing_pubkey();
         let mut recipient_outputs = Vec::with_capacity(self.recipients.len());
@@ -354,17 +377,37 @@ impl Transaction {
                 .encrypt_transfer(&first_nullifier, &sender, &recipient_outputs)?;
 
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
+
+        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
+
+        let ciphertexts =
+            encrypted.to_output_ciphertexts(sender_view_tag, SENDER_SLOT_COUNT, shape.n_outputs)?;
+        let mut output_slots = Vec::with_capacity(shape.n_outputs);
+        for (index, ciphertext) in ciphertexts.into_iter().enumerate() {
+            let utxo_hash = match outputs.get(index) {
+                Some(output) => output.hash()?,
+                None => [0u8; 32],
+            };
+            output_slots.push(OutputSlot {
+                view_tag: ciphertext.view_tag,
+                utxo_hash,
+                data: ciphertext.data,
+            });
+        }
+
         let external_data = ExternalData {
             instruction_discriminator: TRANSACT_DISCRIMINATOR,
-            expiry_unix_ts: 0,
-            sender_view_tag,
+            expiry_unix_ts: self.expiry_unix_ts,
             relayer_fee: 0,
-            public_sol_amount: public_sol.unsigned_abs() as u64,
-            public_spl_amount: public_spl.unsigned_abs() as u64,
+            public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
+            public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
             user_sol_account,
             user_spl_token,
             spl_token_interface,
-            encrypted_utxos: encrypted.serialize()?,
+            cpi_signer: None,
+            tx_viewing_pk: *encrypted.tx_viewing_pk.as_bytes(),
+            salt: encrypted.salt,
+            output_slots,
         };
 
         let public_amounts = PublicAmounts {
@@ -375,8 +418,6 @@ impl Transaction {
                 _ => [0u8; 32],
             },
         };
-
-        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
 
         Ok(SignedTransaction {
             inputs: self.inputs,

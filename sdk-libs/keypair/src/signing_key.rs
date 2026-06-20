@@ -7,6 +7,7 @@ use zeroize::Zeroizing;
 use crate::error::KeypairError;
 use crate::pubkey::{P256Pubkey, PublicKey};
 
+#[derive(Clone)]
 pub struct SigningKey {
     secret: SecretKey,
 }
