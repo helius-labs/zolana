@@ -28,17 +28,31 @@ pub(crate) struct ResolvedNetworkOptions {
 
 pub(crate) fn resolve_sync(opts: &SyncOptions) -> Result<ResolvedSyncOptions> {
     let config = CliConfigFile::load()?;
+    resolve_sync_with_config(opts, &config)
+}
+
+pub(crate) fn resolve_sync_with_config(
+    opts: &SyncOptions,
+    config: &CliConfigFile,
+) -> Result<ResolvedSyncOptions> {
     Ok(ResolvedSyncOptions {
-        keypair_path: resolve_keypair_path(opts.keypair.keypair.as_deref(), &config),
-        rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), &config),
-        indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), &config),
+        keypair_path: resolve_keypair_path(opts.keypair.keypair.as_deref(), config),
+        rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), config),
+        indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), config),
     })
 }
 
 pub(crate) fn get_network(opts: &NetworkWalletOptions) -> Result<ResolvedNetworkOptions> {
     let config = CliConfigFile::load()?;
-    let sync = resolve_sync(&opts.sync)?;
-    let tree = resolve_tree(opts.tree.as_deref(), &config)
+    get_network_with_config(opts, &config)
+}
+
+pub(crate) fn get_network_with_config(
+    opts: &NetworkWalletOptions,
+    config: &CliConfigFile,
+) -> Result<ResolvedNetworkOptions> {
+    let sync = resolve_sync_with_config(&opts.sync, config)?;
+    let tree = resolve_tree(opts.tree.as_deref(), config)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "shielded-pool tree is unset; pass --tree or run `zolana wallet create-tree` first"
@@ -48,7 +62,7 @@ pub(crate) fn get_network(opts: &NetworkWalletOptions) -> Result<ResolvedNetwork
     Ok(ResolvedNetworkOptions {
         sync,
         tree,
-        prover_url: resolve_prover_url(opts.prover_url.as_deref(), &config),
+        prover_url: resolve_prover_url(opts.prover_url.as_deref(), config),
         airdrop_lamports: opts.airdrop_lamports,
     })
 }

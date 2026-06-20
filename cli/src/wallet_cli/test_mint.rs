@@ -19,14 +19,14 @@ use zolana_transaction::Address;
 use crate::args::TestMintOptions;
 use crate::cli_config::CliConfigFile;
 
-use super::material::{load_existing_wallet, load_sender_from_sync};
+use super::material::{load_existing_wallet, load_sender_from_resolved_sync};
 use super::resolve::resolve_sync;
 use super::util::{ensure_positive, system_create_account_ix};
 
 pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let sync = resolve_sync(&opts.sync)?;
-    let material = load_sender_from_sync(&opts.sync)?;
+    let material = load_sender_from_resolved_sync(&sync)?;
     let authority_material = opts
         .authority_path
         .as_deref()
