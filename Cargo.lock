@@ -6429,6 +6429,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "spp-test-validator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cucumber",
+ "futures",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.0",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-transaction",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
