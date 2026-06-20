@@ -378,7 +378,7 @@ pub(crate) struct TransferOptions {
 
     #[arg(
         long = "to",
-        help = "Recipient Solana pubkey looked up in the on-chain user registry",
+        help = "Recipient Solana pubkey; registered recipients receive a shielded transfer, unregistered recipients receive a public SOL withdrawal",
         value_name = "PUBKEY"
     )]
     pub(crate) to: String,

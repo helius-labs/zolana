@@ -76,7 +76,7 @@ fn wallet_init(path: &Path, rpc_url: &str) -> Result<()> {
         &path.display().to_string(),
         "--rpc-url",
         rpc_url,
-        "--airdrop",
+        "--airdrop-lamports",
         "1000000000",
     ])?;
     Ok(())
@@ -140,7 +140,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &rpc_url,
         "--indexer-url",
         &indexer_url,
-        "--airdrop",
+        "--airdrop-lamports",
         "20000000000",
     ])?;
     let _tree = parse_tree_pubkey(&create_tree_out)?;
@@ -162,7 +162,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
             &rpc_url,
             "--indexer-url",
             &indexer_url,
-            "--airdrop",
+            "--airdrop-lamports",
             "2000000000",
         ])?;
     }
@@ -216,7 +216,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
-        "--airdrop",
+        "--airdrop-lamports",
         "2000000000",
     ])?;
 
@@ -249,7 +249,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
-        "--airdrop",
+        "--airdrop-lamports",
         "2000000000",
     ])?;
 

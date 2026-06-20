@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_deposit, SolanaRpc, ZolanaIndexer};
+use zolana_client::{create_deposit, validate_registered_keypair, SolanaRpc, ZolanaIndexer};
 
 use crate::args::DepositOptions;
 
@@ -30,6 +30,7 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .map(|recipient| recipient.funding.pubkey())
         .unwrap_or_else(|| material.funding.pubkey());
 
+    validate_registered_keypair(&rpc, recipient_pubkey, recipient_keypair)?;
     let deposit = create_deposit(recipient_keypair, opts.amount)?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
     wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;

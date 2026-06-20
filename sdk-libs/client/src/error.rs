@@ -1,4 +1,5 @@
 use thiserror::Error;
+use solana_pubkey::Pubkey;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
@@ -36,6 +37,9 @@ pub enum ClientError {
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),
+
+    #[error("user registry record not found for {owner}: {record}")]
+    UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
 
     #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
     MultiplePublicSplAssets,

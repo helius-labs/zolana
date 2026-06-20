@@ -45,14 +45,22 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             material: &ctx.material,
             tree,
             prover_url: &network.prover_url,
-            withdrawal: None,
+            withdrawal: transfer.withdrawal,
             wait_tag: transfer.wait_tag,
         },
         transfer.signed,
     )?;
+    let mode = if transfer.recipient.is_public_withdrawal() {
+        "withdraw"
+    } else {
+        "shielded"
+    };
     println!(
-        "ok transfer amount={} mint=SOL to={} signature={}",
-        opts.amount, transfer.recipient.owner, signature
+        "ok transfer amount={} mint=SOL to={} mode={} signature={}",
+        opts.amount,
+        transfer.recipient.pubkey(),
+        mode,
+        signature
     );
     Ok(())
 }

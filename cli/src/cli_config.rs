@@ -12,6 +12,9 @@ pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 const CONFIG_VERSION: u8 = 1;
 
+#[cfg(test)]
+pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Persistent CLI settings stored at `~/.config/zolana/config.json`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CliConfigFile {
@@ -148,6 +151,7 @@ mod tests {
 
     #[test]
     fn save_and_load_round_trips_config() {
+        let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let (path, path_str) = temp_config();
         unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
         let config = CliConfigFile {

@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_interface::user_registry::{user_record_pda, UserRecord};
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress};
+use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair};
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
 
@@ -12,12 +12,33 @@ pub fn fetch_user_record_checked<R: Rpc>(
     let (record_pda, bump) = user_record_pda(&owner);
     let account = rpc
         .get_account(Address::new_from_array(record_pda.to_bytes()))?
-        .ok_or_else(|| {
-            ClientError::Rpc(format!(
-                "user registry record not found for {owner}: {record_pda}"
-            ))
+        .ok_or(ClientError::UserRegistryRecordNotFound {
+            owner,
+            record: record_pda,
         })?;
-    let record = UserRecord::try_from_account_checked(&account).map_err(|err| {
+    parse_user_record_account(owner, record_pda, bump, &account)
+}
+
+pub fn fetch_user_record_optional_checked<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+) -> Result<Option<UserRecord>, ClientError> {
+    let (record_pda, bump) = user_record_pda(&owner);
+    let Some(account) = rpc.get_account(Address::new_from_array(record_pda.to_bytes()))? else {
+        return Ok(None);
+    };
+    Ok(Some(parse_user_record_account(
+        owner, record_pda, bump, &account,
+    )?))
+}
+
+fn parse_user_record_account(
+    owner: Pubkey,
+    record_pda: Pubkey,
+    bump: u8,
+    account: &solana_account::Account,
+) -> Result<UserRecord, ClientError> {
+    let record = UserRecord::try_from_account_checked(account).map_err(|err| {
         ClientError::Rpc(format!("invalid user registry record {record_pda}: {err}"))
     })?;
     if record.owner != owner.to_bytes() {
@@ -34,6 +55,26 @@ pub fn fetch_user_record_checked<R: Rpc>(
     Ok(record)
 }
 
+pub fn validate_registered_keypair<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+    keypair: &ShieldedKeypair,
+) -> Result<(), ClientError> {
+    let record = fetch_user_record_checked(rpc, owner)?;
+    let expected_owner_p256 = Some(*keypair.signing_pubkey().as_p256()?.as_bytes());
+    let expected_nullifier = keypair.nullifier_key.pubkey()?;
+    let expected_viewing = *keypair.viewing_pubkey().as_bytes();
+    if record.owner_p256 != expected_owner_p256
+        || record.nullifier_pubkey != expected_nullifier
+        || record.viewing_pubkey != expected_viewing
+    {
+        return Err(ClientError::AddressResolution(format!(
+            "user registry record for {owner} does not match the local wallet"
+        )));
+    }
+    Ok(())
+}
+
 pub fn resolve_registered_address<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
@@ -42,6 +83,18 @@ pub fn resolve_registered_address<R: Rpc>(
         .map_err(|err| ClientError::AddressResolution(err.to_string()))?;
     resolved_address_from_record(owner, &record)
         .map_err(|err| ClientError::AddressResolution(err.to_string()))
+}
+
+pub fn try_resolve_registered_address<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+) -> Result<Option<ResolvedAddress>, ClientError> {
+    let Some(record) = fetch_user_record_optional_checked(rpc, owner)? else {
+        return Ok(None);
+    };
+    Ok(Some(resolved_address_from_record(owner, &record).map_err(
+        |err| ClientError::AddressResolution(err.to_string()),
+    )?))
 }
 
 pub fn resolved_address_from_record(
@@ -142,6 +195,31 @@ mod tests {
         let fetched = fetch_user_record_checked(&rpc, owner).expect("fetch user record");
 
         assert_eq!(fetched, record);
+    }
+
+    #[test]
+    fn fetch_user_record_checked_reports_missing_record() {
+        let owner = Pubkey::new_unique();
+        let (pda, _) = user_record_pda(&owner);
+        let rpc = MockRpc { account: None };
+
+        let err = fetch_user_record_checked(&rpc, owner).expect_err("missing record");
+
+        assert!(matches!(
+            err,
+            ClientError::UserRegistryRecordNotFound { owner: got_owner, record }
+                if got_owner == owner && record == pda
+        ));
+    }
+
+    #[test]
+    fn fetch_user_record_optional_checked_returns_none_for_missing_record() {
+        let owner = Pubkey::new_unique();
+        let rpc = MockRpc { account: None };
+
+        let record = fetch_user_record_optional_checked(&rpc, owner).expect("optional fetch");
+
+        assert_eq!(record, None);
     }
 
     #[test]
