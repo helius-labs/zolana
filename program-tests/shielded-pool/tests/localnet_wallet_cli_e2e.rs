@@ -10,15 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serial_test::serial;
+use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use solana_instruction::{AccountMeta, Instruction};
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{
-    pda,
-    SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
-};
+use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
 use zolana_transaction::Address;
 
 #[path = "common/transact.rs"]
@@ -300,7 +297,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &spl_mint_pubkey,
     )?;
     let rpc = SolanaRpc::new(&rpc_url);
-    let alice_token_before = spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
     assert_eq!(
         spl_token_account_amount(&rpc, &unregistered_ata)?,
         0,
@@ -467,6 +463,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     )?;
 
     let unregistered_transfer_amount = 50_000u64;
+    let alice_token_before_unregistered =
+        spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
     run_cli_with_env(
         &[
             "wallet",
@@ -497,7 +495,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     );
     assert_eq!(
         spl_token_account_amount(&rpc, &alice_token_account.parse()?)?,
-        alice_token_before,
+        alice_token_before_unregistered,
         "sender-configured deposit token account must not receive unregistered transfer"
     );
 

@@ -156,9 +156,7 @@ fn withdrawal_target(
             WithdrawalTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient,
-            }),
+            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
         ));
     }
 
