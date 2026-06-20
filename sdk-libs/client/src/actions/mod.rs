@@ -4,4 +4,4 @@
 
 pub mod deposit;
 
-pub use deposit::deposit;
+pub use deposit::{deposit, Deposit};

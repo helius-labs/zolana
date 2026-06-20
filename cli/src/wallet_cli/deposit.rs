@@ -1,9 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
-use zolana_interface::instruction::Deposit;
-use zolana_keypair::random_salt;
-use zolana_transaction::{owner_utxo_hash, utxo_hash, Address, SOL_MINT};
+use zolana_client::{Deposit, SolanaRpc, ZolanaIndexer};
 
 use crate::args::DepositOptions;
 
@@ -22,46 +19,14 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let recipient = load_recipient_wallet(&opts.to)?;
     let tree = parse_pubkey(&opts.network.tree)?;
 
-    let salt = random_salt();
-    let blinding = recipient
-        .keypair
-        .viewing_key
-        .derive_proofless_blinding(&salt)?;
-    let owner_hash = recipient.keypair.owner_hash()?;
-    let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
-    let view_tag = recipient.keypair.recipient_bootstrap_view_tag();
-    let deposit_hash = utxo_hash(
-        SOL_MINT,
-        opts.amount,
-        &[0u8; 32],
-        &[0u8; 32],
-        None,
-        &owner_utxo_hash,
-    )?;
-    let ix = Deposit {
-        tree,
-        depositor: material.funding.pubkey(),
-        spl: None,
-        view_tag,
-        owner_utxo_hash,
-        salt,
-        public_amount: Some(opts.amount),
-        program_data_hash: None,
-        program_data: None,
-        cpi_signer: None,
-    }
-    .instruction();
-    let signature = rpc.create_and_send_transaction(
-        &[ix],
-        Address::new_from_array(material.funding.pubkey().to_bytes()),
-        &[&material.funding],
-    )?;
-    wait_for_indexed_utxo(&indexer, view_tag, signature)?;
+    let deposit = Deposit::sol(&recipient.keypair, opts.amount)?;
+    let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
+    wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
     println!(
         "ok deposit amount={} mint=SOL to={} utxo_hash={} signature={}",
         opts.amount,
         recipient.funding.pubkey(),
-        hex::encode(deposit_hash),
+        hex::encode(deposit.utxo_hash),
         signature
     );
     Ok(())

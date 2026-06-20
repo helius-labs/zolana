@@ -8,6 +8,7 @@ pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 
+pub use actions::Deposit;
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
