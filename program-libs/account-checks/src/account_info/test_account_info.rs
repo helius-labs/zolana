@@ -6,12 +6,7 @@ use std::vec::Vec;
 use rand::{prelude::Rng, thread_rng};
 use solana_account_view::{AccountView, RuntimeAccount};
 
-pub fn pubkey_unique() -> [u8; 32] {
-    let mut rng = thread_rng();
-    rng.gen::<[u8; 32]>()
-}
-
-pub fn get_account_info(
+pub fn get_account_view(
     address: [u8; 32],
     owner: [u8; 32],
     is_signer: bool,
@@ -62,18 +57,18 @@ pub fn get_account_info(
 }
 
 #[test]
-fn test_get_account_info() {
+fn test_get_account_view() {
     let mut rng = thread_rng();
     for _ in 0..1000 {
-        let address = pubkey_unique();
-        let owner = pubkey_unique();
+        let address = rng.gen::<[u8; 32]>();
+        let owner = rng.gen::<[u8; 32]>();
         let is_signer = rng.gen();
         let is_writable = rng.gen();
         let is_executable = rng.gen();
         let data_len: u64 = rng.gen_range(0..3000);
         let data = (0..data_len).map(|_| rng.gen::<u8>()).collect::<Vec<u8>>();
 
-        let account_info = get_account_info(
+        let account_view = get_account_view(
             address,
             owner,
             is_signer,
@@ -83,14 +78,14 @@ fn test_get_account_info() {
         );
 
         // Test the account matches the values we set
-        assert_eq!(account_info.is_signer(), is_signer);
-        assert_eq!(account_info.is_writable(), is_writable);
-        assert_eq!(account_info.executable(), is_executable);
-        assert_eq!(account_info.data_len(), data.len());
+        assert_eq!(account_view.is_signer(), is_signer);
+        assert_eq!(account_view.is_writable(), is_writable);
+        assert_eq!(account_view.executable(), is_executable);
+        assert_eq!(account_view.data_len(), data.len());
 
         // Test we can access the account data - this was the failing part originally
         unsafe {
-            let account_data = account_info.borrow_unchecked();
+            let account_data = account_view.borrow_unchecked();
             assert_eq!(account_data.len(), data.len());
             for (i, val) in data.iter().enumerate() {
                 assert_eq!(account_data[i], *val);
