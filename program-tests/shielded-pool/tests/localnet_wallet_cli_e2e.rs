@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serial_test::serial;
 
 #[path = "common/transact.rs"]
+#[allow(dead_code)]
 mod transact_common;
 
 use transact_common::start_prover;
