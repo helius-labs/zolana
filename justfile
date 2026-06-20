@@ -86,7 +86,7 @@ cli *args:
     cargo run -p zolana-cli -- {{args}}
 
 build-cli:
-    cargo build -p zolana-cli
+    cargo build -p zolana-cli --target-dir target
 
 test-cli:
     cargo test -p zolana-cli

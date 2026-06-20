@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
+use solana_pubkey::Pubkey;
 
-use crate::args::{ConfigCommand, ConfigSetOptions};
+use crate::args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions};
 use crate::cli_config::{
     config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL, DEFAULT_PROVER_URL,
     DEFAULT_RPC_URL,
@@ -10,6 +11,8 @@ pub(crate) fn run_config(command: ConfigCommand) -> Result<()> {
     match command {
         ConfigCommand::Get => run_config_get(),
         ConfigCommand::Set(opts) => run_config_set(opts),
+        ConfigCommand::AssetRegistry => run_asset_registry(),
+        ConfigCommand::AddAsset(opts) => run_add_asset(opts),
     }
 }
 
@@ -38,6 +41,7 @@ fn run_config_get() -> Result<()> {
     } else {
         println!("Tree: (not set)");
     }
+    print_assets(&config);
     Ok(())
 }
 
@@ -78,5 +82,49 @@ fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
     }
     config.save()?;
     println!("ok config {}", config_file_path().display());
+    Ok(())
+}
+
+fn run_asset_registry() -> Result<()> {
+    let config = CliConfigFile::load()?;
+    print_assets(&config);
+    Ok(())
+}
+
+fn print_assets(config: &CliConfigFile) {
+    if config.assets.is_empty() {
+        println!("Assets: (SOL only)");
+        return;
+    }
+    println!("Assets:");
+    println!("  asset_id=1 mint=SOL");
+    for asset in &config.assets {
+        match &asset.token_account {
+            Some(token_account) => println!(
+                "  asset_id={} mint={} token_account={}",
+                asset.asset_id, asset.mint, token_account
+            ),
+            None => println!("  asset_id={} mint={}", asset.asset_id, asset.mint),
+        }
+    }
+}
+
+fn run_add_asset(opts: ConfigAddAssetOptions) -> Result<()> {
+    let mint = opts.mint.parse::<Pubkey>()?;
+    let token_account = opts
+        .token_account
+        .as_deref()
+        .map(str::parse::<Pubkey>)
+        .transpose()?;
+    let mut config = CliConfigFile::load()?;
+    config.upsert_asset(mint, opts.asset_id, token_account)?;
+    println!(
+        "ok asset_registry mint={} asset_id={}{}",
+        mint,
+        opts.asset_id,
+        token_account
+            .map(|account| format!(" token_account={account}"))
+            .unwrap_or_default()
+    );
     Ok(())
 }

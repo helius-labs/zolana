@@ -1,5 +1,8 @@
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
+use zolana_interface::{
+    instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
+    pda, SPL_TOKEN_PROGRAM_ID,
+};
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
@@ -68,6 +71,18 @@ pub struct CreateTransfer<'a, R: Rpc> {
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
+    pub public_recipient_token_account: Option<Pubkey>,
+}
+
+pub struct CreateWithdrawal<'a> {
+    pub wallet: &'a Wallet,
+    pub keypair: &'a ShieldedKeypair,
+    pub payer: Address,
+    pub destination: Pubkey,
+    pub asset: Address,
+    pub amount: u64,
+    pub assets: &'a AssetRegistry,
+    pub spl_token_account: Option<Pubkey>,
 }
 
 pub fn create_transfer<R: Rpc>(
@@ -75,15 +90,16 @@ pub fn create_transfer<R: Rpc>(
 ) -> Result<CreatedTransfer, ClientError> {
     let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
     else {
-        let withdrawal = create_withdrawal(
-            request.wallet,
-            request.keypair,
-            request.payer,
-            request.recipient_owner,
-            request.asset,
-            request.amount,
-            request.assets,
-        )?;
+        let withdrawal = create_withdrawal(CreateWithdrawal {
+            wallet: request.wallet,
+            keypair: request.keypair,
+            payer: request.payer,
+            destination: request.recipient_owner,
+            asset: request.asset,
+            amount: request.amount,
+            assets: request.assets,
+            spl_token_account: request.public_recipient_token_account,
+        })?;
         return Ok(CreatedTransfer {
             signed: withdrawal.signed,
             wait_tag: withdrawal.wait_tag,
@@ -115,33 +131,61 @@ pub fn create_transfer<R: Rpc>(
     })
 }
 
-pub fn create_withdrawal(
-    wallet: &Wallet,
-    keypair: &ShieldedKeypair,
-    payer: Address,
-    destination: Pubkey,
-    asset: Address,
-    amount: u64,
-    assets: &AssetRegistry,
-) -> Result<CreatedWithdrawal, ClientError> {
-    if asset != SOL_MINT {
-        return Err(ClientError::UnsupportedWithdrawalAsset);
-    }
-    let wait_tag = next_sender_view_tag(wallet, keypair)?;
-    let inputs = select_inputs(wallet, keypair, asset, amount)?;
-    let target = WithdrawalTarget::Sol {
-        user_sol_account: Address::new_from_array(destination.to_bytes()),
-    };
-    let mut tx = Transaction::new(keypair.shielded_address()?, inputs, payer);
-    tx.withdraw(asset, amount, target)?;
-    let signed = tx.sign(keypair, assets, wait_tag)?;
+pub fn create_withdrawal(request: CreateWithdrawal<'_>) -> Result<CreatedWithdrawal, ClientError> {
+    let wait_tag = next_sender_view_tag(request.wallet, request.keypair)?;
+    let inputs = select_inputs(
+        request.wallet,
+        request.keypair,
+        request.asset,
+        request.amount,
+    )?;
+    let (target, withdrawal) = withdrawal_target(
+        request.destination,
+        request.asset,
+        request.spl_token_account,
+    )?;
+    let mut tx = Transaction::new(request.keypair.shielded_address()?, inputs, request.payer);
+    tx.withdraw(request.asset, request.amount, target)?;
+    let signed = tx.sign(request.keypair, request.assets, wait_tag)?;
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,
-        withdrawal: TransactWithdrawal::Sol(TransactSolWithdrawal {
-            recipient: destination,
-        }),
+        withdrawal,
     })
+}
+
+fn withdrawal_target(
+    destination: Pubkey,
+    asset: Address,
+    spl_token_account: Option<Pubkey>,
+) -> Result<(WithdrawalTarget, TransactWithdrawal), ClientError> {
+    if asset == SOL_MINT {
+        return Ok((
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array(destination.to_bytes()),
+            },
+            TransactWithdrawal::Sol(TransactSolWithdrawal {
+                recipient: destination,
+            }),
+        ));
+    }
+
+    let mint = Pubkey::new_from_array(asset.to_bytes());
+    let user_spl_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
+    let vault = pda::spl_asset_vault(&mint);
+    Ok((
+        WithdrawalTarget::Spl {
+            user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
+            spl_token_interface: Address::new_from_array(vault.to_bytes()),
+        },
+        TransactWithdrawal::Spl(TransactSplWithdrawal {
+            cpi_authority: Some(pda::shielded_pool_cpi_authority()),
+            vault,
+            recipient: destination,
+            user_token_account: user_spl_token,
+            token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+        }),
+    ))
 }
 
 fn select_inputs(
@@ -213,10 +257,14 @@ mod tests {
     }
 
     fn wallet_with_sol(keypair: ShieldedKeypair, amount: u64) -> Wallet {
+        wallet_with_asset(keypair, SOL_MINT, amount)
+    }
+
+    fn wallet_with_asset(keypair: ShieldedKeypair, asset: Address, amount: u64) -> Wallet {
         let mut wallet = Wallet::new(keypair.clone()).expect("wallet");
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
-            asset: SOL_MINT,
+            asset,
             amount,
             blinding: [7u8; 31],
             zone_program_id: None,
@@ -276,6 +324,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
+            public_recipient_token_account: None,
         })
         .expect("transfer");
 
@@ -302,6 +351,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
+            public_recipient_token_account: None,
         })
         .expect("public withdrawal fallback");
 
@@ -315,48 +365,70 @@ mod tests {
     }
 
     #[test]
-    fn create_transfer_to_unregistered_recipient_rejects_non_sol_public_withdrawal() {
+    fn create_transfer_to_unregistered_recipient_builds_spl_public_withdrawal() {
         let sender = ShieldedKeypair::new().unwrap();
-        let wallet = wallet_with_sol(sender.clone(), 10);
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+        let wallet = wallet_with_asset(sender.clone(), asset, 10);
         let rpc = MockRpc { account: None };
-        let asset = Address::new_from_array([9u8; 32]);
+        let recipient = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
 
         let result = create_transfer(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             keypair: &sender,
             payer: Address::default(),
-            recipient_owner: Pubkey::new_unique(),
+            recipient_owner: recipient,
             asset,
             amount: 1,
-            assets: &AssetRegistry::default(),
-        });
+            assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
+            public_recipient_token_account: Some(token_account),
+        })
+        .expect("public withdrawal fallback");
 
-        assert!(matches!(
-            result,
-            Err(ClientError::UnsupportedWithdrawalAsset)
-        ));
+        assert_eq!(
+            result.recipient.withdrawal(),
+            Some(&TransactWithdrawal::Spl(TransactSplWithdrawal {
+                cpi_authority: Some(pda::shielded_pool_cpi_authority()),
+                vault: pda::spl_asset_vault(&mint),
+                recipient,
+                user_token_account: token_account,
+                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+            }))
+        );
     }
 
     #[test]
-    fn create_withdrawal_rejects_non_sol_assets() {
+    fn create_withdrawal_builds_spl_settlement() {
         let sender = ShieldedKeypair::new().unwrap();
-        let wallet = Wallet::new(ShieldedKeypair::new().unwrap()).unwrap();
-        let asset = Address::new_from_array([7u8; 32]);
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+        let wallet = wallet_with_asset(sender.clone(), asset, 10);
+        let destination = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
 
-        let result = create_withdrawal(
-            &wallet,
-            &sender,
-            Address::default(),
-            Pubkey::new_unique(),
+        let result = create_withdrawal(CreateWithdrawal {
+            wallet: &wallet,
+            keypair: &sender,
+            payer: Address::default(),
+            destination,
             asset,
-            1,
-            &AssetRegistry::default(),
-        );
+            amount: 1,
+            assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
+            spl_token_account: Some(token_account),
+        })
+        .expect("withdrawal");
 
-        assert!(matches!(
-            result,
-            Err(ClientError::UnsupportedWithdrawalAsset)
-        ));
+        assert_eq!(
+            result.withdrawal,
+            TransactWithdrawal::Spl(TransactSplWithdrawal {
+                cpi_authority: Some(pda::shielded_pool_cpi_authority()),
+                vault: pda::spl_asset_vault(&mint),
+                recipient: destination,
+                user_token_account: token_account,
+                token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+            })
+        );
     }
 }

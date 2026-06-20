@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serial_test::serial;
 
@@ -108,9 +108,26 @@ fn temp_wallet_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+fn parse_tree_pubkey(output: &str) -> Result<String> {
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix("ok tree "))
+        .map(str::trim)
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("create-tree output missing tree pubkey:\n{output}"))
+}
+
+fn parse_field(output: &str, field: &str) -> Result<String> {
+    output
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix(&format!("{field}=")))
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("output missing {field}=...:\n{output}"))
+}
+
 #[test]
 #[serial]
-fn wallet_cli_sol_cycle() -> Result<()> {
+fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     restart_localnet();
     start_prover()?;
 
@@ -129,7 +146,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     wallet_init(&alice, &rpc_url, &cli_env)?;
     wallet_init(&bob, &rpc_url, &cli_env)?;
 
-    run_cli_with_env(
+    let create_tree_out = run_cli_with_env(
         &[
             "wallet",
             "create-tree",
@@ -146,6 +163,33 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    let _tree = parse_tree_pubkey(&create_tree_out)?;
+
+    let test_mint_out = run_cli_with_env(
+        &[
+            "wallet",
+            "test-mint",
+            "--keypair",
+            &alice.display().to_string(),
+            "--amount",
+            "1000000",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+    let spl_mint = parse_field(&test_mint_out, "mint")?;
+    let alice_token_account = parse_field(&test_mint_out, "token_account")?;
+
+    let asset_registry_out = run_cli_with_env(&["config", "asset-registry"], &cli_env)?;
+    assert!(
+        asset_registry_out.contains(&spl_mint),
+        "asset registry missing SPL mint: {asset_registry_out}"
+    );
 
     let deposit_amount = "500000000";
     for _ in 0..2 {
@@ -209,6 +253,48 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         "expected 1B lamports balance, got: {balance_out}"
     );
 
+    run_cli_with_env(
+        &[
+            "wallet",
+            "deposit",
+            "--keypair",
+            &alice.display().to_string(),
+            "--to",
+            &bob.display().to_string(),
+            "--amount",
+            "600000",
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+
+    let spl_balance_out = run_cli_with_env(
+        &[
+            "wallet",
+            "balance",
+            "--keypair",
+            &bob.display().to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        spl_balance_out.contains("amount=600000"),
+        "expected 600000 SPL balance, got: {spl_balance_out}"
+    );
+
     let alice_funding = funding_pubkey(&alice)?;
     run_cli_with_env(
         &[
@@ -222,6 +308,30 @@ fn wallet_cli_sol_cycle() -> Result<()> {
             "400000000",
             "--mint",
             "SOL",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+
+    run_cli_with_env(
+        &[
+            "wallet",
+            "transfer",
+            "--keypair",
+            &bob.display().to_string(),
+            "--to",
+            &alice_funding,
+            "--amount",
+            "250000",
+            "--mint",
+            &spl_mint,
             "--rpc-url",
             &rpc_url,
             "--indexer-url",
@@ -261,6 +371,50 @@ fn wallet_cli_sol_cycle() -> Result<()> {
             "200000000",
             "--mint",
             "SOL",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+
+    let alice_spl_balance_out = run_cli_with_env(
+        &[
+            "wallet",
+            "balance",
+            "--keypair",
+            &alice.display().to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        alice_spl_balance_out.contains("amount=250000"),
+        "expected 250000 SPL balance, got: {alice_spl_balance_out}"
+    );
+
+    run_cli_with_env(
+        &[
+            "wallet",
+            "withdraw",
+            "--keypair",
+            &alice.display().to_string(),
+            "--to",
+            &alice_token_account,
+            "--amount",
+            "100000",
+            "--mint",
+            &spl_mint,
             "--rpc-url",
             &rpc_url,
             "--indexer-url",

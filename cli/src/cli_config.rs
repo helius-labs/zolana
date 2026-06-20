@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
+use zolana_transaction::{Address, AssetRegistry};
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
@@ -29,6 +30,16 @@ pub(crate) struct CliConfigFile {
     pub prover_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<LocalAssetConfig>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct LocalAssetConfig {
+    pub mint: String,
+    pub asset_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_account: Option<String>,
 }
 
 impl CliConfigFile {
@@ -67,6 +78,53 @@ impl CliConfigFile {
     pub(crate) fn set_tree(&mut self, tree: &Pubkey) -> Result<()> {
         self.tree = Some(tree.to_string());
         self.save()
+    }
+
+    pub(crate) fn upsert_asset(
+        &mut self,
+        mint: Pubkey,
+        asset_id: u64,
+        token_account: Option<Pubkey>,
+    ) -> Result<()> {
+        let mint = mint.to_string();
+        let token_account = token_account.map(|account| account.to_string());
+        if let Some(asset) = self.assets.iter_mut().find(|asset| asset.mint == mint) {
+            asset.asset_id = asset_id;
+            if token_account.is_some() {
+                asset.token_account = token_account;
+            }
+        } else {
+            self.assets.push(LocalAssetConfig {
+                mint,
+                asset_id,
+                token_account,
+            });
+        }
+        self.assets.sort_by_key(|asset| asset.asset_id);
+        self.save()
+    }
+
+    pub(crate) fn local_asset_registry(&self) -> Result<AssetRegistry> {
+        let entries = self
+            .assets
+            .iter()
+            .map(|asset| {
+                let mint = asset.mint.parse::<Pubkey>()?;
+                Ok((asset.asset_id, Address::new_from_array(mint.to_bytes())))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(AssetRegistry::new(entries)?)
+    }
+
+    pub(crate) fn token_account_for_mint(&self, mint: Pubkey) -> Result<Option<Pubkey>> {
+        let mint = mint.to_string();
+        self.assets
+            .iter()
+            .find(|asset| asset.mint == mint)
+            .and_then(|asset| asset.token_account.as_deref())
+            .map(str::parse::<Pubkey>)
+            .transpose()
+            .map_err(Into::into)
     }
 }
 
@@ -161,6 +219,7 @@ mod tests {
             indexer_url: Some("http://127.0.0.1:8785".to_string()),
             prover_url: Some("http://127.0.0.1:3002".to_string()),
             tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+            assets: Vec::new(),
         };
         config.save().expect("save config");
         assert_eq!(CliConfigFile::load().expect("load config"), config);

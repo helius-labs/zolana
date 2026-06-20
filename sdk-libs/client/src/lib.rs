@@ -11,8 +11,9 @@ pub mod user_registry;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_deposit, create_transfer, create_withdrawal, CreateTransfer, CreatedTransfer,
-    CreatedWithdrawal, Deposit, ResolvedAddress, TransferRecipient,
+    create_deposit, create_transfer, create_withdrawal, CreateDeposit, CreateTransfer,
+    CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress,
+    TransferRecipient,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
