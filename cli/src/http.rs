@@ -12,20 +12,22 @@ use serde_json::{json, Value};
 pub(crate) fn wait_for_rpc_with_child(
     port: u16,
     timeout: Duration,
+    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, child, label, || rpc_health(port))
+    wait_until_with_child(timeout, stable_checks, child, label, || rpc_health(port))
 }
 
 pub(crate) fn wait_for_http_get_with_child(
     port: u16,
     path: &str,
     timeout: Duration,
+    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, child, label, || {
+    wait_until_with_child(timeout, stable_checks, child, label, || {
         http_get_status(port, path)
             .map(|status| (200..300).contains(&status))
             .unwrap_or(false)
@@ -35,14 +37,18 @@ pub(crate) fn wait_for_http_get_with_child(
 pub(crate) fn wait_for_tcp_with_child(
     port: u16,
     timeout: Duration,
+    stable_checks: u32,
     child: &mut Child,
     label: &str,
 ) -> Result<()> {
-    wait_until_with_child(timeout, child, label, || tcp_connect(port).is_ok())
+    wait_until_with_child(timeout, stable_checks, child, label, || {
+        tcp_connect(port).is_ok()
+    })
 }
 
 fn wait_until_with_child<F>(
     timeout: Duration,
+    stable_checks: u32,
     child: &mut Child,
     label: &str,
     mut ready: F,
@@ -50,13 +56,20 @@ fn wait_until_with_child<F>(
 where
     F: FnMut() -> bool,
 {
+    let required = stable_checks.max(1);
     let start = Instant::now();
+    let mut consecutive = 0;
     while start.elapsed() < timeout {
         if let Some(status) = child.try_wait()? {
             bail!("{label} exited early with status {status}");
         }
         if ready() {
-            return Ok(());
+            consecutive += 1;
+            if consecutive >= required {
+                return Ok(());
+            }
+        } else {
+            consecutive = 0;
         }
         thread::sleep(Duration::from_secs(1));
     }

@@ -9,3 +9,8 @@ pub(crate) const DEFAULT_LOG_DIR: &str = "test-ledger";
 
 pub(crate) const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
 pub(crate) const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
+
+// A service that responds once may still stall right after startup, so readiness
+// must hold for this many consecutive one-second polls before we treat it as up.
+pub(crate) const READINESS_STABLE_CHECKS: u32 = 3;
+pub(crate) const PROVER_READINESS_STABLE_CHECKS: u32 = 5;

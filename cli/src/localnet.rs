@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::{
     args::TestValidatorOptions,
-    config::READINESS_TIMEOUT,
+    config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
     http::{wait_for_rpc_with_child, wait_for_tcp_with_child},
     process::{find_binary, remove_launchd_validators, spawn_service, stop_name, stop_port},
     prover::start_prover_service,
@@ -45,6 +45,7 @@ pub(crate) fn run_test_validator(opts: TestValidatorOptions) -> Result<()> {
     wait_for_rpc_with_child(
         opts.rpc_port,
         READINESS_TIMEOUT,
+        READINESS_STABLE_CHECKS,
         &mut validator,
         "validator",
     )
@@ -192,8 +193,14 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
 
     println!("Starting Photon: {} {}", photon.display(), args.join(" "));
     let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
-    wait_for_tcp_with_child(opts.photon_port, READINESS_TIMEOUT, &mut child, "photon")
-        .with_context(|| format!("Photon on port {} did not become ready", opts.photon_port))?;
+    wait_for_tcp_with_child(
+        opts.photon_port,
+        READINESS_TIMEOUT,
+        READINESS_STABLE_CHECKS,
+        &mut child,
+        "photon",
+    )
+    .with_context(|| format!("Photon on port {} did not become ready", opts.photon_port))?;
     println!(
         "Photon indexer is ready at http://127.0.0.1:{}",
         opts.photon_port
