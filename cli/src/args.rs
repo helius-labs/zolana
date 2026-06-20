@@ -417,6 +417,21 @@ pub(crate) fn parse_validator(values: &[&str]) -> TestValidatorOptions {
 }
 
 #[cfg(test)]
+pub(crate) fn parse_wallet(values: &[&str]) -> WalletCommand {
+    match parse_cli(
+        &std::iter::once("wallet")
+            .chain(values.iter().copied())
+            .collect::<Vec<_>>(),
+    )
+    .command
+    .expect("command")
+    {
+        CliCommand::Wallet { command } => command,
+        _ => panic!("expected wallet command"),
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use clap::CommandFactory;
@@ -448,6 +463,13 @@ mod tests {
             ["zolana", "test-validator", "--help"].as_slice(),
             ["zolana", "start-prover", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
+            ["zolana", "wallet", "init", "--help"].as_slice(),
+            ["zolana", "wallet", "create-tree", "--help"].as_slice(),
+            ["zolana", "wallet", "sync", "--help"].as_slice(),
+            ["zolana", "wallet", "balance", "--help"].as_slice(),
+            ["zolana", "wallet", "deposit", "--help"].as_slice(),
+            ["zolana", "wallet", "transfer", "--help"].as_slice(),
+            ["zolana", "wallet", "withdraw", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -526,5 +548,140 @@ mod tests {
 
         assert_eq!(opts.prover_port, 3002);
         assert_eq!(opts.redis_url.as_deref(), Some("redis://localhost:6379/15"));
+    }
+
+    #[test]
+    fn parses_wallet_init_options() {
+        let WalletCommand::Init(opts) = parse_wallet(&["init", "--path", "/tmp/alice.pid.json"])
+        else {
+            panic!("expected wallet init command");
+        };
+        assert_eq!(opts.path.as_deref(), Some("/tmp/alice.pid.json"));
+    }
+
+    #[test]
+    fn parses_wallet_create_tree_options() {
+        let WalletCommand::CreateTree(opts) = parse_wallet(&[
+            "create-tree",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree-keypair",
+            "/tmp/tree.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--indexer-url",
+            "http://127.0.0.1:8785",
+            "--airdrop-lamports",
+            "1000000000",
+        ]) else {
+            panic!("expected wallet create-tree command");
+        };
+        assert_eq!(
+            opts.sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(opts.tree_keypair, "/tmp/tree.json");
+        assert_eq!(opts.sync.rpc_url, "http://127.0.0.1:8900");
+        assert_eq!(opts.sync.indexer_url, "http://127.0.0.1:8785");
+        assert_eq!(opts.airdrop_lamports, 1_000_000_000);
+    }
+
+    #[test]
+    fn parses_wallet_sync_and_balance_options() {
+        let WalletCommand::Sync(sync) = parse_wallet(&[
+            "sync",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--indexer-url",
+            "http://127.0.0.1:8785",
+        ]) else {
+            panic!("expected wallet sync command");
+        };
+        assert_eq!(
+            sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(sync.rpc_url, "http://127.0.0.1:8900");
+        assert_eq!(sync.indexer_url, "http://127.0.0.1:8785");
+
+        let WalletCommand::Balance(balance) = parse_wallet(&[
+            "balance",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--mint",
+            "SOL",
+        ]) else {
+            panic!("expected wallet balance command");
+        };
+        assert_eq!(balance.mint.as_deref(), Some("SOL"));
+    }
+
+    #[test]
+    fn parses_wallet_deposit_transfer_and_withdraw_options() {
+        let WalletCommand::Deposit(deposit) = parse_wallet(&[
+            "deposit",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--to",
+            "/tmp/bob.pid.json",
+            "--amount",
+            "1000000000",
+            "--mint",
+            "SOL",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--indexer-url",
+            "http://127.0.0.1:8785",
+            "--airdrop-lamports",
+            "2000000000",
+        ]) else {
+            panic!("expected wallet deposit command");
+        };
+        assert_eq!(deposit.to, "/tmp/bob.pid.json");
+        assert_eq!(deposit.amount, 1_000_000_000);
+        assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
+
+        let WalletCommand::Transfer(transfer) = parse_wallet(&[
+            "transfer",
+            "--keypair",
+            "/tmp/bob.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--to",
+            "Recipient1111111111111111111111111111111111",
+            "--amount",
+            "400000000",
+            "--mint",
+            "SOL",
+            "--prover-url",
+            "http://127.0.0.1:3002",
+        ]) else {
+            panic!("expected wallet transfer command");
+        };
+        assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
+        assert_eq!(transfer.amount, 400_000_000);
+        assert_eq!(transfer.network.prover_url, "http://127.0.0.1:3002");
+
+        let WalletCommand::Withdraw(withdraw) = parse_wallet(&[
+            "withdraw",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--to",
+            "Dest1111111111111111111111111111111111111111",
+            "--amount",
+            "200000000",
+            "--mint",
+            "SOL",
+        ]) else {
+            panic!("expected wallet withdraw command");
+        };
+        assert_eq!(withdraw.to, "Dest1111111111111111111111111111111111111111");
+        assert_eq!(withdraw.amount, 200_000_000);
     }
 }

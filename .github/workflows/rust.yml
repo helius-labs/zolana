@@ -82,6 +82,17 @@ jobs:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
 
+  test-cli:
+    name: tests / cli
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just test-cli
+
   test-shielded-pool:
     name: tests / shielded-pool
     runs-on: ubuntu-latest
@@ -187,11 +198,13 @@ jobs:
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
       - run: just test-localnet-e2e-photon
+      - run: just test-spp-validator
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |
           echo "=== prover-server.log ==="
-          tail -200 test-ledger/prover-server.log 2>/dev/null || echo "(no prover log)"
+          find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
+            || echo "(no prover log)"
           echo "=== photon log ==="
           tail -100 /tmp/zolana-photon.log 2>/dev/null || echo "(no photon log)"
 

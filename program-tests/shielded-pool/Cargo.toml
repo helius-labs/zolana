@@ -28,6 +28,8 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
 light-hasher = { workspace = true }
@@ -54,6 +56,11 @@ required-features = ["localnet"]
 [[test]]
 name = "localnet_photon_e2e"
 path = "tests/localnet_photon_e2e.rs"
+required-features = ["localnet"]
+
+[[test]]
+name = "localnet_wallet_cli_e2e"
+path = "tests/localnet_wallet_cli_e2e.rs"
 required-features = ["localnet"]
 
 [[test]]

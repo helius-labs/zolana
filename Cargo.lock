@@ -4373,6 +4373,8 @@ dependencies = [
  "light-hasher",
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
+ "serde",
+ "serde_json",
  "serial_test",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
