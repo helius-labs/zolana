@@ -323,8 +323,8 @@ pub(crate) struct TransferOptions {
 
     #[arg(
         long = "to",
-        help = "Recipient Solana pubkey looked up in the local registry, or a wallet file path",
-        value_name = "PUBKEY_OR_PATH"
+        help = "Recipient Solana pubkey looked up in the local registry",
+        value_name = "PUBKEY"
     )]
     pub(crate) to: String,
 

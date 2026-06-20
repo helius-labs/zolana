@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -38,13 +36,6 @@ pub(super) fn format_address(address: Address) -> String {
     } else {
         Pubkey::new_from_array(address.to_bytes()).to_string()
     }
-}
-
-pub(super) fn now_unix_ts() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 pub(super) fn parse_hex_array<const N: usize>(value: &str) -> Result<[u8; N]> {

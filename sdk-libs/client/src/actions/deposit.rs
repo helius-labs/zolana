@@ -70,6 +70,10 @@ impl Deposit {
     }
 }
 
+pub fn create_deposit(recipient: &ShieldedKeypair, lamports: u64) -> Result<Deposit, ClientError> {
+    Deposit::sol(recipient, lamports)
+}
+
 /// Build and send a direct (non-zone) proofless SOL shield: a public deposit
 /// that appends a recipient-hidden UTXO without a proof.
 ///

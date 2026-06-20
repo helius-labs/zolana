@@ -3,9 +3,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    CircuitType, InputCommitment, InputTreeIndices, ProofCompressed, ProverClient, Rpc, SolanaRpc,
-    SpendProof, SpendUtxo, StateInclusionProof, Transaction, ZolanaIndexer, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    create_transfer, CircuitType, CreateTransfer, InputCommitment, InputTreeIndices,
+    ProofCompressed, ProverClient, Rpc, SignedTransaction, SolanaRpc, SpendProof,
+    StateInclusionProof, ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::{Address, SOL_MINT};
@@ -13,8 +13,8 @@ use zolana_transaction::{Address, SOL_MINT};
 use crate::args::TransferOptions;
 
 use super::material::WalletMaterial;
-use super::registry::resolve_transfer_recipient;
-use super::sync::{sync_context, wait_for_indexed_transaction, SyncContext};
+use super::registry::LocalAddressResolver;
+use super::sync::{sync_context, wait_for_indexed_transaction};
 use super::util::{ensure_positive, ensure_sol, parse_pubkey};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
@@ -24,23 +24,20 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(opts.network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, opts.network.airdrop_lamports)?;
-    let recipient = resolve_transfer_recipient(&opts.to, &opts.network.sync)?;
+    let recipient_owner = parse_pubkey(&opts.to)?;
+    let resolver = LocalAddressResolver::from_sync_options(&opts.network.sync);
     let tree = parse_pubkey(&opts.network.tree)?;
 
-    let sender_view_tag = next_sender_view_tag(&ctx)?;
-    let inputs = select_inputs(&ctx, SOL_MINT, opts.amount)?;
-    let mut tx = Transaction::new(
-        ctx.material.keypair.shielded_address()?,
-        inputs,
-        Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-    );
-    tx.send(
-        &recipient.address,
-        SOL_MINT,
-        opts.amount,
-        recipient.view_tag,
-    )?;
-    let signed = tx.sign(&ctx.material.keypair, &ctx.assets, sender_view_tag)?;
+    let transfer = create_transfer(CreateTransfer {
+        wallet: &ctx.wallet,
+        keypair: &ctx.material.keypair,
+        payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
+        resolver: &resolver,
+        recipient_owner,
+        asset: SOL_MINT,
+        amount: opts.amount,
+        assets: &ctx.assets,
+    })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
@@ -49,13 +46,13 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             tree,
             prover_url: &opts.network.prover_url,
             withdrawal: None,
-            wait_tag: sender_view_tag,
+            wait_tag: transfer.wait_tag,
         },
-        signed,
+        transfer.signed,
     )?;
     println!(
         "ok transfer amount={} mint=SOL to={} signature={}",
-        opts.amount, recipient.owner, signature
+        opts.amount, transfer.recipient.owner, signature
     );
     Ok(())
 }
@@ -72,7 +69,7 @@ pub(super) struct SubmitPrivateTx<'a> {
 
 pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
-    signed: zolana_client::SignedTransaction,
+    signed: SignedTransaction,
 ) -> Result<Signature> {
     let commitments = signed.input_commitments()?;
     let (proofs, indices) = spend_proofs(request.indexer, request.tree, &commitments)?;
@@ -168,40 +165,6 @@ fn fixed_path<const N: usize>(path: Vec<[u8; 32]>, name: &str) -> Result<[[u8; 3
     let actual = path.len();
     path.try_into()
         .map_err(|_| anyhow::anyhow!("{name} length mismatch: expected {N}, got {actual}"))
-}
-
-pub(super) fn select_inputs(
-    ctx: &SyncContext,
-    mint: Address,
-    amount: u64,
-) -> Result<Vec<SpendUtxo>> {
-    let mut selected = Vec::new();
-    let mut total = 0u64;
-    for entry in &ctx.wallet.utxos {
-        if entry.spent || entry.utxo.asset != mint {
-            continue;
-        }
-        selected.push(SpendUtxo::from((entry.utxo.clone(), &ctx.material.keypair)));
-        total = total
-            .checked_add(entry.utxo.amount)
-            .ok_or_else(|| anyhow::anyhow!("selected balance overflow"))?;
-        if total >= amount {
-            break;
-        }
-    }
-    if total < amount {
-        bail!("insufficient private balance: requested {amount}, available {total}");
-    }
-    Ok(selected)
-}
-
-pub(super) fn next_sender_view_tag(ctx: &SyncContext) -> Result<[u8; 32]> {
-    let entry = ctx
-        .wallet
-        .viewing_key_history
-        .last()
-        .ok_or_else(|| anyhow::anyhow!("wallet viewing history missing"))?;
-    Ok(ctx.material.keypair.get_sender_view_tag(entry.tx_count)?)
 }
 
 pub(super) fn maybe_airdrop(

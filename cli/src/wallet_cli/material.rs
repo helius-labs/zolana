@@ -211,9 +211,11 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+    use zolana_client::AddressResolver;
+
     use crate::args::{SyncOptions, WalletKeypairOptions};
     use crate::wallet_cli::registry::{
-        local_user_registry_path, read_local_user_registry, resolve_transfer_recipient,
+        local_user_registry_path, read_local_user_registry, LocalAddressResolver,
     };
 
     fn temp_root(prefix: &str) -> PathBuf {
@@ -251,17 +253,16 @@ mod tests {
         assert!(registry
             .records
             .contains_key(&loaded.funding.pubkey().to_string()));
-        let recipient = resolve_transfer_recipient(
-            &loaded.funding.pubkey().to_string(),
-            &SyncOptions {
-                keypair: WalletKeypairOptions {
-                    keypair: Some(wallet.display().to_string()),
-                },
-                rpc_url: "http://127.0.0.1:8899".to_string(),
-                indexer_url: "http://127.0.0.1:8784".to_string(),
+        let resolver = LocalAddressResolver::from_sync_options(&SyncOptions {
+            keypair: WalletKeypairOptions {
+                keypair: Some(wallet.display().to_string()),
             },
-        )
-        .expect("lookup recipient");
+            rpc_url: "http://127.0.0.1:8899".to_string(),
+            indexer_url: "http://127.0.0.1:8784".to_string(),
+        });
+        let recipient = resolver
+            .resolve_address(loaded.funding.pubkey())
+            .expect("lookup recipient");
         assert_eq!(recipient.owner, loaded.funding.pubkey());
         assert_eq!(
             recipient.address.owner_hash().unwrap(),

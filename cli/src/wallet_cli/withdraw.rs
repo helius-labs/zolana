@@ -1,15 +1,12 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{SolanaRpc, Transaction, WithdrawalTarget, ZolanaIndexer};
-use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
+use zolana_client::{create_withdrawal, SolanaRpc, ZolanaIndexer};
 use zolana_transaction::{Address, SOL_MINT};
 
 use crate::args::WithdrawOptions;
 
 use super::sync::sync_context;
-use super::transaction::{
-    maybe_airdrop, next_sender_view_tag, select_inputs, submit_private_transaction, SubmitPrivateTx,
-};
+use super::transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx};
 use super::util::{ensure_positive, ensure_sol, parse_pubkey};
 
 pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
@@ -22,21 +19,15 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let tree = parse_pubkey(&opts.network.tree)?;
     let destination = parse_pubkey(&opts.to)?;
 
-    let sender_view_tag = next_sender_view_tag(&ctx)?;
-    let inputs = select_inputs(&ctx, SOL_MINT, opts.amount)?;
-    let mut tx = Transaction::new(
-        ctx.material.keypair.shielded_address()?,
-        inputs,
+    let withdrawal = create_withdrawal(
+        &ctx.wallet,
+        &ctx.material.keypair,
         Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-    );
-    tx.withdraw(
+        destination,
         SOL_MINT,
         opts.amount,
-        WithdrawalTarget::Sol {
-            user_sol_account: Address::new_from_array(destination.to_bytes()),
-        },
+        &ctx.assets,
     )?;
-    let signed = tx.sign(&ctx.material.keypair, &ctx.assets, sender_view_tag)?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
@@ -44,12 +35,10 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
             material: &ctx.material,
             tree,
             prover_url: &opts.network.prover_url,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient: destination,
-            })),
-            wait_tag: sender_view_tag,
+            withdrawal: Some(withdrawal.withdrawal),
+            wait_tag: withdrawal.wait_tag,
         },
-        signed,
+        withdrawal.signed,
     )?;
     println!(
         "ok withdraw amount={} mint=SOL to={} signature={}",

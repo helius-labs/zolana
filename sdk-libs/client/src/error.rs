@@ -25,6 +25,18 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("selected balance overflow")]
+    SelectedBalanceOverflow,
+
+    #[error("wallet viewing history missing")]
+    WalletViewingHistoryMissing,
+
+    #[error("only SOL withdrawals are supported by this helper")]
+    UnsupportedWithdrawalAsset,
+
+    #[error("address resolution error: {0}")]
+    AddressResolution(String),
+
     #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
     MultiplePublicSplAssets,
 

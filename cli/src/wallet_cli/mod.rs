@@ -16,9 +16,6 @@ use crate::args::WalletCommand;
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const INDEXER_POLL: Duration = Duration::from_millis(500);
-const TAG_QUERY_CHUNK: usize = 64;
-const QUERY_LIMIT: u32 = 1_000;
-const SYNC_ROUNDS: usize = 6;
 
 pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {

@@ -6,13 +6,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_client::{AddressResolver, ClientError, ResolvedAddress};
 use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress};
 
 use crate::args::SyncOptions;
 
-use super::material::{
-    load_recipient_wallet, resolve_keypair_path, write_json_secret, WalletMaterial,
-};
+use super::material::{resolve_keypair_path, write_json_secret, WalletMaterial};
 use super::util::parse_hex_array;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -28,27 +27,24 @@ pub(super) struct LocalUserRecord {
     viewing_pubkey_hex: String,
 }
 
-pub(super) struct RecipientLookup {
-    pub(super) owner: Pubkey,
-    pub(super) address: ShieldedAddress,
-    pub(super) view_tag: [u8; 32],
+pub(super) struct LocalAddressResolver {
+    path: PathBuf,
 }
 
-pub(super) fn resolve_transfer_recipient(
-    value: &str,
-    opts: &SyncOptions,
-) -> Result<RecipientLookup> {
-    if let Ok(owner) = value.parse::<Pubkey>() {
+impl LocalAddressResolver {
+    pub(super) fn from_sync_options(opts: &SyncOptions) -> Self {
         let keypair_path = resolve_keypair_path(opts.keypair.keypair.as_deref());
-        return lookup_registered_recipient(&local_user_registry_path(&keypair_path), &owner);
+        Self {
+            path: local_user_registry_path(&keypair_path),
+        }
     }
+}
 
-    let material = load_recipient_wallet(value)?;
-    Ok(RecipientLookup {
-        owner: material.funding.pubkey(),
-        address: material.keypair.shielded_address()?,
-        view_tag: material.keypair.recipient_bootstrap_view_tag(),
-    })
+impl AddressResolver for LocalAddressResolver {
+    fn resolve_address(&self, owner: Pubkey) -> Result<ResolvedAddress, ClientError> {
+        lookup_registered_recipient(&self.path, &owner)
+            .map_err(|err| ClientError::AddressResolution(err.to_string()))
+    }
 }
 
 pub(super) fn register_wallet_locally(
@@ -72,7 +68,7 @@ pub(super) fn register_wallet_locally(
     write_json_secret(&path, &registry)
 }
 
-fn lookup_registered_recipient(path: &Path, owner: &Pubkey) -> Result<RecipientLookup> {
+fn lookup_registered_recipient(path: &Path, owner: &Pubkey) -> Result<ResolvedAddress> {
     // TODO(user-registry): replace this JSON read with an RPC read of the user_registry PDA.
     let registry = read_local_user_registry(path)?;
     let record = registry.records.get(&owner.to_string()).ok_or_else(|| {
@@ -95,7 +91,7 @@ fn lookup_registered_recipient(path: &Path, owner: &Pubkey) -> Result<RecipientL
         nullifier_pubkey: parse_hex_array::<32>(&record.nullifier_pubkey_hex)?,
         viewing_pubkey,
     };
-    Ok(RecipientLookup {
+    Ok(ResolvedAddress {
         owner: *owner,
         address,
         view_tag: viewing_pubkey.x(),
