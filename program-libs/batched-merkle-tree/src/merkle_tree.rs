@@ -3,6 +3,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use crate::verify::{
+    verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
+    CompressedProof,
+};
 use light_account_checks::{
     checks::{check_account_info, set_discriminator},
     discriminator::{Discriminator, DISCRIMINATOR_LEN},
@@ -18,10 +22,6 @@ use light_merkle_tree_metadata::{
     merkle_tree::MerkleTreeMetadata,
     QueueType, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2, ADDRESS_QUEUE_TYPE_V2,
     INPUT_STATE_QUEUE_TYPE_V2, OUTPUT_STATE_QUEUE_TYPE_V2, STATE_MERKLE_TREE_TYPE_V2,
-};
-use crate::verify::{
-    verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
-    CompressedProof,
 };
 use light_zero_copy_vec::{
     bounded_slice::BoundedSliceMut, cyclic_slice::CyclicSliceMut, errors::ZeroCopyError,

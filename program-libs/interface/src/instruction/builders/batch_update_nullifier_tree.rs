@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData},
+    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -19,9 +19,11 @@ impl BatchUpdateNullifierTree {
     pub fn instruction(&self) -> Instruction {
         let data = BatchUpdateNullifierTreeData {
             new_root: self.new_root,
-            compressed_proof_a: self.compressed_proof_a,
-            compressed_proof_b: self.compressed_proof_b,
-            compressed_proof_c: self.compressed_proof_c,
+            compressed_proof: CompressedProof {
+                a: self.compressed_proof_a,
+                b: self.compressed_proof_b,
+                c: self.compressed_proof_c,
+            },
         };
 
         Instruction {

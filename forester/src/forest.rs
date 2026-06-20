@@ -37,9 +37,9 @@ pub fn batch_update_nullifier_tree_once(
         authority,
         tree: params.pool_tree,
         new_root: batch_update.new_root,
-        compressed_proof_a: batch_update.compressed_proof_a,
-        compressed_proof_b: batch_update.compressed_proof_b,
-        compressed_proof_c: batch_update.compressed_proof_c,
+        compressed_proof_a: batch_update.compressed_proof.a,
+        compressed_proof_b: batch_update.compressed_proof.b,
+        compressed_proof_c: batch_update.compressed_proof.c,
     }
     .instruction();
 
