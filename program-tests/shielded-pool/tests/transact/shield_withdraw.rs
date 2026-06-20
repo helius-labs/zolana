@@ -19,7 +19,6 @@ mod common;
 mod transact_common;
 
 use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -30,6 +29,7 @@ use zolana_interface::pda;
 use zolana_keypair::hash::owner_hash;
 use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
+use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};

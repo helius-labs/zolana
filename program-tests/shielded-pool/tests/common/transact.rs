@@ -13,13 +13,13 @@ pub use transact_core::{
 
 use anyhow::{Context, Result};
 use light_hasher::Poseidon;
-use light_merkle_tree_reference::indexed::{IndexedMerkleTree, NonInclusionProof};
 use num_bigint::BigUint;
 use zolana_client::private_transaction::field::{
     be, right_align_slice, signed_to_field, BN254_MODULUS_DEC,
 };
 use zolana_client::{TransferInput, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT};
 use zolana_keypair::NullifierKey;
+use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{OutputUtxo, Utxo};
 
 pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {

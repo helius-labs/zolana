@@ -5,7 +5,7 @@ pub mod protocol_config;
 pub mod transact;
 pub mod zone_config;
 
-pub use batch_update_nullifier_tree::BatchUpdateNullifierTreeData;
+pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
 pub use create_tree::CreateTreeData;
 pub use deposit::{CpiSignerData, DepositIxData, ZoneDepositIxData};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};

@@ -46,7 +46,7 @@ solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
-light-merkle-tree-reference = { workspace = true }
+zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

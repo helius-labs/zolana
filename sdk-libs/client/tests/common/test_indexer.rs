@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
 use light_hasher::Poseidon;
-use light_merkle_tree_reference::indexed::IndexedMerkleTree;
-use light_merkle_tree_reference::MerkleTree;
 use num_bigint::BigUint;
 use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
@@ -10,6 +8,8 @@ use zolana_client::{
     ProveResult, ProverClient, Rpc, SignedTransaction, SpendProof, StateInclusionProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_merkle_tree::MerkleTree;
 
 /// Wraps a Poseidon state tree (UTXO inclusion) and an indexed Poseidon nullifier
 /// tree (nullifier non-inclusion) so it can answer [`Rpc`] proof queries with

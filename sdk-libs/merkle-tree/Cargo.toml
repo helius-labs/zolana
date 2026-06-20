@@ -1,0 +1,17 @@
+[package]
+name = "zolana-merkle-tree"
+version = "4.0.0"
+description = "Non-sparse reference Merkle tree implementation"
+license = "Apache-2.0"
+edition = "2021"
+
+
+[dependencies]
+light-hasher = { workspace = true, features = ["poseidon", "sha256", "keccak"] }
+thiserror = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+light-indexed-array = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

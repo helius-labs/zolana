@@ -1,0 +1,29 @@
+[package]
+name = "light-account-checks"
+version = "0.8.0"
+description = "Checks for solana accounts."
+readme = "README.md"
+repository = "https://github.com/helius-labs/privacy-program-libs"
+license = "Apache-2.0"
+edition = "2021"
+
+[features]
+default = ["std", "msg"]
+std = []
+msg = ["dep:solana-msg"]
+test-only = ["dep:rand", "std"]
+
+[dependencies]
+solana-account-view = { workspace = true }
+solana-address = { workspace = true }
+solana-program-error = { workspace = true }
+solana-msg = { workspace = true, optional = true, features = ["alloc"] }
+thiserror = { workspace = true }
+rand = { workspace = true, optional = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

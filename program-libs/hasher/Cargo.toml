@@ -1,0 +1,45 @@
+[package]
+name = "light-hasher"
+version = "5.0.0"
+description = "Trait for generic usage of hash functions on Solana"
+readme = "README.md"
+repository = "https://github.com/helius-labs/privacy-program-libs"
+license = "Apache-2.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+alloc = ["dep:borsh"]
+std = ["alloc"]
+poseidon = ["dep:light-poseidon", "dep:ark-bn254", "dep:ark-ff"]
+sha256 = ["dep:sha2"]
+keccak = ["dep:sha3"]
+
+
+[dependencies]
+light-poseidon = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tinyvec = { workspace = true }
+num-bigint = { workspace = true }
+
+solana-program-error = { workspace = true }
+borsh = { workspace = true, optional = true }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+ark-bn254 = { workspace = true, optional = true }
+sha2 = { version = "0.10", optional = true }
+sha3 = { version = "0.10", optional = true }
+ark-ff = { workspace = true, optional = true  }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]
+
+[dev-dependencies]
+rand = { workspace = true }
+num-bigint = { workspace = true, features = ["rand"] }
+light-poseidon = { workspace = true }
+solana-pubkey = { workspace = true }

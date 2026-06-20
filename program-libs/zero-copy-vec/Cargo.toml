@@ -1,0 +1,19 @@
+[package]
+name = "light-zero-copy-vec"
+version = "0.1.0"
+description = "Zero-copy bounded and cyclic vector types with wincode codec support."
+repository = "https://github.com/helius-labs/privacy-program-libs"
+license = "Apache-2.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+wincode = { workspace = true, features = ["derive"] }
+zerocopy = { workspace = true, features = ["derive"] }
+solana-program-error = { workspace = true }
+
+[dev-dependencies]
+light-zero-copy = "0.6.0"
