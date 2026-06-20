@@ -8,9 +8,9 @@ use light_batched_merkle_tree::constants::{
     ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
 };
 use light_hasher::Poseidon;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use num_bigint::BigUint;
 use num_traits::Num;
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
 const HEIGHT: usize = 40;
 

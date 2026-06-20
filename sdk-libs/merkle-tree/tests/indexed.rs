@@ -1,8 +1,8 @@
 use light_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
 use light_indexed_array::HIGHEST_ADDRESS_PLUS_ONE;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::Num;
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
 const MERKLE_TREE_HEIGHT: usize = 4;
 const MERKLE_TREE_CANOPY: usize = 0;

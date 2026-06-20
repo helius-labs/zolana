@@ -4595,7 +4595,6 @@ dependencies = [
  "bytemuck",
  "groth16-solana",
  "light-account-checks",
- "light-batched-merkle-tree",
  "light-hasher",
  "pinocchio 0.11.2",
  "pinocchio-system",

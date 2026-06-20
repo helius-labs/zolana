@@ -21,7 +21,6 @@ borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 light-account-checks = { workspace = true }
-light-batched-merkle-tree = { workspace = true }
 light-hasher = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }

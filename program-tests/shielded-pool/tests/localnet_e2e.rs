@@ -8,7 +8,6 @@ mod transact_common;
 
 use anyhow::anyhow;
 use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use zolana_merkle_tree::MerkleTree;
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -30,6 +29,7 @@ use zolana_interface::{
 use zolana_keypair::hash::owner_hash;
 use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
+use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
