@@ -1,7 +1,8 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{
-    create_deposit, validate_registered_keypair, CreateDeposit, SolanaRpc, ZolanaIndexer,
+    create_deposit, validate_registered_keypair, CreateDeposit, SolanaRpc, TransactionPrivacy,
+    ZolanaIndexer,
 };
 
 use crate::args::DepositOptions;
@@ -42,14 +43,16 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         amount: opts.amount,
         spl_token_account,
     })?;
+    let privacy = TransactionPrivacy::from_deposit(&deposit);
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
     wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
     println!(
-        "ok deposit amount={} mint={} to={} utxo_hash={} signature={}",
+        "ok deposit amount={} mint={} to={} utxo_hash={} privacy {} signature={}",
         opts.amount,
         format_address(asset),
         recipient_pubkey,
         hex::encode(deposit.utxo_hash),
+        privacy.format_fields(),
         signature
     );
     Ok(())

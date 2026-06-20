@@ -7,6 +7,7 @@ pub mod prover;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
+pub mod transaction_privacy;
 pub mod user_registry;
 pub mod wallet_sync;
 
@@ -37,6 +38,9 @@ pub use rpc::{
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
+pub use transaction_privacy::{
+    TransactionPrivacy, TransactionPrivacyKind,
+};
 pub use user_registry::{
     decode_user_record_account, fetch_user_record_checked, fetch_user_record_optional_checked,
     resolve_registered_address, resolved_address_from_record, try_resolve_registered_address,

@@ -5,7 +5,8 @@ use solana_signer::Signer;
 use zolana_client::{
     create_transfer, CircuitType, CreateTransfer, InputCommitment, InputTreeIndices,
     ProofCompressed, ProverClient, Rpc, SignedTransaction, SolanaRpc, SpendProof,
-    StateInclusionProof, ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    StateInclusionProof, TransactionPrivacy, ZolanaIndexer, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
@@ -38,6 +39,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         amount: opts.amount,
         assets: &ctx.assets,
     })?;
+    let privacy = TransactionPrivacy::from_transfer(&transfer);
     let signature = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
@@ -50,17 +52,12 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         },
         transfer.signed,
     )?;
-    let mode = if transfer.recipient.is_public_withdrawal() {
-        "withdraw"
-    } else {
-        "shielded"
-    };
     println!(
-        "ok transfer amount={} mint={} to={} mode={} signature={}",
+        "ok transfer amount={} mint={} to={} privacy {} signature={}",
         opts.amount,
         format_address(asset),
         transfer.recipient.pubkey(),
-        mode,
+        privacy.format_fields(),
         signature
     );
     Ok(())

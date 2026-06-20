@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, TransactionPrivacy, ZolanaIndexer};
 use zolana_transaction::Address;
 
 use crate::args::WithdrawOptions;
@@ -30,6 +30,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         amount: opts.amount,
         assets: &ctx.assets,
     })?;
+    let privacy = TransactionPrivacy::from_withdrawal(&withdrawal);
     let signature = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
@@ -43,10 +44,11 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         withdrawal.signed,
     )?;
     println!(
-        "ok withdraw amount={} mint={} to={} signature={}",
+        "ok withdraw amount={} mint={} to={} privacy {} signature={}",
         opts.amount,
         format_address(asset),
         recipient,
+        privacy.format_fields(),
         signature
     );
     Ok(())

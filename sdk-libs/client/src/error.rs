@@ -87,4 +87,7 @@ pub enum ClientError {
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
+
+    #[error("privacy classification error: {0}")]
+    PrivacyClassification(String),
 }

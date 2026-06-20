@@ -12,9 +12,10 @@ use serde::Deserialize;
 use serial_test::serial;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{Rpc, SolanaRpc, TransactionPrivacy};
 use zolana_interface::{
     pda,
     SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
@@ -223,6 +224,36 @@ fn parse_field(output: &str, field: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("output missing {field}=...:\n{output}"))
 }
 
+fn assert_cli_privacy(output: &str, expected_flow: &str) -> Result<()> {
+    let flow = parse_field(output, "flow")?;
+    if flow != expected_flow {
+        bail!("expected privacy flow {expected_flow}, got {flow}:\n{output}");
+    }
+    Ok(())
+}
+
+fn on_chain_privacy(rpc_url: &str, signature: &str) -> Result<TransactionPrivacy> {
+    let rpc = SolanaRpc::new(rpc_url);
+    let signature = signature.parse::<Signature>()?;
+    let groups = rpc.fetch_confirmed_instruction_groups(&signature)?;
+    TransactionPrivacy::from_instruction_groups(&groups.groups)?.ok_or_else(|| {
+        anyhow!("confirmed transaction missing shielded-pool privacy classification")
+    })
+}
+
+fn assert_on_chain_privacy(
+    rpc_url: &str,
+    output: &str,
+    expected: TransactionPrivacy,
+) -> Result<()> {
+    let signature = parse_field(output, "signature")?;
+    let privacy = on_chain_privacy(rpc_url, &signature)?;
+    if privacy != expected {
+        bail!("on-chain privacy {privacy:?} != expected {expected:?}\n{output}");
+    }
+    Ok(())
+}
+
 #[test]
 #[serial]
 fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
@@ -315,7 +346,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let deposit_amount = "500000000";
     for _ in 0..2 {
-        run_cli_with_env(
+        let deposit_out = run_cli_with_env(
             &[
                 "wallet",
                 "deposit",
@@ -336,6 +367,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             ],
             &cli_env,
         )?;
+        assert_cli_privacy(&deposit_out, "public-to-private")?;
+        assert_on_chain_privacy(&rpc_url, &deposit_out, TransactionPrivacy::deposit())?;
     }
 
     let sync_out = run_cli_with_env(
@@ -375,7 +408,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "expected 1B lamports balance, got: {balance_out}"
     );
 
-    run_cli_with_env(
+    let spl_deposit_out = run_cli_with_env(
         &[
             "wallet",
             "deposit",
@@ -396,6 +429,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    assert_cli_privacy(&spl_deposit_out, "public-to-private")?;
+    assert_on_chain_privacy(&rpc_url, &spl_deposit_out, TransactionPrivacy::deposit())?;
 
     let spl_balance_out = run_cli_with_env(
         &[
@@ -442,7 +477,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &cli_env,
     )?;
 
-    run_cli_with_env(
+    let shielded_spl_transfer_out = run_cli_with_env(
         &[
             "wallet",
             "transfer",
@@ -465,9 +500,15 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    assert_cli_privacy(&shielded_spl_transfer_out, "private-to-private")?;
+    assert_on_chain_privacy(
+        &rpc_url,
+        &shielded_spl_transfer_out,
+        TransactionPrivacy::shielded_transfer(),
+    )?;
 
     let unregistered_transfer_amount = 50_000u64;
-    run_cli_with_env(
+    let public_spl_transfer_out = run_cli_with_env(
         &[
             "wallet",
             "transfer",
@@ -489,6 +530,12 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "2000000000",
         ],
         &cli_env,
+    )?;
+    assert_cli_privacy(&public_spl_transfer_out, "private-to-public")?;
+    assert_on_chain_privacy(
+        &rpc_url,
+        &public_spl_transfer_out,
+        TransactionPrivacy::withdrawal(),
     )?;
     assert_eq!(
         spl_token_account_amount(&rpc, &unregistered_ata)?,
@@ -515,7 +562,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &cli_env,
     )?;
 
-    run_cli_with_env(
+    let sol_withdraw_out = run_cli_with_env(
         &[
             "wallet",
             "withdraw",
@@ -538,6 +585,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    assert_cli_privacy(&sol_withdraw_out, "private-to-public")?;
+    assert_on_chain_privacy(&rpc_url, &sol_withdraw_out, TransactionPrivacy::withdrawal())?;
 
     let alice_spl_balance_out = run_cli_with_env(
         &[
@@ -565,7 +614,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         0,
         "bob ATA should start empty"
     );
-    run_cli_with_env(
+    let spl_withdraw_out = run_cli_with_env(
         &[
             "wallet",
             "withdraw",
@@ -588,6 +637,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    assert_cli_privacy(&spl_withdraw_out, "private-to-public")?;
+    assert_on_chain_privacy(&rpc_url, &spl_withdraw_out, TransactionPrivacy::withdrawal())?;
     assert_eq!(
         spl_token_account_amount(&rpc, &bob_ata)?,
         spl_withdraw_amount,
