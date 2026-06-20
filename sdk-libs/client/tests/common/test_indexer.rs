@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use light_hasher::Poseidon;
-use light_merkle_tree_reference::indexed::IndexedMerkleTree;
-use light_merkle_tree_reference::MerkleTree;
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_merkle_tree::MerkleTree;
 use num_bigint::BigUint;
 use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{

@@ -9,7 +9,6 @@ members = [
     "program-libs/indexed-array",
     "program-libs/interface",
     "program-libs/merkle-tree-metadata",
-    "program-libs/merkle-tree-reference",
     "program-libs/tree",
     "program-libs/zero-copy-vec",
     "program-tests/shielded-pool",
@@ -22,6 +21,7 @@ members = [
     "cli",
     "sdk-libs/client",
     "sdk-libs/keypair",
+    "sdk-libs/merkle-tree",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
@@ -51,6 +51,7 @@ zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
+zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
@@ -66,7 +67,6 @@ light-hasher = { path = "program-libs/hasher", version = "5.0.0", default-featur
 light-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "0.23.0", default-features = false }
 light-merkle-tree-metadata = { path = "program-libs/merkle-tree-metadata", version = "0.11.0" }
-light-merkle-tree-reference = { path = "program-libs/merkle-tree-reference", version = "4.0.0" }
 light-poseidon = "0.4.0"
 light-program-profiler = "0.1.1"
 light-zero-copy-vec = { path = "program-libs/zero-copy-vec", version = "0.1.0" }
@@ -191,7 +191,6 @@ light-hasher = { path = "program-libs/hasher" }
 light-indexed-array = { path = "program-libs/indexed-array" }
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 light-merkle-tree-metadata = { path = "program-libs/merkle-tree-metadata" }
-light-merkle-tree-reference = { path = "program-libs/merkle-tree-reference" }
 
 [profile.dev]
 opt-level = 0

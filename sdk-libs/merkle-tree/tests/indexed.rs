@@ -1,6 +1,6 @@
 use light_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
 use light_indexed_array::HIGHEST_ADDRESS_PLUS_ONE;
-use light_merkle_tree_reference::indexed::IndexedMerkleTree;
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::Num;
 

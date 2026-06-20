@@ -37,7 +37,7 @@ zerocopy = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
-light-merkle-tree-reference = { workspace = true }
+zolana-merkle-tree = { workspace = true }
 light-account-checks = { workspace = true, features = ["test-only"] }
 light-hasher = { workspace = true, features = ["keccak"] }
 num-bigint = { workspace = true }

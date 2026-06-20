@@ -1,5 +1,5 @@
 //! Verifies the precomputed indexed-tree init-root constants against the
-//! canonical `light-merkle-tree-reference` implementation, and documents how
+//! canonical `zolana-merkle-tree` implementation, and documents how
 //! the nullifier-tree init root (BN254 `p-1` sentinel) is generated.
 
 use ark_bn254::Fr;
@@ -8,7 +8,7 @@ use light_batched_merkle_tree::constants::{
     ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
 };
 use light_hasher::Poseidon;
-use light_merkle_tree_reference::indexed::IndexedMerkleTree;
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use num_bigint::BigUint;
 use num_traits::Num;
 

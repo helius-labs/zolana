@@ -8,7 +8,7 @@ mod transact_common;
 
 use anyhow::anyhow;
 use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use light_merkle_tree_reference::MerkleTree;
+use zolana_merkle_tree::MerkleTree;
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;

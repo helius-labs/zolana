@@ -127,7 +127,7 @@
 //! ## Testing and Reference Implementations
 //!
 //! **IndexedMerkleTree Reference Implementation:**
-//! - **`light-merkle-tree-reference`** - Reference implementation of indexed Merkle trees (dev dependency)
+//! - **`zolana-merkle-tree`** - Reference implementation of indexed Merkle trees (dev dependency)
 //! - Source: `program-tests/merkle-tree/src/indexed.rs` - Canonical IndexedMerkleTree implementation used for generating constants and testing
 //! - Used to generate constants like `ADDRESS_TREE_INIT_ROOT_40` and
 //!   `NULLIFIER_TREE_INIT_ROOT_40` in [`src/constants.rs`](../src/constants.rs)

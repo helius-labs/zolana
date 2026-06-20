@@ -4,7 +4,7 @@
 //! wallet-facing outputs that tests query.
 
 use light_hasher::Poseidon;
-use light_merkle_tree_reference::MerkleTree;
+use zolana_merkle_tree::MerkleTree;
 use thiserror::Error;
 use zolana_interface::{event::DepositView, state::STATE_HEIGHT};
 use zolana_transaction::{utxo_hash, Address, TransactionError};
