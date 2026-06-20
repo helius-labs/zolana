@@ -97,5 +97,4 @@ mod tests {
             *material.keypair.viewing_pubkey().as_bytes()
         );
     }
-
 }

@@ -236,6 +236,8 @@ mod tests {
             Ok(_) => panic!("missing recipient should fail"),
             Err(err) => err,
         };
-        assert!(err.to_string().contains("recipient must be a wallet file path"));
+        assert!(err
+            .to_string()
+            .contains("recipient must be a wallet file path"));
     }
 }

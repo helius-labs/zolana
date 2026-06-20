@@ -44,7 +44,7 @@ pub(crate) fn get_network(opts: &NetworkWalletOptions) -> Result<ResolvedNetwork
                 "shielded-pool tree is unset; pass --tree or run `zolana wallet create-tree` first"
             )
         })
-        .and_then(|value| parse_pubkey(value))?;
+        .and_then(parse_pubkey)?;
     Ok(ResolvedNetworkOptions {
         sync,
         tree,

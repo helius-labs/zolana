@@ -323,7 +323,10 @@ mod tests {
             assets: &AssetRegistry::default(),
         });
 
-        assert!(matches!(result, Err(ClientError::UnsupportedWithdrawalAsset)));
+        assert!(matches!(
+            result,
+            Err(ClientError::UnsupportedWithdrawalAsset)
+        ));
     }
 
     #[test]
