@@ -1,20 +1,8 @@
 use crate::{
     errors::HasherError,
     zero_bytes::{sha256::ZERO_BYTES, ZeroBytes},
-    zero_indexed_leaf::sha256::ZERO_INDEXED_LEAF,
     Hash, Hasher,
 };
-
-/// Compile-time assertion trait that ensures a generic Hasher type is SHA256.
-/// Used by LightHasherSha macro to enforce SHA256-only implementation at compile time.
-pub trait RequireSha256: Hasher {
-    const ASSERT: () = assert!(
-        Self::ID == 1,
-        "DataHasher for LightHasherSha only works with SHA256 (ID=1). Example: your_struct.hash::<Sha256>()?"
-    );
-}
-
-impl<T: Hasher> RequireSha256 for T {}
 
 #[derive(Clone, Copy)] // To allow using with zero copy Solana accounts.
 pub struct Sha256;
@@ -60,10 +48,6 @@ impl Hasher for Sha256 {
     fn zero_bytes() -> ZeroBytes {
         ZERO_BYTES
     }
-
-    fn zero_indexed_leaf() -> [u8; 32] {
-        ZERO_INDEXED_LEAF
-    }
 }
 
 /// SHA256 hasher that sets byte 0 to zero after hashing.
@@ -88,9 +72,5 @@ impl Hasher for Sha256BE {
 
     fn zero_bytes() -> ZeroBytes {
         ZERO_BYTES
-    }
-
-    fn zero_indexed_leaf() -> [u8; 32] {
-        ZERO_INDEXED_LEAF
     }
 }

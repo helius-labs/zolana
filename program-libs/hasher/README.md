@@ -10,7 +10,6 @@ Trait for generic hash function usage on Solana.
 | [`Poseidon`] | Poseidon hash over BN254 |
 | [`Keccak`] | Keccak-256 hash |
 | [`Sha256`] | SHA-256 hash |
-| [`DataHasher`] | Trait to hash structured data |
 | [`HasherError`] | Error type for hash operations |
 | [`hash_chain`] | Sequential hash chaining |
 | [`hash_to_field_size`] | Truncate hash output to BN254 field size |

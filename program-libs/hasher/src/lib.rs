@@ -8,7 +8,6 @@
 //! | [`Poseidon`] | Poseidon hash over BN254 |
 //! | [`Keccak`] | Keccak-256 hash |
 //! | [`Sha256`] | SHA-256 hash |
-//! | [`DataHasher`] | Trait to hash structured data |
 //! | [`HasherError`] | Error type for hash operations |
 //! | [`hash_chain`] | Sequential hash chaining |
 //! | [`hash_to_field_size`] | Truncate hash output to BN254 field size |
@@ -27,7 +26,6 @@ pub use alloc::{string::String, vec, vec::Vec};
 pub use std::{string::String, vec, vec::Vec};
 
 pub mod bigint;
-mod data_hasher;
 pub mod errors;
 pub mod hash_chain;
 pub mod hash_to_field_size;
@@ -35,11 +33,8 @@ pub mod keccak;
 pub mod poseidon;
 pub mod sha256;
 pub mod syscalls;
-pub mod to_byte_array;
 pub mod zero_bytes;
-pub mod zero_indexed_leaf;
 
-pub use data_hasher::DataHasher;
 pub use keccak::Keccak;
 pub use poseidon::Poseidon;
 pub use sha256::Sha256;
@@ -56,5 +51,4 @@ pub trait Hasher {
     fn hash(val: &[u8]) -> Result<Hash, HasherError>;
     fn hashv(vals: &[&[u8]]) -> Result<Hash, HasherError>;
     fn zero_bytes() -> ZeroBytes;
-    fn zero_indexed_leaf() -> [u8; 32];
 }

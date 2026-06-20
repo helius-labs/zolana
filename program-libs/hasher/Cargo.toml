@@ -11,7 +11,6 @@ edition = "2021"
 default = ["std"]
 alloc = ["dep:borsh"]
 std = ["alloc"]
-zero-copy = ["dep:zerocopy"]
 poseidon = ["dep:light-poseidon", "dep:ark-bn254", "dep:ark-ff"]
 sha256 = ["dep:sha2"]
 keccak = ["dep:sha3"]
@@ -24,7 +23,6 @@ tinyvec = { workspace = true }
 num-bigint = { workspace = true }
 
 solana-program-error = { workspace = true }
-zerocopy = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "solana"))'.dependencies]
