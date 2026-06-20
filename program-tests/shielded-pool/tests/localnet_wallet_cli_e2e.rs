@@ -210,6 +210,8 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
+        "--airdrop-lamports",
+        "2000000000",
     ])?;
 
     run_cli(&[
@@ -243,6 +245,8 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
+        "--airdrop-lamports",
+        "2000000000",
     ])?;
 
     Ok(())
