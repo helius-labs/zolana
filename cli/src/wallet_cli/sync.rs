@@ -9,6 +9,7 @@ use zolana_transaction::{AssetRegistry, Wallet};
 use crate::args::SyncOptions;
 
 use super::material::{clone_keypair, load_sender_from_sync, WalletMaterial};
+use super::resolve::resolve_sync;
 use super::{INDEXER_POLL, INDEXER_TIMEOUT};
 
 pub(super) struct SyncContext {
@@ -30,9 +31,10 @@ pub(super) fn run_sync(opts: SyncOptions) -> Result<()> {
 }
 
 pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
+    let sync = resolve_sync(opts)?;
     let material = load_sender_from_sync(opts)?;
-    let rpc = SolanaRpc::new(opts.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(opts.indexer_url.clone());
+    let rpc = SolanaRpc::new(sync.rpc_url.clone());
+    let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = AssetRegistry::default();
     let mut wallet = Wallet::new(clone_keypair(&material.keypair)?)?;
     let report = client_sync_wallet(&mut wallet, &indexer, &rpc, &assets)?;

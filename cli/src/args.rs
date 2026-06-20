@@ -23,6 +23,12 @@ pub(crate) enum CliCommand {
     #[command(name = "start-prover", about = "Start the local prover server")]
     StartProver(StartProverOptions),
 
+    #[command(name = "config", about = "Show or update CLI configuration")]
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+
     #[command(name = "wallet", about = "Private wallet commands")]
     Wallet {
         #[command(subcommand)]
@@ -31,8 +37,42 @@ pub(crate) enum CliCommand {
 }
 
 #[derive(Debug, Subcommand, Clone)]
+pub(crate) enum ConfigCommand {
+    #[command(name = "get", about = "Show the CLI configuration file")]
+    Get,
+
+    #[command(name = "set", about = "Update the CLI configuration file")]
+    Set(ConfigSetOptions),
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct ConfigSetOptions {
+    #[arg(
+        long = "keypair",
+        help = "Default wallet file path",
+        value_name = "PATH"
+    )]
+    pub(crate) keypair: Option<String>,
+
+    #[arg(long = "rpc-url", help = "Default Solana RPC URL")]
+    pub(crate) rpc_url: Option<String>,
+
+    #[arg(long = "indexer-url", help = "Default Photon indexer URL")]
+    pub(crate) indexer_url: Option<String>,
+
+    #[arg(long = "prover-url", help = "Default prover server URL")]
+    pub(crate) prover_url: Option<String>,
+
+    #[arg(long, help = "Default shielded-pool tree account")]
+    pub(crate) tree: Option<String>,
+}
+
+#[derive(Debug, Subcommand, Clone)]
 pub(crate) enum WalletCommand {
-    #[command(name = "init", about = "Create filesystem private keypair")]
+    #[command(
+        name = "init",
+        about = "Create a filesystem private keypair and register it on-chain"
+    )]
     Init(InitOptions),
 
     #[command(
@@ -241,6 +281,18 @@ pub(crate) struct InitOptions {
         value_name = "PATH"
     )]
     pub(crate) path: Option<String>,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL used to register the wallet (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
+
+    #[arg(
+        long = "airdrop-lamports",
+        help = "Request a localnet airdrop for the wallet funding key before registering"
+    )]
+    pub(crate) airdrop_lamports: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -250,17 +302,15 @@ pub(crate) struct SyncOptions {
 
     #[arg(
         long = "rpc-url",
-        default_value = "http://127.0.0.1:8899",
-        help = "Solana RPC URL"
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
     )]
-    pub(crate) rpc_url: String,
+    pub(crate) rpc_url: Option<String>,
 
     #[arg(
         long = "indexer-url",
-        default_value = "http://127.0.0.1:8784",
-        help = "Photon indexer URL"
+        help = "Photon indexer URL (default: configured value or http://127.0.0.1:8784)"
     )]
-    pub(crate) indexer_url: String,
+    pub(crate) indexer_url: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -268,15 +318,17 @@ pub(crate) struct NetworkWalletOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
-    #[arg(long, help = "Shielded-pool tree account")]
-    pub(crate) tree: String,
+    #[arg(
+        long,
+        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+    )]
+    pub(crate) tree: Option<String>,
 
     #[arg(
         long = "prover-url",
-        default_value = "http://127.0.0.1:3001",
-        help = "Prover server URL"
+        help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
     )]
-    pub(crate) prover_url: String,
+    pub(crate) prover_url: Option<String>,
 
     #[arg(
         long = "airdrop-lamports",
@@ -306,8 +358,11 @@ pub(crate) struct DepositOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
 
-    #[arg(long, help = "Recipient wallet file path")]
-    pub(crate) to: String,
+    #[arg(
+        long,
+        help = "Optional recipient wallet file path (defaults to the --keypair wallet)"
+    )]
+    pub(crate) to: Option<String>,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
@@ -323,7 +378,7 @@ pub(crate) struct TransferOptions {
 
     #[arg(
         long = "to",
-        help = "Recipient Solana pubkey looked up in the local registry",
+        help = "Recipient Solana pubkey looked up in the on-chain user registry",
         value_name = "PUBKEY"
     )]
     pub(crate) to: String,
@@ -552,11 +607,20 @@ mod tests {
 
     #[test]
     fn parses_wallet_init_options() {
-        let WalletCommand::Init(opts) = parse_wallet(&["init", "--path", "/tmp/alice.pid.json"])
-        else {
+        let WalletCommand::Init(opts) = parse_wallet(&[
+            "init",
+            "--path",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--airdrop-lamports",
+            "1000000000",
+        ]) else {
             panic!("expected wallet init command");
         };
         assert_eq!(opts.path.as_deref(), Some("/tmp/alice.pid.json"));
+        assert_eq!(opts.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
     }
 
     #[test]
@@ -581,8 +645,11 @@ mod tests {
             Some("/tmp/alice.pid.json")
         );
         assert_eq!(opts.tree_keypair, "/tmp/tree.json");
-        assert_eq!(opts.sync.rpc_url, "http://127.0.0.1:8900");
-        assert_eq!(opts.sync.indexer_url, "http://127.0.0.1:8785");
+        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+        assert_eq!(
+            opts.sync.indexer_url.as_deref(),
+            Some("http://127.0.0.1:8785")
+        );
         assert_eq!(opts.airdrop_lamports, 1_000_000_000);
     }
 
@@ -600,8 +667,8 @@ mod tests {
             panic!("expected wallet sync command");
         };
         assert_eq!(sync.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
-        assert_eq!(sync.rpc_url, "http://127.0.0.1:8900");
-        assert_eq!(sync.indexer_url, "http://127.0.0.1:8785");
+        assert_eq!(sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+        assert_eq!(sync.indexer_url.as_deref(), Some("http://127.0.0.1:8785"));
 
         let WalletCommand::Balance(balance) = parse_wallet(&[
             "balance",
@@ -638,9 +705,26 @@ mod tests {
         ]) else {
             panic!("expected wallet deposit command");
         };
-        assert_eq!(deposit.to, "/tmp/bob.pid.json");
+        assert_eq!(
+            deposit.network.tree.as_deref(),
+            Some("Tree111111111111111111111111111111111111111")
+        );
+        assert_eq!(deposit.to.as_deref(), Some("/tmp/bob.pid.json"));
         assert_eq!(deposit.amount, 1_000_000_000);
         assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
+
+        let WalletCommand::Deposit(self_deposit) = parse_wallet(&[
+            "deposit",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--amount",
+            "1000000000",
+        ]) else {
+            panic!("expected wallet self-deposit command");
+        };
+        assert_eq!(self_deposit.to, None);
 
         let WalletCommand::Transfer(transfer) = parse_wallet(&[
             "transfer",
@@ -661,7 +745,10 @@ mod tests {
         };
         assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
         assert_eq!(transfer.amount, 400_000_000);
-        assert_eq!(transfer.network.prover_url, "http://127.0.0.1:3002");
+        assert_eq!(
+            transfer.network.prover_url.as_deref(),
+            Some("http://127.0.0.1:3002")
+        );
 
         let WalletCommand::Withdraw(withdraw) = parse_wallet(&[
             "withdraw",

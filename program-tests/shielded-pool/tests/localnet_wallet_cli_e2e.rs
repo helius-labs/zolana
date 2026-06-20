@@ -68,8 +68,17 @@ fn run_cli(args: &[&str]) -> Result<String> {
     Ok(stdout)
 }
 
-fn wallet_init(path: &Path) -> Result<()> {
-    run_cli(&["wallet", "init", "--path", &path.display().to_string()])?;
+fn wallet_init(path: &Path, rpc_url: &str) -> Result<()> {
+    run_cli(&[
+        "wallet",
+        "init",
+        "--path",
+        &path.display().to_string(),
+        "--rpc-url",
+        rpc_url,
+        "--airdrop",
+        "1000000000",
+    ])?;
     Ok(())
 }
 
@@ -115,9 +124,10 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     let alice = root.join("alice.pid.json");
     let bob = root.join("bob.pid.json");
     let tree_keypair = root.join("tree.json");
+    unsafe { env::set_var("ZOLANA_CONFIG", root.join("config.json")) };
 
-    wallet_init(&alice)?;
-    wallet_init(&bob)?;
+    wallet_init(&alice, &rpc_url)?;
+    wallet_init(&bob, &rpc_url)?;
 
     let create_tree_out = run_cli(&[
         "wallet",
@@ -130,10 +140,10 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &rpc_url,
         "--indexer-url",
         &indexer_url,
-        "--airdrop-lamports",
+        "--airdrop",
         "20000000000",
     ])?;
-    let tree = parse_tree_pubkey(&create_tree_out)?;
+    let _tree = parse_tree_pubkey(&create_tree_out)?;
 
     let deposit_amount = "500000000";
     for _ in 0..2 {
@@ -142,8 +152,6 @@ fn wallet_cli_sol_cycle() -> Result<()> {
             "deposit",
             "--keypair",
             &alice.display().to_string(),
-            "--tree",
-            &tree,
             "--to",
             &bob.display().to_string(),
             "--amount",
@@ -154,7 +162,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
             &rpc_url,
             "--indexer-url",
             &indexer_url,
-            "--airdrop-lamports",
+            "--airdrop",
             "2000000000",
         ])?;
     }
@@ -196,8 +204,6 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         "transfer",
         "--keypair",
         &bob.display().to_string(),
-        "--tree",
-        &tree,
         "--to",
         &alice_funding,
         "--amount",
@@ -210,7 +216,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
-        "--airdrop-lamports",
+        "--airdrop",
         "2000000000",
     ])?;
 
@@ -231,8 +237,6 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         "withdraw",
         "--keypair",
         &alice.display().to_string(),
-        "--tree",
-        &tree,
         "--to",
         &bob_funding,
         "--amount",
@@ -245,7 +249,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &indexer_url,
         "--prover-url",
         DEFAULT_PROVER_URL,
-        "--airdrop-lamports",
+        "--airdrop",
         "2000000000",
     ])?;
 

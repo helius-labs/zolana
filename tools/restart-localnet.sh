@@ -6,7 +6,8 @@
 # so this bypasses the cli's `--with-photon` launcher.
 #
 # Reads from the environment (exported by the `test-localnet-e2e-photon` recipe):
-#   SHIELDED_POOL_PROGRAM_ID   base58 program id (required)
+#   SHIELDED_POOL_PROGRAM_ID   base58 shielded-pool program id (required)
+#   USER_REGISTRY_PROGRAM_ID   base58 user-registry program id (required)
 #   ZOLANA_PHOTON_BIN          photon binary (default: photon on PATH)
 #   ZOLANA_LOCALNET_RPC_PORT   default 8899
 #   ZOLANA_LOCALNET_PHOTON_PORT default 8784
@@ -17,7 +18,9 @@ rpc_port="${ZOLANA_LOCALNET_RPC_PORT:-8899}"
 photon_port="${ZOLANA_LOCALNET_PHOTON_PORT:-8784}"
 photon_bin="${ZOLANA_PHOTON_BIN:-photon}"
 program_id="${SHIELDED_POOL_PROGRAM_ID:?SHIELDED_POOL_PROGRAM_ID must be set}"
+user_registry_program_id="${USER_REGISTRY_PROGRAM_ID:?USER_REGISTRY_PROGRAM_ID must be set}"
 so="target/deploy/shielded_pool_program.so"
+user_registry_so="target/deploy/zolana_user_registry.so"
 ledger="${ZOLANA_TEST_LEDGER:-/tmp/zolana-photon-test-ledger}"
 
 # Stop the validator + photon only, by their ports. The prover server (port 3001)
@@ -38,7 +41,9 @@ done
 rm -rf "$ledger"
 
 solana-test-validator --reset --quiet --rpc-port "$rpc_port" --bind-address 127.0.0.1 \
-  --bpf-program "$program_id" "$so" --ledger "$ledger" >/dev/null 2>&1 &
+  --bpf-program "$program_id" "$so" \
+  --bpf-program "$user_registry_program_id" "$user_registry_so" \
+  --ledger "$ledger" >/dev/null 2>&1 &
 
 ready=false
 for _ in $(seq 1 90); do

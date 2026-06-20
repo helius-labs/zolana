@@ -1,118 +1,101 @@
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use solana_pubkey::Pubkey;
+use anyhow::{bail, Result};
+use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{AddressResolver, ClientError, ResolvedAddress};
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress};
+use zolana_client::{Rpc, SolanaRpc};
+use zolana_interface::user_registry::{
+    instruction::{register, RegisterData},
+    user_record_pda, UserRecord,
+};
 
-use crate::args::SyncOptions;
+use zolana_transaction::Address;
 
-use super::material::{resolve_keypair_path, write_json_secret, WalletMaterial};
-use super::util::parse_hex_array;
+use super::material::WalletMaterial;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub(super) struct LocalUserRegistryFile {
-    pub(super) version: u8,
-    pub(super) records: HashMap<String, LocalUserRecord>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct LocalUserRecord {
-    owner_p256_hex: Option<String>,
-    nullifier_pubkey_hex: String,
-    viewing_pubkey_hex: String,
-}
-
-pub(super) struct LocalAddressResolver {
-    path: PathBuf,
-}
-
-impl LocalAddressResolver {
-    pub(super) fn from_sync_options(opts: &SyncOptions) -> Self {
-        let keypair_path = resolve_keypair_path(opts.keypair.keypair.as_deref());
-        Self {
-            path: local_user_registry_path(&keypair_path),
-        }
-    }
-}
-
-impl AddressResolver for LocalAddressResolver {
-    fn resolve_address(&self, owner: Pubkey) -> Result<ResolvedAddress, ClientError> {
-        lookup_registered_recipient(&self.path, &owner)
-            .map_err(|err| ClientError::AddressResolution(err.to_string()))
-    }
-}
-
-pub(super) fn register_wallet_locally(
-    keypair_path: &Path,
+pub(super) fn register_wallet_on_chain(
+    rpc: &SolanaRpc,
     material: &WalletMaterial,
-) -> Result<()> {
-    let path = local_user_registry_path(keypair_path);
-    let mut registry = read_local_user_registry(&path)?;
-    let owner = material.funding.pubkey().to_string();
-    let owner_p256 = material.keypair.signing_pubkey().as_p256()?;
-    let record = LocalUserRecord {
-        owner_p256_hex: Some(hex::encode(owner_p256.as_bytes())),
-        nullifier_pubkey_hex: hex::encode(material.keypair.nullifier_key.pubkey()?),
-        viewing_pubkey_hex: hex::encode(material.keypair.viewing_pubkey().as_bytes()),
-    };
+) -> Result<Option<Signature>> {
+    let owner = material.funding.pubkey();
+    if let Some(account) = rpc.get_account(Address::new_from_array(
+        user_record_pda(&owner).0.to_bytes(),
+    ))? {
+        let record = UserRecord::try_from_account_checked(&account)?;
+        validate_registered_wallet(&owner, &record, material)?;
+        return Ok(None);
+    }
 
-    registry.records.insert(owner, record);
-    registry.version = 1;
-    // TODO(user-registry): replace this JSON write with the user_registry register instruction.
-    // For now we stub with a local lookup.
-    write_json_secret(&path, &registry)
+    let (user_record, _bump) = user_record_pda(&owner);
+    let ix = register(user_record, owner, register_data(material)?);
+    let signature = rpc.create_and_send_transaction(
+        &[ix],
+        Address::new_from_array(owner.to_bytes()),
+        &[&material.funding],
+    )?;
+    Ok(Some(signature))
 }
 
-fn lookup_registered_recipient(path: &Path, owner: &Pubkey) -> Result<ResolvedAddress> {
-    // TODO(user-registry): replace this JSON read with an RPC read of the user_registry PDA.
-    let registry = read_local_user_registry(path)?;
-    let record = registry.records.get(&owner.to_string()).ok_or_else(|| {
-        anyhow::anyhow!(
-            "recipient {owner} not found in {}; run `zolana wallet init` for that user first",
-            path.display()
-        )
-    })?;
-    let signing_pubkey = if let Some(owner_p256_hex) = &record.owner_p256_hex {
-        PublicKey::from_p256(&P256Pubkey::from_bytes(parse_hex_array::<33>(
-            owner_p256_hex,
-        )?)?)
-    } else {
-        PublicKey::from_ed25519(&owner.to_bytes())
-    };
-    let viewing_pubkey =
-        P256Pubkey::from_bytes(parse_hex_array::<33>(&record.viewing_pubkey_hex)?)?;
-    let address = ShieldedAddress {
-        signing_pubkey,
-        nullifier_pubkey: parse_hex_array::<32>(&record.nullifier_pubkey_hex)?,
-        viewing_pubkey,
-    };
-    Ok(ResolvedAddress {
-        owner: *owner,
-        address,
-        view_tag: viewing_pubkey.x(),
+fn register_data(material: &WalletMaterial) -> Result<RegisterData> {
+    Ok(RegisterData {
+        owner_p256: Some(*material.keypair.signing_pubkey().as_p256()?.as_bytes()),
+        nullifier_pubkey: material.keypair.nullifier_key.pubkey()?,
+        viewing_pubkey: *material.keypair.viewing_pubkey().as_bytes(),
     })
 }
 
-pub(super) fn read_local_user_registry(path: &Path) -> Result<LocalUserRegistryFile> {
-    if !path.exists() {
-        return Ok(LocalUserRegistryFile {
-            version: 1,
-            records: HashMap::new(),
-        });
+fn validate_registered_wallet(
+    owner: &solana_pubkey::Pubkey,
+    record: &UserRecord,
+    material: &WalletMaterial,
+) -> Result<()> {
+    let expected = register_data(material)?;
+    if record.owner != owner.to_bytes() {
+        bail!("user registry record stores a different owner than {owner}");
     }
-    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    serde_json::from_slice(&bytes).with_context(|| format!("failed to parse {}", path.display()))
+    if record.owner_p256 != expected.owner_p256
+        || record.nullifier_pubkey != expected.nullifier_pubkey
+        || record.viewing_pubkey != expected.viewing_pubkey
+    {
+        bail!("user registry record for {owner} does not match the local wallet");
+    }
+    Ok(())
 }
 
-pub(super) fn local_user_registry_path(keypair_path: &Path) -> PathBuf {
-    keypair_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(super::material::default_config_dir)
-        .join("user-registry.json")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_keypair::ShieldedKeypair;
+
+    fn wallet_material() -> WalletMaterial {
+        WalletMaterial {
+            keypair: ShieldedKeypair::new().expect("shielded keypair"),
+            funding: solana_keypair::Keypair::new(),
+        }
+    }
+
+    #[test]
+    fn register_data_uses_wallet_keys() {
+        let material = wallet_material();
+        let data = register_data(&material).expect("register data");
+
+        assert_eq!(
+            data.owner_p256,
+            Some(
+                *material
+                    .keypair
+                    .signing_pubkey()
+                    .as_p256()
+                    .unwrap()
+                    .as_bytes()
+            )
+        );
+        assert_eq!(
+            data.nullifier_pubkey,
+            material.keypair.nullifier_key.pubkey().unwrap()
+        );
+        assert_eq!(
+            data.viewing_pubkey,
+            *material.keypair.viewing_pubkey().as_bytes()
+        );
+    }
+
 }

@@ -58,18 +58,18 @@ fn from_account_data_round_trips_with_trailing_padding() {
     account_data.extend_from_slice(&body);
     account_data.resize(UserRecord::space_for(0), 0);
     assert_eq!(
-        UserRecord::from_account_data(&account_data).unwrap(),
+        UserRecord::try_from_account_data(&account_data).unwrap(),
         record
     );
 }
 
 #[test]
 fn from_account_data_rejects_bad_discriminator() {
-    assert!(UserRecord::from_account_data(&[]).is_err());
+    assert!(UserRecord::try_from_account_data(&[]).is_err());
     let record = sample(None, Vec::new());
     let mut account_data = vec![0u8];
     account_data.extend_from_slice(&to_vec(&record).unwrap());
-    assert!(UserRecord::from_account_data(&account_data).is_err());
+    assert!(UserRecord::try_from_account_data(&account_data).is_err());
 }
 
 #[test]

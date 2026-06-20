@@ -43,14 +43,21 @@ impl UserRecord {
             + num_entries * SyncDelegateEntry::SERIALIZED_LEN
     }
 
-    pub fn from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
+    pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
         match data.split_first() {
             Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
-            _ => Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "missing user record discriminator",
-            )),
+            _ => Err(invalid_user_record("missing user record discriminator")),
         }
+    }
+
+    #[cfg(feature = "solana")]
+    pub fn try_from_account_checked(account: &solana_account::Account) -> borsh::io::Result<Self> {
+        if account.owner != crate::user_registry::user_registry_program_id() {
+            return Err(invalid_user_record(
+                "user record account is not owned by the user registry program",
+            ));
+        }
+        Self::try_from_account_data(&account.data)
     }
 
     pub fn sender_viewing_pubkey(&self) -> [u8; P256_PUBKEY_LEN] {
@@ -63,4 +70,8 @@ impl UserRecord {
             self.viewing_pubkey
         }
     }
+}
+
+fn invalid_user_record(message: &'static str) -> borsh::io::Error {
+    borsh::io::Error::new(borsh::io::ErrorKind::InvalidData, message)
 }

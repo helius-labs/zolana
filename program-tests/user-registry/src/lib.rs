@@ -75,5 +75,5 @@ pub fn build_revoke_sync_delegate_ix(owner: &Pubkey, signer: &Pubkey) -> Instruc
 pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserRecord> {
     let (pda, _bump) = user_record_pda(owner);
     let account = svm.get_account(&pda)?;
-    UserRecord::from_account_data(&account.data).ok()
+    UserRecord::try_from_account_data(&account.data).ok()
 }

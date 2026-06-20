@@ -7,11 +7,12 @@ pub mod prover;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
+pub mod user_registry;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_deposit, create_transfer, create_withdrawal, AddressResolver, CreateTransfer,
-    CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress,
+    create_deposit, create_transfer, create_withdrawal, CreateTransfer, CreatedTransfer,
+    CreatedWithdrawal, Deposit, ResolvedAddress,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
@@ -35,6 +36,7 @@ pub use rpc::{
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
+pub use user_registry::fetch_user_record_checked;
 pub use wallet_sync::{
     sync_wallet, sync_wallet_with_config, ProoflessDepositEventSource, SyncWalletConfig,
 };

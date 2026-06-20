@@ -13,26 +13,26 @@ use zolana_transaction::{Address, SOL_MINT};
 use crate::args::TransferOptions;
 
 use super::material::WalletMaterial;
-use super::registry::LocalAddressResolver;
+use super::resolve::get_network;
 use super::sync::{sync_context, wait_for_indexed_transaction};
 use super::util::{ensure_positive, ensure_sol, parse_pubkey};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_sol(&opts.mint)?;
     ensure_positive(opts.amount)?;
-    let mut rpc = SolanaRpc::new(opts.network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(opts.network.sync.indexer_url.clone());
+    let network = get_network(&opts.network)?;
+    let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
+    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, opts.network.airdrop_lamports)?;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let recipient_owner = parse_pubkey(&opts.to)?;
-    let resolver = LocalAddressResolver::from_sync_options(&opts.network.sync);
-    let tree = parse_pubkey(&opts.network.tree)?;
+    let tree = network.tree;
 
     let transfer = create_transfer(CreateTransfer {
+        rpc: &rpc,
         wallet: &ctx.wallet,
         keypair: &ctx.material.keypair,
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        resolver: &resolver,
         recipient_owner,
         asset: SOL_MINT,
         amount: opts.amount,
@@ -44,7 +44,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             indexer: &indexer,
             material: &ctx.material,
             tree,
-            prover_url: &opts.network.prover_url,
+            prover_url: &network.prover_url,
             withdrawal: None,
             wait_tag: transfer.wait_tag,
         },

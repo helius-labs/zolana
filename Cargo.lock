@@ -8172,6 +8172,7 @@ name = "zolana-client"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
+ "borsh",
  "bs58",
  "cucumber",
  "futures",
@@ -8226,6 +8227,7 @@ dependencies = [
  "groth16-solana",
  "light-batched-merkle-tree",
  "light-hasher",
+ "solana-account",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-program-error",

@@ -49,6 +49,10 @@ fn print_program_ids() {
         bs58::encode(zolana_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
     );
     println!(
+        "USER_REGISTRY_PROGRAM_ID={}",
+        bs58::encode(zolana_interface::user_registry::USER_REGISTRY_PROGRAM_ID).into_string()
+    );
+    println!(
         "ZONE_TEST_PROGRAM_ID={}",
         bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
     );

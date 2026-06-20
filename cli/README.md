@@ -23,21 +23,24 @@ zolana --help
 Commands:
 
 ```bash
-zolana wallet init
-zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
+zolana config get
+zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
+zolana wallet init --airdrop 1000000000
+zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop 20000000000
 zolana wallet sync --indexer-url http://127.0.0.1:8784
 zolana wallet balance --indexer-url http://127.0.0.1:8784
-zolana wallet deposit --tree <TREE_PUBKEY> --to /tmp/bob.pid.json --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
-zolana wallet transfer --tree <TREE_PUBKEY> --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
-zolana wallet withdraw --tree <TREE_PUBKEY> --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
+zolana wallet deposit --to <RECIPIENT_SOLANA_PUBKEY> --amount 1000000000 --mint SOL --airdrop 2000000000
+zolana wallet transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
+zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
 Wallet commands use the wallet file's Solana funding key for fees/public SOL
-deposits and its shielded keypair for private ownership. `wallet init` writes a
-temporary local user-registry JSON entry, and `transfer --to <PUBKEY>` resolves
-that pubkey to the recipient shielded address from that file until the CLI reads
-the on-chain user-registry program directly. `deposit --to` still points at a
-recipient wallet file for the proofless deposit blinding path.
+deposits and its shielded keypair for private ownership. `wallet init` creates
+or loads the wallet file and registers its shielded keys in the on-chain
+user-registry program. `deposit --to <PUBKEY>` and `transfer --to <PUBKEY>`
+resolve that owner pubkey from the on-chain user registry.
+
+CLI-wide defaults live at `~/.config/zolana/config.json`. 
 
 Optional wallet path:
 

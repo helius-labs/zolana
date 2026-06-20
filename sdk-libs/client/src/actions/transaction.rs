@@ -6,16 +6,14 @@ use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 
 use crate::error::ClientError;
 use crate::private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget};
+use crate::rpc::Rpc;
+use crate::user_registry::resolve_registered_address;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
     pub owner: Pubkey,
     pub address: ShieldedAddress,
     pub view_tag: ViewTag,
-}
-
-pub trait AddressResolver {
-    fn resolve_address(&self, owner: Pubkey) -> Result<ResolvedAddress, ClientError>;
 }
 
 #[derive(Clone)]
@@ -32,21 +30,21 @@ pub struct CreatedWithdrawal {
     pub withdrawal: TransactWithdrawal,
 }
 
-pub struct CreateTransfer<'a, R> {
+pub struct CreateTransfer<'a, R: Rpc> {
+    pub rpc: &'a R,
     pub wallet: &'a Wallet,
     pub keypair: &'a ShieldedKeypair,
     pub payer: Address,
-    pub resolver: &'a R,
     pub recipient_owner: Pubkey,
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
 }
 
-pub fn create_transfer<R: AddressResolver>(
+pub fn create_transfer<R: Rpc>(
     request: CreateTransfer<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let recipient = request.resolver.resolve_address(request.recipient_owner)?;
+    let recipient = resolve_registered_address(request.rpc, request.recipient_owner)?;
     let wait_tag = next_sender_view_tag(request.wallet, request.keypair)?;
     let inputs = select_inputs(
         request.wallet,
@@ -140,21 +138,27 @@ fn next_sender_view_tag(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use borsh::to_vec;
+    use solana_account::Account;
+    use zolana_interface::user_registry::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
 
-    struct TestResolver {
-        called: Cell<bool>,
-        resolved: ResolvedAddress,
+    struct MockRpc {
+        account_address: Address,
+        account: Account,
     }
 
-    impl AddressResolver for TestResolver {
-        fn resolve_address(&self, owner: Pubkey) -> Result<ResolvedAddress, ClientError> {
-            self.called.set(true);
-            assert_eq!(owner, self.resolved.owner);
-            Ok(self.resolved)
+    impl Rpc for MockRpc {
+        fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Ok((address == self.account_address).then(|| self.account.clone()))
         }
+    }
+
+    fn account_data(record: &UserRecord) -> Vec<u8> {
+        let mut data = vec![UserRecord::DISCRIMINATOR];
+        data.extend_from_slice(&to_vec(record).expect("serialize user record"));
+        data
     }
 
     #[test]
@@ -162,28 +166,39 @@ mod tests {
         let sender = ShieldedKeypair::new().unwrap();
         let recipient = ShieldedKeypair::new().unwrap();
         let owner = Pubkey::new_unique();
-        let resolver = TestResolver {
-            called: Cell::new(false),
-            resolved: ResolvedAddress {
-                owner,
-                address: recipient.shielded_address().unwrap(),
-                view_tag: recipient.recipient_bootstrap_view_tag(),
+        let (record_pda, bump) = user_record_pda(&owner);
+        let record = UserRecord {
+            owner: owner.to_bytes(),
+            bump,
+            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
+            viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
+            sync_delegate: None,
+            entries: Vec::new(),
+        };
+        let rpc = MockRpc {
+            account_address: Address::new_from_array(record_pda.to_bytes()),
+            account: Account {
+                lamports: 1,
+                data: account_data(&record),
+                owner: user_registry_program_id(),
+                executable: false,
+                rent_epoch: 0,
             },
         };
         let wallet = Wallet::new(ShieldedKeypair::new().unwrap()).unwrap();
 
         let result = create_transfer(CreateTransfer {
+            rpc: &rpc,
             wallet: &wallet,
             keypair: &sender,
             payer: Address::default(),
-            resolver: &resolver,
             recipient_owner: owner,
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
         });
 
-        assert!(resolver.called.get());
         assert!(matches!(
             result,
             Err(ClientError::InsufficientBalance {
