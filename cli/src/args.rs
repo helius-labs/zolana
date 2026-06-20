@@ -599,10 +599,7 @@ mod tests {
         ]) else {
             panic!("expected wallet sync command");
         };
-        assert_eq!(
-            sync.keypair.keypair.as_deref(),
-            Some("/tmp/alice.pid.json")
-        );
+        assert_eq!(sync.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
         assert_eq!(sync.rpc_url, "http://127.0.0.1:8900");
         assert_eq!(sync.indexer_url, "http://127.0.0.1:8785");
 

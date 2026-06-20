@@ -8,8 +8,8 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
-use serial_test::serial;
 use serde::Deserialize;
+use serial_test::serial;
 
 #[path = "common/transact.rs"]
 mod transact_common;
