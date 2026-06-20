@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serial_test::serial;
 
@@ -51,8 +51,12 @@ fn cli_bin() -> PathBuf {
         })
 }
 
-fn run_cli(args: &[&str]) -> Result<String> {
-    let output = Command::new(cli_bin())
+fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let mut command = Command::new(cli_bin());
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
         .args(args)
         .output()
         .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
@@ -68,8 +72,20 @@ fn run_cli(args: &[&str]) -> Result<String> {
     Ok(stdout)
 }
 
-fn wallet_init(path: &Path) -> Result<()> {
-    run_cli(&["wallet", "init", "--path", &path.display().to_string()])?;
+fn wallet_init(path: &Path, rpc_url: &str, cli_env: &[(&str, &str)]) -> Result<()> {
+    run_cli_with_env(
+        &[
+            "wallet",
+            "init",
+            "--path",
+            &path.display().to_string(),
+            "--rpc-url",
+            rpc_url,
+            "--airdrop-lamports",
+            "1000000000",
+        ],
+        cli_env,
+    )?;
     Ok(())
 }
 
@@ -92,15 +108,6 @@ fn temp_wallet_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn parse_tree_pubkey(output: &str) -> Result<String> {
-    output
-        .lines()
-        .find_map(|line| line.strip_prefix("ok tree "))
-        .map(str::trim)
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow!("create-tree output missing tree pubkey:\n{output}"))
-}
-
 #[test]
 #[serial]
 fn wallet_cli_sol_cycle() -> Result<()> {
@@ -115,72 +122,84 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     let alice = root.join("alice.pid.json");
     let bob = root.join("bob.pid.json");
     let tree_keypair = root.join("tree.json");
+    let config_path = root.join("config.json");
+    let config_path_str = config_path.to_string_lossy().into_owned();
+    let cli_env = [("ZOLANA_CONFIG", config_path_str.as_str())];
 
-    wallet_init(&alice)?;
-    wallet_init(&bob)?;
+    wallet_init(&alice, &rpc_url, &cli_env)?;
+    wallet_init(&bob, &rpc_url, &cli_env)?;
 
-    let create_tree_out = run_cli(&[
-        "wallet",
-        "create-tree",
-        "--keypair",
-        &alice.display().to_string(),
-        "--tree-keypair",
-        &tree_keypair.display().to_string(),
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-        "--airdrop-lamports",
-        "20000000000",
-    ])?;
-    let tree = parse_tree_pubkey(&create_tree_out)?;
-
-    let deposit_amount = "500000000";
-    for _ in 0..2 {
-        run_cli(&[
+    run_cli_with_env(
+        &[
             "wallet",
-            "deposit",
+            "create-tree",
             "--keypair",
             &alice.display().to_string(),
-            "--tree",
-            &tree,
-            "--to",
-            &bob.display().to_string(),
-            "--amount",
-            deposit_amount,
-            "--mint",
-            "SOL",
+            "--tree-keypair",
+            &tree_keypair.display().to_string(),
             "--rpc-url",
             &rpc_url,
             "--indexer-url",
             &indexer_url,
             "--airdrop-lamports",
-            "2000000000",
-        ])?;
+            "20000000000",
+        ],
+        &cli_env,
+    )?;
+
+    let deposit_amount = "500000000";
+    for _ in 0..2 {
+        run_cli_with_env(
+            &[
+                "wallet",
+                "deposit",
+                "--keypair",
+                &alice.display().to_string(),
+                "--to",
+                &bob.display().to_string(),
+                "--amount",
+                deposit_amount,
+                "--mint",
+                "SOL",
+                "--rpc-url",
+                &rpc_url,
+                "--indexer-url",
+                &indexer_url,
+                "--airdrop-lamports",
+                "2000000000",
+            ],
+            &cli_env,
+        )?;
     }
 
-    let sync_out = run_cli(&[
-        "wallet",
-        "sync",
-        "--keypair",
-        &bob.display().to_string(),
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-    ])?;
+    let sync_out = run_cli_with_env(
+        &[
+            "wallet",
+            "sync",
+            "--keypair",
+            &bob.display().to_string(),
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
     assert!(sync_out.contains("ok sync"), "sync failed: {sync_out}");
 
-    let balance_out = run_cli(&[
-        "wallet",
-        "balance",
-        "--keypair",
-        &bob.display().to_string(),
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-    ])?;
+    let balance_out = run_cli_with_env(
+        &[
+            "wallet",
+            "balance",
+            "--keypair",
+            &bob.display().to_string(),
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
     assert!(
         balance_out.contains("ok balance"),
         "balance failed: {balance_out}"
@@ -191,63 +210,68 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     );
 
     let alice_funding = funding_pubkey(&alice)?;
-    run_cli(&[
-        "wallet",
-        "transfer",
-        "--keypair",
-        &bob.display().to_string(),
-        "--tree",
-        &tree,
-        "--to",
-        &alice_funding,
-        "--amount",
-        "400000000",
-        "--mint",
-        "SOL",
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-        "--prover-url",
-        DEFAULT_PROVER_URL,
-        "--airdrop-lamports",
-        "2000000000",
-    ])?;
+    run_cli_with_env(
+        &[
+            "wallet",
+            "transfer",
+            "--keypair",
+            &bob.display().to_string(),
+            "--to",
+            &alice_funding,
+            "--amount",
+            "400000000",
+            "--mint",
+            "SOL",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
 
-    run_cli(&[
-        "wallet",
-        "sync",
-        "--keypair",
-        &alice.display().to_string(),
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-    ])?;
+    run_cli_with_env(
+        &[
+            "wallet",
+            "sync",
+            "--keypair",
+            &alice.display().to_string(),
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
 
     let bob_funding = funding_pubkey(&bob)?;
-    run_cli(&[
-        "wallet",
-        "withdraw",
-        "--keypair",
-        &alice.display().to_string(),
-        "--tree",
-        &tree,
-        "--to",
-        &bob_funding,
-        "--amount",
-        "200000000",
-        "--mint",
-        "SOL",
-        "--rpc-url",
-        &rpc_url,
-        "--indexer-url",
-        &indexer_url,
-        "--prover-url",
-        DEFAULT_PROVER_URL,
-        "--airdrop-lamports",
-        "2000000000",
-    ])?;
+    run_cli_with_env(
+        &[
+            "wallet",
+            "withdraw",
+            "--keypair",
+            &alice.display().to_string(),
+            "--to",
+            &bob_funding,
+            "--amount",
+            "200000000",
+            "--mint",
+            "SOL",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
 
     Ok(())
 }

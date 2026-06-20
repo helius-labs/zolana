@@ -2,6 +2,7 @@ mod balance;
 mod deposit;
 mod material;
 mod registry;
+mod resolve;
 mod sync;
 mod transaction;
 mod tree;

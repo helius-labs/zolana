@@ -12,6 +12,7 @@ solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-api = { workspace = true, optional = true }
@@ -45,6 +46,7 @@ solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
+borsh = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }

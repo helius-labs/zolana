@@ -3,7 +3,6 @@ pub use zolana_event as event;
 pub mod instruction;
 pub mod pda;
 pub mod state;
-pub mod user_registry;
 #[cfg(feature = "verifying-keys")]
 pub mod verifying_keys;
 

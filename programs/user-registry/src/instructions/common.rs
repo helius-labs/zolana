@@ -6,7 +6,7 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, Address, ProgramResult, Resize,
 };
-use zolana_interface::user_registry::{state::UserRecord, USER_RECORD_SEED};
+use zolana_user_registry_interface::{UserRecord, USER_RECORD_SEED};
 
 use crate::error::{fail, UserRegistryError};
 

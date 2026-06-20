@@ -98,7 +98,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- test-validator --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    cargo run -p zolana-cli -- test-validator --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
@@ -116,6 +116,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
@@ -138,6 +139,7 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"

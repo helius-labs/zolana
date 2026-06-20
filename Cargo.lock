@@ -7414,7 +7414,7 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "tokio",
- "zolana-interface",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8005,6 +8005,7 @@ dependencies = [
  "sha2 0.10.9",
  "zolana-interface",
  "zolana-program-test",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8165,6 +8166,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8172,6 +8174,7 @@ name = "zolana-client"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
+ "borsh",
  "bs58",
  "cucumber",
  "futures",
@@ -8206,6 +8209,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-transaction",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8340,7 +8344,16 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-msg",
  "thiserror 2.0.18",
- "zolana-interface",
+ "zolana-user-registry-interface",
+]
+
+[[package]]
+name = "zolana-user-registry-interface"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-instruction",
+ "solana-pubkey 4.2.0",
 ]
 
 [[package]]

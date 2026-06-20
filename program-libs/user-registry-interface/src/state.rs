@@ -43,13 +43,10 @@ impl UserRecord {
             + num_entries * SyncDelegateEntry::SERIALIZED_LEN
     }
 
-    pub fn from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
+    pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
         match data.split_first() {
             Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
-            _ => Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "missing user record discriminator",
-            )),
+            _ => Err(invalid_user_record("missing user record discriminator")),
         }
     }
 
@@ -63,4 +60,8 @@ impl UserRecord {
             self.viewing_pubkey
         }
     }
+}
+
+fn invalid_user_record(message: &'static str) -> borsh::io::Error {
+    borsh::io::Error::new(borsh::io::ErrorKind::InvalidData, message)
 }

@@ -2,7 +2,7 @@
 
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::user_registry::{
+use zolana_user_registry_interface::{
     instruction::{
         self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData,
         SetSyncDelegateData,
@@ -10,9 +10,7 @@ use zolana_interface::user_registry::{
     user_record_pda,
 };
 
-pub use zolana_interface::user_registry::{
-    user_registry_program_id, SyncDelegateEntry, UserRecord,
-};
+pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
 
 pub fn build_register_ix(
     owner: &Pubkey,
@@ -75,5 +73,5 @@ pub fn build_revoke_sync_delegate_ix(owner: &Pubkey, signer: &Pubkey) -> Instruc
 pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserRecord> {
     let (pda, _bump) = user_record_pda(owner);
     let account = svm.get_account(&pda)?;
-    UserRecord::from_account_data(&account.data).ok()
+    UserRecord::try_from_account_data(&account.data).ok()
 }

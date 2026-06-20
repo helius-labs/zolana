@@ -8,13 +8,16 @@ use zolana_interface::{pda, state::tree_account_size, PROGRAM_ID_PUBKEY};
 use zolana_transaction::Address;
 
 use crate::args::CreateTreeOptions;
+use crate::cli_config::CliConfigFile;
 
 use super::material::{load_or_create_solana_keypair, load_sender_from_sync};
+use super::resolve::resolve_sync;
 use super::util::system_create_account_ix;
 
 pub(super) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
+    let sync = resolve_sync(&opts.sync)?;
     let material = load_sender_from_sync(&opts.sync)?;
-    let mut rpc = SolanaRpc::new(opts.sync.rpc_url);
+    let mut rpc = SolanaRpc::new(sync.rpc_url);
     if opts.airdrop_lamports > 0 {
         let signature = rpc.airdrop(&material.funding.pubkey(), opts.airdrop_lamports)?;
         println!("ok airdrop signature={signature}");
@@ -73,6 +76,8 @@ pub(super) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
         println!("ok create_tree signature={signature}");
     }
 
+    let mut config = CliConfigFile::load()?;
+    config.set_tree(&tree_pubkey)?;
     println!("ok tree {}", tree_pubkey);
     Ok(())
 }

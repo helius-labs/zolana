@@ -22,7 +22,7 @@ pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-zolana-interface = { workspace = true }
+zolana-user-registry-interface = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["solana-address"]

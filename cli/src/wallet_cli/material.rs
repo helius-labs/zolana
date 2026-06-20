@@ -1,4 +1,3 @@
-use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -10,11 +9,16 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_client::SolanaRpc;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
 use crate::args::{InitOptions, SyncOptions};
+use crate::cli_config::{
+    resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile,
+};
 
-use super::registry::register_wallet_locally;
+use super::registry::register_wallet_on_chain;
+use super::resolve::resolve_sync;
 use super::util::parse_hex_array;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,54 +44,50 @@ pub(super) struct WalletMaterial {
 }
 
 pub(super) fn run_init(opts: InitOptions) -> Result<()> {
-    let keypair_path = resolve_keypair_path(opts.path.as_deref());
-    if keypair_path.exists() {
-        let material = load_existing_wallet(&keypair_path)?;
-        register_wallet_locally(&keypair_path, &material)?;
-        println!(
-            "ok keypair {} owner_hash={} funding={}",
-            keypair_path.display(),
-            hex::encode(material.keypair.owner_hash()?),
-            material.funding.pubkey()
-        );
-        return Ok(());
-    }
+    let config = CliConfigFile::load()?;
+    let keypair_path = config_keypair_path(opts.path.as_deref(), &config);
+    let material = if keypair_path.exists() {
+        load_existing_wallet(&keypair_path)?
+    } else {
+        let keypair = ShieldedKeypair::new()?;
+        let funding = Keypair::new();
+        save_wallet(&keypair_path, &keypair, &funding)?;
+        WalletMaterial { keypair, funding }
+    };
 
-    let keypair = ShieldedKeypair::new()?;
-    let funding = Keypair::new();
-    save_wallet(&keypair_path, &keypair, &funding)?;
-    register_wallet_locally(
-        &keypair_path,
-        &WalletMaterial {
-            keypair: clone_keypair(&keypair)?,
-            funding: funding.insecure_clone(),
-        },
-    )?;
+    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
+    if let Some(lamports) = opts.airdrop_lamports {
+        let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
+        println!("ok airdrop signature={signature}");
+    }
+    if let Some(signature) = register_wallet_on_chain(&rpc, &material)? {
+        println!("ok user_registry signature={signature}");
+    }
     println!(
         "ok keypair {} owner_hash={} funding={}",
         keypair_path.display(),
-        hex::encode(keypair.owner_hash()?),
-        funding.pubkey()
+        hex::encode(material.keypair.owner_hash()?),
+        material.funding.pubkey()
     );
     Ok(())
 }
 
 pub(super) fn load_sender_from_sync(opts: &SyncOptions) -> Result<WalletMaterial> {
-    let keypair_path = resolve_keypair_path(opts.keypair.keypair.as_deref());
-    if !keypair_path.exists() {
+    let sync = resolve_sync(opts)?;
+    if !sync.keypair_path.exists() {
         bail!(
             "keypair not found at {}; run `zolana wallet init` first",
-            keypair_path.display()
+            sync.keypair_path.display()
         );
     }
-    load_existing_wallet(&keypair_path)
+    load_existing_wallet(&sync.keypair_path)
 }
 
 pub(super) fn load_recipient_wallet(path: &str) -> Result<WalletMaterial> {
     let path = PathBuf::from(path);
     if !path.exists() {
         bail!(
-            "recipient must be a wallet file path for now; `{}` does not exist",
+            "recipient must be a wallet file path; `{}` does not exist",
             path.display()
         );
     }
@@ -186,21 +186,6 @@ pub(super) fn clone_keypair(keypair: &ShieldedKeypair) -> Result<ShieldedKeypair
     )?)
 }
 
-pub(super) fn resolve_keypair_path(value: Option<&str>) -> PathBuf {
-    match value {
-        Some(path) => PathBuf::from(path),
-        None => default_config_dir().join("pid.json"),
-    }
-}
-
-pub(super) fn default_config_dir() -> PathBuf {
-    if let Some(home) = env::var_os("HOME") {
-        PathBuf::from(home).join(".config").join("zolana")
-    } else {
-        PathBuf::from(".zolana")
-    }
-}
-
 #[allow(dead_code)]
 fn _assert_pubkey_public(pubkey: Pubkey) -> Pubkey {
     pubkey
@@ -208,15 +193,11 @@ fn _assert_pubkey_public(pubkey: Pubkey) -> Pubkey {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
-    use zolana_client::AddressResolver;
-
-    use crate::args::{SyncOptions, WalletKeypairOptions};
-    use crate::wallet_cli::registry::{
-        local_user_registry_path, read_local_user_registry, LocalAddressResolver,
-    };
 
     fn temp_root(prefix: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -227,13 +208,12 @@ mod tests {
     }
 
     #[test]
-    fn wallet_init_round_trips_real_keys() {
+    fn wallet_file_round_trips_real_keys() {
         let root = temp_root("zolana-cli-wallet-real");
         let wallet = root.join("alice.pid.json");
-        run_init(InitOptions {
-            path: Some(wallet.display().to_string()),
-        })
-        .expect("init wallet");
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        save_wallet(&wallet, &keypair, &funding).expect("save wallet");
 
         let loaded = load_existing_wallet(&wallet).expect("load wallet");
         assert_eq!(
@@ -246,33 +226,7 @@ mod tests {
             .unwrap()
         );
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
-
-        let registry_path = local_user_registry_path(&wallet);
-        let registry = read_local_user_registry(&registry_path).expect("read registry");
-        assert_eq!(registry.records.len(), 1);
-        assert!(registry
-            .records
-            .contains_key(&loaded.funding.pubkey().to_string()));
-        let resolver = LocalAddressResolver::from_sync_options(&SyncOptions {
-            keypair: WalletKeypairOptions {
-                keypair: Some(wallet.display().to_string()),
-            },
-            rpc_url: "http://127.0.0.1:8899".to_string(),
-            indexer_url: "http://127.0.0.1:8784".to_string(),
-        });
-        let recipient = resolver
-            .resolve_address(loaded.funding.pubkey())
-            .expect("lookup recipient");
-        assert_eq!(recipient.owner, loaded.funding.pubkey());
-        assert_eq!(
-            recipient.address.owner_hash().unwrap(),
-            loaded
-                .keypair
-                .shielded_address()
-                .unwrap()
-                .owner_hash()
-                .unwrap()
-        );
+        assert_eq!(loaded.funding.pubkey(), funding.pubkey());
     }
 
     #[test]
