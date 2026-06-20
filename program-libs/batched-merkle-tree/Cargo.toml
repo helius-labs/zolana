@@ -26,7 +26,6 @@ solana-sysvar = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 solana-address = { workspace = true }
 light-zero-copy-vec = { workspace = true }
-wincode = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 light-bloom-filter = { workspace = true }
 groth16-solana = { workspace = true }

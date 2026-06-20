@@ -2824,7 +2824,6 @@ dependencies = [
  "solana-program-error",
  "solana-sysvar 4.0.0",
  "thiserror 2.0.18",
- "wincode",
  "zerocopy",
 ]
 
