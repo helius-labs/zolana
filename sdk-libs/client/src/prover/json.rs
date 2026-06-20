@@ -4,7 +4,6 @@ use serde::Serialize;
 use crate::prover::inputs::{
     TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
 };
-use crate::rpc::STATE_TREE_HEIGHT;
 
 fn big_uint_to_string(value: &BigUint) -> String {
     format!("0x{}", value.to_str_radix(16))
@@ -78,8 +77,6 @@ pub(crate) struct TransferP256InputsJson {
     pub n_inputs: usize,
     #[serde(rename = "nOutputs")]
     pub n_outputs: usize,
-    #[serde(rename = "stateTreeHeight")]
-    pub state_tree_height: u32,
     #[serde(rename = "inputs")]
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
@@ -126,8 +123,6 @@ pub(crate) struct TransferInputsJson {
     pub n_inputs: usize,
     #[serde(rename = "nOutputs")]
     pub n_outputs: usize,
-    #[serde(rename = "stateTreeHeight")]
-    pub state_tree_height: u32,
     #[serde(rename = "inputs")]
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
@@ -207,7 +202,6 @@ pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
         circuit_type: "transfer-p256".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
-        state_tree_height: STATE_TREE_HEIGHT as u32,
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
@@ -236,7 +230,6 @@ pub(crate) fn to_json(inputs: &TransferInputs) -> String {
         circuit_type: "transfer".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
-        state_tree_height: STATE_TREE_HEIGHT as u32,
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
