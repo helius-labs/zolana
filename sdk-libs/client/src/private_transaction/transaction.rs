@@ -55,6 +55,7 @@ struct Recipient {
     view_tag: ViewTag,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WithdrawalTarget {
     Sol {
         user_sol_account: Address,

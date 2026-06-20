@@ -4373,6 +4373,8 @@ dependencies = [
  "light-hasher",
  "light-merkle-tree-reference",
  "num-bigint 0.4.6",
+ "serde",
+ "serde_json",
  "serial_test",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
@@ -7823,7 +7825,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "hex",
+ "serde",
  "serde_json",
+ "solana-compute-budget-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-pubkey 4.2.0",
+ "solana-signature",
+ "solana-signer",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
 ]
 
 [[package]]

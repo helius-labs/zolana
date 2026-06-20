@@ -121,6 +121,8 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p shielded-pool-tests --features localnet --test localnet_wallet_cli_e2e -- --nocapture
 
 # BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
 # scenario (program-tests/spp-test-validator). The prover server persists; each

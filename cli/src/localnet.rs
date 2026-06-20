@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::{path::Path, process::Command, thread, time::Duration};
 
 use anyhow::{bail, Context, Result};
 
@@ -176,16 +176,19 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
         &["photon"],
     )?;
     let rpc_url = format!("http://127.0.0.1:{}", opts.rpc_port);
-    let mut args = vec![
-        "--mode".to_string(),
-        "zolana".to_string(),
+    let mut args = Vec::new();
+    if photon_supports_mode(&photon) {
+        args.push("--mode".to_string());
+        args.push("zolana".to_string());
+    }
+    args.extend([
         "--rpc-url".to_string(),
         rpc_url,
         "--port".to_string(),
         opts.photon_port.to_string(),
         "--start-slot".to_string(),
         opts.photon_start_slot.clone(),
-    ];
+    ]);
     if let Some(db_url) = &opts.photon_db_url {
         args.push("--db-url".to_string());
         args.push(db_url.clone());
@@ -207,6 +210,15 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
     );
     std::mem::forget(child);
     Ok(())
+}
+
+fn photon_supports_mode(photon: &Path) -> bool {
+    let Ok(output) = Command::new(photon).arg("--help").output() else {
+        return false;
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    stdout.contains("--mode") || stderr.contains("--mode")
 }
 
 #[cfg(test)]
