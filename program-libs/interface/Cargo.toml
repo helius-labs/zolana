@@ -6,7 +6,7 @@ publish = false
 
 [features]
 default = ["verifying-keys", "tree"]
-solana = ["dep:solana-account", "dep:solana-instruction"]
+solana = ["dep:solana-instruction"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
@@ -14,7 +14,6 @@ tree = ["dep:zolana-tree"]
 [dependencies]
 borsh = { workspace = true }
 bytemuck = { workspace = true }
-solana-account = { workspace = true, optional = true }
 solana-address = { workspace = true, features = ["bytemuck", "borsh"] }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }

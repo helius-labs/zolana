@@ -1,7 +1,7 @@
 use borsh::to_vec;
 use user_registry_tests::build_register_ix;
-use zolana_interface::user_registry::instruction::{discriminator, RegisterData};
-use zolana_interface::user_registry::{SyncDelegateEntry, UserRecord};
+use zolana_user_registry_interface::instruction::{discriminator, RegisterData};
+use zolana_user_registry_interface::{SyncDelegateEntry, UserRecord};
 
 fn sample(sync_delegate: Option<[u8; 32]>, entries: Vec<SyncDelegateEntry>) -> UserRecord {
     UserRecord {

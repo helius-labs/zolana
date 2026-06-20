@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::user_registry::{
+use zolana_user_registry_interface::{
     instruction::{register, RegisterData},
     user_record_pda, UserRecord,
 };
@@ -19,7 +19,7 @@ pub(super) fn register_wallet_on_chain(
     if let Some(account) = rpc.get_account(Address::new_from_array(
         user_record_pda(&owner).0.to_bytes(),
     ))? {
-        let record = UserRecord::try_from_account_checked(&account)?;
+        let record = zolana_client::decode_user_record_account(&account)?;
         validate_registered_wallet(&owner, &record, material)?;
         return Ok(None);
     }

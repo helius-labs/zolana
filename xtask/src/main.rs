@@ -50,7 +50,7 @@ fn print_program_ids() {
     );
     println!(
         "USER_REGISTRY_PROGRAM_ID={}",
-        bs58::encode(zolana_interface::user_registry::USER_REGISTRY_PROGRAM_ID).into_string()
+        bs58::encode(zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
     );
     println!(
         "ZONE_TEST_PROGRAM_ID={}",

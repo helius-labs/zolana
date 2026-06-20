@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_interface::user_registry::{user_record_pda, UserRecord};
 use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair};
+use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
 
@@ -32,15 +32,26 @@ pub fn fetch_user_record_optional_checked<R: Rpc>(
     )?))
 }
 
+pub fn decode_user_record_account(
+    account: &solana_account::Account,
+) -> Result<UserRecord, ClientError> {
+    if account.owner != user_registry_program_id() {
+        return Err(ClientError::Rpc(
+            "user record account is not owned by the user registry program".to_string(),
+        ));
+    }
+    UserRecord::try_from_account_data(&account.data).map_err(|err| {
+        ClientError::Rpc(format!("invalid user registry record account data: {err}"))
+    })
+}
+
 fn parse_user_record_account(
     owner: Pubkey,
     record_pda: Pubkey,
     bump: u8,
     account: &solana_account::Account,
 ) -> Result<UserRecord, ClientError> {
-    let record = UserRecord::try_from_account_checked(account).map_err(|err| {
-        ClientError::Rpc(format!("invalid user registry record {record_pda}: {err}"))
-    })?;
+    let record = decode_user_record_account(account)?;
     if record.owner != owner.to_bytes() {
         return Err(ClientError::Rpc(format!(
             "user registry record {record_pda} stores a different owner than {owner}"
@@ -121,8 +132,8 @@ pub fn resolved_address_from_record(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
-    use zolana_interface::user_registry::{user_registry_program_id, SyncDelegateEntry};
     use zolana_keypair::ShieldedKeypair;
+    use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
 
     use super::*;
 
@@ -315,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn try_from_account_checked_rejects_wrong_discriminator() {
+    fn decode_user_record_account_rejects_wrong_discriminator() {
         let mut account = Account {
             lamports: 1,
             data: vec![0],
@@ -341,7 +352,7 @@ mod tests {
             .expect("serialize user record"),
         );
 
-        let err = UserRecord::try_from_account_checked(&account).expect_err("bad discriminator");
+        let err = decode_user_record_account(&account).expect_err("bad discriminator");
 
         assert!(err
             .to_string()

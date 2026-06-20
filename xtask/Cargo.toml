@@ -9,4 +9,5 @@ bs58 = { workspace = true }
 sha2 = { workspace = true }
 groth16-solana = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-user-registry-interface = { workspace = true }
 zolana-program-test = { workspace = true }

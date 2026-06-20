@@ -21,25 +21,34 @@ pub struct CreatedTransfer {
     pub signed: SignedTransaction,
     pub wait_tag: ViewTag,
     pub recipient: TransferRecipient,
-    pub withdrawal: Option<TransactWithdrawal>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransferRecipient {
     Registered(ResolvedAddress),
-    PublicWithdrawal(Pubkey),
+    PublicWithdrawal {
+        recipient: Pubkey,
+        withdrawal: TransactWithdrawal,
+    },
 }
 
 impl TransferRecipient {
-    pub fn pubkey(self) -> Pubkey {
+    pub fn pubkey(&self) -> Pubkey {
         match self {
             Self::Registered(recipient) => recipient.owner,
-            Self::PublicWithdrawal(recipient) => recipient,
+            Self::PublicWithdrawal { recipient, .. } => *recipient,
         }
     }
 
-    pub fn is_public_withdrawal(self) -> bool {
-        matches!(self, Self::PublicWithdrawal(_))
+    pub fn is_public_withdrawal(&self) -> bool {
+        matches!(self, Self::PublicWithdrawal { .. })
+    }
+
+    pub fn withdrawal(&self) -> Option<&TransactWithdrawal> {
+        match self {
+            Self::Registered(_) => None,
+            Self::PublicWithdrawal { withdrawal, .. } => Some(withdrawal),
+        }
     }
 }
 
@@ -78,8 +87,10 @@ pub fn create_transfer<R: Rpc>(
         return Ok(CreatedTransfer {
             signed: withdrawal.signed,
             wait_tag: withdrawal.wait_tag,
-            recipient: TransferRecipient::PublicWithdrawal(request.recipient_owner),
-            withdrawal: Some(withdrawal.withdrawal),
+            recipient: TransferRecipient::PublicWithdrawal {
+                recipient: request.recipient_owner,
+                withdrawal: withdrawal.withdrawal,
+            },
         });
     };
     let wait_tag = next_sender_view_tag(request.wallet, request.keypair)?;
@@ -101,7 +112,6 @@ pub fn create_transfer<R: Rpc>(
         signed,
         wait_tag,
         recipient: TransferRecipient::Registered(recipient),
-        withdrawal: None,
     })
 }
 
@@ -178,8 +188,8 @@ fn next_sender_view_tag(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
-    use zolana_interface::user_registry::{user_record_pda, user_registry_program_id, UserRecord};
     use zolana_transaction::{Data, Utxo, WalletUtxo};
+    use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
 
@@ -269,11 +279,11 @@ mod tests {
         })
         .expect("transfer");
 
-        assert_eq!(result.withdrawal, None);
         assert!(matches!(
             result.recipient,
             TransferRecipient::Registered(resolved) if resolved.owner == owner
         ));
+        assert!(result.recipient.withdrawal().is_none());
     }
 
     #[test]
@@ -297,12 +307,11 @@ mod tests {
 
         assert!(matches!(
             result.recipient,
-            TransferRecipient::PublicWithdrawal(pubkey) if pubkey == recipient
+            TransferRecipient::PublicWithdrawal {
+                recipient: pubkey,
+                withdrawal: TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
+            } if pubkey == recipient
         ));
-        assert_eq!(
-            result.withdrawal,
-            Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }))
-        );
     }
 
     #[test]

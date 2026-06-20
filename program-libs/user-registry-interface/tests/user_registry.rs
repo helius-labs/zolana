@@ -1,5 +1,5 @@
 use solana_pubkey::Pubkey;
-use zolana_interface::user_registry::USER_REGISTRY_PROGRAM_ID;
+use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 #[test]
 fn program_id_matches_known_base58() {

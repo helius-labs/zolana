@@ -45,7 +45,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             material: &ctx.material,
             tree,
             prover_url: &network.prover_url,
-            withdrawal: transfer.withdrawal,
+            withdrawal: transfer.recipient.withdrawal().cloned(),
             wait_tag: transfer.wait_tag,
         },
         transfer.signed,

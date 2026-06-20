@@ -50,16 +50,6 @@ impl UserRecord {
         }
     }
 
-    #[cfg(feature = "solana")]
-    pub fn try_from_account_checked(account: &solana_account::Account) -> borsh::io::Result<Self> {
-        if account.owner != crate::user_registry::user_registry_program_id() {
-            return Err(invalid_user_record(
-                "user record account is not owned by the user registry program",
-            ));
-        }
-        Self::try_from_account_data(&account.data)
-    }
-
     pub fn sender_viewing_pubkey(&self) -> [u8; P256_PUBKEY_LEN] {
         if self.sync_delegate.is_some() {
             self.entries

@@ -3,7 +3,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::user_registry::{
+use zolana_user_registry_interface::{
     instruction::RotateSyncDelegateKeyData, SyncDelegateEntry, UserRecord,
 };
 

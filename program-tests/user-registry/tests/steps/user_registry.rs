@@ -8,7 +8,7 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_interface::user_registry::user_record_pda;
+use zolana_user_registry_interface::user_record_pda;
 
 use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
@@ -99,10 +99,10 @@ fn raw_set_sync_delegate_ix(
     owner: Pubkey,
     sync_delegate: Pubkey,
 ) -> solana_instruction::Instruction {
-    zolana_interface::user_registry::instruction::set_sync_delegate(
+    zolana_user_registry_interface::instruction::set_sync_delegate(
         user_record,
         owner,
-        zolana_interface::user_registry::instruction::SetSyncDelegateData {
+        zolana_user_registry_interface::instruction::SetSyncDelegateData {
             sync_delegate: sync_delegate.to_bytes(),
             sync_pubkey: test_p256_pubkey(0xEE),
             viewing_pubkey: test_p256_pubkey(0xEF),

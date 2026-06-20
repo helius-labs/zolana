@@ -2,7 +2,7 @@
 
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::user_registry::{
+use zolana_user_registry_interface::{
     instruction::{
         self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData,
         SetSyncDelegateData,
@@ -10,9 +10,7 @@ use zolana_interface::user_registry::{
     user_record_pda,
 };
 
-pub use zolana_interface::user_registry::{
-    user_registry_program_id, SyncDelegateEntry, UserRecord,
-};
+pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
 
 pub fn build_register_ix(
     owner: &Pubkey,
