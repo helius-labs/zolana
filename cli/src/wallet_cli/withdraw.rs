@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
-use zolana_transaction::{Address, SOL_MINT};
+use zolana_transaction::Address;
 
 use crate::args::WithdrawOptions;
 
@@ -19,18 +19,16 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
-    let destination = parse_pubkey(&opts.to)?;
-    let spl_token_account = (asset != SOL_MINT).then_some(destination);
+    let recipient = parse_pubkey(&opts.to)?;
 
     let withdrawal = create_withdrawal(CreateWithdrawal {
         wallet: &ctx.wallet,
         keypair: &ctx.material.keypair,
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        destination,
+        recipient,
         asset,
         amount: opts.amount,
         assets: &ctx.assets,
-        spl_token_account,
     })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {
@@ -48,7 +46,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         "ok withdraw amount={} mint={} to={} signature={}",
         opts.amount,
         format_address(asset),
-        destination,
+        recipient,
         signature
     );
     Ok(())

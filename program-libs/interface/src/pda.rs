@@ -1,10 +1,10 @@
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
-    SPL_ASSET_VAULT_PDA_SEED, SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
-    ZONE_AUTH_PDA_SEED,
+    ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
 pub fn shielded_pool_program_id() -> Pubkey {
@@ -47,6 +47,27 @@ pub fn spl_asset_vault(mint: &Pubkey) -> Pubkey {
     .0
 }
 
+pub fn associated_token_program_id() -> Pubkey {
+    Pubkey::new_from_array(ASSOCIATED_TOKEN_PROGRAM_ID)
+}
+
+pub fn spl_token_program_id() -> Pubkey {
+    Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
+}
+
+/// Canonical associated token account for `(owner, mint)` under the SPL Token program.
+pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            owner.as_ref(),
+            spl_token_program_id().as_ref(),
+            mint.as_ref(),
+        ],
+        &associated_token_program_id(),
+    )
+    .0
+}
+
 pub fn zone_config(zone_program: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[SPP_ZONE_CONFIG_PDA_SEED, zone_program.as_ref()],
@@ -77,10 +98,27 @@ pub fn zone_auth_with_bump(zone_program: &Pubkey, bump: u8) -> Result<Pubkey, Pu
 
 #[cfg(test)]
 mod tests {
+    use solana_pubkey::Pubkey;
+
     use crate::SOL_INTERFACE;
 
     #[test]
     fn sol_interface_const_matches_derivation() {
         assert_eq!(super::sol_interface().to_bytes(), SOL_INTERFACE);
+    }
+
+    #[test]
+    fn associated_token_address_is_canonical_pda() {
+        let owner = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let (expected, _) = Pubkey::find_program_address(
+            &[
+                owner.as_ref(),
+                super::spl_token_program_id().as_ref(),
+                mint.as_ref(),
+            ],
+            &super::associated_token_program_id(),
+        );
+        assert_eq!(super::associated_token_address(&owner, &mint), expected);
     }
 }

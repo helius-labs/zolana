@@ -71,18 +71,16 @@ pub struct CreateTransfer<'a, R: Rpc> {
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
-    pub public_recipient_token_account: Option<Pubkey>,
 }
 
 pub struct CreateWithdrawal<'a> {
     pub wallet: &'a Wallet,
     pub keypair: &'a ShieldedKeypair,
     pub payer: Address,
-    pub destination: Pubkey,
+    pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
-    pub spl_token_account: Option<Pubkey>,
 }
 
 pub fn create_transfer<R: Rpc>(
@@ -94,11 +92,10 @@ pub fn create_transfer<R: Rpc>(
             wallet: request.wallet,
             keypair: request.keypair,
             payer: request.payer,
-            destination: request.recipient_owner,
+            recipient: request.recipient_owner,
             asset: request.asset,
             amount: request.amount,
             assets: request.assets,
-            spl_token_account: request.public_recipient_token_account,
         })?;
         return Ok(CreatedTransfer {
             signed: withdrawal.signed,
@@ -139,11 +136,7 @@ pub fn create_withdrawal(request: CreateWithdrawal<'_>) -> Result<CreatedWithdra
         request.asset,
         request.amount,
     )?;
-    let (target, withdrawal) = withdrawal_target(
-        request.destination,
-        request.asset,
-        request.spl_token_account,
-    )?;
+    let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
     let mut tx = Transaction::new(request.keypair.shielded_address()?, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
     let signed = tx.sign(request.keypair, request.assets, wait_tag)?;
@@ -155,23 +148,22 @@ pub fn create_withdrawal(request: CreateWithdrawal<'_>) -> Result<CreatedWithdra
 }
 
 fn withdrawal_target(
-    destination: Pubkey,
+    recipient: Pubkey,
     asset: Address,
-    spl_token_account: Option<Pubkey>,
 ) -> Result<(WithdrawalTarget, TransactWithdrawal), ClientError> {
     if asset == SOL_MINT {
         return Ok((
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(destination.to_bytes()),
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
             TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient: destination,
+                recipient,
             }),
         ));
     }
 
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let user_spl_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
+    let user_spl_token = pda::associated_token_address(&recipient, &mint);
     let vault = pda::spl_asset_vault(&mint);
     Ok((
         WithdrawalTarget::Spl {
@@ -181,7 +173,7 @@ fn withdrawal_target(
         TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(pda::shielded_pool_cpi_authority()),
             vault,
-            recipient: destination,
+            recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
         }),
@@ -324,7 +316,6 @@ mod tests {
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
-            public_recipient_token_account: None,
         })
         .expect("transfer");
 
@@ -351,7 +342,6 @@ mod tests {
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
-            public_recipient_token_account: None,
         })
         .expect("public withdrawal fallback");
 
@@ -372,7 +362,7 @@ mod tests {
         let wallet = wallet_with_asset(sender.clone(), asset, 10);
         let rpc = MockRpc { account: None };
         let recipient = Pubkey::new_unique();
-        let token_account = Pubkey::new_unique();
+        let token_account = pda::associated_token_address(&recipient, &mint);
 
         let result = create_transfer(CreateTransfer {
             rpc: &rpc,
@@ -383,7 +373,6 @@ mod tests {
             asset,
             amount: 1,
             assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
-            public_recipient_token_account: Some(token_account),
         })
         .expect("public withdrawal fallback");
 
@@ -400,23 +389,22 @@ mod tests {
     }
 
     #[test]
-    fn create_withdrawal_builds_spl_settlement() {
+    fn create_withdrawal_builds_spl_settlement_to_recipient_ata() {
         let sender = ShieldedKeypair::new().unwrap();
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let wallet = wallet_with_asset(sender.clone(), asset, 10);
-        let destination = Pubkey::new_unique();
-        let token_account = Pubkey::new_unique();
+        let recipient = Pubkey::new_unique();
+        let token_account = pda::associated_token_address(&recipient, &mint);
 
         let result = create_withdrawal(CreateWithdrawal {
             wallet: &wallet,
             keypair: &sender,
             payer: Address::default(),
-            destination,
+            recipient,
             asset,
             amount: 1,
             assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
-            spl_token_account: Some(token_account),
         })
         .expect("withdrawal");
 
@@ -425,7 +413,7 @@ mod tests {
             TransactWithdrawal::Spl(TransactSplWithdrawal {
                 cpi_authority: Some(pda::shielded_pool_cpi_authority()),
                 vault: pda::spl_asset_vault(&mint),
-                recipient: destination,
+                recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
             })
