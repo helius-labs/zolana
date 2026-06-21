@@ -153,7 +153,7 @@ mod tests {
         let funding = solana_keypair::Keypair::new();
         let seed = funding.secret_bytes();
         let keypair =
-            ShieldedKeypair::from_ed25519(seed, ViewingKey::new()).expect("ed25519 keypair");
+            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
         let material = WalletMaterial { keypair, funding };
 
         let data = register_data(&material).expect("register data");
