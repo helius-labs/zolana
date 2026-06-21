@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -116,6 +116,12 @@ pub(crate) enum WalletCommand {
 
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
+
+    #[command(
+        name = "merge-service",
+        about = "Enable or disable merge-service opt-in for this wallet"
+    )]
+    MergeService(MergeServiceOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -463,6 +469,19 @@ pub(crate) struct BalanceOptions {
     pub(crate) mint: Option<String>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(
+        long,
+        action = ArgAction::Set,
+        help = "Whether this wallet opts into merge-service consolidation"
+    )]
+    pub(crate) enabled: bool,
+}
+
 impl TestValidatorOptions {
     pub(crate) fn use_surfpool_backend(&self) -> bool {
         self.use_surfpool || !self.no_use_surfpool
@@ -783,6 +802,34 @@ mod tests {
             panic!("expected wallet balance command");
         };
         assert_eq!(balance.mint.as_deref(), Some("SOL"));
+    }
+
+    #[test]
+    fn parses_wallet_merge_service_options() {
+        let WalletCommand::MergeService(opts) = parse_wallet(&[
+            "merge-service",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--indexer-url",
+            "http://127.0.0.1:8785",
+            "--enabled",
+            "true",
+        ]) else {
+            panic!("expected wallet merge-service command");
+        };
+
+        assert_eq!(
+            opts.sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+        assert_eq!(
+            opts.sync.indexer_url.as_deref(),
+            Some("http://127.0.0.1:8785")
+        );
+        assert!(opts.enabled);
     }
 
     #[test]

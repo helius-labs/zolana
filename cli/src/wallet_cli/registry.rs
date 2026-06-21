@@ -3,13 +3,17 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_user_registry_interface::{
-    instruction::{register, RegisterData},
+    instruction::{register, set_merge_service, RegisterData},
     user_record_pda, UserRecord,
 };
 
 use zolana_transaction::Address;
 
-use super::material::WalletMaterial;
+use super::{
+    material::{load_sender_from_resolved_sync, WalletMaterial},
+    resolve::resolve_sync,
+};
+use crate::args::MergeServiceOptions;
 
 pub(super) fn register_wallet_on_chain(
     rpc: &SolanaRpc,
@@ -32,6 +36,34 @@ pub(super) fn register_wallet_on_chain(
         &[&material.funding],
     )?;
     Ok(Some(signature))
+}
+
+pub(super) fn run_merge_service(opts: MergeServiceOptions) -> Result<()> {
+    let sync = resolve_sync(&opts.sync)?;
+    let rpc = SolanaRpc::new(sync.rpc_url.clone());
+    let material = load_sender_from_resolved_sync(&sync)?;
+    let owner = material.funding.pubkey();
+    let signature = set_merge_service_enabled(&rpc, &material, opts.enabled)?;
+    println!(
+        "ok merge-service owner={} enabled={} signature={}",
+        owner, opts.enabled, signature
+    );
+    Ok(())
+}
+
+fn set_merge_service_enabled(
+    rpc: &SolanaRpc,
+    material: &WalletMaterial,
+    enabled: bool,
+) -> Result<Signature> {
+    let owner = material.funding.pubkey();
+    let (user_record, _bump) = user_record_pda(&owner);
+    let ix = set_merge_service(user_record, owner, enabled);
+    Ok(rpc.create_and_send_transaction(
+        &[ix],
+        Address::new_from_array(owner.to_bytes()),
+        &[&material.funding],
+    )?)
 }
 
 fn register_data(material: &WalletMaterial) -> Result<RegisterData> {
