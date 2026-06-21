@@ -151,7 +151,11 @@ fn fetch_shielded_transactions<I: Rpc>(
                 Some(config.page_limit),
             )?;
             for tx in response.transactions {
-                if tx.proofless {
+                // Photon may surface proofless/plaintext deposits from this
+                // endpoint before marking them as proofless. They are discovered
+                // through `get_encrypted_utxos_by_tags` below, not as decryptable
+                // shielded transfers.
+                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                     continue;
                 }
                 let key = tx.tx_signature.to_string();
@@ -262,5 +266,63 @@ impl ProoflessDepositEventSource for crate::solana_rpc::SolanaRpc {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use solana_signature::Signature;
+
+    use super::*;
+    use crate::rpc::{Context, GetShieldedTransactionsByTagsResponse, OutputSlot};
+
+    struct MockIndexer {
+        transactions: Vec<ShieldedTransaction>,
+    }
+
+    impl Rpc for MockIndexer {
+        fn get_shielded_transactions_by_tags(
+            &self,
+            _tags: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: Context { slot: 0 },
+                transactions: self.transactions.clone(),
+                next_cursor: None,
+            })
+        }
+    }
+
+    #[test]
+    fn shielded_fetch_skips_rows_without_viewing_material() {
+        let indexer = MockIndexer {
+            transactions: vec![ShieldedTransaction {
+                slot: 1,
+                tx_signature: Signature::default(),
+                tx_viewing_pk: None,
+                salt: None,
+                output_slots: vec![OutputSlot {
+                    view_tag: [1u8; 32],
+                    payload: Vec::new(),
+                }],
+                nullifiers: Vec::new(),
+                proofless: false,
+            }],
+        };
+        let mut out = HashMap::new();
+
+        fetch_shielded_transactions(
+            &indexer,
+            &[[1u8; 32]],
+            &mut out,
+            SyncWalletConfig::default(),
+        )
+        .expect("skip plaintext row");
+
+        assert!(out.is_empty());
     }
 }
