@@ -24,7 +24,7 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
     UiTransactionEncoding,
 };
-use zolana_interface::event::{InstructionGroup, ParsedInstruction};
+use zolana_event::{InstructionGroup, ParsedInstruction};
 
 use crate::error::ClientError;
 use crate::rpc::Rpc;

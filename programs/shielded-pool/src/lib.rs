@@ -9,6 +9,7 @@ use crate::instructions::{
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
     deposit::{process_deposit, process_zone_deposit},
+    merge::process_merge_transact_ix,
     protocol_config::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
@@ -60,5 +61,6 @@ pub fn process_instruction(
             process_update_zone_config_owner(accounts, payload)
         }
         InstructionTag::UpdateZoneConfig => process_update_zone_config(accounts, payload),
+        InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
     }
 }

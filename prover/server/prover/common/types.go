@@ -11,6 +11,7 @@ const (
 	BatchAddressAppendCircuitType CircuitType = "address-append"
 	TransferP256CircuitType       CircuitType = "transfer-p256"
 	TransferCircuitType           CircuitType = "transfer"
+	MergeCircuitType              CircuitType = "merge"
 )
 
 // JSON input structures (these are not in circuit_utils.go)

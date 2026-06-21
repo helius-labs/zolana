@@ -3,9 +3,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer, CircuitType, CreateTransfer, InputCommitment, InputTreeIndices,
-    ProofCompressed, ProverClient, Rpc, SignedTransaction, SolanaRpc, SpendProof,
-    StateInclusionProof, ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    create_transfer, CreateTransfer, InputCommitment, ProofCompressed, ProverClient, ProverInputs,
+    Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
@@ -81,20 +80,18 @@ pub(super) fn submit_private_transaction(
     signed: SignedTransaction,
 ) -> Result<Signature> {
     let commitments = signed.input_commitments()?;
-    let (proofs, indices) = spend_proofs(request.indexer, request.tree, &commitments)?;
+    let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
+    // `assemble` runs the witness build once: the per-input nullifiers, root
+    // indices, and dummy padding come out of the prover, so the instruction data
+    // and the proof commit to identical values by construction.
+    let assembled = signed.assemble(&proofs)?;
     let prover = ProverClient::new(request.prover_url.to_string());
-    let proof = match signed.clone().into_prover(&proofs)? {
-        CircuitType::P256(prover_inputs) => {
-            let built = prover_inputs.build()?;
-            prover.prove_transfer_p256(&built.inputs)?
-        }
-        CircuitType::Eddsa(prover_inputs) => {
-            let built = prover_inputs.build()?;
-            prover.prove_transfer(&built.inputs)?
-        }
+    let proof = match &assembled.prover_inputs {
+        ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
+        ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
     };
     let proof_bytes = ProofCompressed::try_from(proof)?.to_transact_proof_bytes();
-    let data = signed.into_transact_ix_data(proof_bytes, Some(&indices))?;
+    let data = assembled.with_proof(proof_bytes);
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,
@@ -122,7 +119,7 @@ fn spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Pubkey,
     commitments: &[InputCommitment],
-) -> Result<(Vec<SpendProof>, Vec<InputTreeIndices>)> {
+) -> Result<Vec<SpendProof>> {
     let tree_address = Address::new_from_array(tree.to_bytes());
     let leaves = commitments
         .iter()
@@ -140,40 +137,13 @@ fn spend_proofs(
         bail!("indexer returned incomplete input proofs");
     }
 
-    let mut proofs = Vec::with_capacity(commitments.len());
-    let mut indices = Vec::with_capacity(commitments.len());
-    for (state, nullifier) in state_proofs.into_iter().zip(nullifier_proofs) {
-        indices.push(InputTreeIndices {
-            utxo_tree_root_index: state.root_index,
-            nullifier_tree_root_index: nullifier.root_index,
-            tree_index: 0,
-            eddsa_signer_index: 0,
-        });
-        proofs.push(SpendProof {
-            state: StateInclusionProof {
-                path_elements: fixed_path::<STATE_TREE_HEIGHT>(state.path, "state path")?,
-                leaf_index: state.leaf_index,
-                root: state.root,
-            },
-            nullifier: zolana_client::NullifierNonInclusionProof {
-                low_value: nullifier.low_element,
-                next_value: nullifier.high_element,
-                low_path_elements: fixed_path::<NULLIFIER_TREE_HEIGHT>(
-                    nullifier.path,
-                    "nullifier path",
-                )?,
-                low_leaf_index: nullifier.low_element_index,
-                root: nullifier.root,
-            },
-        });
-    }
-    Ok((proofs, indices))
-}
-
-fn fixed_path<const N: usize>(path: Vec<[u8; 32]>, name: &str) -> Result<[[u8; 32]; N]> {
-    let actual = path.len();
-    path.try_into()
-        .map_err(|_| anyhow::anyhow!("{name} length mismatch: expected {N}, got {actual}"))
+    // The indexer's merkle / non-inclusion proofs carry the tree root indices the
+    // witness build resolves placement against; `SpendProof` wraps them directly.
+    Ok(state_proofs
+        .into_iter()
+        .zip(nullifier_proofs)
+        .map(|(state, nullifier)| SpendProof { state, nullifier })
+        .collect())
 }
 
 pub(super) fn maybe_airdrop(

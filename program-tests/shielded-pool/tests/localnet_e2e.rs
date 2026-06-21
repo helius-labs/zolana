@@ -17,8 +17,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
+use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
-    event::{indexed_events_from_instruction_groups, instruction_may_emit_events},
     instruction::{
         tag, CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,
     },
@@ -39,8 +39,8 @@ use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output, new_transact_ix_data, nullifier_tree,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, nullifier_tree,
     prove_and_verify_transfer, public_input_hash, public_sol_field, spend_input, start_prover,
     transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
@@ -136,16 +136,15 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     };
     let payer_owner_pk_hash = payer_utxo.owner.hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
-    let owner_utxo_hash = payer_utxo.owner_utxo_hash(&payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_utxo_hash);
+    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
         spl: None,
         view_tag: shield_data.view_tag,
-        owner_utxo_hash: shield_data.owner_utxo_hash,
-        salt: shield_data.salt,
+        owner: shield_data.owner,
+        blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
         program_data_hash: shield_data.program_data_hash,
         program_data: shield_data.program_data,
@@ -215,6 +214,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let recipient_hash = recipient_output.hash()?;
     let transfer_dummy_nullifier = fe(20);
     let transfer_roots = (shield_utxo_root, nullifier_root);
+    let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
+        .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
@@ -222,8 +223,11 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
         None,
-        ix_output([1u8; 32], change_hash),
-        vec![ix_output([2u8; 32], recipient_hash), dummy_ix_output()],
+        vec![change_hash, recipient_hash, transfer_dummy_hash],
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
     let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
     let transfer_private_tx = private_tx_hash(
@@ -234,7 +238,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
-        &[change_hash, recipient_hash, zero],
+        &[change_hash, recipient_hash, transfer_dummy_hash],
         &[shield_utxo_root, shield_utxo_root],
         &[nullifier_root, nullifier_root],
         &transfer_private_tx,
@@ -255,7 +259,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         outputs: vec![
             transfer_output(&change_output)?,
             transfer_output(&recipient_output)?,
-            TransferOutput::new_dummy(),
+            transfer_dummy_output,
         ],
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
@@ -290,7 +294,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
 
     state_tree.append(&change_hash)?;
     state_tree.append(&recipient_hash)?;
-    state_tree.append(&zero)?;
+    state_tree.append(&transfer_dummy_hash)?;
     let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 4)?;
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
@@ -334,6 +338,20 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
     let withdraw_dummy_nullifier = fe(21);
+    let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+        .iter()
+        .map(|blinding| {
+            dummy_transfer_output(blinding).map_err(|err| anyhow!("withdraw dummy output: {err}"))
+        })
+        .collect::<TestResult<_>>()?;
+    let withdraw_output_hashes: Vec<[u8; 32]> = withdraw_dummy_outputs
+        .iter()
+        .map(|(_, hash)| *hash)
+        .collect();
+    let withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
+        .into_iter()
+        .map(|(out, _)| out)
+        .collect();
 
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
@@ -341,8 +359,11 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             eddsa_input_utxo(withdraw_dummy_nullifier, 4),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        dummy_ix_output(),
-        vec![dummy_ix_output(); 2],
+        withdraw_output_hashes.clone(),
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
@@ -355,7 +376,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
-        &[zero, zero, zero],
+        &withdraw_output_hashes,
         &[transfer_utxo_root, transfer_utxo_root],
         &[transfer_nullifier_root, transfer_nullifier_root],
         &withdraw_private_tx,
@@ -373,7 +394,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
                 &recipient_owner_pk_hash,
             ),
         ],
-        outputs: vec![TransferOutput::new_dummy(); 3],
+        outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
         public_sol_amount: public_sol_field,

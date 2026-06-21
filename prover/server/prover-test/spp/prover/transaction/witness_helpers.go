@@ -1,6 +1,8 @@
 package transaction
 
 import (
+	"crypto/rand"
+	"fmt"
 	"math/big"
 
 	txcircuit "zolana/prover/circuits/spp_transaction"
@@ -23,20 +25,35 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 	}
 }
 
-// dummyUtxoFields is the all-zero UTXO used to fill unused input/output slots.
-// Its amount is zero (the circuit requires this of dummies) and its hash is
-// never bound, so the concrete field values are irrelevant.
-func dummyUtxoFields() txcircuit.UtxoCircuitFields {
-	return toProofCircuitFields(protocol.Utxo{
+// dummyUtxo returns a dummy UTXO with random blinding. All fields are zero
+// except the blinding, so its UTXO hash and derived nullifier are
+// indistinguishable from a real UTXO's on the public transcript.
+func dummyUtxo(blinding *big.Int) protocol.Utxo {
+	return protocol.Utxo{
 		Domain:        big.NewInt(0),
 		Owner:         big.NewInt(0),
 		Asset:         big.NewInt(0),
 		Amount:        big.NewInt(0),
-		Blinding:      big.NewInt(0),
+		Blinding:      blinding,
 		DataHash:      big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
 		ZoneProgramID: big.NewInt(0),
-	})
+	}
+}
+
+func dummyUtxoFields(blinding *big.Int) txcircuit.UtxoCircuitFields {
+	return toProofCircuitFields(dummyUtxo(blinding))
+}
+
+// randomBlinding generates a random 31-byte blinding factor as a field element.
+func randomBlinding() (*big.Int, error) {
+	b := make([]byte, 31)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("random blinding: %w", err)
+	}
+	padded := make([]byte, 32)
+	copy(padded[1:], b)
+	return new(big.Int).SetBytes(padded), nil
 }
 
 func zeroVariables(n int) []frontend.Variable {

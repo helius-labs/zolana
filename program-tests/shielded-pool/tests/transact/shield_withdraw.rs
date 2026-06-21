@@ -36,8 +36,8 @@ use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output, new_transact_ix_data, nullifier_tree,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, nullifier_tree,
     prove_and_verify_transfer, public_input_hash, public_sol_field, spend_input, start_prover,
     transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
@@ -102,12 +102,9 @@ fn shield_then_withdraw_sol() {
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
-    let owner_utxo_h = utxo
-        .owner_utxo_hash(&nullifier_pk)
-        .expect("owner utxo hash");
     let event = env
         .rpc
-        .deposit_sol(&tree, &payer, AMOUNT, owner_utxo_h)
+        .deposit_sol(&tree, &payer, AMOUNT, owner_field, blinding)
         .expect("proofless deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
@@ -174,14 +171,27 @@ fn shield_then_withdraw_sol() {
     // is reaped), so read balances with `unwrap_or(0)`.
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
 
+    // The withdrawal spends the full amount, so all three outputs are dummies
+    // (`owner_hash = 0`) with distinct blindings: each has a real `utxo_hash` the
+    // program appends and the proof commits, and contributes `0` to private_tx_hash.
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+        .iter()
+        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
+        .collect();
+    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
+    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
         Some(-(AMOUNT as i64)),
-        dummy_ix_output(),
-        vec![dummy_ix_output(); 2],
+        output_hashes.clone(),
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
     let external_data_hash =
         external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
@@ -195,7 +205,7 @@ fn shield_then_withdraw_sol() {
 
     let public_input_hash = public_input_hash(
         &[nullifier, dummy_nullifier],
-        &[zero, zero, zero],
+        &output_hashes,
         &[utxo_root, utxo_root],
         &[nullifier_root, nullifier_root],
         &private_tx,
@@ -210,7 +220,7 @@ fn shield_then_withdraw_sol() {
             payer_spend_input,
             dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
         ],
-        outputs: vec![TransferOutput::new_dummy(); 3],
+        outputs,
         external_data_hash,
         private_tx_hash: private_tx,
         public_sol_amount: public_sol_field,
@@ -283,12 +293,9 @@ fn shield_transfer_then_withdraw_sol() {
     let payer_owner_field =
         owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
 
-    let owner_utxo_h = payer_utxo
-        .owner_utxo_hash(&payer_nullifier_pk)
-        .expect("payer owner utxo hash");
     let event = env
         .rpc
-        .deposit_sol(&tree, &payer, AMOUNT, owner_utxo_h)
+        .deposit_sol(&tree, &payer, AMOUNT, payer_owner_field, payer_blinding)
         .expect("deposit");
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero)
@@ -356,6 +363,10 @@ fn shield_transfer_then_withdraw_sol() {
     let recipient_hash = recipient_output.hash().expect("recipient output hash");
     let transfer_dummy_nullifier = fe(20);
     let transfer_roots = (shield_utxo_root, nullifier_root);
+    // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
+    // the program appends and the proof commits, contributing `0` to private_tx_hash.
+    let (transfer_dummy_output, transfer_dummy_hash) =
+        dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
 
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
@@ -363,8 +374,11 @@ fn shield_transfer_then_withdraw_sol() {
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
         None,
-        ix_output([1u8; 32], change_hash),
-        vec![ix_output([2u8; 32], recipient_hash), dummy_ix_output()],
+        vec![change_hash, recipient_hash, transfer_dummy_hash],
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
     let transfer_external_hash =
         external_data_hash(&transfer_ix_data, &zero).expect("transfer external data hash");
@@ -377,7 +391,7 @@ fn shield_transfer_then_withdraw_sol() {
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
-        &[change_hash, recipient_hash, zero],
+        &[change_hash, recipient_hash, transfer_dummy_hash],
         &[shield_utxo_root, shield_utxo_root],
         &[nullifier_root, nullifier_root],
         &transfer_private_tx,
@@ -398,7 +412,7 @@ fn shield_transfer_then_withdraw_sol() {
         outputs: vec![
             transfer_output(&change_output).expect("change transfer output"),
             transfer_output(&recipient_output).expect("recipient transfer output"),
-            TransferOutput::new_dummy(),
+            transfer_dummy_output,
         ],
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
@@ -431,7 +445,9 @@ fn shield_transfer_then_withdraw_sol() {
     state_tree
         .append(&recipient_hash)
         .expect("append recipient leaf");
-    state_tree.append(&zero).expect("append dummy leaf");
+    state_tree
+        .append(&transfer_dummy_hash)
+        .expect("append dummy leaf");
     let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&env.rpc, &tree, 4);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
@@ -490,6 +506,20 @@ fn shield_transfer_then_withdraw_sol() {
     let vault = pda::sol_interface();
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
     let withdraw_dummy_nullifier = fe(21);
+    // The withdrawal spends the full transferred amount; all three outputs are
+    // dummies with real, distinct hashes.
+    let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+        .iter()
+        .map(|blinding| dummy_transfer_output(blinding).expect("withdraw dummy output"))
+        .collect();
+    let withdraw_output_hashes: Vec<[u8; 32]> = withdraw_dummy_outputs
+        .iter()
+        .map(|(_, hash)| *hash)
+        .collect();
+    let withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
+        .into_iter()
+        .map(|(out, _)| out)
+        .collect();
 
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
@@ -497,8 +527,11 @@ fn shield_transfer_then_withdraw_sol() {
             eddsa_input_utxo(withdraw_dummy_nullifier, 4),
         ],
         Some(-(TRANSFER_AMOUNT as i64)),
-        dummy_ix_output(),
-        vec![dummy_ix_output(); 2],
+        withdraw_output_hashes.clone(),
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())
@@ -513,7 +546,7 @@ fn shield_transfer_then_withdraw_sol() {
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes).expect("recipient payer hash");
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
-        &[zero, zero, zero],
+        &withdraw_output_hashes,
         &[transfer_utxo_root, transfer_utxo_root],
         &[transfer_nullifier_root, transfer_nullifier_root],
         &withdraw_private_tx,
@@ -531,7 +564,7 @@ fn shield_transfer_then_withdraw_sol() {
                 &recipient_owner_pk_hash,
             ),
         ],
-        outputs: vec![TransferOutput::new_dummy(); 3],
+        outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
         public_sol_amount: public_sol_field,

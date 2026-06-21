@@ -1,4 +1,6 @@
-use p256::ecdsa::signature::{Signer, Verifier};
+use ed25519_dalek::Signer as Ed25519Signer;
+use ed25519_dalek::SigningKey as DalekSigningKey;
+use ed25519_dalek::Verifier as Ed25519Verifier;
 use p256::ecdsa::{Signature as EcdsaSig, SigningKey as EcdsaSigningKey, VerifyingKey};
 use p256::SecretKey;
 use rand::rngs::OsRng;
@@ -7,46 +9,100 @@ use zeroize::Zeroizing;
 use crate::error::KeypairError;
 use crate::pubkey::{P256Pubkey, PublicKey};
 
-#[derive(Clone)]
+enum SigningKeyInner {
+    P256(SecretKey),
+    Ed25519(DalekSigningKey),
+}
+
 pub struct SigningKey {
-    secret: SecretKey,
+    inner: SigningKeyInner,
+}
+
+impl Clone for SigningKey {
+    fn clone(&self) -> Self {
+        match &self.inner {
+            SigningKeyInner::P256(sk) => Self {
+                inner: SigningKeyInner::P256(sk.clone()),
+            },
+            SigningKeyInner::Ed25519(sk) => Self {
+                inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(sk.as_bytes())),
+            },
+        }
+    }
 }
 
 impl SigningKey {
     pub fn new() -> Self {
         Self {
-            secret: SecretKey::random(&mut OsRng),
+            inner: SigningKeyInner::P256(SecretKey::random(&mut OsRng)),
         }
     }
 
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
         let secret = SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
-        Ok(Self { secret })
+        Ok(Self {
+            inner: SigningKeyInner::P256(secret),
+        })
+    }
+
+    pub fn from_ed25519(bytes: &[u8; 32]) -> Self {
+        Self {
+            inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(bytes)),
+        }
     }
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
-        let mut out = [0u8; 32];
-        out.copy_from_slice(self.secret.to_bytes().as_slice());
-        Zeroizing::new(out)
+        match &self.inner {
+            SigningKeyInner::P256(sk) => {
+                let mut out = [0u8; 32];
+                out.copy_from_slice(sk.to_bytes().as_slice());
+                Zeroizing::new(out)
+            }
+            SigningKeyInner::Ed25519(sk) => Zeroizing::new(*sk.as_bytes()),
+        }
     }
 
     pub fn pubkey(&self) -> PublicKey {
-        PublicKey::from_p256(&P256Pubkey::from_p256(&self.secret.public_key()))
+        match &self.inner {
+            SigningKeyInner::P256(sk) => {
+                PublicKey::from_p256(&P256Pubkey::from_p256(&sk.public_key()))
+            }
+            SigningKeyInner::Ed25519(sk) => {
+                let vk = sk.verifying_key();
+                PublicKey::from_ed25519(vk.as_bytes())
+            }
+        }
     }
 
     pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
-        let signing = EcdsaSigningKey::from(&self.secret);
-        let sig: EcdsaSig = signing.sign(msg);
-        let mut out = [0u8; 64];
-        out.copy_from_slice(sig.to_bytes().as_slice());
-        out
+        match &self.inner {
+            SigningKeyInner::P256(sk) => {
+                let signing = EcdsaSigningKey::from(sk);
+                let sig: EcdsaSig = signing.sign(msg);
+                let mut out = [0u8; 64];
+                out.copy_from_slice(sig.to_bytes().as_slice());
+                out
+            }
+            SigningKeyInner::Ed25519(sk) => sk.sign(msg).to_bytes(),
+        }
     }
 
     pub fn verify(&self, msg: &[u8], sig: &[u8; 64]) -> bool {
-        let vk = VerifyingKey::from(self.secret.public_key());
-        match EcdsaSig::from_slice(sig) {
-            Ok(parsed) => vk.verify(msg, &parsed).is_ok(),
-            Err(_) => false,
+        match &self.inner {
+            SigningKeyInner::P256(sk) => {
+                let vk = VerifyingKey::from(sk.public_key());
+                match EcdsaSig::from_slice(sig) {
+                    Ok(parsed) => vk.verify(msg, &parsed).is_ok(),
+                    Err(_) => false,
+                }
+            }
+            SigningKeyInner::Ed25519(sk) => {
+                let vk = sk.verifying_key();
+                match ed25519_dalek::Signature::try_from(sig.as_slice()) {
+                    Ok(parsed) => vk.verify(msg, &parsed).is_ok(),
+                    Err(_) => false,
+                }
+            }
         }
     }
 }

@@ -47,7 +47,10 @@ impl TransactionEncryption for ViewingKey {
         sender: &TransferSenderPlaintext,
         recipients: &[RecipientOutput],
     ) -> Result<TransferEncryptedUtxos, TransactionError> {
-        if sender.recipient_viewing_pks.len() != recipients.len() {
+        // `recipient_viewing_pks` is padded to MAX_RECIPIENTS (real recipients at the
+        // low indices, throwaway pubkeys after) so the bundle is fixed-size; only the
+        // real recipients are encrypted here, paired with their leading pubkeys.
+        if sender.recipient_viewing_pks.len() < recipients.len() {
             return Err(TransactionError::InvalidLength {
                 expected: recipients.len(),
                 actual: sender.recipient_viewing_pks.len(),
@@ -87,22 +90,26 @@ impl TransactionEncryption for ViewingKey {
         let sender_bytes =
             self.decrypt_utxo(&blob.sender_ciphertext, &blob.tx_viewing_pk, blob.salt, 0)?;
         let sender = TransferSenderPlaintext::deserialize(&sender_bytes)?;
-        if blob.recipient_slots.len() != sender.recipient_viewing_pks.len() {
-            return Err(TransactionError::InvalidLength {
-                expected: sender.recipient_viewing_pks.len(),
-                actual: blob.recipient_slots.len(),
-            });
-        }
-        let mut recipients = Vec::with_capacity(blob.recipient_slots.len());
+        // The recipient slots and `recipient_viewing_pks` are both padded with
+        // dummies (real recipients at the low indices). Trial-decrypt each slot:
+        // a real slot authenticates, a dummy slot fails the GCM tag (random bytes /
+        // throwaway pubkey) and is skipped. No separate recipient count is stored.
+        let mut recipients = Vec::new();
         for (i, (slot, pubkey)) in blob
             .recipient_slots
             .iter()
             .zip(&sender.recipient_viewing_pks)
             .enumerate()
         {
-            let plaintext =
-                tx.decrypt_slot_ephemeral(pubkey, &slot.ciphertext, blob.salt, i as u32 + 1)?;
-            recipients.push(TransferRecipientPlaintext::deserialize(&plaintext)?);
+            let Ok(plaintext) =
+                tx.decrypt_slot_ephemeral(pubkey, &slot.ciphertext, blob.salt, i as u32 + 1)
+            else {
+                continue;
+            };
+            let Ok(recipient) = TransferRecipientPlaintext::deserialize(&plaintext) else {
+                continue;
+            };
+            recipients.push(recipient);
         }
         Ok((sender, recipients))
     }

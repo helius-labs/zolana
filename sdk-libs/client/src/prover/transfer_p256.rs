@@ -1,23 +1,23 @@
 use num_bigint::BigUint;
-use p256::ecdsa::signature::hazmat::PrehashSigner;
-use p256::ecdsa::{Signature, SigningKey};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use zolana_keypair::hash::{hash_field, owner_hash, sha256, sha256_be, split_be_128};
+use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
 use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
 use crate::error::ClientError;
 use crate::private_transaction::field::{be, hash_chain, right_align_slice};
+use crate::private_transaction::transaction::SpendProof;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
-use crate::rpc::{NullifierNonInclusionProof, StateInclusionProof};
+use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
-    pub state_proof: StateInclusionProof,
-    pub nullifier_proof: NullifierNonInclusionProof,
+    /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
+    /// the first real input's roots, so it has no proof of its own.
+    pub proof: Option<SpendProof>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,15 +36,14 @@ impl PublicAmounts {
         }
     }
 }
-// Why does this exist? What does Precomputed mean?
+/// The P256 ownership signature, computed once over the finalized transaction in
+/// [`crate::private_transaction::Transaction::sign`]. The prover only converts it
+/// into witness coordinates; it never signs.
 #[derive(Clone)]
-pub enum P256Owner {
-    Signer(SigningKey),
-    Precomputed {
-        pubkey: P256Pubkey,
-        sig_r: [u8; 32],
-        sig_s: [u8; 32],
-    },
+pub struct P256Owner {
+    pub pubkey: P256Pubkey,
+    pub sig_r: [u8; 32],
+    pub sig_s: [u8; 32],
 }
 
 pub struct TransferP256Prover {
@@ -63,21 +62,23 @@ pub struct TransferP256ProofResult {
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
+    pub private_tx_hash: [u8; 32],
+    pub input_root_indices: Vec<(u16, u16)>,
 }
 
 impl TransferP256Prover {
     pub fn build(self) -> Result<TransferP256ProofResult, ClientError> {
-        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        let assembled_inputs = assemble_inputs(&self.inputs, shape, true)?;
-        let assembled_outputs = assemble_outputs(&self.outputs, shape)?;
+        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let assembled_inputs = assemble_inputs(&self.inputs, true)?;
+        let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
-            &assembled_outputs.output_hashes,
+            &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
         )?;
         let p256_message_hash = sha256(&private_tx);
-        let signature = self.p256_owner.witness(&p256_message_hash)?;
+        let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
@@ -107,10 +108,10 @@ impl TransferP256Prover {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id_hashchain: zero(),
+            program_id_hashchain: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
-            data_hash: zero(),
-            zone_data_hash: zero(),
+            data_hash: BigUint::ZERO,
+            zone_data_hash: BigUint::ZERO,
             public_input_hash: be(&public_input),
         };
 
@@ -119,6 +120,8 @@ impl TransferP256Prover {
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
+            private_tx_hash: private_tx,
+            input_root_indices: assembled_inputs.root_indices,
         })
     }
 }
@@ -131,42 +134,16 @@ struct P256SignatureWitness {
 }
 
 impl P256Owner {
-    fn witness(&self, message_hash: &[u8; 32]) -> Result<P256SignatureWitness, ClientError> {
-        match self {
-            P256Owner::Signer(signing_key) => {
-                let point = signing_key.verifying_key().to_encoded_point(false);
-                let (pub_x, pub_y) = encoded_xy(&point)?;
-                let signature: Signature = signing_key
-                    .sign_prehash(message_hash)
-                    .map_err(|e| ClientError::P256Signature(e.to_string()))?;
-                let bytes = signature.to_bytes();
-                let mut sig_r = [0u8; 32];
-                let mut sig_s = [0u8; 32];
-                sig_r.copy_from_slice(&bytes[..32]);
-                sig_s.copy_from_slice(&bytes[32..]);
-                Ok(P256SignatureWitness {
-                    pub_x,
-                    pub_y,
-                    sig_r,
-                    sig_s,
-                })
-            }
-            P256Owner::Precomputed {
-                pubkey,
-                sig_r,
-                sig_s,
-            } => {
-                let public_key = pubkey.to_p256()?;
-                let point = public_key.to_encoded_point(false);
-                let (pub_x, pub_y) = encoded_xy(&point)?;
-                Ok(P256SignatureWitness {
-                    pub_x,
-                    pub_y,
-                    sig_r: *sig_r,
-                    sig_s: *sig_s,
-                })
-            }
-        }
+    fn witness(&self) -> Result<P256SignatureWitness, ClientError> {
+        let public_key = self.pubkey.to_p256()?;
+        let point = public_key.to_encoded_point(false);
+        let (pub_x, pub_y) = encoded_xy(&point)?;
+        Ok(P256SignatureWitness {
+            pub_x,
+            pub_y,
+            sig_r: self.sig_r,
+            sig_s: self.sig_s,
+        })
     }
 }
 
@@ -191,33 +168,56 @@ pub(crate) struct AssembledInputs {
     pub utxo_roots: Vec<[u8; 32]>,
     pub nullifier_tree_roots: Vec<[u8; 32]>,
     pub solana_owner_pk_hashes: Vec<[u8; 32]>,
+    /// Per-slot `(utxo_tree_root_index, nullifier_tree_root_index)`, length
+    /// `n_inputs`. Real slots take the index from their `SpendProof`; padded
+    /// dummy slots mirror the first real input so the on-chain root lookup
+    /// reproduces the witness root.
+    pub root_indices: Vec<(u16, u16)>,
 }
 
 pub(crate) struct AssembledOutputs {
     pub outputs: Vec<TransferOutput>,
     pub output_hashes: Vec<[u8; 32]>,
+    pub private_tx_output_hashes: Vec<[u8; 32]>,
 }
 
+/// Convert the already-padded inputs into circuit witness fields. Makes no padding
+/// decisions: each slot with a [`SpendProof`] is a real spend; each slot without one
+/// is a dummy that mirrors the first real input's roots, indices, and owner hash so
+/// the public-input chain and the on-chain root lookup agree. A transaction must
+/// spend at least one real input to supply those roots.
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
-    shape: Shape,
     allow_p256: bool,
 ) -> Result<AssembledInputs, ClientError> {
-    if spends.len() > shape.n_inputs {
-        return Err(ClientError::TooManyInputs {
-            got: spends.len(),
-            max: shape.n_inputs,
-        });
-    }
-
-    let mut inputs = Vec::with_capacity(shape.n_inputs);
-    let mut input_hashes = Vec::with_capacity(shape.n_inputs);
-    let mut nullifiers = Vec::with_capacity(shape.n_inputs);
-    let mut utxo_roots = Vec::with_capacity(shape.n_inputs);
-    let mut nullifier_tree_roots = Vec::with_capacity(shape.n_inputs);
-    let mut solana_owner_pk_hashes = Vec::with_capacity(shape.n_inputs);
+    let mut inputs = Vec::with_capacity(spends.len());
+    let mut input_hashes = Vec::with_capacity(spends.len());
+    let mut nullifiers = Vec::with_capacity(spends.len());
+    let mut utxo_roots = Vec::with_capacity(spends.len());
+    let mut nullifier_tree_roots = Vec::with_capacity(spends.len());
+    let mut solana_owner_pk_hashes = Vec::with_capacity(spends.len());
+    let mut root_indices = Vec::with_capacity(spends.len());
 
     for (index, spend) in spends.iter().enumerate() {
+        let Some(proof) = &spend.proof else {
+            let utxo_root = *utxo_roots.first().ok_or(ClientError::NoInputs)?;
+            let nf_root = *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?;
+            let owner = *solana_owner_pk_hashes
+                .first()
+                .ok_or(ClientError::NoInputs)?;
+            let &(ur_index, nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
+            let (input, nullifier) =
+                TransferInput::new_dummy(&spend.utxo.blinding, &utxo_root, &nf_root, &owner)?;
+            inputs.push(input);
+            input_hashes.push([0u8; 32]);
+            nullifiers.push(nullifier);
+            utxo_roots.push(utxo_root);
+            nullifier_tree_roots.push(nf_root);
+            solana_owner_pk_hashes.push(owner);
+            root_indices.push((ur_index, nr_index));
+            continue;
+        };
+
         let nullifier_pk = spend.nullifier_key.pubkey()?;
         let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pk)?;
         let utxo_inputs = UtxoInputs::new(
@@ -226,6 +226,7 @@ pub(crate) fn assemble_inputs(
             spend.utxo.amount,
             &spend.utxo.blinding,
         )?;
+        // Note: zone data and program data is not supported.
         let utxo_hash = spend.utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])?;
         let nullifier = spend
             .nullifier_key
@@ -242,18 +243,20 @@ pub(crate) fn assemble_inputs(
         };
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
-        let state = &spend.state_proof;
-        let nf = &spend.nullifier_proof;
+        let state = &proof.state;
+        let nf = &proof.nullifier;
+        check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;
+        check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
 
         inputs.push(TransferInput {
             utxo: utxo_inputs,
-            is_dummy: zero(),
-            state_path_elements: state.path_elements.iter().map(be).collect(),
+            is_dummy: BigUint::ZERO,
+            state_path_elements: state.path.iter().map(be).collect(),
             state_path_index: BigUint::from(state.leaf_index),
-            nullifier_low_value: be(&nf.low_value),
-            nullifier_next_value: be(&nf.next_value),
-            nullifier_low_path_elements: nf.low_path_elements.iter().map(be).collect(),
-            nullifier_low_path_index: BigUint::from(nf.low_leaf_index),
+            nullifier_low_value: be(&nf.low_element),
+            nullifier_next_value: be(&nf.high_element),
+            nullifier_low_path_elements: nf.path.iter().map(be).collect(),
+            nullifier_low_path_index: BigUint::from(nf.low_element_index),
             utxo_tree_root: be(&state.root),
             nullifier_tree_root: be(&nf.root),
             nullifier: be(&nullifier),
@@ -265,25 +268,7 @@ pub(crate) fn assemble_inputs(
         utxo_roots.push(state.root);
         nullifier_tree_roots.push(nf.root);
         solana_owner_pk_hashes.push(solana_owner_pk_hash);
-    }
-
-    let dummy_utxo_root = utxo_roots.first().copied().unwrap_or_default();
-    let dummy_nullifier_root = nullifier_tree_roots.first().copied().unwrap_or_default();
-    let dummy_owner_hash = solana_owner_pk_hashes.first().copied().unwrap_or_default();
-    let real_nullifiers = nullifiers.clone();
-    for pad_index in 0..shape.n_inputs.saturating_sub(spends.len()) {
-        let dummy_nullifier = dummy_nullifier(&real_nullifiers, pad_index);
-        inputs.push(dummy_input(
-            &dummy_nullifier,
-            &dummy_utxo_root,
-            &dummy_nullifier_root,
-            &dummy_owner_hash,
-        ));
-        input_hashes.push([0u8; 32]);
-        nullifiers.push(dummy_nullifier);
-        utxo_roots.push(dummy_utxo_root);
-        nullifier_tree_roots.push(dummy_nullifier_root);
-        solana_owner_pk_hashes.push(dummy_owner_hash);
+        root_indices.push((state.root_index, nf.root_index));
     }
 
     Ok(AssembledInputs {
@@ -293,75 +278,38 @@ pub(crate) fn assemble_inputs(
         utxo_roots,
         nullifier_tree_roots,
         solana_owner_pk_hashes,
+        root_indices,
     })
 }
 
-pub(crate) fn dummy_nullifier(real_nullifiers: &[[u8; 32]], pad_index: usize) -> [u8; 32] {
-    let mut preimage = Vec::with_capacity(32 + real_nullifiers.len() * 32 + 8);
-    preimage.extend_from_slice(b"zolana-dummy-nullifier-v1");
-    for nullifier in real_nullifiers {
-        preimage.extend_from_slice(nullifier);
-    }
-    preimage.extend_from_slice(&(pad_index as u64).to_be_bytes());
-    sha256_be(&preimage)
-}
-
-fn dummy_input(
-    nullifier: &[u8; 32],
-    utxo_root: &[u8; 32],
-    nullifier_root: &[u8; 32],
-    owner_hash: &[u8; 32],
-) -> TransferInput {
-    let zero_bytes = [0u8; 32];
-    TransferInput {
-        utxo: UtxoInputs::new_dummy(),
-        is_dummy: be(&one()),
-        state_path_elements: vec![be(&zero_bytes); crate::STATE_TREE_HEIGHT],
-        state_path_index: zero(),
-        nullifier_low_value: be(&zero_bytes),
-        nullifier_next_value: be(&zero_bytes),
-        nullifier_low_path_elements: vec![be(&zero_bytes); crate::NULLIFIER_TREE_HEIGHT],
-        nullifier_low_path_index: zero(),
-        utxo_tree_root: be(utxo_root),
-        nullifier_tree_root: be(nullifier_root),
-        nullifier: be(nullifier),
-        solana_owner_pk_hash: be(owner_hash),
-        nullifier_secret: be(&zero_bytes),
-    }
-}
-
-pub(crate) fn assemble_outputs(
-    outputs: &[OutputUtxo],
-    shape: Shape,
-) -> Result<AssembledOutputs, ClientError> {
-    if outputs.len() > shape.n_outputs {
-        return Err(ClientError::TooManyOutputs {
-            got: outputs.len(),
-            max: shape.n_outputs,
-        });
-    }
-
-    let mut assembled = Vec::with_capacity(shape.n_outputs);
-    let mut hashes = Vec::with_capacity(shape.n_outputs);
+/// Convert the already-padded outputs into circuit witness fields. A dummy output
+/// (`owner_hash == 0`: empty change or tail padding) still puts its real hash in the
+/// public `output_hashes` but contributes `0` to the private-tx hash chain.
+pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutputs, ClientError> {
+    let mut assembled = Vec::with_capacity(outputs.len());
+    let mut hashes = Vec::with_capacity(outputs.len());
+    let mut private_tx_hashes = Vec::with_capacity(outputs.len());
 
     for output in outputs {
+        let is_dummy = output.is_dummy();
         let hash = output.hash()?;
         assembled.push(TransferOutput {
             utxo: UtxoInputs::from_output(output)?,
-            is_dummy: zero(),
+            is_dummy: if is_dummy {
+                BigUint::from(1u8)
+            } else {
+                BigUint::ZERO
+            },
             hash: be(&hash),
         });
         hashes.push(hash);
-    }
-
-    for _ in outputs.len()..shape.n_outputs {
-        assembled.push(TransferOutput::new_dummy());
-        hashes.push([0u8; 32]);
+        private_tx_hashes.push(if is_dummy { [0u8; 32] } else { hash });
     }
 
     Ok(AssembledOutputs {
         outputs: assembled,
         output_hashes: hashes,
+        private_tx_output_hashes: private_tx_hashes,
     })
 }
 
@@ -400,12 +348,10 @@ impl PublicInputs<'_> {
         hash_chain(&elements)
     }
 }
-fn zero() -> BigUint {
-    BigUint::from(0u8)
-}
-
-fn one() -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[31] = 1;
-    out
+fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
+    if got == expected {
+        Ok(())
+    } else {
+        Err(ClientError::ProofPathLength { got, expected })
+    }
 }

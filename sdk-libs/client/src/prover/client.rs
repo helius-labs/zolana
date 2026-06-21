@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::error::ClientError;
-use crate::prover::inputs::{TransferInputs, TransferP256Inputs};
-use crate::prover::json::{to_json, to_json_p256};
+use crate::prover::inputs::{MergeInputs, TransferInputs, TransferP256Inputs};
+use crate::prover::json::{to_json, to_json_merge, to_json_p256};
 use crate::prover::proof::{proof_from_gnark_json, Proof};
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
@@ -73,6 +73,12 @@ impl ProverClient {
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json(inputs))
+    }
+
+    /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
+    /// Call [`Proof::compress`] for the wire format.
+    pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge(inputs))
     }
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {

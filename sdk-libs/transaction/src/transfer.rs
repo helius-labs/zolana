@@ -18,6 +18,12 @@ use crate::{P256PubkeySchema, PublicKeySchema, TRANSFER};
 /// slot index (`position - SENDER_SLOT_COUNT + 1`) without the sender bundle.
 pub const SENDER_SLOT_COUNT: usize = 2;
 
+/// Byte length of a recipient ciphertext slot: the fixed-size
+/// [`TransferRecipientPlaintext`] (with `Data::default()`) plus the 16-byte AES-GCM
+/// tag. Every real recipient ciphertext is exactly this long, so a dummy slot uses
+/// the same length to stay indistinguishable. Pinned by a test in this module.
+pub const RECIPIENT_CIPHERTEXT_LEN: usize = 131;
+
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferRecipientPlaintext {
     #[wincode(with = "PublicKeySchema")]
@@ -292,6 +298,23 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn recipient_ciphertext_len_is_pinned() {
+        let plaintext = TransferRecipientPlaintext {
+            owner_pubkey: PublicKey::from_ed25519(&[0u8; 32]),
+            sender_pubkey: ViewingKey::new().pubkey(),
+            asset_id: 0,
+            amount: 0,
+            blinding: [0u8; BLINDING_LEN],
+            data: Data::default(),
+        };
+        const GCM_TAG_LEN: usize = 16;
+        assert_eq!(
+            plaintext.serialize().expect("serialize").len() + GCM_TAG_LEN,
+            RECIPIENT_CIPHERTEXT_LEN,
+        );
     }
 
     fn round_trip(recipient_views: &[u8], sender_slot_count: usize, n_outputs: usize) {

@@ -37,6 +37,7 @@ impl<'a> TreeAccount<'a> {
     /// Total account byte length for the given utxo-tree height and nullifier
     /// params. The account allocator must use this so `init` does not run out of
     /// buffer.
+    #[inline(never)]
     pub fn account_size(
         utxo_tree_height: u8,
         nullifier_params: InitAddressTreeAccountsInstructionData,
@@ -57,6 +58,7 @@ impl<'a> TreeAccount<'a> {
         HEADER_LEN + smt::ROOT_OFFSET
     }
 
+    #[inline(never)]
     pub fn init(
         bytes: &'a mut [u8],
         discriminator: u8,

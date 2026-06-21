@@ -16,6 +16,17 @@ pub struct InputUtxo {
     pub eddsa_signer_index: u8,
 }
 
+/// One output ciphertext slot in `transact` instruction data (spec: `transact`
+/// `OutputCiphertext`): a `view_tag` and the encrypted (or plaintext) payload. The
+/// program does not parse `data`. The matching output commitment is carried
+/// separately in `output_utxo_hashes`.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct OutputCiphertext {
+    pub view_tag: [u8; 32],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub data: Vec<u8>,
+}
+
 /// `transact` instruction data (spec: SPP `transact`).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
@@ -38,9 +49,17 @@ pub struct TransactIxData {
     /// copied into the logged `GeneralEvent` so wallets can derive the AES
     /// key/nonce without parsing the per-output `data`.
     pub salt: [u8; 16],
-    pub sender_utxo_data: OutputUtxo,
-    #[wincode(with = "containers::Vec<OutputUtxo, FixIntLen<u8>>")]
-    pub recipient_utxo_data: Vec<OutputUtxo>,
+    /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
+    /// change, then recipients / dummies). Appended to the UTXO tree and folded
+    /// into the proof's output hash chain. Dummy outputs carry real-looking
+    /// hashes, so the vector does not reveal the recipient count.
+    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
+    pub output_utxo_hashes: Vec<[u8; 32]>,
+    /// Fixed length `1 + (M - SENDER_SLOT_COUNT)`. `[0]` is the sender bundle
+    /// (covers the change positions); `[1..]` are recipient slots, each a real
+    /// ciphertext or a same-length dummy, so the real recipient count is hidden.
+    #[wincode(with = "containers::Vec<OutputCiphertext, FixIntLen<u8>>")]
+    pub output_ciphertexts: Vec<OutputCiphertext>,
 }
 
 impl TransactIxData {
@@ -56,19 +75,18 @@ impl TransactIxData {
 /// Read config for the borrowed views: identical to the default config used by
 /// [`TransactIxData::serialize`], except sequences without an explicit
 /// `FixIntLen` carry a `u16` length prefix. This matches the byte vectors
-/// (`OutputUtxo::data`) the owned struct writes with `FixIntLen<u16>`, while the
-/// element vectors keep their explicit `FixIntLen<u8>` override.
+/// (`OutputCiphertext::data`) the owned struct writes with `FixIntLen<u16>`, while
+/// the element vectors keep their explicit `FixIntLen<u8>` override.
 type RefConfig = wincode::config::Configuration<
     true,
     { wincode::config::DEFAULT_PREALLOCATION_SIZE_LIMIT },
     FixIntLen<u16>,
 >;
 
-/// Borrowed view of an [`OutputUtxo`]; `data` aliases the instruction buffer.
+/// Borrowed view of an [`OutputCiphertext`]; `data` aliases the instruction buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct OutputUtxoRef<'a> {
+pub struct OutputCiphertextRef<'a> {
     pub view_tag: &'a [u8; 32],
-    pub utxo_hash: &'a [u8; 32],
     pub data: &'a [u8],
 }
 
@@ -88,9 +106,10 @@ pub struct TransactIxDataRef<'a> {
     pub cpi_signer: Option<CpiSignerData>,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
-    pub sender_utxo_data: OutputUtxoRef<'a>,
-    #[wincode(with = "containers::Vec<OutputUtxoRef<'a>, FixIntLen<u8>>")]
-    pub recipient_utxo_data: Vec<OutputUtxoRef<'a>>,
+    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
+    pub output_utxo_hashes: Vec<[u8; 32]>,
+    #[wincode(with = "containers::Vec<OutputCiphertextRef<'a>, FixIntLen<u8>>")]
+    pub output_ciphertexts: Vec<OutputCiphertextRef<'a>>,
 }
 
 impl<'a> TransactIxDataRef<'a> {
@@ -121,32 +140,25 @@ impl<'a> TransactIxDataRef<'a> {
     }
 }
 
-/// Output-UTXO byte accessors shared by the owned [`OutputUtxo`] and the
-/// borrowed [`OutputUtxoRef`], so [`ExternalDataHash`] hashes either.
-pub trait OutputUtxoBytes {
+/// Output-ciphertext byte accessors shared by the owned [`OutputCiphertext`] and
+/// the borrowed [`OutputCiphertextRef`], so [`ExternalDataHash`] hashes either.
+pub trait OutputCiphertextBytes {
     fn view_tag(&self) -> &[u8; 32];
-    fn utxo_hash(&self) -> &[u8; 32];
     fn data(&self) -> &[u8];
 }
 
-impl OutputUtxoBytes for OutputUtxo {
+impl OutputCiphertextBytes for OutputCiphertext {
     fn view_tag(&self) -> &[u8; 32] {
         &self.view_tag
-    }
-    fn utxo_hash(&self) -> &[u8; 32] {
-        &self.utxo_hash
     }
     fn data(&self) -> &[u8] {
         &self.data
     }
 }
 
-impl OutputUtxoBytes for OutputUtxoRef<'_> {
+impl OutputCiphertextBytes for OutputCiphertextRef<'_> {
     fn view_tag(&self) -> &[u8; 32] {
         self.view_tag
-    }
-    fn utxo_hash(&self) -> &[u8; 32] {
-        self.utxo_hash
     }
     fn data(&self) -> &[u8] {
         self.data
@@ -155,11 +167,12 @@ impl OutputUtxoBytes for OutputUtxoRef<'_> {
 
 /// `external_data_hash` public input (spec: `transact` external_data_hash). The
 /// program recomputes it from the instruction and the committed Solana accounts;
-/// the client computes the identical value when building the proof. It covers
-/// the instruction's external fields and the output UTXO ciphertexts, but never
-/// `private_tx_hash` (which already commits this hash) or the input UTXOs (bound
-/// through `private_tx_hash`). Used in both the program and the client.
-pub struct ExternalDataHash<'a, O: OutputUtxoBytes> {
+/// the client computes the identical value when building the proof. It covers the
+/// instruction's external fields, the output UTXO hashes, and the output
+/// ciphertexts, but never `private_tx_hash` (which already commits this hash) or
+/// the input UTXOs (bound through `private_tx_hash`). Used in both the program and
+/// the client.
+pub struct ExternalDataHash<'a, O: OutputCiphertextBytes> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub relayer_fee: u16,
@@ -169,11 +182,11 @@ pub struct ExternalDataHash<'a, O: OutputUtxoBytes> {
     pub user_spl_token_account: &'a [u8; 32],
     pub spl_token_interface: &'a [u8; 32],
     pub cpi_signer: Option<CpiSignerData>,
-    pub sender_utxo_data: &'a O,
-    pub recipient_utxo_data: &'a [O],
+    pub output_utxo_hashes: &'a [[u8; 32]],
+    pub output_ciphertexts: &'a [O],
 }
 
-impl<O: OutputUtxoBytes> ExternalDataHash<'_, O> {
+impl<O: OutputCiphertextBytes> ExternalDataHash<'_, O> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let mut preimage = Vec::new();
         preimage.push(self.spp_instruction_discriminator);
@@ -191,20 +204,68 @@ impl<O: OutputUtxoBytes> ExternalDataHash<'_, O> {
             }
             None => preimage.extend_from_slice(&[0u8; 33]),
         }
-        push_output(&mut preimage, self.sender_utxo_data);
-        for recipient in self.recipient_utxo_data {
-            push_output(&mut preimage, recipient);
+        // Length-prefix both vectors (and each `data`) so the preimage is
+        // unambiguous: no bytes can shift across a vector or `data` boundary and
+        // yield the same hash for distinct instructions.
+        preimage.extend_from_slice(&(self.output_utxo_hashes.len() as u16).to_be_bytes());
+        for hash in self.output_utxo_hashes {
+            preimage.extend_from_slice(hash);
+        }
+        preimage.extend_from_slice(&(self.output_ciphertexts.len() as u16).to_be_bytes());
+        for ciphertext in self.output_ciphertexts {
+            preimage.extend_from_slice(ciphertext.view_tag());
+            preimage.extend_from_slice(&(ciphertext.data().len() as u16).to_be_bytes());
+            preimage.extend_from_slice(ciphertext.data());
         }
         Sha256BE::hash(&preimage)
     }
 }
 
-fn push_output<O: OutputUtxoBytes>(preimage: &mut Vec<u8>, output: &O) {
-    preimage.extend_from_slice(output.view_tag());
-    preimage.extend_from_slice(output.utxo_hash());
-    // Length-prefix the variable-length `data` so the preimage is unambiguous:
-    // without it, bytes could shift between one output's `data` and the next
-    // output's fields, yielding the same hash for distinct instructions.
-    preimage.extend_from_slice(&(output.data().len() as u16).to_be_bytes());
-    preimage.extend_from_slice(output.data());
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash_of(
+        output_utxo_hashes: &[[u8; 32]],
+        output_ciphertexts: &[OutputCiphertext],
+    ) -> [u8; 32] {
+        ExternalDataHash {
+            spp_instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            relayer_fee: 0,
+            public_sol_amount: None,
+            public_spl_amount: None,
+            user_sol_account: &[0u8; 32],
+            user_spl_token_account: &[0u8; 32],
+            spl_token_interface: &[0u8; 32],
+            cpi_signer: None,
+            output_utxo_hashes,
+            output_ciphertexts,
+        }
+        .hash()
+        .unwrap()
+    }
+
+    /// Both vectors are length-prefixed, so a 32-byte value cannot shift between
+    /// the hash vector and a ciphertext `data` to forge the same preimage.
+    #[test]
+    fn external_data_hash_is_injective_across_vector_splits() {
+        let a = [1u8; 32];
+        let b = [2u8; 32];
+        let two_hashes = hash_of(
+            &[a, b],
+            &[OutputCiphertext {
+                view_tag: [0u8; 32],
+                data: Vec::new(),
+            }],
+        );
+        let one_hash_b_in_data = hash_of(
+            &[a],
+            &[OutputCiphertext {
+                view_tag: [0u8; 32],
+                data: b.to_vec(),
+            }],
+        );
+        assert_ne!(two_hashes, one_hash_b_in_data);
+    }
 }

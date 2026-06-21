@@ -48,7 +48,17 @@ func P256PkFieldFromPubkeyCircuit(
 	}
 	point := sw_emulated.AffinePoint[emulated.P256Fp](pub)
 	curve.AssertIsOnCurve(&point)
+	return P256PkFieldFromPointCircuit(api, point)
+}
 
+// P256PkFieldFromPointCircuit folds an already-parsed P256 point into pk_field.
+// It does not assert the point is on the curve; callers that need that guarantee
+// (e.g. P256PkFieldFromPubkeyCircuit, or after p256.PointOnCurve) ensure it
+// separately.
+func P256PkFieldFromPointCircuit(
+	api frontend.API,
+	point sw_emulated.AffinePoint[emulated.P256Fp],
+) (frontend.Variable, error) {
 	fp, err := emulated.NewField[emulated.P256Fp](api)
 	if err != nil {
 		return nil, err

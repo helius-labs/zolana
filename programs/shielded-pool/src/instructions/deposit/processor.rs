@@ -16,8 +16,8 @@ use crate::instructions::shared::CPI_SIGNER_SEED;
 /// Parsed instruction request shared across this instruction's submodules.
 pub(crate) struct DepositParams {
     pub view_tag: [u8; 32],
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; 16],
+    pub owner: [u8; 32],
+    pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
     pub cpi_signer: Option<CpiSignerData>,
     pub cpi_signer_seed: &'static [u8],
@@ -52,8 +52,8 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         accounts,
         DepositParams {
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             cpi_signer: data.cpi_signer,
             cpi_signer_seed: CPI_SIGNER_SEED,
@@ -83,8 +83,8 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
         accounts,
         DepositParams {
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             cpi_signer: Some(data.cpi_signer),
             cpi_signer_seed: ZONE_AUTH_PDA_SEED,
@@ -118,6 +118,12 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         Some(cpi) => solana_pk_hash(&cpi.program_id)?,
         None => zero,
     };
+    // Nest the recipient `owner` with the right-aligned `blinding` into the
+    // owner commitment, matching the SDK's `owner_utxo_hash`.
+    let mut blinding = [0u8; 32];
+    blinding[1..].copy_from_slice(&d.blinding);
+    let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
     let utxo_hash = Poseidon::hashv(&[
         field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
         asset_field.as_slice(),
@@ -125,7 +131,7 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         program_data_hash.as_slice(),
         policy_data_hash.as_slice(),
         zone_program_id.as_slice(),
-        d.owner_utxo_hash.as_slice(),
+        owner_utxo_hash.as_slice(),
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 

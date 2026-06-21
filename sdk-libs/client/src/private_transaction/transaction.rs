@@ -3,15 +3,17 @@ use p256::ecdsa::{Signature, SigningKey as EcdsaSigningKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use solana_address::Address;
-use zolana_interface::event::OutputUtxo as OutputSlot;
-use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN};
-use zolana_keypair::hash::sha256_be;
+use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_keypair::constants::BLINDING_LEN;
+use zolana_keypair::hash::{sha256, sha256_be};
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
+use zolana_keypair::viewing_key::{random_blinding, ViewTag};
+use zolana_keypair::{NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
+use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::transfer::{
-    RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, SENDER_SLOT_COUNT,
+    RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, RECIPIENT_CIPHERTEXT_LEN,
+    SENDER_SLOT_COUNT,
 };
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_MINT};
@@ -22,7 +24,7 @@ use crate::private_transaction::signed_transaction::SignedTransaction;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer::TransferProver;
 use crate::prover::transfer_p256::{P256Owner, PublicAmounts, TransferP256Prover};
-use crate::rpc::{NullifierNonInclusionProof, StateInclusionProof};
+use crate::rpc::{MerkleProof, NonInclusionProof};
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -48,6 +50,33 @@ impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
     }
 }
 
+impl SpendUtxo {
+    /// Padding input that fills a fixed proof shape. `owner = 0` makes it
+    /// unspendable and marks it as a dummy ([`Self::is_dummy`]); the random blinding
+    /// is the sole source of unpredictability for its nullifier, which is
+    /// indistinguishable from a real one. The circuit skips the ownership,
+    /// inclusion, and nullifier checks for it.
+    pub fn new_dummy() -> Self {
+        Self {
+            utxo: Utxo {
+                owner: PublicKey::zeroed(),
+                asset: Address::default(),
+                amount: 0,
+                blinding: random_blinding(),
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
+            zone_data_hash: None,
+            program_data_hash: None,
+        }
+    }
+
+    pub fn is_dummy(&self) -> bool {
+        self.utxo.owner.is_zero()
+    }
+}
+
 struct Recipient {
     address: ShieldedAddress,
     asset: Address,
@@ -55,7 +84,6 @@ struct Recipient {
     view_tag: ViewTag,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WithdrawalTarget {
     Sol {
         user_sol_account: Address,
@@ -78,9 +106,10 @@ pub struct InputCommitment {
     pub nullifier: [u8; 32],
 }
 
+#[derive(Clone)]
 pub struct SpendProof {
-    pub state: StateInclusionProof,
-    pub nullifier: NullifierNonInclusionProof,
+    pub state: MerkleProof,
+    pub nullifier: NonInclusionProof,
 }
 
 pub enum CircuitType {
@@ -90,6 +119,10 @@ pub enum CircuitType {
 
 pub(crate) fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, ClientError> {
     for spend in inputs {
+        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
+        if spend.is_dummy() {
+            continue;
+        }
         if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             return Ok(true);
         }
@@ -180,10 +213,9 @@ impl Transaction {
         sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, ClientError> {
         let mut sealed = self.assemble(keypair, assets, sender_view_tag)?;
-        let message_hash = sealed.message_hash()?;
-        let ecdsa = EcdsaSigningKey::from_slice(keypair.signing_key.secret_bytes().as_slice())
-            .map_err(|e| ClientError::P256Signature(e.to_string()))?;
-        sealed.p256_owner = Some(precompute_p256(&ecdsa, &message_hash)?);
+        if keypair.signing_pubkey().signature_type()? == SignatureType::P256 {
+            sealed.p256_owner = Some(precompute_p256(&sealed, keypair)?);
+        }
         Ok(sealed)
     }
 
@@ -356,6 +388,19 @@ impl Transaction {
             });
         }
 
+        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
+        let max_recipients = shape
+            .n_outputs
+            .checked_sub(SENDER_SLOT_COUNT)
+            .ok_or(ClientError::MissingOutput)?;
+        // Pad recipient_viewing_pks to MAX_RECIPIENTS with a throwaway pubkey (the
+        // sender's own viewing key) so the encrypted sender bundle is fixed-size and
+        // does not reveal the real recipient count. A dummy slot's trial-decrypt
+        // fails on its random bytes regardless of this pubkey.
+        while recipient_viewing_pks.len() < max_recipients {
+            recipient_viewing_pks.push(sender_pubkey);
+        }
+
         let spl_asset_id = match spl_asset {
             Some(asset) => self.asset_id(assets, &asset)?,
             None => 0,
@@ -379,20 +424,46 @@ impl Transaction {
 
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
 
-        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
+        // Pad to the fixed proof shape here, before signing, so the dummy output
+        // hashes are part of the signed external data. A dummy output has
+        // `owner_hash = 0` (random blinding) and is never a recipient; empty SOL/SPL
+        // change slots are dummies in the same sense (owner = 0, no value).
+        while outputs.len() < shape.n_outputs {
+            outputs.push(OutputUtxo {
+                blinding: random_blinding(),
+                ..Default::default()
+            });
+        }
 
-        let ciphertexts =
-            encrypted.to_output_ciphertexts(sender_view_tag, SENDER_SLOT_COUNT, shape.n_outputs)?;
-        let mut output_slots = Vec::with_capacity(shape.n_outputs);
-        for (index, ciphertext) in ciphertexts.into_iter().enumerate() {
-            let utxo_hash = match outputs.get(index) {
-                Some(output) => output.hash()?,
-                None => [0u8; 32],
-            };
-            output_slots.push(OutputSlot {
-                view_tag: ciphertext.view_tag,
-                utxo_hash,
-                data: ciphertext.data,
+        let mut inputs = self.inputs;
+        while inputs.len() < shape.n_inputs {
+            inputs.push(SpendUtxo::new_dummy());
+        }
+
+        // All output commitments in tree-append order.
+        let mut output_utxo_hashes = Vec::with_capacity(outputs.len());
+        for output in &outputs {
+            output_utxo_hashes.push(output.hash()?);
+        }
+
+        // Fixed-length ciphertext vector: the sender bundle, the real recipient
+        // ciphertexts, then random L-byte dummies under same-distribution view tags
+        // so the recipient count is hidden.
+        let mut output_ciphertexts = Vec::with_capacity(1 + max_recipients);
+        output_ciphertexts.push(OutputCiphertext {
+            view_tag: sender_view_tag,
+            data: encrypted.sender_ciphertext.clone(),
+        });
+        for recipient in &encrypted.recipient_slots {
+            output_ciphertexts.push(OutputCiphertext {
+                view_tag: recipient.view_tag,
+                data: recipient.ciphertext.clone(),
+            });
+        }
+        while output_ciphertexts.len() < 1 + max_recipients {
+            output_ciphertexts.push(OutputCiphertext {
+                view_tag: random_view_tag(),
+                data: random_dummy_ciphertext(),
             });
         }
 
@@ -408,7 +479,8 @@ impl Transaction {
             cpi_signer: None,
             tx_viewing_pk: *encrypted.tx_viewing_pk.as_bytes(),
             salt: encrypted.salt,
-            output_slots,
+            output_utxo_hashes,
+            output_ciphertexts,
         };
 
         let public_amounts = PublicAmounts {
@@ -421,7 +493,7 @@ impl Transaction {
         };
 
         Ok(SignedTransaction {
-            inputs: self.inputs,
+            inputs,
             outputs,
             public_amounts,
             external_data,
@@ -440,12 +512,43 @@ impl Transaction {
     }
 }
 
+/// Sign the P256 ownership rail over the finalized transaction. The message is the
+/// same `private_tx_hash` the prover proves: real input/output hashes with `0` for
+/// every dummy slot, plus the final `external_data` hash. Signing here covers the
+/// full padded shape, so the prover only converts and cannot alter signed state.
+/// The eddsa rail does not call this; its Solana signer is checked by the program.
 fn precompute_p256(
-    signer: &EcdsaSigningKey,
-    message_hash: &[u8; 32],
+    sealed: &SignedTransaction,
+    keypair: &ShieldedKeypair,
 ) -> Result<P256Owner, ClientError> {
-    let signature: Signature = signer
-        .sign_prehash(message_hash)
+    // Dummies (zero owner) contribute 0 to both hash chains, matching the circuit.
+    let mut input_hashes = Vec::with_capacity(sealed.inputs.len());
+    for spend in &sealed.inputs {
+        if spend.is_dummy() {
+            input_hashes.push([0u8; 32]);
+        } else {
+            let nullifier_pk = spend.nullifier_key.pubkey()?;
+            input_hashes.push(spend.utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])?);
+        }
+    }
+
+    let mut output_hashes = Vec::with_capacity(sealed.outputs.len());
+    for output in &sealed.outputs {
+        if output.is_dummy() {
+            output_hashes.push([0u8; 32]);
+        } else {
+            output_hashes.push(output.hash()?);
+        }
+    }
+
+    let external_data_hash = sealed.external_data.hash()?;
+    let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
+    let message_hash = sha256(&private_tx);
+
+    let signing_key = EcdsaSigningKey::from_slice(keypair.signing_key.secret_bytes().as_slice())
+        .map_err(|e| ClientError::P256Signature(e.to_string()))?;
+    let signature: Signature = signing_key
+        .sign_prehash(&message_hash)
         .map_err(|e| ClientError::P256Signature(e.to_string()))?;
     let bytes = signature.to_bytes();
     let mut sig_r = [0u8; 32];
@@ -453,14 +556,30 @@ fn precompute_p256(
     sig_r.copy_from_slice(&bytes[..32]);
     sig_s.copy_from_slice(&bytes[32..]);
 
-    let encoded = signer.verifying_key().to_encoded_point(true);
-    let mut pubkey_bytes = [0u8; P256_PUBKEY_LEN];
-    pubkey_bytes.copy_from_slice(encoded.as_bytes());
-    let pubkey = P256Pubkey::from_bytes(pubkey_bytes)?;
-
-    Ok(P256Owner::Precomputed {
+    let pubkey = keypair.signing_pubkey().as_p256()?;
+    Ok(P256Owner {
         pubkey,
         sig_r,
         sig_s,
     })
+}
+
+/// A view tag for a dummy output slot, drawn from the same byte distribution as a
+/// derived one: byte 0 is `0` (derived tags right-align a 31-byte value into 32
+/// bytes), bytes `1..32` random. A uniformly random tag would have a nonzero
+/// leading byte 255/256 of the time and mark the slot as a dummy, leaking the
+/// recipient count.
+fn random_view_tag() -> [u8; 32] {
+    let mut tag = [0u8; 32];
+    OsRng.fill_bytes(&mut tag[1..]);
+    tag
+}
+
+/// Random `RECIPIENT_CIPHERTEXT_LEN` bytes for a dummy output slot. A real GCM
+/// ciphertext is indistinguishable from random to an observer, so a same-length
+/// random filler hides whether the slot holds a real recipient.
+fn random_dummy_ciphertext() -> Vec<u8> {
+    let mut data = vec![0u8; RECIPIENT_CIPHERTEXT_LEN];
+    OsRng.fill_bytes(&mut data);
+    data
 }

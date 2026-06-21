@@ -12,6 +12,7 @@ fn sample(sync_delegate: Option<[u8; 32]>, entries: Vec<SyncDelegateEntry>) -> U
         viewing_pubkey: [3u8; 33],
         sync_delegate,
         entries,
+        merge_service: false,
     }
 }
 
@@ -42,6 +43,7 @@ fn record_byte_layout_is_locked() {
     expected.extend_from_slice(&[2u8; 33]);
     expected.extend_from_slice(&[4u8; 33]);
     expected.extend_from_slice(&42i64.to_le_bytes());
+    expected.push(0);
     assert_eq!(body, expected);
 
     assert_eq!(

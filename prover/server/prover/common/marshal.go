@@ -332,6 +332,22 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			ps.CircuitType = TransferCircuitType
 		}
 		return ps, nil
+	} else if strings.Contains(strings.ToLower(path), "merge") {
+		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
+		// (merge_8_1.key) carries no "transfer" substring, so it needs its own
+		// branch or it would be misread as a MerkleProofSystem.
+		ps := new(TransferProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		ps.CircuitType = MergeCircuitType
+		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)
 		ps.CircuitType = BatchAddressAppendCircuitType

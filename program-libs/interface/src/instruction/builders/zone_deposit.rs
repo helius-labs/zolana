@@ -11,8 +11,8 @@ pub struct ZoneDeposit {
     pub depositor: Pubkey,
     pub spl: Option<DepositSplAccounts>,
     pub view_tag: [u8; 32],
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; 16],
+    pub owner: [u8; 32],
+    pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
     pub cpi_signer: CpiSignerData,
     pub policy_data_hash: Option<[u8; 32]>,
@@ -44,8 +44,8 @@ impl ZoneDeposit {
     ) -> Instruction {
         let ix_data = ZoneDepositIxData {
             view_tag: self.view_tag,
-            owner_utxo_hash: self.owner_utxo_hash,
-            salt: self.salt,
+            owner: self.owner,
+            blinding: self.blinding,
             public_amount: self.public_amount,
             cpi_signer: self.cpi_signer,
             policy_data_hash: self.policy_data_hash,

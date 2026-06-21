@@ -3,9 +3,14 @@ name = "spp-test-validator"
 version = "0.1.0"
 edition.workspace = true
 publish = false
+# Only the explicit `lifecycle` test target builds; tests/{actor,localnet,world}.rs
+# are its modules, not standalone integration-test binaries.
+autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
+p256 = { workspace = true }
+solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
@@ -16,14 +21,18 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 cucumber = { workspace = true }
 futures = { workspace = true }
+light-instruction-decoder = { workspace = true }
 
 [[test]]
 name = "lifecycle"

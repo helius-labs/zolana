@@ -1,2 +1,8 @@
 mod common;
-mod lifecycle;
+mod decode;
+mod deposit;
+pub(crate) mod merge;
+mod spl;
+mod transfer;
+mod wallet_sync;
+mod withdraw;

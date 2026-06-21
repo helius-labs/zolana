@@ -10,6 +10,7 @@ pub const PAUSE_TREE: u8 = 8;
 pub const CREATE_ZONE_CONFIG: u8 = 9;
 pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
 pub const UPDATE_ZONE_CONFIG: u8 = 11;
+pub const MERGE_TRANSACT: u8 = 12;
 pub const EMIT_EVENT: u8 = 14;
 pub const ZONE_DEPOSIT: u8 = 15;
 pub const CREATE_ASSET_COUNTER: u8 = 16;
@@ -18,7 +19,6 @@ pub const CREATE_ASSET_COUNTER: u8 = 16;
 pub mod reserved {
     pub const ZONE_TRANSACT: u8 = 2;
     pub const ZONE_AUTHORITY_TRANSACT: u8 = 3;
-    pub const MERGE_TRANSACT: u8 = 12;
     pub const ZONE_MERGE_TRANSACT: u8 = 13;
 }
 
@@ -39,6 +39,7 @@ pub enum InstructionTag {
     CreateZoneConfig = CREATE_ZONE_CONFIG,
     UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
     UpdateZoneConfig = UPDATE_ZONE_CONFIG,
+    MergeTransact = MERGE_TRANSACT,
     EmitEvent = EMIT_EVENT,
     ZoneDeposit = ZONE_DEPOSIT,
     CreateAssetCounter = CREATE_ASSET_COUNTER,
@@ -60,6 +61,7 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_ZONE_CONFIG => Ok(Self::CreateZoneConfig),
             UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
             UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
+            MERGE_TRANSACT => Ok(Self::MergeTransact),
             EMIT_EVENT => Ok(Self::EmitEvent),
             ZONE_DEPOSIT => Ok(Self::ZoneDeposit),
             CREATE_ASSET_COUNTER => Ok(Self::CreateAssetCounter),

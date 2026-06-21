@@ -6,7 +6,7 @@ mod steps;
 use cucumber::World;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_interface::event::DepositView;
+use zolana_event::DepositView;
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 use zolana_transaction::Wallet;
 

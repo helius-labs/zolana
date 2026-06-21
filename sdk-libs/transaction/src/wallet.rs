@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_interface::event::DepositView;
+use zolana_event::DepositView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
@@ -197,17 +197,13 @@ impl SyncCtx<'_> {
         Ok(())
     }
 
-    /// Try one historical viewing key against a public proofless deposit.
-    fn discover_proofless(
-        &mut self,
-        key: &ViewingKey,
-        event: &DepositView,
-    ) -> Result<(), TransactionError> {
-        let blinding = key.derive_proofless_blinding(&event.salt)?;
-        let owner_utxo_hash = owner_utxo_hash(&self.keypair.owner_hash()?, &blinding)?;
-        if owner_utxo_hash != event.owner_utxo_hash {
+    /// Match a public proofless deposit against this wallet's `owner_hash`.
+    fn discover_proofless(&mut self, event: &DepositView) -> Result<(), TransactionError> {
+        if event.owner != self.keypair.owner_hash()? {
             return Ok(());
         }
+        let blinding = event.blinding;
+        let owner_utxo_hash = owner_utxo_hash(&event.owner, &blinding)?;
         let asset = Address::new_from_array(event.asset);
         let zone_program_id = event.zone_program_id.map(Address::new_from_array);
         let program_data_hash = event.program_data_hash.unwrap_or([0u8; 32]);
@@ -218,7 +214,7 @@ impl SyncCtx<'_> {
             &program_data_hash,
             &zone_data_hash,
             zone_program_id,
-            &event.owner_utxo_hash,
+            &owner_utxo_hash,
         )?;
         if hash != event.utxo_hash || !self.stored_hashes.insert(hash) {
             return Ok(());
@@ -415,7 +411,9 @@ impl Wallet {
             }
             if let Some(sites) = proofless_sites.get(&bootstrap) {
                 for &p in sites {
-                    ctx.discover_proofless(key, &proofless_deposits[p])?;
+                    if let Some(deposit) = proofless_deposits.get(p) {
+                        ctx.discover_proofless(deposit)?;
+                    }
                 }
             }
 

@@ -7,7 +7,10 @@ edition.workspace = true
 
 [dependencies]
 p256 = { workspace = true }
+ed25519-dalek = { workspace = true }
 aes-gcm = { workspace = true }
+aes = { workspace = true }
+ctr = { workspace = true }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }

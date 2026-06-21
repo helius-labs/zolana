@@ -10,9 +10,10 @@ import (
 )
 
 type outputWitnesses struct {
-	outputs   []txcircuit.Output
-	hashes    []*big.Int
-	responses []ProofUtxoResponse
+	outputs          []txcircuit.Output
+	hashes           []*big.Int
+	privateTxHashes  []*big.Int
+	responses        []ProofUtxoResponse
 }
 
 type parsedUtxo struct {
@@ -24,9 +25,10 @@ type parsedUtxo struct {
 
 func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (outputWitnesses, error) {
 	outputs := outputWitnesses{
-		outputs:   make([]txcircuit.Output, shape.NOutputs),
-		hashes:    make([]*big.Int, shape.NOutputs),
-		responses: make([]ProofUtxoResponse, 0, len(requests)),
+		outputs:         make([]txcircuit.Output, shape.NOutputs),
+		hashes:          make([]*big.Int, shape.NOutputs),
+		privateTxHashes: make([]*big.Int, shape.NOutputs),
+		responses:       make([]ProofUtxoResponse, 0, len(requests)),
 	}
 	for i, request := range requests {
 		parsed, err := parseProofUtxo(request, nil)
@@ -43,6 +45,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 			Hash:    outputHash,
 		}
 		outputs.hashes[i] = outputHash
+		outputs.privateTxHashes[i] = outputHash
 		outputs.responses = append(outputs.responses, ProofUtxoResponse{
 			Utxo: parsed.normalized,
 			Hash: parse.FieldHex(outputHash),
@@ -50,12 +53,22 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 	}
 
 	for i := len(requests); i < shape.NOutputs; i++ {
-		outputs.outputs[i] = txcircuit.Output{
-			Utxo:    dummyUtxoFields(),
-			IsDummy: big.NewInt(1),
-			Hash:    big.NewInt(0),
+		blinding, err := randomBlinding()
+		if err != nil {
+			return outputWitnesses{}, fmt.Errorf("dummy output %d blinding: %w", i, err)
 		}
-		outputs.hashes[i] = big.NewInt(0)
+		utxo := dummyUtxo(blinding)
+		hash, err := protocol.UtxoHash(utxo)
+		if err != nil {
+			return outputWitnesses{}, fmt.Errorf("dummy output %d hash: %w", i, err)
+		}
+		outputs.outputs[i] = txcircuit.Output{
+			Utxo:    dummyUtxoFields(blinding),
+			IsDummy: big.NewInt(1),
+			Hash:    hash,
+		}
+		outputs.hashes[i] = hash
+		outputs.privateTxHashes[i] = big.NewInt(0)
 	}
 	return outputs, nil
 }

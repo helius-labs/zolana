@@ -7,7 +7,8 @@ use borsh::BorshSerialize;
 
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CompressedProof, CpiSignerData, CreateProtocolConfigData,
-    CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, OutputUtxo, OutputUtxoRef,
+    CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
+    MergeTransactIxData, MergeTransactIxDataRef, OutputCiphertext, OutputCiphertextRef, OutputUtxo,
     PauseTreeData, TransactIxData, TransactIxDataRef, UpdateProtocolConfigData,
     UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneDepositIxData,
 };

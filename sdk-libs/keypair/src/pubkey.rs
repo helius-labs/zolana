@@ -87,6 +87,18 @@ impl PublicKey {
         Self(bytes)
     }
 
+    /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
+    /// unspendable, so a real input never has it; it is the canonical dummy marker.
+    /// Byte 0 reads as `SIGNATURE_TYPE_P256`, so this value must never reach
+    /// [`Self::signature_type`]; gate on [`Self::is_zero`] first.
+    pub fn zeroed() -> Self {
+        Self([0u8; PUBLIC_KEY_LEN])
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0 == [0u8; PUBLIC_KEY_LEN]
+    }
+
     pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
         match SignatureType::try_from(bytes[0])? {
             SignatureType::P256 => {

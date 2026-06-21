@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 use crate::prover::inputs::{
-    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
+    MergeInputs, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -224,6 +224,60 @@ pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MergeParametersJson {
+    #[serde(rename = "circuitType")]
+    pub circuit_type: String,
+    // Reuses the transfer input/output JSON. The merge circuit ignores the
+    // transfer-only `solanaOwnerPkHash`/per-input `nullifierSecret` and output
+    // `isDummy` (Go drops unknown keys), so no merge-specific shape is needed.
+    #[serde(rename = "inputs")]
+    pub inputs: Vec<InputParamsJson>,
+    #[serde(rename = "output")]
+    pub output: OutputParamsJson,
+    #[serde(rename = "p256PubX")]
+    pub p256_pub_x: String,
+    #[serde(rename = "p256PubY")]
+    pub p256_pub_y: String,
+    #[serde(rename = "userNullifierPk")]
+    pub user_nullifier_pk: String,
+    #[serde(rename = "userNullifierSecret")]
+    pub user_nullifier_secret: String,
+    #[serde(rename = "txViewingSk")]
+    pub tx_viewing_sk: String,
+    #[serde(rename = "userViewingPubkey")]
+    pub user_viewing_pubkey: Vec<String>,
+    #[serde(rename = "externalDataHash")]
+    pub external_data_hash: String,
+    #[serde(rename = "privateTxHash")]
+    pub private_tx_hash: String,
+    #[serde(rename = "publicInputHash")]
+    pub public_input_hash: String,
+}
+
+/// Serialize the merge witness to the prover server's JSON request body.
+pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
+    let json = MergeParametersJson {
+        circuit_type: "merge".to_string(),
+        inputs: inputs.inputs.iter().map(input_to_json).collect(),
+        output: output_to_json(&inputs.output),
+        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
+        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
+        user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
+        user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
+        tx_viewing_sk: big_uint_to_string(&inputs.tx_viewing_sk),
+        user_viewing_pubkey: inputs
+            .user_viewing_pubkey
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        external_data_hash: big_uint_to_string(&inputs.external_data_hash),
+        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+    };
+    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
 /// Serialize the Solana-only transfer witness to the prover server's JSON request body.
 pub(crate) fn to_json(inputs: &TransferInputs) -> String {
     let json = TransferInputsJson {
@@ -244,4 +298,97 @@ pub(crate) fn to_json(inputs: &TransferInputs) -> String {
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+
+    fn sample_utxo() -> UtxoInputs {
+        UtxoInputs {
+            domain: BigUint::from(1u8),
+            owner: BigUint::from(2u8),
+            asset: BigUint::from(1u8),
+            amount: BigUint::from(5u8),
+            blinding: BigUint::from(7u8),
+            data_hash: BigUint::ZERO,
+            zone_data_hash: BigUint::ZERO,
+            zone_program_id: BigUint::ZERO,
+        }
+    }
+
+    // Guards the wire-format field names against the Go server
+    // (prover/server/prover/merge/marshal.go): a serde-rename typo would break
+    // the request silently. Asserts circuitType and the full key set.
+    #[test]
+    fn to_json_merge_shape() {
+        let input = TransferInput {
+            utxo: sample_utxo(),
+            is_dummy: BigUint::ZERO,
+            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+            state_path_index: BigUint::ZERO,
+            nullifier_low_value: BigUint::ZERO,
+            nullifier_next_value: BigUint::ZERO,
+            nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
+            nullifier_low_path_index: BigUint::ZERO,
+            utxo_tree_root: BigUint::from(11u8),
+            nullifier_tree_root: BigUint::from(13u8),
+            nullifier: BigUint::from(99u8),
+            solana_owner_pk_hash: BigUint::ZERO,
+            nullifier_secret: BigUint::from(4u8),
+        };
+        let inputs = MergeInputs {
+            inputs: vec![input; 8],
+            output: TransferOutput {
+                utxo: sample_utxo(),
+                is_dummy: BigUint::ZERO,
+                hash: BigUint::from(0xABCu32),
+            },
+            p256_pub_x: BigUint::from(1u8),
+            p256_pub_y: BigUint::from(2u8),
+            user_nullifier_pk: BigUint::from(3u8),
+            user_nullifier_secret: BigUint::from(4u8),
+            tx_viewing_sk: BigUint::from(5u8),
+            user_viewing_pubkey: (0..65u32).map(BigUint::from).collect(),
+            external_data_hash: BigUint::from(6u8),
+            private_tx_hash: BigUint::from(7u8),
+            public_input_hash: BigUint::from(8u8),
+        };
+
+        let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
+        assert_eq!(value["circuitType"], "merge");
+        for key in [
+            "inputs",
+            "output",
+            "p256PubX",
+            "p256PubY",
+            "userNullifierPk",
+            "userNullifierSecret",
+            "txViewingSk",
+            "userViewingPubkey",
+            "externalDataHash",
+            "privateTxHash",
+            "publicInputHash",
+        ] {
+            assert!(!value[key].is_null(), "missing top-level key {key}");
+        }
+        assert_eq!(value["inputs"].as_array().unwrap().len(), 8);
+        assert_eq!(value["userViewingPubkey"].as_array().unwrap().len(), 65);
+        let in0 = &value["inputs"][0];
+        for key in [
+            "utxo",
+            "isDummy",
+            "statePathElements",
+            "nullifierTreeRoot",
+            "nullifier",
+        ] {
+            assert!(!in0[key].is_null(), "missing input key {key}");
+        }
+        // Inputs reuse the transfer JSON; the merge circuit ignores these
+        // transfer-only fields server-side.
+        assert!(!in0["solanaOwnerPkHash"].is_null());
+        assert!(!in0["nullifierSecret"].is_null());
+        assert_eq!(value["output"]["hash"], "0xabc");
+    }
 }

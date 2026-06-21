@@ -5,9 +5,10 @@
 
 use light_hasher::Poseidon;
 use thiserror::Error;
-use zolana_interface::{event::DepositView, state::STATE_HEIGHT};
+use zolana_event::DepositView;
+use zolana_interface::state::STATE_HEIGHT;
 use zolana_merkle_tree::MerkleTree;
-use zolana_transaction::{utxo_hash, Address, TransactionError};
+use zolana_transaction::{owner_utxo_hash, utxo_hash, Address, TransactionError};
 
 #[derive(Debug, Error)]
 pub enum IndexerError {
@@ -43,12 +44,13 @@ pub enum IndexedPayload {
 /// Public fields carried by a proofless deposit event.
 #[derive(Clone, Debug)]
 pub struct ProoflessOutput {
-    pub owner_utxo_hash: [u8; 32],
+    /// Recipient `owner_hash`.
+    pub owner: [u8; 32],
     /// Mint address; all-zero for SOL.
     pub asset: [u8; 32],
     pub amount: u64,
-    /// Blinding-derivation salt (spec: Blinding derivation).
-    pub salt: [u8; 16],
+    /// Blinding sent in the clear for the recipient to spend the note.
+    pub blinding: [u8; 31],
 }
 
 impl IndexedUtxo {
@@ -104,10 +106,10 @@ impl TestIndexer {
             leaf_index,
             utxo_hash: event.utxo_hash,
             payload: IndexedPayload::Proofless(ProoflessOutput {
-                owner_utxo_hash: event.owner_utxo_hash,
+                owner: event.owner,
                 asset: event.asset,
                 amount: event.amount,
-                salt: event.salt,
+                blinding: event.blinding,
             }),
         });
         Ok(&self.utxos[record_index])
@@ -117,10 +119,12 @@ impl TestIndexer {
         self.tree.root()
     }
 
-    pub fn fetch_by_owner_utxo_hash(&self, owner_utxo_hash: &[u8; 32]) -> Option<&IndexedUtxo> {
+    pub fn fetch_by_owner_utxo_hash(&self, target: &[u8; 32]) -> Option<&IndexedUtxo> {
         self.utxos.iter().find(|u| {
             u.proofless()
-                .is_some_and(|p| &p.owner_utxo_hash == owner_utxo_hash)
+                .and_then(|p| owner_utxo_hash(&p.owner, &p.blinding).ok())
+                .as_ref()
+                == Some(target)
         })
     }
 
@@ -146,6 +150,6 @@ fn proofless_utxo_hash(event: &DepositView) -> Result<[u8; 32], TransactionError
         &program_data_hash,
         &policy_data_hash,
         event.zone_program_id.map(Address::new_from_array),
-        &event.owner_utxo_hash,
+        &owner_utxo_hash(&event.owner, &event.blinding)?,
     )
 }

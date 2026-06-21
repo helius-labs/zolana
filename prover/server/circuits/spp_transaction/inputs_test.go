@@ -47,6 +47,99 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
+// reassignInputToFreshTrees moves input idx onto an independent state tree and an
+// independent nullifier tree so the proof spans more than one root. The other
+// inputs keep the roots assigned by buildCircuitAssignment, so the witness has
+// distinct UtxoTreeRoot/NullifierTreeRoot values across inputs. The input's UTXO
+// and nullifier are unchanged, so only the membership witnesses and roots are
+// rewritten; the public input hash is refreshed since per-input roots are
+// committed in it.
+func reassignInputToFreshTrees(t testing.TB, assignment *Circuit, idx int) (stateRoot, nullifierRoot *big.Int) {
+	t.Helper()
+	if idx < 0 || idx >= len(assignment.Inputs) {
+		t.Fatalf("reassign input index %d out of range", idx)
+	}
+
+	in := &assignment.Inputs[idx]
+	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+
+	const freshStateLeafIndex = 99
+	stateRoot, stateProofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{
+		freshStateLeafIndex: inputHash,
+	})
+	stateProof := stateProofs[freshStateLeafIndex]
+	fillStateProofElements(in.StatePathElements, stateProof.PathElements)
+	in.StatePathIndex = new(big.Int).SetUint64(stateProof.PathIndex)
+	in.UtxoTreeRoot = stateRoot
+
+	nullifierTree := spptest.MustNewNullifierTree(t)
+	// Insert an unrelated nullifier so this tree's root differs from the empty
+	// tree the other inputs prove against; the input's own nullifier stays absent.
+	if err := nullifierTree.Insert(spptest.Fe(3)); err != nil {
+		t.Fatalf("perturb nullifier tree: %v", err)
+	}
+	nfWitness := spptest.MustNonInclusion(t, nullifierTree, spptest.AsBigInt(in.Nullifier))
+	in.NullifierLowValue = nfWitness.LowValue
+	in.NullifierNextValue = nfWitness.NextValue
+	fillStateProofElements(in.NullifierLowPathElements, nfWitness.PathElements)
+	in.NullifierLowPathIndex = new(big.Int).SetUint64(nfWitness.LowIndex)
+	in.NullifierTreeRoot = nullifierTree.Root()
+
+	refreshPublicInputHash(t, assignment)
+	return stateRoot, nullifierTree.Root()
+}
+
+// Per-input roots let one transaction spend inputs from different historical
+// roots. This proves two inputs against two distinct state roots and two
+// distinct nullifier roots in a single proof.
+func TestCircuitAcceptsInputsFromDifferentRoots(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	stateRoot, nullifierRoot := reassignInputToFreshTrees(t, assignment, 1)
+
+	if stateRoot.Cmp(spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)) == 0 {
+		t.Fatal("expected distinct state roots across inputs")
+	}
+	if nullifierRoot.Cmp(spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)) == 0 {
+		t.Fatal("expected distinct nullifier roots across inputs")
+	}
+
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// An input proving inclusion in one state root cannot claim a different root:
+// the path no longer hashes to the claimed UtxoTreeRoot. The public input hash
+// is refreshed to the wrong root so the inclusion check is the sole failure.
+func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	reassignInputToFreshTrees(t, assignment, 1)
+	assignment.Inputs[1].UtxoTreeRoot = spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// An input's non-inclusion witness is checked against one nullifier root:
+// claiming a different NullifierTreeRoot fails the non-inclusion check. The
+// public input hash is refreshed to the wrong root so that check is the sole
+// failure.
+func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	reassignInputToFreshTrees(t, assignment, 1)
+	assignment.Inputs[1].NullifierTreeRoot = spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
 func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

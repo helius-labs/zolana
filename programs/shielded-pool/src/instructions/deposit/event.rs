@@ -20,8 +20,10 @@ pub(crate) struct ProoflessOutputCtx {
 
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
     let output_data = encode_output_data(&OutputData::Proofless(ProoflessOutput {
-        owner_utxo_hash: d.owner_utxo_hash,
-        salt: d.salt,
+        owner: d.owner,
+        blinding: d.blinding,
+        asset: ctx.asset,
+        amount: ctx.amount,
         program_data_hash: d.program_data_hash,
         program_data: d.program_data,
         zone_program_id: d.cpi_signer.map(|cpi| cpi.program_id),

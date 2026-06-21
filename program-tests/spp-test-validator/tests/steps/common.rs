@@ -1,8 +1,26 @@
-//! Shared setup and isolation steps.
+//! Background setup steps: the precondition marker and the eddsa-rail opt-in.
 
-use cucumber::{given, then};
+use anyhow::Result;
+use cucumber::given;
+use zolana_keypair::{ShieldedKeypair, ViewingKey};
 
+use crate::actor::Actor;
 use crate::LifecycleWorld;
+
+impl LifecycleWorld {
+    /// Create `name` as an eddsa-rail actor whose owner is the payer's ed25519 key,
+    /// so the payer's transaction signature satisfies the owner check (the transact
+    /// builder's only signer is the fee payer). Its UTXOs take the eddsa rail.
+    pub(crate) fn make_eddsa_actor(&mut self, name: &str) -> Result<()> {
+        let seed: [u8; 32] = self.payer.to_bytes()[..32]
+            .try_into()
+            .expect("ed25519 seed is the first 32 bytes");
+        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+        self.actors
+            .insert(name.to_string(), Actor::with_keypair(keypair)?);
+        Ok(())
+    }
+}
 
 #[given(expr = "a fresh shielded pool")]
 fn fresh_pool(_world: &mut LifecycleWorld) {
@@ -11,7 +29,7 @@ fn fresh_pool(_world: &mut LifecycleWorld) {
     // exists so features can name the precondition.
 }
 
-#[then(expr = "{word} recovers nothing by sync")]
-fn recovers_nothing(world: &mut LifecycleWorld, name: String) {
-    world.recover_nothing(&name).expect("sync");
+#[given(expr = "{word} with shielded solana keypair")]
+fn shielded_solana_keypair(world: &mut LifecycleWorld, name: String) {
+    world.make_eddsa_actor(&name).expect("create eddsa actor");
 }

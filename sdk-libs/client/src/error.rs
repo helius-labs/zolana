@@ -58,6 +58,12 @@ pub enum ClientError {
     #[error("the P256 rail requires an owner signature but none was supplied")]
     MissingP256Signature,
 
+    #[error("merge input {index} is not P256-owned; merge requires all inputs share a P256 owner")]
+    MergeInputNotP256 { index: usize },
+
+    #[error("merge input {index} has a different asset; merge requires a single shared asset")]
+    MergeInputAssetMismatch { index: usize },
+
     #[error("p256 signature error: {0}")]
     P256Signature(String),
 
@@ -87,4 +93,16 @@ pub enum ClientError {
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
+
+    #[error("proof path has {got} elements, expected {expected}")]
+    ProofPathLength { got: usize, expected: usize },
+
+    #[error("assembled witness has {got} input slots, expected {expected}")]
+    WitnessInputCountMismatch { got: usize, expected: usize },
+
+    #[error("deposit funding account not found: {address:?}")]
+    AccountNotFound { address: [u8; 32] },
+
+    #[error("SOL deposit funding account {sender:?} must be the signing authority")]
+    DepositSenderNotSigner { sender: [u8; 32] },
 }

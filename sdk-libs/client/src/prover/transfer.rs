@@ -25,17 +25,19 @@ pub struct TransferProofResult {
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
+    pub private_tx_hash: [u8; 32],
+    pub input_root_indices: Vec<(u16, u16)>,
 }
 
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
-        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        let assembled_inputs = assemble_inputs(&self.inputs, shape, false)?;
-        let assembled_outputs = assemble_outputs(&self.outputs, shape)?;
+        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let assembled_inputs = assemble_inputs(&self.inputs, false)?;
+        let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
-            &assembled_outputs.output_hashes,
+            &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
         )?;
         let p256_message_hash = [0u8; 32];
@@ -61,10 +63,10 @@ impl TransferProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id_hashchain: BigUint::from(0u8),
+            program_id_hashchain: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
-            data_hash: BigUint::from(0u8),
-            zone_data_hash: BigUint::from(0u8),
+            data_hash: BigUint::ZERO,
+            zone_data_hash: BigUint::ZERO,
             public_input_hash: be(&public_input),
         };
 
@@ -73,6 +75,8 @@ impl TransferProver {
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
+            private_tx_hash: private_tx,
+            input_root_indices: assembled_inputs.root_indices,
         })
     }
 }

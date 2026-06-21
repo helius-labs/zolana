@@ -4587,6 +4587,7 @@ dependencies = [
  "pinocchio-system",
  "zolana-interface",
  "zolana-tree",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -4614,6 +4615,7 @@ dependencies = [
  "solana-transaction",
  "tokio",
  "zolana-client",
+ "zolana-event",
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
@@ -6715,6 +6717,9 @@ dependencies = [
  "anyhow",
  "cucumber",
  "futures",
+ "light-instruction-decoder",
+ "p256",
+ "solana-account",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-instruction",
@@ -6725,10 +6730,13 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "zolana-client",
+ "zolana-event",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
+ "zolana-test-utils",
  "zolana-transaction",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8206,6 +8214,7 @@ dependencies = [
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "zolana-api",
+ "zolana-event",
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
@@ -8245,8 +8254,11 @@ dependencies = [
 name = "zolana-keypair"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
+ "ctr",
  "cucumber",
+ "ed25519-dalek",
  "hex",
  "hkdf",
  "light-hasher",
@@ -8291,6 +8303,7 @@ dependencies = [
  "solana-transaction",
  "thiserror 2.0.18",
  "zolana-client",
+ "zolana-event",
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
@@ -8302,7 +8315,15 @@ name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "solana-account",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-keypair",
  "solana-pubkey 4.2.0",
+ "solana-signature",
+ "solana-signer",
+ "zolana-client",
+ "zolana-event",
  "zolana-interface",
  "zolana-program-test",
  "zolana-transaction",
@@ -8322,6 +8343,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "wincode",
+ "zolana-event",
  "zolana-interface",
  "zolana-keypair",
 ]

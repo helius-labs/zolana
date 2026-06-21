@@ -72,6 +72,19 @@ impl ShieldedKeypair {
         Self::from_keys(SigningKey::new(), ViewingKey::new())
     }
 
+    pub fn from_ed25519(
+        signing_secret: &[u8; 32],
+        viewing_key: ViewingKey,
+    ) -> Result<Self, KeypairError> {
+        let signing_key = SigningKey::from_ed25519(signing_secret);
+        let nullifier_key = NullifierKey::from_signing_secret_key_bytes(signing_secret)?;
+        Ok(Self {
+            signing_key,
+            nullifier_key,
+            viewing_key,
+        })
+    }
+
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
     }
@@ -120,6 +133,15 @@ impl ShieldedKeypair {
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
+    }
+
+    pub fn decrypt_merge(
+        &self,
+        tx_viewing_pubkey: &P256Pubkey,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, KeypairError> {
+        self.viewing_key
+            .decrypt_merge(tx_viewing_pubkey, ciphertext)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {

@@ -13,6 +13,7 @@ use zolana_interface::instruction::instruction_data::transact::{
 use zolana_interface::instruction::{instruction_data::transact as transact_ix, tag};
 use zolana_interface::verifying_keys::transfer_2_3;
 use zolana_keypair::hash::hash_field;
+use zolana_transaction::OutputUtxo;
 
 pub fn start_prover() -> Result<()> {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -93,7 +94,10 @@ pub fn dummy_input(
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
     TransferInput {
-        utxo: UtxoInputs::new_dummy(),
+        // A circuit-dummy input carries a chosen `nullifier`; the circuit skips its
+        // ownership/inclusion/nullifier-derivation checks, so the utxo blinding is
+        // unused here.
+        utxo: UtxoInputs::new_dummy(be(&zero)),
         is_dummy: be(&fe(1)),
         state_path_elements: vec![be(&zero); STATE_TREE_HEIGHT],
         state_path_index: be(&zero),
@@ -122,8 +126,8 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
     public_sol_amount: Option<i64>,
-    sender_utxo_data: transact_ix::OutputUtxo,
-    recipient_utxo_data: Vec<transact_ix::OutputUtxo>,
+    output_utxo_hashes: Vec<[u8; 32]>,
+    output_ciphertexts: Vec<transact_ix::OutputCiphertext>,
 ) -> TransactIxData {
     TransactIxData {
         proof: [0u8; 192],
@@ -136,8 +140,8 @@ pub fn new_transact_ix_data(
         cpi_signer: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        sender_utxo_data,
-        recipient_utxo_data,
+        output_utxo_hashes,
+        output_ciphertexts,
     }
 }
 
@@ -156,22 +160,42 @@ pub fn external_data_hash(
         user_spl_token_account: &zero,
         spl_token_interface: &zero,
         cpi_signer: transact_ix_data.cpi_signer,
-        sender_utxo_data: &transact_ix_data.sender_utxo_data,
-        recipient_utxo_data: &transact_ix_data.recipient_utxo_data,
+        output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
+        output_ciphertexts: &transact_ix_data.output_ciphertexts,
     }
     .hash()?)
 }
 
-pub fn ix_output(view_tag: [u8; 32], utxo_hash: [u8; 32]) -> transact_ix::OutputUtxo {
-    transact_ix::OutputUtxo {
+pub fn ix_output_ciphertext(view_tag: [u8; 32]) -> transact_ix::OutputCiphertext {
+    transact_ix::OutputCiphertext {
         view_tag,
-        utxo_hash,
         data: Vec::new(),
     }
 }
 
-pub fn dummy_ix_output() -> transact_ix::OutputUtxo {
-    ix_output([0u8; 32], [0u8; 32])
+/// A dummy output (`owner_hash = 0`) over a chosen `blinding`, assembled exactly as
+/// the production prover does (`assemble_outputs`): it gets a real `utxo_hash` that
+/// the program appends to the tree and the proof commits via the public output
+/// chain, while contributing `0` to `private_tx_hash`. Returns the witness output
+/// and that hash so callers can wire both consistently.
+pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8; 32])> {
+    let output = OutputUtxo {
+        owner_hash: [0u8; 32],
+        blinding: *blinding,
+        ..Default::default()
+    };
+    let hash = output
+        .hash()
+        .map_err(|e| anyhow!("dummy output hash: {e:?}"))?;
+    let utxo = UtxoInputs::from_output(&output).map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
+    Ok((
+        TransferOutput {
+            utxo,
+            is_dummy: be(&fe(1)),
+            hash: be(&hash),
+        },
+        hash,
+    ))
 }
 
 pub struct TransferProverInputsArgs {
