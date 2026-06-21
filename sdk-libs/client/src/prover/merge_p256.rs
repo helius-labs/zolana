@@ -6,12 +6,15 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::SecretKey;
+use zolana_interface::instruction::instruction_data::merge_transact::{
+    MergeExternalDataHash, MergeTransactIxData,
+};
 use zolana_keypair::merge::{
     encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs,
 };
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::OutputUtxo;
+use zolana_transaction::{OutputUtxo, MERGE};
 
 use crate::error::ClientError;
 use crate::private_transaction::field::{asset_field, be, hash_chain};
@@ -25,8 +28,9 @@ use crate::prover::MergeInputs;
 pub struct MergeProver {
     pub inputs: Vec<TransferSpendInput>,
     pub output: OutputUtxo,
-    /// Binds the proof to the merge instruction; the circuit treats it as opaque.
-    pub external_data_hash: [u8; 32],
+    /// Validity deadline; bound into `external_data_hash`, which the circuit treats
+    /// as opaque and `merge_transact` recomputes from the instruction.
+    pub expiry_unix_ts: u64,
     /// Owner identity shared by every input: the P256 signing pubkey (recomputes
     /// `user_owner_hash`) and the nullifier key (recomputes the shared
     /// `nullifier_pk` and every input nullifier).
@@ -43,12 +47,38 @@ pub struct MergeProofResult {
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
+    /// Per-input references into the tree's root caches (length 8; dummy slots
+    /// mirror the first real input), for the `merge_transact` instruction data.
+    pub utxo_tree_root_indices: Vec<u16>,
+    pub nullifier_tree_root_indices: Vec<u16>,
     pub output_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
+    /// Recomputed on-chain from the instruction; surfaced so the caller need not
+    /// re-derive it.
+    pub external_data_hash: [u8; 32],
+    pub expiry_unix_ts: u64,
     /// The published merge ciphertext and the ephemeral `tx_viewing_pk` the owner
     /// uses to decrypt it back to the merged output's `(amount, asset, blinding)`.
     pub ciphertext: Vec<u8>,
     pub tx_viewing_pk: P256Pubkey,
+}
+
+impl MergeProofResult {
+    /// Assemble the `merge_transact` instruction data from this proof result and the
+    /// packed 192-byte proof. The caller passes the result to the `MergeTransact`
+    /// builder with the tree / protocol_config / user_record accounts.
+    pub fn instruction_data(&self, proof: [u8; 192]) -> MergeTransactIxData {
+        MergeTransactIxData {
+            expiry_unix_ts: self.expiry_unix_ts,
+            proof,
+            output_utxo_hash: self.output_hash,
+            nullifiers: self.nullifiers.clone(),
+            utxo_tree_root_index: self.utxo_tree_root_indices.clone(),
+            nullifier_tree_root_index: self.nullifier_tree_root_indices.clone(),
+            private_tx_hash: self.private_tx_hash,
+            encrypted_utxo: merge_encrypted_utxo(&self.tx_viewing_pk, &self.ciphertext),
+        }
+    }
 }
 
 impl MergeProver {
@@ -65,17 +95,16 @@ impl MergeProver {
             ));
         }
 
+        let utxo_tree_root_indices: Vec<u16> =
+            assembled_inputs.root_indices.iter().map(|(u, _)| *u).collect();
+        let nullifier_tree_root_indices: Vec<u16> =
+            assembled_inputs.root_indices.iter().map(|(_, n)| *n).collect();
+
         let assembled_outputs = assemble_outputs(std::slice::from_ref(&self.output))?;
         let output_hash = *assembled_outputs
             .output_hashes
             .first()
             .ok_or(ClientError::NoInputs)?;
-
-        let private_tx = private_tx_hash(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &self.external_data_hash,
-        )?;
 
         // Verifiable encryption of the merged output to the owner's viewing key.
         let plaintext = merge_plaintext(&self.output)?;
@@ -86,6 +115,23 @@ impl MergeProver {
             tx_viewing_pk_hi: tx_pk_hi,
             ciphertext_hash: ct_hash,
         } = merge_public_contribution(&tx_viewing_pk, &ciphertext)?;
+
+        // external_data_hash binds the published ciphertext blob and expiry to the
+        // proof; merge_transact recomputes it identically from the instruction.
+        let encrypted_utxo = merge_encrypted_utxo(&tx_viewing_pk, &ciphertext);
+        let external_data_hash = MergeExternalDataHash {
+            expiry_unix_ts: self.expiry_unix_ts,
+            output_utxo_hash: &output_hash,
+            encrypted_utxo: &encrypted_utxo,
+        }
+        .hash()
+        .map_err(|e| ClientError::Hasher(e.to_string()))?;
+
+        let private_tx = private_tx_hash(
+            &assembled_inputs.input_hashes,
+            &assembled_outputs.private_tx_output_hashes,
+            &external_data_hash,
+        )?;
 
         // Owner identity public inputs (pk_field of the signing and viewing keys).
         // SPP checks both against the owner's registry record; the owner recombines
@@ -99,7 +145,7 @@ impl MergeProver {
             hash_chain(&assembled_inputs.utxo_roots)?,
             hash_chain(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            self.external_data_hash,
+            external_data_hash,
             user_signing_pk_hash,
             user_viewing_pk_hash,
             tx_pk_lo,
@@ -131,7 +177,7 @@ impl MergeProver {
             user_nullifier_secret: be(&user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&sk_bytes),
             user_viewing_pubkey,
-            external_data_hash: be(&self.external_data_hash),
+            external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_input_hash: be(&public_input),
         };
@@ -140,12 +186,26 @@ impl MergeProver {
             inputs,
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,
+            utxo_tree_root_indices,
+            nullifier_tree_root_indices,
             output_hash,
             private_tx_hash: private_tx,
+            external_data_hash,
+            expiry_unix_ts: self.expiry_unix_ts,
             ciphertext,
             tx_viewing_pk,
         })
     }
+}
+
+/// Assembles the on-instruction `encrypted_utxo` blob:
+/// `MERGE discriminator || tx_viewing_pk (33) || ciphertext (71)`.
+pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(1 + 33 + ciphertext.len());
+    blob.push(MERGE);
+    blob.extend_from_slice(tx_viewing_pk.as_bytes());
+    blob.extend_from_slice(ciphertext);
+    blob
 }
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE

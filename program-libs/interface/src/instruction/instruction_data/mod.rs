@@ -1,6 +1,7 @@
 pub mod batch_update_nullifier_tree;
 pub mod create_tree;
 pub mod deposit;
+pub mod merge_transact;
 pub mod protocol_config;
 pub mod transact;
 pub mod zone_config;
@@ -8,6 +9,10 @@ pub mod zone_config;
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
 pub use create_tree::CreateTreeData;
 pub use deposit::{CpiSignerData, DepositIxData, ZoneDepositIxData};
+pub use merge_transact::{
+    MergeExternalDataHash, MergeTransactIxData, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_LEN,
+    MERGE_INPUT_COUNT,
+};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use transact::{
     InputUtxo, OutputCiphertext, OutputCiphertextRef, OutputUtxo, TransactIxData, TransactIxDataRef,

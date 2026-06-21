@@ -4587,6 +4587,7 @@ dependencies = [
  "pinocchio-system",
  "zolana-interface",
  "zolana-tree",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -6717,6 +6718,7 @@ dependencies = [
  "cucumber",
  "futures",
  "light-instruction-decoder",
+ "p256",
  "solana-account",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
@@ -6734,6 +6736,7 @@ dependencies = [
  "zolana-program-test",
  "zolana-test-utils",
  "zolana-transaction",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]

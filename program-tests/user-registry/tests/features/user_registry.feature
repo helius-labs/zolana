@@ -148,3 +148,21 @@ Feature: User registry program
     And "bob" revokes sync delegate for "alice"
     When owner "alice" appoints sync delegate "bob"
     Then "alice" has sync delegate "bob" with 2 entries
+
+  # === set_merge_service ===
+
+  Scenario: Merge service defaults off and the owner can toggle it
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    Then "alice" has merge service disabled
+    When owner "alice" enables merge service
+    Then "alice" has merge service enabled
+    When owner "alice" disables merge service
+    Then "alice" has merge service disabled
+
+  Scenario: A stranger cannot enable merge service
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    And a stranger "mallory"
+    When "mallory" tries to enable merge service for "alice"
+    Then the transaction fails with "UnauthorizedSigner"

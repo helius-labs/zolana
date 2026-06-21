@@ -74,6 +74,7 @@ pub struct ProoflessOutput {
 pub enum EventKind {
     Deposit = 1,
     Transact = 2,
+    Merge = 3,
 }
 
 impl EventKind {
@@ -81,6 +82,7 @@ impl EventKind {
         match byte {
             1 => Some(Self::Deposit),
             2 => Some(Self::Transact),
+            3 => Some(Self::Merge),
             _ => None,
         }
     }

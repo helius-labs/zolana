@@ -70,6 +70,11 @@ pub fn build_revoke_sync_delegate_ix(owner: &Pubkey, signer: &Pubkey) -> Instruc
     user_registry_instruction::revoke_sync_delegate(user_record, *signer)
 }
 
+pub fn build_set_merge_service_ix(owner: &Pubkey, signer: &Pubkey, enabled: bool) -> Instruction {
+    let (user_record, _bump) = user_record_pda(owner);
+    user_registry_instruction::set_merge_service(user_record, *signer, enabled)
+}
+
 pub fn fetch_user_record(svm: &litesvm::LiteSVM, owner: &Pubkey) -> Option<UserRecord> {
     let (pda, _bump) = user_record_pda(owner);
     let account = svm.get_account(&pda)?;

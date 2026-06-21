@@ -6,20 +6,15 @@ use std::sync::Once;
 
 use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
-use p256::SecretKey;
 use solana_address::Address;
 use zolana_client::private_transaction::field::asset_field;
-use zolana_client::{
-    spawn_prover, InputCommitment, MergeProver, ProverClient, Rpc, TransferSpendInput,
-};
+use zolana_client::{spawn_prover, Merge, PreparedMerge, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS};
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::{Data, OutputUtxo, Utxo};
 
 use crate::test_indexer::TestIndexer;
 use crate::world::MergeWorld;
-
-const MERGE_INPUTS: usize = 8;
 
 #[given(expr = "{int} P256 SOL inputs to merge")]
 fn given_inputs(world: &mut MergeWorld, n: usize) {
@@ -45,12 +40,9 @@ impl MergeWorld {
         // Real inputs: index each UTXO into the state tree so its inclusion and
         // nullifier non-inclusion proofs can be served.
         let mut indexer = TestIndexer::new();
-        let mut real_utxos = Vec::with_capacity(n);
-        let mut commitments = Vec::with_capacity(n);
-        let mut total: u64 = 0;
+        let mut inputs = Vec::with_capacity(n);
         for i in 0..n {
             let amount = 100 + i as u64;
-            total += amount;
             let utxo = Utxo {
                 owner,
                 asset,
@@ -62,73 +54,26 @@ impl MergeWorld {
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
                 .expect("utxo hash");
-            let nullifier = sender
-                .nullifier_key
-                .nullifier(&utxo_hash, &utxo.blinding)
-                .expect("nullifier");
             indexer.add_utxo(utxo_hash);
-            commitments.push(InputCommitment {
-                index: i,
-                utxo_hash,
-                nullifier,
-            });
-            real_utxos.push(utxo);
+            inputs.push(SpendUtxo::from((utxo, &sender)));
         }
+
+        // The plan derives the merged output and owner identity; converting it to a
+        // PreparedMerge pads to MERGE_INPUTS, and into_prover folds in the proofs.
+        // The prover never sees the high-level plan.
+        let merge = Merge::new(&sender, inputs)
+            .expect("build merge plan")
+            .with_expiry(0);
+        let prepared = PreparedMerge::from(merge);
+        let commitments = prepared.input_commitments().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("merkle proofs");
-
-        let mut inputs: Vec<TransferSpendInput> = real_utxos
-            .into_iter()
-            .zip(proofs)
-            .map(|(utxo, proof)| TransferSpendInput {
-                utxo,
-                nullifier_key: sender.nullifier_key.clone(),
-                proof: Some(proof),
-            })
-            .collect();
-        while inputs.len() < MERGE_INPUTS {
-            inputs.push(TransferSpendInput {
-                utxo: Utxo {
-                    owner,
-                    asset,
-                    amount: 0,
-                    blinding: random_blinding(),
-                    zone_program_id: None,
-                    data: Data::default(),
-                },
-                nullifier_key: sender.nullifier_key.clone(),
-                proof: None,
-            });
-        }
-
-        let output = OutputUtxo {
-            owner_hash: sender.owner_hash().expect("owner hash"),
-            asset,
-            amount: total,
-            blinding: random_blinding(),
-            zone_program_id: None,
-            zone_data_hash: None,
-            program_data_hash: None,
-        };
-
-        // Ephemeral tx viewing scalar: 31 random bytes are < BN254 modulus, so the
-        // value is a valid circuit witness as well as a P-256 scalar.
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes).expect("valid scalar");
-
-        let result = MergeProver {
-            inputs,
-            output,
-            external_data_hash: [0u8; 32],
-            signing_pubkey: owner.as_p256().expect("p256 signing pubkey"),
-            nullifier_key: sender.nullifier_key.clone(),
-            user_viewing_pk: sender.viewing_pubkey(),
-            tx_viewing_sk,
-        }
-        .build()
-        .expect("build merge proof");
+        let result = prepared
+            .into_prover(&proofs)
+            .expect("merge prover")
+            .build()
+            .expect("build merge proof");
 
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)

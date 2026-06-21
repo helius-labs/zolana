@@ -166,6 +166,7 @@ mod tests {
             viewing_pubkey: [4u8; 33],
             sync_delegate: None,
             entries: Vec::new(),
+            merge_service: false,
         }
     }
 
@@ -188,6 +189,7 @@ mod tests {
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
+            merge_service: false,
         }
     }
 
@@ -348,6 +350,7 @@ mod tests {
                     viewing_pubkey: [6u8; 33],
                     created_at: 1,
                 }],
+                merge_service: false,
             })
             .expect("serialize user record"),
         );

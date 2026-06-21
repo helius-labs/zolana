@@ -53,12 +53,18 @@ pub struct LifecycleWorld {
     pub(crate) tree: Pubkey,
     pub(crate) tree_address: Address,
     pub(crate) actors: BTreeMap<String, Actor>,
+    /// The Solana keypair each actor registered on the user-registry under, kept so
+    /// the merge step can derive the `user_record` PDA the program reads.
+    pub(crate) merge_owners: BTreeMap<String, Keypair>,
     pub(crate) indexed: Vec<SyncTransaction>,
     pub(crate) spl: Option<SplAsset>,
     pub(crate) last_rail: Option<Rail>,
     /// The most recent `transact` instruction and its transaction signature, kept
     /// so the decode step can re-parse the exact bytes and accounts that were sent.
     pub(crate) last_transact: Option<(Signature, Instruction)>,
+    /// The most recent merge, kept so the consolidated-output assert can reconstruct
+    /// and verify the merged UTXO.
+    pub(crate) last_merge: Option<crate::steps::merge::MergeRecord>,
 }
 
 impl std::fmt::Debug for LifecycleWorld {
@@ -133,10 +139,12 @@ impl LifecycleWorld {
             tree: tree.pubkey(),
             tree_address,
             actors: BTreeMap::new(),
+            merge_owners: BTreeMap::new(),
             indexed: Vec::new(),
             spl: None,
             last_rail: None,
             last_transact: None,
+            last_merge: None,
         })
     }
 

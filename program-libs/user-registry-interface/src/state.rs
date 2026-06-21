@@ -25,6 +25,9 @@ pub struct UserRecord {
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
     pub sync_delegate: Option<[u8; 32]>,
     pub entries: Vec<SyncDelegateEntry>,
+    /// Per-user opt-in: when true a whitelisted merge service may run
+    /// `merge_transact` for this owner (see shielded-pool spec).
+    pub merge_service: bool,
 }
 
 impl UserRecord {
@@ -41,6 +44,7 @@ impl UserRecord {
             + (1 + 32)
             + 4
             + num_entries * SyncDelegateEntry::SERIALIZED_LEN
+            + 1
     }
 
     pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {

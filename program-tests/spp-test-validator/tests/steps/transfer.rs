@@ -334,7 +334,7 @@ impl LifecycleWorld {
         Ok(sig)
     }
 
-    fn build_expected(
+    pub(crate) fn build_expected(
         &self,
         name: &str,
         owner: PublicKey,

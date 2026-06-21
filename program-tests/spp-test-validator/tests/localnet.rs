@@ -9,6 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
+use zolana_user_registry_interface::user_registry_program_id;
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
@@ -62,6 +63,11 @@ pub(crate) fn restart_localnet() {
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
 
+    // The merge_transact flow reads the sender's user-registry record, so the
+    // user-registry program must live in the same validator as the shielded pool.
+    let user_registry_id = user_registry_program_id().to_string();
+    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
+
     let status = std::process::Command::new(&cli)
         .current_dir(root)
         .args([
@@ -78,6 +84,9 @@ pub(crate) fn restart_localnet() {
             "--sbf-program",
             &program_id,
             &program_so,
+            "--sbf-program",
+            &user_registry_id,
+            &user_registry_so,
         ])
         .status()
         .expect("run zolana test-validator");

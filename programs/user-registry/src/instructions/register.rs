@@ -50,6 +50,7 @@ pub fn process_register(
         viewing_pubkey: data.viewing_pubkey,
         sync_delegate: None,
         entries: Vec::new(),
+        merge_service: false,
     };
     write_record(record, &state)
 }

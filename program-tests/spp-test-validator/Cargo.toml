@@ -9,6 +9,7 @@ autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
+p256 = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
@@ -26,6 +27,7 @@ zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 cucumber = { workspace = true }

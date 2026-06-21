@@ -12,7 +12,8 @@ use zolana_user_registry_interface::user_record_pda;
 
 use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
-    build_set_sync_delegate_ix, fetch_user_record, user_registry_program_id,
+    build_set_merge_service_ix, build_set_sync_delegate_ix, fetch_user_record,
+    user_registry_program_id,
 };
 
 #[derive(Default, World)]
@@ -303,6 +304,35 @@ fn when_revoke(world: &mut UserRegistryWorld, signer_name: String, owner_name: S
     world.send(&[signer_kp], ix);
 }
 
+// === set_merge_service ===
+
+#[given(regex = r#"owner "(.*)" enables merge service"#)]
+#[when(regex = r#"owner "(.*)" enables merge service"#)]
+fn when_enable_merge_service(world: &mut UserRegistryWorld, name: String) {
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    let ix = build_set_merge_service_ix(&owner_kp.pubkey(), &owner_kp.pubkey(), true);
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#"owner "(.*)" disables merge service"#)]
+fn when_disable_merge_service(world: &mut UserRegistryWorld, name: String) {
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    let ix = build_set_merge_service_ix(&owner_kp.pubkey(), &owner_kp.pubkey(), false);
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#""(.*)" tries to enable merge service for "(.*)""#)]
+fn when_stranger_enable_merge_service(
+    world: &mut UserRegistryWorld,
+    signer_name: String,
+    owner_name: String,
+) {
+    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
+    let signer_kp = world.keypair_named(&signer_name);
+    let ix = build_set_merge_service_ix(&owner, &signer_kp.pubkey(), true);
+    world.send(&[signer_kp], ix);
+}
+
 // === then ===
 
 fn assert_no_error(world: &UserRegistryWorld) {
@@ -311,6 +341,15 @@ fn assert_no_error(world: &UserRegistryWorld) {
         "tx failed: {:?}",
         world.last_error
     );
+}
+
+#[then(regex = r#""(.*)" has merge service (enabled|disabled)"#)]
+fn then_merge_service(world: &mut UserRegistryWorld, name: String, state: String) {
+    assert_no_error(world);
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let record =
+        fetch_user_record(world.svm.as_ref().expect("rig"), &owner).expect("record missing");
+    assert_eq!(record.merge_service, state == "enabled");
 }
 
 #[then(regex = r#""(.*)" has a user record with no sync delegate"#)]

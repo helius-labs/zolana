@@ -7,6 +7,7 @@ pub mod discriminator {
     pub const SET_SYNC_DELEGATE: u8 = 1;
     pub const ROTATE_SYNC_DELEGATE_KEY: u8 = 2;
     pub const REVOKE_SYNC_DELEGATE: u8 = 3;
+    pub const SET_MERGE_SERVICE: u8 = 4;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -29,6 +30,11 @@ pub struct RotateSyncDelegateKeyData {
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct SetMergeServiceData {
+    pub enabled: bool,
+}
+
 #[cfg(feature = "solana")]
 pub use builders::*;
 
@@ -38,7 +44,10 @@ mod builders {
     use solana_instruction::{AccountMeta, Instruction};
     use solana_pubkey::Pubkey;
 
-    use super::{discriminator, RegisterData, RotateSyncDelegateKeyData, SetSyncDelegateData};
+    use super::{
+        discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeServiceData,
+        SetSyncDelegateData,
+    };
     use crate::user_registry_program_id;
 
     const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0u8; 32]);
@@ -107,6 +116,22 @@ mod builders {
                 AccountMeta::new_readonly(signer, true),
             ],
             data: vec![discriminator::REVOKE_SYNC_DELEGATE],
+        }
+    }
+
+    /// Accounts: `[user_record (writable), owner (signer)]`. Only the owner may
+    /// toggle the merge-service opt-in.
+    pub fn set_merge_service(user_record: Pubkey, owner: Pubkey, enabled: bool) -> Instruction {
+        Instruction {
+            program_id: user_registry_program_id(),
+            accounts: vec![
+                AccountMeta::new(user_record, false),
+                AccountMeta::new_readonly(owner, true),
+            ],
+            data: encode_instruction(
+                discriminator::SET_MERGE_SERVICE,
+                &SetMergeServiceData { enabled },
+            ),
         }
     }
 }

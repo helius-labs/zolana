@@ -26,6 +26,7 @@ pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-tree = { workspace = true }
+zolana-user-registry-interface = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"
