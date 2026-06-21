@@ -7,9 +7,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serial_test::serial;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use zolana_client::{Rpc, SolanaRpc};
+use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use zolana_transaction::Address;
 
 #[path = "common/transact.rs"]
 #[allow(dead_code)]
@@ -26,6 +33,94 @@ const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 #[derive(Deserialize)]
 struct WalletFile {
     funding_pubkey: String,
+}
+
+#[derive(Deserialize)]
+struct WalletFundingKey {
+    funding_secret_hex: String,
+    funding_pubkey: String,
+}
+
+fn load_funding_keypair(path: &Path) -> Result<Keypair> {
+    let bytes = std::fs::read(path).with_context(|| path.display().to_string())?;
+    let file: WalletFundingKey = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parse wallet {}", path.display()))?;
+    let secret = hex::decode(&file.funding_secret_hex).context("decode funding secret")?;
+    if secret.len() != 32 {
+        bail!(
+            "wallet {} funding secret has invalid length {}",
+            path.display(),
+            secret.len()
+        );
+    }
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&secret);
+    let keypair = Keypair::new_from_array(seed);
+    if keypair.pubkey().to_string() != file.funding_pubkey {
+        bail!(
+            "wallet {} funding pubkey does not match secret",
+            path.display()
+        );
+    }
+    Ok(keypair)
+}
+
+fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u64> {
+    let account = rpc
+        .get_account(Address::new_from_array(token_account.to_bytes()))?
+        .ok_or_else(|| anyhow!("token account {token_account} not found"))?;
+    if account.data.len() < SPL_TOKEN_ACCOUNT_AMOUNT_END {
+        bail!(
+            "token account {token_account} data too short: {}",
+            account.data.len()
+        );
+    }
+    let mut amount_bytes = [0u8; 8];
+    amount_bytes.copy_from_slice(
+        &account.data[SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET..SPL_TOKEN_ACCOUNT_AMOUNT_END],
+    );
+    Ok(u64::from_le_bytes(amount_bytes))
+}
+
+fn create_associated_token_account_ix(
+    payer: &Pubkey,
+    owner: &Pubkey,
+    mint: &Pubkey,
+) -> Instruction {
+    let ata = pda::associated_token_address(owner, mint);
+    Instruction {
+        program_id: pda::associated_token_program_id(),
+        accounts: vec![
+            AccountMeta::new(*payer, true),
+            AccountMeta::new(ata, false),
+            AccountMeta::new_readonly(*owner, false),
+            AccountMeta::new_readonly(*mint, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(pda::spl_token_program_id(), false),
+        ],
+        data: Vec::new(),
+    }
+}
+
+fn ensure_associated_token_account(
+    rpc_url: &str,
+    payer: &Keypair,
+    owner: &Pubkey,
+    mint: &Pubkey,
+) -> Result<Pubkey> {
+    let mint = *mint;
+    let ata = pda::associated_token_address(owner, &mint);
+    let rpc = SolanaRpc::new(rpc_url);
+    if rpc
+        .get_account(Address::new_from_array(ata.to_bytes()))?
+        .is_some()
+    {
+        return Ok(ata);
+    }
+    let ix = create_associated_token_account_ix(&payer.pubkey(), owner, &mint);
+    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+    rpc.create_and_send_transaction(&[ix], payer_address, &[payer])?;
+    Ok(ata)
 }
 
 fn restart_localnet() {
@@ -108,9 +203,26 @@ fn temp_wallet_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+fn parse_tree_pubkey(output: &str) -> Result<String> {
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix("ok tree "))
+        .map(str::trim)
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("create-tree output missing tree pubkey:\n{output}"))
+}
+
+fn parse_field(output: &str, field: &str) -> Result<String> {
+    output
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix(&format!("{field}=")))
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("output missing {field}=...:\n{output}"))
+}
+
 #[test]
 #[serial]
-fn wallet_cli_sol_cycle() -> Result<()> {
+fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     restart_localnet();
     start_prover()?;
 
@@ -129,7 +241,7 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     wallet_init(&alice, &rpc_url, &cli_env)?;
     wallet_init(&bob, &rpc_url, &cli_env)?;
 
-    run_cli_with_env(
+    let create_tree_out = run_cli_with_env(
         &[
             "wallet",
             "create-tree",
@@ -146,6 +258,56 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+    let _tree = parse_tree_pubkey(&create_tree_out)?;
+
+    let test_mint_out = run_cli_with_env(
+        &[
+            "wallet",
+            "test-mint",
+            "--keypair",
+            &alice.display().to_string(),
+            "--amount",
+            "1000000",
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+    let spl_mint = parse_field(&test_mint_out, "mint")?;
+    let alice_token_account = parse_field(&test_mint_out, "token_account")?;
+    let spl_mint_pubkey = spl_mint.parse::<Pubkey>()?;
+    let alice_funding_keypair = load_funding_keypair(&alice)?;
+    let unregistered_recipient = Keypair::new();
+    let bob_funding = funding_pubkey(&bob)?;
+    let bob_owner = bob_funding.parse::<Pubkey>()?;
+    let bob_ata = ensure_associated_token_account(
+        &rpc_url,
+        &alice_funding_keypair,
+        &bob_owner,
+        &spl_mint_pubkey,
+    )?;
+    let unregistered_ata = ensure_associated_token_account(
+        &rpc_url,
+        &alice_funding_keypair,
+        &unregistered_recipient.pubkey(),
+        &spl_mint_pubkey,
+    )?;
+    let rpc = SolanaRpc::new(&rpc_url);
+    assert_eq!(
+        spl_token_account_amount(&rpc, &unregistered_ata)?,
+        0,
+        "unregistered ATA should start empty"
+    );
+
+    let asset_registry_out = run_cli_with_env(&["config", "asset-registry"], &cli_env)?;
+    assert!(
+        asset_registry_out.contains(&spl_mint),
+        "asset registry missing SPL mint: {asset_registry_out}"
+    );
 
     let deposit_amount = "500000000";
     for _ in 0..2 {
@@ -209,6 +371,48 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         "expected 1B lamports balance, got: {balance_out}"
     );
 
+    run_cli_with_env(
+        &[
+            "wallet",
+            "deposit",
+            "--keypair",
+            &alice.display().to_string(),
+            "--to",
+            &bob.display().to_string(),
+            "--amount",
+            "600000",
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+
+    let spl_balance_out = run_cli_with_env(
+        &[
+            "wallet",
+            "balance",
+            "--keypair",
+            &bob.display().to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        spl_balance_out.contains("amount=600000"),
+        "expected 600000 SPL balance, got: {spl_balance_out}"
+    );
+
     let alice_funding = funding_pubkey(&alice)?;
     run_cli_with_env(
         &[
@@ -237,6 +441,67 @@ fn wallet_cli_sol_cycle() -> Result<()> {
     run_cli_with_env(
         &[
             "wallet",
+            "transfer",
+            "--keypair",
+            &bob.display().to_string(),
+            "--to",
+            &alice_funding,
+            "--amount",
+            "250000",
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+
+    let unregistered_transfer_amount = 50_000u64;
+    let alice_token_before_unregistered =
+        spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
+    run_cli_with_env(
+        &[
+            "wallet",
+            "transfer",
+            "--keypair",
+            &bob.display().to_string(),
+            "--to",
+            &unregistered_recipient.pubkey().to_string(),
+            "--amount",
+            &unregistered_transfer_amount.to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+    assert_eq!(
+        spl_token_account_amount(&rpc, &unregistered_ata)?,
+        unregistered_transfer_amount,
+        "unregistered SPL transfer should settle to recipient ATA"
+    );
+    assert_eq!(
+        spl_token_account_amount(&rpc, &alice_token_account.parse()?)?,
+        alice_token_before_unregistered,
+        "sender-configured deposit token account must not receive unregistered transfer"
+    );
+
+    run_cli_with_env(
+        &[
+            "wallet",
             "sync",
             "--keypair",
             &alice.display().to_string(),
@@ -248,7 +513,6 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         &cli_env,
     )?;
 
-    let bob_funding = funding_pubkey(&bob)?;
     run_cli_with_env(
         &[
             "wallet",
@@ -272,6 +536,61 @@ fn wallet_cli_sol_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+
+    let alice_spl_balance_out = run_cli_with_env(
+        &[
+            "wallet",
+            "balance",
+            "--keypair",
+            &alice.display().to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        alice_spl_balance_out.contains("amount=250000"),
+        "expected 250000 SPL balance, got: {alice_spl_balance_out}"
+    );
+
+    let spl_withdraw_amount = 100_000u64;
+    assert_eq!(
+        spl_token_account_amount(&rpc, &bob_ata)?,
+        0,
+        "bob ATA should start empty"
+    );
+    run_cli_with_env(
+        &[
+            "wallet",
+            "withdraw",
+            "--keypair",
+            &alice.display().to_string(),
+            "--to",
+            &bob_funding,
+            "--amount",
+            &spl_withdraw_amount.to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+            "--prover-url",
+            DEFAULT_PROVER_URL,
+            "--airdrop-lamports",
+            "2000000000",
+        ],
+        &cli_env,
+    )?;
+    assert_eq!(
+        spl_token_account_amount(&rpc, &bob_ata)?,
+        spl_withdraw_amount,
+        "SPL withdraw should settle to recipient ATA"
+    );
 
     Ok(())
 }

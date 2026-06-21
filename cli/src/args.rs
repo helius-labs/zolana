@@ -43,6 +43,12 @@ pub(crate) enum ConfigCommand {
 
     #[command(name = "set", about = "Update the CLI configuration file")]
     Set(ConfigSetOptions),
+
+    #[command(name = "asset-registry", about = "Show locally configured assets")]
+    AssetRegistry,
+
+    #[command(name = "add-asset", about = "Add or update a local SPL asset mapping")]
+    AddAsset(ConfigAddAssetOptions),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -67,6 +73,21 @@ pub(crate) struct ConfigSetOptions {
     pub(crate) tree: Option<String>,
 }
 
+#[derive(Args, Debug, Clone)]
+pub(crate) struct ConfigAddAssetOptions {
+    #[arg(long, help = "SPL mint pubkey")]
+    pub(crate) mint: String,
+
+    #[arg(long = "asset-id", help = "Shielded-pool asset id assigned on-chain")]
+    pub(crate) asset_id: u64,
+
+    #[arg(
+        long = "token-account",
+        help = "Optional local token account for this mint"
+    )]
+    pub(crate) token_account: Option<String>,
+}
+
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum WalletCommand {
     #[command(
@@ -80,6 +101,12 @@ pub(crate) enum WalletCommand {
         about = "Initialize protocol config and a pool tree on the configured RPC"
     )]
     CreateTree(CreateTreeOptions),
+
+    #[command(
+        name = "test-mint",
+        about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
+    )]
+    TestMint(TestMintOptions),
 
     #[command(
         name = "sync",
@@ -354,6 +381,28 @@ pub(crate) struct CreateTreeOptions {
 }
 
 #[derive(Args, Debug, Clone)]
+pub(crate) struct TestMintOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, help = "Raw token units to mint to the wallet owner")]
+    pub(crate) amount: u64,
+
+    #[arg(
+        long = "authority-path",
+        help = "Wallet file whose funding key is protocol and mint authority (default: --keypair wallet)",
+        value_name = "PATH"
+    )]
+    pub(crate) authority_path: Option<String>,
+
+    #[arg(
+        long = "airdrop-lamports",
+        help = "Request a localnet airdrop for the authority before creating accounts"
+    )]
+    pub(crate) airdrop_lamports: Option<u64>,
+}
+
+#[derive(Args, Debug, Clone)]
 pub(crate) struct DepositOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -517,9 +566,12 @@ mod tests {
             ["zolana", "--help"].as_slice(),
             ["zolana", "test-validator", "--help"].as_slice(),
             ["zolana", "start-prover", "--help"].as_slice(),
+            ["zolana", "config", "asset-registry", "--help"].as_slice(),
+            ["zolana", "config", "add-asset", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
             ["zolana", "wallet", "init", "--help"].as_slice(),
             ["zolana", "wallet", "create-tree", "--help"].as_slice(),
+            ["zolana", "wallet", "test-mint", "--help"].as_slice(),
             ["zolana", "wallet", "sync", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
@@ -651,6 +703,57 @@ mod tests {
             Some("http://127.0.0.1:8785")
         );
         assert_eq!(opts.airdrop_lamports, 1_000_000_000);
+    }
+
+    #[test]
+    fn parses_config_asset_commands() {
+        let Some(CliCommand::Config { command }) = parse_cli(&[
+            "config",
+            "add-asset",
+            "--mint",
+            "Mint111111111111111111111111111111111111111",
+            "--asset-id",
+            "2",
+            "--token-account",
+            "Token11111111111111111111111111111111111111",
+        ])
+        .command
+        else {
+            panic!("expected config command");
+        };
+        let ConfigCommand::AddAsset(opts) = command else {
+            panic!("expected add-asset command");
+        };
+        assert_eq!(opts.asset_id, 2);
+        assert_eq!(opts.mint, "Mint111111111111111111111111111111111111111");
+        assert_eq!(
+            opts.token_account.as_deref(),
+            Some("Token11111111111111111111111111111111111111")
+        );
+    }
+
+    #[test]
+    fn parses_wallet_test_mint_options() {
+        let WalletCommand::TestMint(opts) = parse_wallet(&[
+            "test-mint",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--amount",
+            "1000000",
+            "--authority-path",
+            "/tmp/admin.pid.json",
+            "--airdrop-lamports",
+            "1000000000",
+        ]) else {
+            panic!("expected wallet test-mint command");
+        };
+        assert_eq!(
+            opts.sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(opts.amount, 1_000_000);
+        assert_eq!(opts.authority_path.as_deref(), Some("/tmp/admin.pid.json"));
+        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
     }
 
     #[test]

@@ -12,13 +12,13 @@ use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
-use crate::args::{InitOptions, SyncOptions};
+use crate::args::InitOptions;
 use crate::cli_config::{
     resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile,
 };
 
 use super::registry::register_wallet_on_chain;
-use super::resolve::resolve_sync;
+use super::resolve::ResolvedSyncOptions;
 use super::util::parse_hex_array;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -72,8 +72,7 @@ pub(super) fn run_init(opts: InitOptions) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn load_sender_from_sync(opts: &SyncOptions) -> Result<WalletMaterial> {
-    let sync = resolve_sync(opts)?;
+pub(super) fn load_sender_from_resolved_sync(sync: &ResolvedSyncOptions) -> Result<WalletMaterial> {
     if !sync.keypair_path.exists() {
         bail!(
             "keypair not found at {}; run `zolana wallet init` first",

@@ -4,6 +4,7 @@ mod material;
 mod registry;
 mod resolve;
 mod sync;
+mod test_mint;
 mod transaction;
 mod tree;
 mod util;
@@ -22,6 +23,7 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
         WalletCommand::Init(opts) => material::run_init(opts),
         WalletCommand::CreateTree(opts) => tree::run_create_tree(opts),
+        WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
         WalletCommand::Sync(opts) => sync::run_sync(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),

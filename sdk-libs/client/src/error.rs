@@ -32,8 +32,8 @@ pub enum ClientError {
     #[error("wallet viewing history missing")]
     WalletViewingHistoryMissing,
 
-    #[error("only SOL withdrawals are supported by this helper")]
-    UnsupportedWithdrawalAsset,
+    #[error("SPL token account is required for mint {mint}")]
+    MissingSplTokenAccount { mint: Pubkey },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),

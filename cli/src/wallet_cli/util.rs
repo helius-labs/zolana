@@ -3,18 +3,13 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_transaction::{Address, SOL_MINT};
 
+use crate::cli_config::CliConfigFile;
+
 pub(super) fn ensure_positive(amount: u64) -> Result<()> {
     if amount == 0 {
         bail!("amount must be greater than zero");
     }
     Ok(())
-}
-
-pub(super) fn ensure_sol(value: &str) -> Result<()> {
-    if value.eq_ignore_ascii_case("SOL") || parse_address(value)? == SOL_MINT {
-        return Ok(());
-    }
-    bail!("only SOL is supported by the wallet CLI right now")
 }
 
 pub(super) fn parse_address(value: &str) -> Result<Address> {
@@ -36,6 +31,20 @@ pub(super) fn format_address(address: Address) -> String {
     } else {
         Pubkey::new_from_array(address.to_bytes()).to_string()
     }
+}
+
+pub(super) fn configured_spl_token_account(
+    config: &CliConfigFile,
+    asset: Address,
+) -> Result<Option<Pubkey>> {
+    if asset == SOL_MINT {
+        return Ok(None);
+    }
+    let mint = Pubkey::new_from_array(asset.to_bytes());
+    config
+        .token_account_for_mint(mint)?
+        .ok_or_else(|| anyhow::anyhow!("no token account configured for SPL mint {mint}; run `zolana wallet test-mint` or `zolana config add-asset --mint {mint} --asset-id <ID> --token-account <ACCOUNT>`"))
+        .map(Some)
 }
 
 pub(super) fn parse_hex_array<const N: usize>(value: &str) -> Result<[u8; N]> {

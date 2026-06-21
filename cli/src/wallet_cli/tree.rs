@@ -10,13 +10,13 @@ use zolana_transaction::Address;
 use crate::args::CreateTreeOptions;
 use crate::cli_config::CliConfigFile;
 
-use super::material::{load_or_create_solana_keypair, load_sender_from_sync};
+use super::material::{load_or_create_solana_keypair, load_sender_from_resolved_sync};
 use super::resolve::resolve_sync;
 use super::util::system_create_account_ix;
 
 pub(super) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
-    let material = load_sender_from_sync(&opts.sync)?;
+    let material = load_sender_from_resolved_sync(&sync)?;
     let mut rpc = SolanaRpc::new(sync.rpc_url);
     if opts.airdrop_lamports > 0 {
         let signature = rpc.airdrop(&material.funding.pubkey(), opts.airdrop_lamports)?;

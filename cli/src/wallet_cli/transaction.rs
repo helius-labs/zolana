@@ -8,18 +8,18 @@ use zolana_client::{
     StateInclusionProof, ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
-use zolana_transaction::{Address, SOL_MINT};
+use zolana_transaction::Address;
 
 use crate::args::TransferOptions;
 
 use super::material::WalletMaterial;
 use super::resolve::get_network;
 use super::sync::{sync_context, wait_for_indexed_transaction};
-use super::util::{ensure_positive, ensure_sol, parse_pubkey};
+use super::util::{ensure_positive, format_address, parse_address, parse_pubkey};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
-    ensure_sol(&opts.mint)?;
     ensure_positive(opts.amount)?;
+    let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
@@ -34,7 +34,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         keypair: &ctx.material.keypair,
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         recipient_owner,
-        asset: SOL_MINT,
+        asset,
         amount: opts.amount,
         assets: &ctx.assets,
     })?;
@@ -56,8 +56,9 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         "shielded"
     };
     println!(
-        "ok transfer amount={} mint=SOL to={} mode={} signature={}",
+        "ok transfer amount={} mint={} to={} mode={} signature={}",
         opts.amount,
+        format_address(asset),
         transfer.recipient.pubkey(),
         mode,
         signature

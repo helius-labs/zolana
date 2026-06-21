@@ -5,8 +5,8 @@
 pub mod deposit;
 pub mod transaction;
 
-pub use deposit::{create_deposit, deposit, Deposit};
+pub use deposit::{create_deposit, deposit, CreateDeposit, Deposit};
 pub use transaction::{
-    create_transfer, create_withdrawal, CreateTransfer, CreatedTransfer, CreatedWithdrawal,
-    ResolvedAddress, TransferRecipient,
+    create_transfer, create_withdrawal, CreateTransfer, CreateWithdrawal, CreatedTransfer,
+    CreatedWithdrawal, ResolvedAddress, TransferRecipient,
 };
