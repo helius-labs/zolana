@@ -4,8 +4,7 @@ use anyhow::Result;
 use cucumber::given;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 
-use crate::actor::Actor;
-use crate::LifecycleWorld;
+use crate::{actor::Actor, LifecycleWorld};
 
 impl LifecycleWorld {
     /// Create `name` as an eddsa-rail actor whose owner is the payer's ed25519 key,

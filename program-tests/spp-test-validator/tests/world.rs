@@ -20,9 +20,11 @@ use zolana_interface::{
 use zolana_program_test::create_tree_instructions;
 use zolana_transaction::{AssetRegistry, SyncTransaction};
 
-use crate::actor::Actor;
-use crate::localnet::{
-    restart_localnet, send_transaction, start_prover, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+use crate::{
+    actor::Actor,
+    localnet::{
+        restart_localnet, send_transaction, start_prover, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+    },
 };
 
 /// The single SPL asset a scenario registers: its mint, the vault the deposit

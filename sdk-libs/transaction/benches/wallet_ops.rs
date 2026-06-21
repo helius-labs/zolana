@@ -6,11 +6,11 @@ use std::hint::black_box;
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::transfer::{
-    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext, SENDER_SLOT_COUNT,
-};
 use zolana_transaction::{
+    split::SplitBundlePlaintext,
+    transfer::{
+        RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext, SENDER_SLOT_COUNT,
+    },
     AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 

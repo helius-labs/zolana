@@ -1,11 +1,12 @@
 use cucumber::{then, when};
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::data::{Data, DataRecord};
-use zolana_transaction::transfer::{
-    RecipientOutput, RecipientSlot, TransferRecipientPlaintext, TransferSenderPlaintext,
+use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_transaction::{
+    data::{Data, DataRecord},
+    transfer::{
+        RecipientOutput, RecipientSlot, TransferRecipientPlaintext, TransferSenderPlaintext,
+    },
+    TransactionEncryption, VIEW_TAG_LEN,
 };
-use zolana_transaction::{TransactionEncryption, VIEW_TAG_LEN};
 
 use crate::TransactionWorld;
 

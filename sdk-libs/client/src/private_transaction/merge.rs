@@ -11,15 +11,17 @@
 //! [`AssembledTransfer`]: crate::private_transaction::AssembledTransfer
 
 use p256::SecretKey;
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_keypair::viewing_key::random_blinding;
-use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
+use zolana_keypair::{
+    shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey, P256Pubkey,
+    SignatureType,
+};
 use zolana_transaction::OutputUtxo;
 
-use crate::error::ClientError;
-use crate::private_transaction::transaction::{InputCommitment, SpendProof, SpendUtxo};
-use crate::prover::merge_p256::MergeProver;
-use crate::prover::transfer_p256::TransferSpendInput;
+use crate::{
+    error::ClientError,
+    private_transaction::transaction::{InputCommitment, SpendProof, SpendUtxo},
+    prover::{merge_p256::MergeProver, transfer_p256::TransferSpendInput},
+};
 
 /// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
 /// front; padding fills the rest with dummies.

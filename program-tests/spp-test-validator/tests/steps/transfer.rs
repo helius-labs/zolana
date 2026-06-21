@@ -15,22 +15,23 @@ use zolana_client::{
 };
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
-use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{
-    Data, SyncTransaction, TransactionEncryption, Utxo, WalletUtxo, SOL_MINT, TRANSFER,
-};
-
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-
-use crate::localnet::{
-    pack_proof, send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-    SPL_CHANGE_POSITION, ZERO,
+use zolana_transaction::{
+    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
+    utxo::derive_blinding,
+    Data, SyncTransaction, TransactionEncryption, Utxo, WalletUtxo, SOL_MINT, TRANSFER,
 };
-use crate::world::Rail;
-use crate::LifecycleWorld;
+
+use crate::{
+    localnet::{
+        pack_proof, send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+        SPL_CHANGE_POSITION, ZERO,
+    },
+    world::Rail,
+    LifecycleWorld,
+};
 
 impl LifecycleWorld {
     /// Transfer `amount` of `asset` from `from` to `to`, consolidating two of

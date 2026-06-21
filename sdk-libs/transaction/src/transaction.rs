@@ -3,14 +3,16 @@
 //! produces the `private_tx_hash` shared as a public input by the SPP and zone proofs.
 
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, OutputCiphertext,
+use zolana_interface::instruction::instruction_data::{
+    deposit::CpiSignerData,
+    transact::{ExternalDataHash, OutputCiphertext},
 };
 use zolana_keypair::hash::poseidon;
 
-use crate::error::TransactionError;
-use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
+use crate::{
+    error::TransactionError,
+    utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
+};
 
 /// Transaction-level public data the proofs commit to via `external_data_hash`.
 /// The hash is computed by the canonical [`ExternalDataHash`] from the interface

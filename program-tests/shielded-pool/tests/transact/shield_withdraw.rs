@@ -24,15 +24,14 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
-use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
-use zolana_interface::pda;
-use zolana_keypair::hash::owner_hash;
-use zolana_keypair::pubkey::PublicKey;
-use zolana_keypair::NullifierKey;
+use zolana_interface::{
+    instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal},
+    pda,
+};
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{transaction::private_tx_hash, Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{

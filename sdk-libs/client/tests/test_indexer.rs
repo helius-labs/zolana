@@ -3,14 +3,12 @@ use std::collections::HashMap;
 use light_hasher::Poseidon;
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
-    ClientError, InputCommitment, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, ProverInputs, Rpc, SignedTransaction, SpendProof,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    private_transaction::field::BN254_MODULUS_DEC, ClientError, InputCommitment, MerkleContext,
+    MerkleProof, NonInclusionProof, ProofCompressed, ProveResult, ProverClient, ProverInputs, Rpc,
+    SignedTransaction, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {

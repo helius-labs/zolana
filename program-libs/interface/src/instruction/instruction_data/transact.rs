@@ -1,10 +1,8 @@
 use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+pub use zolana_event::OutputUtxo;
 
 use super::deposit::CpiSignerData;
-pub use zolana_event::OutputUtxo;
 
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

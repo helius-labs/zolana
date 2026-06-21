@@ -1,17 +1,19 @@
-use std::thread::sleep;
-use std::time::SystemTime;
+use std::{thread::sleep, time::SystemTime};
 
 use anyhow::{bail, Result};
 use solana_signature::Signature;
 use zolana_client::{sync_wallet as client_sync_wallet, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_transaction::{AssetRegistry, Wallet};
 
-use crate::args::SyncOptions;
-use crate::cli_config::{CliConfigFile, LocalAssetConfig};
-
-use super::material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial};
-use super::resolve::resolve_sync_with_config;
-use super::{INDEXER_POLL, INDEXER_TIMEOUT};
+use super::{
+    material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial},
+    resolve::resolve_sync_with_config,
+    INDEXER_POLL, INDEXER_TIMEOUT,
+};
+use crate::{
+    args::SyncOptions,
+    cli_config::{CliConfigFile, LocalAssetConfig},
+};
 
 pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,

@@ -13,9 +13,11 @@ use zolana_interface::{
 };
 use zolana_tree::{TreeAccount, TreeError};
 
-use super::account::{load_user_record, MergeTransactAccounts};
-use super::event::{build_merge_event, MergeTreeWrite};
-use super::verify::{pk_field, MergeProof, MergeProofInputs};
+use super::{
+    account::{load_user_record, MergeTransactAccounts},
+    event::{build_merge_event, MergeTreeWrite},
+    verify::{pk_field, MergeProof, MergeProofInputs},
+};
 use crate::instructions::{
     event::emit_general_event, protocol_config::loader::load_protocol_config,
 };

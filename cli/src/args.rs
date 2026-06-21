@@ -537,8 +537,9 @@ pub(crate) fn parse_wallet(values: &[&str]) -> WalletCommand {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use clap::CommandFactory;
+
+    use super::*;
 
     #[test]
     fn test_validator_help_documents_localnet_flags() {

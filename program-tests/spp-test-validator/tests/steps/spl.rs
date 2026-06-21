@@ -5,13 +5,12 @@ use anyhow::{anyhow, Result};
 use cucumber::given;
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_test_utils::spl::{
-    create_mint, create_spl_interface, create_token_account, ensure_asset_counter,
+use zolana_test_utils::{
+    spl::{create_mint, create_spl_interface, create_token_account, ensure_asset_counter},
+    test_validator_asserts::assert_create_spl_interface,
 };
-use zolana_test_utils::test_validator_asserts::assert_create_spl_interface;
 
-use crate::world::SplAsset;
-use crate::LifecycleWorld;
+use crate::{world::SplAsset, LifecycleWorld};
 
 // SOL occupies asset id 1; the first registered SPL mint gets id 2.
 const FIRST_SPL_ASSET_ID: u64 = 2;

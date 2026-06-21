@@ -1,14 +1,20 @@
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use solana_signature::Signature;
 use zolana_interface::event::DepositView;
 use zolana_keypair::viewing_key::ViewTag;
-use zolana_transaction::transfer::OutputCiphertext;
-use zolana_transaction::{AssetRegistry, SyncReport, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{
+    transfer::OutputCiphertext, AssetRegistry, SyncReport, SyncTransaction, Wallet,
+    DEFAULT_TAG_WINDOW,
+};
 
-use crate::error::ClientError;
-use crate::rpc::{Rpc, ShieldedTransaction};
+use crate::{
+    error::ClientError,
+    rpc::{Rpc, ShieldedTransaction},
+};
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
 const DEFAULT_PAGE_LIMIT: u32 = 1_000;
@@ -245,8 +251,10 @@ impl ProoflessDepositEventSource for crate::solana_rpc::SolanaRpc {
         signature: Signature,
         view_tag: ViewTag,
     ) -> Result<Option<DepositView>, ClientError> {
-        use zolana_interface::event::{indexed_events_from_instruction_groups, proofless_output};
-        use zolana_interface::PROGRAM_ID_PUBKEY;
+        use zolana_interface::{
+            event::{indexed_events_from_instruction_groups, proofless_output},
+            PROGRAM_ID_PUBKEY,
+        };
 
         let groups = self.fetch_confirmed_instruction_groups(&signature)?.groups;
         let events = indexed_events_from_instruction_groups(PROGRAM_ID_PUBKEY, &groups);

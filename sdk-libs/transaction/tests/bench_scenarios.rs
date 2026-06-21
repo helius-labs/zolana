@@ -3,12 +3,11 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::transfer::OutputCiphertext;
-use zolana_transaction::wallet::{SyncReport, SyncTransaction, Wallet};
+use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
+    split::SplitBundlePlaintext,
+    transfer::OutputCiphertext,
+    wallet::{SyncReport, SyncTransaction, Wallet},
     AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SPLIT,
 };
 

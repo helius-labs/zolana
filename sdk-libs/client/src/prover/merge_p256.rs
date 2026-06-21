@@ -4,22 +4,24 @@
 //! merge-specific.
 
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::SecretKey;
+use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
-use zolana_keypair::merge::{
-    encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs,
+use zolana_keypair::{
+    merge::{encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs},
+    NullifierKey, P256Pubkey, PublicKey,
 };
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{OutputUtxo, MERGE};
+use zolana_transaction::{transaction::private_tx_hash, OutputUtxo, MERGE};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{asset_field, be, hash_chain};
-use crate::prover::transfer_p256::{assemble_inputs, assemble_outputs, TransferSpendInput};
-use crate::prover::MergeInputs;
+use crate::{
+    error::ClientError,
+    private_transaction::field::{asset_field, be, hash_chain},
+    prover::{
+        transfer_p256::{assemble_inputs, assemble_outputs, TransferSpendInput},
+        MergeInputs,
+    },
+};
 
 /// Merge consolidates up to 8 P256-owned inputs sharing one owner, asset, and
 /// nullifier secret into one output, verifiably encrypted to the owner's viewing
@@ -95,10 +97,16 @@ impl MergeProver {
             ));
         }
 
-        let utxo_tree_root_indices: Vec<u16> =
-            assembled_inputs.root_indices.iter().map(|(u, _)| *u).collect();
-        let nullifier_tree_root_indices: Vec<u16> =
-            assembled_inputs.root_indices.iter().map(|(_, n)| *n).collect();
+        let utxo_tree_root_indices: Vec<u16> = assembled_inputs
+            .root_indices
+            .iter()
+            .map(|(u, _)| *u)
+            .collect();
+        let nullifier_tree_root_indices: Vec<u16> = assembled_inputs
+            .root_indices
+            .iter()
+            .map(|(_, n)| *n)
+            .collect();
 
         let assembled_outputs = assemble_outputs(std::slice::from_ref(&self.output))?;
         let output_hash = *assembled_outputs

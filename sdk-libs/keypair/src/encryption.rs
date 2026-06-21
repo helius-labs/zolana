@@ -1,14 +1,17 @@
-use aes_gcm::aead::{Aead, Payload};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::{
+    aead::{Aead, Payload},
+    Aes256Gcm, KeyInit, Nonce,
+};
 use hkdf::Hkdf;
-use p256::ecdh::diffie_hellman;
-use p256::{AffinePoint, SecretKey};
+use p256::{ecdh::diffie_hellman, AffinePoint, SecretKey};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use crate::constants::{ENC_INFO_TRANSFER, GCM_NONCE_LEN, HPKE_PREFIX, P256_PUBKEY_LEN, SALT_LEN};
-use crate::error::KeypairError;
-use crate::pubkey::P256Pubkey;
+use crate::{
+    constants::{ENC_INFO_TRANSFER, GCM_NONCE_LEN, HPKE_PREFIX, P256_PUBKEY_LEN, SALT_LEN},
+    error::KeypairError,
+    pubkey::P256Pubkey,
+};
 
 pub(crate) fn ecdh_x(
     secret_key: &SecretKey,

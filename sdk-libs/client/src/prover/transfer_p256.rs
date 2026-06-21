@@ -1,16 +1,23 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
-use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
+use zolana_keypair::{
+    hash::{hash_field, owner_hash, sha256, split_be_128},
+    NullifierKey, P256Pubkey, SignatureType,
+};
+use zolana_transaction::{transaction::private_tx_hash, ExternalData, OutputUtxo, Utxo};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{be, hash_chain, right_align_slice};
-use crate::private_transaction::transaction::SpendProof;
-use crate::prover::shape::{resolve_shape, Shape};
-use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
-use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+use crate::{
+    error::ClientError,
+    private_transaction::{
+        field::{be, hash_chain, right_align_slice},
+        transaction::SpendProof,
+    },
+    prover::{
+        shape::{resolve_shape, Shape},
+        TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs,
+    },
+    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+};
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,

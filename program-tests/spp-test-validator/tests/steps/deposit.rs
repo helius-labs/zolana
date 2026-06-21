@@ -1,21 +1,25 @@
 //! `deposit` (proofless shield) steps for SOL and SPL, the World operations, and
 //! the shared assert that dispatches on the deposit's asset.
 
-use crate::deposit_action::Deposit;
 use anyhow::{anyhow, Result};
 use cucumber::{given, then};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::{indexed_events_from_instruction_groups, proofless_output};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_test_utils::spl::mint_to;
-use zolana_test_utils::test_validator_asserts::{
-    assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
+use zolana_test_utils::{
+    spl::mint_to,
+    test_validator_asserts::{
+        assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
+    },
 };
 use zolana_transaction::{Wallet, SOL_MINT};
 
-use crate::actor::{DepositRecord, SplDepositAccounts};
-use crate::LifecycleWorld;
+use crate::{
+    actor::{DepositRecord, SplDepositAccounts},
+    deposit_action::Deposit,
+    LifecycleWorld,
+};
 
 impl LifecycleWorld {
     /// Deposit SOL to an actor through the client SDK's `Deposit` action. Records

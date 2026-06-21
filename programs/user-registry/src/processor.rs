@@ -1,7 +1,8 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_user_registry_interface::instruction::{
-    discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeServiceData, SetSyncDelegateData,
+    discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeServiceData,
+    SetSyncDelegateData,
 };
 
 use crate::{

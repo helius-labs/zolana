@@ -2,10 +2,10 @@
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_api::types::{
-    Base64String, Hash as ApiHash, SerializablePubkey, ZolanaOutputSlot as ApiOutputSlot,
+use zolana_api::{
+    types::{Base64String, Hash as ApiHash, SerializablePubkey, ZolanaOutputSlot as ApiOutputSlot},
+    BlockingZolanaApi,
 };
-use zolana_api::BlockingZolanaApi;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
 use crate::{
@@ -379,8 +379,7 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
-    use p256::SecretKey;
+    use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 
     use super::*;
 

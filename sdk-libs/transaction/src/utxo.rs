@@ -2,14 +2,13 @@ use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
 pub use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::hash::sha256_be;
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN, hash::sha256_be, NullifierKey, P256Pubkey, PublicKey,
+};
 
-use crate::asset::AssetRegistry;
-use crate::data::Data;
-use crate::error::TransactionError;
-use crate::transfer::TransferRecipientPlaintext;
+use crate::{
+    asset::AssetRegistry, data::Data, error::TransactionError, transfer::TransferRecipientPlaintext,
+};
 
 fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
     let mut hasher = Poseidon::<Fr>::new_circom(inputs.len())

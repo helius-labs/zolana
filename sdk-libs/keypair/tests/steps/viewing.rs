@@ -109,9 +109,13 @@ fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {
 
 #[then(expr = "the committed P_const equals the hash-to-curve of its DST")]
 fn p_const_matches(_world: &mut KeypairWorld) {
-    use p256::elliptic_curve::hash2curve::{ExpandMsgXmd, GroupDigest};
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
-    use p256::NistP256;
+    use p256::{
+        elliptic_curve::{
+            hash2curve::{ExpandMsgXmd, GroupDigest},
+            sec1::ToEncodedPoint,
+        },
+        NistP256,
+    };
     use sha2::Sha256;
     use zolana_keypair::constants::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
 

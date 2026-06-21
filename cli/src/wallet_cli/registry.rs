@@ -2,12 +2,11 @@ use anyhow::{bail, Result};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
+use zolana_transaction::Address;
 use zolana_user_registry_interface::{
     instruction::{register, RegisterData},
     user_record_pda, UserRecord,
 };
-
-use zolana_transaction::Address;
 
 use super::material::WalletMaterial;
 
@@ -62,8 +61,9 @@ fn validate_registered_wallet(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
 
     fn wallet_material() -> WalletMaterial {
         WalletMaterial {

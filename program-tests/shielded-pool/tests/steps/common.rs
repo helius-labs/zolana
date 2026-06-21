@@ -3,11 +3,12 @@
 use cucumber::{given, then};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-
-use crate::common::{assert_custom, assert_pool_error, program_test, tree_account_size};
-use crate::ShieldedPoolWorld;
-
 use zolana_interface::error::ShieldedPoolError;
+
+use crate::{
+    common::{assert_custom, assert_pool_error, program_test, tree_account_size},
+    ShieldedPoolWorld,
+};
 
 #[given(expr = "a booted shielded pool")]
 fn boot_pool(world: &mut ShieldedPoolWorld) {

@@ -21,10 +21,11 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::private_transaction::field::{be, right_align_slice};
 use zolana_client::{
+    private_transaction::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, Rpc, ShieldedTransaction, SolanaRpc,
+    NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
+    ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
     TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
 };
 use zolana_interface::{
@@ -35,12 +36,17 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::hash::owner_hash;
-use zolana_keypair::pubkey::PublicKey;
-use zolana_keypair::NullifierKey;
+use zolana_keypair::{
+    hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey,
+};
 use zolana_program_test::{create_tree_instructions, rpc_state_root, ZolanaProgramTest};
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{
+    transaction::private_tx_hash,
+    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
+    utxo::derive_blinding,
+    AssetRegistry, Data, OutputUtxo, SyncTransaction, TransactionEncryption, Utxo, Wallet,
+    WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT, TRANSFER,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -48,17 +54,6 @@ use crate::transact_common::{
     external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, pack_proof,
     prove_and_verify_transfer, public_input_hash, public_sol_field, start_prover, transfer_output,
     TransferProverInputsArgs,
-};
-
-use zolana_client::{
-    ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-};
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{
-    AssetRegistry, SyncTransaction, TransactionEncryption, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
-    TRANSFER,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";

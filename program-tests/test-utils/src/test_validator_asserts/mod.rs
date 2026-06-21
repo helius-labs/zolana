@@ -4,22 +4,21 @@ pub mod protocol_config;
 pub mod spl_deposit;
 pub mod zone_deposit;
 
+use std::time::{Duration, Instant};
+
 pub use create_spl_interface::assert_create_spl_interface;
 pub use deposit::{assert_deposit, DepositAssertArgs};
 pub use protocol_config::assert_protocol_config;
-pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
-pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
-
-use std::time::{Duration, Instant};
-
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
 };
 use zolana_event::DepositView;
 use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
+pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);

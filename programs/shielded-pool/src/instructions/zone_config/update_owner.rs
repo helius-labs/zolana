@@ -1,8 +1,7 @@
 use borsh::BorshDeserialize;
 use light_account_checks::AccountIterator;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::instruction::UpdateZoneConfigOwnerData;
+use zolana_interface::{error::ShieldedPoolError, instruction::UpdateZoneConfigOwnerData};
 
 use crate::instructions::zone_config::loader::load_and_validate_zone_authority_mut;
 

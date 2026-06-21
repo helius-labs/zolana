@@ -1,7 +1,5 @@
 use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use crate::instruction::tag::MERGE_TRANSACT;
 

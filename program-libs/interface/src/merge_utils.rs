@@ -22,7 +22,9 @@ pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32
         .get(1..P256_PUBKEY_LEN)
         .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
     let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
-    let low = x.get(16..32).ok_or(HasherError::InvalidInputLength(16, 32))?;
+    let low = x
+        .get(16..32)
+        .ok_or(HasherError::InvalidInputLength(16, 32))?;
     let x_hash = Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])?;
     Poseidon::hashv(&[&bool_fe(y_is_odd), &x_hash])
 }

@@ -1,9 +1,8 @@
 pub mod output_utxo;
 pub mod tag;
 
-pub use output_utxo::OutputUtxo;
-
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use output_utxo::OutputUtxo;
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and

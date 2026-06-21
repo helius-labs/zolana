@@ -15,9 +15,11 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
 
-use crate::error::ClientError;
-use crate::private_transaction::{InputCommitment, SignedTransaction, SpendProof};
-use crate::prover::ProofCompressed;
+use crate::{
+    error::ClientError,
+    private_transaction::{InputCommitment, SignedTransaction, SpendProof},
+    prover::ProofCompressed,
+};
 
 pub const STATE_TREE_HEIGHT: usize = 26;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;

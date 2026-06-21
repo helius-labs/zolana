@@ -17,19 +17,20 @@ use zolana_client::{
     WithdrawalTarget,
 };
 use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
-use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{
-    SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
-};
-
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
+use zolana_transaction::{
+    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
+    utxo::derive_blinding,
+    SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
+};
 
-use crate::localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO};
-use crate::world::Rail;
-use crate::LifecycleWorld;
+use crate::{
+    localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO},
+    world::Rail,
+    LifecycleWorld,
+};
 
 impl LifecycleWorld {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient
@@ -219,7 +220,5 @@ impl LifecycleWorld {
 
 #[when(expr = "{word} withdraws {int} lamports of SOL")]
 fn withdraws(world: &mut LifecycleWorld, name: String, amount: i64) {
-    world
-        .withdraw_sol(&name, amount as u64)
-        .expect("withdraw");
+    world.withdraw_sol(&name, amount as u64).expect("withdraw");
 }

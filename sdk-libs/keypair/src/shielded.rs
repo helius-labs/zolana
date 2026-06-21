@@ -1,10 +1,12 @@
-use crate::constants::{BLINDING_LEN, SALT_LEN};
-use crate::error::KeypairError;
-use crate::hash::owner_hash;
-use crate::nullifier_key::NullifierKey;
-use crate::pubkey::{P256Pubkey, PublicKey};
-use crate::signing_key::SigningKey;
-use crate::viewing_key::ViewingKey;
+use crate::{
+    constants::{BLINDING_LEN, SALT_LEN},
+    error::KeypairError,
+    hash::owner_hash,
+    nullifier_key::NullifierKey,
+    pubkey::{P256Pubkey, PublicKey},
+    signing_key::SigningKey,
+    viewing_key::ViewingKey,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {

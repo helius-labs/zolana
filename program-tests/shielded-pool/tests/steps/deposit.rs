@@ -5,19 +5,16 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{tag, CpiSignerData, DepositIxData},
     pda,
 };
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
 use zolana_transaction::Wallet;
 
-use crate::common::assert_pool_error;
-use crate::ShieldedPoolWorld;
-
-use zolana_interface::error::ShieldedPoolError;
+use crate::{common::assert_pool_error, ShieldedPoolWorld};
 
 fn sol_accounts(
     program_test: &ZolanaProgramTest,

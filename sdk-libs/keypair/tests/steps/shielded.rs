@@ -1,9 +1,7 @@
 use cucumber::then;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::hash::owner_hash;
 use zolana_keypair::{
-    random_salt, CompressedShieldedAddress, NullifierKey, ShieldedAddress, ShieldedKeypair,
-    SigningKey, ViewingKey,
+    constants::BLINDING_LEN, hash::owner_hash, random_salt, CompressedShieldedAddress,
+    NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
 };
 
 use crate::KeypairWorld;

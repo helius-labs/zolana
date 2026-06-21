@@ -9,12 +9,13 @@ use zolana_client::{
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
 
+use super::{
+    material::WalletMaterial,
+    resolve::get_network,
+    sync::{sync_context, wait_for_indexed_transaction},
+    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+};
 use crate::args::TransferOptions;
-
-use super::material::WalletMaterial;
-use super::resolve::get_network;
-use super::sync::{sync_context, wait_for_indexed_transaction};
-use super::util::{ensure_positive, format_address, parse_address, parse_pubkey};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;

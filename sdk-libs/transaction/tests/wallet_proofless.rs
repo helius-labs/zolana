@@ -1,6 +1,8 @@
 use zolana_event::DepositView;
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{
+    constants::{BLINDING_LEN, SALT_LEN},
+    ShieldedKeypair,
+};
 use zolana_transaction::{
     owner_utxo_hash, utxo_hash, AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
     SOL_MINT, TRANSFER,

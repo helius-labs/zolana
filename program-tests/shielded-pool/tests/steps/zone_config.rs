@@ -5,16 +5,14 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::CreateZoneConfig,
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 
-use crate::common::assert_pool_error;
-use crate::ShieldedPoolWorld;
-
-use zolana_interface::error::ShieldedPoolError;
+use crate::{common::assert_pool_error, ShieldedPoolWorld};
 
 #[derive(Debug, PartialEq, Eq)]
 struct ZoneConfigState {

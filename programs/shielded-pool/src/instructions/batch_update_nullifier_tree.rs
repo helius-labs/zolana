@@ -1,11 +1,11 @@
 use borsh::BorshDeserialize;
 use light_account_checks::AccountIterator;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_interface::instruction::BatchUpdateNullifierTreeData;
-use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
+use zolana_interface::{
+    error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+};
 use zolana_tree::TreeAccount;
-
-use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::protocol_config::loader::load_protocol_config;
 

@@ -1,8 +1,10 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -12,14 +14,13 @@ use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
-use crate::args::InitOptions;
-use crate::cli_config::{
-    resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile,
+use super::{
+    registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
 };
-
-use super::registry::register_wallet_on_chain;
-use super::resolve::ResolvedSyncOptions;
-use super::util::parse_hex_array;
+use crate::{
+    args::InitOptions,
+    cli_config::{resolve_keypair_path as config_keypair_path, resolve_rpc_url, CliConfigFile},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct KeypairFile {
@@ -192,9 +193,11 @@ fn _assert_pubkey_public(pubkey: Pubkey) -> Pubkey {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        env,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
 

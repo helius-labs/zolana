@@ -7,10 +7,14 @@ use std::{
     time::Duration,
 };
 
-use crate::error::ClientError;
-use crate::prover::inputs::{MergeInputs, TransferInputs, TransferP256Inputs};
-use crate::prover::json::{to_json, to_json_merge, to_json_p256};
-use crate::prover::proof::{proof_from_gnark_json, Proof};
+use crate::{
+    error::ClientError,
+    prover::{
+        inputs::{MergeInputs, TransferInputs, TransferP256Inputs},
+        json::{to_json, to_json_merge, to_json_p256},
+        proof::{proof_from_gnark_json, Proof},
+    },
+};
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";

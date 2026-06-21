@@ -1,21 +1,22 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_event::DepositView;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    constants::SALT_LEN, viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey,
+    ShieldedKeypair, ViewingKey,
+};
 
-use zolana_keypair::constants::SALT_LEN;
-
-use crate::asset::AssetRegistry;
-use crate::data::{Data, DataRecord};
-use crate::encryption::TransactionEncryption;
-use crate::error::TransactionError;
-use crate::split::SplitEncryptedUtxos;
-use crate::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
-use crate::utxo::{owner_utxo_hash, utxo_hash, Utxo};
-use crate::{SPLIT, TRANSFER};
+use crate::{
+    asset::AssetRegistry,
+    data::{Data, DataRecord},
+    encryption::TransactionEncryption,
+    error::TransactionError,
+    split::SplitEncryptedUtxos,
+    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
+    utxo::{owner_utxo_hash, utxo_hash, Utxo},
+    SPLIT, TRANSFER,
+};
 
 #[cfg(feature = "parallel")]
 mod parallel;

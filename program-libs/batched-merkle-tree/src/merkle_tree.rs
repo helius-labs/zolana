@@ -3,10 +3,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::verify::{
-    verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
-    CompressedProof,
-};
 use light_account_checks::{
     checks::{check_account_info, set_discriminator},
     discriminator::{Discriminator, DISCRIMINATOR_LEN},
@@ -38,6 +34,10 @@ use crate::{
         deserialize_bloom_filter_stores, insert_into_current_queue_batch, BatchedQueueAccount,
     },
     queue_batch_metadata::QueueBatches,
+    verify::{
+        verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
+        CompressedProof,
+    },
     BorshDeserialize, BorshSerialize,
 };
 

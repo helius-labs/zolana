@@ -9,7 +9,6 @@ use zolana_user_registry_interface::{
     },
     user_record_pda,
 };
-
 pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
 
 pub fn build_register_ix(

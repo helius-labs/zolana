@@ -2,16 +2,18 @@ use zolana_interface::instruction::instruction_data::transact::{InputUtxo, Trans
 use zolana_keypair::SignatureType;
 use zolana_transaction::{ExternalData, OutputUtxo};
 
-use crate::error::ClientError;
-use crate::private_transaction::transaction::{
-    inputs_require_p256, CircuitType, InputCommitment, SpendProof, SpendUtxo,
+use crate::{
+    error::ClientError,
+    private_transaction::transaction::{
+        inputs_require_p256, CircuitType, InputCommitment, SpendProof, SpendUtxo,
+    },
+    prover::{
+        shape::Shape,
+        transfer::TransferProver,
+        transfer_p256::{P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput},
+        TransferInputs, TransferP256Inputs,
+    },
 };
-use crate::prover::shape::Shape;
-use crate::prover::transfer::TransferProver;
-use crate::prover::transfer_p256::{
-    P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
-};
-use crate::prover::{TransferInputs, TransferP256Inputs};
 
 #[derive(Clone)]
 pub struct SignedTransaction {

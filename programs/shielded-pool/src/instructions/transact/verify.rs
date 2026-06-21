@@ -4,11 +4,10 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 use light_hasher::{Hasher, Sha256};
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::instruction_data::transact::TransactIxDataRef,
     verifying_keys::{transfer_2_3, transfer_p256_2_3},
 };
-
-use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::verifier;
 
@@ -172,4 +171,3 @@ fn select_verifying_key(
         _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
     }
 }
-

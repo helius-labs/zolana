@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use cucumber::{given, then, when, World};
 use litesvm::LiteSVM;
@@ -8,13 +7,12 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_user_registry_interface::user_record_pda;
-
 use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
     build_set_merge_service_ix, build_set_sync_delegate_ix, fetch_user_record,
     user_registry_program_id,
 };
+use zolana_user_registry_interface::user_record_pda;
 
 #[derive(Default, World)]
 pub struct UserRegistryWorld {

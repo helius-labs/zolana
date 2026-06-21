@@ -1,8 +1,7 @@
 use light_hasher::{Hasher, Poseidon};
 use sha2::{Digest, Sha256};
 
-use crate::error::KeypairError;
-use crate::pubkey::PublicKey;
+use crate::{error::KeypairError, pubkey::PublicKey};
 
 pub fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], KeypairError> {
     Poseidon::hashv(inputs).map_err(|e| KeypairError::Poseidon(e.into()))

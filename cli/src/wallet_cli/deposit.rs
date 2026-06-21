@@ -4,14 +4,14 @@ use zolana_client::{
     create_deposit, validate_registered_keypair, CreateDeposit, SolanaRpc, ZolanaIndexer,
 };
 
-use crate::args::DepositOptions;
-use crate::cli_config::CliConfigFile;
-
-use super::material::{load_recipient_wallet, load_sender_from_resolved_sync};
-use super::resolve::get_network_with_config;
-use super::sync::wait_for_indexed_utxo;
-use super::transaction::maybe_airdrop;
-use super::util::{configured_spl_token_account, ensure_positive, format_address, parse_address};
+use super::{
+    material::{load_recipient_wallet, load_sender_from_resolved_sync},
+    resolve::get_network_with_config,
+    sync::wait_for_indexed_utxo,
+    transaction::maybe_airdrop,
+    util::{configured_spl_token_account, ensure_positive, format_address, parse_address},
+};
+use crate::{args::DepositOptions, cli_config::CliConfigFile};
 
 pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     ensure_positive(opts.amount)?;

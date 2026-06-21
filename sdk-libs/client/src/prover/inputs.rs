@@ -1,12 +1,16 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_keypair::hash::poseidon;
-use zolana_transaction::utxo::{zone_program_id_field, UTXO_DOMAIN};
-use zolana_transaction::OutputUtxo;
+use zolana_transaction::{
+    utxo::{zone_program_id_field, UTXO_DOMAIN},
+    OutputUtxo,
+};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{asset_field, be, right_align};
-use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+use crate::{
+    error::ClientError,
+    private_transaction::field::{asset_field, be, right_align},
+    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+};
 
 /// UTXO commitment fields, pre-computed by the caller. Mirrors the circuit's
 /// UtxoCircuitFields (prover/server/circuits/spp_transaction/utxo.go).

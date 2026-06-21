@@ -24,8 +24,9 @@ use zolana_client::{
     spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_interface::verifying_keys::transfer_2_3;
+use zolana_interface::{
+    instruction::instruction_data::transact::OutputCiphertext, verifying_keys::transfer_2_3,
+};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
 
