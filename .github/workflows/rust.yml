@@ -121,7 +121,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v2
+          key: proving-keys-transfer-keys-v3
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -162,7 +162,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v2
+          key: proving-keys-transfer-keys-v3
       - run: just test-programs
 
   test-localnet-photon:
@@ -194,7 +194,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v2
+          key: proving-keys-transfer-keys-v3
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
       - run: just test-localnet-e2e-photon
@@ -236,7 +236,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       # The spawned prover lazily fetches transfer proving keys from the
-      # transfer-keys-v2 release via `gh`. The release lives in this repo, so the
+      # transfer-keys-v3 release via `gh`. The release lives in this repo, so the
       # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -256,5 +256,5 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v2
+          key: proving-keys-transfer-keys-v3
       - run: just test-client-integration
