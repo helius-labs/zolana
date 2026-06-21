@@ -216,5 +216,4 @@ mod tests {
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
     }
-
 }
