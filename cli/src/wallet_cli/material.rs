@@ -310,4 +310,73 @@ mod tests {
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
     }
+
+    #[test]
+    fn wrong_inbox_is_rejected() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let inbox = material.inbox();
+        let wrong = Pubkey::new_unique();
+
+        let err = match material.shielded_address(wrong) {
+            Ok(_) => panic!("wrong inbox should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+        assert!(err.to_string().contains(&inbox.to_string()));
+
+        material
+            .shielded_address(inbox)
+            .expect("correct inbox should succeed");
+    }
+
+    #[test]
+    fn wrong_inbox_rejected_for_spend_witness() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let wrong = Pubkey::new_unique();
+        let request = SpendWitnessRequest {
+            utxo: zolana_transaction::Utxo {
+                owner: material.keypair.signing_pubkey(),
+                asset: zolana_transaction::SOL_MINT,
+                amount: 1,
+                blinding: [1u8; BLINDING_LEN],
+                zone_program_id: None,
+                data: zolana_transaction::Data::default(),
+            },
+            zone_data_hash: None,
+            program_data_hash: None,
+        };
+
+        let err = match material.create_spend_witness(wrong, request.clone()) {
+            Ok(_) => panic!("wrong inbox should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+
+        material
+            .create_spend_witness(material.inbox(), request)
+            .expect("correct inbox should succeed");
+    }
+
+    #[test]
+    fn wrong_inbox_rejected_for_sign_p256() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let wrong = Pubkey::new_unique();
+        let message_hash = [7u8; 32];
+
+        let err = match material.sign_p256(wrong, &message_hash) {
+            Ok(_) => panic!("wrong inbox should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+
+        material
+            .sign_p256(material.inbox(), &message_hash)
+            .expect("correct inbox should succeed");
+    }
 }

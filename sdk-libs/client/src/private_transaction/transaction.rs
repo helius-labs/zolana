@@ -43,19 +43,8 @@ pub struct SpendUtxo {
 
 impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
     fn from((utxo, keypair): (Utxo, &ShieldedKeypair)) -> Self {
-        let request = SpendWitnessRequest {
-            utxo: utxo.clone(),
-            zone_data_hash: None,
-            program_data_hash: None,
-        };
-        Self {
-            utxo,
-            witness: keypair
-                .create_spend_witness(Pubkey::default(), request)
-                .expect("local shielded keypair can create spend witness"),
-            zone_data_hash: None,
-            program_data_hash: None,
-        }
+        SpendUtxo::from_keypair(utxo, keypair)
+            .expect("local shielded keypair can create spend witness")
     }
 }
 
@@ -92,6 +81,10 @@ impl SpendUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
+    }
+
+    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Result<Self, ClientError> {
+        Self::from_nullifier_key(utxo, &keypair.nullifier_key)
     }
 
     pub fn from_nullifier_key(

@@ -41,7 +41,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         zone_program_id: None,
         data: Data::default(),
     };
-    SpendUtxo::from((utxo, sender))
+    SpendUtxo::from_keypair(utxo, sender).expect("test spend witness")
 }
 
 fn registry() -> AssetRegistry {
