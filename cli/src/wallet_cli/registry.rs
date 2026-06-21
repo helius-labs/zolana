@@ -8,7 +8,6 @@ use zolana_user_registry_interface::{
     instruction::{register, set_merge_service, update_keys, RegisterData, UpdateKeysData},
     user_record_pda, UserRecord,
 };
-
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync,
