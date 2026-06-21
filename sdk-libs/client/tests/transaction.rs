@@ -7,6 +7,7 @@ mod test_indexer;
 
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
@@ -49,6 +50,7 @@ fn registry() -> AssetRegistry {
 
 fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, ClientError> {
     tx.sign(
+        Pubkey::default(),
         sender,
         &registry(),
         sender.get_sender_view_tag(0).expect("sender view tag"),
@@ -499,19 +501,17 @@ fn rail_follows_input_owner_type() {
     );
     assert!(p256_tx.requires_p256_owner().unwrap());
 
-    let ed_input = SpendUtxo {
-        utxo: Utxo {
-            owner: PublicKey::from_ed25519(&[1u8; 32]),
-            asset: SOL_MINT,
-            amount: 10,
-            blinding: blinding(&mut rng),
-            zone_program_id: None,
-            data: Data::default(),
-        },
-        nullifier_key: NullifierKey::from_secret(blinding(&mut rng)),
-        zone_data_hash: None,
-        program_data_hash: None,
+    let ed_utxo = Utxo {
+        owner: PublicKey::from_ed25519(&[1u8; 32]),
+        asset: SOL_MINT,
+        amount: 10,
+        blinding: blinding(&mut rng),
+        zone_program_id: None,
+        data: Data::default(),
     };
+    let ed_input =
+        SpendUtxo::from_nullifier_key(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)))
+            .unwrap();
     let ed_tx = Transaction::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
@@ -520,7 +520,12 @@ fn rail_follows_input_owner_type() {
     assert!(!ed_tx.requires_p256_owner().unwrap());
 
     let signed = ed_tx
-        .finalize(&sender, &registry(), sender.get_sender_view_tag(0).unwrap())
+        .finalize(
+            Pubkey::default(),
+            &sender,
+            &registry(),
+            sender.get_sender_view_tag(0).unwrap(),
+        )
         .unwrap();
     let mut indexer = TestIndexer::new();
     let commitments = signed.input_commitments().unwrap();

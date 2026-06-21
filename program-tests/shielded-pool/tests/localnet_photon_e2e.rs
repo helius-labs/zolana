@@ -835,7 +835,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         TRANSFER_AMOUNT,
         recipient_view_tag,
     )?;
-    let signed = tx.sign(&sender, &assets, sender_view_tag)?;
+    let signed = tx.sign(Pubkey::default(), &sender, &assets, sender_view_tag)?;
 
     let commitments = signed.input_commitments()?;
     let mut spend_proofs = Vec::new();

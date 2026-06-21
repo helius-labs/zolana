@@ -20,16 +20,18 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
-    let recipient = parse_pubkey(&opts.to)?;
+    let destination = parse_pubkey(&opts.to)?;
 
     let withdrawal = create_withdrawal(CreateWithdrawal {
         wallet: &ctx.wallet,
-        keypair: &ctx.material.keypair,
+        authority: &ctx.material,
+        inbox: ctx.material.inbox(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient,
+        destination,
         asset,
         amount: opts.amount,
         assets: &ctx.assets,
+        spl_token_account: None,
     })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {
@@ -47,7 +49,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         "ok withdraw amount={} mint={} to={} signature={}",
         opts.amount,
         format_address(asset),
-        recipient,
+        destination,
         signature
     );
     Ok(())

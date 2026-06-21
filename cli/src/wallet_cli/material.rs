@@ -11,8 +11,18 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::SolanaRpc;
+use zolana_client::{
+    ApprovalRequest, ClientError, P256Signature, ScopedSpendWitness, SolanaRpc,
+    SpendWitnessRequest, WalletAuthority,
+};
+use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
+use zolana_keypair::shielded::ShieldedAddress;
+use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::transfer::{
+    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
+};
+use zolana_transaction::TransactionEncryption;
 
 use super::{
     registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
@@ -42,6 +52,87 @@ struct SolanaKeypairFile {
 pub(super) struct WalletMaterial {
     pub(super) keypair: ShieldedKeypair,
     pub(super) funding: Keypair,
+}
+
+impl WalletMaterial {
+    pub(super) fn inbox(&self) -> Pubkey {
+        self.funding.pubkey()
+    }
+
+    fn check_inbox(&self, inbox: Pubkey) -> std::result::Result<(), ClientError> {
+        if inbox == self.inbox() {
+            Ok(())
+        } else {
+            Err(ClientError::AddressResolution(format!(
+                "wallet file belongs to inbox {}, got {inbox}",
+                self.inbox()
+            )))
+        }
+    }
+}
+
+impl WalletAuthority for WalletMaterial {
+    fn shielded_address(&self, inbox: Pubkey) -> std::result::Result<ShieldedAddress, ClientError> {
+        self.check_inbox(inbox)?;
+        Ok(self.keypair.shielded_address()?)
+    }
+
+    fn derive_sender_view_tag(
+        &self,
+        inbox: Pubkey,
+        tx_count: u64,
+    ) -> std::result::Result<ViewTag, ClientError> {
+        self.check_inbox(inbox)?;
+        Ok(self.keypair.get_sender_view_tag(tx_count)?)
+    }
+
+    fn derive_deposit_blinding(
+        &self,
+        inbox: Pubkey,
+        salt: &[u8; SALT_LEN],
+    ) -> std::result::Result<[u8; BLINDING_LEN], ClientError> {
+        self.check_inbox(inbox)?;
+        Ok(self.keypair.viewing_key.derive_proofless_blinding(salt)?)
+    }
+
+    fn encrypt_transfer(
+        &self,
+        inbox: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender: &TransferSenderPlaintext,
+        recipients: &[RecipientOutput],
+    ) -> std::result::Result<TransferEncryptedUtxos, ClientError> {
+        self.check_inbox(inbox)?;
+        Ok(self
+            .keypair
+            .viewing_key
+            .encrypt_transfer(first_nullifier, sender, recipients)?)
+    }
+
+    fn request_user_approval(
+        &self,
+        request: ApprovalRequest,
+    ) -> std::result::Result<(), ClientError> {
+        self.check_inbox(request.inbox)
+    }
+
+    fn sign_p256(
+        &self,
+        inbox: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> std::result::Result<P256Signature, ClientError> {
+        self.check_inbox(inbox)?;
+        WalletAuthority::sign_p256(&self.keypair, inbox, message_hash)
+    }
+
+    fn create_spend_witness(
+        &self,
+        inbox: Pubkey,
+        request: SpendWitnessRequest,
+    ) -> std::result::Result<ScopedSpendWitness, ClientError> {
+        self.check_inbox(inbox)?;
+        ScopedSpendWitness::from_nullifier_key(&request, &self.keypair.nullifier_key)
+    }
 }
 
 pub(super) fn run_init(opts: InitOptions) -> Result<()> {

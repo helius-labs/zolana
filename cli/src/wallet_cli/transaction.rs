@@ -31,12 +31,14 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let transfer = create_transfer(CreateTransfer {
         rpc: &rpc,
         wallet: &ctx.wallet,
-        keypair: &ctx.material.keypair,
+        authority: &ctx.material,
+        inbox: ctx.material.inbox(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         recipient_owner,
         asset,
         amount: opts.amount,
         assets: &ctx.assets,
+        public_recipient_token_account: None,
     })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {
