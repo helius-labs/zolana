@@ -64,8 +64,8 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         user_spl_token_account: &user_spl_token_account,
         spl_token_interface: &spl_token_interface,
         cpi_signer: ix.cpi_signer,
-        sender_utxo_data: &ix.sender_utxo_data,
-        recipient_utxo_data: &ix.recipient_utxo_data,
+        output_utxo_hashes: &ix.output_utxo_hashes,
+        output_ciphertexts: &ix.output_ciphertexts,
     }
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -136,11 +136,10 @@ fn apply_tree(
         });
     }
 
-    // Leaf index the sender output lands at; recipients follow sequentially.
+    // Leaf index the first output lands at; the rest follow sequentially.
     let first_output_leaf_index = tree.utxo_tree.next_index();
-    tree.utxo_tree.append(*ix.sender_utxo_data.utxo_hash);
-    for recipient in &ix.recipient_utxo_data {
-        tree.utxo_tree.append(*recipient.utxo_hash);
+    for utxo_hash in &ix.output_utxo_hashes {
+        tree.utxo_tree.append(*utxo_hash);
     }
     Ok(TreeWrite {
         inputs,

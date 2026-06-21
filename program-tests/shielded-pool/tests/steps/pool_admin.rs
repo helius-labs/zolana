@@ -5,7 +5,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{instruction::CreateProtocolConfig, pda};
-use zolana_test_utils::asserts::assert_protocol_config;
+use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 
 use crate::common::{assert_custom, assert_pool_error, tree_account_size};
 use crate::ShieldedPoolWorld;
@@ -30,7 +30,7 @@ fn assert_config_no_merge(world: &mut ShieldedPoolWorld) {
     let config = world.protocol_config.expect("config created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
-    assert_protocol_config(rpc, &config, &authority, &authority.to_bytes());
+    litesvm_assert_protocol_config(rpc, &config, &authority, &authority.to_bytes());
 }
 
 #[then(expr = "creating the protocol config again is rejected as invalid")]
@@ -87,7 +87,7 @@ fn assert_config_one_merge(world: &mut ShieldedPoolWorld) {
     let merge = world.merge_authority.expect("merge authority created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
-    assert_protocol_config(rpc, &config, &authority, &merge);
+    litesvm_assert_protocol_config(rpc, &config, &authority, &merge);
 }
 
 #[when(expr = "the authority rotates to a new authority with a new merge authority")]

@@ -7,6 +7,7 @@ edition.workspace = true
 
 [dependencies]
 zolana-interface = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

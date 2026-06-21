@@ -57,10 +57,11 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
 	}
 
-	// Transfer circuits are keyed by (nInputs, nOutputs) instead of a tree
-	// height, so they are exempt from the tree-height requirement below.
+	// Transfer and merge circuits are keyed by their fixed shape instead of a
+	// tree height, so they are exempt from the tree-height requirement below.
 	isTransfer := CircuitType(circuitType) == TransferP256CircuitType ||
-		CircuitType(circuitType) == TransferCircuitType
+		CircuitType(circuitType) == TransferCircuitType ||
+		CircuitType(circuitType) == MergeCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.

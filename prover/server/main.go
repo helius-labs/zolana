@@ -12,6 +12,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -137,6 +138,40 @@ func runCli() {
 						Int64("bytes_written", written).
 						Str("output", path).
 						Msg("Transfer proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-merge",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					path := context.String("output")
+					ps, err := mergeprover.SetupMerge()
+					if err != nil {
+						return err
+					}
+					file, err := os.Create(path)
+					if err != nil {
+						return err
+					}
+					defer func(file *os.File) {
+						if cerr := file.Close(); cerr != nil {
+							logging.Logger().Error().Err(cerr).Msg("error closing file")
+						}
+					}(file)
+
+					written, err := ps.WriteTo(file)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("n_inputs", mergeprover.MergeNInputs).
+						Uint32("n_outputs", mergeprover.MergeNOutputs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Merge proving system written")
 					return nil
 				},
 			},

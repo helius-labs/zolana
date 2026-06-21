@@ -42,6 +42,7 @@ pub mod constants;
 pub(crate) mod encryption;
 pub mod error;
 pub mod hash;
+pub mod merge;
 pub mod nullifier_key;
 pub mod pubkey;
 pub mod shielded;
@@ -53,7 +54,7 @@ pub use nullifier_key::NullifierKey;
 pub use pubkey::{P256Pubkey, PublicKey, SignatureType};
 pub use shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair};
 pub use signing_key::SigningKey;
-pub use viewing_key::{random_salt, ViewingKey};
+pub use viewing_key::{random_blinding, random_salt, ViewingKey};
 
 pub type Signature = [u8; 64];
 

@@ -30,9 +30,9 @@ use zolana_transaction::transaction::private_tx_hash;
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
-    external_data_hash, fe, new_transact_ix_data, prove_and_verify_transfer, public_input_hash,
-    start_prover, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, prove_and_verify_transfer,
+    public_input_hash, start_prover, TransferProverInputsArgs,
 };
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
@@ -83,6 +83,17 @@ fn transact_sends_valid_proof() {
     // Two circuit-dummy inputs with distinct non-zero nullifiers (the program
     // inserts both into the nullifier tree; zeros or duplicates are rejected).
     let nullifiers = [fe(1), fe(2)];
+
+    // Three dummy outputs (`owner_hash = 0`) with distinct blindings. Each has a real
+    // `utxo_hash` that the program appends to the tree and the proof commits via the
+    // public output chain; all three contribute `0` to `private_tx_hash`.
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+        .iter()
+        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
+        .collect();
+    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
+    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+
     // Instruction data; `proof` and `private_tx_hash` are filled in once the
     // external-data hash (which excludes both) is known.
     let mut transact_ix_data = new_transact_ix_data(
@@ -91,8 +102,11 @@ fn transact_sends_valid_proof() {
             .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
             .collect(),
         None,
-        dummy_ix_output(),
-        vec![dummy_ix_output(); 2],
+        output_hashes.clone(),
+        vec![
+            ix_output_ciphertext([1u8; 32]),
+            ix_output_ciphertext([2u8; 32]),
+        ],
     );
 
     // external_data_hash via the shared interface struct: the program computes
@@ -100,7 +114,7 @@ fn transact_sends_valid_proof() {
     let external_data_hash =
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
 
-    // Dummy inputs/outputs contribute zero hashes to private_tx_hash.
+    // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
     let private_tx = private_tx_hash(&[zero, zero], &[zero, zero, zero], &external_data_hash)
         .expect("private tx hash");
 
@@ -108,9 +122,11 @@ fn transact_sends_valid_proof() {
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
+    // The public output chain folds the real output hashes (even for dummies),
+    // exactly as the program's `output_chain` folds `output_utxo_hashes`.
     let public_input_hash = public_input_hash(
         &nullifiers,
-        &[zero, zero, zero],
+        &output_hashes,
         &[utxo_root, utxo_root],
         &[nullifier_root, nullifier_root],
         &private_tx,
@@ -125,7 +141,7 @@ fn transact_sends_valid_proof() {
             dummy_input(&nullifiers[0], roots, &owner_hash),
             dummy_input(&nullifiers[1], roots, &owner_hash),
         ],
-        outputs: vec![TransferOutput::new_dummy(); 3],
+        outputs,
         external_data_hash,
         private_tx_hash: private_tx,
         public_sol_amount: zero,

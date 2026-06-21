@@ -7,7 +7,7 @@ use zolana_interface::{instruction::ZoneDeposit, pda};
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::asserts::assert_zone_deposit;
+use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
 use zolana_transaction::Wallet;
 
 use crate::ShieldedPoolWorld;
@@ -41,7 +41,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .zone_deposit(&tree, &depositor, &data)
         .expect("zone deposit");
 
-    assert_zone_deposit(
+    litesvm_assert_zone_deposit(
         world.rpc(),
         &tree,
         &event,
@@ -100,7 +100,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         Some(user_token_before - amount),
         "user token account shrinks by the deposit"
     );
-    assert_zone_deposit(
+    litesvm_assert_zone_deposit(
         world.rpc(),
         &tree,
         &event,
@@ -125,14 +125,16 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("fund");
 
-    let data = world.rpc().zone_sol_shield_data(1_000_000, [3u8; 32]);
+    let data = world
+        .rpc()
+        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 31]);
     let mut ix = ZoneDeposit {
         tree,
         depositor: depositor.pubkey(),
         spl: None,
         view_tag: data.view_tag,
-        owner_utxo_hash: data.owner_utxo_hash,
-        salt: data.salt,
+        owner: data.owner,
+        blinding: data.blinding,
         public_amount: data.public_amount,
         cpi_signer: data.cpi_signer,
         policy_data_hash: data.policy_data_hash,

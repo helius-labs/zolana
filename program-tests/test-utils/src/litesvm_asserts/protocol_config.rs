@@ -8,7 +8,7 @@ use zolana_program_test::ZolanaProgramTest;
 /// authority equals `authority`, the merge authority equals `merge_authority`,
 /// and both permissionless flags are off.
 #[track_caller]
-pub fn assert_protocol_config(
+pub fn litesvm_assert_protocol_config(
     program_test: &ZolanaProgramTest,
     config: &Pubkey,
     authority: &Pubkey,

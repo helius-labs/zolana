@@ -4,6 +4,12 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 
+[features]
+# Decode and indexer-reconstruction helpers (used by indexers and wallet deposit
+# discovery, never by the on-chain program). Off by default so the program build
+# stays lean.
+program-test = []
+
 [dependencies]
 borsh = { workspace = true }
 solana-pubkey = { workspace = true }

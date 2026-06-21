@@ -1,5 +1,5 @@
-use zolana_interface::event::DepositView;
-use zolana_keypair::constants::SALT_LEN;
+use zolana_event::DepositView;
+use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     owner_utxo_hash, utxo_hash, AssetRegistry, SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
@@ -7,14 +7,9 @@ use zolana_transaction::{
 };
 
 fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> DepositView {
-    let salt = [9u8; SALT_LEN];
-    let blinding = wallet
-        .keypair
-        .viewing_key
-        .derive_proofless_blinding(&salt)
-        .expect("derive proofless blinding");
-    let owner_hash = wallet.keypair.owner_hash().expect("owner hash");
-    let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding).expect("owner UTXO hash");
+    let blinding = [9u8; BLINDING_LEN];
+    let owner = wallet.keypair.owner_hash().expect("owner hash");
+    let owner_utxo_hash = owner_utxo_hash(&owner, &blinding).expect("owner UTXO hash");
     let utxo_hash = utxo_hash(
         SOL_MINT,
         amount,
@@ -32,8 +27,8 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> DepositView {
         amount,
         zone_program_id: None,
         policy_data_hash: None,
-        owner_utxo_hash,
-        salt,
+        owner,
+        blinding,
         program_data_hash: None,
         program_data: None,
         zone_data: None,

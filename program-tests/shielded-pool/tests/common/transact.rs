@@ -6,9 +6,9 @@ mod transact_core;
 // `pack_proof`), so suppress unused-import noise here rather than per binary.
 #[allow(unused_imports)]
 pub use transact_core::{
-    build_transfer_prover_inputs, dummy_input, dummy_ix_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output, new_transact_ix_data, pack_proof, prove_and_verify_transfer,
-    public_input_hash, start_prover, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, pack_proof,
+    prove_and_verify_transfer, public_input_hash, start_prover, TransferProverInputsArgs,
 };
 
 use anyhow::{Context, Result};

@@ -6,7 +6,15 @@ publish = false
 
 [dependencies]
 bytemuck = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }

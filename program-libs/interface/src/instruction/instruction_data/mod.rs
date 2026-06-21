@@ -9,5 +9,7 @@ pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedPr
 pub use create_tree::CreateTreeData;
 pub use deposit::{CpiSignerData, DepositIxData, ZoneDepositIxData};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
-pub use transact::{InputUtxo, OutputUtxo, OutputUtxoRef, TransactIxData, TransactIxDataRef};
+pub use transact::{
+    InputUtxo, OutputCiphertext, OutputCiphertextRef, OutputUtxo, TransactIxData, TransactIxDataRef,
+};
 pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData};

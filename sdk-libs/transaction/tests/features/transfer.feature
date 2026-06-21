@@ -33,8 +33,8 @@ Feature: Transfer output UTXO serialization
     When "sender" builds a transfer paying 1000 to "alice" and 2000 to "bob"
     Then "alice" can read their slot but not the slot of "bob"
 
-  Scenario: A tampered recipient slot count is rejected
+  Scenario: An extra recipient slot is ignored
     Given a shielded keypair "sender"
     And a shielded keypair "alice"
     When "sender" builds a transfer paying 1000 to "alice"
-    Then a tampered recipient slot count is rejected for "sender"
+    Then an extra recipient slot is ignored for "sender"

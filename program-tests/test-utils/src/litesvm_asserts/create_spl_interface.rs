@@ -17,7 +17,7 @@ const TOKEN_ACCOUNT_OWNER_END: usize = 64;
 /// counter now points at `expected_next_asset_id`; and the vault is an empty
 /// token account for the mint owned by the SPL vault authority.
 #[track_caller]
-pub fn assert_create_spl_interface(
+pub fn litesvm_assert_create_spl_interface(
     program_test: &ZolanaProgramTest,
     registry: &Pubkey,
     vault: &Pubkey,

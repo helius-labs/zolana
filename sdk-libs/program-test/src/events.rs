@@ -1,10 +1,8 @@
 use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use zolana_interface::event::{
-    indexed_events_from_instruction_groups, proofless_output, DepositView,
-};
-pub use zolana_interface::event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_event::{indexed_events_from_instruction_groups, proofless_output, DepositView};
+pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 
 use crate::{ProgramTestError, TestIndexer};
 

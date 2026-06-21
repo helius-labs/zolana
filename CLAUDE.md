@@ -381,3 +381,5 @@ renames should be split unless the task explicitly asks for a combined change.
 
 ## Solana account deserialization
 - never deserialize an account twice
+
+1. use solana_address::Address NOT solana_pubkey::Pubkey which is an alias of Address

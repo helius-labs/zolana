@@ -11,6 +11,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -1116,6 +1117,9 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 60
 	case common.TransferCircuitType:
 		return 30
+	case common.MergeCircuitType:
+		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
+		return 60
 	default:
 		return 1
 	}
@@ -1134,9 +1138,32 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.transferProof(buf)
 	case common.TransferCircuitType:
 		return handler.transferEddsaProof(buf)
+	case common.MergeCircuitType:
+		return handler.mergeProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
+}
+
+func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
+	var params mergeprover.MergeParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("merge: %w", err))
+	}
+
+	proof, err := mergeprover.ProveMerge(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
 }
 
 func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, *Error) {

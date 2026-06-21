@@ -87,4 +87,16 @@ pub enum ClientError {
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
+
+    #[error("proof path has {got} elements, expected {expected}")]
+    ProofPathLength { got: usize, expected: usize },
+
+    #[error("assembled witness has {got} input slots, expected {expected}")]
+    WitnessInputCountMismatch { got: usize, expected: usize },
+
+    #[error("deposit funding account not found: {address:?}")]
+    AccountNotFound { address: [u8; 32] },
+
+    #[error("SOL deposit funding account {sender:?} must be the signing authority")]
+    DepositSenderNotSigner { sender: [u8; 32] },
 }

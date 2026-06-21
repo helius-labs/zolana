@@ -103,7 +103,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
-# `#[serial]` test restarts a fresh validator + Photon (tools/restart-localnet.sh),
+# `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
 # so the protocol-config singleton never collides across tests.
 test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
@@ -116,7 +116,6 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
@@ -127,7 +126,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 
 # BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
 # scenario (program-tests/spp-test-validator). The prover server persists; each
-# cucumber scenario restarts the validator + Photon via tools/restart-localnet.sh.
+# cucumber scenario restarts the validator + Photon via the `zolana` CLI.
 test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -139,12 +138,31 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle
+
+# Run only the decode scenario from test-spp-validator, which prints the parsed
+# `transact` instruction data, its named accounts, and the emitted event. The test
+# binary has `harness = false`, so the prints reach the terminal directly.
+test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p spp-test-validator --test lifecycle -- --name "instruction data and accounts decode"
 
 install-surfpool:
     #!/usr/bin/env bash

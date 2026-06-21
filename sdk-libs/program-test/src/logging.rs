@@ -13,8 +13,9 @@ use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
+use zolana_event::{decode_event_payload, proofless_output, DepositView};
 use zolana_interface::{
-    event::{decode_event_payload, proofless_output, DepositView, GeneralEvent},
+    event::GeneralEvent,
     instruction::{
         tag, BatchUpdateNullifierTreeData, CreateProtocolConfigData, CreateZoneConfigData,
         DepositIxData, PauseTreeData, TransactIxData, UpdateProtocolConfigData,
@@ -205,8 +206,11 @@ fn event_summary(event: &IndexedEvent) -> String {
     }
 }
 
-struct ZolanaInstructionDecoder {
-    program_id: Pubkey,
+/// Decodes shielded-pool instructions (and the indexer's `emit_event` payload)
+/// into named fields and account names for the enhanced transaction logger. It is
+/// also exported so tests can decode a single instruction they built.
+pub struct ZolanaInstructionDecoder {
+    pub program_id: Pubkey,
 }
 
 impl InstructionDecoder for ZolanaInstructionDecoder {
@@ -221,8 +225,13 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
     fn decode(&self, data: &[u8], accounts: &[AccountMeta]) -> Option<DecodedInstruction> {
         let (&tag, payload) = data.split_first()?;
         match tag {
-            tag::TRANSACT => TransactIxData::deserialize(payload).ok().and_then(|data| {
-                decoded_instruction("transact", transact_fields(data), &["authority", "tree"])
+            tag::TRANSACT => TransactIxData::deserialize(payload).ok().map(|data| {
+                let account_names = transact_accounts(&data, accounts.len());
+                DecodedInstruction::with_fields_and_accounts(
+                    "transact",
+                    transact_fields(data),
+                    account_names,
+                )
             }),
             tag::DEPOSIT => DepositIxData::deserialize(payload).ok().and_then(|data| {
                 decoded_instruction(
@@ -442,6 +451,33 @@ fn zone_proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'
     }
 }
 
+/// Names every account of a `transact` in builder order: `payer`, `tree`, the
+/// optional `cpi_signer` (present iff the data carries one), the optional
+/// public-amount accounts (SOL or SPL, present iff the data carries that public
+/// amount), and the program account last for the `emit_event` self-CPI. Mirrors
+/// the `Transact` builder layout. A pure shielded transfer carries no public
+/// amount, so it names just `payer`, `tree`, `self_program`.
+fn transact_accounts(data: &TransactIxData, account_count: usize) -> Vec<String> {
+    let mut names: Vec<&str> = vec!["payer", "tree"];
+    if data.cpi_signer.is_some() {
+        names.push("cpi_signer");
+    }
+    // The public-amount accounts sit between cpi_signer and the trailing program
+    // account; their count distinguishes an SPL withdrawal (carries cpi_authority)
+    // from an SPL shield.
+    let public_account_count = account_count.saturating_sub(names.len() + 1);
+    if data.public_sol_amount.is_some() {
+        names.extend(["sol_interface", "recipient", "system_program"]);
+    } else if data.public_spl_amount.is_some() {
+        if public_account_count == 5 {
+            names.push("cpi_authority");
+        }
+        names.extend(["vault", "recipient", "user_token", "token_program"]);
+    }
+    names.push("self_program");
+    names.into_iter().map(String::from).collect()
+}
+
 fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
     vec![
         field("expiry_unix_ts", data.expiry_unix_ts),
@@ -449,7 +485,8 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
         field("inputs", data.inputs.len()),
         field("public_sol_amount", option_i64(data.public_sol_amount)),
         field("public_spl_amount", option_i64(data.public_spl_amount)),
-        field("recipient_utxo_data", data.recipient_utxo_data.len()),
+        field("output_utxo_hashes", data.output_utxo_hashes.len()),
+        field("output_ciphertexts", data.output_ciphertexts.len()),
         field("cpi_signer", data.cpi_signer.is_some()),
     ]
 }
@@ -457,8 +494,8 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
 fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
-        field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
-        field("salt", short_hex(&data.salt)),
+        field("owner", short_hex(&data.owner)),
+        field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
         field("program_data_hash", option_hash(data.program_data_hash)),
         field(
@@ -472,8 +509,8 @@ fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
 fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
     vec![
         field("view_tag", short_hex(&data.view_tag)),
-        field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
-        field("salt", short_hex(&data.salt)),
+        field("owner", short_hex(&data.owner)),
+        field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
         field("cpi_signer", cpi_signer(Some(data.cpi_signer))),
         field("policy_data_hash", option_hash(data.policy_data_hash)),
@@ -491,7 +528,8 @@ fn proofless_view_fields(data: DepositView) -> Vec<DecodedField> {
         field("view_tag", short_hex(&data.view_tag)),
         field("utxo_hash", short_hex(&data.utxo_hash)),
         field("leaf_index", data.leaf_index),
-        field("owner_utxo_hash", short_hex(&data.owner_utxo_hash)),
+        field("owner", short_hex(&data.owner)),
+        field("blinding", short_hex(&data.blinding)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
         field("policy_data_hash", option_hash(data.policy_data_hash)),
         field("program_data_hash", option_hash(data.program_data_hash)),
@@ -670,8 +708,8 @@ mod tests {
         data.extend_from_slice(
             &DepositIxData {
                 view_tag: [1; 32],
-                owner_utxo_hash: [2; 32],
-                salt: [3; 16],
+                owner: [2; 32],
+                blinding: [3; 31],
                 public_amount: Some(42),
                 program_data_hash: None,
                 program_data: None,

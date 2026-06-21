@@ -1,7 +1,8 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::DepositView, instruction::DepositIxData};
+use zolana_event::DepositView;
+use zolana_interface::instruction::DepositIxData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -14,7 +15,7 @@ use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 /// `root_before` is the on-chain state root captured before the deposit.
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
-pub fn assert_deposit(
+pub fn litesvm_assert_deposit(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
     event: &DepositView,
@@ -26,12 +27,9 @@ pub fn assert_deposit(
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, expected_asset, "event asset");
-    assert_eq!(
-        event.owner_utxo_hash, data.owner_utxo_hash,
-        "owner utxo hash"
-    );
+    assert_eq!(event.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(event.salt, data.salt, "salt");
+    assert_eq!(event.blinding, data.blinding, "blinding");
 
     let root_after = program_test.state_root(tree).expect("state root");
     assert_ne!(root_after, root_before, "leaf must be appended");
@@ -47,12 +45,9 @@ pub fn assert_deposit(
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
     assert_eq!(
-        by_tag[0]
-            .proofless()
-            .expect("proofless deposit")
-            .owner_utxo_hash,
-        data.owner_utxo_hash,
-        "indexed record owner utxo hash"
+        by_tag[0].proofless().expect("proofless deposit").owner,
+        data.owner,
+        "indexed record owner"
     );
 
     let before = recipient.utxos.len();

@@ -1,7 +1,8 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{event::DepositView, instruction::DepositIxData};
+use zolana_event::DepositView;
+use zolana_interface::instruction::DepositIxData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -15,7 +16,7 @@ use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 /// the deposit; `root_before` is the on-chain state root captured before it.
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
-pub fn assert_spl_deposit(
+pub fn litesvm_assert_spl_deposit(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
     mint: &Pubkey,
@@ -31,11 +32,9 @@ pub fn assert_spl_deposit(
 ) {
     assert_eq!(event.amount, expected_amount, "event amount");
     assert_eq!(event.asset, mint.to_bytes(), "event asset is the mint");
-    assert_eq!(
-        event.owner_utxo_hash, data.owner_utxo_hash,
-        "owner utxo hash"
-    );
+    assert_eq!(event.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
+    assert_eq!(event.blinding, data.blinding, "blinding");
 
     assert_eq!(
         program_test.token_balance(vault),

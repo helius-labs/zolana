@@ -202,11 +202,14 @@ jobs:
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |
+          # Services log under a test-ledger dir whose location depends on the
+          # spawning process's cwd, so search rather than assume the repo root.
           echo "=== prover-server.log ==="
           find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
             || echo "(no prover log)"
           echo "=== photon log ==="
-          tail -100 /tmp/zolana-photon.log 2>/dev/null || echo "(no photon log)"
+          find . -name photon.log -exec sh -c 'echo "--- {} ---"; tail -100 "{}"' \; 2>/dev/null \
+            || echo "(no photon log)"
 
   test-user-registry-litesvm:
     name: tests / user-registry litesvm

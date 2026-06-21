@@ -16,10 +16,10 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::constants::{
-    BLINDING_LEN, INFO_DEPOSIT_BLINDING, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET,
-    INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-    INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
-    INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
+    BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
+    INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
+    INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P_CONST_SEC1,
+    SALT_LEN, VIEW_TAG_LEN,
 };
 use crate::encryption;
 use crate::error::KeypairError;
@@ -51,6 +51,14 @@ pub fn random_salt() -> Salt {
     let mut salt = [0u8; SALT_LEN];
     OsRng.fill_bytes(&mut salt);
     salt
+}
+
+/// A 31-byte blinding is always below the BN254 field modulus, so a fresh
+/// random value needs no rejection sampling.
+pub fn random_blinding() -> [u8; BLINDING_LEN] {
+    let mut blinding = [0u8; BLINDING_LEN];
+    OsRng.fill_bytes(&mut blinding);
+    blinding
 }
 
 pub(crate) fn hkdf_expand(
@@ -159,16 +167,6 @@ impl ViewingKey {
         )
     }
 
-    pub fn derive_proofless_blinding(
-        &self,
-        salt: &Salt,
-    ) -> Result<[u8; BLINDING_LEN], KeypairError> {
-        let secret = self.recipient_view_tag_secret()?;
-        let mut out = [0u8; BLINDING_LEN];
-        hkdf_expand(None, &secret, &[INFO_DEPOSIT_BLINDING, salt], &mut out)?;
-        Ok(out)
-    }
-
     /// Merge view tag for the merged output at `merge_count`, namespaced by the
     /// merge service's `merge_authority_pubkey`; derived by the owner and its
     /// sync delegate, indexed by the owner.
@@ -275,6 +273,16 @@ impl ViewingKey {
             &salt,
             slot_index,
         )
+    }
+
+    /// Decrypts a merge ciphertext (Poseidon KDF + AES-256-CTR) to its plaintext
+    /// bundle. The owner reconstructs the merged UTXO from the recovered fields.
+    pub fn decrypt_merge(
+        &self,
+        tx_viewing_pubkey: &P256Pubkey,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, KeypairError> {
+        crate::merge::decrypt_merge(&self.secret, tx_viewing_pubkey, ciphertext)
     }
 
     pub fn encrypt_slot(

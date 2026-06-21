@@ -2,14 +2,22 @@ use std::collections::HashMap;
 
 use light_hasher::Poseidon;
 use num_bigint::BigUint;
+use solana_address::Address;
 use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
-    CircuitType, ClientError, InputCommitment, NullifierNonInclusionProof, ProofCompressed,
-    ProveResult, ProverClient, Rpc, SignedTransaction, SpendProof, StateInclusionProof,
+    ClientError, InputCommitment, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
+    ProveResult, ProverClient, ProverInputs, Rpc, SignedTransaction, SpendProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_merkle_tree::MerkleTree;
+
+fn test_merkle_context() -> MerkleContext {
+    MerkleContext {
+        tree_type: 0,
+        tree: Address::default(),
+    }
+}
 
 /// Wraps a Poseidon state tree (UTXO inclusion) and an indexed Poseidon nullifier
 /// tree (nullifier non-inclusion) so it can answer [`Rpc`] proof queries with
@@ -55,32 +63,36 @@ impl TestIndexer {
             .leaf_index
             .get(&commitment.utxo_hash)
             .expect("utxo hash not indexed; call add_utxo first");
-        let path_elements = self
+        let path = self
             .state_tree
             .get_proof_of_leaf(leaf_index, true)
             .expect("state proof")
-            .try_into()
-            .expect("state path length");
-        let state = StateInclusionProof {
-            path_elements,
+            .to_vec();
+        let state = MerkleProof {
+            leaf: commitment.utxo_hash,
+            merkle_context: test_merkle_context(),
+            path,
             leaf_index: leaf_index as u64,
             root: self.state_tree.root(),
+            root_seq: 0,
+            root_index: 0,
         };
 
         let proof = self
             .nullifier_tree
             .get_non_inclusion_proof(&BigUint::from_bytes_be(&commitment.nullifier))
             .expect("nullifier non-inclusion proof");
-        let low_path_elements = proof
-            .merkle_proof
-            .try_into()
-            .expect("nullifier path length");
-        let nullifier = NullifierNonInclusionProof {
-            low_value: proof.leaf_lower_range_value,
-            next_value: proof.leaf_higher_range_value,
-            low_path_elements,
-            low_leaf_index: proof.leaf_index as u64,
+        let nullifier = NonInclusionProof {
+            leaf: commitment.nullifier,
+            merkle_context: test_merkle_context(),
+            path: proof.merkle_proof.to_vec(),
+            low_element: proof.leaf_lower_range_value,
+            low_element_index: proof.leaf_index as u64,
+            high_element: proof.leaf_higher_range_value,
+            high_element_index: 0,
             root: proof.root,
+            root_seq: 0,
+            root_index: 0,
         };
 
         Ok(SpendProof { state, nullifier })
@@ -107,26 +119,16 @@ impl Rpc for TestIndexer {
     fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_commitments()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
+        let assembled = transaction.assemble(&input_merkle_proofs)?;
         // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
-        match transaction.into_prover(&input_merkle_proofs)? {
-            CircuitType::P256(prover) => {
-                let result = prover.build()?;
-                let proof = ProverClient::local().prove_transfer_p256(&result.inputs)?;
-                Ok(ProveResult {
-                    proof: ProofCompressed::try_from(proof)?,
-                    public_inputs: vec![result.public_input_hash],
-                    circuit_id: 1,
-                })
-            }
-            CircuitType::Eddsa(prover) => {
-                let result = prover.build()?;
-                let proof = ProverClient::local().prove_transfer(&result.inputs)?;
-                Ok(ProveResult {
-                    proof: ProofCompressed::try_from(proof)?,
-                    public_inputs: vec![result.public_input_hash],
-                    circuit_id: 0,
-                })
-            }
-        }
+        let (proof, circuit_id) = match &assembled.prover_inputs {
+            ProverInputs::P256(inputs) => (ProverClient::local().prove_transfer_p256(inputs)?, 1),
+            ProverInputs::Eddsa(inputs) => (ProverClient::local().prove_transfer(inputs)?, 0),
+        };
+        Ok(ProveResult {
+            proof: ProofCompressed::try_from(proof)?,
+            public_inputs: vec![assembled.public_input_hash],
+            circuit_id,
+        })
     }
 }

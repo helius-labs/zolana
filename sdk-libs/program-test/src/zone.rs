@@ -2,8 +2,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_event::DepositView;
 use zolana_interface::{
-    event::DepositView,
     instruction::{
         encode_instruction, tag, CpiSignerData, CreateZoneConfigData, DepositSplAccounts,
         UpdateZoneConfig, UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
@@ -104,13 +104,14 @@ impl ZolanaProgramTest {
     pub fn zone_sol_shield_data(
         &self,
         lamports: u64,
-        owner_utxo_hash: [u8; 32],
+        owner: [u8; 32],
+        blinding: [u8; BLINDING_LEN],
     ) -> ZoneDepositIxData {
         let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         ZoneDepositIxData {
             view_tag: [0u8; 32],
-            owner_utxo_hash,
-            salt: [0u8; 16],
+            owner,
+            blinding,
             public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: ZONE_TEST_PROGRAM_ID,
@@ -152,8 +153,8 @@ impl ZolanaProgramTest {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
             view_tag: fields.view_tag,
-            owner_utxo_hash: fields.owner_utxo_hash,
-            salt: fields.salt,
+            owner: fields.owner,
+            blinding: fields.blinding,
             public_amount: Some(lamports),
             cpi_signer: CpiSignerData {
                 program_id: zone_program_id,
@@ -177,8 +178,8 @@ impl ZolanaProgramTest {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
             view_tag: fields.view_tag,
-            owner_utxo_hash: fields.owner_utxo_hash,
-            salt: fields.salt,
+            owner: fields.owner,
+            blinding: fields.blinding,
             public_amount: Some(amount),
             cpi_signer: CpiSignerData {
                 program_id: ZONE_TEST_PROGRAM_ID,
@@ -202,8 +203,8 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             spl: None,
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             cpi_signer: data.cpi_signer,
             policy_data_hash: data.policy_data_hash,
@@ -235,8 +236,8 @@ impl ZolanaProgramTest {
                 token_program: Self::token_program_id(),
             }),
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             cpi_signer: data.cpi_signer,
             policy_data_hash: data.policy_data_hash,

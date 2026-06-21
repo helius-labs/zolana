@@ -13,22 +13,31 @@ tag="${1:-transfer-keys-v2}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 
-assets=(
+key_assets=(
     "${keys_dir}/transfer_2_3.key"
     "${keys_dir}/transfer_p256_2_3.key"
-    "${keys_dir}/CHECKSUM"
+    "${keys_dir}/merge_8_1.key"
 )
 
-for asset in "${assets[@]}"; do
+for asset in "${key_assets[@]}"; do
     if [[ ! -f "$asset" ]]; then
         echo "Missing asset: $asset" >&2
-        echo "Run scripts/generate_keys_transfer.sh and scripts/generate_checksums.py first." >&2
+        echo "Run scripts/generate_keys_transfer.sh and scripts/generate_keys_merge.sh first." >&2
         exit 1
     fi
 done
 
-# Regenerate CHECKSUM so it matches the keys being uploaded.
-python3 scripts/generate_checksums.py
+# Regenerate CHECKSUM so it matches exactly the keys being uploaded. The shared
+# generate_checksums.py hashes the whole proving-keys directory (squads keys,
+# the CHECKSUM file itself); here we want a release manifest of only the keys
+# served from this release.
+checksum_file="${keys_dir}/CHECKSUM"
+: > "$checksum_file"
+for asset in "${key_assets[@]}"; do
+    shasum -a 256 "$asset" | awk -v name="$(basename "$asset")" '{print $1 "  " name}' >> "$checksum_file"
+done
+
+assets=("${key_assets[@]}" "$checksum_file")
 
 if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     echo "Release $tag exists; uploading/overwriting assets"

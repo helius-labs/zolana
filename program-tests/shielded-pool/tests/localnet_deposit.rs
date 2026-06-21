@@ -7,8 +7,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
+use zolana_event::{
+    indexed_events_from_instruction_groups, instruction_may_emit_events, DepositView,
+};
 use zolana_interface::{
-    event::{indexed_events_from_instruction_groups, instruction_may_emit_events, DepositView},
     instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
     pda,
     state::tree_account_size,
@@ -108,8 +110,8 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         depositor: depositor.pubkey(),
         spl: None,
         view_tag: direct_data.view_tag,
-        owner_utxo_hash: direct_data.owner_utxo_hash,
-        salt: direct_data.salt,
+        owner: direct_data.owner,
+        blinding: direct_data.blinding,
         public_amount: direct_data.public_amount,
         program_data_hash: direct_data.program_data_hash,
         program_data: direct_data.program_data,
@@ -148,8 +150,8 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         depositor: depositor.pubkey(),
         spl: None,
         view_tag: zone_data.view_tag,
-        owner_utxo_hash: zone_data.owner_utxo_hash,
-        salt: zone_data.salt,
+        owner: zone_data.owner,
+        blinding: zone_data.blinding,
         public_amount: zone_data.public_amount,
         cpi_signer: zone_data.cpi_signer,
         policy_data_hash: zone_data.policy_data_hash,

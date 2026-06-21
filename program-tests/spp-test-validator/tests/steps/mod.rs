@@ -1,2 +1,6 @@
 mod common;
-mod lifecycle;
+mod decode;
+mod deposit;
+mod spl;
+mod transfer;
+mod wallet_sync;

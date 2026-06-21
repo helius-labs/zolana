@@ -106,11 +106,29 @@ func buildInputWitnesses(
 	}
 
 	for i := len(requests); i < shape.NInputs; i++ {
-		inputs.inputs[i] = dummyInputWitness()
+		blinding, err := randomBlinding()
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("dummy input %d blinding: %w", i, err)
+		}
+		utxo := dummyUtxo(blinding)
+		utxoHash, err := protocol.UtxoHash(utxo)
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("dummy input %d utxo hash: %w", i, err)
+		}
+		nullifierSecret, err := randomBlinding()
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier secret: %w", i, err)
+		}
+		nullifier, err := protocol.Nullifier(utxoHash, blinding, nullifierSecret)
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier: %w", i, err)
+		}
+		witness := dummyInputWitness(dummyUtxoFields(blinding), nullifier)
+		inputs.inputs[i] = witness
 		inputs.hashes[i] = big.NewInt(0)
 		inputs.utxoRoots[i] = big.NewInt(0)
 		inputs.nullifierTreeRoots[i] = big.NewInt(0)
-		inputs.nullifiers[i] = big.NewInt(0)
+		inputs.nullifiers[i] = nullifier
 		inputs.solanaOwnerPkHashes[i] = big.NewInt(0)
 	}
 	return inputs, nil
@@ -132,15 +150,15 @@ func newInputWitness() txcircuit.Input {
 	}
 }
 
-// dummyInputWitness fills an unused input slot. Every spend check is skipped for
-// it in-circuit; it contributes nullifier 0 and zero roots to the public
-// transcript. Zero roots match the on-chain verifier, which reconstructs a
-// slot's root as zero when no root index is supplied for it (a dummy slot).
-func dummyInputWitness() txcircuit.Input {
+// dummyInputWitness fills an unused input slot with a random-blinded UTXO and
+// derived nullifier so the public transcript is indistinguishable from a real
+// input. Every spend check is skipped in-circuit; roots stay zero because the
+// on-chain verifier treats missing root indices as zero.
+func dummyInputWitness(utxo txcircuit.UtxoCircuitFields, nullifier *big.Int) txcircuit.Input {
 	witness := newInputWitness()
 	witness.IsDummy = big.NewInt(1)
-	witness.Utxo = dummyUtxoFields()
-	witness.Nullifier = big.NewInt(0)
+	witness.Utxo = utxo
+	witness.Nullifier = nullifier
 	return witness
 }
 

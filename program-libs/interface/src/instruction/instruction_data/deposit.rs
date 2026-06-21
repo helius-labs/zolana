@@ -13,11 +13,12 @@ pub struct DepositIxData {
     /// Indexing tag for the single output slot; chosen per the spec's View
     /// Tag Selection.
     pub view_tag: [u8; 32],
-    /// Recipient-hiding owner commitment. Opaque to the program.
-    pub owner_utxo_hash: [u8; 32],
-    /// Fresh CSPRNG per deposit; the recipient re-derives `blinding` from it
-    /// (spec: Blinding derivation).
-    pub salt: [u8; 16],
+    /// Recipient `owner_hash`; the program nests it with `blinding` into the
+    /// UTXO's `owner_utxo_hash`.
+    pub owner: [u8; 32],
+    /// Fresh CSPRNG per deposit; sent in the clear so a third-party depositor
+    /// needs no shared secret and the recipient spends it directly.
+    pub blinding: [u8; 31],
     /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
     /// settlement accounts the caller passes; deposits are deposit-only.
     pub public_amount: Option<u64>,
@@ -49,8 +50,8 @@ impl DepositIxData {
 pub struct ZoneDepositIxData {
     /// As in [`DepositIxData`].
     pub view_tag: [u8; 32],
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; 16],
+    pub owner: [u8; 32],
+    pub blinding: [u8; 31],
     /// As in [`DepositIxData`]: the asset is inferred from the
     /// settlement accounts the zone forwards.
     pub public_amount: Option<u64>,

@@ -21,6 +21,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-client = { workspace = true }
 zolana-program-test = { workspace = true }

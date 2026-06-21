@@ -16,8 +16,7 @@ func constrainOutput(api frontend.API, out Output) frontend.Variable {
 	assertZeroWhen(api, notDummy, out.Utxo.ZoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
-	assertEqualWhen(api, notDummy, utxoHash, out.Hash)
-	assertZeroWhen(api, out.IsDummy, out.Hash)
+	api.AssertIsEqual(utxoHash, out.Hash)
 
 	return api.Select(out.IsDummy, frontend.Variable(0), utxoHash)
 }

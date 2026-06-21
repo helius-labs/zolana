@@ -2,8 +2,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_event::DepositView;
 use zolana_interface::{
-    event::DepositView,
     instruction::{Deposit, DepositIxData, DepositSplAccounts},
     pda,
 };
@@ -22,8 +22,8 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             spl: None,
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             program_data_hash: data.program_data_hash,
             program_data: data.program_data.clone(),
@@ -51,8 +51,8 @@ impl ZolanaProgramTest {
                 token_program: Self::token_program_id(),
             }),
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             program_data_hash: data.program_data_hash,
             program_data: data.program_data.clone(),
@@ -73,8 +73,8 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             spl: None,
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             program_data_hash: data.program_data_hash,
             program_data: data.program_data.clone(),
@@ -100,9 +100,10 @@ impl ZolanaProgramTest {
         tree: &Pubkey,
         depositor: &Keypair,
         lamports: u64,
-        owner_utxo_hash: [u8; 32],
+        owner: [u8; 32],
+        blinding: [u8; 31],
     ) -> Result<DepositView, ProgramTestError> {
-        let data = Self::sol_shield_data(lamports, owner_utxo_hash);
+        let data = Self::sol_shield_data(lamports, owner, blinding);
         self.deposit(tree, depositor, &data)
     }
 }

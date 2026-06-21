@@ -373,6 +373,12 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 		prefix = "transfer_p256"
 	case TransferCircuitType:
 		prefix = "transfer"
+	case MergeCircuitType:
+		// Merge has the single fixed 8-in/1-out shape (see prover/merge).
+		if nInputs == 8 && nOutputs == 1 {
+			return m.keyPath("merge_8_1.key")
+		}
+		return ""
 	default:
 		return ""
 	}

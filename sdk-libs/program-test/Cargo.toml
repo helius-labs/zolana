@@ -28,6 +28,7 @@ solana-transaction = { workspace = true }
 thiserror = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 light-hasher = { workspace = true, features = ["poseidon"] }

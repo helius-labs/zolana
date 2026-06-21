@@ -5,7 +5,7 @@ use zolana_transaction::data::{Data, DataRecord};
 use zolana_transaction::transfer::{
     RecipientOutput, RecipientSlot, TransferRecipientPlaintext, TransferSenderPlaintext,
 };
-use zolana_transaction::{TransactionEncryption, TransactionError, VIEW_TAG_LEN};
+use zolana_transaction::{TransactionEncryption, VIEW_TAG_LEN};
 
 use crate::TransactionWorld;
 
@@ -185,19 +185,28 @@ fn recipient_cannot_read_other_slot(world: &mut TransactionWorld, reader: String
         .is_err());
 }
 
-#[then(expr = "a tampered recipient slot count is rejected for {string}")]
-fn tampered_slot_count_rejected(world: &mut TransactionWorld, sender: String) {
-    let mut blob = world.transfer_blob.clone().unwrap();
-    blob.recipient_slots.push(RecipientSlot {
+#[then(expr = "an extra recipient slot is ignored for {string}")]
+fn extra_slot_ignored(world: &mut TransactionWorld, sender: String) {
+    let viewing_key = &world.kp(&sender).viewing_key;
+    let blob = world.transfer_blob.clone().unwrap();
+    let real_count = viewing_key
+        .decrypt_transfer(&world.first_nullifier, &blob)
+        .expect("decrypt")
+        .1
+        .len();
+
+    // The sender restores by trial-decrypting each slot against the bundle's
+    // recipient pubkeys; an extra slot beyond that count is never paired and is
+    // ignored, so the recovered recipients are unchanged.
+    let mut tampered = blob;
+    tampered.recipient_slots.push(RecipientSlot {
         view_tag: [9u8; VIEW_TAG_LEN],
         ciphertext: vec![0u8; 10],
     });
-    let result = world
-        .kp(&sender)
-        .viewing_key
-        .decrypt_transfer(&world.first_nullifier, &blob);
-    assert!(matches!(
-        result,
-        Err(TransactionError::InvalidLength { .. })
-    ));
+    let recovered = viewing_key
+        .decrypt_transfer(&world.first_nullifier, &tampered)
+        .expect("decrypt")
+        .1
+        .len();
+    assert_eq!(recovered, real_count);
 }

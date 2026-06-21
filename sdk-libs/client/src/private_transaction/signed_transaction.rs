@@ -1,7 +1,5 @@
 use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
-use zolana_keypair::hash::sha256;
 use zolana_keypair::SignatureType;
-use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::error::ClientError;
@@ -11,12 +9,17 @@ use crate::private_transaction::transaction::{
 use crate::prover::shape::Shape;
 use crate::prover::transfer::TransferProver;
 use crate::prover::transfer_p256::{
-    dummy_nullifier, P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
+    P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
 };
+use crate::prover::{TransferInputs, TransferP256Inputs};
 
 #[derive(Clone)]
 pub struct SignedTransaction {
+    /// Inputs padded to `shape.n_inputs`; dummies have a zero owner
+    /// ([`SpendUtxo::is_dummy`]) and sit at the tail.
     pub(crate) inputs: Vec<SpendUtxo>,
+    /// Outputs padded to `shape.n_outputs`; dummies have `owner_hash == 0`
+    /// ([`OutputUtxo::is_dummy`]): both empty change and tail padding.
     pub(crate) outputs: Vec<OutputUtxo>,
     pub(crate) public_amounts: PublicAmounts,
     pub(crate) external_data: ExternalData,
@@ -30,23 +33,44 @@ pub struct SignedTransaction {
 /// `P256_OWNED_SIGNER` in the shielded-pool program.
 const P256_OWNED_SIGNER: u8 = 255;
 
-/// Tree placement for one spent input, resolved against the indexer / Solana tree
-/// state: the root indices the proof was built against plus the eddsa signer slot.
-/// `eddsa_signer_index` is ignored for P256-owned inputs (overridden to the P256
-/// sentinel automatically). The default places the input at root indices 0 of the
-/// output tree (`tree_index` 0).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct InputTreeIndices {
-    pub utxo_tree_root_index: u16,
-    pub nullifier_tree_root_index: u16,
-    pub tree_index: u8,
-    pub eddsa_signer_index: u8,
+/// Default output-tree slot every input is placed at (`tree_index` 0).
+const DEFAULT_TREE_INDEX: u8 = 0;
+
+/// Default eddsa signer account index for a Solana-owned input.
+const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
+
+/// Witness for one of the two proving rails, ready to hand to the prover client.
+pub enum ProverInputs {
+    P256(TransferP256Inputs),
+    Eddsa(TransferInputs),
+}
+
+/// A transaction assembled exactly once: the prover witness, the public input it
+/// commits to, and the `Transact` instruction data minus the proof bytes. The
+/// per-input nullifiers, hash chains, dummy padding, and `private_tx_hash` are
+/// computed a single time and shared by the witness and the instruction, so they
+/// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
+/// proof is produced from [`AssembledTransfer::prover_inputs`].
+pub struct AssembledTransfer {
+    pub prover_inputs: ProverInputs,
+    pub public_input_hash: [u8; 32],
+    ix: TransactIxData,
+}
+
+impl AssembledTransfer {
+    pub fn with_proof(mut self, proof: [u8; 192]) -> TransactIxData {
+        self.ix.proof = proof;
+        self.ix
+    }
 }
 
 impl SignedTransaction {
+    /// Commitments for the real inputs only. Dummy padding has a zero owner that has
+    /// no `owner_hash`, so it has no meaningful commitment to look up.
     pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, ClientError> {
         self.inputs
             .iter()
+            .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
                 let utxo_hash =
@@ -81,20 +105,29 @@ impl SignedTransaction {
         } = self;
 
         let mut spends = Vec::with_capacity(inputs.len());
-        for (index, spend) in inputs.into_iter().enumerate() {
+        let mut real_index = 0;
+        for spend in inputs {
             let SpendUtxo {
                 utxo,
                 nullifier_key,
                 ..
             } = spend;
-            let proof = input_merkle_proofs
-                .get(index)
-                .ok_or(ClientError::MissingInputMerkleProof { index })?;
+            // Real inputs have their own proof; a dummy (zero owner) is proofless and
+            // mirrors the first real input's roots downstream.
+            let proof = if utxo.owner.is_zero() {
+                None
+            } else {
+                let proof = input_merkle_proofs
+                    .get(real_index)
+                    .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
+                    .clone();
+                real_index += 1;
+                Some(proof)
+            };
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
-                state_proof: proof.state.clone(),
-                nullifier_proof: proof.nullifier.clone(),
+                proof,
             });
         }
 
@@ -121,129 +154,125 @@ impl SignedTransaction {
         }
     }
 
-    /// Assemble the `Transact` instruction data from this signed
-    /// transaction, the proof bytes, and the per-input tree placement. The output
-    /// ciphertext slots and `external_data_hash` come from [`ExternalData`], so the
-    /// instruction and the proof commit to the same values. `None` placements
-    /// default every input to the output tree at root indices 0.
-    pub fn into_transact_ix_data(
-        self,
-        proof: [u8; 192],
-        input_tree_indices: Option<&[InputTreeIndices]>,
-    ) -> Result<TransactIxData, ClientError> {
-        let commitments = self.input_commitments()?;
-        let default_indices;
-        let input_tree_indices = match input_tree_indices {
-            Some(indices) => {
-                if indices.len() != commitments.len() {
-                    return Err(ClientError::InputTreeIndexCountMismatch {
-                        expected: commitments.len(),
-                        actual: indices.len(),
-                    });
-                }
-                indices
-            }
-            None => {
-                default_indices = vec![InputTreeIndices::default(); commitments.len()];
-                &default_indices
-            }
-        };
-        let uses_p256 = inputs_require_p256(&self.inputs)?;
-        let mut inputs: Vec<InputUtxo> = commitments
-            .iter()
-            .zip(input_tree_indices)
-            .zip(&self.inputs)
-            .map(|((commitment, placement), spend)| {
-                let eddsa_signer_index =
-                    if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-                        P256_OWNED_SIGNER
-                    } else {
-                        placement.eddsa_signer_index
-                    };
-                Ok(InputUtxo {
-                    nullifier_hash: commitment.nullifier,
-                    nullifier_tree_root_index: placement.nullifier_tree_root_index,
-                    utxo_tree_root_index: placement.utxo_tree_root_index,
-                    tree_index: placement.tree_index,
-                    eddsa_signer_index,
-                })
-            })
-            .collect::<Result<Vec<_>, ClientError>>()?;
-        if inputs.len() < self.shape.n_inputs {
-            let placement = input_tree_indices
-                .first()
-                .ok_or(ClientError::MissingInputMerkleProof { index: 0 })?;
-            let real_nullifiers = commitments
-                .iter()
-                .map(|commitment| commitment.nullifier)
-                .collect::<Vec<_>>();
-            for pad_index in 0..self.shape.n_inputs - inputs.len() {
-                inputs.push(InputUtxo {
-                    nullifier_hash: dummy_nullifier(&real_nullifiers, pad_index),
-                    nullifier_tree_root_index: placement.nullifier_tree_root_index,
-                    utxo_tree_root_index: placement.utxo_tree_root_index,
-                    tree_index: placement.tree_index,
-                    eddsa_signer_index: if uses_p256 {
-                        P256_OWNED_SIGNER
-                    } else {
-                        placement.eddsa_signer_index
-                    },
-                });
-            }
+    /// Assemble the prover witness and the `Transact` instruction data in a single
+    /// pass over the already-padded transaction. The witness and the instruction
+    /// commit to identical values by construction: the nullifiers and
+    /// `private_tx_hash` come from the one prover build, and `external_data`
+    /// (including every dummy output hash) was finalized at signing time. Each padded
+    /// dummy input mirrors the first real input's signer; root indices come from each
+    /// real `SpendProof`.
+    pub fn assemble(self, input_proofs: &[SpendProof]) -> Result<AssembledTransfer, ClientError> {
+        let shape = self.shape;
+
+        // Signer indices for the real inputs only; dummies (zero owner) inherit the
+        // first real input's signer below. A zero owner reads as P256, so it must
+        // never reach `signature_type`.
+        let mut real_signer_indices = Vec::new();
+        for spend in self.inputs.iter().filter(|spend| !spend.is_dummy()) {
+            let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
+                P256_OWNED_SIGNER
+            } else {
+                DEFAULT_EDDSA_SIGNER_INDEX
+            };
+            real_signer_indices.push(signer);
         }
 
-        let external_data_hash = self.external_data.hash()?;
-        let mut input_hashes: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
-        input_hashes.resize(self.shape.n_inputs, [0u8; 32]);
-        let output_hashes: Vec<[u8; 32]> = self
-            .external_data
-            .output_slots
-            .iter()
-            .map(|slot| slot.utxo_hash)
-            .collect();
-        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
+        let ExternalData {
+            expiry_unix_ts,
+            relayer_fee,
+            public_sol_amount,
+            public_spl_amount,
+            cpi_signer,
+            tx_viewing_pk,
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts,
+            ..
+        } = self.external_data.clone();
 
-        let (sender_utxo_data, recipient_utxo_data) = self
-            .external_data
-            .output_slots
-            .split_first()
-            .ok_or(ClientError::MissingOutput)?;
+        let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices) =
+            match self.into_prover(input_proofs)? {
+                CircuitType::P256(prover) => {
+                    let result = prover.build()?;
+                    (
+                        ProverInputs::P256(result.inputs),
+                        result.public_input_hash,
+                        result.nullifiers,
+                        result.private_tx_hash,
+                        result.input_root_indices,
+                    )
+                }
+                CircuitType::Eddsa(prover) => {
+                    let result = prover.build()?;
+                    (
+                        ProverInputs::Eddsa(result.inputs),
+                        result.public_input_hash,
+                        result.nullifiers,
+                        result.private_tx_hash,
+                        result.input_root_indices,
+                    )
+                }
+            };
 
-        Ok(TransactIxData {
-            proof,
-            expiry_unix_ts: self.external_data.expiry_unix_ts,
-            relayer_fee: self.external_data.relayer_fee,
+        if nullifiers.len() != shape.n_inputs || root_indices.len() != shape.n_inputs {
+            return Err(ClientError::WitnessInputCountMismatch {
+                got: nullifiers.len(),
+                expected: shape.n_inputs,
+            });
+        }
+
+        let dummy_signer = real_signer_indices
+            .first()
+            .copied()
+            .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
+        let mut inputs = Vec::with_capacity(shape.n_inputs);
+        for i in 0..shape.n_inputs {
+            let nullifier_hash =
+                *nullifiers
+                    .get(i)
+                    .ok_or(ClientError::WitnessInputCountMismatch {
+                        got: nullifiers.len(),
+                        expected: shape.n_inputs,
+                    })?;
+            let &(utxo_tree_root_index, nullifier_tree_root_index) =
+                root_indices
+                    .get(i)
+                    .ok_or(ClientError::WitnessInputCountMismatch {
+                        got: root_indices.len(),
+                        expected: shape.n_inputs,
+                    })?;
+            let eddsa_signer_index = match real_signer_indices.get(i) {
+                Some(&signer) => signer,
+                None => dummy_signer,
+            };
+            inputs.push(InputUtxo {
+                nullifier_hash,
+                nullifier_tree_root_index,
+                utxo_tree_root_index,
+                tree_index: DEFAULT_TREE_INDEX,
+                eddsa_signer_index,
+            });
+        }
+
+        let ix = TransactIxData {
+            proof: [0u8; 192],
+            expiry_unix_ts,
+            relayer_fee,
             private_tx_hash: private_tx,
             inputs,
-            public_sol_amount: self.external_data.public_sol_amount,
-            public_spl_amount: self.external_data.public_spl_amount,
-            cpi_signer: self.external_data.cpi_signer,
-            tx_viewing_pk: self.external_data.tx_viewing_pk,
-            salt: self.external_data.salt,
-            sender_utxo_data: sender_utxo_data.clone(),
-            recipient_utxo_data: recipient_utxo_data.to_vec(),
+            public_sol_amount,
+            public_spl_amount,
+            cpi_signer,
+            tx_viewing_pk,
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts,
+        };
+
+        Ok(AssembledTransfer {
+            prover_inputs,
+            public_input_hash,
+            ix,
         })
-    }
-
-    pub(crate) fn message_hash(&self) -> Result<[u8; 32], ClientError> {
-        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
-        for spend in &self.inputs {
-            input_hashes.push(spend.utxo.hash(
-                &spend.nullifier_key.pubkey()?,
-                &[0u8; 32],
-                &[0u8; 32],
-            )?);
-        }
-        input_hashes.resize(self.shape.n_inputs, [0u8; 32]);
-
-        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs);
-        for output in &self.outputs {
-            output_hashes.push(output.hash()?);
-        }
-        output_hashes.resize(self.shape.n_outputs, [0u8; 32]);
-
-        let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
-        Ok(sha256(&private_tx))
     }
 }

@@ -10,7 +10,7 @@ use zolana_interface::{
     instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{random_salt, ShieldedKeypair};
+use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
 use crate::error::ClientError;
@@ -37,13 +37,13 @@ pub struct CreateDeposit<'a> {
 
 impl Deposit {
     pub fn new(request: CreateDeposit<'_>) -> Result<Self, ClientError> {
-        let salt = random_salt();
-        let blinding = request
-            .recipient
-            .viewing_key
-            .derive_proofless_blinding(&salt)?;
-        let owner_hash = request.recipient.owner_hash()?;
-        let owner_utxo_hash = owner_utxo_hash(&owner_hash, &blinding)?;
+        // Fresh blinding is sent in the clear; the recipient `owner` commitment
+        // is derived from public address material, so a third-party depositor
+        // needs no shared secret and the recipient spends the note directly.
+        let owner = request.recipient.owner_hash()?;
+        let blinding = random_blinding();
+        let view_tag = request.recipient.viewing_pubkey().x();
+        let owner_utxo_hash = owner_utxo_hash(&owner, &blinding)?;
         let utxo_hash = utxo_hash(
             request.asset,
             request.amount,
@@ -55,9 +55,9 @@ impl Deposit {
         let spl = spl_accounts(request.asset, request.spl_token_account)?;
         Ok(Self {
             data: DepositIxData {
-                view_tag: request.recipient.recipient_bootstrap_view_tag(),
-                owner_utxo_hash,
-                salt,
+                view_tag,
+                owner,
+                blinding,
                 public_amount: Some(request.amount),
                 program_data_hash: None,
                 program_data: None,
@@ -126,8 +126,8 @@ fn deposit_instruction(
         depositor,
         spl,
         view_tag: data.view_tag,
-        owner_utxo_hash: data.owner_utxo_hash,
-        salt: data.salt,
+        owner: data.owner,
+        blinding: data.blinding,
         public_amount: data.public_amount,
         program_data_hash: data.program_data_hash,
         program_data: data.program_data.clone(),
@@ -188,8 +188,8 @@ mod tests {
         let tree = Pubkey::new_unique();
         let data = DepositIxData {
             view_tag: [1u8; 32],
-            owner_utxo_hash: [2u8; 32],
-            salt: [3u8; 16],
+            owner: [2u8; 32],
+            blinding: [3u8; 31],
             public_amount: Some(1_000),
             program_data_hash: None,
             program_data: None,
@@ -204,8 +204,8 @@ mod tests {
             depositor: depositor.pubkey(),
             spl: None,
             view_tag: data.view_tag,
-            owner_utxo_hash: data.owner_utxo_hash,
-            salt: data.salt,
+            owner: data.owner,
+            blinding: data.blinding,
             public_amount: data.public_amount,
             program_data_hash: data.program_data_hash,
             program_data: data.program_data.clone(),
@@ -229,13 +229,10 @@ mod tests {
         })
         .expect("prepared deposit");
 
-        assert_eq!(
-            prepared.data.view_tag,
-            recipient.recipient_bootstrap_view_tag()
-        );
+        assert_eq!(prepared.data.view_tag, recipient.viewing_pubkey().x());
         assert_eq!(prepared.data.public_amount, Some(1_000));
-        assert_ne!(prepared.data.salt, [0u8; 16]);
-        assert_ne!(prepared.data.owner_utxo_hash, [0u8; 32]);
+        assert_ne!(prepared.data.blinding, [0u8; 31]);
+        assert_ne!(prepared.data.owner, [0u8; 32]);
         assert_ne!(prepared.utxo_hash, [0u8; 32]);
     }
 

@@ -1,0 +1,68 @@
+package merge
+
+import (
+	"math/big"
+)
+
+// UtxoParams mirrors transaction.UtxoCircuitFields as already-computed field
+// elements supplied by the client.
+type UtxoParams struct {
+	Domain        *big.Int
+	Owner         *big.Int
+	Asset         *big.Int
+	Amount        *big.Int
+	Blinding      *big.Int
+	DataHash      *big.Int
+	ZoneDataHash  *big.Int
+	ZoneProgramID *big.Int
+}
+
+// InputParams mirrors merge.Input. Every value is pre-computed client-side; the
+// prover only assigns them onto circuit signals.
+type InputParams struct {
+	Utxo    UtxoParams
+	IsDummy *big.Int
+
+	StatePathElements []*big.Int // len StateTreeHeight
+	StatePathIndex    *big.Int
+
+	NullifierLowValue        *big.Int
+	NullifierNextValue       *big.Int
+	NullifierLowPathElements []*big.Int // len NullifierTreeHeight
+	NullifierLowPathIndex    *big.Int
+
+	UtxoTreeRoot      *big.Int
+	NullifierTreeRoot *big.Int
+	Nullifier         *big.Int
+}
+
+// OutputParams mirrors merge.Output.
+type OutputParams struct {
+	Utxo UtxoParams
+	Hash *big.Int
+}
+
+// MergeParameters is the flat, pre-computed witness for the 8-in/1-out merge
+// circuit. The prover does no hashing: the client computes every field (utxo
+// hashes, nullifiers, tree roots/proofs, the private-tx hash, the encryption,
+// and the public-input hash) and sends them here.
+type MergeParameters struct {
+	Inputs []InputParams
+	Output OutputParams
+
+	// Shared owner identity: P256 signing pubkey coordinates and the nullifier
+	// secret/commitment.
+	P256PubX            *big.Int
+	P256PubY            *big.Int
+	UserNullifierPk     *big.Int
+	UserNullifierSecret *big.Int
+
+	// Verifiable-encryption witnesses.
+	TxViewingSk       *big.Int
+	UserViewingPubkey []*big.Int // len 65, byte values of the uncompressed point
+
+	ExternalDataHash *big.Int
+	PrivateTxHash    *big.Int
+
+	PublicInputHash *big.Int
+}

@@ -7,7 +7,7 @@ use zolana_interface::pda;
 use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{owner_utxo_hash, AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use crate::{ShieldedPoolWorld, SolDepositObservation};
 
@@ -101,7 +101,8 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
             .expect("deposit");
         assert_eq!(event.amount, amount, "event must carry the settled amount");
         assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");
-        assert_eq!(event.salt, data.salt);
+        assert_eq!(event.owner, data.owner);
+        assert_eq!(event.blinding, data.blinding);
         let before = recipient.utxos.len();
         recipient
             .sync(
@@ -117,7 +118,8 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
             before + 1,
             "wallet must discover deposit {i}"
         );
-        owner_utxo_hashes.push(data.owner_utxo_hash);
+        owner_utxo_hashes
+            .push(owner_utxo_hash(&data.owner, &data.blinding).expect("owner utxo hash"));
         view_tags.push(data.view_tag);
 
         assert_eq!(

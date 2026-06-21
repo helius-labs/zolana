@@ -19,8 +19,8 @@ pub struct Deposit {
     pub depositor: Pubkey,
     pub spl: Option<DepositSplAccounts>,
     pub view_tag: [u8; 32],
-    pub owner_utxo_hash: [u8; 32],
-    pub salt: [u8; 16],
+    pub owner: [u8; 32],
+    pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
     pub program_data_hash: Option<[u8; 32]>,
     pub program_data: Option<Vec<u8>>,
@@ -31,8 +31,8 @@ impl Deposit {
     pub fn instruction(&self) -> Instruction {
         let ix_data = DepositIxData {
             view_tag: self.view_tag,
-            owner_utxo_hash: self.owner_utxo_hash,
-            salt: self.salt,
+            owner: self.owner,
+            blinding: self.blinding,
             public_amount: self.public_amount,
             program_data_hash: self.program_data_hash,
             program_data: self.program_data.clone(),
