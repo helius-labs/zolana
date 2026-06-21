@@ -12,8 +12,8 @@ use zolana_user_registry_interface::user_record_pda;
 
 use user_registry_tests::{
     build_register_ix, build_revoke_sync_delegate_ix, build_rotate_sync_delegate_key_ix,
-    build_set_merge_service_ix, build_set_sync_delegate_ix, fetch_user_record,
-    user_registry_program_id,
+    build_set_merge_service_ix, build_set_sync_delegate_ix, build_update_keys_ix,
+    fetch_user_record, user_registry_program_id,
 };
 
 #[derive(Default, World)]
@@ -195,6 +195,43 @@ fn when_register_no_p256(world: &mut UserRegistryWorld, name: String) {
         world.nullifier_pubkey[&name],
         world.viewing_pubkey[&name],
     );
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#"^"(.*)" updates registry keys$"#)]
+fn when_update_keys(world: &mut UserRegistryWorld, name: String) {
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let updated_owner_p256 = test_p256_pubkey(0xF1);
+    let mut updated_nullifier = [0u8; 32];
+    updated_nullifier[31] = 0xF2;
+    let updated_viewing = test_p256_pubkey(0xF3);
+    world.owner_p256.insert(name.clone(), updated_owner_p256);
+    world
+        .nullifier_pubkey
+        .insert(name.clone(), updated_nullifier);
+    world.viewing_pubkey.insert(name.clone(), updated_viewing);
+    let ix = build_update_keys_ix(
+        &owner,
+        Some(updated_owner_p256),
+        updated_nullifier,
+        updated_viewing,
+    );
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#"^"(.*)" updates registry keys without an owner p256 key$"#)]
+fn when_update_keys_no_p256(world: &mut UserRegistryWorld, name: String) {
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let mut updated_nullifier = [0u8; 32];
+    updated_nullifier[31] = 0xF4;
+    let updated_viewing = test_p256_pubkey(0xF5);
+    world
+        .nullifier_pubkey
+        .insert(name.clone(), updated_nullifier);
+    world.viewing_pubkey.insert(name.clone(), updated_viewing);
+    let ix = build_update_keys_ix(&owner, None, updated_nullifier, updated_viewing);
     let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
     world.send(&[owner_kp], ix);
 }

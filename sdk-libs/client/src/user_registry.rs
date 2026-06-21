@@ -1,6 +1,6 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType};
 use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
@@ -72,7 +72,10 @@ pub fn validate_registered_keypair<R: Rpc>(
     keypair: &ShieldedKeypair,
 ) -> Result<(), ClientError> {
     let record = fetch_user_record_checked(rpc, owner)?;
-    let expected_owner_p256 = Some(*keypair.signing_pubkey().as_p256()?.as_bytes());
+    let expected_owner_p256 = match keypair.signing_pubkey().signature_type()? {
+        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+        SignatureType::Ed25519 => None,
+    };
     let expected_nullifier = keypair.nullifier_key.pubkey()?;
     let expected_viewing = *keypair.viewing_pubkey().as_bytes();
     if record.owner_p256 != expected_owner_p256
@@ -132,7 +135,8 @@ pub fn resolved_address_from_record(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
-    use zolana_keypair::ShieldedKeypair;
+    use solana_signer::Signer;
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
     use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
 
     use super::*;
@@ -275,6 +279,34 @@ mod tests {
         assert_eq!(resolved.owner, owner);
         assert_eq!(resolved.address.signing_pubkey, keypair.signing_pubkey());
         assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+    }
+
+    #[test]
+    fn validate_registered_keypair_accepts_ed25519_owner_records() {
+        let owner_keypair = solana_keypair::Keypair::new();
+        let seed: [u8; 32] = *owner_keypair.secret_bytes();
+        let keypair =
+            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+        let owner = owner_keypair.pubkey();
+        let (pda, bump) = user_record_pda(&owner);
+        let record = UserRecord {
+            owner: owner.to_bytes(),
+            bump,
+            owner_p256: None,
+            nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
+            viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
+            sync_delegate: None,
+            entries: Vec::new(),
+            merge_service: false,
+        };
+        let rpc = MockRpc {
+            account: Some((
+                Address::new_from_array(pda.to_bytes()),
+                account_for(&record),
+            )),
+        };
+
+        validate_registered_keypair(&rpc, owner, &keypair).expect("valid ed25519 record");
     }
 
     #[test]

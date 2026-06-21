@@ -8,10 +8,18 @@ pub mod discriminator {
     pub const ROTATE_SYNC_DELEGATE_KEY: u8 = 2;
     pub const REVOKE_SYNC_DELEGATE: u8 = 3;
     pub const SET_MERGE_SERVICE: u8 = 4;
+    pub const UPDATE_KEYS: u8 = 5;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct RegisterData {
+    pub owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
+    pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
+    pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct UpdateKeysData {
     pub owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
@@ -46,7 +54,7 @@ mod builders {
 
     use super::{
         discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeServiceData,
-        SetSyncDelegateData,
+        SetSyncDelegateData, UpdateKeysData,
     };
     use crate::user_registry_program_id;
 
@@ -132,6 +140,19 @@ mod builders {
                 discriminator::SET_MERGE_SERVICE,
                 &SetMergeServiceData { enabled },
             ),
+        }
+    }
+
+    /// Accounts: `[user_record (writable), owner (signer)]`. The owner may rotate
+    /// the shielded keys stored in its existing record without changing the PDA.
+    pub fn update_keys(user_record: Pubkey, owner: Pubkey, data: UpdateKeysData) -> Instruction {
+        Instruction {
+            program_id: user_registry_program_id(),
+            accounts: vec![
+                AccountMeta::new(user_record, false),
+                AccountMeta::new_readonly(owner, true),
+            ],
+            data: encode_instruction(discriminator::UPDATE_KEYS, &data),
         }
     }
 }

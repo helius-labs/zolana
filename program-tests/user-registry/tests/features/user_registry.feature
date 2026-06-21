@@ -15,6 +15,27 @@ Feature: User registry program
     When "alice" registers on-chain without an owner p256 key
     Then "alice" has a user record without an owner p256 key
 
+  Scenario: Owner updates registered shielded keys
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    When "alice" updates registry keys
+    Then "alice" has a user record with no sync delegate
+
+  Scenario: Owner updates to Solana-only signing keys
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    When "alice" updates registry keys without an owner p256 key
+    Then "alice" has a user record without an owner p256 key
+
+  Scenario: Key updates preserve delegate history and merge-service state
+    Given owner "alice" with p256 keys
+    And "alice" registers on-chain
+    And owner "alice" appoints sync delegate "bob"
+    And owner "alice" enables merge service
+    When "alice" updates registry keys
+    Then "alice" has sync delegate "bob" with 1 entries
+    And "alice" has merge service enabled
+
   Scenario: Register succeeds when the record address was pre-funded
     Given owner "alice" with p256 keys
     And the record address of "alice" is pre-funded
