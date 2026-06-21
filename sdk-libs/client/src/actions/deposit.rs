@@ -10,7 +10,7 @@ use zolana_interface::{
     instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair};
+use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
 use crate::error::ClientError;
@@ -29,7 +29,7 @@ pub struct Deposit {
 }
 
 pub struct CreateDeposit<'a> {
-    pub recipient: &'a ShieldedKeypair,
+    pub recipient: &'a ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
     pub spl_token_account: Option<Pubkey>,
@@ -42,7 +42,7 @@ impl Deposit {
         // needs no shared secret and the recipient spends the note directly.
         let owner = request.recipient.owner_hash()?;
         let blinding = random_blinding();
-        let view_tag = request.recipient.viewing_pubkey().x();
+        let view_tag = request.recipient.viewing_pubkey.x();
         let owner_utxo_hash = owner_utxo_hash(&owner, &blinding)?;
         let utxo_hash = utxo_hash(
             request.asset,
@@ -160,6 +160,7 @@ mod tests {
 
     use solana_hash::Hash;
     use solana_transaction::Transaction;
+    use zolana_keypair::ShieldedKeypair;
 
     /// Minimal `Rpc` backend that records the transaction the action sends, so
     /// we can assert the action builds and submits the interface instruction
@@ -221,8 +222,9 @@ mod tests {
     #[test]
     fn prepared_sol_deposit_derives_consistent_material() {
         let recipient = ShieldedKeypair::new().unwrap();
+        let recipient_address = recipient.shielded_address().unwrap();
         let prepared = create_deposit(CreateDeposit {
-            recipient: &recipient,
+            recipient: &recipient_address,
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
@@ -239,12 +241,13 @@ mod tests {
     #[test]
     fn prepared_spl_deposit_carries_settlement_accounts() {
         let recipient = ShieldedKeypair::new().unwrap();
+        let recipient_address = recipient.shielded_address().unwrap();
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
 
         let prepared = create_deposit(CreateDeposit {
-            recipient: &recipient,
+            recipient: &recipient_address,
             asset,
             amount: 1_000,
             spl_token_account: Some(user_token),

@@ -415,7 +415,7 @@ pub(crate) struct DepositOptions {
 
     #[arg(
         long,
-        help = "Optional recipient wallet file path (defaults to the --keypair wallet)"
+        help = "Optional registered recipient Solana pubkey (defaults to the --keypair wallet owner)"
     )]
     pub(crate) to: Option<String>,
 
@@ -841,7 +841,7 @@ mod tests {
             "--tree",
             "Tree111111111111111111111111111111111111111",
             "--to",
-            "/tmp/bob.pid.json",
+            "Recipient1111111111111111111111111111111111",
             "--amount",
             "1000000000",
             "--mint",
@@ -859,7 +859,10 @@ mod tests {
             deposit.network.tree.as_deref(),
             Some("Tree111111111111111111111111111111111111111")
         );
-        assert_eq!(deposit.to.as_deref(), Some("/tmp/bob.pid.json"));
+        assert_eq!(
+            deposit.to.as_deref(),
+            Some("Recipient1111111111111111111111111111111111")
+        );
         assert_eq!(deposit.amount, 1_000_000_000);
         assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
 

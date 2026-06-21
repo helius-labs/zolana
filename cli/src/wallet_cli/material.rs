@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -80,17 +80,6 @@ pub(super) fn load_sender_from_resolved_sync(sync: &ResolvedSyncOptions) -> Resu
         );
     }
     load_existing_wallet(&sync.keypair_path)
-}
-
-pub(super) fn load_recipient_wallet(path: &str) -> Result<WalletMaterial> {
-    let path = PathBuf::from(path);
-    if !path.exists() {
-        bail!(
-            "recipient must be a wallet file path; `{}` does not exist",
-            path.display()
-        );
-    }
-    load_existing_wallet(&path)
 }
 
 pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
@@ -228,15 +217,4 @@ mod tests {
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
     }
 
-    #[test]
-    fn missing_recipient_path_is_rejected() {
-        let missing = temp_root("zolana-cli-missing").join("missing.pid.json");
-        let err = match load_recipient_wallet(&missing.display().to_string()) {
-            Ok(_) => panic!("missing recipient should fail"),
-            Err(err) => err,
-        };
-        assert!(err
-            .to_string()
-            .contains("recipient must be a wallet file path"));
-    }
 }

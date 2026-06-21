@@ -38,12 +38,12 @@ Wallet commands use the wallet file's Solana funding key for fees/public SOL
 deposits and its shielded keypair for private ownership. `wallet init` creates
 or loads the wallet file and registers its shielded keys in the on-chain
 user-registry program. `deposit` shields public SOL into the local wallet by
-default and requires that wallet to be registered; `deposit --to <WALLET_FILE>`
-is a local/dev override for a recipient wallet file. `transfer --to <PUBKEY>`
-resolves registered recipients from the on-chain user registry; if the registry
-record is absent, the transfer is built as a public SOL withdrawal to that
-pubkey. `withdraw --to <PUBKEY>` always uses a regular public Solana
-destination.
+default and requires that wallet to be registered; `deposit --to <PUBKEY>`
+resolves the recipient from the on-chain user registry and never reads the
+recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
+recipients from the on-chain user registry; if the registry record is absent,
+the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
+<PUBKEY>` always uses a regular public Solana destination.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The
