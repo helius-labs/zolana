@@ -43,8 +43,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             .map_err(ShieldedPoolError::from)?;
     }
 
-    let pk_fields = load_user_record(merge_accounts.user_record)?;
-    let signing_pk_field = pk_field(&pk_fields.signing)?;
+    let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
+    let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
 
     let external_data_hash = MergeExternalDataHash {

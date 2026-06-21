@@ -2,10 +2,11 @@
 
 use anyhow::Result;
 use solana_account::Account;
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_interface::instruction::DepositIxData;
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::{Utxo, Wallet, WalletUtxo};
 
 /// What a deposit's action recorded, so the separate assert step can verify it
@@ -39,6 +40,11 @@ pub(crate) struct Actor {
     pub(crate) expected: Vec<WalletUtxo>,
     pub(crate) send_counter: u64,
     pub(crate) last_deposit: Option<DepositRecord>,
+    /// The ed25519 keypair that authorizes this actor's eddsa spends. The eddsa rail
+    /// reads the owner at signer index 0 (the fee payer), so an eddsa actor pays and
+    /// signs its own transfers/withdrawals with this key. `None` for P256 actors,
+    /// which prove ownership in the proof and let the global payer fund the spend.
+    pub(crate) solana_signer: Option<Keypair>,
 }
 
 impl Actor {
@@ -55,6 +61,20 @@ impl Actor {
             expected: Vec::new(),
             send_counter: 0,
             last_deposit: None,
+            solana_signer: None,
         })
+    }
+
+    /// An eddsa-rail actor whose shielded identity is derived from `signer`'s ed25519
+    /// seed (so its shielded signing pubkey equals `signer`'s pubkey) and which
+    /// authorizes its own spends with `signer`.
+    pub(crate) fn eddsa(signer: Keypair) -> Result<Self> {
+        let seed: [u8; 32] = signer.to_bytes()[..32]
+            .try_into()
+            .expect("ed25519 seed is the first 32 bytes");
+        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+        let mut actor = Self::with_keypair(keypair)?;
+        actor.solana_signer = Some(signer);
+        Ok(actor)
     }
 }

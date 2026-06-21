@@ -58,8 +58,8 @@ pub enum ClientError {
     #[error("the P256 rail requires an owner signature but none was supplied")]
     MissingP256Signature,
 
-    #[error("merge input {index} is not P256-owned; merge requires all inputs share a P256 owner")]
-    MergeInputNotP256 { index: usize },
+    #[error("merge input {index} has a different signing rail than the owner; merge requires all inputs share one owner")]
+    MergeInputRailMismatch { index: usize },
 
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },

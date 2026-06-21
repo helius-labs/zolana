@@ -2,21 +2,17 @@
 
 use anyhow::Result;
 use cucumber::given;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
 
 use crate::{actor::Actor, LifecycleWorld};
 
 impl LifecycleWorld {
     /// Create `name` as an eddsa-rail actor whose owner is the payer's ed25519 key,
-    /// so the payer's transaction signature satisfies the owner check (the transact
-    /// builder's only signer is the fee payer). Its UTXOs take the eddsa rail.
+    /// so the payer's transaction signature satisfies the owner check (the actor pays
+    /// and signs its own spends; the payer is its `solana_signer`). Its UTXOs take the
+    /// eddsa rail.
     pub(crate) fn make_eddsa_actor(&mut self, name: &str) -> Result<()> {
-        let seed: [u8; 32] = self.payer.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes");
-        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
-        self.actors
-            .insert(name.to_string(), Actor::with_keypair(keypair)?);
+        let actor = Actor::eddsa(self.payer.insecure_clone())?;
+        self.actors.insert(name.to_string(), actor);
         Ok(())
     }
 }

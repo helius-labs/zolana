@@ -6719,6 +6719,7 @@ dependencies = [
  "futures",
  "light-instruction-decoder",
  "p256",
+ "rand 0.8.6",
  "solana-account",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",

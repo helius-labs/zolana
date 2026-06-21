@@ -12,7 +12,7 @@ use zolana_client::{
     SpendUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
-use zolana_keypair::{random_blinding, ShieldedKeypair};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{Data, OutputUtxo, Utxo};
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
@@ -20,6 +20,13 @@ use crate::{test_indexer::TestIndexer, world::MergeWorld};
 #[given(expr = "{int} P256 SOL inputs to merge")]
 fn given_inputs(world: &mut MergeWorld, n: usize) {
     world.plan.real_inputs = n;
+    world.plan.eddsa = false;
+}
+
+#[given(expr = "{int} Solana SOL inputs to merge")]
+fn given_eddsa_inputs(world: &mut MergeWorld, n: usize) {
+    world.plan.real_inputs = n;
+    world.plan.eddsa = true;
 }
 
 #[then("the merge proof verifies")]
@@ -33,7 +40,13 @@ impl MergeWorld {
         let n = self.plan.real_inputs;
         assert!((1..=MERGE_INPUTS).contains(&n), "real inputs must be 1..=8");
 
-        let sender = ShieldedKeypair::new().expect("sender keypair");
+        let sender = if self.plan.eddsa {
+            let mut seed = [0u8; 32];
+            seed[1..].copy_from_slice(&random_blinding());
+            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa sender keypair")
+        } else {
+            ShieldedKeypair::new().expect("sender keypair")
+        };
         let asset = Address::default(); // SOL
         let owner = sender.signing_pubkey();
         let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");

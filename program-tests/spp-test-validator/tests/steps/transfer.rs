@@ -62,25 +62,26 @@ impl LifecycleWorld {
         self.execute_transfer(from, Some(to), inputs, asset, amount)
     }
 
-    /// Transfer `amount` of the scenario's SPL asset from `from` to `to`, spending
+    /// Transfer `amount` of the `spl_mint` SPL asset from `from` to `to`, spending
     /// one SOL UTXO and one SPL UTXO (the supported (2, 3) shape). The recipient
     /// gets SPL; `from` gets back an SPL change and a SOL change.
     pub(crate) fn transfer_mixed(
         &mut self,
         from: &str,
         to: &str,
+        spl_mint: Address,
         amount: u64,
     ) -> Result<Signature> {
         self.ensure_actor(from)?;
         self.ensure_actor(to)?;
-        let send_asset = Address::new_from_array(self.spl_asset()?.mint.to_bytes());
+        let send_asset = spl_mint;
         let inputs: Vec<Utxo> = {
             let actor = self.actor_mut(from);
             let spl_pos = actor
                 .spendable
                 .iter()
-                .position(|u| u.asset != SOL_MINT)
-                .ok_or_else(|| anyhow!("{from} needs a spendable SPL UTXO"))?;
+                .position(|u| u.asset == spl_mint)
+                .ok_or_else(|| anyhow!("{from} needs a spendable {spl_mint} UTXO"))?;
             let spl = actor.spendable.remove(spl_pos);
             let sol_pos = actor
                 .spendable
@@ -168,7 +169,15 @@ impl LifecycleWorld {
         let to_view_tag = to_keypair
             .as_ref()
             .map(|k| k.recipient_bootstrap_view_tag());
-        let payer_address = Address::new_from_array(self.payer.pubkey().to_bytes());
+        // An eddsa actor pays and signs its own spend (the owner sits at signer index
+        // 0 / the fee payer); a P256 actor falls back to the global payer.
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|k| k.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
+        let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let send_index = self.actor(from).send_counter;
         let sender_view_tag = from_keypair.get_sender_view_tag(send_index)?;
         self.actor_mut(from).send_counter += 1;
@@ -214,7 +223,7 @@ impl LifecycleWorld {
         let ix_data = assembled.with_proof(pack_proof(&proof)?);
 
         let transfer_ix = Transact {
-            payer: self.payer.pubkey(),
+            payer: fee_payer.pubkey(),
             tree: self.tree,
             cpi_signer: None,
             withdrawal: None,
@@ -222,12 +231,11 @@ impl LifecycleWorld {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let payer = self.payer.insecure_clone();
         let sig = send_transaction(
             &mut self.rpc,
             &[compute_budget, transfer_ix.clone()],
-            &payer.pubkey(),
-            &[&payer],
+            &fee_payer.pubkey(),
+            &[&fee_payer],
         )?;
         self.last_transact = Some((sig, transfer_ix));
 
@@ -401,8 +409,9 @@ fn spends_tokens(world: &mut LifecycleWorld, from: String, amount: i64, to: Stri
 
 #[when(expr = "{word} transfers {int} tokens to {word} with SOL and SPL inputs")]
 fn transfers_mixed(world: &mut LifecycleWorld, from: String, amount: i64, to: String) {
+    let asset = spl_asset_address(world);
     world
-        .transfer_mixed(&from, &to, amount as u64)
+        .transfer_mixed(&from, &to, asset, amount as u64)
         .expect("mixed transfer");
 }
 
