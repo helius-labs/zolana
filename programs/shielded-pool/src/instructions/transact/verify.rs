@@ -172,4 +172,3 @@ fn select_verifying_key(
         _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
     }
 }
-

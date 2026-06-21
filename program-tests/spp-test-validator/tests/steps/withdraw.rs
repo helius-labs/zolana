@@ -19,9 +19,7 @@ use zolana_client::{
 use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
 use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
 use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{
-    SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
-};
+use zolana_transaction::{SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER};
 
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -219,7 +217,5 @@ impl LifecycleWorld {
 
 #[when(expr = "{word} withdraws {int} lamports of SOL")]
 fn withdraws(world: &mut LifecycleWorld, name: String, amount: i64) {
-    world
-        .withdraw_sol(&name, amount as u64)
-        .expect("withdraw");
+    world.withdraw_sol(&name, amount as u64).expect("withdraw");
 }

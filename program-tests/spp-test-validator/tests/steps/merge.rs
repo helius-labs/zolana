@@ -124,7 +124,9 @@ impl LifecycleWorld {
         for utxo in &inputs {
             total += utxo.amount;
             let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            let nullifier = keypair.nullifier_key.nullifier(&utxo_hash, &utxo.blinding)?;
+            let nullifier = keypair
+                .nullifier_key
+                .nullifier(&utxo_hash, &utxo.blinding)?;
             let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
             let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
             spend_inputs.push(TransferSpendInput {
@@ -243,10 +245,7 @@ impl LifecycleWorld {
             .as_ref()
             .ok_or_else(|| anyhow!("no merge recorded"))?;
         if record.actor != name {
-            return Err(anyhow!(
-                "last merge was for {}, not {name}",
-                record.actor
-            ));
+            return Err(anyhow!("last merge was for {}, not {name}", record.actor));
         }
         let keypair = self.actor(name).keypair.clone();
 
@@ -263,9 +262,18 @@ impl LifecycleWorld {
             .ok_or_else(|| anyhow!("merge plaintext too short"))?
             .try_into()?;
         assert_eq!(amount, record.total, "recovered merged amount");
-        assert_eq!(blinding, record.output_blinding, "recovered merged blinding");
+        assert_eq!(
+            blinding, record.output_blinding,
+            "recovered merged blinding"
+        );
 
-        let reconstructed = self.build_expected(name, keypair.signing_pubkey(), record.asset, amount, blinding)?;
+        let reconstructed = self.build_expected(
+            name,
+            keypair.signing_pubkey(),
+            record.asset,
+            amount,
+            blinding,
+        )?;
         assert_eq!(
             reconstructed.hash, record.output_hash,
             "owner reconstructs the merged output from the ciphertext",
@@ -299,7 +307,9 @@ impl LifecycleWorld {
         count: usize,
     ) -> Result<()> {
         match self.merge(name, owner_solana, asset, count) {
-            Ok(()) => Err(anyhow!("merge unexpectedly succeeded for a disabled service")),
+            Ok(()) => Err(anyhow!(
+                "merge unexpectedly succeeded for a disabled service"
+            )),
             Err(error) => {
                 assert_rpc_custom_error(&error, MERGE_SERVICE_DISABLED);
                 Ok(())

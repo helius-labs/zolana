@@ -8,7 +8,9 @@ use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::private_transaction::field::asset_field;
-use zolana_client::{spawn_prover, Merge, PreparedMerge, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS};
+use zolana_client::{
+    spawn_prover, Merge, PreparedMerge, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS,
+};
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_transaction::{Data, OutputUtxo, Utxo};

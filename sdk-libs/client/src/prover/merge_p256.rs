@@ -95,10 +95,16 @@ impl MergeProver {
             ));
         }
 
-        let utxo_tree_root_indices: Vec<u16> =
-            assembled_inputs.root_indices.iter().map(|(u, _)| *u).collect();
-        let nullifier_tree_root_indices: Vec<u16> =
-            assembled_inputs.root_indices.iter().map(|(_, n)| *n).collect();
+        let utxo_tree_root_indices: Vec<u16> = assembled_inputs
+            .root_indices
+            .iter()
+            .map(|(u, _)| *u)
+            .collect();
+        let nullifier_tree_root_indices: Vec<u16> = assembled_inputs
+            .root_indices
+            .iter()
+            .map(|(_, n)| *n)
+            .collect();
 
         let assembled_outputs = assemble_outputs(std::slice::from_ref(&self.output))?;
         let output_hash = *assembled_outputs
