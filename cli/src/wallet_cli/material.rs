@@ -17,7 +17,7 @@ use zolana_client::{
 };
 use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
 use zolana_keypair::shielded::ShieldedAddress;
-use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::viewing_key::{random_blinding, ViewTag};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
@@ -89,10 +89,10 @@ impl WalletAuthority for WalletMaterial {
     fn derive_deposit_blinding(
         &self,
         inbox: Pubkey,
-        salt: &[u8; SALT_LEN],
+        _salt: &[u8; SALT_LEN],
     ) -> std::result::Result<[u8; BLINDING_LEN], ClientError> {
         self.check_inbox(inbox)?;
-        Ok(self.keypair.viewing_key.derive_proofless_blinding(salt)?)
+        Ok(random_blinding())
     }
 
     fn encrypt_transfer(

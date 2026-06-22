@@ -9,7 +9,6 @@ use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
 use zolana_keypair::viewing_key::{random_blinding, ViewTag};
 use zolana_keypair::{NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
-use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::transfer::{
     RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, RECIPIENT_CIPHERTEXT_LEN,
     SENDER_SLOT_COUNT,
@@ -63,14 +62,13 @@ impl SpendUtxo {
             zone_program_id: None,
             data: Data::default(),
         };
-        let request = SpendWitnessRequest {
-            utxo: utxo.clone(),
-            zone_data_hash: None,
-            program_data_hash: None,
+        // Dummy slots never use witness data (they are filtered before commitment
+        // lookup and handled via `proof: None`), so a zero witness is sufficient.
+        let witness = ScopedSpendWitness {
+            nullifier_pubkey: [0u8; 32],
+            nullifier: [0u8; 32],
+            nullifier_secret: [0u8; BLINDING_LEN],
         };
-        let key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
-        let witness = ScopedSpendWitness::from_nullifier_key(&request, &key)
-            .expect("dummy nullifier witness");
         Self {
             utxo,
             witness,
@@ -250,7 +248,12 @@ impl Transaction {
             ),
         })?;
         let mut sealed = self.assemble(inbox, authority, assets, sender_view_tag)?;
-        if authority.shielded_address(inbox)?.signing_pubkey.signature_type()? == SignatureType::P256 {
+        if authority
+            .shielded_address(inbox)?
+            .signing_pubkey
+            .signature_type()?
+            == SignatureType::P256
+        {
             let message_hash = sealed.message_hash()?;
             let signature = authority.sign_p256(inbox, &message_hash)?;
             sealed.p256_owner = Some(P256Owner {

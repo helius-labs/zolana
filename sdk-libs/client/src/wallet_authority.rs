@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
 use zolana_keypair::hash::owner_hash;
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
-use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::viewing_key::{random_blinding, ViewTag};
 use zolana_keypair::{NullifierKey, P256Pubkey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
@@ -113,9 +113,9 @@ impl WalletAuthority for ShieldedKeypair {
     fn derive_deposit_blinding(
         &self,
         _inbox: Pubkey,
-        salt: &[u8; SALT_LEN],
+        _salt: &[u8; SALT_LEN],
     ) -> Result<[u8; BLINDING_LEN], ClientError> {
-        Ok(self.viewing_key.derive_proofless_blinding(salt)?)
+        Ok(random_blinding())
     }
 
     fn encrypt_transfer(
