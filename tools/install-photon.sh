@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-babbac20ef39}"
+release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-3e645cc465d6}"
 repo="${PHOTON_ZOLANA_RELEASE_REPO:-helius-labs/zolana}"
 out_dir="${PHOTON_BIN_DIR:-target/bin}"
 out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
@@ -13,7 +13,7 @@ out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64|Linux-amd64)
     default_asset="photon-zolana-linux-x86_64.tar.gz"
-    default_sha256="6e25c810cb539292e773565752b09403d25f5ae48ac12a756eaf791996a90c20"
+    default_sha256="b873ce9125af4485278c2a3ed4ecbcfec3880b9d4e2be267d58d4c011ac1a1d1"
     ;;
   Darwin-arm64)
     default_asset="photon-zolana-macos-aarch64.tar.gz"
