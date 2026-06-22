@@ -122,6 +122,7 @@ fn real_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         witness,
+        nullifier_key: Some(nullifier_key),
         proof: Some(proof),
     }
 }
@@ -146,6 +147,7 @@ fn dummy_input() -> TransferSpendInput {
             nullifier: [0u8; 32],
             nullifier_secret: [0u8; 31],
         },
+        nullifier_key: None,
         proof: None,
     }
 }

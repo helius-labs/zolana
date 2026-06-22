@@ -27,7 +27,7 @@ use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     pda,
 };
-use zolana_keypair::{random_blinding, SignatureType};
+use zolana_keypair::{random_blinding, NullifierKey, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
@@ -160,6 +160,7 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 witness,
+                nullifier_key: Some(NullifierKey::from_secret(*keypair.nullifier_key.secret())),
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -190,6 +191,7 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 witness,
+                nullifier_key: None,
                 proof: None,
             });
         }

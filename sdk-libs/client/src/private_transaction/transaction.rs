@@ -36,6 +36,7 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub witness: ScopedSpendWitness,
+    pub nullifier_key: Option<NullifierKey>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub program_data_hash: Option<[u8; 32]>,
 }
@@ -72,6 +73,7 @@ impl SpendUtxo {
         Self {
             utxo,
             witness,
+            nullifier_key: None,
             zone_data_hash: None,
             program_data_hash: None,
         }
@@ -94,9 +96,11 @@ impl SpendUtxo {
             zone_data_hash: None,
             program_data_hash: None,
         };
+        let local_key = NullifierKey::from_secret(*nullifier_key.secret());
         Ok(Self {
             utxo,
             witness: ScopedSpendWitness::from_nullifier_key(&request, nullifier_key)?,
+            nullifier_key: Some(local_key),
             zone_data_hash: None,
             program_data_hash: None,
         })

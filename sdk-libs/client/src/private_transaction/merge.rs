@@ -185,7 +185,12 @@ impl PreparedMerge {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo { utxo, witness, .. } = spend;
+            let SpendUtxo {
+                utxo,
+                witness,
+                nullifier_key,
+                ..
+            } = spend;
             let proof = if utxo.owner.is_zero() {
                 None
             } else {
@@ -199,6 +204,7 @@ impl PreparedMerge {
             spends.push(TransferSpendInput {
                 utxo,
                 witness,
+                nullifier_key,
                 proof,
             });
         }

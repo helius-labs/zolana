@@ -5,6 +5,9 @@
 #[path = "test_indexer.rs"]
 mod test_indexer;
 
+use p256::ecdsa::signature::hazmat::PrehashVerifier;
+use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey as EcdsaVerifyingKey};
+use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
@@ -537,6 +540,62 @@ fn rail_follows_input_owner_type() {
         signed.into_prover(&input_merkle_proofs).unwrap(),
         CircuitType::Eddsa(_)
     ));
+}
+
+#[test]
+fn p256_owner_signature_matches_built_private_tx_hash() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        vec![p256_input(&sender, 100, &mut rng)],
+        Address::default(),
+    );
+    tx.send(
+        &recipient.shielded_address().unwrap(),
+        SOL_MINT,
+        60,
+        recipient.recipient_bootstrap_view_tag(),
+    )
+    .unwrap();
+    let signed = sign(tx, &sender).unwrap();
+    let prover = prover_of(signed);
+    let owner = prover.p256_owner.clone();
+    let built = prover.build().unwrap();
+    let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
+    let public_key = owner.pubkey.to_p256().unwrap();
+    let point = public_key.to_encoded_point(false);
+    let verifying_key = EcdsaVerifyingKey::from_encoded_point(&point).unwrap();
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[..32].copy_from_slice(&owner.sig_r);
+    sig_bytes[32..].copy_from_slice(&owner.sig_s);
+    let signature = EcdsaSignature::from_slice(&sig_bytes).unwrap();
+    verifying_key
+        .verify_prehash(&message_hash, &signature)
+        .expect("signature verifies against built private tx hash");
+}
+
+#[test]
+fn spend_witness_matches_nullifier_key_derivation() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let spend = p256_input(&sender, 100, &mut rng);
+    let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();
+    let utxo_hash = spend
+        .utxo
+        .hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])
+        .unwrap();
+    let nullifier = sender
+        .nullifier_key
+        .nullifier(&utxo_hash, &spend.utxo.blinding)
+        .unwrap();
+    assert_eq!(spend.witness.nullifier_pubkey, nullifier_pubkey);
+    assert_eq!(spend.witness.nullifier, nullifier);
+    assert_eq!(
+        spend.witness.nullifier_secret,
+        *sender.nullifier_key.secret()
+    );
 }
 
 #[test]

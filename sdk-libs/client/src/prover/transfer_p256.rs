@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
-use zolana_keypair::{P256Pubkey, SignatureType};
+use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
@@ -16,6 +16,7 @@ use crate::wallet_authority::ScopedSpendWitness;
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub witness: ScopedSpendWitness,
+    pub nullifier_key: Option<NullifierKey>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's roots, so it has no proof of its own.
     pub proof: Option<SpendProof>,
@@ -219,17 +220,22 @@ pub(crate) fn assemble_inputs(
             continue;
         };
 
-        let owner_field = owner_hash(&spend.utxo.owner, &spend.witness.nullifier_pubkey)?;
+        let nullifier_pubkey = match &spend.nullifier_key {
+            Some(key) => key.pubkey()?,
+            None => spend.witness.nullifier_pubkey,
+        };
+        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
         let utxo_inputs = UtxoInputs::new(
             &owner_field,
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
         )?;
-        let utxo_hash = spend
-            .utxo
-            .hash(&spend.witness.nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
-        let nullifier = spend.witness.nullifier;
+        let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
+        let nullifier = match &spend.nullifier_key {
+            Some(key) => key.nullifier(&utxo_hash, &spend.utxo.blinding)?,
+            None => spend.witness.nullifier,
+        };
 
         let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
         let solana_owner_pk_hash = if is_p256 {
@@ -241,7 +247,10 @@ pub(crate) fn assemble_inputs(
             spend.utxo.owner.hash()?
         };
 
-        let nullifier_secret = right_align_slice(&spend.witness.nullifier_secret)?;
+        let nullifier_secret = match &spend.nullifier_key {
+            Some(key) => right_align_slice(key.secret())?,
+            None => right_align_slice(&spend.witness.nullifier_secret)?,
+        };
         let state = &proof.state;
         let nf = &proof.nullifier;
         check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;

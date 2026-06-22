@@ -107,7 +107,12 @@ impl SignedTransaction {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo { utxo, witness, .. } = spend;
+            let SpendUtxo {
+                utxo,
+                witness,
+                nullifier_key,
+                ..
+            } = spend;
             // Real inputs have their own proof; a dummy (zero owner) is proofless and
             // mirrors the first real input's roots downstream.
             let proof = if utxo.owner.is_zero() {
@@ -123,6 +128,7 @@ impl SignedTransaction {
             spends.push(TransferSpendInput {
                 utxo,
                 witness,
+                nullifier_key,
                 proof,
             });
         }

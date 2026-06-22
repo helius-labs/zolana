@@ -229,6 +229,7 @@ fn select_inputs(
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
             witness,
+            nullifier_key: None,
             zone_data_hash: None,
             program_data_hash: None,
         });
