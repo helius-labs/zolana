@@ -12,6 +12,7 @@ pub use protocol_config::assert_protocol_config;
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
@@ -51,6 +52,21 @@ pub fn expected_deposit_view(
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
     }
+}
+
+#[track_caller]
+pub fn assert_indexed_deposit_utxo(
+    indexed: &EncryptedUtxoMatch,
+    tag: [u8; 32],
+    signature: Signature,
+    tree: &Pubkey,
+    event: &DepositView,
+) {
+    assert_eq!(indexed.view_tag, tag, "indexed view tag");
+    assert_eq!(indexed.tx_signature, signature, "indexed signature");
+    assert_eq!(indexed.utxo_hash, event.utxo_hash, "indexed UTXO hash");
+    assert_eq!(indexed.output_tree, to_address(tree), "indexed output tree");
+    assert_eq!(indexed.leaf_index, event.leaf_index, "indexed leaf index");
 }
 
 #[track_caller]

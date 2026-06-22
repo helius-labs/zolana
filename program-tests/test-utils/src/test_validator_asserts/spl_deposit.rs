@@ -7,8 +7,8 @@ use zolana_interface::instruction::DepositIxData;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
-    expected_deposit_view, fetch_account, state_root_from, to_address, token_amount,
-    wait_for_indexed_utxo, wait_for_merkle_proof,
+    assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,
+    token_amount, wait_for_indexed_utxo, wait_for_merkle_proof,
 };
 
 pub struct SplDepositAssertArgs<'a> {
@@ -68,11 +68,7 @@ pub fn assert_spl_deposit<R: Rpc, I: Rpc>(
     assert_ne!(root_after, root_before, "leaf must be appended");
 
     let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
-    assert_eq!(indexed.view_tag, data.view_tag, "indexed view tag");
-    assert_eq!(indexed.tx_signature, signature, "indexed signature");
-    assert_eq!(indexed.utxo_hash, event.utxo_hash, "indexed UTXO hash");
-    assert_eq!(indexed.output_tree, to_address(tree), "indexed output tree");
-    assert_eq!(indexed.leaf_index, event.leaf_index, "indexed leaf index");
+    assert_indexed_deposit_utxo(&indexed, data.view_tag, signature, tree, event);
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), event.utxo_hash);
     assert_eq!(
