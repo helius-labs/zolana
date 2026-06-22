@@ -84,15 +84,15 @@
 
 ## Abstract
 
-The solana privacy protocol (TSPP) enables programmable, UTXO-based anonymous transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and view tags enable wallet sync at Solana speed.
+The solana privacy protocol (TSPP) enables programmable, UTXO-based confidential transfers that execute directly on Solana, and supports private DeFi and institutional compliance. UTXO balances are backed by SPL and Token-2022 tokens, viewing keys provide selective disclosure, and owner tagging enables wallet sync at Solana speed. Policy zones add anonymity.
 
-Anonymous transfers are performed by a minimal Solana Privacy Program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs can own accounts and implement custom private logic in a separate ZKP to escrow funds privately. For tailored compliance, institutions can implement zones with custom zone programs, for example with configurable auditors, authorities, freeze authority, co-signer, and permanent delegate.
+Confidential transfers are performed by a minimal Solana Privacy Program (SPP) that enforces UTXO state transitions with a zero knowledge proof (ZKP). To enable private DeFi, third-party programs can own UTXOs similar to how Solana programs own accounts and implement custom private logic in a separate ZKP to escrow tokens privately. For tailored compliance, institutions can implement zones with custom zone programs, for example with configurable auditors, authorities, freeze authority, co-signer, permanent delegate, and anonymity.
 
-For wallet sync at Solana RPC speed, view tags prefix every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption.
+For wallet sync at Solana RPC speed, the owner pubkey prefixes every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption.
 
 For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
 
-Two opt-in services improve user experience. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches view tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
+Two opt-in services improve user experience. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches owner tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
 
 The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the zone program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / zone RPC / merge service / registry interfaces, and user flows.
 
@@ -106,7 +106,7 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 2. Photon Indexer — indexes trees + encrypted UTXOs; default-zone users fetch ciphertexts here.
 3. Zone RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-zone users.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
-5. Relayer — fee-payer; submits transactions to SPP (default zone), to the ZK Swap program, or to a Zone program (policy zone).
+5. Relayer (optional) — fee-payer that submits a transaction on a user's behalf; by default users invoke the programs directly. Targets SPP (default zone), the ZK Swap program, or a Zone program (policy zone).
 6. Forester — processes the nullifier queue into the nullifier tree.
 7. SPP (Solana Privacy Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
 8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Zone program or directly into SPP.
@@ -125,10 +125,10 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or [`pr
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
-| 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient hidden |
+| 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient visible |
 | 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | sender + amount visible; recipient `owner` visible |
-| 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender hidden (relayer); recipient + amount visible |
-| 4 | shielded transfer | Transfer value between shielded balances. | fully shielded (sender, recipient, amount) |
+| 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender visible (or hidden via an optional relayer); recipient + amount visible |
+| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (anonymous in a policy zone) |
 
 ### Protocol
 
@@ -172,7 +172,7 @@ UTXOs are inherently concurrent. Every transaction to a user will fragment the u
 
 ## Default Zone
 
-The default zone is similar to zcash and has no policy.
+The default zone is confidential and has no policy: amounts and assets are private, owners are public. Each output is tagged by its owner pubkey (the Ed25519 signer by default, or a P256 owner), bound to the output UTXO in the SPP proof, so wallets sync by querying the indexer for their own pubkey.
 Users invoke the SPP directly.
 Optional merge services and sync delegates can be used to improve UX.
 
@@ -181,7 +181,7 @@ Optional merge services and sync delegates can be used to improve UX.
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
 
@@ -189,8 +189,7 @@ sequenceDiagram
     Client->>ZoneRPC: fetch_encrypted_utxos
     ZoneRPC-->>Client: encrypted UTXOs
     Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>ZoneRPC: send transaction <br>(in utxos, out utxos, signature)
-    ZoneRPC->>System: submit tx<br>transact
+    Client->>System: submit tx<br>transact
 
     Note over System: verify ZKP
     System-->>Trees: update trees
@@ -211,7 +210,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
     participant Zone as Zone Program
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
@@ -220,8 +219,7 @@ sequenceDiagram
     Client->>ZoneRPC: get_balance
     ZoneRPC-->>Client: balance
     Note over Client: 1. Set amount <br> 2. set recipient address (in) <br> 4. sign recipient address and amount
-	  Client->>ZoneRPC: send transaction <br>(recipient, amount, signature)
-    ZoneRPC-->>Zone: submit tx<br>zone_transact
+	  Client->>Zone: submit tx<br>zone_transact
     Zone->>System: CPI: transact
 
     Note over System: verify ZKP
@@ -246,7 +244,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
-- `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, or a view tag.
+- `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, an owner pubkey, or a view tag.
 - `[u8; 31]` — a blinding factor (held below the BN254 field modulus).
 
 Hashing conventions:
@@ -353,11 +351,11 @@ TODO: evaluate to adapt derivation so that the viewing key can never repeat even
 
 ## View Tags
 
-A view tag is a 32-byte value attached to a ciphertext. Wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
+Policy zones hide the recipient, so a wallet cannot find its outputs by owner pubkey as in the [default zone](#default-zone). Instead a view tag, a 32-byte value attached to a ciphertext, lets wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-**Uniqueness.** View tags should not be reused. `sender_view_tag` is inserted into the nullifier tree by the SPP, as is `merge_view_tag` (used only by [`merge_zone`](#merge_zone)). For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
+**Uniqueness.** View tags should not be reused. `merge_view_tag` (used only by [`merge_zone`](#merge_zone)) is inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
 **Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
 
@@ -405,12 +403,12 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
     - Counter: per-service `merge_count` keyed by the merge service's Solana account `merge_authority` (`wallet.merge_services[merge_authority]`), advanced on every `merge_zone` for that service. Concurrent merge services therefore have disjoint tag streams.
-    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_zone`, same as `sender_view_tag`.
+    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_zone`.
     - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || merge_authority || u64_be(merge_count), L=31)`. Including `merge_authority` in the info gives each service its own counter namespace; secrecy rests on the secret `merge_view_tag_secret`, so the public `merge_authority` value acts only as a domain separator.
 
 ### View Tag Selection
 
-The `merge_zone` service uses merge view tags; `merge_transact` indexes by the owner pubkey. Wallets select recipient tags as follows:
+In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact` indexes by the owner pubkey. Wallets select recipient tags as follows:
 
 ```mermaid
 flowchart TD
@@ -424,7 +422,7 @@ flowchart TD
 ## Methods
 
 1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-GCM decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
-2. `get_sender_view_tag(tx_count)` — used on every outgoing transaction to tag the sender's own change UTXOs.
+2. `get_sender_view_tag(tx_count)` — policy-zone anonymous transfers only; tags the sender's own change UTXOs. The default zone tags change by the sender's owner pubkey.
 3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
 4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
 5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
@@ -436,7 +434,7 @@ flowchart TD
 A UTXO (unspent transaction output) represents an amount of an asset in the shielded pool that its owner can spend. 
 UTXO hashes are appended to the UTXO Merkle tree at creation and nullifiers are inserted into the Nullifier tree when a UTXO is spent to prevent double spending. A nullifier can only be inserted once into the nullifier tree.
 
-Example: Alice transfers 10 USDC to Bob. Alice's starting balance is one 20 USDC UTXO and one 1 SOL UTXO. Relayer fee is 0.0001 SOL.
+Example: Alice transfers 10 USDC to Bob. Alice's starting balance is one 20 USDC UTXO and one 1 SOL UTXO. Fee is 0.0001 SOL.
 
 ```mermaid
 flowchart LR
@@ -452,7 +450,7 @@ flowchart LR
     AU --> BU
     AU --> CU
     AS --> CS
-    AS --> RF(["relayer fee<br/>0.0001 SOL (public)"])
+    AS --> RF(["fee<br/>0.0001 SOL (public)"])
 ```
 
 ```rust
@@ -526,15 +524,8 @@ dummy: it contributes `0` to the output hash chain. Padding slots beyond the
 sender's change and recipients are dummies too; they hold no value, so their
 `blinding` is freshly random rather than position-derived.
 
-A dummy that occupies a recipient ciphertext slot (`output_ciphertexts[1..]`) must also
-be indistinguishable on the ciphertext side. Its `data` is the same length as a real
-recipient ciphertext (`L = recipient plaintext + 16-byte GCM tag`) and is uniformly
-random — a GCM ciphertext plus tag is indistinguishable from random without the key. Its
-`view_tag` is drawn from the same distribution as a real one: byte `0` is `0x00` and
-bytes `1..32` are random (real view tags are a 31-byte derivation right-aligned into 32
-bytes, so byte `0` is always `0`; a uniformly random tag would have a nonzero leading
-byte 255/256 of the time and mark the slot as a dummy). The dummy is never decrypted, so
-its bytes need no valid key or nonce.
+The confidential default zone reveals recipients, so `output_ciphertexts` holds
+only the sender bundle and real recipient slots; dummy output slots get no ciphertext.
 
 # Output UTXO Serialization
 
@@ -545,7 +536,7 @@ default-zone convention; policy zones can define their own.
 UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
 [transact](#transact) instruction, not part of any per-output payload. Each output
-slot is tagged by its `view_tag`; see [View Tags](#view-tags).
+slot is tagged by its `owner` pubkey.
 
 Schemes:
 
@@ -605,7 +596,7 @@ struct TransferRecipientPlaintext {
     /// Recipient `signing_pk` (UTXO owner, controls spend).
     owner_pubkey: PublicKey,
     /// Sender's `viewing_pk`; lets the recipient derive the shared ECDH key
-    /// used for `recipient_shared_view_tag` on later transfers from this sender.
+    /// and identify the payer.
     sender_pubkey: P256Pubkey,
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
     asset_id: u64,
@@ -631,12 +622,10 @@ blinding_i = Sha256BE(blinding_seed || u8(position_i))
 with `position = 0` for the SPL output and `position = 1` for the SOL output.
 
 ```rust
-/// Fixed-size plaintext: `recipient_viewing_pks` is always `MAX_RECIPIENTS`
-/// entries, so the bundle ciphertext does not grow with the real recipient
-/// count and cannot reveal it. With both `data` fields empty the plaintext is
-/// `92 + 33·MAX_RECIPIENTS` B → `108 + 33·MAX_RECIPIENTS` B ciphertext (after
-/// the 16-byte GCM tag). See [Program Data](#program-data) for the growth per
-/// populated record.
+/// `recipient_viewing_pks` holds the real recipients, so the bundle grows with
+/// the recipient count `R`. With both `data` fields empty the plaintext is
+/// `92 + 33·R` B → `108 + 33·R` B ciphertext (after the 16-byte GCM tag). See
+/// [Program Data](#program-data) for the growth per populated record.
 struct TransferSenderPlaintext {
     /// Sender's `signing_pk` (UTXO owner for the change outputs).
     owner_pubkey: PublicKey,
@@ -648,13 +637,9 @@ struct TransferSenderPlaintext {
     sol_amount: u64,
     /// Seed for the two per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// Always `MAX_RECIPIENTS` entries: the real recipients' `viewing_pk`s in
-    /// slot order at the low indices, then throwaway pubkeys padding the tail so
-    /// the bundle stays fixed-size. Lets the sender re-derive each slot's AES key
-    /// on restore (`ECDH(tx_viewing_sk, recipient.viewing_pk)`) and trial-decrypt
-    /// every `output_ciphertexts[1..]` slot: real slots authenticate, padded
-    /// slots fail the GCM tag and are skipped, so no separate recipient count is
-    /// needed.
+    /// The real recipients' `viewing_pk`s in slot order. Lets the sender
+    /// re-derive each slot's AES key on restore
+    /// (`ECDH(tx_viewing_sk, recipient.viewing_pk)`).
     recipient_viewing_pks: Vec<P256Pubkey>,
     /// Records for the SPL change UTXO (position 0): `zone_data` hashed via
     /// the zone program's scheme into the `zone_data_hash` slot of
@@ -685,8 +670,8 @@ struct TransferEncryptedUtxos {
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
     salt: [u8; 16],
-    /// Sender change bundle ciphertext. View tag is `sender_view_tag` from the
-    /// transact instruction data.
+    /// Sender change bundle ciphertext. Tagged by the sender's `owner` pubkey
+    /// in the transact instruction data.
     sender_ciphertext: Vec<u8>,
     /// One per recipient.
     recipient_slots: Vec<RecipientSlot>,
@@ -699,8 +684,9 @@ struct TransferEncryptedUtxos {
 /// `ciphertext` is a 115-byte recipient plaintext (plus `3 + len` per populated
 /// data record) + 16-byte GCM tag.
 struct RecipientSlot {
-    /// See View Tags chapter for the four variants and selection rules.
-    view_tag: [u8; 32],
+    /// Recipient's signing pubkey — the indexing tag. The confidential proof
+    /// binds it to the output UTXO; the anonymous proof leaves it free (a view tag).
+    owner: [u8; 32],
     ciphertext: Vec<u8>,
 }
 ```
@@ -710,31 +696,29 @@ struct RecipientSlot {
 The output commitments and the ciphertexts travel in two separate transact vectors.
 `output_utxo_hashes` holds one `utxo_hash` per output position in tree-append order
 (`0` SPL change, `1` SOL change, `2 + i` recipient `i`/dummy). `output_ciphertexts` is
-the ciphertext side, fixed length `1 + (M - SENDER_SLOT_COUNT)`. `SENDER_SLOT_COUNT = 2`
+the ciphertext side, length `1 + R` for `R` real recipients. `SENDER_SLOT_COUNT = 2`
 is the number of leading change positions the bundle covers (SPL + SOL change), and
 `MAX_RECIPIENTS = M - SENDER_SLOT_COUNT` is the number of recipient slots the shape
 allows:
 
-- `output_ciphertexts[0]` is `sender_ciphertext` under `sender_view_tag` (AES slot index
-  `0`); the bundle covers both change outputs (positions `0..SENDER_SLOT_COUNT`), so the
-  SOL change has no ciphertext of its own.
+- `output_ciphertexts[0]` is `sender_ciphertext` under the sender's `owner` pubkey (AES
+  slot index `0`); the bundle covers both change outputs (positions
+  `0..SENDER_SLOT_COUNT`), so the SOL change has no ciphertext of its own.
 - `output_ciphertexts[1 + i]` is the slot for output position `SENDER_SLOT_COUNT + i`
   (AES slot index `1 + i`; see [AES Nonce derivation](#aes-nonce-derivation)): a real
-  recipient ciphertext under its own `view_tag`, or — when there is no recipient at that
-  slot — a dummy of the same length under a same-distribution `view_tag` (see
-  [Empty UTXO](#empty-utxo)). The vector length never varies with the recipient count,
-  so an observer cannot tell how many slots are real.
+  recipient ciphertext under its own `owner` pubkey. Dummy output positions get no
+  ciphertext, so the vector length is `1 + R` for `R` real recipients.
 
 The logged `GeneralEvent` keeps one entry per output position, pairing
 `output_utxo_hashes[i]` with the ciphertext that covers position `i` (the bundle for
-`0`, empty for the remaining change positions, `output_ciphertexts[1 + (i -
-SENDER_SLOT_COUNT)]` for `i >= SENDER_SLOT_COUNT`).
+`0`, empty for the remaining change positions and for dummy recipient positions,
+`output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for a real recipient at
+`i >= SENDER_SLOT_COUNT`).
 
 #### Sizes
 
-`R` = number of recipient slots. An encrypted transfer pads to `R = MAX_RECIPIENTS`
-(real recipients plus dummy slots), so its on-instruction size is fixed for a given shape
-and does not vary with the real recipient count; that fixed size is what hides the count.
+`R` = number of real recipient slots. An encrypted transfer carries one slot per real
+recipient (no dummy padding), so its on-instruction size grows with `R`.
 The table below gives the size as a function of the slot count `R`.
 
 Total: `161 + 198·R` bytes. Example with a single recipient slot: `R = 1`, total `359`.
@@ -752,9 +736,9 @@ Sizes assume every `data` field is empty (`count = 0`) on every recipient and th
 
 ## Plaintext Transfer
 
-The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the GCM tags are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey` as [`recipient_bootstrap_view_tag`](#recipient-view-tag).
+The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the GCM tags are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
 
-A plaintext transfer reveals its recipient by construction (the owner-derived view tag), so it is exempt from the recipient-count hiding above: it fills `output_ciphertexts` with the real slots only and is not padded with dummies. The fixed-length, dummy-padded `output_ciphertexts` is a property of encrypted transfers only.
+A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients and fill `output_ciphertexts` with the real slots only.
 
 ```rust
 /// Total size: `96 + 51·R` bytes with both change outputs and every `data`
@@ -824,7 +808,7 @@ struct SplitBundlePlaintext {
 /// 151 bytes total when the plaintext `data` field is empty; populated
 /// records grow the ciphertext by `3 + len` bytes each. Packed; the
 /// ciphertext is prefixed with a `u16_le` length.
-/// Owner-side view tag is `sender_view_tag` from the transact instruction data
+/// Tagged by the sender's `owner` pubkey in the transact instruction data
 /// (all M outputs share the sender as owner).
 struct SplitEncryptedUtxos {
     /// Discriminator (SPLIT).
@@ -909,7 +893,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components |
+| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components. The confidential variant additionally witnesses the owner's signing and nullifier pubkeys to recompute `owner_hash` and expose the signing pubkey as the public tag. |
 | `asset`, `amount`, `blinding`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
@@ -931,7 +915,7 @@ external_data_hash := Sha256BE(
     u16_be(output_ciphertexts.len()) || output_ciphertext(output_ciphertexts[0]) || ...
 )
 
-output_ciphertext(c) := c.view_tag || u16_be(c.data.len()) || c.data
+output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 ```
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
@@ -947,10 +931,11 @@ output_ciphertext(c) := c.view_tag || u16_be(c.data.len()) || c.data
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
+| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the ciphertext `owner` tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to these two chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs.<br>The owner signs this value; the ECDSA message digest `SHA-256(private_tx_hash)` is computed outside the circuit and bound by the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | Program ownership | UTXOs owned by a zone program must be authorized by a PDA signer of that program. Policy proofs are checked by the zone program before CPI into SPP. |
-| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo); when it occupies a recipient ciphertext slot it is also a random fixed-length filler under a same-distribution `view_tag`, so `output_ciphertexts` does not reveal the recipient count (see [Empty UTXO](#empty-utxo)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>A dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and the dummy contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
+| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo) and gets no ciphertext (see [Empty UTXO](#empty-utxo)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>A dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and the dummy contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
@@ -962,10 +947,13 @@ output_ciphertext(c) := c.view_tag || u16_be(c.data.len()) || c.data
 
 Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solana) only. The second instance omits the expensive P256 signature verification. The Ed25519 signature verification is always outsourced signature to the SPP. Therfore instance 2 has ~7× fewer constraints.
 
+Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the ciphertext `owner` tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
+
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
 | 2 in 2 out | Shield with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | P256, Solana-only |
-| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the relayer | P256, Solana-only |
+| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the payer | P256, Solana-only |
+| 2 in 3 out | Single-input transfer with fee UTXO (currently the only implemented shape) | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
@@ -1179,7 +1167,7 @@ Usage by instruction:
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | payer |   | x | relayer (transfer/unshield) or user (shield) |
+| 1 | payer |   | x | user, or an optional relayer (transfer/unshield) |
 | 2 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 3 | cpi_signer |   | x | invoking program pda, optional |
 
@@ -1202,7 +1190,9 @@ struct InputUtxo {
 }
 
 struct OutputCiphertext {
-    view_tag: [u8;32],
+    /// Owner's signing pubkey — the indexing tag. The confidential proof binds
+    /// it to the output UTXO; the anonymous proof leaves it free (a view tag).
+    owner: [u8;32],
     /// Not parsed by the program. Layout per Output UTXO Serialization,
     /// encrypted or [Plaintext Transfer](#plaintext-transfer).
     data: Vec<u8>,
@@ -1241,15 +1231,11 @@ struct TransactIxData {
     /// into the proof's output hash chain. Dummy outputs carry a real-looking
     /// hash, so this vector does not reveal the recipient count.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Fixed length `1 + (M - SENDER_SLOT_COUNT)`, independent of the recipient
-    /// count. `[0]` is the sender bundle (covers the change positions
-    /// `0..SENDER_SLOT_COUNT`); its `view_tag` is `get_sender_view_tag(tx_count)`,
-    /// signed alongside the inputs (prover-replay protection) and inserted into
-    /// the nullifier tree (reuse protection). `[1..]` are the slots for output
-    /// positions `SENDER_SLOT_COUNT..`, each a real recipient ciphertext or a
-    /// random dummy of the same length under a same-distribution `view_tag` (see
-    /// [Empty UTXO](#empty-utxo) and [Sender](#sender)), so the count of real
-    /// recipients is hidden.
+    /// Length `1 + R` for `R` real recipients. `[0]` is the sender bundle (covers
+    /// the change positions `0..SENDER_SLOT_COUNT`); its `owner` is the sender's
+    /// signing pubkey, bound to the change outputs by the proof. `[1..]` are the
+    /// slots for the real recipients at positions `SENDER_SLOT_COUNT..`, each a
+    /// recipient ciphertext under its `owner` pubkey (see [Sender](#sender)).
     output_ciphertexts: Vec<OutputCiphertext>,
 }
 ```
@@ -1275,7 +1261,7 @@ Size by circuit shape (total tx size, ciphertext included)\*:
 4. Proof verifies against public inputs.
 5. Append each `output_utxo_hashes[i]` (in order) to the UTXO sparse Merkle tree.
 6. Insert each input's `nullifier_hash` into the nullifier queue.
-7. Insert `output_ciphertexts[0].view_tag` (the sender bundle's view tag) into the nullifier queue. Rejects on duplicate, so each sender `tx_count` slot is used at most once in the nullifier tree. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`; the fixed length that hides the recipient count is a sender-side property (a malformed sender only deanonymizes itself).
+7. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 8. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
 9. If `public_spl_amount` is `Some`, CPI the token program to transfer SPL between the user and the vault token account (shield: user → vault; unshield: vault → recipient).
 10. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1298,17 +1284,18 @@ GeneralEvent {
             nullifier: input.nullifier_hash,
         })
         .collect(),
-    // One `Output` per output position, reconstructed from the two instruction
-    // vectors (the logged event keeps its per-output shape). The ciphertext for
-    // position `i` is: `output_ciphertexts[0]` (the bundle) for `i == 0`; empty
-    // for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by the bundle);
-    // `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for `i >= SENDER_SLOT_COUNT`.
+    // One `OutputUtxo` per output position, reconstructed from the two
+    // instruction vectors (the logged event keeps its per-output shape). The
+    // ciphertext for position `i` is: `output_ciphertexts[0]` (the bundle) for
+    // `i == 0`; empty for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by
+    // the bundle); `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for
+    // `i >= SENDER_SLOT_COUNT`.
     outputs: (0..instruction_data.output_utxo_hashes.len())
         .map(|i| {
             let ct = output_ciphertext_for_position(i, &instruction_data.output_ciphertexts);
-            Output {
-                tag: ct.map_or([0u8; 32], |c| c.view_tag),
-                hash: instruction_data.output_utxo_hashes[i],
+            OutputUtxo {
+                owner: ct.map_or([0u8; 32], |c| c.owner),
+                utxo_hash: instruction_data.output_utxo_hashes[i],
                 data: ct.map_or(Vec::new(), |c| c.data.clone()),
             }
         })
@@ -1355,12 +1342,12 @@ GeneralEvent {
 
 ```rust
 struct ProoflessShieldIxData {
-    /// Indexing tag for the single output slot; chosen per
-    /// [View Tag Selection](#view-tag-selection).
-    view_tag: [u8; 32],
-    /// Recipient `owner_hash`; the program nests it with `blinding` into the
-    /// UTXO's `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
+    /// Recipient's signing pubkey (eddsa: the 32-byte key; P256: the
+    /// X-coordinate); the indexing tag for the single output slot.
     owner: [u8; 32],
+    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
+    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
+    owner_hash: [u8; 32],
     /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
     /// directly.
     blinding: [u8; 31],
@@ -1386,8 +1373,8 @@ the instruction data. It is not derived; the recipient reads it back from the
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`.
-4. Compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `policy_data_hash` is `0`, `zone_program_id` from `cpi_signer` or `0`.
+3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`. When `program_data_hash`/`program_data` are set, validate `cpi_signer`: `cpi_signer` account is a signer and its pda derivation matches seed `["auth"]` with the supplied `program_id` and `bump`.
+4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `policy_data_hash` is `0`, `zone_program_id` from `cpi_signer` or `0`.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1402,16 +1389,18 @@ exist in instruction data. For a proofless shield the
 GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
-    outputs: vec![Output {
-        // recipient_bootstrap_view_tag (= viewing_pk), supplied as view_tag;
-        // lets the recipient index the deposit without prior pairing.
-        tag: view_tag,
-        hash: utxo_hash,
-        // owner and blinding are public; the recipient spends from them directly.
+    outputs: vec![OutputUtxo {
+        // The recipient's signing pubkey; lets them index the deposit by their
+        // own pubkey.
+        owner,
+        utxo_hash,
+        // owner_hash and blinding are public; the recipient spends from them directly.
         // policy_data_hash and zone_data only set by zone_proofless_shield.
-        data: serialize(Data::Proofless(ProoflessOutput {
-            owner,
+        data: serialize(OutputData::Proofless(ProoflessOutput {
+            owner_hash,
             blinding,
+            asset,
+            amount,
             program_data_hash,
             program_data,
             zone_program_id,
@@ -1448,7 +1437,7 @@ nullifier insertions and UTXO appends.
 ```rust
 struct GeneralEvent {
     inputs: Vec<Input>,
-    outputs: Vec<Output>,
+    outputs: Vec<OutputUtxo>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
     /// decrypt without parsing the per-output `data`. Always set by `transact`;
     /// `None` for a proofless shield (nothing to decrypt).
@@ -1471,31 +1460,34 @@ struct Input {
     nullifier: [u8; 32],
 }
 
-struct Output {
-    /// Fetch tag; the `recipient_bootstrap_view_tag` for proofless shield.
-    tag: [u8; 32],
-    hash: [u8; 32],
-    /// Serialized `Data`. Proofless shield: SPP serializes `Data::Proofless`;
-    /// otherwise the client serializes.
+struct OutputUtxo {
+    /// Fetch tag: the recipient's `owner` pubkey (a policy-zone view tag in an
+    /// anonymous zone).
+    owner: [u8; 32],
+    utxo_hash: [u8; 32],
+    /// Serialized `OutputData`. Proofless shield: SPP serializes
+    /// `OutputData::Proofless`; otherwise the client serializes.
     data: Vec<u8>,
 }
 
 /// Output payload. SPP does not parse it except for proofless shield.
-enum Data {
+enum OutputData {
+    /// Opaque to SPP: a client-serialized [encrypted transfer](#transfer-2) or
+    /// [plaintext transfer](#plaintext-transfer) blob.
     Unknown(Vec<u8>),
     Proofless(ProoflessOutput),
-    /// Encrypted transfer blob; see [Output UTXO Serialization § Transfer](#instruction-data-layout).
-    Transfer(TransferEncryptedUtxos),
-    /// Plaintext transfer blob; see [Plaintext Transfer](#plaintext-transfer).
-    PublicTransfer(TransferPlaintextUtxos),
 }
 
 /// Proofless-shield output. Carries the recipient `owner` and `blinding` in the
 /// clear; the recipient spends from them directly.
 struct ProoflessOutput {
     /// Recipient `owner_hash`; see [UTXO Hash](#utxo-hash).
-    owner: [u8; 32],
+    owner_hash: [u8; 32],
     blinding: [u8; 31],
+    /// Deposited mint; SOL is `Address::default()`.
+    asset: [u8; 32],
+    /// Deposited amount.
+    amount: u64,
     /// Set for program-owned deposits (`cpi_signer` present).
     program_data_hash: Option<[u8; 32]>,
     program_data: Option<Vec<u8>>,
@@ -1532,7 +1524,8 @@ struct DepositWithdraw {
 
 ```rust
 struct ZoneProoflessShieldIxData {
-    /// As in [`proofless_shield`](#proofless_shield).
+    /// Indexing tag for the output slot; a policy-zone view tag in an anonymous
+    /// zone, or the recipient `owner` pubkey otherwise.
     view_tag: [u8; 32],
     owner: [u8; 32],
     blinding: [u8; 31],
@@ -1561,7 +1554,7 @@ struct ZoneProoflessShieldIxData {
 4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer.program_id`, `owner_utxo_hash` from instruction data.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `Data::Proofless` payload carrying `zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
+7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
 
 ### `merge_transact`
 
@@ -1695,7 +1688,7 @@ All RPC services can be run independently. RPC providers can offer the endpoints
 
 Indexes the SPP program instructions to parse encrypted UTXOs, utxo hashes, nullifiers and private transactions.
 
-**Privacy.** Endpoints that take view tags as input, [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
+**Privacy.** Endpoints that take tags as input (default-zone owner pubkeys, or policy-zone view tags), [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
 
 Every response is wrapped in a `Context` struct so the client knows the slot the response was assembled at.
 
@@ -1715,7 +1708,7 @@ struct MerkleContext {
 
 ### `get_encrypted_utxos_by_tags`
 
-Returns encrypted UTXO ciphertexts whose view tag matches any of the given values.
+Returns encrypted UTXO ciphertexts whose tag matches any of the given values.
 
 ```rust
 struct GetEncryptedUtxosByTagsRequest {
@@ -1733,7 +1726,7 @@ struct GetEncryptedUtxosByTagsResponse {
 struct EncryptedUtxoMatch {
     slot: u64,
     tx_signature: Signature,
-    view_tag: [u8; 32],
+    tag: [u8; 32],
     /// `None` when there is nothing to decrypt; see `ShieldedTransaction`.
     tx_viewing_pk: Option<P256Pubkey>,
     /// Plaintext payload bytes when `tx_viewing_pk` is `None`.
@@ -1743,7 +1736,7 @@ struct EncryptedUtxoMatch {
 
 ### `get_shielded_transactions_by_tags`
 
-Returns full shielded transactions where any output's view tag matches. Includes all sibling output slots and the transaction's nullifier set.
+Returns full shielded transactions where any output's tag matches. Includes all sibling output slots and the transaction's nullifier set.
 
 ```rust
 struct GetShieldedTransactionsByTagsRequest {
@@ -1774,7 +1767,7 @@ struct ShieldedTransaction {
 }
 
 struct OutputSlot {
-    view_tag: [u8; 32],
+    tag: [u8; 32],
     hash: [u8;32],
     payload: Vec<u8>,
 }
@@ -1782,7 +1775,7 @@ struct OutputSlot {
 
 ### `subscribe_to_shielded_transactions_by_tags`
 
-Streaming subscription. Pushes new matches whose view tag is in the subscribed set as transactions land. Long-lived connection (WebSocket / gRPC stream).
+Streaming subscription. Pushes new matches whose tag is in the subscribed set as transactions land. Long-lived connection (WebSocket / gRPC stream).
 
 ```rust
 struct SubscribeToTagsRequest {
@@ -1886,7 +1879,7 @@ struct GenerateSppProofResponse {
 
 ## Relayer
 
-Signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. The relayer never sees plaintext UTXOs; it only signs as the Solana payer.
+Optional service; by default users submit transactions directly. When used, it signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. The relayer never sees plaintext UTXOs; it only signs as the Solana payer.
 
 ### `submit_transaction`
 
@@ -2130,7 +2123,7 @@ struct RevokeSyncDelegateRequest {}
 
 ## Sync Delegate
 
-A sync delegate can optionally be set up by a wallet.The sync delegate holds a shared [`ViewingKey`](#viewingkey) and the wallet's nullifier key. Based on those keys it can scans view tags, decrypts ciphertexts, computes nullifiers, marks spent, and builds merge proofs.
+A sync delegate can optionally be set up by a wallet.The sync delegate holds a shared [`ViewingKey`](#viewingkey) and the wallet's nullifier key. Based on those keys it can scans owner tags and view tags, decrypts ciphertexts, computes nullifiers, marks spent, and builds merge proofs.
 
 **Setup** Sync delegate appointment is recorded in the [Registry](#registry) via [`set_delegate`](#set_delegate). Wallet and delegate then share two values out-of-band:
 
@@ -2176,9 +2169,11 @@ Wallet {
     3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
     4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)).
 
-2. **Main sync, merge sync, and plaintext sync run as independent parallel branches.**
+2. **Default-zone sync, anonymous-zone sync, and merge sync run as independent parallel branches.**
 
-    1. **Main sync — for each viewing key `k` in parallel:**
+    1. **Default-zone sync (confidential).** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Decrypt each encrypted ciphertext via the current viewing key (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, which does not rotate, so the scan is independent of `viewing_history`.
+
+    2. **Anonymous-zone sync — for each anonymous zone in `known_zones`, for each viewing key `k` in parallel:**
         1. **Phase 1 — scan own view tags (concurrent within `k`).**
             1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.get_shielded_transactions_by_tags(tags)` in batches of 10 000 tags until its first empty batch:
                 - `wallet.get_sender_view_tag(n)` under `k` for `n in [i, i+10_000)`,
@@ -2192,12 +2187,10 @@ Wallet {
                 2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)` for `n in [i, i+10_000)`; fetch matching ciphertexts.
             2. **Decrypt and store.** Decrypt and store UTXOs.
 
-    2. **Merge sync — for each viewing key `k` in parallel.**
+    3. **Merge sync — for each viewing key `k` in parallel.**
         1. Read `protocol_config.merge_authorities` (the global whitelist of merge service Solana accounts).
         2. For each authority `s`, fetch loop in batches of 10 000 until first empty batch: derive `wallet.get_merge_view_tag(s, n)` for `n in [i, i+10_000)`; call `indexer.get_shielded_transactions_by_tags(tags)`.
         3. **Decrypt and store.** Decrypt merged-output ciphertexts with `k`; store UTXOs along with the transaction's `nullifiers`. Track `max(observed n)` per service; the per-service `merge_count` is `max(observed n) + 1`. Services that never merged for this wallet yield an empty first batch and are skipped.
-
-    3. **Plaintext sync.** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag ([Plaintext Transfer](#plaintext-transfer)); matches sender bundles and recipient slots. Store the UTXOs and each transaction's `nullifiers`. The tag derives from the signing key, which does not rotate, so the scan is independent of `viewing_history`.
 
 3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
 
@@ -2284,9 +2277,9 @@ Scenario X from the single and advanced flows maps to the respective scenario in
         1. lookup recipient ShieldedAddress from registry
         2. lookup success:
             1. Sender has shielded funds
-                1. is the first transfer to recipient: confidential shielded transfer
-                (pubkey public, amount & asset private) **(Scenario 2)**
-                2. is not the first transfer to recipient: anonymous shielded transfer **(Scenario 3)**
+                1. confidential shielded transfer
+                (sender & recipient public, amount & asset private) **(Scenario 2)**;
+                for anonymity, transfer via a policy zone **(Scenario 3)**
             2. Sender doesn’t have shielded funds
                 1. proofless shield to recipient **(Scenario 4)**
         3. lookup negative:
@@ -2303,7 +2296,7 @@ Sender and recipient wallets both support shielded transfers.
     1. shares ShieldedAddress + handshake decryption hint
 2. **Sender:**
     1. Sender has shielded funds
-        1. anonymous shielded transfer **(Scenario 7)**
+        1. confidential shielded transfer, or anonymous via a policy zone **(Scenario 7)**
     2. Sender doesn’t have shielded funds
         1. shield to recipient (with proof) **(Scenario 8)**
 
@@ -2312,10 +2305,10 @@ Sender and recipient wallets both support shielded transfers.
 | # | Scenario | Resulting transfer | Sender identity | Recipient identity | Amount | Asset | Sender ↔ recipient linkable? |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | **Single player** · sender wallet doesn't support shielded | SPL transfer | Public | Public | Public | Public | Yes |
-| 2 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · first transfer to recipient | Confidential shielded transfer | Private | Public | Private | Private | No |
-| 3 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · not first transfer | Anonymous shielded transfer | Private | Private | Private | Private | No |
+| 2 | **Single player** · sender supports shielded · registry hit · sender has shielded funds | Confidential shielded transfer | Public | Public | Private | Private | Yes |
+| 3 | **Single player** · sender supports shielded · registry hit · sender has shielded funds · transfers via a policy zone | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 4 | **Single player** · sender supports shielded · registry hit · sender has no shielded funds | Proofless shield to recipient | Public | Public | Public | Public | Yes |
 | 5 | **Single player** · sender supports shielded · registry miss · sender has shielded funds | Unshield to recipient | Private | Public | Public | Public | Partial — recipient visible exiting pool |
 | 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
-| 7 | **Advanced** · both wallets shielded · sender has shielded funds | Anonymous shielded transfer | Private | Private | Private | Private | No |
+| 7 | **Advanced** · both wallets shielded · sender has shielded funds · transfers via a policy zone | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Shield to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
