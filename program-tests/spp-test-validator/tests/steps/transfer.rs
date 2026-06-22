@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use cucumber::{then, when};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
@@ -191,7 +192,12 @@ impl LifecycleWorld {
         if let (Some(addr), Some(tag)) = (&to_address, to_view_tag) {
             tx.send(addr, send_asset, amount, tag)?;
         }
-        let signed = tx.sign(&from_keypair, &self.assets, sender_view_tag)?;
+        let signed = tx.sign(
+            Pubkey::default(),
+            &from_keypair,
+            &self.assets,
+            sender_view_tag,
+        )?;
 
         let commitments = signed.input_commitments()?;
         let mut spend_proofs = Vec::new();

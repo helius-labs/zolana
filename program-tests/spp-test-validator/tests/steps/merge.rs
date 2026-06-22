@@ -19,7 +19,10 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
+use zolana_client::{
+    MergeProver, ProverClient, ScopedSpendWitness, SpendProof, SpendWitnessRequest,
+    TransferSpendInput,
+};
 use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     pda,
@@ -146,9 +149,17 @@ impl LifecycleWorld {
                 .nullifier(&utxo_hash, &utxo.blinding)?;
             let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
             let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
+            let witness = ScopedSpendWitness::from_nullifier_key(
+                &SpendWitnessRequest {
+                    utxo: utxo.clone(),
+                    program_data_hash: None,
+                    zone_data_hash: None,
+                },
+                &keypair.nullifier_key,
+            )?;
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
-                nullifier_key: keypair.nullifier_key.clone(),
+                witness,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -160,16 +171,25 @@ impl LifecycleWorld {
         // input's roots, so it carries no proof of its own).
         let owner = keypair.signing_pubkey();
         while spend_inputs.len() < MERGE_INPUT_COUNT {
-            spend_inputs.push(TransferSpendInput {
-                utxo: Utxo {
-                    owner,
-                    asset,
-                    amount: 0,
-                    blinding: random_blinding(),
-                    zone_program_id: None,
-                    data: Data::default(),
+            let utxo = Utxo {
+                owner,
+                asset,
+                amount: 0,
+                blinding: random_blinding(),
+                zone_program_id: None,
+                data: Data::default(),
+            };
+            let witness = ScopedSpendWitness::from_nullifier_key(
+                &SpendWitnessRequest {
+                    utxo: utxo.clone(),
+                    program_data_hash: None,
+                    zone_data_hash: None,
                 },
-                nullifier_key: keypair.nullifier_key.clone(),
+                &keypair.nullifier_key,
+            )?;
+            spend_inputs.push(TransferSpendInput {
+                utxo,
+                witness,
                 proof: None,
             });
         }

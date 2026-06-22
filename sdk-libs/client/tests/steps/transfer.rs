@@ -8,6 +8,7 @@
 
 use cucumber::{then, when};
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use zolana_client::private_transaction::field::{asset_field, signed_to_field};
 use zolana_client::{
     CircuitType, PublicAmounts, Rpc, Shape, SpendUtxo, Transaction, WithdrawalTarget,
@@ -79,12 +80,11 @@ impl TransferWorld {
                 };
                 match input.owner {
                     crate::world::Owner::P256 => SpendUtxo::from((utxo, &sender)),
-                    crate::world::Owner::Solana => SpendUtxo {
+                    crate::world::Owner::Solana => SpendUtxo::from_nullifier_key(
                         utxo,
-                        nullifier_key: NullifierKey::from_secret(random_blinding(&mut rng)),
-                        program_data_hash: None,
-                        zone_data_hash: None,
-                    },
+                        &NullifierKey::from_secret(random_blinding(&mut rng)),
+                    )
+                    .expect("solana spend witness"),
                 }
             })
             .collect();
@@ -128,10 +128,12 @@ impl TransferWorld {
         }
 
         let view_tag = sender.get_sender_view_tag(0).expect("sender view tag");
+        let inbox = Pubkey::default();
         let signed = if tx.requires_p256_owner().expect("rail") {
-            tx.sign(&sender, &assets, view_tag).expect("sign")
+            tx.sign(inbox, &sender, &assets, view_tag).expect("sign")
         } else {
-            tx.finalize(&sender, &assets, view_tag).expect("finalize")
+            tx.finalize(inbox, &sender, &assets, view_tag)
+                .expect("finalize")
         };
 
         let commitments = signed.input_commitments().expect("input commitments");
