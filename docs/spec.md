@@ -966,6 +966,7 @@ Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solan
 | --- | --- | --- | --- |
 | 2 in 2 out | Shield with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | P256, Solana-only |
 | 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the relayer | P256, Solana-only |
+| 2 in 3 out | Single-input transfer with fee UTXO (currently the only implemented shape) | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | P256, Solana-only |
@@ -1298,17 +1299,18 @@ GeneralEvent {
             nullifier: input.nullifier_hash,
         })
         .collect(),
-    // One `Output` per output position, reconstructed from the two instruction
-    // vectors (the logged event keeps its per-output shape). The ciphertext for
-    // position `i` is: `output_ciphertexts[0]` (the bundle) for `i == 0`; empty
-    // for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by the bundle);
-    // `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for `i >= SENDER_SLOT_COUNT`.
+    // One `OutputUtxo` per output position, reconstructed from the two
+    // instruction vectors (the logged event keeps its per-output shape). The
+    // ciphertext for position `i` is: `output_ciphertexts[0]` (the bundle) for
+    // `i == 0`; empty for `1 <= i < SENDER_SLOT_COUNT` (sender change covered by
+    // the bundle); `output_ciphertexts[1 + (i - SENDER_SLOT_COUNT)]` for
+    // `i >= SENDER_SLOT_COUNT`.
     outputs: (0..instruction_data.output_utxo_hashes.len())
         .map(|i| {
             let ct = output_ciphertext_for_position(i, &instruction_data.output_ciphertexts);
-            Output {
-                tag: ct.map_or([0u8; 32], |c| c.view_tag),
-                hash: instruction_data.output_utxo_hashes[i],
+            OutputUtxo {
+                view_tag: ct.map_or([0u8; 32], |c| c.view_tag),
+                utxo_hash: instruction_data.output_utxo_hashes[i],
                 data: ct.map_or(Vec::new(), |c| c.data.clone()),
             }
         })
@@ -1386,7 +1388,7 @@ the instruction data. It is not derived; the recipient reads it back from the
 
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
-3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`.
+3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`. When `program_data_hash`/`program_data` are set, validate `cpi_signer`: `cpi_signer` account is a signer and its pda derivation matches seed `["auth"]` with the supplied `program_id` and `bump`.
 4. Compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `policy_data_hash` is `0`, `zone_program_id` from `cpi_signer` or `0`.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
@@ -1402,16 +1404,18 @@ exist in instruction data. For a proofless shield the
 GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
-    outputs: vec![Output {
+    outputs: vec![OutputUtxo {
         // recipient_bootstrap_view_tag (= viewing_pk), supplied as view_tag;
         // lets the recipient index the deposit without prior pairing.
-        tag: view_tag,
-        hash: utxo_hash,
+        view_tag,
+        utxo_hash,
         // owner and blinding are public; the recipient spends from them directly.
         // policy_data_hash and zone_data only set by zone_proofless_shield.
-        data: serialize(Data::Proofless(ProoflessOutput {
+        data: serialize(OutputData::Proofless(ProoflessOutput {
             owner,
             blinding,
+            asset,
+            amount,
             program_data_hash,
             program_data,
             zone_program_id,
@@ -1448,7 +1452,7 @@ nullifier insertions and UTXO appends.
 ```rust
 struct GeneralEvent {
     inputs: Vec<Input>,
-    outputs: Vec<Output>,
+    outputs: Vec<OutputUtxo>,
     /// Shared `tx_viewing_pk` for every output ciphertext, so an indexer can
     /// decrypt without parsing the per-output `data`. Always set by `transact`;
     /// `None` for a proofless shield (nothing to decrypt).
@@ -1471,23 +1475,21 @@ struct Input {
     nullifier: [u8; 32],
 }
 
-struct Output {
+struct OutputUtxo {
     /// Fetch tag; the `recipient_bootstrap_view_tag` for proofless shield.
-    tag: [u8; 32],
-    hash: [u8; 32],
-    /// Serialized `Data`. Proofless shield: SPP serializes `Data::Proofless`;
-    /// otherwise the client serializes.
+    view_tag: [u8; 32],
+    utxo_hash: [u8; 32],
+    /// Serialized `OutputData`. Proofless shield: SPP serializes
+    /// `OutputData::Proofless`; otherwise the client serializes.
     data: Vec<u8>,
 }
 
 /// Output payload. SPP does not parse it except for proofless shield.
-enum Data {
+enum OutputData {
+    /// Opaque to SPP: a client-serialized [encrypted transfer](#transfer-2) or
+    /// [plaintext transfer](#plaintext-transfer) blob.
     Unknown(Vec<u8>),
     Proofless(ProoflessOutput),
-    /// Encrypted transfer blob; see [Output UTXO Serialization § Transfer](#instruction-data-layout).
-    Transfer(TransferEncryptedUtxos),
-    /// Plaintext transfer blob; see [Plaintext Transfer](#plaintext-transfer).
-    PublicTransfer(TransferPlaintextUtxos),
 }
 
 /// Proofless-shield output. Carries the recipient `owner` and `blinding` in the
@@ -1496,6 +1498,10 @@ struct ProoflessOutput {
     /// Recipient `owner_hash`; see [UTXO Hash](#utxo-hash).
     owner: [u8; 32],
     blinding: [u8; 31],
+    /// Deposited mint; SOL is `Address::default()`.
+    asset: [u8; 32],
+    /// Deposited amount.
+    amount: u64,
     /// Set for program-owned deposits (`cpi_signer` present).
     program_data_hash: Option<[u8; 32]>,
     program_data: Option<Vec<u8>>,
@@ -1561,7 +1567,7 @@ struct ZoneProoflessShieldIxData {
 4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `policy_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer.program_id`, `owner_utxo_hash` from instruction data.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `Data::Proofless` payload carrying `zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
+7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `policy_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
 
 ### `merge_transact`
 
