@@ -106,7 +106,7 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 2. Photon Indexer — indexes trees + encrypted UTXOs; default-zone users fetch ciphertexts here.
 3. Zone RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-zone users.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
-5. Relayer — fee-payer; submits transactions to SPP (default zone), to the ZK Swap program, or to a Zone program (policy zone).
+5. Relayer (optional) — fee-payer that submits a transaction on a user's behalf; by default users invoke the programs directly. Targets SPP (default zone), the ZK Swap program, or a Zone program (policy zone).
 6. Forester — processes the nullifier queue into the nullifier tree.
 7. SPP (Solana Privacy Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
 8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Zone program or directly into SPP.
@@ -125,10 +125,10 @@ Operations 1-4 run against the default zone via [`transact`](#transact) (or [`pr
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
-| 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient hidden |
+| 1 | shield | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient visible |
 | 2 | proofless_shield | Public deposit without a proof. Allows shielding dynamic amounts, for example for the flow unshield, swap, shield. | sender + amount visible; recipient `owner` visible |
-| 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender hidden (relayer); recipient + amount visible |
-| 4 | shielded transfer | Transfer value between shielded balances. | fully shielded (sender, recipient, amount) |
+| 3 | unshield | Withdraw SPL tokens from the shielded pool to a public account. | sender visible (or hidden via an optional relayer); recipient + amount visible |
+| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (anonymous in a policy zone) |
 
 ### Protocol
 
@@ -181,7 +181,7 @@ Optional merge services and sync delegates can be used to improve UX.
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
 
@@ -189,8 +189,7 @@ sequenceDiagram
     Client->>ZoneRPC: fetch_encrypted_utxos
     ZoneRPC-->>Client: encrypted UTXOs
     Note over Client: 1. decrypt UTXOs <br> 2. select UTXOs (in) <br> 3. create new UTXOs (out) <br> 4. sign in and out utxos
-    Client->>ZoneRPC: send transaction <br>(in utxos, out utxos, signature)
-    ZoneRPC->>System: submit tx<br>transact
+    Client->>System: submit tx<br>transact
 
     Note over System: verify ZKP
     System-->>Trees: update trees
@@ -211,7 +210,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client as Client<br>(Wallet + Swaps)
-    participant ZoneRPC as Zone RPC<br>(Photon / Prover / Relayer)
+    participant ZoneRPC as Zone RPC<br>(Photon / Prover)
     participant Zone as Zone Program
     participant System as System Program<br>(Shielded Pool)
     participant Trees as Tree accounts
@@ -220,8 +219,7 @@ sequenceDiagram
     Client->>ZoneRPC: get_balance
     ZoneRPC-->>Client: balance
     Note over Client: 1. Set amount <br> 2. set recipient address (in) <br> 4. sign recipient address and amount
-	  Client->>ZoneRPC: send transaction <br>(recipient, amount, signature)
-    ZoneRPC-->>Zone: submit tx<br>zone_transact
+	  Client->>Zone: submit tx<br>zone_transact
     Zone->>System: CPI: transact
 
     Note over System: verify ZKP
@@ -436,7 +434,7 @@ flowchart TD
 A UTXO (unspent transaction output) represents an amount of an asset in the shielded pool that its owner can spend. 
 UTXO hashes are appended to the UTXO Merkle tree at creation and nullifiers are inserted into the Nullifier tree when a UTXO is spent to prevent double spending. A nullifier can only be inserted once into the nullifier tree.
 
-Example: Alice transfers 10 USDC to Bob. Alice's starting balance is one 20 USDC UTXO and one 1 SOL UTXO. Relayer fee is 0.0001 SOL.
+Example: Alice transfers 10 USDC to Bob. Alice's starting balance is one 20 USDC UTXO and one 1 SOL UTXO. Fee is 0.0001 SOL.
 
 ```mermaid
 flowchart LR
@@ -452,7 +450,7 @@ flowchart LR
     AU --> BU
     AU --> CU
     AS --> CS
-    AS --> RF(["relayer fee<br/>0.0001 SOL (public)"])
+    AS --> RF(["fee<br/>0.0001 SOL (public)"])
 ```
 
 ```rust
@@ -686,8 +684,8 @@ struct TransferEncryptedUtxos {
 /// `ciphertext` is a 115-byte recipient plaintext (plus `3 + len` per populated
 /// data record) + 16-byte GCM tag.
 struct RecipientSlot {
-    /// Indexing tag. The confidential proof binds it to the output UTXO's
-    /// owner; the anonymous proof leaves it free (a policy-zone view tag).
+    /// Recipient's signing pubkey — the indexing tag. The confidential proof
+    /// binds it to the output UTXO; the anonymous proof leaves it free (a view tag).
     owner: [u8; 32],
     ciphertext: Vec<u8>,
 }
@@ -895,7 +893,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components |
+| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components. The confidential variant additionally witnesses the owner's signing and nullifier pubkeys to recompute `owner_hash` and expose the signing pubkey as the public tag. |
 | `asset`, `amount`, `blinding`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
@@ -933,7 +931,7 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Output owner tag (confidential variant) | The confidential variant exposes each output ciphertext's `owner` field as a public input and binds it to the output UTXO's owner, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
+| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the ciphertext `owner` tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. Instruction data selects the variant. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals and fees. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to these two chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs.<br>The owner signs this value; the ECDSA message digest `SHA-256(private_tx_hash)` is computed outside the circuit and bound by the `private_tx_hash_digest` public input (see [UTXO Ownership Check](#utxo-ownership-check)). SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | Program ownership | UTXOs owned by a zone program must be authorized by a PDA signer of that program. Policy proofs are checked by the zone program before CPI into SPP. |
@@ -949,12 +947,12 @@ output_ciphertext(c) := c.owner || u16_be(c.data.len()) || c.data
 
 Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solana) only. The second instance omits the expensive P256 signature verification. The Ed25519 signature verification is always outsourced signature to the SPP. Therfore instance 2 has ~7× fewer constraints.
 
-Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output ciphertext's `owner` as a public input and binds it to the output UTXO's owner, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
+Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the ciphertext `owner` tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
 
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
 | 2 in 2 out | Shield with merge | 1 SOL fee UTXO + 1 existing SPL UTXO in; 1 SPL output (existing balance + new deposit), 1 SOL change output | P256, Solana-only |
-| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the relayer | P256, Solana-only |
+| 1 in 2 out | Single-input transfer | 1 sender input UTXO, 1 recipient output, 1 change output; transaction fees are paid by the payer | P256, Solana-only |
 | 2 in 3 out | Single-input transfer with fee UTXO (currently the only implemented shape) | 1 SOL fee UTXO, 1 sender input UTXO, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 3 in 3 out | Standard transfer | 1 SOL fee UTXO, 2 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | P256, Solana-only |
@@ -1169,7 +1167,7 @@ Usage by instruction:
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | payer |   | x | relayer (transfer/unshield) or user (shield) |
+| 1 | payer |   | x | user, or an optional relayer (transfer/unshield) |
 | 2 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
 | 3 | cpi_signer |   | x | invoking program pda, optional |
 
@@ -1192,8 +1190,8 @@ struct InputUtxo {
 }
 
 struct OutputCiphertext {
-    /// Indexing tag. The confidential proof binds it to the output UTXO's
-    /// owner; the anonymous proof leaves it free (a policy-zone view tag).
+    /// Owner's signing pubkey — the indexing tag. The confidential proof binds
+    /// it to the output UTXO; the anonymous proof leaves it free (a view tag).
     owner: [u8;32],
     /// Not parsed by the program. Layout per Output UTXO Serialization,
     /// encrypted or [Plaintext Transfer](#plaintext-transfer).
@@ -1235,7 +1233,7 @@ struct TransactIxData {
     output_utxo_hashes: Vec<[u8; 32]>,
     /// Length `1 + R` for `R` real recipients. `[0]` is the sender bundle (covers
     /// the change positions `0..SENDER_SLOT_COUNT`); its `owner` is the sender's
-    /// owner pubkey, bound to the change outputs by the proof. `[1..]` are the
+    /// signing pubkey, bound to the change outputs by the proof. `[1..]` are the
     /// slots for the real recipients at positions `SENDER_SLOT_COUNT..`, each a
     /// recipient ciphertext under its `owner` pubkey (see [Sender](#sender)).
     output_ciphertexts: Vec<OutputCiphertext>,
@@ -1344,10 +1342,12 @@ GeneralEvent {
 
 ```rust
 struct ProoflessShieldIxData {
-    /// Recipient `owner_hash`; the indexing tag for the single output slot, and
-    /// nested with `blinding` into the UTXO's `owner_utxo_hash` (see
-    /// [UTXO Hash](#utxo-hash)).
+    /// Recipient's signing pubkey (eddsa: the 32-byte key; P256: the
+    /// X-coordinate); the indexing tag for the single output slot.
     owner: [u8; 32],
+    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
+    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
+    owner_hash: [u8; 32],
     /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
     /// directly.
     blinding: [u8; 31],
@@ -1374,7 +1374,7 @@ the instruction data. It is not derived; the recipient reads it back from the
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
 3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`. When `program_data_hash`/`program_data` are set, validate `cpi_signer`: `cpi_signer` account is a signer and its pda derivation matches seed `["auth"]` with the supplied `program_id` and `bump`.
-4. Compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `policy_data_hash` is `0`, `zone_program_id` from `cpi_signer` or `0`.
+4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `policy_data_hash` is `0`, `zone_program_id` from `cpi_signer` or `0`.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1390,14 +1390,14 @@ GeneralEvent {
     // No UTXOs are spent.
     inputs: vec![],
     outputs: vec![OutputUtxo {
-        // The recipient's owner pubkey; lets them index the deposit by their
+        // The recipient's signing pubkey; lets them index the deposit by their
         // own pubkey.
         owner,
         utxo_hash,
-        // owner and blinding are public; the recipient spends from them directly.
+        // owner_hash and blinding are public; the recipient spends from them directly.
         // policy_data_hash and zone_data only set by zone_proofless_shield.
         data: serialize(OutputData::Proofless(ProoflessOutput {
-            owner,
+            owner_hash,
             blinding,
             asset,
             amount,
@@ -1482,7 +1482,7 @@ enum OutputData {
 /// clear; the recipient spends from them directly.
 struct ProoflessOutput {
     /// Recipient `owner_hash`; see [UTXO Hash](#utxo-hash).
-    owner: [u8; 32],
+    owner_hash: [u8; 32],
     blinding: [u8; 31],
     /// Deposited mint; SOL is `Address::default()`.
     asset: [u8; 32],
@@ -1879,7 +1879,7 @@ struct GenerateSppProofResponse {
 
 ## Relayer
 
-Signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. The relayer never sees plaintext UTXOs; it only signs as the Solana payer.
+Optional service; by default users submit transactions directly. When used, it signs and submits a Solana transaction on behalf of a user, pays the SOL transaction fee on the Solana payer slot, and is reimbursed plus rewarded out of the `relayer_fee` field included in the shielded instruction (see [`transact`](#transact)). The relayer cannot change the user's shielded transactions: the SPP proof commits to all transaction parameters. The relayer never sees plaintext UTXOs; it only signs as the Solana payer.
 
 ### `submit_transaction`
 
