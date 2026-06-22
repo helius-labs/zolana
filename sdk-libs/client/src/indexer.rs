@@ -13,7 +13,7 @@ use crate::{
     rpc::{
         Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputSlot, Rpc, ShieldedTransaction,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
 
@@ -166,9 +166,10 @@ fn convert_encrypted_utxo_match(
             &format!("matches[{index}].tx_signature"),
         )?,
         view_tag: decode_hash(&item.view_tag, &format!("matches[{index}].view_tag"))?,
-        utxo_hash: decode_hash(&item.utxo_hash, &format!("matches[{index}].utxo_hash"))?,
-        output_tree: decode_pubkey(&item.output_tree, &format!("matches[{index}].output_tree"))?,
-        leaf_index: item.leaf_index,
+        output_context: convert_output_context(
+            item.output_context,
+            &format!("matches[{index}].output_context"),
+        )?,
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
             &format!("matches[{index}].tx_viewing_pk"),
@@ -222,8 +223,22 @@ fn convert_shielded_transaction(
 fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, ClientError> {
     Ok(OutputSlot {
         view_tag: decode_hash(&slot.view_tag, &format!("{field}.view_tag"))?,
-        hash: decode_hash(&slot.hash, &format!("{field}.hash"))?,
+        output_context: convert_output_context(
+            slot.output_context,
+            &format!("{field}.output_context"),
+        )?,
         payload: decode_base64(&slot.payload, &format!("{field}.payload"))?,
+    })
+}
+
+fn convert_output_context(
+    context: zolana_api::ZolanaOutputContext,
+    field: &str,
+) -> Result<OutputContext, ClientError> {
+    Ok(OutputContext {
+        hash: decode_hash(&context.hash, &format!("{field}.hash"))?,
+        tree: decode_pubkey(&context.tree, &format!("{field}.tree"))?,
+        leaf_index: context.leaf_index,
     })
 }
 
@@ -444,9 +459,11 @@ mod tests {
                 "slot": 7,
                 "tx_signature": signature.to_string(),
                 "view_tag": encode_hash_string(tag_a),
-                "utxo_hash": encode_hash_string(utxo_hash),
-                "output_tree": encode_pubkey_string(output_tree),
-                "leaf_index": 11,
+                "output_context": {
+                    "hash": encode_hash_string(utxo_hash),
+                    "tree": encode_pubkey_string(output_tree),
+                    "leaf_index": 11,
+                },
                 "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
                 "ciphertext": base64::encode([8, 9, 10]),
             }],
@@ -476,9 +493,9 @@ mod tests {
         assert_eq!(got.matches[0].slot, 7);
         assert_eq!(got.matches[0].tx_signature, signature);
         assert_eq!(got.matches[0].view_tag, tag_a);
-        assert_eq!(got.matches[0].utxo_hash, utxo_hash);
-        assert_eq!(got.matches[0].output_tree, output_tree);
-        assert_eq!(got.matches[0].leaf_index, 11);
+        assert_eq!(got.matches[0].output_context.hash, utxo_hash);
+        assert_eq!(got.matches[0].output_context.tree, output_tree);
+        assert_eq!(got.matches[0].output_context.leaf_index, 11);
         assert_eq!(got.matches[0].tx_viewing_pk, Some(tx_viewing_pk));
         assert_eq!(got.matches[0].ciphertext, vec![8, 9, 10]);
     }
@@ -487,6 +504,7 @@ mod tests {
     fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
         let tag = bytes32(11);
         let output_hash = bytes32(12);
+        let output_tree = Address::new_from_array(bytes32(15));
         let nullifier = bytes32(13);
         let signature = signature(14);
         let response = rpc_result(json!({
@@ -497,7 +515,11 @@ mod tests {
                 "tx_viewing_pk": null,
                 "output_slots": [{
                     "view_tag": encode_hash_string(tag),
-                    "hash": encode_hash_string(output_hash),
+                    "output_context": {
+                        "hash": encode_hash_string(output_hash),
+                        "tree": encode_pubkey_string(output_tree),
+                        "leaf_index": 16,
+                    },
                     "payload": base64::encode([21, 22]),
                 }],
                 "nullifiers": [encode_hash_string(nullifier)],
@@ -533,7 +555,9 @@ mod tests {
         assert_eq!(tx.nullifiers, vec![nullifier]);
         assert_eq!(tx.output_slots.len(), 1);
         assert_eq!(tx.output_slots[0].view_tag, tag);
-        assert_eq!(tx.output_slots[0].hash, output_hash);
+        assert_eq!(tx.output_slots[0].output_context.hash, output_hash);
+        assert_eq!(tx.output_slots[0].output_context.tree, output_tree);
+        assert_eq!(tx.output_slots[0].output_context.leaf_index, 16);
         assert_eq!(tx.output_slots[0].payload, vec![21, 22]);
     }
 
@@ -679,7 +703,11 @@ mod tests {
                 "tx_viewing_pk": null,
                 "output_slots": [{
                     "view_tag": encode_hash_string(tag),
-                    "hash": bs58::encode([1u8; 31]).into_string(),
+                    "output_context": {
+                        "hash": bs58::encode([1u8; 31]).into_string(),
+                        "tree": encode_pubkey_string(Address::new_from_array(bytes32(53))),
+                        "leaf_index": 1,
+                    },
                     "payload": base64::encode([1]),
                 }],
                 "nullifiers": [],
@@ -697,7 +725,7 @@ mod tests {
 
         assert!(err
             .to_string()
-            .contains("transactions[0].output_slots[0].hash"));
+            .contains("transactions[0].output_slots[0].output_context.hash"));
         assert!(err.to_string().contains("expected 32 bytes"));
     }
 

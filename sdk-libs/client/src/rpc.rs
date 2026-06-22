@@ -44,9 +44,7 @@ pub struct EncryptedUtxoMatch {
     pub slot: u64,
     pub tx_signature: Signature,
     pub view_tag: [u8; 32],
-    pub utxo_hash: [u8; 32],
-    pub output_tree: Address,
-    pub leaf_index: u64,
+    pub output_context: OutputContext,
     /// `None` when the payload is plaintext (nothing to decrypt).
     pub tx_viewing_pk: Option<P256Pubkey>,
     /// Transaction-level AES salt shared by every output ciphertext; `None` for
@@ -62,11 +60,19 @@ pub struct GetEncryptedUtxosByTagsResponse {
     pub next_cursor: Option<Vec<u8>>,
 }
 
+/// Identifies an output commitment and where it lives in the UTXO tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputContext {
+    pub hash: [u8; 32],
+    pub tree: Address,
+    pub leaf_index: u64,
+}
+
 /// One output of a shielded transaction: its view tag and encrypted/plaintext payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputSlot {
     pub view_tag: [u8; 32],
-    pub hash: [u8; 32],
+    pub output_context: OutputContext,
     pub payload: Vec<u8>,
 }
 

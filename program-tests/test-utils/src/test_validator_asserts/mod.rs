@@ -64,9 +64,19 @@ pub fn assert_indexed_deposit_utxo(
 ) {
     assert_eq!(indexed.view_tag, tag, "indexed view tag");
     assert_eq!(indexed.tx_signature, signature, "indexed signature");
-    assert_eq!(indexed.utxo_hash, event.utxo_hash, "indexed UTXO hash");
-    assert_eq!(indexed.output_tree, to_address(tree), "indexed output tree");
-    assert_eq!(indexed.leaf_index, event.leaf_index, "indexed leaf index");
+    assert_eq!(
+        indexed.output_context.hash, event.utxo_hash,
+        "indexed UTXO hash"
+    );
+    assert_eq!(
+        indexed.output_context.tree,
+        to_address(tree),
+        "indexed output tree"
+    );
+    assert_eq!(
+        indexed.output_context.leaf_index, event.leaf_index,
+        "indexed leaf index"
+    );
 }
 
 #[track_caller]

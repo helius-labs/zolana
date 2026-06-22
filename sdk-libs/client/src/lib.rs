@@ -32,8 +32,8 @@ pub use prover::{
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
     GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, MerkleContext,
-    MerkleProof, NonInclusionProof, OutputSlot, ProveResult, Rpc, ShieldedTransaction,
-    ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult, Rpc,
+    ShieldedTransaction, ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
