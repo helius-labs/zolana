@@ -1,12 +1,16 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_keypair::hash::poseidon;
-use zolana_transaction::utxo::{zone_program_id_field, UTXO_DOMAIN};
-use zolana_transaction::OutputUtxo;
+use zolana_transaction::{
+    utxo::{zone_program_id_field, UTXO_DOMAIN},
+    OutputUtxo,
+};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{asset_field, be, right_align};
-use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+use crate::{
+    error::ClientError,
+    private_transaction::field::{asset_field, be, right_align},
+    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+};
 
 /// UTXO commitment fields, pre-computed by the caller. Mirrors the circuit's
 /// UtxoCircuitFields (prover/server/circuits/spp_transaction/utxo.go).
@@ -177,8 +181,11 @@ pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
     /// Shared owner P256 signing pubkey coordinates and nullifier secret/commitment.
+    /// On the Solana (ed25519) rail the coordinates are a discarded dummy point and
+    /// `solana_owner_pk_hash` carries the owner's pk_field; it is 0 on the P256 rail.
     pub p256_pub_x: BigUint,
     pub p256_pub_y: BigUint,
+    pub solana_owner_pk_hash: BigUint,
     pub user_nullifier_pk: BigUint,
     pub user_nullifier_secret: BigUint,
     /// Ephemeral P-256 scalar (must be < BN254 modulus so it is a valid circuit

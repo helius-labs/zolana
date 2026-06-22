@@ -1,17 +1,19 @@
-use std::collections::{HashMap, HashSet};
-use std::mem;
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 
 use rayon::prelude::*;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
+};
 
 use super::{
     ParsedBlob, SyncReport, SyncTransaction, TxIndex, ViewingKeyEntry, Wallet, WalletUtxo,
 };
-use crate::asset::AssetRegistry;
-use crate::encryption::TransactionEncryption;
-use crate::error::TransactionError;
-use crate::utxo::Utxo;
+use crate::{
+    asset::AssetRegistry, encryption::TransactionEncryption, error::TransactionError, utxo::Utxo,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Site {

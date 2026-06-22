@@ -3,13 +3,14 @@ use std::path::PathBuf;
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use crate::args::{NetworkWalletOptions, SyncOptions};
-use crate::cli_config::{
-    resolve_indexer_url, resolve_keypair_path, resolve_prover_url, resolve_rpc_url, resolve_tree,
-    CliConfigFile,
-};
-
 use super::util::parse_pubkey;
+use crate::{
+    args::{NetworkWalletOptions, SyncOptions},
+    cli_config::{
+        resolve_indexer_url, resolve_keypair_path, resolve_prover_url, resolve_rpc_url,
+        resolve_tree, CliConfigFile,
+    },
+};
 
 #[derive(Debug)]
 pub(crate) struct ResolvedSyncOptions {
@@ -69,12 +70,13 @@ pub(crate) fn get_network_with_config(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
-    use crate::args::WalletKeypairOptions;
-    use crate::cli_config::CONFIG_ENV_LOCK;
+    use crate::{args::WalletKeypairOptions, cli_config::CONFIG_ENV_LOCK};
 
     fn temp_config(tree: Option<&str>) -> String {
         let stamp = SystemTime::now()

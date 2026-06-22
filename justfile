@@ -10,6 +10,7 @@ localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", "8784")
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:8784")
 photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
+spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -185,6 +186,44 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Merge service"
 
+# Run only the randomized 500-transaction workload from test-spp-validator. This is
+# intentionally isolated in CI because it is the longest and quietest scenario.
+test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p spp-test-validator --test lifecycle -- --name "Five hundred randomized eddsa transactions"
+
+# Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
+# signer, mixed lifecycle, SOL lifecycle, and instruction/event decode.
+test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|instruction data and accounts decode"
+
 # Run only the mixed-lifecycle scenario from test-spp-validator (deposits,
 # transfers, SOL withdrawals, and merges across three owners). For exercising the
 # full instruction mix without running the rest of the lifecycle suite.
@@ -240,6 +279,16 @@ build-programs:
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
+
+build-spp-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    prover/server/scripts/generate_keys_transfer.sh "{{spp-keys-dir}}"
+    prover/server/scripts/generate_keys_merge.sh "{{spp-keys-dir}}"
+    prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
+
+publish-spp-keys-release:
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v4 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     #!/usr/bin/env bash

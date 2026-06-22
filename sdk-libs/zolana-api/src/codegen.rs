@@ -132,14 +132,13 @@ pub mod types {
     ///{
     ///  "type": "object",
     ///  "required": [
-    ///    "ciphertext",
+    ///    "output_slot",
     ///    "slot",
-    ///    "tx_signature",
-    ///    "view_tag"
+    ///    "tx_signature"
     ///  ],
     ///  "properties": {
-    ///    "ciphertext": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///    "output_slot": {
+    ///      "$ref": "#/components/schemas/ZolanaOutputSlot"
     ///    },
     ///    "salt": {
     ///      "$ref": "#/components/schemas/Base64String"
@@ -154,9 +153,6 @@ pub mod types {
     ///    },
     ///    "tx_viewing_pk": {
     ///      "$ref": "#/components/schemas/Base64String"
-    ///    },
-    ///    "view_tag": {
-    ///      "$ref": "#/components/schemas/Hash"
     ///    }
     ///  },
     ///  "additionalProperties": false
@@ -166,14 +162,13 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
-        pub ciphertext: Base64String,
+        pub output_slot: ZolanaOutputSlot,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
         pub tx_signature: SerializableSignature,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub tx_viewing_pk: ::std::option::Option<Base64String>,
-        pub view_tag: Hash,
     }
     impl EncryptedUtxoMatch {
         pub fn builder() -> builder::EncryptedUtxoMatch {
@@ -3303,7 +3298,7 @@ pub mod types {
             Default::default()
         }
     }
-    ///`ZolanaOutputSlot`
+    ///`ZolanaOutputContext`
     ///
     /// <details><summary>JSON schema</summary>
     ///
@@ -3312,12 +3307,53 @@ pub mod types {
     ///  "type": "object",
     ///  "required": [
     ///    "hash",
-    ///    "payload",
-    ///    "view_tag"
+    ///    "leaf_index",
+    ///    "tree"
     ///  ],
     ///  "properties": {
     ///    "hash": {
     ///      "$ref": "#/components/schemas/Hash"
+    ///    },
+    ///    "leaf_index": {
+    ///      "type": "integer",
+    ///      "format": "uint64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "tree": {
+    ///      "$ref": "#/components/schemas/SerializablePubkey"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct ZolanaOutputContext {
+        pub hash: Hash,
+        pub leaf_index: u64,
+        pub tree: SerializablePubkey,
+    }
+    impl ZolanaOutputContext {
+        pub fn builder() -> builder::ZolanaOutputContext {
+            Default::default()
+        }
+    }
+    ///`ZolanaOutputSlot`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "output_context",
+    ///    "payload",
+    ///    "view_tag"
+    ///  ],
+    ///  "properties": {
+    ///    "output_context": {
+    ///      "$ref": "#/components/schemas/ZolanaOutputContext"
     ///    },
     ///    "payload": {
     ///      "$ref": "#/components/schemas/Base64String"
@@ -3333,7 +3369,7 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct ZolanaOutputSlot {
-        pub hash: Hash,
+        pub output_context: ZolanaOutputContext,
         pub payload: Base64String,
         pub view_tag: Hash,
     }
@@ -3384,8 +3420,8 @@ pub mod types {
         }
         #[derive(Clone, Debug)]
         pub struct EncryptedUtxoMatch {
-            ciphertext: ::std::result::Result<
-                super::Base64String,
+            output_slot: ::std::result::Result<
+                super::ZolanaOutputSlot,
                 ::std::string::String,
             >,
             salt: ::std::result::Result<
@@ -3401,30 +3437,28 @@ pub mod types {
                 ::std::option::Option<super::Base64String>,
                 ::std::string::String,
             >,
-            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
         }
         impl ::std::default::Default for EncryptedUtxoMatch {
             fn default() -> Self {
                 Self {
-                    ciphertext: Err("no value supplied for ciphertext".to_string()),
+                    output_slot: Err("no value supplied for output_slot".to_string()),
                     salt: Ok(Default::default()),
                     slot: Err("no value supplied for slot".to_string()),
                     tx_signature: Err("no value supplied for tx_signature".to_string()),
                     tx_viewing_pk: Ok(Default::default()),
-                    view_tag: Err("no value supplied for view_tag".to_string()),
                 }
             }
         }
         impl EncryptedUtxoMatch {
-            pub fn ciphertext<T>(mut self, value: T) -> Self
+            pub fn output_slot<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<super::Base64String>,
+                T: ::std::convert::TryInto<super::ZolanaOutputSlot>,
                 T::Error: ::std::fmt::Display,
             {
-                self.ciphertext = value
+                self.output_slot = value
                     .try_into()
                     .map_err(|e| {
-                        format!("error converting supplied value for ciphertext: {e}")
+                        format!("error converting supplied value for output_slot: {e}")
                     });
                 self
             }
@@ -3476,18 +3510,6 @@ pub mod types {
                     });
                 self
             }
-            pub fn view_tag<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.view_tag = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for view_tag: {e}")
-                    });
-                self
-            }
         }
         impl ::std::convert::TryFrom<EncryptedUtxoMatch> for super::EncryptedUtxoMatch {
             type Error = super::error::ConversionError;
@@ -3495,24 +3517,22 @@ pub mod types {
                 value: EncryptedUtxoMatch,
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
-                    ciphertext: value.ciphertext?,
+                    output_slot: value.output_slot?,
                     salt: value.salt?,
                     slot: value.slot?,
                     tx_signature: value.tx_signature?,
                     tx_viewing_pk: value.tx_viewing_pk?,
-                    view_tag: value.view_tag?,
                 })
             }
         }
         impl ::std::convert::From<super::EncryptedUtxoMatch> for EncryptedUtxoMatch {
             fn from(value: super::EncryptedUtxoMatch) -> Self {
                 Self {
-                    ciphertext: Ok(value.ciphertext),
+                    output_slot: Ok(value.output_slot),
                     salt: Ok(value.salt),
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
-                    view_tag: Ok(value.view_tag),
                 }
             }
         }
@@ -5807,21 +5827,24 @@ pub mod types {
             }
         }
         #[derive(Clone, Debug)]
-        pub struct ZolanaOutputSlot {
+        pub struct ZolanaOutputContext {
             hash: ::std::result::Result<super::Hash, ::std::string::String>,
-            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
-            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
+            leaf_index: ::std::result::Result<u64, ::std::string::String>,
+            tree: ::std::result::Result<
+                super::SerializablePubkey,
+                ::std::string::String,
+            >,
         }
-        impl ::std::default::Default for ZolanaOutputSlot {
+        impl ::std::default::Default for ZolanaOutputContext {
             fn default() -> Self {
                 Self {
                     hash: Err("no value supplied for hash".to_string()),
-                    payload: Err("no value supplied for payload".to_string()),
-                    view_tag: Err("no value supplied for view_tag".to_string()),
+                    leaf_index: Err("no value supplied for leaf_index".to_string()),
+                    tree: Err("no value supplied for tree".to_string()),
                 }
             }
         }
-        impl ZolanaOutputSlot {
+        impl ZolanaOutputContext {
             pub fn hash<T>(mut self, value: T) -> Self
             where
                 T: ::std::convert::TryInto<super::Hash>,
@@ -5831,6 +5854,88 @@ pub mod types {
                     .try_into()
                     .map_err(|e| {
                         format!("error converting supplied value for hash: {e}")
+                    });
+                self
+            }
+            pub fn leaf_index<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.leaf_index = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for leaf_index: {e}")
+                    });
+                self
+            }
+            pub fn tree<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::SerializablePubkey>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.tree = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for tree: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<ZolanaOutputContext>
+        for super::ZolanaOutputContext {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: ZolanaOutputContext,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    hash: value.hash?,
+                    leaf_index: value.leaf_index?,
+                    tree: value.tree?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::ZolanaOutputContext> for ZolanaOutputContext {
+            fn from(value: super::ZolanaOutputContext) -> Self {
+                Self {
+                    hash: Ok(value.hash),
+                    leaf_index: Ok(value.leaf_index),
+                    tree: Ok(value.tree),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct ZolanaOutputSlot {
+            output_context: ::std::result::Result<
+                super::ZolanaOutputContext,
+                ::std::string::String,
+            >,
+            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
+            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
+        }
+        impl ::std::default::Default for ZolanaOutputSlot {
+            fn default() -> Self {
+                Self {
+                    output_context: Err(
+                        "no value supplied for output_context".to_string(),
+                    ),
+                    payload: Err("no value supplied for payload".to_string()),
+                    view_tag: Err("no value supplied for view_tag".to_string()),
+                }
+            }
+        }
+        impl ZolanaOutputSlot {
+            pub fn output_context<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::ZolanaOutputContext>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.output_context = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!(
+                            "error converting supplied value for output_context: {e}"
+                        )
                     });
                 self
             }
@@ -5865,7 +5970,7 @@ pub mod types {
                 value: ZolanaOutputSlot,
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
-                    hash: value.hash?,
+                    output_context: value.output_context?,
                     payload: value.payload?,
                     view_tag: value.view_tag?,
                 })
@@ -5874,7 +5979,7 @@ pub mod types {
         impl ::std::convert::From<super::ZolanaOutputSlot> for ZolanaOutputSlot {
             fn from(value: super::ZolanaOutputSlot) -> Self {
                 Self {
-                    hash: Ok(value.hash),
+                    output_context: Ok(value.output_context),
                     payload: Ok(value.payload),
                     view_tag: Ok(value.view_tag),
                 }

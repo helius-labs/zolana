@@ -5,8 +5,9 @@
 
 #![allow(clippy::large_enum_variant)]
 
-use serde::{de::DeserializeOwned, Serialize};
 use std::{error::Error as StdError, fmt, sync::Once};
+
+use serde::{de::DeserializeOwned, Serialize};
 
 pub mod generated {
     #![allow(unused_imports, clippy::all, dead_code)]
@@ -33,6 +34,7 @@ pub type NonInclusionProof = types::NonInclusionProof;
 pub type SerializablePubkey = types::SerializablePubkey;
 pub type SerializableSignature = types::SerializableSignature;
 pub type ShieldedTransaction = types::ShieldedTransaction;
+pub type ZolanaOutputContext = types::ZolanaOutputContext;
 pub type ZolanaOutputSlot = types::ZolanaOutputSlot;
 
 #[derive(Clone, Debug)]

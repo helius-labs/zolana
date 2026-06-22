@@ -1,9 +1,13 @@
 use cucumber::then;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::hash::{hash_field, owner_hash, poseidon};
-use zolana_transaction::data::Data;
-use zolana_transaction::utxo::{utxo_hash, Utxo, UTXO_DOMAIN};
-use zolana_transaction::Address;
+use zolana_keypair::{
+    constants::BLINDING_LEN,
+    hash::{hash_field, owner_hash, poseidon},
+};
+use zolana_transaction::{
+    data::Data,
+    utxo::{utxo_hash, Utxo, UTXO_DOMAIN},
+    Address,
+};
 
 use crate::TransactionWorld;
 

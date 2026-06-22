@@ -6,16 +6,14 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit,
 };
 use zolana_transaction::Wallet;
 
-use crate::common::assert_custom;
-use crate::ShieldedPoolWorld;
+use crate::{common::assert_custom, ShieldedPoolWorld};
 
 const TOKEN_INSUFFICIENT_FUNDS: u32 = 1;
 

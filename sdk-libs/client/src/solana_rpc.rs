@@ -15,8 +15,7 @@ use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use solana_rpc_client::api::config::RpcTransactionConfig;
-use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 use solana_transaction_status_client_types::{
@@ -26,8 +25,7 @@ use solana_transaction_status_client_types::{
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
 
-use crate::error::ClientError;
-use crate::rpc::Rpc;
+use crate::{error::ClientError, rpc::Rpc};
 
 fn pubkey_from_address(address: &Address) -> Pubkey {
     Pubkey::new_from_array(address.to_bytes())

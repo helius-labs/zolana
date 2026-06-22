@@ -1,8 +1,10 @@
 use pinocchio::ProgramResult;
-use zolana_interface::event::{
-    encode_output_data, DepositWithdraw, EventKind, GeneralEvent, OutputData, ProoflessOutput,
+use zolana_interface::{
+    event::{
+        encode_output_data, DepositWithdraw, EventKind, GeneralEvent, OutputData, ProoflessOutput,
+    },
+    instruction::OutputUtxo,
 };
-use zolana_interface::instruction::OutputUtxo;
 
 use super::processor::DepositParams;
 use crate::instructions::event::emit_general_event;

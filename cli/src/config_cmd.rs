@@ -1,10 +1,12 @@
 use anyhow::{bail, Result};
 use solana_pubkey::Pubkey;
 
-use crate::args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions};
-use crate::cli_config::{
-    config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL, DEFAULT_PROVER_URL,
-    DEFAULT_RPC_URL,
+use crate::{
+    args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions},
+    cli_config::{
+        config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL,
+        DEFAULT_PROVER_URL, DEFAULT_RPC_URL,
+    },
 };
 
 pub(crate) fn run_config(command: ConfigCommand) -> Result<()> {

@@ -1,7 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 /// Public deposit without a proof (spec: `deposit`, tag 1).
 ///

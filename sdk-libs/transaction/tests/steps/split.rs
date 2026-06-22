@@ -2,10 +2,12 @@ use std::collections::HashSet;
 
 use cucumber::{then, when};
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::asset::AssetRegistry;
-use zolana_transaction::data::{Data, DataRecord};
-use zolana_transaction::split::SplitBundlePlaintext;
-use zolana_transaction::{Address, TransactionEncryption, TransactionError};
+use zolana_transaction::{
+    asset::AssetRegistry,
+    data::{Data, DataRecord},
+    split::SplitBundlePlaintext,
+    Address, TransactionEncryption, TransactionError,
+};
 
 use crate::TransactionWorld;
 

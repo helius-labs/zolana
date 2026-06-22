@@ -1,6 +1,5 @@
 use cucumber::then;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::hash::sha256_be;
+use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be};
 use zolana_transaction::derive_blinding;
 
 use crate::TransactionWorld;

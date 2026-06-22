@@ -15,9 +15,8 @@ mod localnet;
 mod steps;
 mod world;
 
-pub use world::LifecycleWorld;
-
 use cucumber::World as _;
+pub use world::LifecycleWorld;
 
 // Driven by the futures executor rather than tokio: the World and steps make
 // blocking RPC/indexer calls (blocking reqwest), which panic if their internal

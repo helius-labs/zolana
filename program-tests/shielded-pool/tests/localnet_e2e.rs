@@ -26,16 +26,13 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::hash::owner_hash;
-use zolana_keypair::pubkey::PublicKey;
-use zolana_keypair::NullifierKey;
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{transaction::private_tx_hash, Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{

@@ -1,17 +1,22 @@
 use light_hasher::{Hasher, Poseidon};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
-use zolana_interface::instruction::{DepositIxData, ZoneDepositIxData};
-use zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
-use zolana_interface::{UTXO_DOMAIN, ZONE_AUTH_PDA_SEED};
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{instruction_data::deposit::CpiSignerData, DepositIxData, ZoneDepositIxData},
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    UTXO_DOMAIN, ZONE_AUTH_PDA_SEED,
+};
 use zolana_tree::TreeAccount;
 
-use super::account::DepositAccounts;
-use super::event::{emit_proofless_event, ProoflessOutputCtx};
-use crate::instructions::hash::{field_from_u64, solana_pk_hash};
-use crate::instructions::settlement::{settle_sol, settle_spl, Settlement};
-use crate::instructions::shared::CPI_SIGNER_SEED;
+use super::{
+    account::DepositAccounts,
+    event::{emit_proofless_event, ProoflessOutputCtx},
+};
+use crate::instructions::{
+    hash::{field_from_u64, solana_pk_hash},
+    settlement::{settle_sol, settle_spl, Settlement},
+    shared::CPI_SIGNER_SEED,
+};
 
 /// Parsed instruction request shared across this instruction's submodules.
 pub(crate) struct DepositParams {

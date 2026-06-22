@@ -3,13 +3,14 @@ mod common;
 use std::collections::HashMap;
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
-use proptest::prelude::*;
-use proptest::test_runner::TestCaseError;
+use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
 use zolana_transaction::wallet::SyncReport;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
-use zolana_transaction::{AssetRegistry, Utxo};
+use zolana_transaction::{
+    wallet::{SyncTransaction, Wallet},
+    AssetRegistry, Utxo,
+};
 
 const NUM_CPS: usize = 3;
 const WINDOW: u64 = 8;

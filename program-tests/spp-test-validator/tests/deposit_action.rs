@@ -10,10 +10,10 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::{
-    Deposit as DepositInstruction, DepositIxData, DepositSplAccounts,
+use zolana_interface::{
+    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
+    pda,
 };
-use zolana_interface::pda;
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 

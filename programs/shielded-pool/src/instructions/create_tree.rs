@@ -2,12 +2,11 @@ use borsh::BorshDeserialize;
 use light_account_checks::{checks::check_owner, AccountIterator};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::CreateTreeData,
     state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, STATE_HEIGHT},
 };
 use zolana_tree::TreeAccount;
-
-use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::protocol_config::loader::load_protocol_config;
 

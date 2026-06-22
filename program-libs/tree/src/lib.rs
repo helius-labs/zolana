@@ -2,13 +2,15 @@
 pub mod smt;
 
 pub use light_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
-pub use smt::{SparseMerkleTree, TreeError};
-
-use light_batched_merkle_tree::initialize_address_tree::{
-    get_address_merkle_tree_account_size_from_params, init_batched_nullifier_merkle_tree_account,
+use light_batched_merkle_tree::{
+    initialize_address_tree::{
+        get_address_merkle_tree_account_size_from_params,
+        init_batched_nullifier_merkle_tree_account,
+    },
+    merkle_tree::BatchedMerkleTreeAccount,
 };
-use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
 use pinocchio::{AccountView, Address};
+pub use smt::{SparseMerkleTree, TreeError};
 
 const HEADER_LEN: usize = 8;
 

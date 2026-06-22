@@ -5,15 +5,16 @@
 //! not a GCM tag, so this path has no authentication tag.
 
 use aes::Aes256;
-use ctr::cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher};
-use ctr::Ctr32BE;
+use ctr::{
+    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    Ctr32BE,
+};
 use p256::SecretKey;
 
-use crate::constants::P256_PUBKEY_LEN;
-use crate::encryption::ecdh_x;
-use crate::error::KeypairError;
-use crate::hash::poseidon;
-use crate::pubkey::P256Pubkey;
+use crate::{
+    constants::P256_PUBKEY_LEN, encryption::ecdh_x, error::KeypairError, hash::poseidon,
+    pubkey::P256Pubkey,
+};
 
 type Aes256Ctr = Ctr32BE<Aes256>;
 
@@ -209,8 +210,9 @@ pub fn merge_ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], KeypairError
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use p256::elliptic_curve::rand_core::OsRng;
+
+    use super::*;
 
     fn pubkey(sk: &SecretKey) -> P256Pubkey {
         P256Pubkey::from_p256(&sk.public_key())

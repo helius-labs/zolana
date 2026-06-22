@@ -2,16 +2,21 @@
 
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
-use zolana_client::private_transaction::field::{be, hash_chain};
 use zolana_client::{
+    private_transaction::field::{be, hash_chain},
     spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput, TransferInputs,
     TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, InputUtxo, TransactIxData,
+use zolana_interface::{
+    instruction::{
+        instruction_data::{
+            transact as transact_ix,
+            transact::{ExternalDataHash, InputUtxo, TransactIxData},
+        },
+        tag,
+    },
+    verifying_keys::transfer_2_3,
 };
-use zolana_interface::instruction::{instruction_data::transact as transact_ix, tag};
-use zolana_interface::verifying_keys::transfer_2_3;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::OutputUtxo;
 

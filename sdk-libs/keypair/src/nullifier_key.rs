@@ -2,10 +2,12 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use crate::constants::{BLINDING_LEN, INFO_NULLIFIER};
-use crate::error::KeypairError;
-use crate::hash::{fe_right_align, poseidon};
-use crate::signing_key::SigningKey;
+use crate::{
+    constants::{BLINDING_LEN, INFO_NULLIFIER},
+    error::KeypairError,
+    hash::{fe_right_align, poseidon},
+    signing_key::SigningKey,
+};
 
 #[derive(Clone)]
 pub struct NullifierKey {

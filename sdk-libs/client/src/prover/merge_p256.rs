@@ -4,26 +4,30 @@
 //! merge-specific.
 
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::SecretKey;
+use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
-use zolana_keypair::merge::{
-    encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs,
+use zolana_keypair::{
+    merge::{encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs},
+    NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{OutputUtxo, MERGE};
+use zolana_transaction::{transaction::private_tx_hash, OutputUtxo, MERGE};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{asset_field, be, hash_chain};
-use crate::prover::transfer_p256::{assemble_inputs, assemble_outputs, TransferSpendInput};
-use crate::prover::MergeInputs;
+use crate::{
+    error::ClientError,
+    private_transaction::field::{asset_field, be, hash_chain},
+    prover::{
+        transfer_p256::{assemble_inputs, assemble_outputs, TransferSpendInput},
+        MergeInputs,
+    },
+};
 
-/// Merge consolidates up to 8 P256-owned inputs sharing one owner, asset, and
-/// nullifier secret into one output, verifiably encrypted to the owner's viewing
-/// key. The input slots reuse [`TransferSpendInput`] (a `None` proof is a dummy);
+/// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
+/// secret into one output, verifiably encrypted to the owner's viewing key. The
+/// owner is either rail: a P256 signing key recomputes its pk_field from the
+/// witnessed point, a Solana (ed25519) signing key feeds its pk_field directly.
+/// The input slots reuse [`TransferSpendInput`] (a `None` proof is a dummy);
 /// there is exactly one real output.
 pub struct MergeProver {
     pub inputs: Vec<TransferSpendInput>,
@@ -31,10 +35,10 @@ pub struct MergeProver {
     /// Validity deadline; bound into `external_data_hash`, which the circuit treats
     /// as opaque and `merge_transact` recomputes from the instruction.
     pub expiry_unix_ts: u64,
-    /// Owner identity shared by every input: the P256 signing pubkey (recomputes
-    /// `user_owner_hash`) and the nullifier key (recomputes the shared
+    /// Owner identity shared by every input: the scheme-tagged signing pubkey
+    /// (recomputes `user_owner_hash`) and the nullifier key (recomputes the shared
     /// `nullifier_pk` and every input nullifier).
-    pub signing_pubkey: P256Pubkey,
+    pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
     /// Owner viewing key (encryption recipient) and the ephemeral scalar. The
     /// scalar must be < BN254 modulus so it is a valid circuit witness.
@@ -61,6 +65,9 @@ pub struct MergeProofResult {
     /// uses to decrypt it back to the merged output's `(amount, asset, blinding)`.
     pub ciphertext: Vec<u8>,
     pub tx_viewing_pk: P256Pubkey,
+    /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
+    /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
+    pub eddsa_owner: bool,
 }
 
 impl MergeProofResult {
@@ -77,6 +84,7 @@ impl MergeProofResult {
             nullifier_tree_root_index: self.nullifier_tree_root_indices.clone(),
             private_tx_hash: self.private_tx_hash,
             encrypted_utxo: merge_encrypted_utxo(&self.tx_viewing_pk, &self.ciphertext),
+            eddsa_owner: self.eddsa_owner,
         }
     }
 }
@@ -84,16 +92,6 @@ impl MergeProofResult {
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let assembled_inputs = assemble_inputs(&self.inputs, true)?;
-        // Merge has no Solana-owner path: every real input must be P256-owned.
-        if assembled_inputs
-            .solana_owner_pk_hashes
-            .iter()
-            .any(|h| h != &[0u8; 32])
-        {
-            return Err(ClientError::Prover(
-                "merge inputs must all be P256-owned".to_string(),
-            ));
-        }
 
         let utxo_tree_root_indices: Vec<u16> = assembled_inputs
             .root_indices
@@ -143,7 +141,7 @@ impl MergeProver {
         // SPP checks both against the owner's registry record; the owner recombines
         // the signing pk_field with their nullifier_pk to get user_owner_hash, so
         // the owner need not be carried in the ciphertext.
-        let user_signing_pk_hash = PublicKey::from_p256(&self.signing_pubkey).hash()?;
+        let user_signing_pk_hash = self.signing_pubkey.hash()?;
         let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let public_input = hash_chain(&[
             hash_chain(&assembled_inputs.nullifiers)?,
@@ -159,7 +157,18 @@ impl MergeProver {
             ct_hash,
         ])?;
 
-        let (pub_x, pub_y) = signing_xy(&self.signing_pubkey)?;
+        // Owner rail select, mirroring the merge circuit: a P256 owner witnesses its
+        // real point (pk_field recomputed in-circuit, solana_owner_pk_hash = 0); a
+        // Solana owner witnesses a discarded dummy point and feeds its pk_field
+        // through solana_owner_pk_hash.
+        let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
+        let (pub_x, pub_y, solana_owner_pk_hash) = if eddsa_owner {
+            let (x, y) = dummy_p256_xy()?;
+            (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
+        } else {
+            let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
+            (x, y, BigUint::ZERO)
+        };
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let user_nullifier_secret = right_align(self.nullifier_key.secret());
         let sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
@@ -179,6 +188,7 @@ impl MergeProver {
             output,
             p256_pub_x: be(&pub_x),
             p256_pub_y: be(&pub_y),
+            solana_owner_pk_hash,
             user_nullifier_pk: be(&user_nullifier_pk),
             user_nullifier_secret: be(&user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&sk_bytes),
@@ -200,6 +210,7 @@ impl MergeProver {
             expiry_unix_ts: self.expiry_unix_ts,
             ciphertext,
             tx_viewing_pk,
+            eddsa_owner,
         })
     }
 }
@@ -239,6 +250,27 @@ fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
 
 fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
     let bytes = uncompressed(pk)?;
+    let mut x = [0u8; 32];
+    let mut y = [0u8; 32];
+    x.copy_from_slice(&bytes[1..33]);
+    y.copy_from_slice(&bytes[33..65]);
+    Ok((x, y))
+}
+
+/// The P256 generator coordinates, used as the discarded dummy `P256Pub` on the
+/// Solana rail: the circuit always asserts the point is on the curve even though
+/// the rail select discards its pk_field, so it must be a valid point.
+fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
+    let mut one = [0u8; 32];
+    one[31] = 1;
+    let sk = SecretKey::from_slice(&one).map_err(|e| ClientError::P256Signature(e.to_string()))?;
+    let point = sk.public_key().to_encoded_point(false);
+    let bytes = point.as_bytes();
+    if bytes.len() != 65 {
+        return Err(ClientError::P256Signature(
+            "P256 generator point must be 65 bytes".into(),
+        ));
+    }
     let mut x = [0u8; 32];
     let mut y = [0u8; 32];
     x.copy_from_slice(&bytes[1..33]);

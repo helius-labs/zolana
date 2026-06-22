@@ -4,8 +4,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_interface::error::ShieldedPoolError;
 use zolana_interface::{
+    error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::{
         instruction_data::transact::{ExternalDataHash, InputUtxo, TransactIxDataRef},
@@ -15,9 +15,11 @@ use zolana_interface::{
 };
 use zolana_tree::{TreeAccount, TreeError};
 
-use super::account::{validate_input_signer, TransactAccounts};
-use super::event::{build_transact_event, TreeWrite};
-use super::verify::P256_OWNED_SIGNER;
+use super::{
+    account::{validate_input_signer, TransactAccounts},
+    event::{build_transact_event, TreeWrite},
+    verify::P256_OWNED_SIGNER,
+};
 use crate::instructions::{
     event::emit_general_event,
     hash::solana_pk_hash,

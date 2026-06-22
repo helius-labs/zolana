@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use zolana_interface::event::{decode_output_data, DepositView, OutputData};
 use zolana_keypair::viewing_key::ViewTag;
@@ -193,7 +195,7 @@ where
 fn proofless_deposit_from_indexed_match(
     item: EncryptedUtxoMatch,
 ) -> Result<Option<DepositView>, ClientError> {
-    let Ok(OutputData::Proofless(proofless)) = decode_output_data(&item.ciphertext) else {
+    let Ok(OutputData::Proofless(proofless)) = decode_output_data(&item.output_slot.payload) else {
         return Ok(None);
     };
 
@@ -210,7 +212,7 @@ fn proofless_deposit_from_indexed_match(
     )?;
 
     Ok(Some(DepositView {
-        view_tag: item.view_tag,
+        view_tag: item.output_slot.view_tag,
         utxo_hash,
         asset: proofless.asset,
         amount: proofless.amount,
@@ -221,10 +223,8 @@ fn proofless_deposit_from_indexed_match(
         program_data_hash: proofless.program_data_hash,
         program_data: proofless.program_data,
         zone_data: proofless.zone_data,
-        // Photon exposes proofless output payloads directly from this endpoint;
-        // the wallet only needs the recomputed leaf hash and view tag here.
-        output_tree: [0u8; 32],
-        leaf_index: 0,
+        output_tree: item.output_slot.output_context.tree.to_bytes(),
+        leaf_index: item.output_slot.output_context.leaf_index,
     }))
 }
 
@@ -269,7 +269,8 @@ mod tests {
 
     use super::*;
     use crate::rpc::{
-        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, OutputSlot,
+        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
+        OutputContext, OutputSlot,
     };
 
     struct MockIndexer {
@@ -315,6 +316,11 @@ mod tests {
                 salt: None,
                 output_slots: vec![OutputSlot {
                     view_tag: [1u8; 32],
+                    output_context: OutputContext {
+                        hash: [0u8; 32],
+                        tree: Address::new_from_array([0u8; 32]),
+                        leaf_index: 0,
+                    },
                     payload: Vec::new(),
                 }],
                 nullifiers: Vec::new(),
@@ -367,6 +373,8 @@ mod tests {
         assert_eq!(deposit.blinding, output.blinding);
         assert_eq!(deposit.amount, output.amount);
         assert_ne!(deposit.utxo_hash, [0u8; 32]);
+        assert_eq!(deposit.output_tree, [7u8; 32]);
+        assert_eq!(deposit.leaf_index, 13);
     }
 
     #[test]
@@ -434,10 +442,17 @@ mod tests {
         EncryptedUtxoMatch {
             slot: 1,
             tx_signature: Signature::default(),
-            view_tag,
+            output_slot: OutputSlot {
+                view_tag,
+                output_context: OutputContext {
+                    hash: [0u8; 32],
+                    tree: Address::new_from_array([7u8; 32]),
+                    leaf_index: 13,
+                },
+                payload: encode_output_data(&OutputData::Proofless(output)),
+            },
             tx_viewing_pk: None,
             salt: None,
-            ciphertext: encode_output_data(&OutputData::Proofless(output)),
         }
     }
 }
