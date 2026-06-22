@@ -3,7 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use anyhow::{bail, Context, Result};

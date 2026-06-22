@@ -195,7 +195,7 @@ where
 fn proofless_deposit_from_indexed_match(
     item: EncryptedUtxoMatch,
 ) -> Result<Option<DepositView>, ClientError> {
-    let Ok(OutputData::Proofless(proofless)) = decode_output_data(&item.ciphertext) else {
+    let Ok(OutputData::Proofless(proofless)) = decode_output_data(&item.output_slot.payload) else {
         return Ok(None);
     };
 
@@ -212,7 +212,7 @@ fn proofless_deposit_from_indexed_match(
     )?;
 
     Ok(Some(DepositView {
-        view_tag: item.view_tag,
+        view_tag: item.output_slot.view_tag,
         utxo_hash,
         asset: proofless.asset,
         amount: proofless.amount,
@@ -223,10 +223,8 @@ fn proofless_deposit_from_indexed_match(
         program_data_hash: proofless.program_data_hash,
         program_data: proofless.program_data,
         zone_data: proofless.zone_data,
-        // Photon exposes proofless output payloads directly from this endpoint;
-        // the wallet only needs the recomputed leaf hash and view tag here.
-        output_tree: [0u8; 32],
-        leaf_index: 0,
+        output_tree: item.output_slot.output_context.tree.to_bytes(),
+        leaf_index: item.output_slot.output_context.leaf_index,
     }))
 }
 
@@ -260,35 +258,6 @@ fn now_unix_ts() -> i64 {
         .unwrap_or(0)
 }
 
-#[cfg(feature = "solana-rpc")]
-impl ProoflessDepositEventSource for crate::solana_rpc::SolanaRpc {
-    fn proofless_deposit_from_signature(
-        &self,
-        signature: Signature,
-        view_tag: ViewTag,
-    ) -> Result<Option<DepositView>, ClientError> {
-        use zolana_interface::{
-            event::{indexed_events_from_instruction_groups, proofless_output},
-            PROGRAM_ID_PUBKEY,
-        };
-
-        let groups = self.fetch_confirmed_instruction_groups(&signature)?.groups;
-        let events = indexed_events_from_instruction_groups(PROGRAM_ID_PUBKEY, &groups);
-        for event in events {
-            let Ok(general) = event.decoded else {
-                continue;
-            };
-            let Ok(view) = proofless_output(&general) else {
-                continue;
-            };
-            if view.view_tag == view_tag {
-                return Ok(Some(view));
-            }
-        }
-        Ok(None)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -300,7 +269,8 @@ mod tests {
 
     use super::*;
     use crate::rpc::{
-        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, OutputSlot,
+        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
+        OutputContext, OutputSlot,
     };
 
     struct MockIndexer {
@@ -346,6 +316,11 @@ mod tests {
                 salt: None,
                 output_slots: vec![OutputSlot {
                     view_tag: [1u8; 32],
+                    output_context: OutputContext {
+                        hash: [0u8; 32],
+                        tree: Address::new_from_array([0u8; 32]),
+                        leaf_index: 0,
+                    },
                     payload: Vec::new(),
                 }],
                 nullifiers: Vec::new(),
@@ -398,6 +373,8 @@ mod tests {
         assert_eq!(deposit.blinding, output.blinding);
         assert_eq!(deposit.amount, output.amount);
         assert_ne!(deposit.utxo_hash, [0u8; 32]);
+        assert_eq!(deposit.output_tree, [7u8; 32]);
+        assert_eq!(deposit.leaf_index, 13);
     }
 
     #[test]
@@ -465,10 +442,17 @@ mod tests {
         EncryptedUtxoMatch {
             slot: 1,
             tx_signature: Signature::default(),
-            view_tag,
+            output_slot: OutputSlot {
+                view_tag,
+                output_context: OutputContext {
+                    hash: [0u8; 32],
+                    tree: Address::new_from_array([7u8; 32]),
+                    leaf_index: 13,
+                },
+                payload: encode_output_data(&OutputData::Proofless(output)),
+            },
             tx_viewing_pk: None,
             salt: None,
-            ciphertext: encode_output_data(&OutputData::Proofless(output)),
         }
     }
 }

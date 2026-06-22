@@ -5,7 +5,7 @@ use zolana_client::{
 };
 
 use super::{
-    material::{load_recipient_wallet, load_sender_from_resolved_sync},
+    material::load_sender_from_resolved_sync,
     resolve::get_network_with_config,
     sync::wait_for_indexed_utxo,
     transaction::maybe_airdrop,
