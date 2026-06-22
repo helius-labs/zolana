@@ -165,17 +165,15 @@ fn convert_encrypted_utxo_match(
             &item.tx_signature,
             &format!("matches[{index}].tx_signature"),
         )?,
-        view_tag: decode_hash(&item.view_tag, &format!("matches[{index}].view_tag"))?,
-        output_context: convert_output_context(
-            item.output_context,
-            &format!("matches[{index}].output_context"),
+        output_slot: convert_output_slot(
+            item.output_slot,
+            &format!("matches[{index}].output_slot"),
         )?,
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
             &format!("matches[{index}].tx_viewing_pk"),
         )?,
         salt: decode_optional_salt(item.salt, &format!("matches[{index}].salt"))?,
-        ciphertext: decode_base64(&item.ciphertext, &format!("matches[{index}].ciphertext"))?,
     })
 }
 
@@ -458,14 +456,16 @@ mod tests {
             "matches": [{
                 "slot": 7,
                 "tx_signature": signature.to_string(),
-                "view_tag": encode_hash_string(tag_a),
-                "output_context": {
-                    "hash": encode_hash_string(utxo_hash),
-                    "tree": encode_pubkey_string(output_tree),
-                    "leaf_index": 11,
+                "output_slot": {
+                    "view_tag": encode_hash_string(tag_a),
+                    "output_context": {
+                        "hash": encode_hash_string(utxo_hash),
+                        "tree": encode_pubkey_string(output_tree),
+                        "leaf_index": 11,
+                    },
+                    "payload": base64::encode([8, 9, 10]),
                 },
                 "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
-                "ciphertext": base64::encode([8, 9, 10]),
             }],
             "next_cursor": base64::encode([5, 6]),
         }));
@@ -492,12 +492,12 @@ mod tests {
         assert_eq!(got.matches.len(), 1);
         assert_eq!(got.matches[0].slot, 7);
         assert_eq!(got.matches[0].tx_signature, signature);
-        assert_eq!(got.matches[0].view_tag, tag_a);
-        assert_eq!(got.matches[0].output_context.hash, utxo_hash);
-        assert_eq!(got.matches[0].output_context.tree, output_tree);
-        assert_eq!(got.matches[0].output_context.leaf_index, 11);
+        assert_eq!(got.matches[0].output_slot.view_tag, tag_a);
+        assert_eq!(got.matches[0].output_slot.output_context.hash, utxo_hash);
+        assert_eq!(got.matches[0].output_slot.output_context.tree, output_tree);
+        assert_eq!(got.matches[0].output_slot.output_context.leaf_index, 11);
         assert_eq!(got.matches[0].tx_viewing_pk, Some(tx_viewing_pk));
-        assert_eq!(got.matches[0].ciphertext, vec![8, 9, 10]);
+        assert_eq!(got.matches[0].output_slot.payload, vec![8, 9, 10]);
     }
 
     #[test]

@@ -132,18 +132,13 @@ pub mod types {
     ///{
     ///  "type": "object",
     ///  "required": [
-    ///    "ciphertext",
-    ///    "output_context",
+    ///    "output_slot",
     ///    "slot",
-    ///    "tx_signature",
-    ///    "view_tag"
+    ///    "tx_signature"
     ///  ],
     ///  "properties": {
-    ///    "ciphertext": {
-    ///      "$ref": "#/components/schemas/Base64String"
-    ///    },
-    ///    "output_context": {
-    ///      "$ref": "#/components/schemas/ZolanaOutputContext"
+    ///    "output_slot": {
+    ///      "$ref": "#/components/schemas/ZolanaOutputSlot"
     ///    },
     ///    "salt": {
     ///      "$ref": "#/components/schemas/Base64String"
@@ -158,9 +153,6 @@ pub mod types {
     ///    },
     ///    "tx_viewing_pk": {
     ///      "$ref": "#/components/schemas/Base64String"
-    ///    },
-    ///    "view_tag": {
-    ///      "$ref": "#/components/schemas/Hash"
     ///    }
     ///  },
     ///  "additionalProperties": false
@@ -170,15 +162,13 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
-        pub ciphertext: Base64String,
-        pub output_context: ZolanaOutputContext,
+        pub output_slot: ZolanaOutputSlot,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
         pub tx_signature: SerializableSignature,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub tx_viewing_pk: ::std::option::Option<Base64String>,
-        pub view_tag: Hash,
     }
     impl EncryptedUtxoMatch {
         pub fn builder() -> builder::EncryptedUtxoMatch {
@@ -3430,12 +3420,8 @@ pub mod types {
         }
         #[derive(Clone, Debug)]
         pub struct EncryptedUtxoMatch {
-            ciphertext: ::std::result::Result<
-                super::Base64String,
-                ::std::string::String,
-            >,
-            output_context: ::std::result::Result<
-                super::ZolanaOutputContext,
+            output_slot: ::std::result::Result<
+                super::ZolanaOutputSlot,
                 ::std::string::String,
             >,
             salt: ::std::result::Result<
@@ -3451,47 +3437,28 @@ pub mod types {
                 ::std::option::Option<super::Base64String>,
                 ::std::string::String,
             >,
-            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
         }
         impl ::std::default::Default for EncryptedUtxoMatch {
             fn default() -> Self {
                 Self {
-                    ciphertext: Err("no value supplied for ciphertext".to_string()),
-                    output_context: Err(
-                        "no value supplied for output_context".to_string(),
-                    ),
+                    output_slot: Err("no value supplied for output_slot".to_string()),
                     salt: Ok(Default::default()),
                     slot: Err("no value supplied for slot".to_string()),
                     tx_signature: Err("no value supplied for tx_signature".to_string()),
                     tx_viewing_pk: Ok(Default::default()),
-                    view_tag: Err("no value supplied for view_tag".to_string()),
                 }
             }
         }
         impl EncryptedUtxoMatch {
-            pub fn ciphertext<T>(mut self, value: T) -> Self
+            pub fn output_slot<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<super::Base64String>,
+                T: ::std::convert::TryInto<super::ZolanaOutputSlot>,
                 T::Error: ::std::fmt::Display,
             {
-                self.ciphertext = value
+                self.output_slot = value
                     .try_into()
                     .map_err(|e| {
-                        format!("error converting supplied value for ciphertext: {e}")
-                    });
-                self
-            }
-            pub fn output_context<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::ZolanaOutputContext>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.output_context = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!(
-                            "error converting supplied value for output_context: {e}"
-                        )
+                        format!("error converting supplied value for output_slot: {e}")
                     });
                 self
             }
@@ -3543,18 +3510,6 @@ pub mod types {
                     });
                 self
             }
-            pub fn view_tag<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.view_tag = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for view_tag: {e}")
-                    });
-                self
-            }
         }
         impl ::std::convert::TryFrom<EncryptedUtxoMatch> for super::EncryptedUtxoMatch {
             type Error = super::error::ConversionError;
@@ -3562,26 +3517,22 @@ pub mod types {
                 value: EncryptedUtxoMatch,
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
-                    ciphertext: value.ciphertext?,
-                    output_context: value.output_context?,
+                    output_slot: value.output_slot?,
                     salt: value.salt?,
                     slot: value.slot?,
                     tx_signature: value.tx_signature?,
                     tx_viewing_pk: value.tx_viewing_pk?,
-                    view_tag: value.view_tag?,
                 })
             }
         }
         impl ::std::convert::From<super::EncryptedUtxoMatch> for EncryptedUtxoMatch {
             fn from(value: super::EncryptedUtxoMatch) -> Self {
                 Self {
-                    ciphertext: Ok(value.ciphertext),
-                    output_context: Ok(value.output_context),
+                    output_slot: Ok(value.output_slot),
                     salt: Ok(value.salt),
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
-                    view_tag: Ok(value.view_tag),
                 }
             }
         }

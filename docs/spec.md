@@ -1737,11 +1737,12 @@ struct GetEncryptedUtxosByTagsResponse {
 struct EncryptedUtxoMatch {
     slot: u64,
     tx_signature: Signature,
-    view_tag: [u8; 32],
+    output_slot: OutputSlot,
     /// `None` when there is nothing to decrypt; see `ShieldedTransaction`.
     tx_viewing_pk: Option<P256Pubkey>,
-    /// Plaintext payload bytes when `tx_viewing_pk` is `None`.
-    ciphertext: Vec<u8>,
+    /// Transaction-level AES salt shared by every output ciphertext; `None` for
+    /// plaintext/proofless payloads.
+    salt: Option<[u8; 16]>,
 }
 ```
 
@@ -1768,6 +1769,9 @@ struct ShieldedTransaction {
     /// `None` when there is nothing to decrypt: `proofless`, or a
     /// [Plaintext Transfer](#plaintext-transfer) blob.
     tx_viewing_pk: Option<P256Pubkey>,
+    /// Transaction-level AES salt shared by every output ciphertext; `None` for
+    /// plaintext/proofless payloads.
+    salt: Option<[u8; 16]>,
     /// Output slots in UTXO-tree-append order. For `proofless_shield`,
     /// each slot's `payload` is the serialized [`ProoflessOutput`](#general-event)
     /// from the emitted [`GeneralEvent`](#general-event); for
@@ -1779,8 +1783,14 @@ struct ShieldedTransaction {
 
 struct OutputSlot {
     view_tag: [u8; 32],
-    hash: [u8;32],
+    output_context: OutputContext,
     payload: Vec<u8>,
+}
+
+struct OutputContext {
+    hash: [u8; 32],
+    tree: Address,
+    leaf_index: u64,
 }
 ```
 

@@ -43,14 +43,12 @@ pub struct MerkleContext {
 pub struct EncryptedUtxoMatch {
     pub slot: u64,
     pub tx_signature: Signature,
-    pub view_tag: [u8; 32],
-    pub output_context: OutputContext,
+    pub output_slot: OutputSlot,
     /// `None` when the payload is plaintext (nothing to decrypt).
     pub tx_viewing_pk: Option<P256Pubkey>,
     /// Transaction-level AES salt shared by every output ciphertext; `None` for
     /// plaintext/proofless payloads.
     pub salt: Option<[u8; 16]>,
-    pub ciphertext: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

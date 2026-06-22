@@ -199,9 +199,10 @@ where
                 if out.contains_key(&key) {
                     continue;
                 }
-                if let Some(view) = event_source
-                    .proofless_deposit_from_signature(item.tx_signature, item.view_tag)?
-                {
+                if let Some(view) = event_source.proofless_deposit_from_signature(
+                    item.tx_signature,
+                    item.output_slot.view_tag,
+                )? {
                     out.insert(key, view);
                 }
             }
