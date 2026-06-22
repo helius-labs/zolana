@@ -10,6 +10,7 @@ localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", "8784")
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:8784")
 photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
+spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -240,6 +241,16 @@ build-programs:
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
+
+build-spp-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    prover/server/scripts/generate_keys_transfer.sh "{{spp-keys-dir}}"
+    prover/server/scripts/generate_keys_merge.sh "{{spp-keys-dir}}"
+    prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
+
+publish-spp-keys-release:
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v4 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     #!/usr/bin/env bash

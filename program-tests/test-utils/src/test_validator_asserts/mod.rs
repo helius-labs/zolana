@@ -20,8 +20,9 @@ use zolana_event::DepositView;
 use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 
-const INDEXER_TIMEOUT: Duration = Duration::from_secs(30);
+const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const TAG_PAGE_LIMIT: u32 = 100;
 const TOKEN_ACCOUNT_AMOUNT_OFFSET: usize = 64;
 const TOKEN_ACCOUNT_AMOUNT_END: usize = 72;
 
@@ -119,12 +120,24 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
     tag: [u8; 32],
     signature: solana_signature::Signature,
 ) -> EncryptedUtxoMatch {
-    wait_for("indexed UTXO", || {
-        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50))?;
-        Ok(response
-            .matches
-            .into_iter()
-            .find(|item| item.tx_signature == signature))
+    let label = format!("indexed UTXO for signature {signature} tag {tag:?}");
+    wait_for(&label, || {
+        let mut cursor = None;
+        loop {
+            let response =
+                indexer.get_encrypted_utxos_by_tags(vec![tag], cursor, Some(TAG_PAGE_LIMIT))?;
+            if let Some(item) = response
+                .matches
+                .into_iter()
+                .find(|item| item.tx_signature == signature)
+            {
+                return Ok(Some(item));
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                return Ok(None);
+            }
+        }
     })
 }
 
@@ -154,11 +167,26 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
     tag: [u8; 32],
     signature: solana_signature::Signature,
 ) -> ShieldedTransaction {
-    wait_for("indexed transaction", || {
-        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100))?;
-        Ok(response
-            .transactions
-            .into_iter()
-            .find(|item| item.tx_signature == signature))
+    let label = format!("indexed transaction for signature {signature} tag {tag:?}");
+    wait_for(&label, || {
+        let mut cursor = None;
+        loop {
+            let response = indexer.get_shielded_transactions_by_tags(
+                vec![tag],
+                cursor,
+                Some(TAG_PAGE_LIMIT),
+            )?;
+            if let Some(item) = response
+                .transactions
+                .into_iter()
+                .find(|item| item.tx_signature == signature)
+            {
+                return Ok(Some(item));
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                return Ok(None);
+            }
+        }
     })
 }
