@@ -1,17 +1,19 @@
 use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{
-    create_deposit, validate_registered_keypair, CreateDeposit, SolanaRpc, ZolanaIndexer,
+    create_deposit, resolve_registered_address, CreateDeposit, SolanaRpc, ZolanaIndexer,
 };
 
-use crate::args::DepositOptions;
-use crate::cli_config::CliConfigFile;
-
-use super::material::{load_recipient_wallet, load_sender_from_resolved_sync};
-use super::resolve::get_network_with_config;
-use super::sync::wait_for_indexed_utxo;
-use super::transaction::maybe_airdrop;
-use super::util::{configured_spl_token_account, ensure_positive, format_address, parse_address};
+use super::{
+    material::load_sender_from_resolved_sync,
+    resolve::get_network_with_config,
+    sync::wait_for_indexed_utxo,
+    transaction::maybe_airdrop,
+    util::{
+        configured_spl_token_account, ensure_positive, format_address, parse_address, parse_pubkey,
+    },
+};
+use crate::{args::DepositOptions, cli_config::CliConfigFile};
 
 pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -23,21 +25,16 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
     maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
-    let recipient = opts.to.as_deref().map(load_recipient_wallet).transpose()?;
     let tree = network.tree;
-
-    let recipient_keypair = recipient
-        .as_ref()
-        .map(|recipient| &recipient.keypair)
-        .unwrap_or(&material.keypair);
-    let recipient_pubkey = recipient
-        .as_ref()
-        .map(|recipient| recipient.funding.pubkey())
+    let recipient_pubkey = opts
+        .to
+        .as_deref()
+        .map(parse_pubkey)
+        .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
-
-    validate_registered_keypair(&rpc, recipient_pubkey, recipient_keypair)?;
+    let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
     let deposit = create_deposit(CreateDeposit {
-        recipient: recipient_keypair,
+        recipient: &recipient.address,
         asset,
         amount: opts.amount,
         spl_token_account,

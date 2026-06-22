@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -116,6 +116,12 @@ pub(crate) enum WalletCommand {
 
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
+
+    #[command(
+        name = "merge-service",
+        about = "Enable or disable merge-service opt-in for this wallet"
+    )]
+    MergeService(MergeServiceOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -409,7 +415,7 @@ pub(crate) struct DepositOptions {
 
     #[arg(
         long,
-        help = "Optional recipient wallet file path (defaults to the --keypair wallet)"
+        help = "Optional registered recipient Solana pubkey (defaults to the --keypair wallet owner)"
     )]
     pub(crate) to: Option<String>,
 
@@ -461,6 +467,19 @@ pub(crate) struct BalanceOptions {
 
     #[arg(long, help = "Optional mint filter (address or SOL)")]
     pub(crate) mint: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(
+        long,
+        action = ArgAction::Set,
+        help = "Whether this wallet opts into merge-service consolidation"
+    )]
+    pub(crate) enabled: bool,
 }
 
 impl TestValidatorOptions {
@@ -786,6 +805,34 @@ mod tests {
     }
 
     #[test]
+    fn parses_wallet_merge_service_options() {
+        let WalletCommand::MergeService(opts) = parse_wallet(&[
+            "merge-service",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--indexer-url",
+            "http://127.0.0.1:8785",
+            "--enabled",
+            "true",
+        ]) else {
+            panic!("expected wallet merge-service command");
+        };
+
+        assert_eq!(
+            opts.sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.pid.json")
+        );
+        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+        assert_eq!(
+            opts.sync.indexer_url.as_deref(),
+            Some("http://127.0.0.1:8785")
+        );
+        assert!(opts.enabled);
+    }
+
+    #[test]
     fn parses_wallet_deposit_transfer_and_withdraw_options() {
         let WalletCommand::Deposit(deposit) = parse_wallet(&[
             "deposit",
@@ -794,7 +841,7 @@ mod tests {
             "--tree",
             "Tree111111111111111111111111111111111111111",
             "--to",
-            "/tmp/bob.pid.json",
+            "Recipient1111111111111111111111111111111111",
             "--amount",
             "1000000000",
             "--mint",
@@ -812,7 +859,10 @@ mod tests {
             deposit.network.tree.as_deref(),
             Some("Tree111111111111111111111111111111111111111")
         );
-        assert_eq!(deposit.to.as_deref(), Some("/tmp/bob.pid.json"));
+        assert_eq!(
+            deposit.to.as_deref(),
+            Some("Recipient1111111111111111111111111111111111")
+        );
         assert_eq!(deposit.amount, 1_000_000_000);
         assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
 
