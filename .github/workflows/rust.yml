@@ -166,9 +166,21 @@ jobs:
       - run: just test-programs
 
   test-localnet-photon:
-    name: tests / localnet photon
+    name: tests / localnet photon / ${{ matrix.name }}
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: e2e
+            recipe: test-localnet-e2e-photon
+          - name: spp lifecycle/decode
+            recipe: test-spp-validator-lifecycle-decode
+          - name: spp merge
+            recipe: test-spp-validator-merge
+          - name: spp randomized
+            recipe: test-spp-validator-randomized
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -197,8 +209,7 @@ jobs:
           key: proving-keys-transfer-keys-v4
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
-      - run: just test-localnet-e2e-photon
-      - run: just test-spp-validator
+      - run: just ${{ matrix.recipe }}
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |

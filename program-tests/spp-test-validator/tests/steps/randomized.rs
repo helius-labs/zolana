@@ -231,6 +231,12 @@ impl LifecycleWorld {
                 }
             }
             submitted += 1;
+            if submitted == 1 || submitted % 25 == 0 || submitted == cfg.target_txs {
+                println!(
+                    "randomized workload progress: {submitted}/{} transactions",
+                    cfg.target_txs
+                );
+            }
         }
 
         self.finalize(&actor_names, sol_baseline, &totals)
