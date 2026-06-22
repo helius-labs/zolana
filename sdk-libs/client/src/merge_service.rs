@@ -22,7 +22,9 @@ use crate::private_transaction::{
 };
 use crate::prover::{ProofCompressed, ProverClient};
 use crate::rpc::Rpc;
-use crate::user_registry::fetch_user_record_checked;
+use crate::user_registry::{
+    fetch_user_record_checked, fetch_user_record_optional_checked, should_run_pre_action_merges,
+};
 use crate::wallet_authority::WalletAuthority;
 use crate::wallet_sync::{sync_wallet_with_config, SyncWalletConfig};
 
@@ -142,7 +144,21 @@ where
     }
 
     pub fn run_pre_action(&mut self) -> Result<MergeServiceReport, ClientError> {
-        self.run_until_idle(DEFAULT_PRE_ACTION_ROUNDS)
+        let owner = self.payer.pubkey();
+        let record = fetch_user_record_optional_checked(self.chain, owner)?;
+        if !should_run_pre_action_merges(record.as_ref(), owner) {
+            return Ok(MergeServiceReport {
+                sync: self.sync_wallet()?,
+                submitted: Vec::new(),
+            });
+        }
+
+        // Pre-action must not flip registry into self-delegated background mode.
+        let previous = self.config.auto_enable_registry;
+        self.config.auto_enable_registry = false;
+        let report = self.run_until_idle(DEFAULT_PRE_ACTION_ROUNDS);
+        self.config.auto_enable_registry = previous;
+        report
     }
 
     pub fn ensure_self_delegated(&self) -> Result<Option<Signature>, ClientError> {

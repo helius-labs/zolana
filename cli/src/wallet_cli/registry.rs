@@ -7,7 +7,8 @@ use anyhow::{bail, Result};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    LocalMergeService, MergeServiceConfig, ProverClient, Rpc, SolanaRpc, ZolanaIndexer,
+    fetch_user_record_optional_checked, LocalMergeService, MergeServiceConfig, ProverClient, Rpc,
+    should_run_pre_action_merges, SolanaRpc, ZolanaIndexer,
 };
 use zolana_keypair::SignatureType;
 use zolana_transaction::Address;
@@ -142,8 +143,15 @@ pub(super) fn run_pre_action_merges(
     tree: solana_pubkey::Pubkey,
     prover_url: &str,
 ) -> Result<usize> {
+    let owner = ctx.material.funding.pubkey();
+    let record = fetch_user_record_optional_checked(rpc, owner)?;
+    if !should_run_pre_action_merges(record.as_ref(), owner) {
+        return Ok(0);
+    }
+
     let mut config = MergeServiceConfig::default();
     config.max_merges_per_run = 4;
+    config.auto_enable_registry = false;
     let mut service = LocalMergeService {
         chain: rpc,
         indexer,
@@ -320,5 +328,39 @@ mod tests {
             data.viewing_pubkey,
             *material.keypair.viewing_pubkey().as_bytes()
         );
+    }
+
+    #[test]
+    fn pre_action_gate_runs_when_self_delegated_merge_off() {
+        use solana_pubkey::Pubkey;
+        let owner = Pubkey::new_unique();
+        let record = zolana_user_registry_interface::UserRecord {
+            owner: owner.to_bytes(),
+            bump: 1,
+            owner_p256: None,
+            nullifier_pubkey: [1u8; 32],
+            viewing_pubkey: [2u8; 33],
+            sync_delegate: None,
+            entries: Vec::new(),
+            merge_service: false,
+        };
+        assert!(zolana_client::should_run_pre_action_merges(Some(&record), owner));
+    }
+
+    #[test]
+    fn pre_action_gate_skips_when_self_delegated_merge_on() {
+        use solana_pubkey::Pubkey;
+        let owner = Pubkey::new_unique();
+        let record = zolana_user_registry_interface::UserRecord {
+            owner: owner.to_bytes(),
+            bump: 1,
+            owner_p256: None,
+            nullifier_pubkey: [1u8; 32],
+            viewing_pubkey: [2u8; 33],
+            sync_delegate: Some(owner.to_bytes()),
+            entries: Vec::new(),
+            merge_service: true,
+        };
+        assert!(!zolana_client::should_run_pre_action_merges(Some(&record), owner));
     }
 }

@@ -66,6 +66,21 @@ fn parse_user_record_account(
     Ok(record)
 }
 
+/// Background merge is handled locally when the owner opted into merge service
+/// and delegated sync to their own Solana pubkey (self-delegated mode).
+pub fn is_self_delegated_merge_service(record: &UserRecord, owner: Pubkey) -> bool {
+    record.merge_service && record.sync_delegate == Some(owner.to_bytes())
+}
+
+/// Pre-action merges run before spends when background self-delegated merge is
+/// not active. Missing registry records still require inline consolidation.
+pub fn should_run_pre_action_merges(record: Option<&UserRecord>, owner: Pubkey) -> bool {
+    match record {
+        Some(record) => !is_self_delegated_merge_service(record, owner),
+        None => true,
+    }
+}
+
 pub fn validate_registered_keypair<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
@@ -195,6 +210,59 @@ mod tests {
             entries: Vec::new(),
             merge_service: false,
         }
+    }
+
+    fn record_with_merge_state(
+        owner: Pubkey,
+        bump: u8,
+        merge_service: bool,
+        sync_delegate: Option<[u8; 32]>,
+    ) -> UserRecord {
+        UserRecord {
+            owner: owner.to_bytes(),
+            bump,
+            owner_p256: Some([2u8; 33]),
+            nullifier_pubkey: [3u8; 32],
+            viewing_pubkey: [4u8; 33],
+            sync_delegate,
+            entries: Vec::new(),
+            merge_service,
+        }
+    }
+
+    #[test]
+    fn should_run_pre_action_when_merge_service_disabled() {
+        let owner = Pubkey::new_unique();
+        let record = record_with_merge_state(owner, 1, false, None);
+        assert!(should_run_pre_action_merges(Some(&record), owner));
+    }
+
+    #[test]
+    fn should_run_pre_action_when_merge_enabled_without_self_delegate() {
+        let owner = Pubkey::new_unique();
+        let record = record_with_merge_state(owner, 1, true, None);
+        assert!(should_run_pre_action_merges(Some(&record), owner));
+    }
+
+    #[test]
+    fn should_run_pre_action_when_delegate_is_not_owner() {
+        let owner = Pubkey::new_unique();
+        let record = record_with_merge_state(owner, 1, true, Some([9u8; 32]));
+        assert!(should_run_pre_action_merges(Some(&record), owner));
+    }
+
+    #[test]
+    fn should_skip_pre_action_for_self_delegated_merge_service() {
+        let owner = Pubkey::new_unique();
+        let record = record_with_merge_state(owner, 1, true, Some(owner.to_bytes()));
+        assert!(!should_run_pre_action_merges(Some(&record), owner));
+        assert!(is_self_delegated_merge_service(&record, owner));
+    }
+
+    #[test]
+    fn should_run_pre_action_when_registry_record_missing() {
+        let owner = Pubkey::new_unique();
+        assert!(should_run_pre_action_merges(None, owner));
     }
 
     #[test]
