@@ -133,13 +133,24 @@ pub mod types {
     ///  "type": "object",
     ///  "required": [
     ///    "ciphertext",
+    ///    "leaf_index",
+    ///    "output_tree",
     ///    "slot",
     ///    "tx_signature",
+    ///    "utxo_hash",
     ///    "view_tag"
     ///  ],
     ///  "properties": {
     ///    "ciphertext": {
     ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
+    ///    "leaf_index": {
+    ///      "type": "integer",
+    ///      "format": "uint64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "output_tree": {
+    ///      "$ref": "#/components/schemas/SerializablePubkey"
     ///    },
     ///    "salt": {
     ///      "$ref": "#/components/schemas/Base64String"
@@ -155,6 +166,9 @@ pub mod types {
     ///    "tx_viewing_pk": {
     ///      "$ref": "#/components/schemas/Base64String"
     ///    },
+    ///    "utxo_hash": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    },
     ///    "view_tag": {
     ///      "$ref": "#/components/schemas/Hash"
     ///    }
@@ -167,12 +181,15 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
         pub ciphertext: Base64String,
+        pub leaf_index: u64,
+        pub output_tree: SerializablePubkey,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
         pub tx_signature: SerializableSignature,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub tx_viewing_pk: ::std::option::Option<Base64String>,
+        pub utxo_hash: Hash,
         pub view_tag: Hash,
     }
     impl EncryptedUtxoMatch {
@@ -3388,6 +3405,11 @@ pub mod types {
                 super::Base64String,
                 ::std::string::String,
             >,
+            leaf_index: ::std::result::Result<u64, ::std::string::String>,
+            output_tree: ::std::result::Result<
+                super::SerializablePubkey,
+                ::std::string::String,
+            >,
             salt: ::std::result::Result<
                 ::std::option::Option<super::Base64String>,
                 ::std::string::String,
@@ -3401,16 +3423,20 @@ pub mod types {
                 ::std::option::Option<super::Base64String>,
                 ::std::string::String,
             >,
+            utxo_hash: ::std::result::Result<super::Hash, ::std::string::String>,
             view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
         }
         impl ::std::default::Default for EncryptedUtxoMatch {
             fn default() -> Self {
                 Self {
                     ciphertext: Err("no value supplied for ciphertext".to_string()),
+                    leaf_index: Err("no value supplied for leaf_index".to_string()),
+                    output_tree: Err("no value supplied for output_tree".to_string()),
                     salt: Ok(Default::default()),
                     slot: Err("no value supplied for slot".to_string()),
                     tx_signature: Err("no value supplied for tx_signature".to_string()),
                     tx_viewing_pk: Ok(Default::default()),
+                    utxo_hash: Err("no value supplied for utxo_hash".to_string()),
                     view_tag: Err("no value supplied for view_tag".to_string()),
                 }
             }
@@ -3425,6 +3451,30 @@ pub mod types {
                     .try_into()
                     .map_err(|e| {
                         format!("error converting supplied value for ciphertext: {e}")
+                    });
+                self
+            }
+            pub fn leaf_index<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.leaf_index = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for leaf_index: {e}")
+                    });
+                self
+            }
+            pub fn output_tree<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::SerializablePubkey>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.output_tree = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for output_tree: {e}")
                     });
                 self
             }
@@ -3476,6 +3526,18 @@ pub mod types {
                     });
                 self
             }
+            pub fn utxo_hash<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.utxo_hash = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for utxo_hash: {e}")
+                    });
+                self
+            }
             pub fn view_tag<T>(mut self, value: T) -> Self
             where
                 T: ::std::convert::TryInto<super::Hash>,
@@ -3496,10 +3558,13 @@ pub mod types {
             ) -> ::std::result::Result<Self, super::error::ConversionError> {
                 Ok(Self {
                     ciphertext: value.ciphertext?,
+                    leaf_index: value.leaf_index?,
+                    output_tree: value.output_tree?,
                     salt: value.salt?,
                     slot: value.slot?,
                     tx_signature: value.tx_signature?,
                     tx_viewing_pk: value.tx_viewing_pk?,
+                    utxo_hash: value.utxo_hash?,
                     view_tag: value.view_tag?,
                 })
             }
@@ -3508,10 +3573,13 @@ pub mod types {
             fn from(value: super::EncryptedUtxoMatch) -> Self {
                 Self {
                     ciphertext: Ok(value.ciphertext),
+                    leaf_index: Ok(value.leaf_index),
+                    output_tree: Ok(value.output_tree),
                     salt: Ok(value.salt),
                     slot: Ok(value.slot),
                     tx_signature: Ok(value.tx_signature),
                     tx_viewing_pk: Ok(value.tx_viewing_pk),
+                    utxo_hash: Ok(value.utxo_hash),
                     view_tag: Ok(value.view_tag),
                 }
             }

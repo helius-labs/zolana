@@ -52,6 +52,9 @@ pub fn assert_deposit<R: Rpc, I: Rpc>(
     let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
     assert_eq!(indexed.view_tag, data.view_tag, "indexed view tag");
     assert_eq!(indexed.tx_signature, signature, "indexed signature");
+    assert_eq!(indexed.utxo_hash, event.utxo_hash, "indexed UTXO hash");
+    assert_eq!(indexed.output_tree, to_address(tree), "indexed output tree");
+    assert_eq!(indexed.leaf_index, event.leaf_index, "indexed leaf index");
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), event.utxo_hash);
     assert_eq!(

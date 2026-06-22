@@ -44,6 +44,9 @@ pub struct EncryptedUtxoMatch {
     pub slot: u64,
     pub tx_signature: Signature,
     pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    pub output_tree: Address,
+    pub leaf_index: u64,
     /// `None` when the payload is plaintext (nothing to decrypt).
     pub tx_viewing_pk: Option<P256Pubkey>,
     /// Transaction-level AES salt shared by every output ciphertext; `None` for

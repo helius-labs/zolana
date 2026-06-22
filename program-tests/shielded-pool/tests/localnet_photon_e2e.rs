@@ -179,6 +179,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
     assert_eq!(indexed_deposit.view_tag, shield_data.view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
+    assert_eq!(indexed_deposit.utxo_hash, payer_utxo_hash);
+    assert_eq!(indexed_deposit.output_tree, tree_address);
     assert!(indexed_deposit.tx_viewing_pk.is_none());
     let unknown_utxos = indexer.get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10))?;
     assert!(
@@ -188,6 +190,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 
     let payer_nullifier = payer_nullifier_key.nullifier(&payer_utxo_hash, &payer_blinding)?;
     let payer_state_proof = wait_for_merkle_proof(&indexer, tree_address, payer_utxo_hash)?;
+    assert_eq!(indexed_deposit.leaf_index, payer_state_proof.leaf_index);
     let payer_nullifier_proof =
         wait_for_non_inclusion_proof(&indexer, tree_address, payer_nullifier)?;
     let extra_nullifier_a = fe(90);

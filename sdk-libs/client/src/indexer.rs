@@ -166,6 +166,9 @@ fn convert_encrypted_utxo_match(
             &format!("matches[{index}].tx_signature"),
         )?,
         view_tag: decode_hash(&item.view_tag, &format!("matches[{index}].view_tag"))?,
+        utxo_hash: decode_hash(&item.utxo_hash, &format!("matches[{index}].utxo_hash"))?,
+        output_tree: decode_pubkey(&item.output_tree, &format!("matches[{index}].output_tree"))?,
+        leaf_index: item.leaf_index,
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
             &format!("matches[{index}].tx_viewing_pk"),
@@ -431,6 +434,8 @@ mod tests {
     fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         let tag_a = bytes32(1);
         let tag_b = bytes32(2);
+        let utxo_hash = bytes32(4);
+        let output_tree = Address::new_from_array(bytes32(5));
         let signature = signature(9);
         let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
         let response = rpc_result(json!({
@@ -439,6 +444,9 @@ mod tests {
                 "slot": 7,
                 "tx_signature": signature.to_string(),
                 "view_tag": encode_hash_string(tag_a),
+                "utxo_hash": encode_hash_string(utxo_hash),
+                "output_tree": encode_pubkey_string(output_tree),
+                "leaf_index": 11,
                 "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
                 "ciphertext": base64::encode([8, 9, 10]),
             }],
@@ -468,6 +476,9 @@ mod tests {
         assert_eq!(got.matches[0].slot, 7);
         assert_eq!(got.matches[0].tx_signature, signature);
         assert_eq!(got.matches[0].view_tag, tag_a);
+        assert_eq!(got.matches[0].utxo_hash, utxo_hash);
+        assert_eq!(got.matches[0].output_tree, output_tree);
+        assert_eq!(got.matches[0].leaf_index, 11);
         assert_eq!(got.matches[0].tx_viewing_pk, Some(tx_viewing_pk));
         assert_eq!(got.matches[0].ciphertext, vec![8, 9, 10]);
     }
