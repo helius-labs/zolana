@@ -10,12 +10,15 @@ Feature: SOL decrypt-and-spend lifecycle over Photon
     Given a fresh shielded pool
 
   Scenario: Transfer recipient and sender change are decrypted, and the change is spent
-    Given sender shields 1000000000 lamports of SOL
-    And sender shields 1000000000 lamports of SOL
+    Given sender deposits 1000000000 lamports of SOL
+    And sender deposits 1000000000 lamports of SOL
     When sender transfers 400000000 lamports of SOL to recipient
-    Then recipient recovers its notes by sync
-    And sender recovers its notes by sync
-    Given sender shields 1000000000 lamports of SOL
+    When recipient syncs
+    Then recipient's UTXOs match
+    When sender syncs
+    Then sender's UTXOs match
+    Given sender deposits 1000000000 lamports of SOL
     When sender spends 500000000 lamports of SOL to sink
-    Then sender recovers its notes by sync
-    And bystander recovers nothing by sync
+    When sender syncs
+    Then sender's UTXOs match
+    And bystander has no UTXOs
