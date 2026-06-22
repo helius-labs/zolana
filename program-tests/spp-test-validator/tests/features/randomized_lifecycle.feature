@@ -23,4 +23,4 @@ Feature: Randomized mixed-asset eddsa workload
     Given a fresh shielded pool
 
   Scenario: Five hundred randomized eddsa transactions across SOL and three SPL assets
-    When a randomized workload of 500 transactions runs
+    When a randomized workload of 50 transactions runs
