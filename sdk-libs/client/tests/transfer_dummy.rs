@@ -21,8 +21,8 @@ use groth16_solana::groth16::Groth16Verifier;
 use rand::RngCore;
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, ScopedSpendWitness,
-    Shape, SpendWitnessRequest, TransferProver, TransferSpendInput,
+    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, ScopedSpendWitness, Shape,
+    SpendWitnessRequest, TransferProver, TransferSpendInput,
 };
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
 use zolana_interface::verifying_keys::transfer_2_3;
