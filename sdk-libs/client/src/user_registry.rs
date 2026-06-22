@@ -73,11 +73,11 @@ pub fn is_self_delegated_merge_service(record: &UserRecord, owner: Pubkey) -> bo
 }
 
 /// Pre-action merges run before spends when background self-delegated merge is
-/// not active. Missing registry records still require inline consolidation.
+/// not active but on-chain merge permission is still enabled.
 pub fn should_run_pre_action_merges(record: Option<&UserRecord>, owner: Pubkey) -> bool {
     match record {
-        Some(record) => !is_self_delegated_merge_service(record, owner),
-        None => true,
+        Some(record) => record.merge_service && !is_self_delegated_merge_service(record, owner),
+        None => false,
     }
 }
 
@@ -231,10 +231,10 @@ mod tests {
     }
 
     #[test]
-    fn should_run_pre_action_when_merge_service_disabled() {
+    fn should_skip_pre_action_when_merge_service_disabled() {
         let owner = Pubkey::new_unique();
         let record = record_with_merge_state(owner, 1, false, None);
-        assert!(should_run_pre_action_merges(Some(&record), owner));
+        assert!(!should_run_pre_action_merges(Some(&record), owner));
     }
 
     #[test]
@@ -260,9 +260,9 @@ mod tests {
     }
 
     #[test]
-    fn should_run_pre_action_when_registry_record_missing() {
+    fn should_skip_pre_action_when_registry_record_missing() {
         let owner = Pubkey::new_unique();
-        assert!(should_run_pre_action_merges(None, owner));
+        assert!(!should_run_pre_action_merges(None, owner));
     }
 
     #[test]

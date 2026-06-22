@@ -4,6 +4,7 @@ mod config;
 mod config_cmd;
 mod http;
 mod localnet;
+mod merge_service_pid;
 mod process;
 mod prover;
 mod wallet_cli;

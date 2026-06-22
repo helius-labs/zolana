@@ -51,6 +51,67 @@ over config values, and config values win over built-in localnet defaults. The
 writes the created tree pubkey into this config file; `deposit`, `transfer`, and
 `withdraw` only require `--tree` when neither the flag nor config has a tree.
 
+## Merge service
+
+The merge service consolidates several small private UTXOs owned by this wallet
+into fewer UTXOs. It needs the wallet secrets locally, a Solana RPC, Photon
+indexer, prover server, and the configured shielded-pool tree.
+
+Commands:
+
+```bash
+# Enable background merge mode on-chain. This opts into merge service and sets
+# the wallet as its own sync delegate. It does not start a process.
+zolana wallet merge-service enable
+
+# Run the merge loop in the current terminal until Ctrl+C or an error.
+zolana wallet merge-service start
+
+# Start the merge loop in the background and write a pid file/log under
+# ~/.config/zolana/merge-service/.
+zolana wallet merge-service start --background
+
+# Stop a background or foreground merge-service process started by this CLI.
+zolana wallet merge-service stop
+
+# Run one merge pass and exit. Useful for cron/systemd timers.
+zolana wallet merge-service once
+
+# Show registry state and whether a pid-file process is running.
+zolana wallet merge-service status
+```
+
+`start` is the long-running mode. It loops forever: sync wallet, submit at most
+one merge when there are mergeable UTXOs, wait for Photon to index it, sleep
+(`--interval-secs`, default 30), and repeat. If RPC, Photon, or the prover fails,
+the process exits; use a process manager if you need automatic restarts.
+
+Stopping and disabling are different:
+
+```bash
+# Stop only the local process. Registry stays self-delegated, so transfer/withdraw
+# pre-action merges remain skipped until you start the service again or disable
+# background mode.
+zolana wallet merge-service stop
+
+# Disable only background mode. This stops the process, revokes self-delegation,
+# and keeps on-chain merge permission enabled so transfer/withdraw can run inline
+# pre-action merges again.
+zolana wallet merge-service disable --background-only
+
+# Disable merging entirely. This stops the process, revokes self-delegation, and
+# sets merge_service=false on-chain. Background and pre-action merges are both off.
+zolana wallet merge-service disable
+```
+
+Pre-action behavior for `transfer` and `withdraw`:
+
+- Runs inline merges when `merge_service=true` and the wallet is not
+  self-delegated.
+- Skips inline merges when background mode is active
+  (`merge_service=true` and `sync_delegate=<wallet pubkey>`).
+- Skips inline merges when `merge_service=false`; merges are disabled on-chain.
+
 Optional wallet path:
 
 ```bash

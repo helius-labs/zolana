@@ -1,4 +1,4 @@
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -119,9 +119,12 @@ pub(crate) enum WalletCommand {
 
     #[command(
         name = "merge-service",
-        about = "Configure or run local merge-service consolidation for this wallet"
+        about = "Configure, start, and stop local merge-service consolidation"
     )]
-    MergeService(MergeServiceOptions),
+    MergeService {
+        #[command(subcommand)]
+        command: MergeServiceCommand,
+    },
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -469,23 +472,34 @@ pub(crate) struct BalanceOptions {
     pub(crate) mint: Option<String>,
 }
 
+#[derive(Debug, Subcommand, Clone)]
+pub(crate) enum MergeServiceCommand {
+    #[command(about = "Opt in on-chain and self-delegate for background merge")]
+    Enable(MergeServiceNetworkOptions),
+
+    #[command(about = "Opt out of merge service (see --background-only)")]
+    Disable(MergeServiceDisableOptions),
+
+    #[command(about = "Run the merge loop until stopped")]
+    Start(MergeServiceStartOptions),
+
+    #[command(about = "Stop a running merge-service process")]
+    Stop(MergeServiceStopOptions),
+
+    #[command(about = "Run one merge pass and exit")]
+    Once(MergeServiceNetworkOptions),
+
+    #[command(about = "Show registry and process state")]
+    Status(MergeServiceStopOptions),
+
+    #[command(hide = true, about = "Internal worker entrypoint for background start")]
+    RunLoop(MergeServiceRunLoopOptions),
+}
+
 #[derive(Args, Debug, Clone)]
-pub(crate) struct MergeServiceOptions {
+pub(crate) struct MergeServiceNetworkOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
-
-    #[arg(
-        long,
-        action = ArgAction::Set,
-        help = "Whether this wallet opts into merge-service consolidation"
-    )]
-    pub(crate) enabled: Option<bool>,
-
-    #[arg(long, help = "Run the local self-delegated merge service loop")]
-    pub(crate) run: bool,
-
-    #[arg(long, help = "Run one merge-service pass and exit")]
-    pub(crate) once: bool,
 
     #[arg(
         long,
@@ -498,12 +512,51 @@ pub(crate) struct MergeServiceOptions {
         help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
     )]
     pub(crate) prover_url: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceDisableOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(
+        long = "background-only",
+        help = "Keep on-chain merge permission; only revoke self-delegation so inline pre-action merges run again"
+    )]
+    pub(crate) background_only: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceStartOptions {
+    #[command(flatten)]
+    pub(crate) network: MergeServiceNetworkOptions,
 
     #[arg(
         long = "interval-secs",
         default_value_t = 30,
-        help = "Polling interval for --run"
+        help = "Polling interval between merge passes"
     )]
+    pub(crate) interval_secs: u64,
+
+    #[arg(
+        long,
+        help = "Detach into the background (writes a pid file under ~/.config/zolana/merge-service/)"
+    )]
+    pub(crate) background: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceStopOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct MergeServiceRunLoopOptions {
+    #[command(flatten)]
+    pub(crate) network: MergeServiceNetworkOptions,
+
+    #[arg(long = "interval-secs", default_value_t = 30)]
     pub(crate) interval_secs: u64,
 }
 
@@ -832,18 +885,20 @@ mod tests {
 
     #[test]
     fn parses_wallet_merge_service_options() {
-        let WalletCommand::MergeService(opts) = parse_wallet(&[
+        let WalletCommand::MergeService { command } = parse_wallet(&[
             "merge-service",
+            "enable",
             "--keypair",
             "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
             "http://127.0.0.1:8785",
-            "--enabled",
-            "true",
         ]) else {
             panic!("expected wallet merge-service command");
+        };
+        let MergeServiceCommand::Enable(opts) = command else {
+            panic!("expected merge-service enable command");
         };
 
         assert_eq!(
@@ -855,29 +910,41 @@ mod tests {
             opts.sync.indexer_url.as_deref(),
             Some("http://127.0.0.1:8785")
         );
-        assert_eq!(opts.enabled, Some(true));
-        assert!(!opts.run);
-        assert!(!opts.once);
 
-        let WalletCommand::MergeService(run) = parse_wallet(&[
+        let WalletCommand::MergeService { command } = parse_wallet(&[
             "merge-service",
+            "start",
             "--keypair",
             "/tmp/alice.pid.json",
             "--tree",
             "Tree111111111111111111111111111111111111111",
             "--prover-url",
             "http://127.0.0.1:3002",
-            "--once",
             "--interval-secs",
             "5",
+            "--background",
         ]) else {
             panic!("expected wallet merge-service run command");
         };
-        assert_eq!(run.enabled, None);
-        assert!(run.once);
-        assert!(!run.run);
+        let MergeServiceCommand::Start(run) = command else {
+            panic!("expected merge-service start command");
+        };
+        assert!(run.background);
         assert_eq!(run.interval_secs, 5);
-        assert_eq!(run.prover_url.as_deref(), Some("http://127.0.0.1:3002"));
+        assert_eq!(
+            run.network.prover_url.as_deref(),
+            Some("http://127.0.0.1:3002")
+        );
+
+        let WalletCommand::MergeService { command } =
+            parse_wallet(&["merge-service", "disable", "--background-only"])
+        else {
+            panic!("expected wallet merge-service command");
+        };
+        let MergeServiceCommand::Disable(disable) = command else {
+            panic!("expected merge-service disable command");
+        };
+        assert!(disable.background_only);
     }
 
     #[test]

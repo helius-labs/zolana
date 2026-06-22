@@ -172,7 +172,7 @@ fn stop_pid(pid: &str) {
     let _ = signal_pid(pid, "-KILL");
 }
 
-fn signal_pid(pid: &str, signal: &str) -> bool {
+pub(crate) fn signal_pid(pid: &str, signal: &str) -> bool {
     Command::new("kill")
         .args([signal, pid])
         .stdout(Stdio::null())
@@ -190,7 +190,7 @@ fn pid_exists(pid: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn wait_for_process_exit<F>(mut exited: F) -> bool
+pub(crate) fn wait_for_process_exit<F>(mut exited: F) -> bool
 where
     F: FnMut() -> bool,
 {

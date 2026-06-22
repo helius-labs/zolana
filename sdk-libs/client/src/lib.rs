@@ -45,9 +45,8 @@ pub use rpc::{
 pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
 pub use user_registry::{
     decode_user_record_account, fetch_user_record_checked, fetch_user_record_optional_checked,
-    is_self_delegated_merge_service, resolve_registered_address,
-    resolved_address_from_record, should_run_pre_action_merges, try_resolve_registered_address,
-    validate_registered_keypair,
+    is_self_delegated_merge_service, resolve_registered_address, resolved_address_from_record,
+    should_run_pre_action_merges, try_resolve_registered_address, validate_registered_keypair,
 };
 pub use wallet_authority::{ApprovalRequest, P256Signature, WalletAuthority};
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
