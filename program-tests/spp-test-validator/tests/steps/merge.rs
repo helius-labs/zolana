@@ -200,7 +200,7 @@ impl LifecycleWorld {
             inputs: spend_inputs,
             output: output.clone(),
             expiry_unix_ts,
-            signing_pubkey: owner.as_p256()?,
+            signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
             user_viewing_pk: keypair.viewing_pubkey(),
             tx_viewing_sk,

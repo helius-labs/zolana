@@ -13,9 +13,11 @@ use zolana_interface::{
 };
 use zolana_tree::{TreeAccount, TreeError};
 
-use super::account::{load_user_record, MergeTransactAccounts};
-use super::event::{build_merge_event, MergeTreeWrite};
-use super::verify::{pk_field, MergeProof, MergeProofInputs};
+use super::{
+    account::{load_user_record, MergeTransactAccounts},
+    event::{build_merge_event, MergeTreeWrite},
+    verify::{pk_field, MergeProof, MergeProofInputs},
+};
 use crate::instructions::{
     event::emit_general_event, protocol_config::loader::load_protocol_config,
 };
@@ -41,8 +43,8 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             .map_err(ShieldedPoolError::from)?;
     }
 
-    let pk_fields = load_user_record(merge_accounts.user_record)?;
-    let signing_pk_field = pk_field(&pk_fields.signing)?;
+    let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
+    let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
 
     let external_data_hash = MergeExternalDataHash {

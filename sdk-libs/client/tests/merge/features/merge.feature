@@ -18,3 +18,13 @@ Feature: Merge proving at shape (8,1)
       | 6 | 2       |
       | 7 | 1       |
       | 8 | 0       |
+
+  Scenario Outline: Merge <n> Solana-owned inputs with <dummies> dummy slots
+    Given <n> Solana SOL inputs to merge
+    Then the merge proof verifies
+
+    Examples:
+      | n | dummies |
+      | 1 | 7       |
+      | 4 | 4       |
+      | 8 | 0       |

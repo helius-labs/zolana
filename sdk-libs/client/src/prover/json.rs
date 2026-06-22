@@ -239,6 +239,8 @@ pub(crate) struct MergeParametersJson {
     pub p256_pub_x: String,
     #[serde(rename = "p256PubY")]
     pub p256_pub_y: String,
+    #[serde(rename = "solanaOwnerPkHash")]
+    pub solana_owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
     #[serde(rename = "userNullifierSecret")]
@@ -263,6 +265,7 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
         output: output_to_json(&inputs.output),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
         p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
+        solana_owner_pk_hash: big_uint_to_string(&inputs.solana_owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
         tx_viewing_sk: big_uint_to_string(&inputs.tx_viewing_sk),
@@ -347,6 +350,7 @@ mod merge_tests {
             },
             p256_pub_x: BigUint::from(1u8),
             p256_pub_y: BigUint::from(2u8),
+            solana_owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
             tx_viewing_sk: BigUint::from(5u8),
@@ -363,6 +367,7 @@ mod merge_tests {
             "output",
             "p256PubX",
             "p256PubY",
+            "solanaOwnerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
             "txViewingSk",

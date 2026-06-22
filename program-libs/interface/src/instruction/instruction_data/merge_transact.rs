@@ -1,7 +1,5 @@
 use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use crate::instruction::tag::MERGE_TRANSACT;
 
@@ -28,6 +26,9 @@ pub struct MergeTransactIxData {
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub encrypted_utxo: Vec<u8>,
+    /// When true the owner identity (`pk_field(user_signing_pk)`) is derived from
+    /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
+    pub eddsa_owner: bool,
 }
 
 impl MergeTransactIxData {
@@ -66,6 +67,7 @@ pub struct MergeTransactIxDataRef<'a> {
     pub nullifier_tree_root_index: Vec<u16>,
     pub private_tx_hash: &'a [u8; 32],
     pub encrypted_utxo: &'a [u8],
+    pub eddsa_owner: bool,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -134,6 +136,7 @@ mod tests {
             encrypted_utxo: (0..MERGE_ENCRYPTED_UTXO_LEN as u16)
                 .map(|i| i as u8)
                 .collect(),
+            eddsa_owner: false,
         }
     }
 
@@ -153,9 +156,19 @@ mod tests {
         );
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.encrypted_utxo, owned.encrypted_utxo.as_slice());
+        assert_eq!(view.eddsa_owner, owned.eddsa_owner);
         // Blob accessors.
         assert_eq!(view.tx_viewing_pk().unwrap(), &owned.encrypted_utxo[1..34]);
         assert_eq!(view.ciphertext().unwrap(), &owned.encrypted_utxo[34..105]);
+    }
+
+    #[test]
+    fn round_trips_eddsa_owner_flag() {
+        let mut owned = data();
+        owned.eddsa_owner = true;
+        let bytes = owned.serialize().unwrap();
+        let view = MergeTransactIxDataRef::from_bytes(&bytes).unwrap();
+        assert!(view.eddsa_owner);
     }
 
     #[test]

@@ -11,28 +11,29 @@
 //! [`AssembledTransfer`]: crate::private_transaction::AssembledTransfer
 
 use p256::SecretKey;
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_keypair::viewing_key::random_blinding;
-use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
+use zolana_keypair::{
+    shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey, P256Pubkey, PublicKey,
+};
 use zolana_transaction::OutputUtxo;
 
-use crate::error::ClientError;
-use crate::private_transaction::transaction::{InputCommitment, SpendProof, SpendUtxo};
-use crate::prover::merge_p256::MergeProver;
-use crate::prover::transfer_p256::TransferSpendInput;
+use crate::{
+    error::ClientError,
+    private_transaction::transaction::{InputCommitment, SpendProof, SpendUtxo},
+    prover::{merge_p256::MergeProver, transfer_p256::TransferSpendInput},
+};
 
 /// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
 /// front; padding fills the rest with dummies.
 pub const MERGE_INPUTS: usize = 8;
 
 /// A merge plan: the real UTXOs to consolidate (no Merkle proofs, no padding), the
-/// derived single output, and the owner identity. Every input must share one P256
-/// owner, asset, and nullifier secret.
+/// derived single output, and the owner identity. Every input must share one owner
+/// (P256 or Solana), asset, and nullifier secret.
 pub struct Merge {
     inputs: Vec<SpendUtxo>,
     output: OutputUtxo,
     expiry_unix_ts: u64,
-    signing_pubkey: P256Pubkey,
+    signing_pubkey: PublicKey,
     nullifier_key: NullifierKey,
     user_viewing_pk: P256Pubkey,
     tx_viewing_sk: SecretKey,
@@ -55,10 +56,13 @@ impl Merge {
         }
 
         let asset = inputs.first().ok_or(ClientError::NoInputs)?.utxo.asset;
+        // The proof binds every input to one shared owner identity, so the merge
+        // rail is the owner keypair's rail and every input must match it.
+        let owner_rail = keypair.signing_pubkey().signature_type()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
-            if spend.utxo.owner.signature_type()? != SignatureType::P256 {
-                return Err(ClientError::MergeInputNotP256 { index });
+            if spend.utxo.owner.signature_type()? != owner_rail {
+                return Err(ClientError::MergeInputRailMismatch { index });
             }
             if spend.utxo.asset != asset {
                 return Err(ClientError::MergeInputAssetMismatch { index });
@@ -89,7 +93,7 @@ impl Merge {
             // Never expires by default; `merge_transact` rejects `current_ts >
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
-            signing_pubkey: keypair.signing_pubkey().as_p256()?,
+            signing_pubkey: keypair.signing_pubkey(),
             nullifier_key: keypair.nullifier_key.clone(),
             user_viewing_pk: keypair.viewing_pubkey(),
             tx_viewing_sk,
@@ -109,7 +113,7 @@ pub struct PreparedMerge {
     inputs: Vec<SpendUtxo>,
     output: OutputUtxo,
     expiry_unix_ts: u64,
-    signing_pubkey: P256Pubkey,
+    signing_pubkey: PublicKey,
     nullifier_key: NullifierKey,
     user_viewing_pk: P256Pubkey,
     tx_viewing_sk: SecretKey,

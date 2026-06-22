@@ -57,9 +57,13 @@ type Circuit struct {
 	Inputs []Input
 	Output Output
 
-	// Shared owner identity. P256Pub is the owner's P256 signing pubkey witness
-	// (canonical x, y, parity) used to recompute pk_field(user_signing_pk).
+	// Shared owner identity, one of two rails. P256Pub is the owner's P256 signing
+	// pubkey witness (canonical x, y, parity); SolanaOwnerPkHash is the precomputed
+	// pk_field of a Solana (ed25519) owner. SolanaOwnerPkHash == 0 selects the P256
+	// rail and recomputes pk_field from P256Pub; non-zero selects the Solana rail
+	// and uses SolanaOwnerPkHash directly (the P256 witness is then a dummy point).
 	P256Pub             transaction.P256PublicKey
+	SolanaOwnerPkHash   frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
 
@@ -107,10 +111,12 @@ func (c *Circuit) Define(api frontend.API) error {
 	// Owner hash binding: user_owner_hash = OwnerHash(pk_field(signing_pk),
 	// user_nullifier_pk). The pk_field is recomputed from the witnessed P256
 	// point so the proof references no opaque owner.
-	pkField, err := transaction.P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
+	p256PkField, err := transaction.P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
 	if err != nil {
 		return err
 	}
+	isP256 := api.IsZero(c.SolanaOwnerPkHash)
+	pkField := api.Select(isP256, p256PkField, c.SolanaOwnerPkHash)
 	userOwnerHash := gadget.PoseidonHash(api, []frontend.Variable{pkField, c.UserNullifierPk})
 
 	// Nullifier secret binding: nullifier_pk = Poseidon(nullifier_secret).

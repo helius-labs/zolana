@@ -51,9 +51,11 @@ type MergeParameters struct {
 	Output OutputParams
 
 	// Shared owner identity: P256 signing pubkey coordinates and the nullifier
-	// secret/commitment.
+	// secret/commitment. SolanaOwnerPkHash is 0 for a P256 owner and the
+	// precomputed pk_field for a Solana (ed25519) owner; it selects the rail.
 	P256PubX            *big.Int
 	P256PubY            *big.Int
+	SolanaOwnerPkHash   *big.Int
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int
 
