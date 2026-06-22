@@ -233,7 +233,7 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "Five hundred randomized eddsa transactions"
+      cargo test -p spp-test-validator --test lifecycle -- --name "Fifty randomized eddsa transactions"
 
 # Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
 # signer, mixed lifecycle, SOL lifecycle, and instruction/event decode.
