@@ -1,6 +1,8 @@
 use cucumber::then;
-use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
-use zolana_transaction::{Address, TransactionError};
+use zolana_transaction::{
+    asset::{AssetRegistry, SOL_ASSET_ID},
+    Address, TransactionError,
+};
 
 use crate::TransactionWorld;
 

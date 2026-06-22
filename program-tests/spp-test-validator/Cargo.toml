@@ -33,6 +33,7 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 cucumber = { workspace = true }
 futures = { workspace = true }
 light-instruction-decoder = { workspace = true }
+rand = { workspace = true }
 
 [[test]]
 name = "lifecycle"

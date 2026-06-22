@@ -1,6 +1,4 @@
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use crate::error::TransactionError;
 

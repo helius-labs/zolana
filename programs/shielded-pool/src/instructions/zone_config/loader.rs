@@ -1,7 +1,6 @@
 use bytemuck::from_bytes_mut;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView};
-use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::state::ZoneConfig;
+use zolana_interface::{error::ShieldedPoolError, state::ZoneConfig};
 
 #[inline(always)]
 pub fn load_zone_config_mut<'a>(

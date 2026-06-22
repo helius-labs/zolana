@@ -4,13 +4,13 @@ use std::collections::HashMap;
 
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::plaintext_transfer::TransferPlaintextUtxos;
-use zolana_transaction::split::{SplitBundlePlaintext, SplitEncryptedUtxos};
-use zolana_transaction::transfer::{
-    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
+use zolana_transaction::{
+    plaintext_transfer::TransferPlaintextUtxos,
+    split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    transfer::{RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext},
+    utxo::Utxo,
+    wallet::{SyncTransaction, Wallet},
 };
-use zolana_transaction::utxo::Utxo;
-use zolana_transaction::wallet::{SyncTransaction, Wallet};
 
 #[derive(Default, World)]
 pub struct TransactionWorld {

@@ -1,21 +1,25 @@
 //! `deposit` (proofless shield) steps for SOL and SPL, the World operations, and
 //! the shared assert that dispatches on the deposit's asset.
 
-use crate::deposit_action::Deposit;
 use anyhow::{anyhow, Result};
 use cucumber::{given, then};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::{indexed_events_from_instruction_groups, proofless_output};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_test_utils::spl::mint_to;
-use zolana_test_utils::test_validator_asserts::{
-    assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
+use zolana_test_utils::{
+    spl::mint_to,
+    test_validator_asserts::{
+        assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
+    },
 };
 use zolana_transaction::{Wallet, SOL_MINT};
 
-use crate::actor::{DepositRecord, SplDepositAccounts};
-use crate::LifecycleWorld;
+use crate::{
+    actor::{DepositRecord, SplDepositAccounts},
+    deposit_action::Deposit,
+    LifecycleWorld,
+};
 
 impl LifecycleWorld {
     /// Deposit SOL to an actor through the client SDK's `Deposit` action. Records
@@ -46,16 +50,30 @@ impl LifecycleWorld {
         Ok(())
     }
 
-    /// Deposit the scenario's SPL asset to an actor. Funds the shared token account,
-    /// snapshots the vault + token account, deposits via the action (which detects
-    /// SPL from the token-account `sender`), and records the SPL assert inputs.
+    /// Deposit the scenario's first SPL asset to an actor (single-asset features).
     pub(crate) fn deposit_spl(&mut self, name: &str, amount: u64) -> Result<()> {
-        self.ensure_actor(name)?;
         self.ensure_spl_asset()?;
+        self.deposit_spl_at(name, 0, amount)
+    }
+
+    /// Deposit the registered SPL asset at `asset_index` to an actor. Funds the shared
+    /// token account, snapshots the vault + token account, deposits via the action
+    /// (which detects SPL from the token-account `sender`), and records the SPL assert
+    /// inputs. The asset must already be registered (see `ensure_spl_assets`).
+    pub(crate) fn deposit_spl_at(
+        &mut self,
+        name: &str,
+        asset_index: usize,
+        amount: u64,
+    ) -> Result<()> {
+        self.ensure_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
         let recipient_address = self.actor(name).keypair.shielded_address()?;
-        let spl = self.spl_asset()?;
+        let spl = *self
+            .spls
+            .get(asset_index)
+            .ok_or_else(|| anyhow!("SPL asset {asset_index} not registered"))?;
         let (mint, vault, user_token) = (spl.mint, spl.vault, spl.user_token);
 
         // Fund the shared token account, then snapshot it and the vault right before

@@ -6,8 +6,7 @@ use anyhow::Result;
 use cucumber::{then, when};
 use zolana_transaction::{Utxo, DEFAULT_TAG_WINDOW};
 
-use crate::localnet::ZERO;
-use crate::LifecycleWorld;
+use crate::{localnet::ZERO, LifecycleWorld};
 
 impl LifecycleWorld {
     /// Sync an actor's wallet from every indexed transfer (decryption), and make

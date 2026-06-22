@@ -5,8 +5,9 @@
 
 #![allow(clippy::large_enum_variant)]
 
-use serde::{de::DeserializeOwned, Serialize};
 use std::{error::Error as StdError, fmt, sync::Once};
+
+use serde::{de::DeserializeOwned, Serialize};
 
 pub mod generated {
     #![allow(unused_imports, clippy::all, dead_code)]

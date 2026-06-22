@@ -4,18 +4,19 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
-use zolana_interface::state::SplAssetRegistry;
 use zolana_interface::{
-    SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    error::ShieldedPoolError, instruction::instruction_data::deposit::CpiSignerData,
+    state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_TOKEN_PROGRAM_ID,
 };
 
-use crate::instructions::settlement::{
-    read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
-    SettlementAccountsSpl,
+use crate::instructions::{
+    settlement::{
+        read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
+        SettlementAccountsSpl,
+    },
+    shared::verify_cpi_signer,
 };
-use crate::instructions::shared::verify_cpi_signer;
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 

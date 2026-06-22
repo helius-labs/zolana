@@ -1,6 +1,5 @@
 use light_hasher::{Hasher, Poseidon};
 use pinocchio::error::ProgramError;
-
 use zolana_interface::error::ShieldedPoolError;
 
 /// Encodes a u64 as a big-endian BN254 field element (value in the low 8 bytes).

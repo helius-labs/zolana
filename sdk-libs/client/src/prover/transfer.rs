@@ -1,14 +1,17 @@
 use num_bigint::BigUint;
-use zolana_transaction::transaction::private_tx_hash;
-use zolana_transaction::{ExternalData, OutputUtxo};
+use zolana_transaction::{transaction::private_tx_hash, ExternalData, OutputUtxo};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::be;
-use crate::prover::shape::{resolve_shape, Shape};
-use crate::prover::transfer_p256::{
-    assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
+use crate::{
+    error::ClientError,
+    private_transaction::field::be,
+    prover::{
+        shape::{resolve_shape, Shape},
+        transfer_p256::{
+            assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
+        },
+        TransferInputs,
+    },
 };
-use crate::prover::TransferInputs;
 
 pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,

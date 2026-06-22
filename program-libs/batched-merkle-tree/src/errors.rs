@@ -1,10 +1,11 @@
-use crate::verify::VerifierError;
 use light_account_checks::error::AccountError;
 use light_bloom_filter::BloomFilterError;
 use light_hasher::HasherError;
 use light_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 use light_zero_copy_vec::errors::ZeroCopyError;
 use thiserror::Error;
+
+use crate::verify::VerifierError;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum BatchedMerkleTreeError {

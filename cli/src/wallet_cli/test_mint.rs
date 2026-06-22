@@ -16,12 +16,12 @@ use zolana_interface::{
 };
 use zolana_transaction::Address;
 
-use crate::args::TestMintOptions;
-use crate::cli_config::CliConfigFile;
-
-use super::material::{load_existing_wallet, load_sender_from_resolved_sync};
-use super::resolve::resolve_sync;
-use super::util::{ensure_positive, system_create_account_ix};
+use super::{
+    material::{load_existing_wallet, load_sender_from_resolved_sync},
+    resolve::resolve_sync,
+    util::{ensure_positive, system_create_account_ix},
+};
+use crate::{args::TestMintOptions, cli_config::CliConfigFile};
 
 pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     ensure_positive(opts.amount)?;

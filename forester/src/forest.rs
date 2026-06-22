@@ -56,9 +56,9 @@ pub fn batch_update_nullifier_tree_once(
 
 #[cfg(test)]
 mod tests {
+    use zolana_interface::{instruction::tag, pda, SHIELDED_POOL_PROGRAM_ID};
+
     use super::*;
-    use zolana_interface::instruction::tag;
-    use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 
     #[test]
     fn maintenance_instruction_targets_spp() {

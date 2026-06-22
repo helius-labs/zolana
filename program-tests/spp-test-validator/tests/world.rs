@@ -20,13 +20,16 @@ use zolana_interface::{
 use zolana_program_test::create_tree_instructions;
 use zolana_transaction::{AssetRegistry, SyncTransaction};
 
-use crate::actor::Actor;
-use crate::localnet::{
-    restart_localnet, send_transaction, start_prover, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+use crate::{
+    actor::Actor,
+    localnet::{
+        restart_localnet, send_transaction, start_prover, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+    },
 };
 
-/// The single SPL asset a scenario registers: its mint, the vault the deposit
-/// credits, and the shared funding token account (owned by the payer).
+/// An SPL asset a scenario registers: its mint, the vault the deposit credits,
+/// and the shared funding token account (owned by the payer).
+#[derive(Clone, Copy)]
 pub(crate) struct SplAsset {
     pub(crate) mint: Pubkey,
     pub(crate) vault: Pubkey,
@@ -57,7 +60,7 @@ pub struct LifecycleWorld {
     /// the merge step can derive the `user_record` PDA the program reads.
     pub(crate) merge_owners: BTreeMap<String, Keypair>,
     pub(crate) indexed: Vec<SyncTransaction>,
-    pub(crate) spl: Option<SplAsset>,
+    pub(crate) spls: Vec<SplAsset>,
     pub(crate) last_rail: Option<Rail>,
     /// The most recent `transact` instruction and its transaction signature, kept
     /// so the decode step can re-parse the exact bytes and accounts that were sent.
@@ -141,7 +144,7 @@ impl LifecycleWorld {
             actors: BTreeMap::new(),
             merge_owners: BTreeMap::new(),
             indexed: Vec::new(),
-            spl: None,
+            spls: Vec::new(),
             last_rail: None,
             last_transact: None,
             last_merge: None,

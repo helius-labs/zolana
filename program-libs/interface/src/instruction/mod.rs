@@ -1,10 +1,9 @@
 #[cfg(feature = "solana")]
 pub mod builders;
 pub mod instruction_data;
-pub use zolana_event::tag;
-
 use borsh::BorshSerialize;
-
+#[cfg(feature = "solana")]
+pub use builders::*;
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CompressedProof, CpiSignerData, CreateProtocolConfigData,
     CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
@@ -12,10 +11,7 @@ pub use instruction_data::{
     PauseTreeData, TransactIxData, TransactIxDataRef, UpdateProtocolConfigData,
     UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneDepositIxData,
 };
-pub use zolana_event::tag::InstructionTag;
-
-#[cfg(feature = "solana")]
-pub use builders::*;
+pub use zolana_event::{tag, tag::InstructionTag};
 
 pub fn encode_instruction<T: BorshSerialize>(tag: u8, payload: &T) -> Vec<u8> {
     let mut data = vec![tag];

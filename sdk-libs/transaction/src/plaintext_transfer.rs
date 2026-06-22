@@ -1,16 +1,14 @@
 use solana_address::Address;
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{PublicKey, SignatureType};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey, SignatureType};
 
-use crate::asset::{AssetRegistry, SOL_MINT};
-use crate::data::Data;
-use crate::error::TransactionError;
-use crate::utxo::{derive_blinding, resolve_zone_program_id, Utxo};
-use crate::{PublicKeySchema, TRANSFER_PLAINTEXT};
+use crate::{
+    asset::{AssetRegistry, SOL_MINT},
+    data::Data,
+    error::TransactionError,
+    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    PublicKeySchema, TRANSFER_PLAINTEXT,
+};
 
 fn owner_view_tag(owner: &PublicKey) -> Result<ViewTag, TransactionError> {
     Ok(match owner.signature_type()? {

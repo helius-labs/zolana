@@ -1,12 +1,14 @@
 use zolana_keypair::{random_salt, ViewingKey};
 
-use crate::error::TransactionError;
-use crate::split::{SplitBundlePlaintext, SplitEncryptedUtxos};
-use crate::transfer::{
-    RecipientOutput, RecipientSlot, TransferEncryptedUtxos, TransferRecipientPlaintext,
-    TransferSenderPlaintext,
+use crate::{
+    error::TransactionError,
+    split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    transfer::{
+        RecipientOutput, RecipientSlot, TransferEncryptedUtxos, TransferRecipientPlaintext,
+        TransferSenderPlaintext,
+    },
+    SPLIT, TRANSFER,
 };
-use crate::{SPLIT, TRANSFER};
 
 pub trait TransactionEncryption {
     fn encrypt_transfer(

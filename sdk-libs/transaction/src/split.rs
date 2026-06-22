@@ -1,15 +1,17 @@
 use solana_address::Address;
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::{P256Pubkey, PublicKey};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use zolana_keypair::{
+    constants::{BLINDING_LEN, SALT_LEN},
+    P256Pubkey, PublicKey,
+};
 
-use crate::asset::AssetRegistry;
-use crate::data::Data;
-use crate::error::TransactionError;
-use crate::utxo::{derive_blinding, resolve_zone_program_id, Utxo};
-use crate::{P256PubkeySchema, PublicKeySchema, SPLIT};
+use crate::{
+    asset::AssetRegistry,
+    data::Data,
+    error::TransactionError,
+    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    P256PubkeySchema, PublicKeySchema, SPLIT,
+};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct SplitBundlePlaintext {

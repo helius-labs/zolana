@@ -1,7 +1,9 @@
 use light_hasher::{Hasher, Poseidon};
-use wincode::config::{deserialize_mut, Configuration};
-use wincode::len::FixIntLen;
-use wincode::SchemaRead;
+use wincode::{
+    config::{deserialize_mut, Configuration},
+    len::FixIntLen,
+    SchemaRead,
+};
 
 const NEXT_INDEX_OFFSET: usize = 0;
 pub const ROOT_OFFSET: usize = 8;

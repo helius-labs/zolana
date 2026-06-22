@@ -1,5 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use zolana_interface::event::{decode_output_data, DepositView, OutputData};
 use zolana_keypair::viewing_key::ViewTag;
@@ -256,6 +258,35 @@ fn now_unix_ts() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(feature = "solana-rpc")]
+impl ProoflessDepositEventSource for crate::solana_rpc::SolanaRpc {
+    fn proofless_deposit_from_signature(
+        &self,
+        signature: Signature,
+        view_tag: ViewTag,
+    ) -> Result<Option<DepositView>, ClientError> {
+        use zolana_interface::{
+            event::{indexed_events_from_instruction_groups, proofless_output},
+            PROGRAM_ID_PUBKEY,
+        };
+
+        let groups = self.fetch_confirmed_instruction_groups(&signature)?.groups;
+        let events = indexed_events_from_instruction_groups(PROGRAM_ID_PUBKEY, &groups);
+        for event in events {
+            let Ok(general) = event.decoded else {
+                continue;
+            };
+            let Ok(view) = proofless_output(&general) else {
+                continue;
+            };
+            if view.view_tag == view_tag {
+                return Ok(Some(view));
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

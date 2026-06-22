@@ -1,11 +1,15 @@
 use core::mem::MaybeUninit;
 
-use wincode::config::ConfigCore;
-use wincode::error::{ReadError, ReadResult, WriteResult};
-use wincode::io::{Reader, Writer};
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_keypair::constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
-use zolana_keypair::{P256Pubkey, PublicKey};
+use wincode::{
+    config::ConfigCore,
+    error::{ReadError, ReadResult, WriteResult},
+    io::{Reader, Writer},
+    SchemaRead, SchemaWrite,
+};
+use zolana_keypair::{
+    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
+    P256Pubkey, PublicKey,
+};
 
 pub mod asset;
 pub mod data;

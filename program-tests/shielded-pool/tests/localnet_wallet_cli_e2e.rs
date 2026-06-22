@@ -2,10 +2,12 @@
 //!
 //! Run with `just test-localnet-e2e-photon`.
 
-use std::env;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;

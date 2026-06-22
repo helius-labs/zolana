@@ -1,14 +1,18 @@
 use std::collections::HashSet;
 
 use cucumber::then;
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::ViewingKey;
-use zolana_transaction::data::{Data, DataRecord};
-use zolana_transaction::split::{SplitBundlePlaintext, SplitEncryptedUtxos};
-use zolana_transaction::transfer::{
-    RecipientSlot, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+use zolana_keypair::{
+    constants::{BLINDING_LEN, SALT_LEN},
+    ViewingKey,
 };
-use zolana_transaction::{TransactionError, SPLIT, TRANSFER, VIEW_TAG_LEN};
+use zolana_transaction::{
+    data::{Data, DataRecord},
+    split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    transfer::{
+        RecipientSlot, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+    },
+    TransactionError, SPLIT, TRANSFER, VIEW_TAG_LEN,
+};
 
 use crate::TransactionWorld;
 

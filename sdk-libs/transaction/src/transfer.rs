@@ -1,16 +1,18 @@
 use solana_address::Address;
-use wincode::containers;
-use wincode::len::FixIntLen;
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN};
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{P256Pubkey, PublicKey};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use zolana_keypair::{
+    constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
+    viewing_key::ViewTag,
+    P256Pubkey, PublicKey,
+};
 
-use crate::asset::{AssetRegistry, SOL_MINT};
-use crate::data::Data;
-use crate::error::TransactionError;
-use crate::utxo::{derive_blinding, resolve_zone_program_id, Utxo};
-use crate::{P256PubkeySchema, PublicKeySchema, TRANSFER};
+use crate::{
+    asset::{AssetRegistry, SOL_MINT},
+    data::Data,
+    error::TransactionError,
+    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    P256PubkeySchema, PublicKeySchema, TRANSFER,
+};
 
 /// Fixed number of leading sender-owned output slots in a transfer: SPL change at
 /// slot 0 (and the sender bundle ciphertext), SOL change at slot 1. Recipients
@@ -281,8 +283,9 @@ impl OutputCiphertext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use zolana_keypair::ViewingKey;
+
+    use super::*;
 
     fn bundle(recipient_views: &[u8]) -> TransferEncryptedUtxos {
         TransferEncryptedUtxos {

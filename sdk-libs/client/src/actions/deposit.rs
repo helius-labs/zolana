@@ -13,8 +13,7 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
-use crate::error::ClientError;
-use crate::rpc::Rpc;
+use crate::{error::ClientError, rpc::Rpc};
 
 /// Prepared direct proofless SOL shield.
 ///
@@ -155,12 +154,13 @@ fn spl_accounts(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::cell::RefCell;
 
     use solana_hash::Hash;
     use solana_transaction::Transaction;
     use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
 
     /// Minimal `Rpc` backend that records the transaction the action sends, so
     /// we can assert the action builds and submits the interface instruction

@@ -57,8 +57,9 @@ pub fn asset_field(asset: &Address) -> Result<[u8; 32], ClientError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use zolana_transaction::SOL_MINT;
+
+    use super::*;
 
     #[test]
     fn hash_chain_empty_and_single() {

@@ -17,17 +17,20 @@ use zolana_client::{
     WithdrawalTarget,
 };
 use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
-use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER};
-
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
+use zolana_transaction::{
+    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
+    utxo::derive_blinding,
+    SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
+};
 
-use crate::localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO};
-use crate::world::Rail;
-use crate::LifecycleWorld;
+use crate::{
+    localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO},
+    world::Rail,
+    LifecycleWorld,
+};
 
 impl LifecycleWorld {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient
@@ -67,7 +70,15 @@ impl LifecycleWorld {
         let recipient_before = self.rpc.client().get_balance(&recipient.pubkey())?;
 
         let from_keypair = self.actor(from).keypair.clone();
-        let payer_address = Address::new_from_array(self.payer.pubkey().to_bytes());
+        // An eddsa actor pays and signs its own spend (the owner sits at signer index
+        // 0 / the fee payer); a P256 actor falls back to the global payer.
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|k| k.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
+        let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let send_index = self.actor(from).send_counter;
         let sender_view_tag = from_keypair.get_sender_view_tag(send_index)?;
         self.actor_mut(from).send_counter += 1;
@@ -114,7 +125,7 @@ impl LifecycleWorld {
         let ix_data = assembled.with_proof(pack_proof(&proof)?);
 
         let withdraw_ix = Transact {
-            payer: self.payer.pubkey(),
+            payer: fee_payer.pubkey(),
             tree: self.tree,
             cpi_signer: None,
             withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
@@ -124,12 +135,11 @@ impl LifecycleWorld {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let payer = self.payer.insecure_clone();
         let sig = send_transaction(
             &mut self.rpc,
             &[compute_budget, withdraw_ix.clone()],
-            &payer.pubkey(),
-            &[&payer],
+            &fee_payer.pubkey(),
+            &[&fee_payer],
         )?;
         self.last_transact = Some((sig, withdraw_ix));
 

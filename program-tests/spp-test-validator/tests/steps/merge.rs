@@ -1,16 +1,10 @@
 //! `merge_transact` steps and the World merge operation. The merge service
-//! consolidates several of one owner's same-asset, P256-owned UTXOs into a single
-//! output. The owner registers on the user-registry and opts into the merge
-//! service; the configured merge authority then runs the consolidation on the
-//! owner's behalf, proving on the 8-in/1-out merge circuit.
-//!
-//! NOTE: this step binds to the in-flight `MergeProver`/`MergeProofResult` API
-//! (`expiry_unix_ts` input; `utxo_tree_root_indices` / `nullifier_tree_root_indices`
-//! / `external_data_hash` / `expiry_unix_ts` outputs). At the time of writing
-//! `sdk-libs/client/src/prover/merge_p256.rs::build()` still references the removed
-//! `self.external_data_hash` field, so `zolana-client` does not yet compile; this
-//! file is written against the new (struct-declared) API and will build once the
-//! main agent finishes that D-phase rework.
+//! consolidates several of one owner's same-asset UTXOs into a single output. The
+//! owner is either rail: a P256 owner registers its `owner_p256`, a Solana owner
+//! registers under its ed25519 signing key (the `eddsa_owner` rail). The owner
+//! registers on the user-registry and opts into the merge service; the configured
+//! merge authority then runs the consolidation on the owner's behalf, proving on
+//! the 8-in/1-out merge circuit.
 //!
 //! NOTE: the consolidated output carries no transfer-style view tag, so it is not
 //! discovered by `Wallet::sync` (the merge scheme is not wired into sync yet).
@@ -26,20 +20,24 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT;
-use zolana_interface::instruction::MergeTransact;
-use zolana_interface::pda;
-use zolana_keypair::random_blinding;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
-use zolana_user_registry_interface::instruction::{register, set_merge_service, RegisterData};
-use zolana_user_registry_interface::user_record_pda;
-
+use zolana_interface::{
+    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
+    pda,
+};
+use zolana_keypair::{random_blinding, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
+use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_user_registry_interface::{
+    instruction::{register, set_merge_service, RegisterData},
+    user_record_pda,
+};
 
-use crate::localnet::{pack_proof, send_transaction, ZERO};
-use crate::LifecycleWorld;
+use crate::{
+    localnet::{pack_proof, send_transaction, ZERO},
+    LifecycleWorld,
+};
 
 /// What the consolidated-output assert needs after a merge: the appended output and
 /// the ciphertext that lets the owner reconstruct it, plus the consumed nullifiers.
@@ -67,11 +65,30 @@ impl LifecycleWorld {
     ) -> Result<Keypair> {
         self.ensure_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
-        let owner = Keypair::new();
+
+        // The owner identity rail follows the actor's signing key. A Solana owner
+        // registers under its own ed25519 signing key (so `record.owner` is the
+        // identity merge derives `signing_pk_field` from) with no `owner_p256`; a
+        // P256 owner registers under a fresh account and stores its `owner_p256`.
+        let (owner, owner_p256) = match keypair.signing_pubkey().signature_type()? {
+            SignatureType::Ed25519 => {
+                let signer = self
+                    .actor(name)
+                    .solana_signer
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("eddsa actor {name} has no backing signer"))?
+                    .insecure_clone();
+                (signer, None)
+            }
+            SignatureType::P256 => (
+                Keypair::new(),
+                Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+            ),
+        };
         self.rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;
 
         let register_data = RegisterData {
-            owner_p256: Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+            owner_p256,
             nullifier_pubkey: keypair.nullifier_key.pubkey()?,
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
         };

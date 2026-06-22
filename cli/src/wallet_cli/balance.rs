@@ -2,10 +2,11 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 use zolana_transaction::SOL_MINT;
 
+use super::{
+    sync::sync_context,
+    util::{format_address, parse_address},
+};
 use crate::args::BalanceOptions;
-
-use super::sync::sync_context;
-use super::util::{format_address, parse_address};
 
 pub(super) fn run_balance(opts: BalanceOptions) -> Result<()> {
     let ctx = sync_context(&opts.sync)?;

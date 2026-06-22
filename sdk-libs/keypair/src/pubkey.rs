@@ -1,8 +1,9 @@
-use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::PublicKey as P256PublicKey;
+use p256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey as P256PublicKey};
 
-use crate::constants::{ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
-use crate::error::KeypairError;
+use crate::{
+    constants::{ED25519_PUBKEY_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
+    error::KeypairError,
+};
 
 pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;

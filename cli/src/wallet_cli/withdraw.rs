@@ -3,12 +3,13 @@ use solana_signer::Signer;
 use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
 use zolana_transaction::Address;
 
+use super::{
+    resolve::get_network,
+    sync::sync_context,
+    transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
+    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+};
 use crate::args::WithdrawOptions;
-
-use super::resolve::get_network;
-use super::sync::sync_context;
-use super::transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx};
-use super::util::{ensure_positive, format_address, parse_address, parse_pubkey};
 
 pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     ensure_positive(opts.amount)?;

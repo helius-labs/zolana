@@ -3,14 +3,18 @@ use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
-use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::{
+    shielded::{ShieldedAddress, ShieldedKeypair},
+    viewing_key::ViewTag,
+};
 use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 
-use crate::error::ClientError;
-use crate::private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget};
-use crate::rpc::Rpc;
-use crate::user_registry::try_resolve_registered_address;
+use crate::{
+    error::ClientError,
+    private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget},
+    rpc::Rpc,
+    user_registry::try_resolve_registered_address,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {

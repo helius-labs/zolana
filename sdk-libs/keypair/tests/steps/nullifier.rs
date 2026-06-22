@@ -1,6 +1,5 @@
 use cucumber::then;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::NullifierKey;
+use zolana_keypair::{constants::BLINDING_LEN, NullifierKey};
 
 use crate::KeypairWorld;
 
