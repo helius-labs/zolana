@@ -5,9 +5,10 @@ use std::{
 
 use zolana_interface::event::{decode_output_data, DepositView, OutputData};
 use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::P256Pubkey;
 use zolana_transaction::{
     owner_utxo_hash, transfer::OutputCiphertext, utxo_hash, Address, AssetRegistry, SyncReport,
-    SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
+    SyncTransaction, Wallet, DEFAULT_TAG_WINDOW, MERGE, TRANSFER,
 };
 
 use crate::{
@@ -25,6 +26,7 @@ pub struct SyncWalletConfig {
     pub tag_query_chunk: usize,
     pub page_limit: u32,
     pub rounds: usize,
+    pub merge_owner_tag: Option<ViewTag>,
 }
 
 impl Default for SyncWalletConfig {
@@ -34,6 +36,7 @@ impl Default for SyncWalletConfig {
             tag_query_chunk: DEFAULT_TAG_QUERY_CHUNK,
             page_limit: DEFAULT_PAGE_LIMIT,
             rounds: DEFAULT_SYNC_ROUNDS,
+            merge_owner_tag: None,
         }
     }
 }
@@ -65,7 +68,7 @@ where
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
-        let tags = wallet_query_tags(wallet, config.tag_window)?;
+        let tags = wallet_query_tags(wallet, config.tag_window, config.merge_owner_tag)?;
         fetch_shielded_transactions(indexer, &tags, &mut transactions, config)?;
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
 
@@ -93,11 +96,19 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
         tag_query_chunk: config.tag_query_chunk.max(1),
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
+        merge_owner_tag: config.merge_owner_tag,
     }
 }
 
-fn wallet_query_tags(wallet: &Wallet, window: u64) -> Result<Vec<ViewTag>, ClientError> {
+fn wallet_query_tags(
+    wallet: &Wallet,
+    window: u64,
+    merge_owner_tag: Option<ViewTag>,
+) -> Result<Vec<ViewTag>, ClientError> {
     let mut tags = HashSet::new();
+    if let Some(tag) = merge_owner_tag {
+        tags.insert(tag);
+    }
     for entry in &wallet.viewing_key_history {
         tags.insert(entry.key.recipient_bootstrap_view_tag());
         for n in 0..entry.tx_count.saturating_add(window) {
@@ -229,14 +240,38 @@ fn proofless_deposit_from_indexed_match(
 }
 
 fn convert_sync_transaction(tx: ShieldedTransaction) -> Result<SyncTransaction, ClientError> {
-    let tx_viewing_pk = tx
-        .tx_viewing_pk
-        .ok_or_else(|| ClientError::Rpc("indexed transaction missing tx_viewing_pk".into()))?;
-    let salt = tx
-        .salt
-        .ok_or_else(|| ClientError::Rpc("indexed transaction missing salt".into()))?;
+    let scheme = tx
+        .output_slots
+        .first()
+        .and_then(|slot| slot.payload.first().copied())
+        .filter(|prefix| *prefix == MERGE)
+        .unwrap_or(TRANSFER);
+    let (tx_viewing_pk, salt) = if scheme == MERGE {
+        let first = tx
+            .output_slots
+            .first()
+            .ok_or_else(|| ClientError::Rpc("indexed merge transaction missing output".into()))?;
+        let pk: [u8; 33] = first
+            .payload
+            .get(1..34)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| ClientError::Rpc("indexed merge transaction payload is short".into()))?;
+        (
+            P256Pubkey::from_bytes(pk)?,
+            tx.salt
+                .unwrap_or([0u8; zolana_keypair::constants::SALT_LEN]),
+        )
+    } else {
+        (
+            tx.tx_viewing_pk.ok_or_else(|| {
+                ClientError::Rpc("indexed transaction missing tx_viewing_pk".into())
+            })?,
+            tx.salt
+                .ok_or_else(|| ClientError::Rpc("indexed transaction missing salt".into()))?,
+        )
+    };
     Ok(SyncTransaction {
-        scheme: zolana_transaction::TRANSFER,
+        scheme,
         tx_viewing_pk,
         salt,
         output_slots: tx

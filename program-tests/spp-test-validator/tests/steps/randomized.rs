@@ -15,10 +15,8 @@
 //!
 //! Merge uses the eddsa owner rail: each actor registers under its own ed25519
 //! signing key and the configured merge authority consolidates its SOL UTXOs into one
-//! output. The merged output carries no view tag, so `Wallet::sync` cannot rediscover
-//! it; the consumed inputs are marked spent directly so the wallet view stays
-//! consistent, and the orphaned output value remains in pool custody (conservation
-//! still holds).
+//! owner-tagged output. `Wallet::sync` does not ingest merge ciphertexts yet, so the
+//! consumed inputs are marked spent directly and the wallet view stays consistent.
 
 use std::collections::BTreeMap;
 
@@ -268,9 +266,9 @@ impl LifecycleWorld {
 
     /// Register `name` for the merge service on first use (under its own ed25519
     /// signing key, the eddsa owner rail) and consolidate up to `MAX_MERGE_INPUTS` of
-    /// its SOL UTXOs into one output. The merged output is not rediscoverable by sync,
-    /// so the consumed inputs are marked spent directly and the merge is verified by
-    /// `assert_merged`.
+    /// its SOL UTXOs into one owner-tagged output. `Wallet::sync` does not ingest
+    /// merge ciphertexts yet, so the consumed inputs are marked spent directly and the
+    /// merge is verified by `assert_merged`.
     fn rand_merge(&mut self, name: &str) -> Result<()> {
         let count = self.spendable_count(name, SOL_MINT).min(MAX_MERGE_INPUTS);
         let consumed: Vec<Utxo> = self

@@ -38,6 +38,7 @@ impl<'a> MergeTransactAccounts<'a> {
 /// (its `pk_field` is computed by the processor). Feeding these into the
 /// recomputed public-input hash binds the proof to the registered keys.
 pub struct UserPkFields {
+    pub owner: [u8; 32],
     pub signing_pk_field: [u8; 32],
     pub viewing: [u8; 33],
 }
@@ -72,6 +73,7 @@ pub fn load_user_record(
         pk_field_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
     };
     Ok(UserPkFields {
+        owner: record.owner,
         signing_pk_field,
         viewing: record.viewing_pubkey,
     })

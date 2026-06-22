@@ -12,7 +12,8 @@
 
 use p256::SecretKey;
 use zolana_keypair::{
-    shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey, P256Pubkey, PublicKey,
+    constants::BLINDING_LEN, hash::owner_hash, shielded::ShieldedKeypair,
+    viewing_key::random_blinding, P256Pubkey, PublicKey,
 };
 use zolana_transaction::OutputUtxo;
 
@@ -26,6 +27,25 @@ use crate::{
 /// front; padding fills the rest with dummies.
 pub const MERGE_INPUTS: usize = 8;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MergeOwner {
+    pub signing_pubkey: PublicKey,
+    pub nullifier_pubkey: [u8; 32],
+    pub nullifier_secret: [u8; BLINDING_LEN],
+    pub viewing_pubkey: P256Pubkey,
+}
+
+impl MergeOwner {
+    pub fn from_keypair(keypair: &ShieldedKeypair) -> Result<Self, ClientError> {
+        Ok(Self {
+            signing_pubkey: keypair.signing_pubkey(),
+            nullifier_pubkey: keypair.nullifier_key.pubkey()?,
+            nullifier_secret: *keypair.nullifier_key.secret(),
+            viewing_pubkey: keypair.viewing_pubkey(),
+        })
+    }
+}
+
 /// A merge plan: the real UTXOs to consolidate (no Merkle proofs, no padding), the
 /// derived single output, and the owner identity. Every input must share one owner
 /// (P256 or Solana), asset, and nullifier secret.
@@ -34,7 +54,8 @@ pub struct Merge {
     output: OutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    nullifier_key: NullifierKey,
+    nullifier_pubkey: [u8; 32],
+    nullifier_secret: [u8; BLINDING_LEN],
     user_viewing_pk: P256Pubkey,
     tx_viewing_sk: SecretKey,
 }
@@ -45,6 +66,10 @@ impl Merge {
     /// nullifier secret and the viewing key for the verifiable encryption; it never
     /// signs.
     pub fn new(keypair: &ShieldedKeypair, inputs: Vec<SpendUtxo>) -> Result<Self, ClientError> {
+        Self::new_with_owner(MergeOwner::from_keypair(keypair)?, inputs)
+    }
+
+    pub fn new_with_owner(owner: MergeOwner, inputs: Vec<SpendUtxo>) -> Result<Self, ClientError> {
         if inputs.is_empty() {
             return Err(ClientError::NoInputs);
         }
@@ -57,8 +82,8 @@ impl Merge {
 
         let asset = inputs.first().ok_or(ClientError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
-        // rail is the owner keypair's rail and every input must match it.
-        let owner_rail = keypair.signing_pubkey().signature_type()?;
+        // rail is the owner key's rail and every input must match it.
+        let owner_rail = owner.signing_pubkey.signature_type()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
             if spend.utxo.owner.signature_type()? != owner_rail {
@@ -67,13 +92,19 @@ impl Merge {
             if spend.utxo.asset != asset {
                 return Err(ClientError::MergeInputAssetMismatch { index });
             }
+            if spend.nullifier_key.pubkey()? != owner.nullifier_pubkey {
+                return Err(ClientError::MergeInputNullifierMismatch { index });
+            }
+            if *spend.nullifier_key.secret() != owner.nullifier_secret {
+                return Err(ClientError::MergeInputNullifierSecretMismatch { index });
+            }
             total = total
                 .checked_add(spend.utxo.amount)
                 .ok_or(ClientError::SelectedBalanceOverflow)?;
         }
 
         let output = OutputUtxo {
-            owner_hash: keypair.owner_hash()?,
+            owner_hash: owner_hash(&owner.signing_pubkey, &owner.nullifier_pubkey)?,
             asset,
             amount: total,
             blinding: random_blinding(),
@@ -93,9 +124,10 @@ impl Merge {
             // Never expires by default; `merge_transact` rejects `current_ts >
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
-            signing_pubkey: keypair.signing_pubkey(),
-            nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
+            signing_pubkey: owner.signing_pubkey,
+            nullifier_pubkey: owner.nullifier_pubkey,
+            nullifier_secret: owner.nullifier_secret,
+            user_viewing_pk: owner.viewing_pubkey,
             tx_viewing_sk,
         })
     }
@@ -114,7 +146,8 @@ pub struct PreparedMerge {
     output: OutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    nullifier_key: NullifierKey,
+    nullifier_pubkey: [u8; 32],
+    nullifier_secret: [u8; BLINDING_LEN],
     user_viewing_pk: P256Pubkey,
     tx_viewing_sk: SecretKey,
 }
@@ -126,7 +159,8 @@ impl From<Merge> for PreparedMerge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            nullifier_key,
+            nullifier_pubkey,
+            nullifier_secret,
             user_viewing_pk,
             tx_viewing_sk,
         } = merge;
@@ -138,7 +172,8 @@ impl From<Merge> for PreparedMerge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            nullifier_key,
+            nullifier_pubkey,
+            nullifier_secret,
             user_viewing_pk,
             tx_viewing_sk,
         }
@@ -177,7 +212,8 @@ impl PreparedMerge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            nullifier_key,
+            nullifier_pubkey,
+            nullifier_secret,
             user_viewing_pk,
             tx_viewing_sk,
         } = self;
@@ -214,7 +250,8 @@ impl PreparedMerge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            nullifier_key,
+            nullifier_pubkey,
+            nullifier_secret,
             user_viewing_pk,
             tx_viewing_sk,
         })

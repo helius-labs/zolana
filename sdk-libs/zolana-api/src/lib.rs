@@ -516,10 +516,74 @@ fn parse_json_response<R>(status: reqwest::StatusCode, body: String) -> Result<R
 where
     R: DeserializeOwned,
 {
-    serde_json::from_str(&body).map_err(|error| ApiError::Response {
+    let normalized = normalize_legacy_output_slots(&body);
+    serde_json::from_str(&normalized).map_err(|error| ApiError::Response {
         status,
         body: format!("failed to decode JSON response: {error}; body: {body}"),
     })
+}
+
+/// Older Photon builds tagged merge outputs with a flat `hash` field on
+/// `output_slot` / `output_slots` entries instead of the nested
+/// `output_context` object the OpenAPI spec describes. Normalize those
+/// responses before deserializing so clients work across Photon versions.
+fn normalize_legacy_output_slots(body: &str) -> String {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return body.to_string();
+    };
+    normalize_output_slots_value(&mut value);
+    serde_json::to_string(&value).unwrap_or_else(|_| body.to_string())
+}
+
+fn normalize_output_slots_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(slots) = map.get_mut("output_slots") {
+                normalize_output_slot_array(slots);
+            }
+            if let Some(slot) = map.get_mut("output_slot") {
+                normalize_output_slot_entry(slot);
+            }
+            for nested in map.values_mut() {
+                normalize_output_slots_value(nested);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalize_output_slots_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_output_slot_array(value: &mut serde_json::Value) {
+    let Some(items) = value.as_array_mut() else {
+        return;
+    };
+    for item in items {
+        normalize_output_slot_entry(item);
+    }
+}
+
+fn normalize_output_slot_entry(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("output_context") {
+        return;
+    }
+    let Some(hash) = map.remove("hash") else {
+        return;
+    };
+    map.insert(
+        "output_context".to_string(),
+        serde_json::json!({
+            "hash": hash,
+            "tree": "11111111111111111111111111111111",
+            "leaf_index": 0,
+        }),
+    );
 }
 
 fn ensure_ring_provider() {
@@ -563,6 +627,46 @@ mod tests {
         assert_eq!(
             api.url("get_non_inclusion_proofs"),
             "https://rpc.example.test/get_non_inclusion_proofs?api-key=secret"
+        );
+    }
+
+    #[test]
+    fn normalizes_legacy_merge_output_slot_hash_field() {
+        let body = r#"{
+            "jsonrpc":"2.0",
+            "result":{
+                "context":{"slot":1},
+                "transactions":[{
+                    "slot":1,
+                    "tx_signature":"4xWvB5Gnrs8zw7L7qtZmNhRTDAHUTMnqyBxEN8RTcJKmEqe4qLzahwxcKX77SBa1xxgJFui2XoXwD3ZQWHd9LvmZ",
+                    "tx_viewing_pk":"AQID",
+                    "salt":null,
+                    "output_slots":[{
+                        "view_tag":"26Nm3WYUHNegstj4bSeppkjUhDfWCZs7KPPbpXBrfA4A",
+                        "hash":"2gq3tqZoG12Wtz2nb1ZH8vG8kv9JxsXgvKBLmh1TjAmu",
+                        "payload":"AQID"
+                    }],
+                    "nullifiers":["xSHvGNbuNkcc6hQgkxQH5twMYAcTRVDa3fMo67x7B5s"],
+                    "proofless":false
+                }],
+                "next_cursor":null
+            },
+            "id":"test-account"
+        }"#;
+        let normalized = normalize_legacy_output_slots(body);
+        let parsed: types::PostGetShieldedTransactionsByTagsResponse =
+            serde_json::from_str(&normalized).expect("legacy merge response");
+        let tx = parsed
+            .result
+            .expect("result")
+            .transactions
+            .into_iter()
+            .next()
+            .expect("transaction");
+        assert_eq!(tx.output_slots.len(), 1);
+        assert_eq!(
+            tx.output_slots[0].output_context.hash,
+            types::Hash("2gq3tqZoG12Wtz2nb1ZH8vG8kv9JxsXgvKBLmh1TjAmu".to_string())
         );
     }
 }

@@ -64,6 +64,12 @@ pub enum ClientError {
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("merge input {index} has a different nullifier public key than the merge owner")]
+    MergeInputNullifierMismatch { index: usize },
+
+    #[error("merge input {index} has a different nullifier secret than the merge owner")]
+    MergeInputNullifierSecretMismatch { index: usize },
+
     #[error("p256 signature error: {0}")]
     P256Signature(String),
 

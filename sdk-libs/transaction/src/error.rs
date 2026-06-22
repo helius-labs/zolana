@@ -22,6 +22,9 @@ pub enum TransactionError {
     #[error("unknown mint: {0}")]
     UnknownMint(Address),
 
+    #[error("unknown asset field: {0:?}")]
+    UnknownAssetField([u8; 32]),
+
     #[error("reserved asset id: {0}")]
     ReservedAssetId(u64),
 

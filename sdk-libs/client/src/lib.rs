@@ -2,6 +2,7 @@ pub mod actions;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
+pub mod merge_service;
 pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
@@ -19,9 +20,13 @@ pub use actions::{
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
+pub use merge_service::{
+    merge_owner_tag, LocalMergeService, MergeServiceConfig, MergeServiceReport,
+};
 pub use private_transaction::{
-    AssembledTransfer, CircuitType, InputCommitment, Merge, PreparedMerge, ProverInputs,
-    SignedTransaction, SpendProof, SpendUtxo, Transaction, WithdrawalTarget, MERGE_INPUTS,
+    AssembledTransfer, CircuitType, InputCommitment, Merge, MergeOwner, PreparedMerge,
+    ProverInputs, SignedTransaction, SpendProof, SpendUtxo, Transaction, WithdrawalTarget,
+    MERGE_INPUTS,
 };
 pub use prover::{
     canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments,

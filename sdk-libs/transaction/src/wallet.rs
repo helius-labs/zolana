@@ -6,7 +6,7 @@ use zolana_event::DepositView;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
 
-use zolana_keypair::constants::SALT_LEN;
+use zolana_keypair::constants::{P256_PUBKEY_LEN, SALT_LEN};
 
 use crate::asset::AssetRegistry;
 use crate::data::{Data, DataRecord};
@@ -15,12 +15,15 @@ use crate::error::TransactionError;
 use crate::split::SplitEncryptedUtxos;
 use crate::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
 use crate::utxo::{owner_utxo_hash, utxo_hash, Utxo};
-use crate::{SPLIT, TRANSFER};
+use crate::{MERGE, SPLIT, TRANSFER};
 
 #[cfg(feature = "parallel")]
 mod parallel;
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
+const MERGE_ENCRYPTED_UTXO_LEN: usize = 105;
+const MERGE_CIPHERTEXT_OFFSET: usize = 1 + P256_PUBKEY_LEN;
+const MERGE_PLAINTEXT_LEN: usize = 8 + 32 + 31;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncTransaction {
@@ -91,13 +94,20 @@ pub struct Wallet {
 enum ParsedBlob {
     Transfer(TransferEncryptedUtxos),
     Split(SplitEncryptedUtxos),
+    Merge(MergeEncryptedUtxo),
     Invalid,
+}
+
+struct MergeEncryptedUtxo {
+    tx_viewing_pk: P256Pubkey,
+    ciphertext: Vec<u8>,
 }
 
 struct TxIndex {
     parsed: Vec<ParsedBlob>,
     sender_sites: HashMap<ViewTag, Vec<usize>>,
     recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
+    merge_sites: Vec<usize>,
     nullifiers: HashSet<[u8; 32]>,
 }
 
@@ -106,6 +116,7 @@ impl TxIndex {
         let mut parsed = Vec::with_capacity(transactions.len());
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
+        let mut merge_sites = Vec::new();
         let mut nullifiers = HashSet::new();
         for (t, tx) in transactions.iter().enumerate() {
             nullifiers.extend(tx.nullifiers.iter().copied());
@@ -130,6 +141,12 @@ impl TxIndex {
                     }),
                     None => ParsedBlob::Invalid,
                 },
+                MERGE => tx
+                    .output_slots
+                    .first()
+                    .and_then(parse_merge_slot)
+                    .map(ParsedBlob::Merge)
+                    .unwrap_or(ParsedBlob::Invalid),
                 _ => ParsedBlob::Invalid,
             };
             match &blob {
@@ -150,6 +167,7 @@ impl TxIndex {
                         sender_sites.entry(tag).or_default().push(t);
                     }
                 }
+                ParsedBlob::Merge(_) => merge_sites.push(t),
             }
             parsed.push(blob);
         }
@@ -157,9 +175,22 @@ impl TxIndex {
             parsed,
             sender_sites,
             recipient_sites,
+            merge_sites,
             nullifiers,
         }
     }
+}
+
+fn parse_merge_slot(slot: &OutputCiphertext) -> Option<MergeEncryptedUtxo> {
+    if slot.data.len() != MERGE_ENCRYPTED_UTXO_LEN || slot.data.first().copied()? != MERGE {
+        return None;
+    }
+    let tx_viewing_pk =
+        P256Pubkey::from_bytes(slot.data.get(1..MERGE_CIPHERTEXT_OFFSET)?.try_into().ok()?).ok()?;
+    Some(MergeEncryptedUtxo {
+        tx_viewing_pk,
+        ciphertext: slot.data[MERGE_CIPHERTEXT_OFFSET..].to_vec(),
+    })
 }
 
 struct SyncCtx<'a> {
@@ -170,6 +201,7 @@ struct SyncCtx<'a> {
     stored_hashes: HashSet<[u8; 32]>,
     processed_senders: HashSet<usize>,
     processed_slots: HashSet<(usize, usize)>,
+    processed_merges: HashSet<usize>,
     report: SyncReport,
 }
 
@@ -324,6 +356,64 @@ impl SyncCtx<'_> {
             }
         }
     }
+
+    fn decrypt_merge_site(
+        &mut self,
+        index: &TxIndex,
+        key: &ViewingKey,
+        assets: &AssetRegistry,
+        t: usize,
+    ) -> Result<bool, TransactionError> {
+        if self.processed_merges.contains(&t) {
+            return Ok(true);
+        }
+        let Some(ParsedBlob::Merge(blob)) = index.parsed.get(t) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(false);
+        };
+        let plaintext = match key.decrypt_merge(&blob.tx_viewing_pk, &blob.ciphertext) {
+            Ok(plaintext) => plaintext,
+            Err(_) => {
+                self.report.undecryptable_candidates += 1;
+                return Ok(false);
+            }
+        };
+        if plaintext.len() != MERGE_PLAINTEXT_LEN {
+            self.report.undecryptable_candidates += 1;
+            return Ok(false);
+        }
+        let amount = u64::from_be_bytes(plaintext[0..8].try_into().map_err(|_| {
+            TransactionError::InvalidLength {
+                expected: 8,
+                actual: plaintext.len(),
+            }
+        })?);
+        let asset_field: [u8; 32] =
+            plaintext[8..40]
+                .try_into()
+                .map_err(|_| TransactionError::InvalidLength {
+                    expected: 32,
+                    actual: plaintext.len().saturating_sub(8),
+                })?;
+        let blinding: [u8; 31] =
+            plaintext[40..71]
+                .try_into()
+                .map_err(|_| TransactionError::InvalidLength {
+                    expected: 31,
+                    actual: plaintext.len().saturating_sub(40),
+                })?;
+        let utxo = Utxo {
+            owner: self.owner,
+            asset: assets.mint_for_asset_field(&asset_field)?,
+            amount,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        self.store(utxo)?;
+        self.processed_merges.insert(t);
+        Ok(true)
+    }
 }
 
 fn scan_stream(
@@ -388,6 +478,7 @@ impl Wallet {
             stored_hashes,
             processed_senders: HashSet::new(),
             processed_slots: HashSet::new(),
+            processed_merges: HashSet::new(),
             report,
         };
 
@@ -518,6 +609,10 @@ impl Wallet {
                     known_recipients.insert(r, m + 1);
                 }
             }
+
+            for &t in &index.merge_sites {
+                let _ = ctx.decrypt_merge_site(&index, key, assets, t)?;
+            }
         }
 
         let report = ctx.report;
@@ -571,4 +666,90 @@ fn proofless_data(event: &DepositView) -> Data {
         records.push(DataRecord::ProgramData(program_data));
     }
     Data::new(records)
+}
+
+#[cfg(test)]
+mod tests {
+    use p256::SecretKey;
+    use zolana_keypair::hash::hash_field;
+    use zolana_keypair::merge::encrypt_merge;
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+    use crate::SOL_MINT;
+
+    fn push_wallet_utxo(wallet: &mut Wallet, keypair: &ShieldedKeypair, amount: u64, salt: u8) {
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: SOL_MINT,
+            amount,
+            blinding: [salt; 31],
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+        let hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .expect("utxo hash");
+        let nullifier = utxo
+            .nullifier(&hash, &keypair.nullifier_key)
+            .expect("nullifier");
+        wallet.utxos.push(WalletUtxo {
+            utxo,
+            hash,
+            nullifier,
+            spent: false,
+        });
+    }
+
+    #[test]
+    fn sync_decrypts_merge_output_and_spends_inputs() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let mut wallet = Wallet::new(keypair.clone()).expect("wallet");
+        push_wallet_utxo(&mut wallet, &keypair, 3, 7);
+        push_wallet_utxo(&mut wallet, &keypair, 5, 8);
+        let nullifiers = wallet
+            .utxos
+            .iter()
+            .map(|entry| entry.nullifier)
+            .collect::<Vec<_>>();
+
+        let mut plaintext = Vec::new();
+        plaintext.extend_from_slice(&8u64.to_be_bytes());
+        plaintext.extend_from_slice(&hash_field(SOL_MINT.as_array()).expect("asset field"));
+        plaintext.extend_from_slice(&[9u8; 31]);
+        let tx_sk = SecretKey::from_slice(&[1u8; 32]).expect("tx viewing secret");
+        let (ciphertext, tx_viewing_pk) =
+            encrypt_merge(&tx_sk, &keypair.viewing_pubkey(), &plaintext).expect("encrypt merge");
+        let mut payload = Vec::new();
+        payload.push(MERGE);
+        payload.extend_from_slice(tx_viewing_pk.as_bytes());
+        payload.extend_from_slice(&ciphertext);
+
+        let transaction = SyncTransaction {
+            scheme: MERGE,
+            tx_viewing_pk,
+            salt: [0u8; SALT_LEN],
+            output_slots: vec![OutputCiphertext {
+                view_tag: [4u8; 32],
+                data: payload,
+            }],
+            nullifiers,
+        };
+
+        let report = wallet
+            .sync(&[transaction], &[], &AssetRegistry::default(), 1, 64)
+            .expect("sync");
+
+        assert_eq!(report.stored_utxos, 1);
+        assert_eq!(wallet.utxos.iter().filter(|entry| entry.spent).count(), 2);
+        let unspent = wallet
+            .utxos
+            .iter()
+            .filter(|entry| !entry.spent)
+            .collect::<Vec<_>>();
+        assert_eq!(unspent.len(), 1);
+        assert_eq!(unspent[0].utxo.amount, 8);
+        assert_eq!(unspent[0].utxo.asset, SOL_MINT);
+    }
 }

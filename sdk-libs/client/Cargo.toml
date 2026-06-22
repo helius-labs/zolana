@@ -46,6 +46,7 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }

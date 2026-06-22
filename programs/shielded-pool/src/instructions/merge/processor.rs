@@ -44,6 +44,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     }
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
+    let owner_tag = pk_fields.owner;
     let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
 
@@ -74,7 +75,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut derived)?
     };
 
-    let event = build_merge_event(&ix, tree_write);
+    let event = build_merge_event(&ix, tree_write, owner_tag);
     MergeProof::new(&ix, derived).verify()?;
     emit_general_event(EventKind::Merge, event)
 }

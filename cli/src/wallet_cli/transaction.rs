@@ -11,6 +11,7 @@ use zolana_transaction::Address;
 
 use super::{
     material::WalletMaterial,
+    registry::run_pre_action_merges,
     resolve::get_network,
     sync::{sync_context, wait_for_indexed_transaction},
     util::{ensure_positive, format_address, parse_address, parse_pubkey},
@@ -23,10 +24,15 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let mut ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let recipient_owner = parse_pubkey(&opts.to)?;
     let tree = network.tree;
+    let submitted_merges =
+        run_pre_action_merges(&rpc, &indexer, &mut ctx, tree, &network.prover_url)?;
+    if submitted_merges > 0 {
+        println!("ok merge-service pre_action submitted={submitted_merges}");
+    }
 
     let transfer = create_transfer(CreateTransfer {
         rpc: &rpc,

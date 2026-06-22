@@ -24,6 +24,7 @@ criterion = { workspace = true }
 cucumber = { workspace = true }
 tokio = { workspace = true }
 proptest = { workspace = true }
+p256 = { workspace = true }
 
 [[test]]
 name = "bdd"

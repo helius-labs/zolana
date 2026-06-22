@@ -119,7 +119,7 @@ pub(crate) enum WalletCommand {
 
     #[command(
         name = "merge-service",
-        about = "Enable or disable merge-service opt-in for this wallet"
+        about = "Configure or run local merge-service consolidation for this wallet"
     )]
     MergeService(MergeServiceOptions),
 
@@ -479,7 +479,32 @@ pub(crate) struct MergeServiceOptions {
         action = ArgAction::Set,
         help = "Whether this wallet opts into merge-service consolidation"
     )]
-    pub(crate) enabled: bool,
+    pub(crate) enabled: Option<bool>,
+
+    #[arg(long, help = "Run the local self-delegated merge service loop")]
+    pub(crate) run: bool,
+
+    #[arg(long, help = "Run one merge-service pass and exit")]
+    pub(crate) once: bool,
+
+    #[arg(
+        long,
+        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+    )]
+    pub(crate) tree: Option<String>,
+
+    #[arg(
+        long = "prover-url",
+        help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
+    )]
+    pub(crate) prover_url: Option<String>,
+
+    #[arg(
+        long = "interval-secs",
+        default_value_t = 30,
+        help = "Polling interval for --run"
+    )]
+    pub(crate) interval_secs: u64,
 }
 
 impl TestValidatorOptions {
@@ -830,7 +855,29 @@ mod tests {
             opts.sync.indexer_url.as_deref(),
             Some("http://127.0.0.1:8785")
         );
-        assert!(opts.enabled);
+        assert_eq!(opts.enabled, Some(true));
+        assert!(!opts.run);
+        assert!(!opts.once);
+
+        let WalletCommand::MergeService(run) = parse_wallet(&[
+            "merge-service",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+            "--prover-url",
+            "http://127.0.0.1:3002",
+            "--once",
+            "--interval-secs",
+            "5",
+        ]) else {
+            panic!("expected wallet merge-service run command");
+        };
+        assert_eq!(run.enabled, None);
+        assert!(run.once);
+        assert!(!run.run);
+        assert_eq!(run.interval_secs, 5);
+        assert_eq!(run.prover_url.as_deref(), Some("http://127.0.0.1:3002"));
     }
 
     #[test]

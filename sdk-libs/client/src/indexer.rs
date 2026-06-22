@@ -562,6 +562,73 @@ mod tests {
     }
 
     #[test]
+    fn get_shielded_transactions_by_tags_maps_merge_owner_tag_and_payload() {
+        let owner_tag = bytes32(61);
+        let output_hash = bytes32(62);
+        let output_tree = Address::new_from_array(bytes32(63));
+        let nullifier = bytes32(64);
+        let signature = signature(65);
+        let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(66);
+        let mut merge_payload = vec![0u8; 105];
+        merge_payload[0] = zolana_transaction::MERGE;
+        merge_payload[1..34].copy_from_slice(&tx_viewing_pk_bytes);
+        merge_payload[34..105].copy_from_slice(&[67u8; 71]);
+        let response = rpc_result(json!({
+            "context": { "slot": 68 },
+            "transactions": [{
+                "slot": 67,
+                "tx_signature": signature.to_string(),
+                "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
+                "salt": null,
+                "output_slots": [{
+                    "view_tag": encode_hash_string(owner_tag),
+                    "output_context": {
+                        "hash": encode_hash_string(output_hash),
+                        "tree": encode_pubkey_string(output_tree),
+                        "leaf_index": 69,
+                    },
+                    "payload": base64::encode(&merge_payload),
+                }],
+                "nullifiers": [encode_hash_string(nullifier)],
+                "proofless": false,
+            }],
+            "next_cursor": null,
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_shielded_transactions_by_tags(vec![owner_tag], None, Some(1))
+            .expect("merge transaction lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_shielded_transactions_by_tags");
+        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_tags");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "tags": [encode_hash_string(owner_tag)],
+                "limit": 1,
+            })
+        );
+        assert_eq!(got.context.slot, 68);
+        assert_eq!(got.next_cursor, None);
+        assert_eq!(got.transactions.len(), 1);
+        let tx = &got.transactions[0];
+        assert_eq!(tx.slot, 67);
+        assert_eq!(tx.tx_signature, signature);
+        assert_eq!(tx.tx_viewing_pk, Some(tx_viewing_pk));
+        assert!(!tx.proofless);
+        assert_eq!(tx.nullifiers, vec![nullifier]);
+        assert_eq!(tx.output_slots.len(), 1);
+        assert_eq!(tx.output_slots[0].view_tag, owner_tag);
+        assert_eq!(tx.output_slots[0].output_context.hash, output_hash);
+        assert_eq!(tx.output_slots[0].output_context.tree, output_tree);
+        assert_eq!(tx.output_slots[0].output_context.leaf_index, 69);
+        assert_eq!(tx.output_slots[0].payload, merge_payload);
+    }
+
+    #[test]
     fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
         let tree = Address::new_from_array(bytes32(31));
         let leaf_a = bytes32(32);

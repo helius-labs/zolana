@@ -5,12 +5,6 @@
 //! registers on the user-registry and opts into the merge service; the configured
 //! merge authority then runs the consolidation on the owner's behalf, proving on
 //! the 8-in/1-out merge circuit.
-//!
-//! NOTE: the consolidated output carries no transfer-style view tag, so it is not
-//! discovered by `Wallet::sync` (the merge scheme is not wired into sync yet).
-//! `assert_merged` therefore verifies the output by decrypting the published
-//! ciphertext and reconstructing the UTXO, instead of the standard
-//! "syncs / UTXOs match" path. Swap it for that path once merge sync lands.
 
 use anyhow::{anyhow, Result};
 use cucumber::{given, then, when};
@@ -18,17 +12,18 @@ use p256::SecretKey;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     pda,
 };
-use zolana_keypair::{random_blinding, SignatureType};
+use zolana_keypair::{random_blinding, P256Pubkey, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
-    wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, OutputUtxo, Utxo, MERGE, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merge_service, RegisterData},
     user_record_pda,
@@ -45,6 +40,8 @@ use crate::{
 /// and the ciphertext that lets the owner reconstruct it.
 pub(crate) struct MergeRecord {
     pub(crate) actor: String,
+    pub(crate) tx_signature: Signature,
+    pub(crate) owner_tag: [u8; 32],
     pub(crate) asset: Address,
     pub(crate) total: u64,
     pub(crate) output_hash: [u8; 32],
@@ -208,7 +205,8 @@ impl LifecycleWorld {
             output: output.clone(),
             expiry_unix_ts,
             signing_pubkey: owner,
-            nullifier_key: keypair.nullifier_key.clone(),
+            nullifier_pubkey: keypair.nullifier_key.pubkey()?,
+            nullifier_secret: *keypair.nullifier_key.secret(),
             user_viewing_pk: keypair.viewing_pubkey(),
             tx_viewing_sk,
         }
@@ -236,7 +234,7 @@ impl LifecycleWorld {
         );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        send_transaction(
+        let signature = send_transaction(
             &mut self.rpc,
             &[compute_budget, sync_ix],
             &merge_key.pubkey(),
@@ -247,6 +245,8 @@ impl LifecycleWorld {
         // hash and the published ciphertext the owner decrypts.
         self.last_merge = Some(MergeRecord {
             actor: name.to_string(),
+            tx_signature: signature,
+            owner_tag: owner_solana.pubkey().to_bytes(),
             asset,
             total,
             output_hash: result.output_hash,
@@ -259,16 +259,9 @@ impl LifecycleWorld {
         Ok(())
     }
 
-    /// Functional assert for the consolidated output. The merge output carries no
-    /// transfer-style view tag, so it is not discovered by `Wallet::sync`; instead
-    /// the owner decrypts the published ciphertext with its viewing key, reconstructs
-    /// the merged UTXO, and confirms the reconstruction hashes to the output hash the
-    /// tree appended. Also confirms the indexer serves an inclusion proof for that
-    /// output.
-    ///
-    /// NOTE: this does not go through `Wallet::sync`/`assert_utxos` because the merge
-    /// scheme is not yet wired into `Wallet::sync` (D-phase, in flight). When merge
-    /// sync lands, replace this with the standard "syncs / UTXOs match" assert.
+    /// Functional assert for the consolidated output. Fetches the merge transaction
+    /// by registry owner tag, decrypts the indexed ciphertext, and reconstructs the
+    /// merged UTXO. Inclusion is confirmed separately via the merkle proof path.
     pub(crate) fn assert_merged(&self, name: &str) -> Result<()> {
         let record = self
             .last_merge
@@ -279,8 +272,49 @@ impl LifecycleWorld {
         }
         let keypair = self.actor(name).keypair.clone();
 
-        // Owner reconstructs the merged UTXO from the published ciphertext.
-        let plaintext = keypair.decrypt_merge(&record.tx_viewing_pk, &record.ciphertext)?;
+        // Owner reconstructs the merged UTXO from the Photon-indexed merge event.
+        // `merge_transact` tags its output with the registry owner pubkey, so this
+        // proves the indexer returns the ciphertext through the production query path.
+        let indexed =
+            wait_for_indexed_transaction(&self.indexer, record.owner_tag, record.tx_signature);
+        let indexed_output = indexed
+            .output_slots
+            .first()
+            .ok_or_else(|| anyhow!("indexed merge transaction has no outputs"))?;
+        assert_eq!(
+            indexed_output.view_tag, record.owner_tag,
+            "indexed merge owner tag"
+        );
+        assert_eq!(
+            indexed_output.output_context.hash, record.output_hash,
+            "indexed merge output hash"
+        );
+        // Older Photon builds omit tree/leaf_index on merge output slots; inclusion
+        // is verified below via `wait_for_merkle_proof`.
+        if indexed_output.output_context.tree != solana_address::Address::default() {
+            assert_eq!(
+                indexed_output.output_context.tree, self.tree_address,
+                "indexed merge output tree"
+            );
+        }
+
+        let payload = &indexed_output.payload;
+        if payload.len() != 105 || payload.first() != Some(&MERGE) {
+            return Err(anyhow!(
+                "invalid indexed merge payload: len={} prefix={:?}",
+                payload.len(),
+                payload.first()
+            ));
+        }
+        let tx_viewing_pk = P256Pubkey::from_bytes(payload[1..34].try_into()?)?;
+        let ciphertext = payload[34..105].to_vec();
+        assert_eq!(
+            tx_viewing_pk, record.tx_viewing_pk,
+            "indexed merge tx_viewing_pk"
+        );
+        assert_eq!(ciphertext, record.ciphertext, "indexed merge ciphertext");
+
+        let plaintext = keypair.decrypt_merge(&tx_viewing_pk, &ciphertext)?;
         let amount = u64::from_be_bytes(
             plaintext
                 .get(0..8)

@@ -4,6 +4,7 @@ use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, ZolanaIndexe
 use zolana_transaction::Address;
 
 use super::{
+    registry::run_pre_action_merges,
     resolve::get_network,
     sync::sync_context,
     transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
@@ -17,10 +18,15 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
+    let mut ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
     let recipient = parse_pubkey(&opts.to)?;
+    let submitted_merges =
+        run_pre_action_merges(&rpc, &indexer, &mut ctx, tree, &network.prover_url)?;
+    if submitted_merges > 0 {
+        println!("ok merge-service pre_action submitted={submitted_merges}");
+    }
 
     let withdrawal = create_withdrawal(CreateWithdrawal {
         wallet: &ctx.wallet,

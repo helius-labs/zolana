@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
+use zolana_keypair::hash::hash_field;
 
 use crate::error::TransactionError;
 
@@ -47,6 +48,25 @@ impl AssetRegistry {
             .iter()
             .find_map(|(id, m)| (m == mint).then_some(*id))
             .ok_or(TransactionError::UnknownMint(*mint))
+    }
+
+    pub fn mint_for_asset_field(
+        &self,
+        asset_field: &[u8; 32],
+    ) -> Result<Address, TransactionError> {
+        if &hash_field(SOL_MINT.as_array()).map_err(|e| TransactionError::Hash(e.to_string()))?
+            == asset_field
+        {
+            return Ok(SOL_MINT);
+        }
+        for mint in self.0.values() {
+            if &hash_field(mint.as_array()).map_err(|e| TransactionError::Hash(e.to_string()))?
+                == asset_field
+            {
+                return Ok(*mint);
+            }
+        }
+        Err(TransactionError::UnknownAssetField(*asset_field))
     }
 }
 

@@ -9,8 +9,9 @@ use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
 use zolana_keypair::{
+    constants::BLINDING_LEN,
     merge::{encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs},
-    NullifierKey, P256Pubkey, PublicKey, SignatureType,
+    P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{transaction::private_tx_hash, OutputUtxo, MERGE};
 
@@ -39,7 +40,8 @@ pub struct MergeProver {
     /// (recomputes `user_owner_hash`) and the nullifier key (recomputes the shared
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
-    pub nullifier_key: NullifierKey,
+    pub nullifier_pubkey: [u8; 32],
+    pub nullifier_secret: [u8; BLINDING_LEN],
     /// Owner viewing key (encryption recipient) and the ephemeral scalar. The
     /// scalar must be < BN254 modulus so it is a valid circuit witness.
     pub user_viewing_pk: P256Pubkey,
@@ -169,8 +171,7 @@ impl MergeProver {
             let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
             (x, y, BigUint::ZERO)
         };
-        let user_nullifier_pk = self.nullifier_key.pubkey()?;
-        let user_nullifier_secret = right_align(self.nullifier_key.secret());
+        let user_nullifier_secret = right_align(&self.nullifier_secret);
         let sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
         let user_viewing_pubkey = uncompressed(&self.user_viewing_pk)?
             .iter()
@@ -189,7 +190,7 @@ impl MergeProver {
             p256_pub_x: be(&pub_x),
             p256_pub_y: be(&pub_y),
             solana_owner_pk_hash,
-            user_nullifier_pk: be(&user_nullifier_pk),
+            user_nullifier_pk: be(&self.nullifier_pubkey),
             user_nullifier_secret: be(&user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&sk_bytes),
             user_viewing_pubkey,

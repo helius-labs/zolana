@@ -2,7 +2,11 @@ use std::{thread::sleep, time::SystemTime};
 
 use anyhow::{bail, Result};
 use solana_signature::Signature;
-use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
+use solana_signer::Signer;
+use zolana_client::{
+    merge_owner_tag, sync_wallet_with_config as client_sync_wallet_with_config, Rpc,
+    SyncWalletConfig, ZolanaIndexer,
+};
 use zolana_transaction::{AssetRegistry, Wallet};
 
 use super::{
@@ -41,7 +45,9 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let mut wallet = Wallet::new(clone_keypair(&material.keypair)?)?;
-    let report = client_sync_wallet(&mut wallet, &indexer, &assets)?;
+    let mut sync_config = SyncWalletConfig::default();
+    sync_config.merge_owner_tag = Some(merge_owner_tag(material.funding.pubkey()));
+    let report = client_sync_wallet_with_config(&mut wallet, &indexer, &assets, sync_config)?;
     Ok(SyncContext {
         material,
         wallet,
