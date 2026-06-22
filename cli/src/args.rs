@@ -151,7 +151,7 @@ pub(crate) struct TestValidatorOptions {
     #[arg(long, help = "Do not start the prover server")]
     pub(crate) skip_prover: bool,
 
-    #[arg(long, help = "Start a local Photon indexer in Zolana mode")]
+    #[arg(long, help = "Start a local Photon indexer")]
     pub(crate) with_photon: bool,
 
     #[arg(long, help = "Stop the local validator environment")]

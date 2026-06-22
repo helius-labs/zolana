@@ -86,6 +86,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
+    let unknown_transactions =
+        indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10))?;
+    assert!(
+        unknown_transactions.transactions.is_empty(),
+        "unknown tag should not return transactions"
+    );
 
     let payer = Keypair::new();
     let authority = Keypair::new();
@@ -176,14 +182,44 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
-    assert_eq!(indexed_deposit.view_tag, shield_data.view_tag);
+    assert_eq!(indexed_deposit.output_slot.view_tag, shield_data.view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
+    assert_eq!(
+        indexed_deposit.output_slot.output_context.hash,
+        payer_utxo_hash
+    );
+    assert_eq!(
+        indexed_deposit.output_slot.output_context.tree,
+        tree_address
+    );
     assert!(indexed_deposit.tx_viewing_pk.is_none());
+    let unknown_utxos = indexer.get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10))?;
+    assert!(
+        unknown_utxos.matches.is_empty(),
+        "unknown tag should not return encrypted UTXOs"
+    );
 
     let payer_nullifier = payer_nullifier_key.nullifier(&payer_utxo_hash, &payer_blinding)?;
     let payer_state_proof = wait_for_merkle_proof(&indexer, tree_address, payer_utxo_hash)?;
+    assert_eq!(
+        indexed_deposit.output_slot.output_context.leaf_index,
+        payer_state_proof.leaf_index
+    );
     let payer_nullifier_proof =
         wait_for_non_inclusion_proof(&indexer, tree_address, payer_nullifier)?;
+    let extra_nullifier_a = fe(90);
+    let extra_nullifier_b = fe(91);
+    let batched_non_inclusion = wait_for("batched indexed non-inclusion proofs", || {
+        let response = indexer
+            .get_non_inclusion_proofs(tree_address, vec![extra_nullifier_a, extra_nullifier_b])?;
+        if response.proofs.len() == 2 {
+            Ok(Some(response.proofs))
+        } else {
+            Ok(None)
+        }
+    })?;
+    assert_eq!(batched_non_inclusion[0].leaf, extra_nullifier_a);
+    assert_eq!(batched_non_inclusion[1].leaf, extra_nullifier_b);
     let (shield_utxo_root, nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 1)?;
     assert_eq!(payer_state_proof.root, shield_utxo_root, "shield root gate");
     assert_eq!(
@@ -300,6 +336,14 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     assert_eq!(indexed_transfer.nullifiers.len(), 2);
     assert_eq!(indexed_transfer.output_slots.len(), 3);
     assert!(!indexed_transfer.proofless);
+    assert_eq!(
+        indexed_transfer.output_slots[0].output_context.hash,
+        change_hash
+    );
+    assert_eq!(
+        indexed_transfer.output_slots[1].output_context.hash,
+        recipient_hash
+    );
 
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
@@ -319,6 +363,17 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let recipient_state_proof = wait_for_merkle_proof(&indexer, tree_address, recipient_hash)?;
     let recipient_nullifier_proof =
         wait_for_non_inclusion_proof(&indexer, tree_address, recipient_nullifier)?;
+    let batched_state_proofs = wait_for("batched indexed merkle proofs", || {
+        let response =
+            indexer.get_merkle_proofs(tree_address, vec![payer_utxo_hash, recipient_hash])?;
+        if response.proofs.len() == 2 {
+            Ok(Some(response.proofs))
+        } else {
+            Ok(None)
+        }
+    })?;
+    assert_eq!(batched_state_proofs[0].leaf, payer_utxo_hash);
+    assert_eq!(batched_state_proofs[1].leaf, recipient_hash);
     let (transfer_utxo_root, transfer_nullifier_root) =
         on_chain_roots(&rpc, &tree_pubkey, recipient_state_proof.root_index)?;
     assert_eq!(
@@ -435,6 +490,24 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     print_signature("unshield", &withdraw_sig);
     let indexed_withdraw = wait_for_indexed_transaction(&indexer, [0u8; 32], withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
+    let first_page = wait_for("paginated indexed transactions", || {
+        let response =
+            indexer.get_shielded_transactions_by_tags(vec![[2u8; 32], [0u8; 32]], None, Some(1))?;
+        if response.transactions.len() == 1 && response.next_cursor.is_some() {
+            Ok(Some(response))
+        } else {
+            Ok(None)
+        }
+    })?;
+    let second_page = indexer.get_shielded_transactions_by_tags(
+        vec![[2u8; 32], [0u8; 32]],
+        first_page.next_cursor,
+        Some(1),
+    )?;
+    assert!(
+        !second_page.transactions.is_empty(),
+        "paginated transaction query should return a second page"
+    );
 
     let public_recipient_after = account_lamports(&rpc, &public_recipient)?;
     let vault_after = account_lamports(&rpc, &vault)?;

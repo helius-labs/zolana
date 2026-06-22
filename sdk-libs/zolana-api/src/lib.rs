@@ -34,6 +34,7 @@ pub type NonInclusionProof = types::NonInclusionProof;
 pub type SerializablePubkey = types::SerializablePubkey;
 pub type SerializableSignature = types::SerializableSignature;
 pub type ShieldedTransaction = types::ShieldedTransaction;
+pub type ZolanaOutputContext = types::ZolanaOutputContext;
 pub type ZolanaOutputSlot = types::ZolanaOutputSlot;
 
 #[derive(Clone, Debug)]

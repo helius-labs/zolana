@@ -43,13 +43,12 @@ pub struct MerkleContext {
 pub struct EncryptedUtxoMatch {
     pub slot: u64,
     pub tx_signature: Signature,
-    pub view_tag: [u8; 32],
+    pub output_slot: OutputSlot,
     /// `None` when the payload is plaintext (nothing to decrypt).
     pub tx_viewing_pk: Option<P256Pubkey>,
     /// Transaction-level AES salt shared by every output ciphertext; `None` for
     /// plaintext/proofless payloads.
     pub salt: Option<[u8; 16]>,
-    pub ciphertext: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,10 +58,19 @@ pub struct GetEncryptedUtxosByTagsResponse {
     pub next_cursor: Option<Vec<u8>>,
 }
 
+/// Identifies an output commitment and where it lives in the UTXO tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputContext {
+    pub hash: [u8; 32],
+    pub tree: Address,
+    pub leaf_index: u64,
+}
+
 /// One output of a shielded transaction: its view tag and encrypted/plaintext payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputSlot {
     pub view_tag: [u8; 32],
+    pub output_context: OutputContext,
     pub payload: Vec<u8>,
 }
 
