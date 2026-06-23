@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use cucumber::given;
 use solana_address::Address;
 use solana_signer::Signer;
+use zolana_client::Rpc;
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
