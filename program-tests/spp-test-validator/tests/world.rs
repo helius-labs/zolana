@@ -18,6 +18,10 @@ use zolana_interface::{
     instruction::CreateProtocolConfig, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::create_tree_instructions;
+use zolana_test_utils::smart_account::{
+    create_smart_account_ix, execute_sync_ix, settings_pda, smart_account_pda, treasury_pda,
+    Permissions, SmartAccountSigner,
+};
 use zolana_transaction::{AssetRegistry, SyncTransaction};
 
 use crate::{
@@ -68,6 +72,9 @@ pub struct LifecycleWorld {
     /// The most recent merge, kept so the consolidated-output assert can reconstruct
     /// and verify the merged UTXO.
     pub(crate) last_merge: Option<crate::steps::merge::MergeRecord>,
+    pub(crate) merge_settings: Pubkey,
+    pub(crate) merge_vault: Pubkey,
+    pub(crate) merge_key: Keypair,
 }
 
 impl std::fmt::Debug for LifecycleWorld {
@@ -95,26 +102,101 @@ impl LifecycleWorld {
 
         let payer = Keypair::new();
         let authority = Keypair::new();
+        let forester_key = Keypair::new();
+        let merge_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
         rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
+        rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
+        rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
 
-        let authority_bytes = authority.pubkey().to_bytes();
-        let create_config = CreateProtocolConfig {
-            authority: authority.pubkey(),
-            protocol_authority: authority_bytes.into(),
-            tree_creation_authority: authority_bytes.into(),
-            tree_creation_is_permissionless: false,
-            forester_authority: authority_bytes.into(),
-            zone_creation_authority: authority_bytes.into(),
-            zone_creation_is_permissionless: false,
-            merge_authority: authority_bytes.into(),
-        }
-        .instruction();
+        // Seeds are deterministic: the injected ProgramConfig starts with
+        // smart_account_index = 0; the program uses index + 1 as each seed.
+        let (protocol_settings, _) = settings_pda(1);
+        let (protocol_vault, _) = smart_account_pda(&protocol_settings, 0);
+        let (forester_settings, _) = settings_pda(2);
+        let (forester_vault, _) = smart_account_pda(&forester_settings, 0);
+        let (merge_settings, _) = settings_pda(3);
+        let (merge_vault, _) = smart_account_pda(&merge_settings, 0);
+
+        let signer_all = |key: Pubkey| {
+            vec![SmartAccountSigner {
+                key,
+                permissions: Permissions::all(),
+            }]
+        };
+
+        let treasury = treasury_pda();
+
         send_transaction(
             &mut rpc,
-            &[create_config],
-            &authority.pubkey(),
-            &[&authority],
+            &[create_smart_account_ix(
+                &payer.pubkey(),
+                &treasury,
+                1,
+                None,
+                &signer_all(authority.pubkey()),
+                1,
+                0,
+            )],
+            &payer.pubkey(),
+            &[&payer],
+        )?;
+        send_transaction(
+            &mut rpc,
+            &[create_smart_account_ix(
+                &payer.pubkey(),
+                &treasury,
+                2,
+                Some(protocol_vault),
+                &signer_all(forester_key.pubkey()),
+                1,
+                0,
+            )],
+            &payer.pubkey(),
+            &[&payer],
+        )?;
+        send_transaction(
+            &mut rpc,
+            &[create_smart_account_ix(
+                &payer.pubkey(),
+                &treasury,
+                3,
+                Some(protocol_vault),
+                &signer_all(merge_key.pubkey()),
+                1,
+                0,
+            )],
+            &payer.pubkey(),
+            &[&payer],
+        )?;
+
+        // The shielded pool program requires the fee payer == protocol_authority,
+        // so we CPI via execute_sync_ix with the protocol vault as the inner fee payer.
+        rpc.airdrop(&protocol_vault, 5_000_000_000)?;
+
+        let authority_bytes = authority.pubkey().to_bytes();
+        let create_config_ix = CreateProtocolConfig {
+            authority: protocol_vault,
+            protocol_authority: protocol_vault.to_bytes().into(),
+            tree_creation_authority: authority_bytes.into(),
+            tree_creation_is_permissionless: false,
+            forester_authority: forester_vault.to_bytes().into(),
+            zone_creation_authority: authority_bytes.into(),
+            zone_creation_is_permissionless: false,
+            merge_authority: merge_vault.to_bytes().into(),
+        }
+        .instruction();
+        let create_config_sync = execute_sync_ix(
+            &protocol_settings,
+            0,
+            &[authority.pubkey()],
+            &[create_config_ix],
+        );
+        send_transaction(
+            &mut rpc,
+            &[create_config_sync],
+            &payer.pubkey(),
+            &[&payer, &authority],
         )?;
 
         let tree = Keypair::new();
@@ -148,6 +230,9 @@ impl LifecycleWorld {
             last_rail: None,
             last_transact: None,
             last_merge: None,
+            merge_settings,
+            merge_vault,
+            merge_key,
         })
     }
 

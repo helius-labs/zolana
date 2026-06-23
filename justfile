@@ -306,6 +306,14 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Download the Squads smart account program binary from mainnet into `target/deploy`.
+# Run once before `test-spp-validator*` recipes; requires `solana` CLI and network access.
+fetch-smart-account:
+    mkdir -p target/deploy
+    solana program dump SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG \
+        target/deploy/squads_smart_account_program.so \
+        --url https://api.mainnet-beta.solana.com
+
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
