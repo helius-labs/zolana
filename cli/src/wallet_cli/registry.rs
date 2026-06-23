@@ -3,6 +3,19 @@ use std::{
     process::{Command, Stdio},
 };
 
+use super::{
+    material::{load_sender_from_resolved_sync, WalletMaterial},
+    resolve::{get_network, resolve_sync},
+    sync::{sync_context, SyncContext},
+};
+use crate::args::{
+    MergeServiceCommand, MergeServiceDisableOptions, MergeServiceNetworkOptions,
+    MergeServiceRunLoopOptions, MergeServiceStartOptions, MergeServiceStopOptions,
+    NetworkWalletOptions,
+};
+use crate::merge_service_pid::{
+    merge_service_running, pid_path, stop_merge_service, MergeServicePidGuard,
+};
 use anyhow::{bail, Context, Result};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -19,19 +32,6 @@ use zolana_user_registry_interface::{
         RegisterData, SetSyncDelegateData, UpdateKeysData,
     },
     user_record_pda, UserRecord,
-};
-use super::{
-    material::{load_sender_from_resolved_sync, WalletMaterial},
-    resolve::{get_network, resolve_sync},
-    sync::{sync_context, SyncContext},
-};
-use crate::args::{
-    MergeServiceCommand, MergeServiceDisableOptions, MergeServiceNetworkOptions,
-    MergeServiceRunLoopOptions, MergeServiceStartOptions, MergeServiceStopOptions,
-    NetworkWalletOptions,
-};
-use crate::merge_service_pid::{
-    merge_service_running, pid_path, stop_merge_service, MergeServicePidGuard,
 };
 
 pub(super) fn register_wallet_on_chain(
