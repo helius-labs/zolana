@@ -12,15 +12,22 @@ use crate::{
     rent::{check_account_balance_is_rent_exempt, get_min_rent_balance},
 };
 
-#[derive(Debug)]
 #[repr(C)]
-pub struct RolloverBatchStateTreeParams<'a> {
-    pub old_merkle_tree: &'a mut BatchedMerkleTreeAccount<'a>,
+pub struct RolloverBatchStateTreeParams<
+    'a,
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+    const QBATCH: usize,
+    const QZKP: usize,
+> {
+    pub old_merkle_tree: &'a mut BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>,
     pub old_mt_pubkey: Pubkey,
     pub new_mt_data: &'a mut [u8],
     pub new_mt_rent: u64,
     pub new_mt_pubkey: Pubkey,
-    pub old_output_queue: &'a mut BatchedQueueAccount<'a>,
+    pub old_output_queue: &'a mut BatchedQueueAccount<'a, QBATCH, QZKP>,
     pub old_queue_pubkey: Pubkey,
     pub new_output_queue_data: &'a mut [u8],
     pub new_output_queue_rent: u64,
@@ -65,11 +72,19 @@ pub fn rollover_batched_state_tree_from_account_info(
 
     // 1. Check Merkle tree account discriminator, tree type, and program ownership.
     let old_merkle_tree_account =
-        &mut BatchedMerkleTreeAccount::state_from_account_info(program_id, old_state_merkle_tree)?;
+        &mut BatchedMerkleTreeAccount::<
+            { crate::constants::STATE_TREE_DEFAULT_RH },
+            { crate::constants::STATE_TREE_DEFAULT_NUM_ITERS },
+            { crate::constants::STATE_TREE_DEFAULT_BLOOM },
+            { crate::constants::STATE_TREE_DEFAULT_ZKP },
+        >::state_from_account_info(program_id, old_state_merkle_tree)?;
 
     // 2. Check Queue account discriminator, and program ownership.
     let old_output_queue_account =
-        &mut BatchedQueueAccount::output_from_account_info(program_id, old_output_queue)?;
+        &mut BatchedQueueAccount::<
+            { crate::constants::STATE_TREE_DEFAULT_QBATCH },
+            { crate::constants::STATE_TREE_DEFAULT_ZKP },
+        >::output_from_account_info(program_id, old_output_queue)?;
 
     // 3. Check that new Merkle tree account is exactly rent exempt.
     let merkle_tree_rent = check_account_balance_is_rent_exempt(new_state_merkle_tree, old_mt_len)?;
@@ -134,8 +149,15 @@ pub fn rollover_batched_state_tree_from_account_info(
 ///    3.4. Mark as rolled over in this slot.
 /// 4. Initialize new Merkle tree and output queue
 ///    with the same parameters as old accounts.
-pub fn rollover_batched_state_tree(
-    params: RolloverBatchStateTreeParams,
+pub fn rollover_batched_state_tree<
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+    const QBATCH: usize,
+    const QZKP: usize,
+>(
+    params: RolloverBatchStateTreeParams<RH, NUM_ITERS, BLOOM, ZKP, QBATCH, QZKP>,
 ) -> Result<(), BatchedMerkleTreeError> {
     // 1. Check that old merkle tree is ready for rollover.
     batched_tree_is_ready_for_rollover(params.old_merkle_tree, &params.network_fee)?;
@@ -153,7 +175,7 @@ pub fn rollover_batched_state_tree(
     let owner = params.old_merkle_tree.metadata.access_metadata.owner;
 
     // 4. Initialize the new merkle tree and output queue.
-    init_batched_state_merkle_tree_accounts(
+    init_batched_state_merkle_tree_accounts::<RH, NUM_ITERS, BLOOM, ZKP, QBATCH, QZKP>(
         owner,
         init_params,
         params.new_output_queue_data,
@@ -167,9 +189,20 @@ pub fn rollover_batched_state_tree(
     Ok(())
 }
 
-impl From<&RolloverBatchStateTreeParams<'_>> for InitStateTreeAccountsInstructionData {
+impl<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+        const QBATCH: usize,
+        const QZKP: usize,
+    > From<&RolloverBatchStateTreeParams<'_, RH, NUM_ITERS, BLOOM, ZKP, QBATCH, QZKP>>
+    for InitStateTreeAccountsInstructionData
+{
     #[inline(always)]
-    fn from(params: &RolloverBatchStateTreeParams<'_>) -> Self {
+    fn from(
+        params: &RolloverBatchStateTreeParams<'_, RH, NUM_ITERS, BLOOM, ZKP, QBATCH, QZKP>,
+    ) -> Self {
         InitStateTreeAccountsInstructionData {
             index: params.old_merkle_tree.metadata.rollover_metadata.index,
             program_owner: if_equals_none(
@@ -187,9 +220,6 @@ impl From<&RolloverBatchStateTreeParams<'_>> for InitStateTreeAccountsInstructio
             height: params.old_merkle_tree.height,
             input_queue_batch_size: params.old_merkle_tree.queue_batches.batch_size,
             input_queue_zkp_batch_size: params.old_merkle_tree.queue_batches.zkp_batch_size,
-            bloom_filter_capacity: params.old_merkle_tree.queue_batches.bloom_filter_capacity,
-            // All num iters are the same.
-            bloom_filter_num_iters: params.old_merkle_tree.queue_batches.batches[0].num_iters,
             root_history_capacity: params.old_merkle_tree.root_history_capacity,
             network_fee: params.network_fee,
             rollover_threshold: if_equals_none(
@@ -219,8 +249,13 @@ impl From<&RolloverBatchStateTreeParams<'_>> for InitStateTreeAccountsInstructio
 /// 1. rollover threshold is configured
 /// 2. next index is greater than rollover threshold
 /// 3. the network fee is not set if the current fee is zero
-pub fn batched_tree_is_ready_for_rollover(
-    metadata: &BatchedMerkleTreeAccount<'_>,
+pub fn batched_tree_is_ready_for_rollover<
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+>(
+    metadata: &BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>,
     network_fee: &Option<u64>,
 ) -> Result<(), BatchedMerkleTreeError> {
     if metadata.metadata.rollover_metadata.rollover_threshold == u64::MAX {
@@ -269,7 +304,16 @@ pub mod test_utils {
         pub slot: u64,
     }
 
-    pub fn assert_state_mt_roll_over(params: StateMtRollOverAssertParams) {
+    pub fn assert_state_mt_roll_over<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+        const QBATCH: usize,
+        const QZKP: usize,
+    >(
+        params: StateMtRollOverAssertParams,
+    ) {
         let StateMtRollOverAssertParams {
             mt_account_data,
             ref_mt_account,
@@ -296,10 +340,14 @@ pub mod test_utils {
             .rollover_metadata
             .rolledover_slot = slot;
 
-        assert_queue_zero_copy_inited(&mut new_queue_account_data, ref_queue_account);
+        assert_queue_zero_copy_inited::<QBATCH, QZKP>(
+            &mut new_queue_account_data,
+            ref_queue_account,
+        );
 
         let zero_copy_queue =
-            BatchedQueueAccount::output_from_bytes(&mut queue_account_data).unwrap();
+            BatchedQueueAccount::<QBATCH, QZKP>::output_from_bytes(&mut queue_account_data)
+                .unwrap();
         assert_eq!(zero_copy_queue.metadata, ref_rolledover_queue.metadata);
         let params = MtRollOverAssertParams {
             mt_account_data,
@@ -312,7 +360,7 @@ pub mod test_utils {
             old_mt_pubkey,
         };
 
-        assert_mt_roll_over(params);
+        assert_mt_roll_over::<RH, NUM_ITERS, BLOOM, ZKP>(params);
     }
 
     #[repr(C)]
@@ -327,7 +375,14 @@ pub mod test_utils {
         old_mt_pubkey: Pubkey,
     }
 
-    pub fn assert_mt_roll_over(params: MtRollOverAssertParams) {
+    pub fn assert_mt_roll_over<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    >(
+        params: MtRollOverAssertParams,
+    ) {
         let MtRollOverAssertParams {
             mut mt_account_data,
             ref_mt_account,
@@ -344,12 +399,14 @@ pub mod test_utils {
             .rollover(old_queue_pubkey, new_mt_pubkey)
             .unwrap();
         ref_rolledover_mt.metadata.rollover_metadata.rolledover_slot = slot;
-        let zero_copy_mt =
-            BatchedMerkleTreeAccount::state_from_bytes(&mut mt_account_data, &old_mt_pubkey)
-                .unwrap();
+        let zero_copy_mt = BatchedMerkleTreeAccount::<RH, NUM_ITERS, BLOOM, ZKP>::state_from_bytes(
+            &mut mt_account_data,
+            &old_mt_pubkey,
+        )
+        .unwrap();
         assert_eq!(*zero_copy_mt.get_metadata(), ref_rolledover_mt);
 
-        assert_state_mt_zero_copy_initialized(
+        assert_state_mt_zero_copy_initialized::<RH, NUM_ITERS, BLOOM, ZKP>(
             &mut new_mt_account_data,
             ref_mt_account,
             &new_mt_pubkey,

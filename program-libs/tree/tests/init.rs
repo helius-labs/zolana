@@ -13,7 +13,7 @@ fn leaf(i: u8) -> [u8; 32] {
 #[test]
 fn init_then_reload() {
     let params = InitAddressTreeAccountsInstructionData::default();
-    let mut bytes = vec![0u8; TreeAccount::account_size(HEIGHT, params)];
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
 
     let owner = [1u8; 32];
     let pubkey = [2u8; 32];
@@ -22,41 +22,80 @@ fn init_then_reload() {
         let mut tree =
             TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, owner, pubkey, params).unwrap();
 
-        assert_eq!(tree.discriminator, DISCRIMINATOR);
-        assert_eq!(tree.utxo_tree.height(), HEIGHT as usize);
-        assert_eq!(tree.utxo_tree.next_index(), 0);
+        assert_eq!(tree.discriminator(), DISCRIMINATOR);
+        assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
+        assert_eq!(tree.utxo_tree().next_index(), 0);
 
-        let empty_root = tree.utxo_tree.root();
+        let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
         // History starts with the empty root at index 0.
-        assert_eq!(tree.utxo_tree.current_root_index(), 0);
-        assert_eq!(tree.utxo_tree.root_by_index(0).unwrap(), empty_root);
+        assert_eq!(tree.utxo_tree().current_root_index(), 0);
+        assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
 
-        tree.utxo_tree.append(leaf(1));
-        assert_eq!(tree.utxo_tree.next_index(), 1);
-        let appended_root = tree.utxo_tree.root();
+        tree.utxo_tree().append(leaf(1));
+        assert_eq!(tree.utxo_tree().next_index(), 1);
+        let appended_root = tree.utxo_tree().root();
         assert_ne!(appended_root, empty_root);
         // Append pushed the new root to index 1; the empty root is still at 0.
-        assert_eq!(tree.utxo_tree.current_root_index(), 1);
-        assert_eq!(tree.utxo_tree.root_by_index(1).unwrap(), appended_root);
-        assert_eq!(tree.utxo_tree.root_by_index(0).unwrap(), empty_root);
+        assert_eq!(tree.utxo_tree().current_root_index(), 1);
+        assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), appended_root);
+        assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
         appended_root
     };
 
-    let tree = TreeAccount::from_bytes(&mut bytes, pubkey).unwrap();
-    assert_eq!(tree.discriminator, DISCRIMINATOR);
-    assert_eq!(tree.utxo_tree.height(), HEIGHT as usize);
-    assert_eq!(tree.utxo_tree.next_index(), 1);
-    assert_eq!(tree.utxo_tree.root(), appended_root);
+    let mut tree = TreeAccount::from_bytes(&mut bytes, pubkey).unwrap();
+    assert_eq!(tree.discriminator(), DISCRIMINATOR);
+    assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
+    assert_eq!(tree.utxo_tree().next_index(), 1);
+    assert_eq!(tree.utxo_tree().root(), appended_root);
     // Root history survives the reload.
-    assert_eq!(tree.utxo_tree.current_root_index(), 1);
-    assert_eq!(tree.utxo_tree.root_by_index(1).unwrap(), appended_root);
+    assert_eq!(tree.utxo_tree().current_root_index(), 1);
+    assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), appended_root);
+}
+
+#[test]
+fn append_batch_matches_sequential() {
+    let params = InitAddressTreeAccountsInstructionData::default();
+    let owner = [1u8; 32];
+    let pubkey = [2u8; 32];
+    let count = 10u8;
+
+    let mut seq_bytes = vec![0u8; TreeAccount::account_size()];
+    let mut seq =
+        TreeAccount::init(&mut seq_bytes, DISCRIMINATOR, HEIGHT, owner, pubkey, params).unwrap();
+    for i in 0..count {
+        seq.utxo_tree().append(leaf(i + 1));
+    }
+    let seq_root = seq.utxo_tree().root();
+    let seq_next = seq.utxo_tree().next_index();
+    let seq_cursor = seq.utxo_tree().current_root_index();
+
+    let mut batch_bytes = vec![0u8; TreeAccount::account_size()];
+    let mut batch = TreeAccount::init(
+        &mut batch_bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        owner,
+        pubkey,
+        params,
+    )
+    .unwrap();
+    let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
+    batch.utxo_tree().append_batch(leaves.iter());
+
+    assert_eq!(batch.utxo_tree().root(), seq_root);
+    assert_eq!(batch.utxo_tree().next_index(), seq_next);
+    assert_eq!(batch.utxo_tree().current_root_index(), seq_cursor);
+    assert_eq!(
+        batch.utxo_tree().root_by_index(seq_cursor).unwrap(),
+        seq_root
+    );
 }
 
 #[test]
 fn root_history_wraps_around() {
     let params = InitAddressTreeAccountsInstructionData::default();
-    let mut bytes = vec![0u8; TreeAccount::account_size(HEIGHT, params)];
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = TreeAccount::init(
         &mut bytes,
         DISCRIMINATOR,
@@ -72,23 +111,23 @@ fn root_history_wraps_around() {
     let appends = ROOT_HISTORY_CAPACITY + 5;
     let mut roots = Vec::with_capacity(appends);
     for i in 0..appends {
-        tree.utxo_tree.append(leaf((i % 200 + 1) as u8));
-        roots.push(tree.utxo_tree.root());
+        tree.utxo_tree().append(leaf((i % 200 + 1) as u8));
+        roots.push(tree.utxo_tree().root());
     }
 
     let cursor = appends % ROOT_HISTORY_CAPACITY;
-    assert_eq!(tree.utxo_tree.current_root_index(), cursor as u16);
+    assert_eq!(tree.utxo_tree().current_root_index(), cursor as u16);
 
     // The latest root lives at the wrapped cursor.
     assert_eq!(
-        tree.utxo_tree.root_by_index(cursor as u16).unwrap(),
+        tree.utxo_tree().root_by_index(cursor as u16).unwrap(),
         *roots.last().unwrap()
     );
 
     // Index 0 held the empty root, then was overwritten on the wrap (append
     // number `capacity`), so it now returns that newer root, not the empty one.
     assert_eq!(
-        tree.utxo_tree.root_by_index(0).unwrap(),
+        tree.utxo_tree().root_by_index(0).unwrap(),
         roots[ROOT_HISTORY_CAPACITY - 1]
     );
 
@@ -96,7 +135,7 @@ fn root_history_wraps_around() {
     // entry), proving the window slid rather than reset.
     let oldest = (cursor + 1) % ROOT_HISTORY_CAPACITY;
     assert_eq!(
-        tree.utxo_tree.root_by_index(oldest as u16).unwrap(),
+        tree.utxo_tree().root_by_index(oldest as u16).unwrap(),
         roots[oldest - 1]
     );
 }

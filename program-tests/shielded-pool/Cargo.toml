@@ -40,6 +40,15 @@ num-bigint = { workspace = true }
 tokio = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
+mollusk-svm = "0.3.0"
+light-program-profiler = { workspace = true, features = ["mollusk"] }
+mollusk-solana-account = { package = "solana-account", version = "2.2" }
+mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
+mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+
+[[test]]
+name = "bench_cu"
+path = "tests/bench_cu.rs"
 
 [[test]]
 name = "bdd"

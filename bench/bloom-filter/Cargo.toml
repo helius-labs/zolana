@@ -1,0 +1,33 @@
+[package]
+name = "bloom-filter-bench"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+no-entrypoint = []
+profile-program = ["light-program-profiler/profile-program"]
+bench = ["profile-program"]
+
+[dependencies]
+light-bloom-filter = { workspace = true }
+light-program-profiler = { workspace = true, features = ["profile-program"] }
+pinocchio = { workspace = true }
+
+[dev-dependencies]
+light-program-profiler = { workspace = true, features = ["mollusk"] }
+mollusk-svm = "0.3.0"
+solana-account = "2.2"
+solana-instruction = "2.2"
+solana-pubkey = "2.2"
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

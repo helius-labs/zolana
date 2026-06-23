@@ -185,6 +185,7 @@ pub(crate) mod rent;
 pub mod rollover_address_tree;
 pub mod rollover_state_tree;
 pub mod verify;
+pub mod zero_copy;
 
 // Use the appropriate BorshDeserialize and BorshSerialize based on feature
 use borsh::{BorshDeserialize, BorshSerialize};

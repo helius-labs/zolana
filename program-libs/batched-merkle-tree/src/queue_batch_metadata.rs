@@ -1,5 +1,4 @@
 use light_merkle_tree_metadata::{errors::MerkleTreeMetadataError, QueueType};
-use light_zero_copy_vec::bounded_slice::BoundedSliceMut;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
@@ -34,8 +33,6 @@ pub struct QueueBatches {
     /// Number of elements in a ZKP batch.
     /// A batch has one or more ZKP batches.
     pub zkp_batch_size: u64,
-    /// Bloom filter capacity in bits.
-    pub bloom_filter_capacity: u64,
     /// Batch elements are currently inserted in.
     pub currently_processing_batch_index: u64,
     /// Next batch to be inserted into the tree.
@@ -82,11 +79,6 @@ impl QueueBatches {
         &mut self.batches[self.currently_processing_batch_index as usize]
     }
 
-    /// Returns the size of the bloom filter in bytes.
-    pub fn get_bloomfilter_size_bytes(&self) -> usize {
-        (self.bloom_filter_capacity / 8) as usize
-    }
-
     /// Validates that the batch size is properly divisible by the ZKP batch size.
     fn check_batch_size_divisible_by_zkp_batch_size(
         batch_size: u64,
@@ -110,21 +102,17 @@ impl QueueBatches {
             batch_size,
             currently_processing_batch_index: 0,
             pending_batch_index: 0,
-            // Output queues don't use bloom filters.
-            bloom_filter_capacity: 0,
             next_index: 0,
             batches: [
-                Batch::new(0, 0, batch_size, zkp_batch_size, 0),
-                Batch::new(0, 0, batch_size, zkp_batch_size, batch_size),
+                Batch::new(batch_size, zkp_batch_size, 0),
+                Batch::new(batch_size, zkp_batch_size, batch_size),
             ],
         })
     }
 
     pub fn new_input_queue(
         batch_size: u64,
-        bloom_filter_capacity: u64,
         zkp_batch_size: u64,
-        num_iters: u64,
         start_index: u64,
     ) -> Result<Self, BatchedMerkleTreeError> {
         Self::check_batch_size_divisible_by_zkp_batch_size(batch_size, zkp_batch_size)?;
@@ -135,23 +123,10 @@ impl QueueBatches {
             batch_size,
             currently_processing_batch_index: 0,
             pending_batch_index: 0,
-            bloom_filter_capacity,
             next_index: 0,
             batches: [
-                Batch::new(
-                    num_iters,
-                    bloom_filter_capacity,
-                    batch_size,
-                    zkp_batch_size,
-                    start_index,
-                ),
-                Batch::new(
-                    num_iters,
-                    bloom_filter_capacity,
-                    batch_size,
-                    zkp_batch_size,
-                    batch_size + start_index,
-                ),
+                Batch::new(batch_size, zkp_batch_size, start_index),
+                Batch::new(batch_size, zkp_batch_size, batch_size + start_index),
             ],
         })
     }
@@ -207,7 +182,7 @@ impl QueueBatches {
     }
 
     pub fn queue_account_size(&self, queue_type: u64) -> Result<usize, BatchedMerkleTreeError> {
-        let (num_value_vec, num_bloom_filter_stores, num_hash_chain_store) =
+        let (num_value_vec, _num_bloom_filter_stores, num_hash_chain_store) =
             self.get_size_parameters(queue_type)?;
         let account_size = if queue_type == QueueType::InputStateV2 as u64 {
             // Input queue is part of the Merkle tree account.
@@ -216,23 +191,20 @@ impl QueueBatches {
             // Output queue is a separate account.
             BatchedQueueMetadata::LEN
         };
-        let value_vecs_size =
-            BoundedSliceMut::<[u8; 32]>::required_size_for_capacity(self.batch_size)
-                * num_value_vec;
-        // Bloomfilter capacity is in bits.
-        let bloom_filter_stores_size = self.get_bloomfilter_size_bytes() * num_bloom_filter_stores;
-        let hash_chain_store_size =
-            BoundedSliceMut::<[u8; 32]>::required_size_for_capacity(self.get_num_zkp_batches())
-                * num_hash_chain_store;
-        let size =
-            account_size + value_vecs_size + bloom_filter_stores_size + hash_chain_store_size;
+        let value_vecs_size = (self.batch_size as usize)
+            .saturating_mul(core::mem::size_of::<[u8; 32]>())
+            * num_value_vec;
+        let hash_chain_store_size = (self.get_num_zkp_batches() as usize)
+            .saturating_mul(core::mem::size_of::<[u8; 32]>())
+            * num_hash_chain_store;
+        let size = account_size + value_vecs_size + hash_chain_store_size;
         Ok(size)
     }
 }
 
 #[test]
 fn test_increment_next_pending_batch_index_if_inserted() {
-    let mut metadata = QueueBatches::new_input_queue(10, 10, 10, 3, 0).unwrap();
+    let mut metadata = QueueBatches::new_input_queue(10, 10, 0).unwrap();
     assert_eq!(metadata.pending_batch_index, 0);
     // increment next full batch index
     metadata.increment_pending_batch_index_if_inserted(BatchState::Inserted);
@@ -249,7 +221,7 @@ fn test_increment_next_pending_batch_index_if_inserted() {
 
 #[test]
 fn test_increment_currently_processing_batch_index_if_full() {
-    let mut metadata = QueueBatches::new_input_queue(10, 10, 10, 3, 0).unwrap();
+    let mut metadata = QueueBatches::new_input_queue(10, 10, 0).unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
@@ -290,21 +262,21 @@ fn test_validate_batch_sizes() {
 #[test]
 fn test_batch_size_validation() {
     // Test invalid batch size
-    assert!(QueueBatches::new_input_queue(10, 10, 3, 3, 0).is_err());
+    assert!(QueueBatches::new_input_queue(10, 3, 0).is_err());
     assert!(QueueBatches::new_output_queue(10, 3).is_err());
 
     // Test valid batch size
-    assert!(QueueBatches::new_input_queue(9, 10, 3, 3, 0).is_ok());
+    assert!(QueueBatches::new_input_queue(9, 3, 0).is_ok());
     assert!(QueueBatches::new_output_queue(9, 3).is_ok());
 }
 
 #[test]
 fn test_output_queue_account_size() {
     let metadata = QueueBatches::new_output_queue(10, 2).unwrap();
-    // Metadata::size, value array (vec metadata + 10 *[u8;32])
-    // + hash chain(vec metadata + 5 *[u8;32])
+    // Metadata::size, value array (10 *[u8;32])
+    // + hash chain(5 *[u8;32])
     // + hashed merkle tree pubkey + hashed queue pubkey
-    let queue_size = 488 + (16 + 10 * 32) * 2 + (16 + 5 * 32) * 2 + 32 + 32;
+    let queue_size = 448 + (10 * 32) * 2 + (5 * 32) * 2 + 32 + 32;
     assert_eq!(
         metadata
             .queue_account_size(QueueType::OutputStateV2 as u64)
@@ -315,8 +287,8 @@ fn test_output_queue_account_size() {
 
 #[test]
 fn test_imput_queue_account_size() {
-    let metadata = QueueBatches::new_input_queue(10, 20000 * 8, 2, 3, 0).unwrap();
-    let queue_size = 20000 * 2 + (16 + 5 * 32) * 2;
+    let metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
+    let queue_size = (5 * 32) * 2;
     assert_eq!(
         metadata
             .queue_account_size(QueueType::InputStateV2 as u64)
@@ -331,7 +303,7 @@ fn test_imput_queue_account_size() {
 
 #[test]
 fn test_get_size_parameters() {
-    let metadata = QueueBatches::new_input_queue(10, 10, 2, 1, 0).unwrap();
+    let metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
     assert_eq!(
         metadata
             .get_size_parameters(QueueType::InputStateV2 as u64)

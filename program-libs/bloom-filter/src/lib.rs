@@ -2,31 +2,25 @@
 //!
 //! Experimental bloom filter using keccak hashing.
 //!
-//! | Type | Description |
-//! |------|-------------|
-//! | [`BloomFilter`] | Probabilistic set with `insert` and `contains` |
-//! | [`BloomFilterError`] | Full or invalid store capacity |
-//! | [`BloomFilter::calculate_bloom_filter_size`] | Optimal bit count for given `n` and `p` |
-//! | [`BloomFilter::calculate_optimal_hash_functions`] | Optimal `k` for given `n` and `m` |
-//! | [`BloomFilter::probe_index_keccak`] | Keccak-based probe index for a value |
+//! The store is owned inline as `[u8; BYTES]` and the number of hash
+//! iterations is the const generic `NUM_ITERS`, so a `BloomFilter` is a plain
+//! `Pod` value that can live directly inside a zero-copy account layout.
 
 use std::f64::consts::LN_2;
 
+use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum BloomFilterError {
     #[error("Bloom filter is full")]
     Full,
-    #[error("Invalid store capacity")]
-    InvalidStoreCapacity,
 }
 
 impl From<BloomFilterError> for u32 {
     fn from(e: BloomFilterError) -> u32 {
         match e {
             BloomFilterError::Full => 14201,
-            BloomFilterError::InvalidStoreCapacity => 14202,
         }
     }
 }
@@ -37,15 +31,19 @@ impl From<BloomFilterError> for solana_program_error::ProgramError {
     }
 }
 
-#[derive(Debug)]
-pub struct BloomFilter<'a> {
-    pub num_iters: usize,
-    pub capacity: u64,
-    pub store: &'a mut [u8],
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BloomFilter<const NUM_ITERS: usize, const BYTES: usize> {
+    store: [u8; BYTES],
 }
 
-impl<'a> BloomFilter<'a> {
-    // TODO: find source for this
+// Safety: the only field is `[u8; BYTES]`, which is `Pod` for any `BYTES`. The
+// struct is `#[repr(C)]` with no padding and `NUM_ITERS` does not affect the
+// layout, so every bit pattern is valid and the value is safe to treat as bytes.
+unsafe impl<const NUM_ITERS: usize, const BYTES: usize> Zeroable for BloomFilter<NUM_ITERS, BYTES> {}
+unsafe impl<const NUM_ITERS: usize, const BYTES: usize> Pod for BloomFilter<NUM_ITERS, BYTES> {}
+
+impl<const NUM_ITERS: usize, const BYTES: usize> BloomFilter<NUM_ITERS, BYTES> {
     pub fn calculate_bloom_filter_size(n: usize, p: f64) -> usize {
         let m = -((n as f64) * p.ln()) / (LN_2 * LN_2);
         m.ceil() as usize
@@ -56,66 +54,84 @@ impl<'a> BloomFilter<'a> {
         k.ceil() as usize
     }
 
-    pub fn new(
-        num_iters: usize,
-        capacity: u64,
-        store: &'a mut [u8],
-    ) -> Result<Self, BloomFilterError> {
-        // Capacity is in bits while store is in bytes.
-        if store.len() * 8 != capacity as usize {
-            return Err(BloomFilterError::InvalidStoreCapacity);
+    pub const fn new() -> Self {
+        Self {
+            store: [0u8; BYTES],
         }
-        Ok(Self {
-            num_iters,
-            capacity,
-            store,
-        })
     }
 
-    pub fn probe_index_keccak(value_bytes: &[u8; 32], iteration: usize, capacity: &u64) -> usize {
-        let hash = solana_nostd_keccak::hash(value_bytes);
-        Self::probe_index_from_hash(&hash, iteration, *capacity)
+    /// Reinterpret raw account bytes as a `BloomFilter` in place. This is the
+    /// single zero-copy boundary cast; callers that already hold a typed layout
+    /// (e.g. a tree account) reach the bloom filter by field access instead.
+    pub fn from_bytes_mut(bytes: &mut [u8]) -> &mut Self {
+        bytemuck::from_bytes_mut(bytes)
     }
 
-    #[inline]
-    fn probe_index_from_hash(hash: &[u8; 32], iteration: usize, capacity: u64) -> usize {
-        let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
-        let h2 = u64::from_le_bytes(hash[8..16].try_into().unwrap());
-        h1.wrapping_add((iteration as u64).wrapping_mul(h2))
-            .wrapping_rem(capacity) as usize
+    pub fn zero(&mut self) {
+        self.store = [0u8; BYTES];
+    }
+
+    pub fn is_zeroed(&self) -> bool {
+        self.store.iter().all(|&b| b == 0)
     }
 
     pub fn insert(&mut self, value: &[u8; 32]) -> Result<(), BloomFilterError> {
-        if self._insert(value, true) {
-            Ok(())
-        } else {
-            Err(BloomFilterError::Full)
-        }
-    }
-
-    // TODO: reconsider &mut self
-    pub fn contains(&mut self, value: &[u8; 32]) -> bool {
-        !self._insert(value, false)
-    }
-
-    fn _insert(&mut self, value: &[u8; 32], insert: bool) -> bool {
-        let mut all_bits_set = true;
-        use bitvec::prelude::*;
-
         let hash = solana_nostd_keccak::hash(value);
-        let bits = BitSlice::<u8, Msb0>::from_slice_mut(self.store);
-        for i in 0..self.num_iters {
-            let probe_index = Self::probe_index_from_hash(&hash, i, self.capacity);
-            if bits[probe_index] {
-                continue;
-            } else if insert {
-                all_bits_set = false;
-                bits.set(probe_index, true);
-            } else if !bits[probe_index] && !insert {
-                return true;
+        let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
+        let h2 = u64::from_le_bytes(hash[8..16].try_into().unwrap());
+        let num_bits = BYTES as u64 * 8;
+
+        let mut probe = h1;
+        let mut all_bits_set = true;
+        for _ in 0..NUM_ITERS {
+            let probe_index = (probe % num_bits) as usize;
+            probe = probe.wrapping_add(h2);
+
+            let byte_index = probe_index >> 3;
+            let mask = 1u8 << (probe_index & 7);
+            match self.store.get_mut(byte_index) {
+                Some(byte) => {
+                    if *byte & mask == 0 {
+                        all_bits_set = false;
+                        *byte |= mask;
+                    }
+                }
+                None => return Err(BloomFilterError::Full),
             }
         }
-        !all_bits_set
+
+        if all_bits_set {
+            Err(BloomFilterError::Full)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn contains(&self, value: &[u8; 32]) -> bool {
+        let hash = solana_nostd_keccak::hash(value);
+        let h1 = u64::from_le_bytes(hash[0..8].try_into().unwrap());
+        let h2 = u64::from_le_bytes(hash[8..16].try_into().unwrap());
+        let num_bits = BYTES as u64 * 8;
+
+        let mut probe = h1;
+        for _ in 0..NUM_ITERS {
+            let probe_index = (probe % num_bits) as usize;
+            probe = probe.wrapping_add(h2);
+
+            let byte_index = probe_index >> 3;
+            let mask = 1u8 << (probe_index & 7);
+            match self.store.get(byte_index) {
+                Some(byte) if *byte & mask != 0 => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl<const NUM_ITERS: usize, const BYTES: usize> Default for BloomFilter<NUM_ITERS, BYTES> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -129,13 +145,7 @@ mod test {
 
     #[test]
     fn test_insert_and_contains() -> Result<(), BloomFilterError> {
-        let capacity = 128_000 * 8;
-        let mut store = [0u8; 128_000];
-        let mut bf = BloomFilter {
-            num_iters: 3,
-            capacity,
-            store: &mut store,
-        };
+        let mut bf = Box::new(BloomFilter::<3, 128_000>::new());
 
         let value1 = [1u8; 32];
         let value2 = [2u8; 32];
@@ -149,69 +159,23 @@ mod test {
 
     #[test]
     fn short_rnd_test() {
-        let capacity = 500;
-        let bloom_filter_capacity = 20_000 * 8;
-        let optimal_hash_functions = 3;
-        rnd_test(
-            1000,
-            capacity,
-            bloom_filter_capacity,
-            optimal_hash_functions,
-            false,
-        );
+        // capacity 500 elements, store 20_000 bytes, 3 hash functions.
+        rnd_test::<3, 20_000>(1000, 500);
     }
 
-    /// Bench results:
-    /// - 15310 CU for 10 insertions with 3 hash functions
-    /// - capacity 5000 0.000_000_000_1 with 15 hash functions seems to not
-    ///   produce any collisions
-    #[ignore = "bench"]
-    #[test]
-    fn bench_bloom_filter() {
-        let capacity = 5000;
-        let bloom_filter_capacity =
-            BloomFilter::calculate_bloom_filter_size(capacity, 0.000_000_000_1);
-        let optimal_hash_functions = 15;
-        let iterations = 1_000_000;
-        rnd_test(
-            iterations,
-            capacity,
-            bloom_filter_capacity,
-            optimal_hash_functions,
-            true,
-        );
-    }
-
-    fn rnd_test(
-        num_iters: usize,
-        capacity: usize,
-        bloom_filter_capacity: usize,
-        optimal_hash_functions: usize,
-        bench: bool,
-    ) {
-        println!("Optimal hash functions: {}", optimal_hash_functions);
-        println!(
-            "Bloom filter capacity (kb): {}",
-            bloom_filter_capacity / 8 / 1_000
-        );
+    fn rnd_test<const NUM_ITERS: usize, const BYTES: usize>(rounds: usize, capacity: usize) {
+        println!("Optimal hash functions: {}", NUM_ITERS);
+        println!("Bloom filter capacity (kb): {}", BYTES / 1_000);
         let mut num_total_txs = 0;
         let mut rng = thread_rng();
-        let mut failed_vec = Vec::new();
-        for j in 0..num_iters {
+        for j in 0..rounds {
             let mut inserted_values = Vec::new();
-            let mut store = vec![0; bloom_filter_capacity];
-            let mut bf = BloomFilter {
-                num_iters: optimal_hash_functions,
-                capacity: bloom_filter_capacity as u64,
-                store: &mut store,
-            };
+            let mut bf = Box::new(BloomFilter::<NUM_ITERS, BYTES>::new());
             if j == 0 {
-                println!("Bloom filter capacity: {}", bf.capacity);
-                println!("Bloom filter size: {}", bf.store.len());
-                println!("Bloom filter size (kb): {}", bf.store.len() / 8 / 1_000);
-                println!("num iters: {}", bf.num_iters);
+                println!("Bloom filter size: {}", BYTES);
+                println!("num iters: {}", NUM_ITERS);
             }
-            for i in 0..capacity {
+            for _ in 0..capacity {
                 num_total_txs += 1;
                 let value = {
                     let mut _value = 0u64.to_biguint().unwrap();
@@ -223,51 +187,11 @@ mod test {
                     _value
                 };
                 let value: [u8; 32] = bigint_to_be_bytes_array(&value).unwrap();
-                match bf.insert(&value) {
-                    Ok(_) => {
-                        assert!(bf.contains(&value));
-                    }
-                    Err(_) => {
-                        println!("Failed to insert iter: {}", i);
-                        println!("total iter {}", j);
-                        println!("num_total_txs {}", num_total_txs);
-                        failed_vec.push(i);
-                    }
-                };
+                bf.insert(&value).ok();
                 assert!(bf.contains(&value));
                 assert!(bf.insert(&value).is_err());
             }
         }
-        if bench {
-            println!("total num tx {}", num_total_txs);
-            let average = failed_vec.iter().sum::<usize>() as f64 / failed_vec.len() as f64;
-            println!("average failed insertions: {}", average);
-            println!(
-                "max failed insertions: {}",
-                failed_vec.iter().max().unwrap()
-            );
-            println!(
-                "min failed insertions: {}",
-                failed_vec.iter().min().unwrap()
-            );
-
-            let num_chunks = 10;
-            let chunk_size = num_iters / num_chunks;
-            failed_vec.sort();
-            for (i, chunk) in failed_vec.chunks(chunk_size).enumerate() {
-                let average = chunk.iter().sum::<usize>() as f64 / chunk.len() as f64;
-                println!("chunk: {} average failed insertions: {}", i, average);
-                println!(
-                    "chunk: {} max failed insertions: {}",
-                    i,
-                    chunk.iter().max().unwrap()
-                );
-                println!(
-                    "chunk: {} min failed insertions: {}",
-                    i,
-                    chunk.iter().min().unwrap()
-                );
-            }
-        }
+        println!("total num tx {}", num_total_txs);
     }
 }

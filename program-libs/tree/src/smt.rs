@@ -1,16 +1,13 @@
+use core::mem::{size_of, MaybeUninit};
+
 use light_hasher::{Hasher, Poseidon};
 use wincode::{
-    config::{deserialize_mut, Configuration},
-    len::FixIntLen,
-    SchemaRead,
+    config::{ConfigCore, ZeroCopy},
+    io::Reader,
+    ReadResult, SchemaRead, TypeMeta,
 };
 
-const NEXT_INDEX_OFFSET: usize = 0;
 pub const ROOT_OFFSET: usize = 8;
-const ROOT_HISTORY_CURSOR_OFFSET: usize = 40;
-const ROOT_HISTORY_LEN_OFFSET: usize = 42;
-const SUBTREES_LEN_OFFSET: usize = 44;
-const SUBTREES_OFFSET: usize = 45;
 
 pub const ROOT_HISTORY_CAPACITY: usize = 200;
 
@@ -29,112 +26,111 @@ pub enum TreeError {
     InvalidRootIndex,
 }
 
-#[derive(SchemaRead)]
-pub struct SparseMerkleTree<'a> {
-    pub next_index: &'a mut [u8; 8],
-    pub root: &'a mut [u8; 32],
-    root_history_cursor: &'a mut [u8; 2],
-    root_history_len: &'a mut [u8; 2],
-    pub subtrees: &'a mut [[u8; 32]],
-    root_history: &'a mut [[u8; 32]],
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct UtxoTreeLayout<const HEIGHT: usize> {
+    pub next_index: [u8; 8],
+    pub root: [u8; 32],
+    pub root_history_cursor: [u8; 2],
+    pub root_history_len: [u8; 2],
+    pub subtrees_len: u8,
+    pub subtrees: [[u8; 32]; HEIGHT],
+    pub root_history_capacity: u8,
+    pub root_history: [[u8; 32]; ROOT_HISTORY_CAPACITY],
 }
 
-impl<'a> SparseMerkleTree<'a> {
-    pub fn serialized_size(height: usize) -> usize {
-        SUBTREES_OFFSET + height * 32 + 1 + ROOT_HISTORY_CAPACITY * 32
+unsafe impl<C: ConfigCore, const HEIGHT: usize> ZeroCopy<C> for UtxoTreeLayout<HEIGHT> {}
+
+unsafe impl<'de, C: ConfigCore, const HEIGHT: usize> SchemaRead<'de, C> for UtxoTreeLayout<HEIGHT> {
+    type Dst = Self;
+    const TYPE_META: TypeMeta = TypeMeta::Static {
+        size: size_of::<Self>(),
+        zero_copy: true,
+    };
+
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
+        unsafe { Ok(reader.copy_into_t(dst)?) }
+    }
+}
+
+impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
+    pub const fn serialized_size(height: usize) -> usize {
+        45 + height * 32 + 1 + ROOT_HISTORY_CAPACITY * 32
     }
 
-    pub fn serialized_size_from_bytes(bytes: &[u8]) -> Result<usize, TreeError> {
-        let height = *bytes
-            .get(SUBTREES_LEN_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)?;
-        Ok(Self::serialized_size(height as usize))
-    }
-
-    pub fn from_bytes_mut(bytes: &'a mut [u8]) -> Result<Self, TreeError> {
-        let config = Configuration::default().with_length_encoding::<FixIntLen<u8>>();
-        deserialize_mut(bytes, config).map_err(|_| TreeError::Deserialize)
-    }
-
-    pub fn init(bytes: &mut [u8], height: usize) -> Result<(), TreeError> {
+    pub fn init(&mut self, height: usize) -> Result<(), TreeError> {
+        if height != HEIGHT {
+            return Err(TreeError::HeightTooLarge);
+        }
         let height_byte = u8::try_from(height).map_err(|_| TreeError::HeightTooLarge)?;
         let capacity_byte =
             u8::try_from(ROOT_HISTORY_CAPACITY).map_err(|_| TreeError::HeightTooLarge)?;
         let zero_bytes = Poseidon::zero_bytes();
         let empty_root = *zero_bytes.get(height).ok_or(TreeError::HeightTooLarge)?;
 
-        let buffer = bytes
-            .get_mut(..Self::serialized_size(height))
-            .ok_or(TreeError::BufferTooSmall)?;
-        buffer
-            .get_mut(NEXT_INDEX_OFFSET..ROOT_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)?
-            .copy_from_slice(&0u64.to_le_bytes());
-        buffer
-            .get_mut(ROOT_OFFSET..ROOT_HISTORY_CURSOR_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)?
-            .copy_from_slice(&empty_root);
-        buffer
-            .get_mut(ROOT_HISTORY_CURSOR_OFFSET..ROOT_HISTORY_LEN_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)?
-            .copy_from_slice(&0u16.to_le_bytes());
-        buffer
-            .get_mut(ROOT_HISTORY_LEN_OFFSET..SUBTREES_LEN_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)?
-            .copy_from_slice(&1u16.to_le_bytes());
-        *buffer
-            .get_mut(SUBTREES_LEN_OFFSET)
-            .ok_or(TreeError::BufferTooSmall)? = height_byte;
-        for (i, zero) in zero_bytes.iter().take(height).enumerate() {
-            let start = SUBTREES_OFFSET + i * 32;
-            buffer
-                .get_mut(start..start + 32)
-                .ok_or(TreeError::BufferTooSmall)?
-                .copy_from_slice(zero);
+        self.next_index = 0u64.to_le_bytes();
+        self.root = empty_root;
+        self.root_history_cursor = 0u16.to_le_bytes();
+        self.root_history_len = 1u16.to_le_bytes();
+        self.subtrees_len = height_byte;
+        for (subtree, zero) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
+            *subtree = *zero;
         }
-        let history_prefix = SUBTREES_OFFSET + height * 32;
-        *buffer
-            .get_mut(history_prefix)
-            .ok_or(TreeError::BufferTooSmall)? = capacity_byte;
-        let history_start = history_prefix + 1;
-        buffer
-            .get_mut(history_start..history_start + 32)
-            .ok_or(TreeError::BufferTooSmall)?
-            .copy_from_slice(&empty_root);
+        self.root_history_capacity = capacity_byte;
+        if let Some(slot) = self.root_history.get_mut(0) {
+            *slot = empty_root;
+        }
         Ok(())
     }
 
     pub fn append(&mut self, leaf: [u8; 32]) {
-        let zero_bytes = Poseidon::zero_bytes();
-        let mut current_index = self.next_index();
-        let mut current_level_hash = leaf;
+        self.append_batch([&leaf]);
+    }
 
-        for (subtree, zero_byte) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
-            let left;
-            let right;
-            if current_index.is_multiple_of(2) {
-                left = current_level_hash;
-                right = *zero_byte;
-                *subtree = current_level_hash;
-            } else {
-                left = *subtree;
-                right = current_level_hash;
+    pub fn append_batch<'l, I>(&mut self, leaves: I)
+    where
+        I: IntoIterator<Item = &'l [u8; 32]>,
+    {
+        let zero_bytes = Poseidon::zero_bytes();
+        let mut leaves = leaves.into_iter().peekable();
+
+        while let Some(leaf) = leaves.next() {
+            let is_last = leaves.peek().is_none();
+            let mut current_index = self.next_index();
+            let mut current_level_hash = *leaf;
+
+            for (subtree, zero_byte) in self.subtrees.iter_mut().zip(zero_bytes.iter()) {
+                if current_index.is_multiple_of(2) {
+                    *subtree = current_level_hash;
+                    if !is_last {
+                        break;
+                    }
+                    current_level_hash =
+                        Poseidon::hashv(&[&current_level_hash, zero_byte]).unwrap();
+                } else {
+                    let left = *subtree;
+                    current_level_hash = Poseidon::hashv(&[&left, &current_level_hash]).unwrap();
+                }
+                current_index /= 2;
             }
-            current_level_hash = Poseidon::hashv(&[&left, &right]).unwrap();
-            current_index /= 2;
+
+            if is_last {
+                self.root = current_level_hash;
+                self.push_root(current_level_hash);
+            } else {
+                self.push_root([0u8; 32]);
+            }
+            self.set_next_index(self.next_index() + 1);
         }
-        self.root.copy_from_slice(&current_level_hash);
-        self.set_next_index(self.next_index() + 1);
-        self.push_root(current_level_hash);
     }
 
     pub fn root(&self) -> [u8; 32] {
-        *self.root
+        self.root
     }
 
     /// Index of the most recently appended root in the history ring buffer.
     pub fn current_root_index(&self) -> u16 {
-        u16::from_le_bytes(*self.root_history_cursor)
+        u16::from_le_bytes(self.root_history_cursor)
     }
 
     /// Historical root at `index`, with the same validity checks the on-chain
@@ -143,7 +139,7 @@ impl<'a> SparseMerkleTree<'a> {
         let capacity = self.root_history.len();
         let index = index as usize;
         let cursor = usize::from(self.current_root_index());
-        let len = usize::from(u16::from_le_bytes(*self.root_history_len));
+        let len = usize::from(u16::from_le_bytes(self.root_history_len));
 
         if len == 0 || index >= capacity {
             return Err(TreeError::InvalidRootIndex);
@@ -165,7 +161,7 @@ impl<'a> SparseMerkleTree<'a> {
     }
 
     pub fn next_index(&self) -> u64 {
-        u64::from_le_bytes(*self.next_index)
+        u64::from_le_bytes(self.next_index)
     }
 
     pub fn height(&self) -> usize {
@@ -173,7 +169,7 @@ impl<'a> SparseMerkleTree<'a> {
     }
 
     fn set_next_index(&mut self, value: u64) {
-        self.next_index.copy_from_slice(&value.to_le_bytes());
+        self.next_index = value.to_le_bytes();
     }
 
     fn push_root(&mut self, root: [u8; 32]) {
@@ -182,15 +178,13 @@ impl<'a> SparseMerkleTree<'a> {
             return;
         }
         let cursor = usize::from(self.current_root_index());
-        let len = usize::from(u16::from_le_bytes(*self.root_history_len));
+        let len = usize::from(u16::from_le_bytes(self.root_history_len));
         let next = (cursor + 1) % capacity;
         let next_len = (len + 1).min(capacity);
         if let Some(slot) = self.root_history.get_mut(next) {
             *slot = root;
         }
-        self.root_history_cursor
-            .copy_from_slice(&(next as u16).to_le_bytes());
-        self.root_history_len
-            .copy_from_slice(&(next_len as u16).to_le_bytes());
+        self.root_history_cursor = (next as u16).to_le_bytes();
+        self.root_history_len = (next_len as u16).to_le_bytes();
     }
 }

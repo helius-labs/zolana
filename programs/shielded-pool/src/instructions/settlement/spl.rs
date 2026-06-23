@@ -3,6 +3,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, ProgramResult,
 };
+use light_program_profiler::profile;
 use zolana_interface::{
     SHIELDED_POOL_CPI_AUTHORITY_BUMP, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED,
     SPL_TOKEN_TRANSFER_DISCRIMINATOR,
@@ -43,6 +44,7 @@ impl SplTransferCpi<'_> {
 }
 
 #[inline(never)]
+#[profile]
 pub fn settle_spl(settlement: &SettlementAccountsSpl<'_>, amount: u64) -> ProgramResult {
     match settlement.cpi_authority {
         Some(cpi_authority) => {

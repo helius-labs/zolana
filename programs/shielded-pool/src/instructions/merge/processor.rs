@@ -88,7 +88,7 @@ fn apply_tree(
     derived: &mut MergeProofInputs,
 ) -> Result<MergeTreeWrite, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
-    let nullifier_seq_base = tree.nullifer_tree.queue_batches.next_index;
+    let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
     for i in 0..MERGE_INPUT_COUNT {
         let nullifier = ix.nullifiers.get(i).ok_or(shape)?;
@@ -101,7 +101,7 @@ fn apply_tree(
         *derived.nullifier_tree_roots.get_mut(i).ok_or(shape)? = tree
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
-        tree.nullifer_tree
+        tree.nullifer_tree()
             .insert_address_into_queue(nullifier, &current_slot)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
@@ -111,8 +111,8 @@ fn apply_tree(
         });
     }
 
-    let output_leaf_index = tree.utxo_tree.next_index();
-    tree.utxo_tree.append(*ix.output_utxo_hash);
+    let output_leaf_index = tree.utxo_tree().next_index();
+    tree.utxo_tree().append(*ix.output_utxo_hash);
 
     Ok(MergeTreeWrite {
         inputs,

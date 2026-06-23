@@ -30,7 +30,7 @@ pub fn process_batch_update_nullifier_tree(
         .map_err(ShieldedPoolError::from)?;
 
     if tree
-        .nullifer_tree
+        .nullifer_tree()
         .update_tree_from_address_queue(instruction)
         .is_err()
     {

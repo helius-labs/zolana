@@ -92,6 +92,36 @@ build-cli:
 test-cli:
     cargo test -p zolana-cli
 
+# === Bench ===
+
+# Regenerate bench/bloom-filter/CU_BENCHMARK.md. Builds the bench program with
+# the profiling syscalls enabled, then runs the mollusk harness that profiles
+# light-bloom-filter insert/contains.
+bench-bloom-filter:
+    cargo build-sbf --manifest-path bench/bloom-filter/Cargo.toml --features bench
+    cargo test -p bloom-filter-bench --test bench_cu -- --ignored --nocapture
+
+# Build the tree bench program with profiling enabled, then run the mollusk
+# harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
+bench-tree:
+    cargo build-sbf --manifest-path bench/tree/Cargo.toml --features bench
+    cargo test -p tree-bench --test bench_cu -- --ignored --nocapture
+
+# Profile the shielded-pool deposit instructions (SOL + SPL). litesvm builds the
+# account state with the plain .so; mollusk replays one instruction against the
+# profiling .so. Build the plain programs, stash the plain shielded-pool .so,
+# then overwrite target/deploy with the profiling build before running. Clone the
+# SPL Token program from mainnet so mollusk can run the SPL deposit's CPI.
+bench-shielded-pool: build-programs
+    cp target/deploy/shielded_pool_program.so target/deploy/shielded_pool_program_plain.so
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/deploy \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    test -f target/deploy/spl_token.so || \
+        solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
+    cargo test -p shielded-pool-tests --test bench_cu -- --ignored --nocapture
+
 # === Local validator helpers ===
 
 # Local-validator end-to-end SOL cycle.

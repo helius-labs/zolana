@@ -29,7 +29,7 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
     drop(config);
     check_owner(crate::ID.as_array(), tree)?;
 
-    if tree.data_len() != TreeAccount::account_size(STATE_HEIGHT as u8, address_tree_params()) {
+    if tree.data_len() != TreeAccount::account_size() {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
 

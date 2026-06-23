@@ -13,6 +13,7 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
+profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
 ark-bn254 = { version = "0.5", default-features = false }
@@ -22,6 +23,7 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 light-account-checks = { workspace = true }
 light-hasher = { workspace = true }
+light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 zolana-interface = { workspace = true }

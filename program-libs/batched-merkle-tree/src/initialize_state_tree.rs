@@ -9,7 +9,7 @@ use solana_address::Address as Pubkey;
 use crate::{
     constants::{
         DEFAULT_BATCH_SIZE, DEFAULT_BATCH_STATE_TREE_HEIGHT, DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2,
-        DEFAULT_ZKP_BATCH_SIZE, STATE_BLOOM_FILTER_CAPACITY, STATE_BLOOM_FILTER_NUM_HASHES,
+        DEFAULT_ZKP_BATCH_SIZE,
     },
     errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
@@ -32,8 +32,6 @@ pub struct InitStateTreeAccountsInstructionData {
     pub output_queue_batch_size: u64,
     pub input_queue_zkp_batch_size: u64,
     pub output_queue_zkp_batch_size: u64,
-    pub bloom_filter_num_iters: u64,
-    pub bloom_filter_capacity: u64,
     pub root_history_capacity: u32,
     pub network_fee: Option<u64>,
     pub rollover_threshold: Option<u64>,
@@ -52,8 +50,6 @@ impl BorshSerialize for InitStateTreeAccountsInstructionData {
         self.output_queue_batch_size.serialize(writer)?;
         self.input_queue_zkp_batch_size.serialize(writer)?;
         self.output_queue_zkp_batch_size.serialize(writer)?;
-        self.bloom_filter_num_iters.serialize(writer)?;
-        self.bloom_filter_capacity.serialize(writer)?;
         self.root_history_capacity.serialize(writer)?;
         self.network_fee.serialize(writer)?;
         self.rollover_threshold.serialize(writer)?;
@@ -73,8 +69,6 @@ impl BorshDeserialize for InitStateTreeAccountsInstructionData {
             output_queue_batch_size: BorshDeserialize::deserialize_reader(reader)?,
             input_queue_zkp_batch_size: BorshDeserialize::deserialize_reader(reader)?,
             output_queue_zkp_batch_size: BorshDeserialize::deserialize_reader(reader)?,
-            bloom_filter_num_iters: BorshDeserialize::deserialize_reader(reader)?,
-            bloom_filter_capacity: BorshDeserialize::deserialize_reader(reader)?,
             root_history_capacity: BorshDeserialize::deserialize_reader(reader)?,
             network_fee: BorshDeserialize::deserialize_reader(reader)?,
             rollover_threshold: BorshDeserialize::deserialize_reader(reader)?,
@@ -91,14 +85,12 @@ impl Default for InitStateTreeAccountsInstructionData {
             program_owner: None,
             forester: None,
             additional_bytes: DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2,
-            bloom_filter_num_iters: STATE_BLOOM_FILTER_NUM_HASHES,
             input_queue_batch_size: DEFAULT_BATCH_SIZE,
             output_queue_batch_size: DEFAULT_BATCH_SIZE,
             input_queue_zkp_batch_size: DEFAULT_ZKP_BATCH_SIZE,
             output_queue_zkp_batch_size: DEFAULT_ZKP_BATCH_SIZE,
             height: DEFAULT_BATCH_STATE_TREE_HEIGHT,
             root_history_capacity: (DEFAULT_BATCH_SIZE / DEFAULT_ZKP_BATCH_SIZE * 2) as u32,
-            bloom_filter_capacity: STATE_BLOOM_FILTER_CAPACITY,
             network_fee: Some(5000),
             rollover_threshold: Some(95),
             close_threshold: None,
@@ -124,13 +116,12 @@ pub fn init_batched_state_merkle_tree_from_account_info(
             params.output_queue_batch_size,
             params.output_queue_zkp_batch_size,
         );
-        let mt_account_size = get_merkle_tree_account_size(
-            params.input_queue_batch_size,
-            params.bloom_filter_capacity,
-            params.input_queue_zkp_batch_size,
-            params.root_history_capacity,
-            params.height,
-        );
+        let mt_account_size = get_merkle_tree_account_size::<
+            { crate::constants::STATE_TREE_DEFAULT_RH },
+            { crate::constants::STATE_TREE_DEFAULT_NUM_ITERS },
+            { crate::constants::STATE_TREE_DEFAULT_BLOOM },
+            { crate::constants::STATE_TREE_DEFAULT_ZKP },
+        >();
 
         queue_rent = check_account_balance_is_rent_exempt(queue_account_info, queue_account_size)?;
 
@@ -145,7 +136,14 @@ pub fn init_batched_state_merkle_tree_from_account_info(
     let queue_data = &mut queue_account_info.try_borrow_mut()?;
     let mt_data = &mut merkle_tree_account_info.try_borrow_mut()?;
 
-    init_batched_state_merkle_tree_accounts(
+    init_batched_state_merkle_tree_accounts::<
+        { crate::constants::STATE_TREE_DEFAULT_RH },
+        { crate::constants::STATE_TREE_DEFAULT_NUM_ITERS },
+        { crate::constants::STATE_TREE_DEFAULT_BLOOM },
+        { crate::constants::STATE_TREE_DEFAULT_ZKP },
+        { crate::constants::STATE_TREE_DEFAULT_QBATCH },
+        { crate::constants::STATE_TREE_DEFAULT_ZKP },
+    >(
         owner,
         params,
         queue_data,
@@ -160,7 +158,15 @@ pub fn init_batched_state_merkle_tree_from_account_info(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn init_batched_state_merkle_tree_accounts<'a>(
+pub fn init_batched_state_merkle_tree_accounts<
+    'a,
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+    const QBATCH: usize,
+    const QZKP: usize,
+>(
     owner: Pubkey,
     params: InitStateTreeAccountsInstructionData,
     output_queue_account_data: &mut [u8],
@@ -170,7 +176,7 @@ pub fn init_batched_state_merkle_tree_accounts<'a>(
     mt_pubkey: Pubkey,
     merkle_tree_rent: u64,
     additional_bytes_rent: u64,
-) -> Result<BatchedMerkleTreeAccount<'a>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
     let height = params.height;
     // Output queue
     {
@@ -199,14 +205,11 @@ pub fn init_batched_state_merkle_tree_accounts<'a>(
             associated_merkle_tree: mt_pubkey,
         };
 
-        BatchedQueueAccount::init(
+        BatchedQueueAccount::<QBATCH, QZKP>::init(
             output_queue_account_data,
             metadata,
             params.output_queue_batch_size,
             params.output_queue_zkp_batch_size,
-            // Output queues have no bloom filter.
-            0,
-            0,
             output_queue_pubkey,
             2u64.pow(params.height),
         )?;
@@ -239,8 +242,6 @@ pub fn init_batched_state_merkle_tree_accounts<'a>(
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         height,
-        params.bloom_filter_num_iters,
-        params.bloom_filter_capacity,
         TreeType::StateV2,
         None,
     )
@@ -269,14 +270,6 @@ pub fn validate_batched_tree_params(params: InitStateTreeAccountsInstructionData
         "Zkp batch size not supported. Supported 10, 500"
     );
 
-    assert!(params.bloom_filter_num_iters > 0);
-    assert!(params.bloom_filter_capacity >= params.input_queue_batch_size * 8);
-    assert_eq!(
-        params.bloom_filter_capacity % 8,
-        0,
-        "Bloom filter capacity must be divisible by 8."
-    );
-    assert!(params.bloom_filter_capacity > 0);
     assert!(params.root_history_capacity > 0);
     assert!(params.input_queue_batch_size > 0);
 
@@ -328,8 +321,7 @@ pub mod test_utils {
     use super::*;
     use crate::{
         constants::{
-            DEFAULT_BATCH_ROOT_HISTORY_LEN, STATE_BLOOM_FILTER_CAPACITY,
-            STATE_BLOOM_FILTER_NUM_HASHES, TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE,
+            DEFAULT_BATCH_ROOT_HISTORY_LEN, TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE,
         },
         queue::{test_utils::assert_queue_inited, BatchedQueueMetadata},
         queue_batch_metadata::QueueBatches,
@@ -342,14 +334,12 @@ pub mod test_utils {
                 program_owner: None,
                 forester: None,
                 additional_bytes: DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2,
-                bloom_filter_num_iters: 3,
                 input_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,
                 output_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,
                 input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 output_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 height: DEFAULT_BATCH_STATE_TREE_HEIGHT,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                bloom_filter_capacity: 20_000 * 8,
                 network_fee: Some(5000),
                 rollover_threshold: Some(95),
                 close_threshold: None,
@@ -362,14 +352,12 @@ pub mod test_utils {
                 program_owner: None,
                 forester: None,
                 additional_bytes: DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2,
-                bloom_filter_num_iters: 3,
                 input_queue_batch_size: 500,
                 output_queue_batch_size: 500,
                 input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 output_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 height: DEFAULT_BATCH_STATE_TREE_HEIGHT,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                bloom_filter_capacity: 20_000 * 8,
                 network_fee: Some(5000),
                 rollover_threshold: Some(95),
                 close_threshold: None,
@@ -382,14 +370,12 @@ pub mod test_utils {
                 program_owner: None,
                 forester: None,
                 additional_bytes: DEFAULT_CPI_CONTEXT_ACCOUNT_SIZE_V2,
-                bloom_filter_num_iters: STATE_BLOOM_FILTER_NUM_HASHES,
                 input_queue_batch_size: 15000,
                 output_queue_batch_size: 15000,
                 input_queue_zkp_batch_size: DEFAULT_ZKP_BATCH_SIZE,
                 output_queue_zkp_batch_size: DEFAULT_ZKP_BATCH_SIZE,
                 height: DEFAULT_BATCH_STATE_TREE_HEIGHT,
                 root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-                bloom_filter_capacity: STATE_BLOOM_FILTER_CAPACITY,
                 network_fee: Some(5000),
                 rollover_threshold: Some(95),
                 close_threshold: None,
@@ -397,48 +383,64 @@ pub mod test_utils {
         }
     }
 
-    pub fn get_state_merkle_tree_account_size_from_params(
-        params: InitStateTreeAccountsInstructionData,
-    ) -> usize {
-        crate::merkle_tree::get_merkle_tree_account_size(
-            params.input_queue_batch_size,
-            params.bloom_filter_capacity,
-            params.input_queue_zkp_batch_size,
-            params.root_history_capacity,
-            params.height,
-        )
-    }
-
-    pub fn assert_state_mt_zero_copy_initialized(
+    pub fn assert_state_mt_zero_copy_initialized<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    >(
         account_data: &mut [u8],
         ref_account: crate::merkle_tree_metadata::BatchedMerkleTreeMetadata,
         pubkey: &Pubkey,
     ) {
-        let account = BatchedMerkleTreeAccount::state_from_bytes(account_data, pubkey)
-            .expect("from_bytes_unchecked_mut failed");
-        _assert_mt_zero_copy_initialized::<{ light_merkle_tree_metadata::STATE_MERKLE_TREE_TYPE_V2 }>(
-            account,
-            ref_account,
-            TreeType::StateV2 as u64,
-        );
+        let account = BatchedMerkleTreeAccount::<RH, NUM_ITERS, BLOOM, ZKP>::state_from_bytes(
+            account_data,
+            pubkey,
+        )
+        .expect("from_bytes_unchecked_mut failed");
+        _assert_mt_zero_copy_initialized::<
+            { light_merkle_tree_metadata::STATE_MERKLE_TREE_TYPE_V2 },
+            RH,
+            NUM_ITERS,
+            BLOOM,
+            ZKP,
+        >(account, ref_account, TreeType::StateV2 as u64);
     }
 
-    pub fn assert_address_mt_zero_copy_initialized(
+    pub fn assert_address_mt_zero_copy_initialized<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    >(
         account_data: &mut [u8],
         ref_account: crate::merkle_tree_metadata::BatchedMerkleTreeMetadata,
         pubkey: &Pubkey,
     ) {
         use crate::merkle_tree::BatchedMerkleTreeAccount;
 
-        let account = BatchedMerkleTreeAccount::address_from_bytes(account_data, pubkey)
-            .expect("from_bytes_unchecked_mut failed");
+        let account = BatchedMerkleTreeAccount::<RH, NUM_ITERS, BLOOM, ZKP>::address_from_bytes(
+            account_data,
+            pubkey,
+        )
+        .expect("from_bytes_unchecked_mut failed");
         _assert_mt_zero_copy_initialized::<
             { light_merkle_tree_metadata::ADDRESS_MERKLE_TREE_TYPE_V2 },
+            RH,
+            NUM_ITERS,
+            BLOOM,
+            ZKP,
         >(account, ref_account, TreeType::AddressV2 as u64);
     }
 
-    fn _assert_mt_zero_copy_initialized<const TREE_TYPE: u64>(
-        account: BatchedMerkleTreeAccount,
+    fn _assert_mt_zero_copy_initialized<
+        const TREE_TYPE: u64,
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    >(
+        account: BatchedMerkleTreeAccount<RH, NUM_ITERS, BLOOM, ZKP>,
         ref_account: crate::merkle_tree_metadata::BatchedMerkleTreeMetadata,
         tree_type: u64,
     ) {
@@ -450,26 +452,26 @@ pub mod test_utils {
         assert_eq!(*account, ref_account, "metadata mismatch");
 
         assert_eq!(
-            account.root_history.capacity(),
+            account.layout.root_history.len(),
             ref_account.root_history_capacity as usize,
             "root_history_capacity mismatch"
         );
         if tree_type == TreeType::StateV2 as u64 {
             assert_eq!(
-                *account.root_history.get(0).unwrap(),
+                *account.layout.root_history.first().unwrap(),
                 light_hasher::Poseidon::zero_bytes()[ref_account.height as usize],
                 "root_history not initialized"
             );
         }
         if tree_type == TreeType::AddressV2 as u64 {
             assert_eq!(
-                *account.root_history.get(0).unwrap(),
+                *account.layout.root_history.first().unwrap(),
                 crate::constants::ADDRESS_TREE_INIT_ROOT_40,
                 "root_history not initialized"
             );
         }
         assert_eq!(
-            account.hash_chain_stores[0].capacity(),
+            account.layout.hash_chains[0].len(),
             ref_account.queue_batches.get_num_zkp_batches() as usize,
             "hash_chain_store mismatch"
         );
@@ -479,7 +481,7 @@ pub mod test_utils {
         } else {
             QueueType::AddressV2 as u64
         };
-        assert_queue_inited(queue, ref_queue, queue_type, &mut []);
+        assert_queue_inited(queue, ref_queue, queue_type, 0, 0);
     }
 
     #[derive(Debug, Clone, Copy)]

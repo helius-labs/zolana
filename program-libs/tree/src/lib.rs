@@ -1,66 +1,114 @@
 //! Clean tree types for the shielded pool.
 pub mod smt;
 
-pub use light_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
-use light_batched_merkle_tree::{
-    initialize_address_tree::{
-        get_address_merkle_tree_account_size_from_params,
-        init_batched_nullifier_merkle_tree_account,
-    },
-    merkle_tree::BatchedMerkleTreeAccount,
-};
-use pinocchio::{AccountView, Address};
-pub use smt::{SparseMerkleTree, TreeError};
+use core::mem::{size_of, MaybeUninit};
 
-const HEADER_LEN: usize = 8;
+pub use light_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+pub use smt::{TreeError, UtxoTreeLayout};
+
+use light_batched_merkle_tree::initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout;
+use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
+use light_batched_merkle_tree::zero_copy::TreeAccountLayout as NullifierLayout;
+use pinocchio::{AccountView, Address};
+use wincode::{
+    config::{ConfigCore, ZeroCopy},
+    io::Reader,
+    ReadResult, SchemaRead, TypeMeta,
+};
+
+use light_batched_merkle_tree::constants::{
+    ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
+    DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
+    DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+};
+
+const POOL_UTXO_HEIGHT: usize = 26;
+
+const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
+const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;
+const NULLIFIER_BLOOM: usize = (ADDRESS_BLOOM_FILTER_CAPACITY / 8) as usize;
+const NULLIFIER_ZKP: usize = (DEFAULT_ADDRESS_BATCH_SIZE / DEFAULT_ADDRESS_ZKP_BATCH_SIZE) as usize;
 
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
 pub const UNINITIALIZED: u8 = 0;
 pub const INITIALIZED: u8 = 1;
 pub const PAUSED: u8 = 2;
 
-pub struct TreeAccount<'a> {
-    // Account memory layout:
-    //   [0]            discriminator (u8)
-    //   [1]            state (u8: 0 uninitialized, 1 initialized, 2 paused)
-    //   [2..8]         padding
-    //   [8..8+S]       utxo_tree: sparse merkle tree
-    //                    next_index (u64 LE, 8) | root (32) | subtrees len (u8) | subtrees (len * 32)
-    //   [8+S..A]       padding (rounds S up to a multiple of 8 so nullifer_tree is 8-byte aligned)
-    //   [A..A+N]       nullifer_tree: batched address tree, N = get_address_merkle_tree_account_size_from_params
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TreeAccountLayout<
+    const UTXO_HEIGHT: usize,
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+> {
     pub discriminator: u8,
-    state: &'a mut u8,
-    _padding: [u8; 6],
-    pub utxo_tree: SparseMerkleTree<'a>,
-    pub nullifer_tree: BatchedMerkleTreeAccount<'a>,
+    pub state: u8,
+    pub _padding: [u8; 6],
+    pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
+    pub nullifier: NullifierLayout<RH, NUM_ITERS, BLOOM, ZKP>,
+}
+
+unsafe impl<
+        C: ConfigCore,
+        const UH: usize,
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    > ZeroCopy<C> for TreeAccountLayout<UH, RH, NUM_ITERS, BLOOM, ZKP>
+{
+}
+
+unsafe impl<
+        'de,
+        C: ConfigCore,
+        const UH: usize,
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    > SchemaRead<'de, C> for TreeAccountLayout<UH, RH, NUM_ITERS, BLOOM, ZKP>
+{
+    type Dst = Self;
+    const TYPE_META: TypeMeta = TypeMeta::Static {
+        size: size_of::<Self>(),
+        zero_copy: true,
+    };
+
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
+        unsafe { Ok(reader.copy_into_t(dst)?) }
+    }
+}
+
+type PoolTreeLayout = TreeAccountLayout<
+    POOL_UTXO_HEIGHT,
+    NULLIFIER_RH,
+    NULLIFIER_NUM_ITERS,
+    NULLIFIER_BLOOM,
+    NULLIFIER_ZKP,
+>;
+
+pub struct TreeAccount<'a> {
+    pubkey: [u8; 32],
+    layout: &'a mut PoolTreeLayout,
 }
 
 impl<'a> TreeAccount<'a> {
-    /// Total account byte length for the given utxo-tree height and nullifier
-    /// params. The account allocator must use this so `init` does not run out of
-    /// buffer.
-    #[inline(never)]
-    pub fn account_size(
-        utxo_tree_height: u8,
-        nullifier_params: InitAddressTreeAccountsInstructionData,
-    ) -> usize {
-        HEADER_LEN
-            + Self::utxo_tree_size(utxo_tree_height)
-            + get_address_merkle_tree_account_size_from_params(nullifier_params)
-    }
-
-    fn utxo_tree_size(utxo_tree_height: u8) -> usize {
-        SparseMerkleTree::serialized_size(utxo_tree_height as usize).next_multiple_of(8)
+    /// Total account byte length. The account allocator must use this so `init`
+    /// does not run out of buffer.
+    pub fn account_size() -> usize {
+        size_of::<PoolTreeLayout>()
     }
 
     /// Byte offset of the state (utxo) tree's current root within the account.
     /// The utxo tree starts right after the account header and stores its root
     /// at [`smt::ROOT_OFFSET`].
     pub const fn state_root_offset() -> usize {
-        HEADER_LEN + smt::ROOT_OFFSET
+        core::mem::offset_of!(PoolTreeLayout, utxo) + smt::ROOT_OFFSET
     }
 
-    #[inline(never)]
     pub fn init(
         bytes: &'a mut [u8],
         discriminator: u8,
@@ -69,71 +117,56 @@ impl<'a> TreeAccount<'a> {
         pubkey: [u8; 32],
         nullifier_params: InitAddressTreeAccountsInstructionData,
     ) -> Result<Self, TreeError> {
-        let (header, body) = bytes
-            .split_at_mut_checked(HEADER_LEN)
-            .ok_or(TreeError::BufferTooSmall)?;
-        let (discriminator_byte, state, padding) = split_header(header)?;
-        if *state != UNINITIALIZED {
+        if utxo_tree_height as usize != POOL_UTXO_HEIGHT {
+            return Err(TreeError::HeightTooLarge);
+        }
+        if nullifier_params.root_history_capacity as usize != NULLIFIER_RH
+            || (nullifier_params.input_queue_batch_size
+                / nullifier_params.input_queue_zkp_batch_size) as usize
+                != NULLIFIER_ZKP
+        {
+            return Err(TreeError::AddressInit);
+        }
+        if bytes.len() != size_of::<PoolTreeLayout>() {
+            return Err(TreeError::BufferTooSmall);
+        }
+
+        let layout: &'a mut PoolTreeLayout =
+            wincode::deserialize_mut(bytes).map_err(|_| TreeError::Deserialize)?;
+        if layout.state != UNINITIALIZED {
             return Err(TreeError::AlreadyInitialized);
         }
-        *discriminator_byte = discriminator;
-        *state = INITIALIZED;
+        layout.discriminator = discriminator;
+        layout.state = INITIALIZED;
 
-        let utxo_tree_size = Self::utxo_tree_size(utxo_tree_height);
-        let (utxo_bytes, rest) = body
-            .split_at_mut_checked(utxo_tree_size)
-            .ok_or(TreeError::BufferTooSmall)?;
-        let nullifier_size = get_address_merkle_tree_account_size_from_params(nullifier_params);
-        let nullifier_bytes = rest
-            .get_mut(..nullifier_size)
-            .ok_or(TreeError::BufferTooSmall)?;
+        layout.utxo.init(utxo_tree_height as usize)?;
 
-        SparseMerkleTree::init(utxo_bytes, utxo_tree_height as usize)?;
-        let utxo_tree = SparseMerkleTree::from_bytes_mut(utxo_bytes)?;
-
-        let nullifer_tree = init_batched_nullifier_merkle_tree_account(
+        init_batched_nullifier_merkle_tree_into_layout::<
+            NULLIFIER_RH,
+            NULLIFIER_NUM_ITERS,
+            NULLIFIER_BLOOM,
+            NULLIFIER_ZKP,
+        >(
             owner.into(),
             nullifier_params,
-            nullifier_bytes,
+            &mut layout.nullifier,
             0,
             pubkey.into(),
         )
         .map_err(|_| TreeError::AddressInit)?;
 
-        Ok(Self {
-            discriminator,
-            state,
-            _padding: padding,
-            utxo_tree,
-            nullifer_tree,
-        })
+        Ok(Self { pubkey, layout })
     }
 
     pub fn from_bytes(bytes: &'a mut [u8], pubkey: [u8; 32]) -> Result<Self, TreeError> {
-        let (header, body) = bytes
-            .split_at_mut_checked(HEADER_LEN)
-            .ok_or(TreeError::BufferTooSmall)?;
-        let (discriminator_byte, state, padding) = split_header(header)?;
-        let discriminator = *discriminator_byte;
-
-        let utxo_tree_size =
-            SparseMerkleTree::serialized_size_from_bytes(body)?.next_multiple_of(8);
-        let (utxo_bytes, nullifier_bytes) = body
-            .split_at_mut_checked(utxo_tree_size)
-            .ok_or(TreeError::BufferTooSmall)?;
-
-        let utxo_tree = SparseMerkleTree::from_bytes_mut(utxo_bytes)?;
-        let nullifer_tree =
-            BatchedMerkleTreeAccount::address_from_bytes(nullifier_bytes, &pubkey.into())
-                .map_err(|_| TreeError::AddressInit)?;
-
-        Ok(Self {
-            discriminator,
-            state,
-            _padding: padding,
-            utxo_tree,
-            nullifer_tree,
-        })
+        let layout: &'a mut PoolTreeLayout =
+            wincode::deserialize_mut(bytes).map_err(|_| TreeError::Deserialize)?;
+        if layout.utxo.subtrees_len as usize != POOL_UTXO_HEIGHT
+            || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
+        {
+            return Err(TreeError::Deserialize);
+        }
+        Ok(Self { pubkey, layout })
     }
 
     /// Load a writable tree from its account, checking program ownership, the
@@ -182,15 +215,32 @@ impl<'a> TreeAccount<'a> {
         Self::from_bytes(bytes, pubkey)
     }
 
+    pub fn utxo_tree(&mut self) -> &mut UtxoTreeLayout<POOL_UTXO_HEIGHT> {
+        &mut self.layout.utxo
+    }
+
+    pub fn nullifer_tree(
+        &mut self,
+    ) -> BatchedMerkleTreeAccount<
+        '_,
+        NULLIFIER_RH,
+        NULLIFIER_NUM_ITERS,
+        NULLIFIER_BLOOM,
+        NULLIFIER_ZKP,
+    > {
+        BatchedMerkleTreeAccount::from_layout(&self.pubkey.into(), &mut self.layout.nullifier)
+    }
+
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
-        self.utxo_tree.root_by_index(index)
+        self.layout.utxo.root_by_index(index)
     }
 
     pub fn get_nullifier_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
-        let root = self
-            .nullifer_tree
-            .get_root_by_index(usize::from(index))
-            .copied()
+        let root = *self
+            .layout
+            .nullifier
+            .root_history
+            .get(usize::from(index))
             .ok_or(TreeError::InvalidRootIndex)?;
         if root == [0u8; 32] {
             return Err(TreeError::InvalidRootIndex);
@@ -198,25 +248,68 @@ impl<'a> TreeAccount<'a> {
         Ok(root)
     }
 
+    pub fn discriminator(&self) -> u8 {
+        self.layout.discriminator
+    }
+
     pub fn state(&self) -> u8 {
-        *self.state
+        self.layout.state
     }
 
     pub fn is_paused(&self) -> bool {
-        *self.state == PAUSED
+        self.layout.state == PAUSED
     }
 
     pub fn set_paused(&mut self, paused: bool) {
-        *self.state = if paused { PAUSED } else { INITIALIZED };
+        self.layout.state = if paused { PAUSED } else { INITIALIZED };
     }
 }
 
-/// Split the 8-byte header into `(discriminator, state, padding)`, borrowing the
-/// state byte mutably so `set_paused` can write through it.
-fn split_header(header: &mut [u8]) -> Result<(&mut u8, &mut u8, [u8; 6]), TreeError> {
-    let (discriminator, rest) = header.split_first_mut().ok_or(TreeError::BufferTooSmall)?;
-    let (state, padding_slice) = rest.split_first_mut().ok_or(TreeError::BufferTooSmall)?;
-    let mut padding = [0u8; 6];
-    padding.copy_from_slice(padding_slice.get(..6).ok_or(TreeError::BufferTooSmall)?);
-    Ok((discriminator, state, padding))
+#[cfg(test)]
+mod layout_equivalence {
+    use super::*;
+
+    const HEADER_LEN: usize = 8;
+
+    fn old_utxo_size(height: usize) -> usize {
+        UtxoTreeLayout::<0>::serialized_size(height).next_multiple_of(8)
+    }
+
+    #[test]
+    fn size_and_offset_match_old_layout() {
+        let old_account_size = HEADER_LEN
+            + old_utxo_size(POOL_UTXO_HEIGHT)
+            + size_of::<
+                NullifierLayout<NULLIFIER_RH, NULLIFIER_NUM_ITERS, NULLIFIER_BLOOM, NULLIFIER_ZKP>,
+            >();
+        assert_eq!(size_of::<PoolTreeLayout>(), old_account_size);
+
+        let old_nullifier_offset = HEADER_LEN + old_utxo_size(POOL_UTXO_HEIGHT);
+        assert_eq!(
+            core::mem::offset_of!(PoolTreeLayout, nullifier),
+            old_nullifier_offset
+        );
+
+        assert_eq!(core::mem::offset_of!(PoolTreeLayout, utxo), HEADER_LEN);
+        assert_eq!(
+            size_of::<UtxoTreeLayout<POOL_UTXO_HEIGHT>>(),
+            UtxoTreeLayout::<POOL_UTXO_HEIGHT>::serialized_size(POOL_UTXO_HEIGHT)
+        );
+    }
+
+    #[test]
+    fn deserialize_mut_round_trip() {
+        let mut bytes = vec![0u8; size_of::<PoolTreeLayout>()];
+        {
+            let layout: &mut PoolTreeLayout = wincode::deserialize_mut(&mut bytes).expect("cast");
+            layout.utxo.init(POOL_UTXO_HEIGHT).unwrap();
+            let mut leaf = [0u8; 32];
+            leaf[31] = 9;
+            layout.utxo.append(leaf);
+            layout.nullifier.root_history[3] = [7u8; 32];
+        }
+        let reloaded: &mut PoolTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
+        assert_eq!(reloaded.utxo.next_index(), 1);
+        assert_eq!(reloaded.nullifier.root_history[3], [7u8; 32]);
+    }
 }

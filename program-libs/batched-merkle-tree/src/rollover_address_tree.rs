@@ -25,8 +25,12 @@ pub fn rollover_batched_address_tree_from_account_info(
         return Err(MerkleTreeMetadataError::NotReadyForRollover.into());
     }
     let new_mt_pubkey = *new_account.address();
-    let mut old_merkle_tree =
-        BatchedMerkleTreeAccount::address_from_account_info(program_id, old_account)?;
+    let mut old_merkle_tree = BatchedMerkleTreeAccount::<
+        { crate::constants::ADDRESS_TREE_DEFAULT_RH },
+        { crate::constants::ADDRESS_TREE_DEFAULT_NUM_ITERS },
+        { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
+        { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
+    >::address_from_account_info(program_id, old_account)?;
     let mut new_mt_data = new_account.try_borrow_mut()?;
     rollover_batched_address_tree(
         &mut old_merkle_tree,
@@ -54,13 +58,19 @@ pub fn rollover_batched_address_tree_from_account_info(
 ///    2.4. Mark as rolled over in this slot.
 /// 3. Initialize new batched address Merkle tree account
 ///    with the same parameters as the old account.
-pub fn rollover_batched_address_tree<'a>(
-    old_merkle_tree: &mut BatchedMerkleTreeAccount<'a>,
+pub fn rollover_batched_address_tree<
+    'a,
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+>(
+    old_merkle_tree: &mut BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>,
     new_mt_data: &'a mut [u8],
     new_mt_rent: u64,
     new_mt_pubkey: Pubkey,
     network_fee: Option<u64>,
-) -> Result<BatchedMerkleTreeAccount<'a>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError> {
     // 1. Check that old merkle tree is ready for rollover.
     batched_tree_is_ready_for_rollover(old_merkle_tree, &network_fee)?;
 
@@ -76,8 +86,13 @@ pub fn rollover_batched_address_tree<'a>(
     init_batched_address_merkle_tree_account(owner, params, new_mt_data, new_mt_rent, new_mt_pubkey)
 }
 
-fn create_batched_address_tree_init_params(
-    old_merkle_tree: &mut BatchedMerkleTreeAccount,
+fn create_batched_address_tree_init_params<
+    const RH: usize,
+    const NUM_ITERS: usize,
+    const BLOOM: usize,
+    const ZKP: usize,
+>(
+    old_merkle_tree: &mut BatchedMerkleTreeAccount<RH, NUM_ITERS, BLOOM, ZKP>,
     network_fee: Option<u64>,
 ) -> InitAddressTreeAccountsInstructionData {
     InitAddressTreeAccountsInstructionData {
@@ -93,8 +108,6 @@ fn create_batched_address_tree_init_params(
         height: old_merkle_tree.height,
         input_queue_batch_size: old_merkle_tree.queue_batches.batch_size,
         input_queue_zkp_batch_size: old_merkle_tree.queue_batches.zkp_batch_size,
-        bloom_filter_capacity: old_merkle_tree.queue_batches.bloom_filter_capacity,
-        bloom_filter_num_iters: old_merkle_tree.queue_batches.batches[0].num_iters,
         root_history_capacity: old_merkle_tree.root_history_capacity,
         network_fee,
         rollover_threshold: if_equals_none(
@@ -118,7 +131,12 @@ pub mod test_utils {
         initialize_state_tree::test_utils::assert_address_mt_zero_copy_initialized,
         merkle_tree::BatchedMerkleTreeAccount,
     };
-    pub fn assert_address_mt_roll_over(
+    pub fn assert_address_mt_roll_over<
+        const RH: usize,
+        const NUM_ITERS: usize,
+        const BLOOM: usize,
+        const ZKP: usize,
+    >(
         mut old_mt_account_data: Vec<u8>,
         mut old_ref_mt_account: crate::merkle_tree_metadata::BatchedMerkleTreeMetadata,
         old_mt_pubkey: Pubkey,
@@ -132,10 +150,13 @@ pub mod test_utils {
             .unwrap();
 
         let old_mt_account =
-            BatchedMerkleTreeAccount::address_from_bytes(&mut old_mt_account_data, &old_mt_pubkey)
-                .unwrap();
+            BatchedMerkleTreeAccount::<RH, NUM_ITERS, BLOOM, ZKP>::address_from_bytes(
+                &mut old_mt_account_data,
+                &old_mt_pubkey,
+            )
+            .unwrap();
         assert_eq!(*old_mt_account.get_metadata(), old_ref_mt_account);
-        assert_address_mt_zero_copy_initialized(
+        assert_address_mt_zero_copy_initialized::<RH, NUM_ITERS, BLOOM, ZKP>(
             &mut new_mt_account_data,
             new_ref_mt_account,
             &new_mt_pubkey,
