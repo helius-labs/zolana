@@ -106,10 +106,14 @@ impl LifecycleWorld {
         let authority = Keypair::new();
         let forester_key = Keypair::new();
         let merge_key = Keypair::new();
+        let tree_key = Keypair::new();
+        let zone_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
         rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
+        rpc.airdrop(&tree_key.pubkey(), 1_000_000_000)?;
+        rpc.airdrop(&zone_key.pubkey(), 1_000_000_000)?;
 
         // Seeds are deterministic: the injected ProgramConfig starts with
         // smart_account_index = 0; the program uses index + 1 as each seed.
@@ -119,6 +123,10 @@ impl LifecycleWorld {
         let (forester_vault, _) = smart_account_pda(&forester_settings, 0);
         let (merge_settings, _) = settings_pda(3);
         let (merge_vault, _) = smart_account_pda(&merge_settings, 0);
+        let (tree_settings, _) = settings_pda(4);
+        let (tree_vault, _) = smart_account_pda(&tree_settings, 0);
+        let (zone_settings, _) = settings_pda(5);
+        let (zone_vault, _) = smart_account_pda(&zone_settings, 0);
 
         let signer_all = |key: Pubkey| {
             vec![SmartAccountSigner {
@@ -171,19 +179,46 @@ impl LifecycleWorld {
             &payer.pubkey(),
             &[&payer],
         )?;
+        send_transaction(
+            &mut rpc,
+            &[create_smart_account_ix(
+                &payer.pubkey(),
+                &treasury,
+                4,
+                Some(protocol_vault),
+                &signer_all(tree_key.pubkey()),
+                1,
+                0,
+            )],
+            &payer.pubkey(),
+            &[&payer],
+        )?;
+        send_transaction(
+            &mut rpc,
+            &[create_smart_account_ix(
+                &payer.pubkey(),
+                &treasury,
+                5,
+                Some(protocol_vault),
+                &signer_all(zone_key.pubkey()),
+                1,
+                0,
+            )],
+            &payer.pubkey(),
+            &[&payer],
+        )?;
 
         // The shielded pool program requires the fee payer == protocol_authority,
         // so we CPI via execute_sync_ix with the protocol vault as the inner fee payer.
         rpc.airdrop(&protocol_vault, 5_000_000_000)?;
 
-        let authority_bytes = authority.pubkey().to_bytes();
         let create_config_ix = CreateProtocolConfig {
             authority: protocol_vault,
             protocol_authority: protocol_vault.to_bytes().into(),
-            tree_creation_authority: authority_bytes.into(),
+            tree_creation_authority: tree_vault.to_bytes().into(),
             tree_creation_is_permissionless: false,
             forester_authority: forester_vault.to_bytes().into(),
-            zone_creation_authority: authority_bytes.into(),
+            zone_creation_authority: zone_vault.to_bytes().into(),
             zone_creation_is_permissionless: false,
             merge_authority: merge_vault.to_bytes().into(),
         }
@@ -202,18 +237,24 @@ impl LifecycleWorld {
         )?;
 
         let tree = Keypair::new();
-        let create_tree = create_tree_instructions(
+        let create_tree_ixs = create_tree_instructions(
             &rpc,
             &payer.pubkey(),
-            &authority.pubkey(),
+            &tree_vault,
             &tree.pubkey(),
             tree_account_size() as u64,
         )?;
+        let create_tree_sync = execute_sync_ix(
+            &tree_settings,
+            0,
+            &[tree_key.pubkey()],
+            &create_tree_ixs,
+        );
         send_transaction(
             &mut rpc,
-            &create_tree,
+            &[create_tree_sync],
             &payer.pubkey(),
-            &[&payer, &tree, &authority],
+            &[&payer, &tree, &tree_key],
         )?;
 
         let tree_address = Address::new_from_array(tree.pubkey().to_bytes());
