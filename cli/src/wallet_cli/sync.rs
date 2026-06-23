@@ -45,8 +45,10 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let mut wallet = Wallet::new(clone_keypair(&material.keypair)?)?;
-    let mut sync_config = SyncWalletConfig::default();
-    sync_config.merge_owner_tag = Some(merge_owner_tag(material.funding.pubkey()));
+    let sync_config = SyncWalletConfig {
+        merge_owner_tag: Some(merge_owner_tag(material.funding.pubkey())),
+        ..Default::default()
+    };
     let report = client_sync_wallet_with_config(&mut wallet, &indexer, &assets, sync_config)?;
     Ok(SyncContext {
         material,

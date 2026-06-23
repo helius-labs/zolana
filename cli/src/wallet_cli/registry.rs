@@ -145,8 +145,10 @@ fn run_local_merge_service_loop(opts: MergeServiceRunLoopOptions) -> Result<()> 
     let mut ctx = sync_context(&opts.network.sync)?;
     let owner = ctx.material.funding.pubkey();
     let guard = MergeServicePidGuard::acquire(&owner)?;
-    let mut config = MergeServiceConfig::default();
-    config.poll_interval = std::time::Duration::from_secs(opts.interval_secs.max(1));
+    let config = MergeServiceConfig {
+        poll_interval: std::time::Duration::from_secs(opts.interval_secs.max(1)),
+        ..Default::default()
+    };
     let mut service = local_merge_service(
         &rpc,
         &indexer,
@@ -325,9 +327,11 @@ pub(super) fn run_pre_action_merges(
         return Ok(0);
     }
 
-    let mut config = MergeServiceConfig::default();
-    config.max_merges_per_run = 4;
-    config.auto_enable_registry = false;
+    let config = MergeServiceConfig {
+        max_merges_per_run: 4,
+        auto_enable_registry: false,
+        ..Default::default()
+    };
     let mut service = LocalMergeService {
         chain: rpc,
         indexer,
@@ -508,7 +512,7 @@ mod tests {
         let funding = solana_keypair::Keypair::new();
         let seed = funding.secret_bytes();
         let keypair =
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+            ShieldedKeypair::from_ed25519(seed, ViewingKey::new()).expect("ed25519 keypair");
         let material = WalletMaterial { keypair, funding };
 
         let data = register_data(&material).expect("register data");

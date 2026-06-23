@@ -223,7 +223,7 @@ where
     }
 
     fn next_merge_inputs(&self) -> Result<Option<Vec<SpendUtxo>>, ClientError> {
-        let min_inputs = self.config.min_inputs_per_merge.max(2).min(MERGE_INPUTS);
+        let min_inputs = self.config.min_inputs_per_merge.clamp(2, MERGE_INPUTS);
         let nullifier_key = self.authority.spend_nullifier_key(self.owner_pubkey)?;
         let mut by_asset: HashMap<Address, Vec<&zolana_transaction::WalletUtxo>> = HashMap::new();
         for entry in &self.wallet.utxos {
