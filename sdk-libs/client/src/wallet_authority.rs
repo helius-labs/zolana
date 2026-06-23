@@ -21,7 +21,7 @@ pub struct P256Signature {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApprovalRequest {
-    pub inbox: Pubkey,
+    pub owner_pubkey: Pubkey,
     pub summary: String,
 }
 
@@ -71,13 +71,17 @@ impl ScopedSpendWitness {
 }
 
 pub trait WalletAuthority {
-    fn shielded_address(&self, inbox: Pubkey) -> Result<ShieldedAddress, ClientError>;
+    fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
 
-    fn derive_sender_view_tag(&self, inbox: Pubkey, tx_count: u64) -> Result<ViewTag, ClientError>;
+    fn derive_sender_view_tag(
+        &self,
+        owner_pubkey: Pubkey,
+        tx_count: u64,
+    ) -> Result<ViewTag, ClientError>;
 
     fn encrypt_transfer(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender: &TransferSenderPlaintext,
         recipients: &[RecipientOutput],
@@ -89,25 +93,25 @@ pub trait WalletAuthority {
 
     fn sign_p256(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         message_hash: &[u8; 32],
     ) -> Result<P256Signature, ClientError>;
 
     fn create_spend_witness(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         request: SpendWitnessRequest,
     ) -> Result<ScopedSpendWitness, ClientError>;
 }
 
 impl WalletAuthority for ShieldedKeypair {
-    fn shielded_address(&self, _inbox: Pubkey) -> Result<ShieldedAddress, ClientError> {
+    fn shielded_address(&self, _owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
         Ok(self.shielded_address()?)
     }
 
     fn derive_sender_view_tag(
         &self,
-        _inbox: Pubkey,
+        _owner_pubkey: Pubkey,
         tx_count: u64,
     ) -> Result<ViewTag, ClientError> {
         Ok(self.get_sender_view_tag(tx_count)?)
@@ -115,7 +119,7 @@ impl WalletAuthority for ShieldedKeypair {
 
     fn encrypt_transfer(
         &self,
-        _inbox: Pubkey,
+        _owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender: &TransferSenderPlaintext,
         recipients: &[RecipientOutput],
@@ -127,7 +131,7 @@ impl WalletAuthority for ShieldedKeypair {
 
     fn sign_p256(
         &self,
-        _inbox: Pubkey,
+        _owner_pubkey: Pubkey,
         message_hash: &[u8; 32],
     ) -> Result<P256Signature, ClientError> {
         let signer = EcdsaSigningKey::from_slice(self.signing_key.secret_bytes().as_slice())
@@ -149,7 +153,7 @@ impl WalletAuthority for ShieldedKeypair {
 
     fn create_spend_witness(
         &self,
-        _inbox: Pubkey,
+        _owner_pubkey: Pubkey,
         request: SpendWitnessRequest,
     ) -> Result<ScopedSpendWitness, ClientError> {
         ScopedSpendWitness::from_nullifier_key(&request, &self.nullifier_key)

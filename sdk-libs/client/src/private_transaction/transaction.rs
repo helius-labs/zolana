@@ -227,28 +227,28 @@ impl Transaction {
 
     pub fn sign<A: WalletAuthority>(
         self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         authority: &A,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, ClientError> {
         authority.request_user_approval(ApprovalRequest {
-            inbox,
+            owner_pubkey,
             summary: format!(
                 "private transaction with {} input(s), {} recipient(s)",
                 self.inputs.len(),
                 self.recipients.len()
             ),
         })?;
-        let mut sealed = self.assemble(inbox, authority, assets, sender_view_tag)?;
+        let mut sealed = self.assemble(owner_pubkey, authority, assets, sender_view_tag)?;
         if authority
-            .shielded_address(inbox)?
+            .shielded_address(owner_pubkey)?
             .signing_pubkey
             .signature_type()?
             == SignatureType::P256
         {
             let message_hash = sealed.message_hash()?;
-            let signature = authority.sign_p256(inbox, &message_hash)?;
+            let signature = authority.sign_p256(owner_pubkey, &message_hash)?;
             sealed.p256_owner = Some(signature.into());
         }
         Ok(sealed)
@@ -256,12 +256,12 @@ impl Transaction {
 
     pub fn finalize<A: WalletAuthority>(
         self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         authority: &A,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, ClientError> {
-        self.assemble(inbox, authority, assets, sender_view_tag)
+        self.assemble(owner_pubkey, authority, assets, sender_view_tag)
     }
 
     fn spl_asset(&self) -> Result<Option<Address>, ClientError> {
@@ -344,7 +344,7 @@ impl Transaction {
 
     fn assemble<A: WalletAuthority>(
         self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         authority: &A,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
@@ -392,7 +392,7 @@ impl Transaction {
             }
         });
 
-        let sender_pubkey = authority.shielded_address(inbox)?.viewing_pubkey;
+        let sender_pubkey = authority.shielded_address(owner_pubkey)?.viewing_pubkey;
         let mut recipient_outputs = Vec::with_capacity(self.recipients.len());
         let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
         for (i, recipient) in self.recipients.iter().enumerate() {
@@ -449,8 +449,12 @@ impl Transaction {
         };
 
         let first_nullifier = self.first_nullifier()?;
-        let encrypted =
-            authority.encrypt_transfer(inbox, &first_nullifier, &sender, &recipient_outputs)?;
+        let encrypted = authority.encrypt_transfer(
+            owner_pubkey,
+            &first_nullifier,
+            &sender,
+            &recipient_outputs,
+        )?;
 
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
 

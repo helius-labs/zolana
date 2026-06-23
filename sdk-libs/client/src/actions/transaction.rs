@@ -67,7 +67,7 @@ pub struct CreateTransfer<'a, R: Rpc, A: WalletAuthority> {
     pub rpc: &'a R,
     pub wallet: &'a Wallet,
     pub authority: &'a A,
-    pub inbox: Pubkey,
+    pub owner_pubkey: Pubkey,
     pub payer: Address,
     pub recipient_owner: Pubkey,
     pub asset: Address,
@@ -79,7 +79,7 @@ pub struct CreateTransfer<'a, R: Rpc, A: WalletAuthority> {
 pub struct CreateWithdrawal<'a, A: WalletAuthority> {
     pub wallet: &'a Wallet,
     pub authority: &'a A,
-    pub inbox: Pubkey,
+    pub owner_pubkey: Pubkey,
     pub payer: Address,
     pub destination: Pubkey,
     pub asset: Address,
@@ -96,7 +96,7 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         let withdrawal = create_withdrawal(CreateWithdrawal {
             wallet: request.wallet,
             authority: request.authority,
-            inbox: request.inbox,
+            owner_pubkey: request.owner_pubkey,
             payer: request.payer,
             destination: request.recipient_owner,
             asset: request.asset,
@@ -113,16 +113,16 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
             },
         });
     };
-    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.inbox)?;
+    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
         request.authority,
-        request.inbox,
+        request.owner_pubkey,
         request.asset,
         request.amount,
     )?;
     let mut tx = Transaction::new(
-        request.authority.shielded_address(request.inbox)?,
+        request.authority.shielded_address(request.owner_pubkey)?,
         inputs,
         request.payer,
     );
@@ -132,7 +132,12 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         request.amount,
         recipient.view_tag,
     )?;
-    let signed = tx.sign(request.inbox, request.authority, request.assets, wait_tag)?;
+    let signed = tx.sign(
+        request.owner_pubkey,
+        request.authority,
+        request.assets,
+        wait_tag,
+    )?;
     Ok(CreatedTransfer {
         signed,
         wait_tag,
@@ -143,11 +148,11 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
 pub fn create_withdrawal<A: WalletAuthority>(
     request: CreateWithdrawal<'_, A>,
 ) -> Result<CreatedWithdrawal, ClientError> {
-    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.inbox)?;
+    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
         request.authority,
-        request.inbox,
+        request.owner_pubkey,
         request.asset,
         request.amount,
     )?;
@@ -157,12 +162,17 @@ pub fn create_withdrawal<A: WalletAuthority>(
         request.spl_token_account,
     )?;
     let mut tx = Transaction::new(
-        request.authority.shielded_address(request.inbox)?,
+        request.authority.shielded_address(request.owner_pubkey)?,
         inputs,
         request.payer,
     );
     tx.withdraw(request.asset, request.amount, target)?;
-    let signed = tx.sign(request.inbox, request.authority, request.assets, wait_tag)?;
+    let signed = tx.sign(
+        request.owner_pubkey,
+        request.authority,
+        request.assets,
+        wait_tag,
+    )?;
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,
@@ -208,7 +218,7 @@ fn withdrawal_target(
 fn select_inputs(
     wallet: &Wallet,
     authority: &impl WalletAuthority,
-    inbox: Pubkey,
+    owner_pubkey: Pubkey,
     asset: Address,
     amount: u64,
 ) -> Result<Vec<SpendUtxo>, ClientError> {
@@ -218,8 +228,8 @@ fn select_inputs(
         if entry.spent || entry.utxo.asset != asset {
             continue;
         }
-        let witness =
-            authority.create_spend_witness(inbox, SpendWitnessRequest::new(entry.utxo.clone()))?;
+        let witness = authority
+            .create_spend_witness(owner_pubkey, SpendWitnessRequest::new(entry.utxo.clone()))?;
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
             witness,
@@ -245,13 +255,13 @@ fn select_inputs(
 fn next_sender_view_tag(
     wallet: &Wallet,
     authority: &impl WalletAuthority,
-    inbox: Pubkey,
+    owner_pubkey: Pubkey,
 ) -> Result<ViewTag, ClientError> {
     let entry = wallet
         .viewing_key_history
         .last()
         .ok_or(ClientError::WalletViewingHistoryMissing)?;
-    authority.derive_sender_view_tag(inbox, entry.tx_count)
+    authority.derive_sender_view_tag(owner_pubkey, entry.tx_count)
 }
 
 #[cfg(test)]
@@ -347,7 +357,7 @@ mod tests {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
-            inbox: Pubkey::default(),
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: owner,
             asset: SOL_MINT,
@@ -375,7 +385,7 @@ mod tests {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
-            inbox: Pubkey::default(),
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: recipient,
             asset: SOL_MINT,
@@ -408,7 +418,7 @@ mod tests {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
-            inbox: Pubkey::default(),
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: recipient,
             asset,
@@ -442,7 +452,7 @@ mod tests {
         let result = create_withdrawal(CreateWithdrawal {
             wallet: &wallet,
             authority: &sender,
-            inbox: Pubkey::default(),
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             destination: recipient,
             asset,

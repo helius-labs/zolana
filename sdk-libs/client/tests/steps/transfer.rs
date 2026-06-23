@@ -130,11 +130,12 @@ impl TransferWorld {
         }
 
         let view_tag = sender.get_sender_view_tag(0).expect("sender view tag");
-        let inbox = Pubkey::default();
+        let owner_pubkey = Pubkey::default();
         let signed = if tx.requires_p256_owner().expect("rail") {
-            tx.sign(inbox, &sender, &assets, view_tag).expect("sign")
+            tx.sign(owner_pubkey, &sender, &assets, view_tag)
+                .expect("sign")
         } else {
-            tx.finalize(inbox, &sender, &assets, view_tag)
+            tx.finalize(owner_pubkey, &sender, &assets, view_tag)
                 .expect("finalize")
         };
 

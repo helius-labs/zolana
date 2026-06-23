@@ -54,45 +54,48 @@ pub(super) struct WalletMaterial {
 }
 
 impl WalletMaterial {
-    pub(super) fn inbox(&self) -> Pubkey {
+    pub(super) fn owner_pubkey(&self) -> Pubkey {
         self.funding.pubkey()
     }
 
-    fn check_inbox(&self, inbox: Pubkey) -> std::result::Result<(), ClientError> {
-        if inbox == self.inbox() {
+    fn check_owner_pubkey(&self, owner_pubkey: Pubkey) -> std::result::Result<(), ClientError> {
+        if owner_pubkey == self.owner_pubkey() {
             Ok(())
         } else {
             Err(ClientError::AddressResolution(format!(
-                "wallet file belongs to inbox {}, got {inbox}",
-                self.inbox()
+                "wallet file belongs to owner_pubkey {}, got {owner_pubkey}",
+                self.owner_pubkey()
             )))
         }
     }
 }
 
 impl WalletAuthority for WalletMaterial {
-    fn shielded_address(&self, inbox: Pubkey) -> std::result::Result<ShieldedAddress, ClientError> {
-        self.check_inbox(inbox)?;
+    fn shielded_address(
+        &self,
+        owner_pubkey: Pubkey,
+    ) -> std::result::Result<ShieldedAddress, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
         Ok(self.keypair.shielded_address()?)
     }
 
     fn derive_sender_view_tag(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         tx_count: u64,
     ) -> std::result::Result<ViewTag, ClientError> {
-        self.check_inbox(inbox)?;
+        self.check_owner_pubkey(owner_pubkey)?;
         Ok(self.keypair.get_sender_view_tag(tx_count)?)
     }
 
     fn encrypt_transfer(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender: &TransferSenderPlaintext,
         recipients: &[RecipientOutput],
     ) -> std::result::Result<TransferEncryptedUtxos, ClientError> {
-        self.check_inbox(inbox)?;
+        self.check_owner_pubkey(owner_pubkey)?;
         Ok(self
             .keypair
             .viewing_key
@@ -103,24 +106,24 @@ impl WalletAuthority for WalletMaterial {
         &self,
         request: ApprovalRequest,
     ) -> std::result::Result<(), ClientError> {
-        self.check_inbox(request.inbox)
+        self.check_owner_pubkey(request.owner_pubkey)
     }
 
     fn sign_p256(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         message_hash: &[u8; 32],
     ) -> std::result::Result<P256Signature, ClientError> {
-        self.check_inbox(inbox)?;
-        WalletAuthority::sign_p256(&self.keypair, inbox, message_hash)
+        self.check_owner_pubkey(owner_pubkey)?;
+        WalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
     }
 
     fn create_spend_witness(
         &self,
-        inbox: Pubkey,
+        owner_pubkey: Pubkey,
         request: SpendWitnessRequest,
     ) -> std::result::Result<ScopedSpendWitness, ClientError> {
-        self.check_inbox(inbox)?;
+        self.check_owner_pubkey(owner_pubkey)?;
         ScopedSpendWitness::from_nullifier_key(&request, &self.keypair.nullifier_key)
     }
 }
@@ -299,27 +302,27 @@ mod tests {
     }
 
     #[test]
-    fn wrong_inbox_is_rejected() {
+    fn wrong_owner_pubkey_is_rejected() {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
-        let inbox = material.inbox();
+        let owner_pubkey = material.owner_pubkey();
         let wrong = Pubkey::new_unique();
 
         let err = match material.shielded_address(wrong) {
-            Ok(_) => panic!("wrong inbox should fail"),
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
             Err(err) => err,
         };
         assert!(matches!(err, ClientError::AddressResolution(_)));
-        assert!(err.to_string().contains(&inbox.to_string()));
+        assert!(err.to_string().contains(&owner_pubkey.to_string()));
 
         material
-            .shielded_address(inbox)
-            .expect("correct inbox should succeed");
+            .shielded_address(owner_pubkey)
+            .expect("correct owner_pubkey should succeed");
     }
 
     #[test]
-    fn wrong_inbox_rejected_for_spend_witness() {
+    fn wrong_owner_pubkey_rejected_for_spend_witness() {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
@@ -334,18 +337,18 @@ mod tests {
         });
 
         let err = match material.create_spend_witness(wrong, request.clone()) {
-            Ok(_) => panic!("wrong inbox should fail"),
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
             Err(err) => err,
         };
         assert!(matches!(err, ClientError::AddressResolution(_)));
 
         material
-            .create_spend_witness(material.inbox(), request)
-            .expect("correct inbox should succeed");
+            .create_spend_witness(material.owner_pubkey(), request)
+            .expect("correct owner_pubkey should succeed");
     }
 
     #[test]
-    fn wrong_inbox_rejected_for_sign_p256() {
+    fn wrong_owner_pubkey_rejected_for_sign_p256() {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
@@ -353,13 +356,13 @@ mod tests {
         let message_hash = [7u8; 32];
 
         let err = match material.sign_p256(wrong, &message_hash) {
-            Ok(_) => panic!("wrong inbox should fail"),
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
             Err(err) => err,
         };
         assert!(matches!(err, ClientError::AddressResolution(_)));
 
         material
-            .sign_p256(material.inbox(), &message_hash)
-            .expect("correct inbox should succeed");
+            .sign_p256(material.owner_pubkey(), &message_hash)
+            .expect("correct owner_pubkey should succeed");
     }
 }

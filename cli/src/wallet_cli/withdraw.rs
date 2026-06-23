@@ -25,7 +25,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let withdrawal = create_withdrawal(CreateWithdrawal {
         wallet: &ctx.wallet,
         authority: &ctx.material,
-        inbox: ctx.material.inbox(),
+        owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         destination,
         asset,
