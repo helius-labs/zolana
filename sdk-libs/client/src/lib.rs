@@ -44,7 +44,6 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    owner_hash_from_authority, ApprovalRequest, P256Signature, ScopedSpendWitness,
-    SpendWitnessRequest, WalletAuthority,
+    ApprovalRequest, P256Signature, ScopedSpendWitness, SpendWitnessRequest, WalletAuthority,
 };
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};

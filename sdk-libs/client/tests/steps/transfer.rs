@@ -79,7 +79,9 @@ impl TransferWorld {
                     data: Data::default(),
                 };
                 match input.owner {
-                    crate::world::Owner::P256 => SpendUtxo::from((utxo, &sender)),
+                    crate::world::Owner::P256 => {
+                        SpendUtxo::from_keypair(utxo, &sender).expect("p256 spend witness")
+                    }
                     crate::world::Owner::Solana => SpendUtxo::from_nullifier_key(
                         utxo,
                         &NullifierKey::from_secret(random_blinding(&mut rng)),

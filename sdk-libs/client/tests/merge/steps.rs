@@ -69,7 +69,7 @@ impl MergeWorld {
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
-            inputs.push(SpendUtxo::from((utxo, &sender)));
+            inputs.push(SpendUtxo::from_keypair(utxo, &sender).expect("spend witness"));
         }
 
         // The plan derives the merged output and owner identity; converting it to a

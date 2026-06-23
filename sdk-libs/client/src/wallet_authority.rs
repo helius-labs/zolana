@@ -1,10 +1,9 @@
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey as EcdsaSigningKey};
 use solana_pubkey::Pubkey;
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
-use zolana_keypair::hash::owner_hash;
+use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
-use zolana_keypair::viewing_key::{random_blinding, ViewTag};
+use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{NullifierKey, P256Pubkey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
@@ -31,6 +30,16 @@ pub struct SpendWitnessRequest {
     pub utxo: Utxo,
     pub program_data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
+}
+
+impl SpendWitnessRequest {
+    pub fn new(utxo: Utxo) -> Self {
+        Self {
+            utxo,
+            program_data_hash: None,
+            zone_data_hash: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,12 +74,6 @@ pub trait WalletAuthority {
     fn shielded_address(&self, inbox: Pubkey) -> Result<ShieldedAddress, ClientError>;
 
     fn derive_sender_view_tag(&self, inbox: Pubkey, tx_count: u64) -> Result<ViewTag, ClientError>;
-
-    fn derive_deposit_blinding(
-        &self,
-        inbox: Pubkey,
-        salt: &[u8; SALT_LEN],
-    ) -> Result<[u8; BLINDING_LEN], ClientError>;
 
     fn encrypt_transfer(
         &self,
@@ -108,14 +111,6 @@ impl WalletAuthority for ShieldedKeypair {
         tx_count: u64,
     ) -> Result<ViewTag, ClientError> {
         Ok(self.get_sender_view_tag(tx_count)?)
-    }
-
-    fn derive_deposit_blinding(
-        &self,
-        _inbox: Pubkey,
-        _salt: &[u8; SALT_LEN],
-    ) -> Result<[u8; BLINDING_LEN], ClientError> {
-        Ok(random_blinding())
     }
 
     fn encrypt_transfer(
@@ -159,15 +154,4 @@ impl WalletAuthority for ShieldedKeypair {
     ) -> Result<ScopedSpendWitness, ClientError> {
         ScopedSpendWitness::from_nullifier_key(&request, &self.nullifier_key)
     }
-}
-
-pub fn owner_hash_from_authority<A: WalletAuthority>(
-    authority: &A,
-    inbox: Pubkey,
-) -> Result<[u8; 32], ClientError> {
-    let address = authority.shielded_address(inbox)?;
-    Ok(owner_hash(
-        &address.signing_pubkey,
-        &address.nullifier_pubkey,
-    )?)
 }

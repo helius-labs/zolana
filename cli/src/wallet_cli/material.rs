@@ -15,9 +15,8 @@ use zolana_client::{
     ApprovalRequest, ClientError, P256Signature, ScopedSpendWitness, SolanaRpc,
     SpendWitnessRequest, WalletAuthority,
 };
-use zolana_keypair::constants::{BLINDING_LEN, SALT_LEN};
 use zolana_keypair::shielded::ShieldedAddress;
-use zolana_keypair::viewing_key::{random_blinding, ViewTag};
+use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
@@ -84,15 +83,6 @@ impl WalletAuthority for WalletMaterial {
     ) -> std::result::Result<ViewTag, ClientError> {
         self.check_inbox(inbox)?;
         Ok(self.keypair.get_sender_view_tag(tx_count)?)
-    }
-
-    fn derive_deposit_blinding(
-        &self,
-        inbox: Pubkey,
-        _salt: &[u8; SALT_LEN],
-    ) -> std::result::Result<[u8; BLINDING_LEN], ClientError> {
-        self.check_inbox(inbox)?;
-        Ok(random_blinding())
     }
 
     fn encrypt_transfer(
@@ -266,11 +256,6 @@ pub(super) fn clone_keypair(keypair: &ShieldedKeypair) -> Result<ShieldedKeypair
     )?)
 }
 
-#[allow(dead_code)]
-fn _assert_pubkey_public(pubkey: Pubkey) -> Pubkey {
-    pubkey
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -278,6 +263,8 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    use zolana_keypair::constants::BLINDING_LEN;
 
     use super::*;
 
@@ -337,18 +324,14 @@ mod tests {
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
         let wrong = Pubkey::new_unique();
-        let request = SpendWitnessRequest {
-            utxo: zolana_transaction::Utxo {
-                owner: material.keypair.signing_pubkey(),
-                asset: zolana_transaction::SOL_MINT,
-                amount: 1,
-                blinding: [1u8; BLINDING_LEN],
-                zone_program_id: None,
-                data: zolana_transaction::Data::default(),
-            },
-            zone_data_hash: None,
-            program_data_hash: None,
-        };
+        let request = SpendWitnessRequest::new(zolana_transaction::Utxo {
+            owner: material.keypair.signing_pubkey(),
+            asset: zolana_transaction::SOL_MINT,
+            amount: 1,
+            blinding: [1u8; BLINDING_LEN],
+            zone_program_id: None,
+            data: zolana_transaction::Data::default(),
+        });
 
         let err = match material.create_spend_witness(wrong, request.clone()) {
             Ok(_) => panic!("wrong inbox should fail"),

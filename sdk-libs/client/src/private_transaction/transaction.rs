@@ -21,7 +21,7 @@ use crate::private_transaction::field::{asset_field, signed_to_field};
 use crate::private_transaction::signed_transaction::SignedTransaction;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer::TransferProver;
-use crate::prover::transfer_p256::{P256Owner, PublicAmounts, TransferP256Prover};
+use crate::prover::transfer_p256::{PublicAmounts, TransferP256Prover};
 use crate::rpc::{MerkleProof, NonInclusionProof};
 use crate::wallet_authority::{
     ApprovalRequest, ScopedSpendWitness, SpendWitnessRequest, WalletAuthority,
@@ -36,16 +36,6 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub witness: ScopedSpendWitness,
-    pub nullifier_key: Option<NullifierKey>,
-    pub zone_data_hash: Option<[u8; 32]>,
-    pub program_data_hash: Option<[u8; 32]>,
-}
-
-impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
-    fn from((utxo, keypair): (Utxo, &ShieldedKeypair)) -> Self {
-        SpendUtxo::from_keypair(utxo, keypair)
-            .expect("local shielded keypair can create spend witness")
-    }
 }
 
 impl SpendUtxo {
@@ -70,13 +60,7 @@ impl SpendUtxo {
             nullifier: [0u8; 32],
             nullifier_secret: [0u8; BLINDING_LEN],
         };
-        Self {
-            utxo,
-            witness,
-            nullifier_key: None,
-            zone_data_hash: None,
-            program_data_hash: None,
-        }
+        Self { utxo, witness }
     }
 
     pub fn is_dummy(&self) -> bool {
@@ -91,18 +75,10 @@ impl SpendUtxo {
         utxo: Utxo,
         nullifier_key: &NullifierKey,
     ) -> Result<Self, ClientError> {
-        let request = SpendWitnessRequest {
-            utxo: utxo.clone(),
-            zone_data_hash: None,
-            program_data_hash: None,
-        };
-        let local_key = NullifierKey::from_secret(*nullifier_key.secret());
+        let request = SpendWitnessRequest::new(utxo.clone());
         Ok(Self {
             utxo,
             witness: ScopedSpendWitness::from_nullifier_key(&request, nullifier_key)?,
-            nullifier_key: Some(local_key),
-            zone_data_hash: None,
-            program_data_hash: None,
         })
     }
 }
@@ -260,11 +236,7 @@ impl Transaction {
         {
             let message_hash = sealed.message_hash()?;
             let signature = authority.sign_p256(inbox, &message_hash)?;
-            sealed.p256_owner = Some(P256Owner {
-                pubkey: signature.pubkey,
-                sig_r: signature.sig_r,
-                sig_s: signature.sig_s,
-            });
+            sealed.p256_owner = Some(signature.into());
         }
         Ok(sealed)
     }

@@ -110,11 +110,7 @@ fn real_input() -> TransferSpendInput {
         .expect("one proof");
 
     let witness = ScopedSpendWitness::from_nullifier_key(
-        &SpendWitnessRequest {
-            utxo: utxo.clone(),
-            program_data_hash: None,
-            zone_data_hash: None,
-        },
+        &SpendWitnessRequest::new(utxo.clone()),
         &nullifier_key,
     )
     .expect("spend witness");
@@ -122,7 +118,6 @@ fn real_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         witness,
-        nullifier_key: Some(nullifier_key),
         proof: Some(proof),
     }
 }
@@ -147,7 +142,6 @@ fn dummy_input() -> TransferSpendInput {
             nullifier: [0u8; 32],
             nullifier_secret: [0u8; 31],
         },
-        nullifier_key: None,
         proof: None,
     }
 }

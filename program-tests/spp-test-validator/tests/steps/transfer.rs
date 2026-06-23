@@ -185,8 +185,8 @@ impl LifecycleWorld {
 
         let spends: Vec<SpendUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from((u.clone(), &from_keypair)))
-            .collect();
+            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
+            .collect::<Result<_, _>>()?;
         let mut tx =
             ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
         if let (Some(addr), Some(tag)) = (&to_address, to_view_tag) {

@@ -27,7 +27,7 @@ use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     pda,
 };
-use zolana_keypair::{random_blinding, NullifierKey, SignatureType};
+use zolana_keypair::{random_blinding, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
@@ -42,8 +42,8 @@ use crate::{
     LifecycleWorld,
 };
 
-/// What the consolidated-output assert needs after a merge: the appended output and
-/// the ciphertext that lets the owner reconstruct it, plus the consumed nullifiers.
+/// What the consolidated-output assert needs after a merge: the appended output
+/// and the ciphertext that lets the owner reconstruct it.
 pub(crate) struct MergeRecord {
     pub(crate) actor: String,
     pub(crate) asset: Address,
@@ -52,8 +52,6 @@ pub(crate) struct MergeRecord {
     pub(crate) output_blinding: [u8; 31],
     pub(crate) tx_viewing_pk: zolana_keypair::P256Pubkey,
     pub(crate) ciphertext: Vec<u8>,
-    // TODO: re-enable with the consumption check in assert_merged.
-    // pub(crate) input_nullifiers: Vec<[u8; 32]>,
 }
 
 impl LifecycleWorld {
@@ -150,17 +148,12 @@ impl LifecycleWorld {
             let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
             let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
             let witness = ScopedSpendWitness::from_nullifier_key(
-                &SpendWitnessRequest {
-                    utxo: utxo.clone(),
-                    program_data_hash: None,
-                    zone_data_hash: None,
-                },
+                &SpendWitnessRequest::new(utxo.clone()),
                 &keypair.nullifier_key,
             )?;
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 witness,
-                nullifier_key: Some(NullifierKey::from_secret(*keypair.nullifier_key.secret())),
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -181,17 +174,12 @@ impl LifecycleWorld {
                 data: Data::default(),
             };
             let witness = ScopedSpendWitness::from_nullifier_key(
-                &SpendWitnessRequest {
-                    utxo: utxo.clone(),
-                    program_data_hash: None,
-                    zone_data_hash: None,
-                },
+                &SpendWitnessRequest::new(utxo.clone()),
                 &keypair.nullifier_key,
             )?;
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 witness,
-                nullifier_key: None,
                 proof: None,
             });
         }
@@ -262,8 +250,6 @@ impl LifecycleWorld {
             output_blinding,
             tx_viewing_pk: result.tx_viewing_pk,
             ciphertext: result.ciphertext,
-            // TODO: re-enable with the consumption check in assert_merged.
-            // input_nullifiers,
         });
         Ok(())
     }
@@ -273,7 +259,7 @@ impl LifecycleWorld {
     /// the owner decrypts the published ciphertext with its viewing key, reconstructs
     /// the merged UTXO, and confirms the reconstruction hashes to the output hash the
     /// tree appended. Also confirms the indexer serves an inclusion proof for that
-    /// output and that the spent inputs' nullifiers are now consumed.
+    /// output.
     ///
     /// NOTE: this does not go through `Wallet::sync`/`assert_utxos` because the merge
     /// scheme is not yet wired into `Wallet::sync` (D-phase, in flight). When merge
@@ -320,19 +306,6 @@ impl LifecycleWorld {
 
         // The output was appended to the tree (inclusion proof is served).
         let _ = wait_for_merkle_proof(&self.indexer, self.tree_address, record.output_hash);
-        // TODO: re-enable once consumption is checkable post-merge. The merge inserts
-        // the input nullifiers into the batched queue, but `get_non_inclusion_proofs`
-        // proves non-inclusion against the nullifier *tree* (not the queue), so a
-        // valid proof still exists until a forester batches the queue (which the test
-        // does not run). Consumption is enforced on-chain by the queue bloom filter.
-        // for nullifier in &record.input_nullifiers {
-        //     let consumed = self
-        //         .indexer
-        //         .get_non_inclusion_proofs(self.tree_address, vec![*nullifier])
-        //         .map(|response| response.proofs.is_empty())
-        //         .unwrap_or(true);
-        //     assert!(consumed, "merged input nullifier should be consumed");
-        // }
         Ok(())
     }
 

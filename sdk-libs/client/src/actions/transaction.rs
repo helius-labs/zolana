@@ -218,20 +218,11 @@ fn select_inputs(
         if entry.spent || entry.utxo.asset != asset {
             continue;
         }
-        let witness = authority.create_spend_witness(
-            inbox,
-            SpendWitnessRequest {
-                utxo: entry.utxo.clone(),
-                zone_data_hash: None,
-                program_data_hash: None,
-            },
-        )?;
+        let witness =
+            authority.create_spend_witness(inbox, SpendWitnessRequest::new(entry.utxo.clone()))?;
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
             witness,
-            nullifier_key: None,
-            zone_data_hash: None,
-            program_data_hash: None,
         });
         total = total
             .checked_add(entry.utxo.amount)
