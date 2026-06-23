@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-light-batched-merkle-tree = { workspace = true }
-light-hasher = { workspace = true }
+zolana-batched-merkle-tree = { workspace = true }
+zolana-hasher = { workspace = true }
 pinocchio = { workspace = true }
 wincode = { workspace = true }

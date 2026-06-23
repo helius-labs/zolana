@@ -18,12 +18,12 @@ mod common;
 #[path = "../common/transact.rs"]
 mod transact_common;
 
-use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal},
     pda,

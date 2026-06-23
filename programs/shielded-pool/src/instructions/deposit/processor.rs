@@ -1,6 +1,6 @@
-use light_hasher::{Hasher, Poseidon};
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::deposit::CpiSignerData, DepositIxData, ZoneDepositIxData},

@@ -1,6 +1,6 @@
 #![cfg(feature = "poseidon")]
 
-use light_hasher::{
+use zolana_hasher::{
     hash_chain::{create_hash_chain_from_slice, create_two_inputs_hash_chain},
     Hasher, HasherError, Poseidon,
 };
@@ -106,9 +106,9 @@ fn test_create_hash_chain_from_slice() {
     #[cfg(feature = "poseidon")]
     {
         use ark_ff::PrimeField;
-        use light_hasher::bigint::bigint_to_be_bytes_array;
         use light_poseidon::PoseidonError;
         use num_bigint::BigUint;
+        use zolana_hasher::bigint::bigint_to_be_bytes_array;
         let modulus: BigUint = ark_bn254::Fr::MODULUS.into();
         let modulus_bytes: [u8; 32] = bigint_to_be_bytes_array(&modulus).unwrap();
         let huge_input = vec![modulus_bytes, modulus_bytes];

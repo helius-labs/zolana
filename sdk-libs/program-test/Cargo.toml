@@ -31,6 +31,6 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon"] }
+zolana-hasher = { workspace = true, features = ["poseidon"] }
 light-instruction-decoder = { workspace = true }
 zolana-merkle-tree = { workspace = true }

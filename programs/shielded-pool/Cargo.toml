@@ -21,8 +21,8 @@ ark-ff = { version = "0.5", default-features = false }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
-light-account-checks = { workspace = true }
-light-hasher = { workspace = true }
+zolana-account-checks = { workspace = true }
+zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }

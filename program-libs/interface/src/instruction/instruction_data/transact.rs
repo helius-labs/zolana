@@ -1,6 +1,6 @@
-use light_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 pub use zolana_event::OutputUtxo;
+use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 use super::deposit::CpiSignerData;
 

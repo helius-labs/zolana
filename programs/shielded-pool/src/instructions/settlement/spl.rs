@@ -1,9 +1,9 @@
+use light_program_profiler::profile;
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
     instruction::{InstructionAccount, InstructionView},
     AccountView, ProgramResult,
 };
-use light_program_profiler::profile;
 use zolana_interface::{
     SHIELDED_POOL_CPI_AUTHORITY_BUMP, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED,
     SPL_TOKEN_TRANSFER_DISCRIMINATOR,

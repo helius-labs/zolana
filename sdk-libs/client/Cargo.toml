@@ -49,7 +49,7 @@ solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

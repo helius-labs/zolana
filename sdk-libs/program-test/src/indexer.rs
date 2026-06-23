@@ -3,9 +3,9 @@
 //! Replays emitted events into an in-memory reference tree and records the
 //! wallet-facing outputs that tests query.
 
-use light_hasher::Poseidon;
 use thiserror::Error;
 use zolana_event::DepositView;
+use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_merkle_tree::MerkleTree;
 use zolana_transaction::{owner_utxo_hash, utxo_hash, Address, TransactionError};

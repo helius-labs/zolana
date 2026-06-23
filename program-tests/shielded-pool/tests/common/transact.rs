@@ -12,7 +12,6 @@ pub use transact_core::{
 };
 
 use anyhow::{Context, Result};
-use light_hasher::Poseidon;
 use num_bigint::BigUint;
 use zolana_client::private_transaction::field::{
     be, hash_chain, right_align_slice, signed_to_field, BN254_MODULUS_DEC,
@@ -20,6 +19,7 @@ use zolana_client::private_transaction::field::{
 use zolana_client::{
     TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
 };
+use zolana_hasher::Poseidon;
 use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,

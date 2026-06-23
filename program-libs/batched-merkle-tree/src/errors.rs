@@ -1,9 +1,9 @@
 use crate::verify::VerifierError;
-use light_account_checks::error::AccountError;
-use light_bloom_filter::BloomFilterError;
-use light_hasher::HasherError;
-use light_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 use thiserror::Error;
+use zolana_account_checks::error::AccountError;
+use zolana_bloom_filter::BloomFilterError;
+use zolana_hasher::HasherError;
+use zolana_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 
 use crate::zero_copy::ZeroCopyError;
 

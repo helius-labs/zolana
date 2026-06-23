@@ -1,5 +1,5 @@
 [package]
-name = "light-batched-merkle-tree"
+name = "zolana-batched-merkle-tree"
 version = "0.11.0"
 description = "Batch Merkle tree implementation."
 readme = "README.md"
@@ -16,21 +16,21 @@ ignored = [
 [features]
 default = []
 test-only = []
-log = ["dep:solana-msg", "light-merkle-tree-metadata/log"]
+log = ["dep:solana-msg", "zolana-merkle-tree-metadata/log"]
 
 [dependencies]
-light-account-checks = { workspace = true }
+zolana-account-checks = { workspace = true }
 aligned-sized = { workspace = true }
 solana-program-error = { workspace = true }
 solana-sysvar = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 solana-address = { workspace = true }
 wincode = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon", "keccak"] }
-light-bloom-filter = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+zolana-bloom-filter = { workspace = true }
 groth16-solana = { workspace = true }
 thiserror = { workspace = true }
-light-merkle-tree-metadata = { workspace = true }
+zolana-merkle-tree-metadata = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 zerocopy = { workspace = true }
@@ -38,8 +38,8 @@ zerocopy = { workspace = true }
 [dev-dependencies]
 rand = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-light-account-checks = { workspace = true, features = ["test-only"] }
-light-hasher = { workspace = true, features = ["keccak"] }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+zolana-hasher = { workspace = true, features = ["keccak"] }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

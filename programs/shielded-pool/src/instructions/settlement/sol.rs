@@ -1,8 +1,8 @@
+use light_program_profiler::profile;
 use pinocchio::{
     cpi::{Seed, Signer},
     ProgramResult,
 };
-use light_program_profiler::profile;
 use pinocchio_system::instructions::Transfer;
 use zolana_interface::{DEFAULT_SOL_INTERFACE_INDEX_SEED, SOL_INTERFACE_PDA_SEED};
 

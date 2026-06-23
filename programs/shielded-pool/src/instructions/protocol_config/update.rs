@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use light_account_checks::AccountIterator;
 use pinocchio::{AccountView, ProgramResult};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, instruction::UpdateProtocolConfigData};
 
 use crate::instructions::protocol_config::loader::load_and_validate_protocol_authority_mut;

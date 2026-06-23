@@ -1,9 +1,9 @@
-use light_account_checks::AccountView;
-use light_merkle_tree_metadata::{
+use solana_address::Address as Pubkey;
+use zolana_account_checks::AccountView;
+use zolana_merkle_tree_metadata::{
     access::AccessMetadata, fee::compute_rollover_fee, merkle_tree::MerkleTreeMetadata,
     rollover::RolloverMetadata, TreeType,
 };
-use solana_address::Address as Pubkey;
 
 use crate::{
     constants::{
@@ -487,7 +487,7 @@ fn test_init_indexed_tree_init_roots() {
     )
     .unwrap();
     assert_eq!(
-        *nullifier_account.layout.root_history.first().unwrap(),
+        *nullifier_account.layout.root_history.data.first().unwrap(),
         NULLIFIER_TREE_INIT_ROOT_40
     );
     assert_eq!(nullifier_account.next_index, 1);
@@ -508,7 +508,7 @@ fn test_init_indexed_tree_init_roots() {
     )
     .unwrap();
     assert_eq!(
-        *address_account.layout.root_history.first().unwrap(),
+        *address_account.layout.root_history.data.first().unwrap(),
         ADDRESS_TREE_INIT_ROOT_40
     );
     assert_eq!(address_account.next_index, 1);

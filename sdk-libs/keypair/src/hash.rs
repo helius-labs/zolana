@@ -1,5 +1,5 @@
-use light_hasher::{Hasher, Poseidon};
 use sha2::{Digest, Sha256};
+use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{error::KeypairError, pubkey::PublicKey};
 

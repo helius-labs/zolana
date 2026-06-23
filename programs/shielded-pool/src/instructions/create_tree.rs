@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use light_account_checks::{checks::check_owner, AccountIterator};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_account_checks::{checks::check_owner, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::CreateTreeData,

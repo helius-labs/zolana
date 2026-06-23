@@ -3,20 +3,20 @@ pub mod smt;
 
 use core::mem::{size_of, MaybeUninit};
 
-pub use light_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 pub use smt::{TreeError, UtxoTreeLayout};
+pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 
-use light_batched_merkle_tree::initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout;
-use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
-use light_batched_merkle_tree::zero_copy::TreeAccountLayout as NullifierLayout;
 use pinocchio::{AccountView, Address};
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
+use zolana_batched_merkle_tree::initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout;
+use zolana_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
+use zolana_batched_merkle_tree::zero_copy::TreeAccountLayout as NullifierLayout;
 
-use light_batched_merkle_tree::constants::{
+use zolana_batched_merkle_tree::constants::{
     ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
     DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
     DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
@@ -240,6 +240,7 @@ impl<'a> TreeAccount<'a> {
             .layout
             .nullifier
             .root_history
+            .data
             .get(usize::from(index))
             .ok_or(TreeError::InvalidRootIndex)?;
         if root == [0u8; 32] {
@@ -306,10 +307,10 @@ mod layout_equivalence {
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
             layout.utxo.append(leaf);
-            layout.nullifier.root_history[3] = [7u8; 32];
+            layout.nullifier.root_history.data[3] = [7u8; 32];
         }
         let reloaded: &mut PoolTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
         assert_eq!(reloaded.utxo.next_index(), 1);
-        assert_eq!(reloaded.nullifier.root_history[3], [7u8; 32]);
+        assert_eq!(reloaded.nullifier.root_history.data[3], [7u8; 32]);
     }
 }

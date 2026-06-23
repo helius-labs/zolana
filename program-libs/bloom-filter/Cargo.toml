@@ -1,5 +1,5 @@
 [package]
-name = "light-bloom-filter"
+name = "zolana-bloom-filter"
 version = "0.6.0"
 description = "Experimental bloom filter."
 readme = "README.md"
@@ -16,5 +16,5 @@ bytemuck = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 rand = { workspace = true }
-light-hasher = { workspace = true }
+zolana-hasher = { workspace = true }
 num-bigint = { workspace = true, features = ["rand"] }

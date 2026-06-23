@@ -7,9 +7,9 @@ use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
-use light_hasher::{Hasher, Poseidon};
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::error::ShieldedPoolError;
 
 /// `Poseidon(a, b)` of two field elements; maps a hasher failure to `verify_err`.

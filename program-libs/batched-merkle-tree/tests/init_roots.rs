@@ -4,18 +4,18 @@
 
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use light_batched_merkle_tree::constants::{
-    ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
-};
-use light_hasher::Poseidon;
 use num_bigint::BigUint;
 use num_traits::Num;
+use zolana_batched_merkle_tree::constants::{
+    ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
+};
+use zolana_hasher::Poseidon;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
 const HEIGHT: usize = 40;
 
 /// `2^248 - 1`, the highest 248-bit address; the indexed-tree sentinel used for
-/// address trees (`light_indexed_array::HIGHEST_ADDRESS_PLUS_ONE`).
+/// address trees (`zolana_indexed_array::HIGHEST_ADDRESS_PLUS_ONE`).
 const HIGHEST_ADDRESS_PLUS_ONE: &str =
     "452312848583266388373324160190187140051835877600158453279131187530910662655";
 

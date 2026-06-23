@@ -1,5 +1,5 @@
-use light_account_checks::AccountIterator;
 use pinocchio::{address::Address, error::ProgramError, AccountView};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, merge_utils::pk_field_compressed};
 use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
 

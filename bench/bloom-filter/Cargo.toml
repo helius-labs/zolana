@@ -14,7 +14,7 @@ profile-program = ["light-program-profiler/profile-program"]
 bench = ["profile-program"]
 
 [dependencies]
-light-bloom-filter = { workspace = true }
+zolana-bloom-filter = { workspace = true }
 light-program-profiler = { workspace = true, features = ["profile-program"] }
 pinocchio = { workspace = true }
 

@@ -1,6 +1,5 @@
 #![cfg(not(feature = "localnet"))]
 
-use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use light_program_profiler::mollusk::{register_profiling_syscalls, take_profiling_entries};
 use light_program_profiler::report::{CuBenchmark, ReadmeConfig};
 use mollusk_solana_account::Account as MolluskAccount;
@@ -15,6 +14,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
         Deposit, DepositSplAccounts, Transact, TransactSolWithdrawal, TransactSplWithdrawal,

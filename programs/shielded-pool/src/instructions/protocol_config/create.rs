@@ -1,5 +1,5 @@
-use light_account_checks::{checks::check_data_is_zeroed, AccountIterator};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_account_checks::{checks::check_data_is_zeroed, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::CreateProtocolConfigData,

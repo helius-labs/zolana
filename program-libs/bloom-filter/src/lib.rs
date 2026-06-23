@@ -137,9 +137,9 @@ impl<const NUM_ITERS: usize, const BYTES: usize> Default for BloomFilter<NUM_ITE
 
 #[cfg(test)]
 mod test {
-    use light_hasher::bigint::bigint_to_be_bytes_array;
     use num_bigint::{RandBigInt, ToBigUint};
     use rand::thread_rng;
+    use zolana_hasher::bigint::bigint_to_be_bytes_array;
 
     use super::*;
 

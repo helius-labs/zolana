@@ -34,7 +34,7 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
-light-hasher = { workspace = true }
+zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 num-bigint = { workspace = true }
 tokio = { workspace = true }

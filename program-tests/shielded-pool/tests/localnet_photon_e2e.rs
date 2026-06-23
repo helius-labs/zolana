@@ -12,7 +12,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use light_hasher::{sha256::Sha256BE, Hasher};
 use serial_test::serial;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -27,6 +26,7 @@ use zolana_client::{
     NonInclusionProof as IndexedNonInclusionProof, Rpc, ShieldedTransaction, SolanaRpc,
     TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
 };
+use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
         CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,

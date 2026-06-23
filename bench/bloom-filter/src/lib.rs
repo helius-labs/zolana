@@ -1,6 +1,6 @@
-use light_bloom_filter::BloomFilter;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_bloom_filter::BloomFilter;
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {

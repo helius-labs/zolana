@@ -3,7 +3,7 @@
 //! (`prover/server/circuits/spp_merge`) byte-for-byte; the client cross-checks the
 //! same vectors via `zolana-keypair`, so byte order is load-bearing.
 
-use light_hasher::{Hasher, HasherError, Poseidon};
+use zolana_hasher::{Hasher, HasherError, Poseidon};
 
 const P256_PUBKEY_LEN: usize = 33;
 

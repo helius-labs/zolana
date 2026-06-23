@@ -1,5 +1,5 @@
-use light_account_checks::AccountIterator;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, state::SplAssetRegistry, SPL_ASSET_VAULT_PDA_SEED,
     SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_PROGRAM_ID,
