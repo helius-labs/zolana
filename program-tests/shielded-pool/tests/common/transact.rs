@@ -32,7 +32,7 @@ use zolana_transaction::{OutputUtxo, Utxo};
 /// Mirror of `public_input_hash` for the SPL rail: the `public_spl_amount`
 /// (chain index 8) and `public_spl_asset_pubkey` (`hash_field(mint)`, index 9)
 /// fields carry real values instead of zero.
-#[allow(clippy::too_many_arguments)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn public_input_hash_spl(
     nullifiers: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
@@ -68,6 +68,7 @@ pub fn public_input_hash_spl(
 
 /// Mirror of `build_transfer_prover_inputs` for the SPL rail: the witness carries
 /// the real `public_spl_amount` and `public_spl_asset_pubkey` (the mint).
+#[allow(dead_code)]
 pub fn build_transfer_prover_inputs_spl(
     args: TransferProverInputsArgs,
     public_spl_amount: [u8; 32],
@@ -93,6 +94,7 @@ pub fn build_transfer_prover_inputs_spl(
 /// `external_data_hash` for an SPL settlement: zeroes `user_sol_account` and
 /// binds the user's SPL token account and the pool's SPL interface vault, exactly
 /// as the program's `settlement_accounts` does for the SPL rail.
+#[allow(dead_code)]
 pub fn external_data_hash_spl(
     transact_ix_data: &TransactIxData,
     user_spl_token_account: &[u8; 32],
@@ -162,6 +164,7 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
     })
 }
 
+#[allow(dead_code)]
 pub fn transfer_output(output: &OutputUtxo) -> Result<TransferOutput> {
     let hash = output.hash()?;
     Ok(TransferOutput {
