@@ -208,7 +208,7 @@ impl<'a> TreeAccount<'a> {
         let pubkey = account.address().to_bytes();
         // SAFETY: `account` is borrowed exclusively (`&mut`), so no other live
         // borrow of its data exists while the returned view is in scope.
-        let bytes = unsafe { account.borrow_unchecked_mut() };
+        let bytes = unsafe { account.borrow_unchecked_mut() }; // TODO: refactor this it is not necessary we can use ref mut
         if bytes.first() != Some(&discriminator) {
             return Err(TreeError::InvalidDiscriminator);
         }

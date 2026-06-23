@@ -7,6 +7,7 @@ use crate::{
 };
 
 /// Sets discriminator in account data.
+#[inline(always)]
 pub fn account_info_init<T: Discriminator>(
     account_info: &mut AccountView,
 ) -> Result<(), AccountError> {
@@ -22,6 +23,7 @@ pub fn account_info_init<T: Discriminator>(
 /// 1. account is mutable
 /// 2. account owned by program_id
 /// 3. account discriminator
+#[inline(always)]
 pub fn check_account_info_mut<T: Discriminator>(
     program_id: &[u8; 32],
     account_info: &AccountView,
@@ -34,6 +36,7 @@ pub fn check_account_info_mut<T: Discriminator>(
 /// 1. account is not mutable
 /// 2. account owned by program_id
 /// 3. account discriminator
+#[inline(always)]
 pub fn check_account_info_non_mut<T: Discriminator>(
     program_id: &[u8; 32],
     account_info: &AccountView,
@@ -42,6 +45,7 @@ pub fn check_account_info_non_mut<T: Discriminator>(
     check_account_info::<T>(program_id, account_info)
 }
 
+#[inline(always)]
 pub fn check_non_mut(account_info: &AccountView) -> Result<(), AccountError> {
     if account_info.is_writable() {
         return Err(AccountError::AccountMutable);
@@ -52,6 +56,7 @@ pub fn check_non_mut(account_info: &AccountView) -> Result<(), AccountError> {
 /// Checks:
 /// 1. account owned by program_id
 /// 2. account discriminator
+#[inline(always)]
 pub fn check_account_info<T: Discriminator>(
     program_id: &[u8; 32],
     account_info: &AccountView,
@@ -67,6 +72,7 @@ pub fn check_account_info<T: Discriminator>(
 /// Checks:
 /// 1. discriminator is uninitialized
 /// 2. sets discriminator
+#[inline(always)]
 pub fn set_discriminator<T: Discriminator>(bytes: &mut [u8]) -> Result<(), AccountError> {
     check_data_is_zeroed::<DISCRIMINATOR_LEN>(bytes)
         .map_err(|_| AccountError::AlreadyInitialized)?;
@@ -80,6 +86,7 @@ pub fn set_discriminator<T: Discriminator>(bytes: &mut [u8]) -> Result<(), Accou
 /// Checks:
 /// 1. account size is at least U
 /// 2. account discriminator
+#[inline(always)]
 pub fn check_discriminator<T: Discriminator>(bytes: &[u8]) -> Result<(), AccountError> {
     let discriminator = bytes
         .get(0..DISCRIMINATOR_LEN)
@@ -96,6 +103,7 @@ pub fn check_discriminator<T: Discriminator>(bytes: &[u8]) -> Result<(), Account
 ///
 /// `rent_minimum` is supplied by the caller (e.g. from the program's own rent
 /// sysvar access); this crate no longer depends on a sysvar.
+#[inline(always)]
 pub fn check_account_balance_is_rent_exempt(
     account_info: &AccountView,
     expected_size: usize,
@@ -112,6 +120,7 @@ pub fn check_account_balance_is_rent_exempt(
     Ok(rent_minimum)
 }
 
+#[inline(always)]
 pub fn check_signer(account_info: &AccountView) -> Result<(), AccountError> {
     if !account_info.is_signer() {
         return Err(AccountError::InvalidSigner);
@@ -119,6 +128,7 @@ pub fn check_signer(account_info: &AccountView) -> Result<(), AccountError> {
     Ok(())
 }
 
+#[inline(always)]
 pub fn check_mut(account_info: &AccountView) -> Result<(), AccountError> {
     if !account_info.is_writable() {
         return Err(AccountError::AccountNotMutable);
@@ -126,6 +136,7 @@ pub fn check_mut(account_info: &AccountView) -> Result<(), AccountError> {
     Ok(())
 }
 
+#[inline(always)]
 pub fn check_owner(owner: &[u8; 32], account_info: &AccountView) -> Result<(), AccountError> {
     if !account_info.owned_by(&Address::from(*owner)) {
         return Err(AccountError::AccountOwnedByWrongProgram);
@@ -133,6 +144,7 @@ pub fn check_owner(owner: &[u8; 32], account_info: &AccountView) -> Result<(), A
     Ok(())
 }
 
+#[inline(always)]
 pub fn check_program(
     program_id: &[u8; 32],
     account_info: &AccountView,
@@ -149,6 +161,7 @@ pub fn check_program(
 /// Check that an account is not initialized by checking it's discriminator is zeroed.
 ///
 /// Equivalent functionality to anchor #[account(zero)].
+#[inline(always)]
 pub fn check_data_is_zeroed<const N: usize>(data: &[u8]) -> Result<(), AccountError> {
     if data
         .get(..N)

@@ -1,5 +1,6 @@
 pub mod instructions;
 
+use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::tag::InstructionTag;
 
@@ -27,6 +28,7 @@ mod entrypoint {
 }
 pinocchio::address::declare_id!("8nhL4dQgcddkc8cNV5piaZ1zKGowap1XrS8EDKi4rywq");
 
+#[profile]
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],

@@ -1,4 +1,6 @@
+use light_account_checks::checks::check_signer;
 use light_hasher::{sha256::Sha256BE, Hasher};
+use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
@@ -13,11 +15,10 @@ use zolana_interface::{
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
-use light_program_profiler::profile;
 use zolana_tree::{TreeAccount, TreeError};
 
 use super::{
-    account::{validate_input_signer, TransactAccounts},
+    account::TransactAccounts,
     event::{build_transact_event, TreeWrite},
     verify::P256_OWNED_SIGNER,
 };
@@ -174,11 +175,12 @@ fn check_input_signers(
         let account = accounts
             .get(usize::from(input.eddsa_signer_index))
             .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        let owner = validate_input_signer(account)?;
+        check_signer(account)?;
         *proof_inputs
             .solana_owner_pk_hashes
             .get_mut(i)
-            .ok_or(ShieldedPoolError::InvalidTransactShape)? = solana_pk_hash(&owner)?;
+            .ok_or(ShieldedPoolError::InvalidTransactShape)? =
+            solana_pk_hash(account.address().as_array())?;
     }
     Ok(())
 }

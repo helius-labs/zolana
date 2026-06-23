@@ -1,4 +1,4 @@
-use light_account_checks::{checks::check_signer, AccountIterator};
+use light_account_checks::AccountIterator;
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
@@ -87,10 +87,4 @@ impl<'a> TransactAccounts<'a> {
             spl_mint,
         })
     }
-}
-
-#[inline(always)]
-pub fn validate_input_signer(account: &AccountView) -> Result<[u8; 32], ProgramError> {
-    check_signer(account)?;
-    Ok(account.address().to_bytes())
 }
