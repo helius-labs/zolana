@@ -1,9 +1,9 @@
-use light_account_checks::AccountIterator;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
     AccountView,
 };
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::deposit::CpiSignerData,
     state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED,

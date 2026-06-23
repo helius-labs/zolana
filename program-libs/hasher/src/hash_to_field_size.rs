@@ -91,7 +91,7 @@ pub fn hashv_to_bn254_field_size_be_const_array<const MAX_SLICES: usize>(
 ///
 /// ```
 /// # #[cfg(feature = "keccak")]
-/// # use light_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
+/// # use zolana_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
 /// #
 /// # #[cfg(feature = "keccak")]
 /// hash_to_bn254_field_size_be(&[0u8; 32]);

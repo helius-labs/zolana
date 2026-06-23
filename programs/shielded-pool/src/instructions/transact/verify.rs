@@ -1,8 +1,8 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use groth16_solana::groth16::Groth16Verifyingkey;
-use light_hasher::{Hasher, Sha256};
 use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::{Hasher, Sha256};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::TransactIxDataRef,

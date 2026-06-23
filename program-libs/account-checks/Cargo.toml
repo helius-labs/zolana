@@ -1,5 +1,5 @@
 [package]
-name = "light-account-checks"
+name = "zolana-account-checks"
 version = "0.8.0"
 description = "Checks for solana accounts."
 readme = "README.md"

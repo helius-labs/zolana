@@ -7,7 +7,6 @@
 mod transact_common;
 
 use anyhow::anyhow;
-use light_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -18,6 +17,7 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
         tag, CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,

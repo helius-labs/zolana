@@ -17,12 +17,9 @@
 //! |--------|-------------|
 //! | [`batch`] | Batch append and update operations |
 //! | [`merkle_tree`] | Batched Merkle tree account struct |
-//! | [`queue`] | Queue account for batched leaves |
+//! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
-//! | [`initialize_state_tree`] | Initialize a batched state tree |
 //! | [`initialize_address_tree`] | Initialize a batched address tree |
-//! | [`rollover_state_tree`] | Roll over a full state tree |
-//! | [`rollover_address_tree`] | Roll over a full address tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`errors`] | Error types for batch operations |
 //!
@@ -176,15 +173,13 @@ pub mod batch;
 pub mod constants;
 pub mod errors;
 pub mod initialize_address_tree;
-pub mod initialize_state_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;
 pub mod queue;
 pub mod queue_batch_metadata;
 pub(crate) mod rent;
-pub mod rollover_address_tree;
-pub mod rollover_state_tree;
 pub mod verify;
+pub mod zero_copy;
 
 // Use the appropriate BorshDeserialize and BorshSerialize based on feature
 use borsh::{BorshDeserialize, BorshSerialize};

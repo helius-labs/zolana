@@ -18,11 +18,11 @@ mod common;
 #[path = "../common/transact_core.rs"]
 mod transact_common;
 
-use light_hasher::{sha256::Sha256BE, Hasher};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
+use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::instruction::Transact;
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;

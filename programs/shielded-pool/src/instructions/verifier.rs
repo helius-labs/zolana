@@ -7,8 +7,9 @@ use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
-use light_hasher::{Hasher, Poseidon};
+use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::error::ShieldedPoolError;
 
 /// `Poseidon(a, b)` of two field elements; maps a hasher failure to `verify_err`.
@@ -62,6 +63,7 @@ fn right_align_16(bytes: &[u8]) -> [u8; 32] {
 /// single `public_input_hash`. Runs the BSB22 commitment pairing when the VK
 /// carries a commitment, the vanilla pairing otherwise.
 #[inline(never)]
+#[profile]
 pub fn verify_groth16(
     proof: &[u8; 192],
     public_input_hash: [u8; 32],

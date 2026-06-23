@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use light_account_checks::AccountIterator;
 use pinocchio::{AccountView, ProgramResult};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -30,7 +30,7 @@ pub fn process_batch_update_nullifier_tree(
         .map_err(ShieldedPoolError::from)?;
 
     if tree
-        .nullifer_tree
+        .nullifer_tree()
         .update_tree_from_address_queue(instruction)
         .is_err()
     {

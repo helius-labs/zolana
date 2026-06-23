@@ -1,9 +1,11 @@
-use light_hasher::{sha256::Sha256BE, Hasher};
+use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use zolana_account_checks::checks::check_signer;
+use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
@@ -16,7 +18,7 @@ use zolana_interface::{
 use zolana_tree::{TreeAccount, TreeError};
 
 use super::{
-    account::{validate_input_signer, TransactAccounts},
+    account::TransactAccounts,
     event::{build_transact_event, TreeWrite},
     verify::P256_OWNED_SIGNER,
 };
@@ -28,6 +30,7 @@ use crate::instructions::{
 };
 
 #[inline(never)]
+#[profile]
 pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix =
         TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
@@ -111,6 +114,7 @@ fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8;
     }
 }
 
+#[profile]
 fn apply_tree(
     tree: &mut TreeAccount<'_>,
     ix: &TransactIxDataRef<'_>,
@@ -120,7 +124,7 @@ fn apply_tree(
 ) -> Result<TreeWrite, ProgramError> {
     let error = ShieldedPoolError::InvalidTransactShape;
     let mut inputs = Vec::with_capacity(ix.inputs.len());
-    let nullifier_seq_base = tree.nullifer_tree.queue_batches.next_index;
+    let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     for (i, input) in ix.inputs.iter().enumerate() {
         *proof_inputs.utxo_roots.get_mut(i).ok_or(error)? = tree
             .get_utxo_tree_root(input.utxo_tree_root_index)
@@ -128,7 +132,7 @@ fn apply_tree(
         *proof_inputs.nullifier_tree_roots.get_mut(i).ok_or(error)? = tree
             .get_nullifier_tree_root(input.nullifier_tree_root_index)
             .map_err(tree_error)?;
-        tree.nullifer_tree
+        tree.nullifer_tree()
             .insert_address_into_queue(&input.nullifier_hash, &current_slot)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
@@ -139,10 +143,8 @@ fn apply_tree(
     }
 
     // Leaf index the first output lands at; the rest follow sequentially.
-    let first_output_leaf_index = tree.utxo_tree.next_index();
-    for utxo_hash in &ix.output_utxo_hashes {
-        tree.utxo_tree.append(*utxo_hash);
-    }
+    let first_output_leaf_index = tree.utxo_tree().next_index();
+    tree.utxo_tree().append_batch(ix.output_utxo_hashes.iter());
     Ok(TreeWrite {
         inputs,
         first_output_leaf_index,
@@ -160,6 +162,7 @@ fn tree_error(e: TreeError) -> ProgramError {
 
 // Validate each Ed25519 input owner is a signer and record its `pk_field`
 // (`Poseidon(low, high)`) in `proof_inputs`; P256-owned inputs stay zero.
+#[profile]
 fn check_input_signers(
     accounts: &[AccountView],
     inputs: &[InputUtxo],
@@ -172,11 +175,12 @@ fn check_input_signers(
         let account = accounts
             .get(usize::from(input.eddsa_signer_index))
             .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        let owner = validate_input_signer(account)?;
+        check_signer(account)?;
         *proof_inputs
             .solana_owner_pk_hashes
             .get_mut(i)
-            .ok_or(ShieldedPoolError::InvalidTransactShape)? = solana_pk_hash(&owner)?;
+            .ok_or(ShieldedPoolError::InvalidTransactShape)? =
+            solana_pk_hash(account.address().as_array())?;
     }
     Ok(())
 }

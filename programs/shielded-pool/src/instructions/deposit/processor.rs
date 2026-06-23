@@ -1,5 +1,6 @@
-use light_hasher::{Hasher, Poseidon};
+use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::deposit::CpiSignerData, DepositIxData, ZoneDepositIxData},
@@ -32,6 +33,7 @@ pub(crate) struct DepositParams {
     pub zone_data: Option<Vec<u8>>,
 }
 
+#[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data =
         DepositIxData::deserialize(data).map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
@@ -146,8 +148,8 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         let mut tree =
             TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
-        let index = tree.utxo_tree.next_index();
-        tree.utxo_tree.append(utxo_hash);
+        let index = tree.utxo_tree().next_index();
+        tree.utxo_tree().append(utxo_hash);
         index
     };
 

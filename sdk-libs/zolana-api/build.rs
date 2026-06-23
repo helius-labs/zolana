@@ -16,7 +16,19 @@ fn generate() {
 
     println!("cargo::rerun-if-changed={}", spec_path.display());
 
-    let spec_content = fs::read_to_string(&spec_path).expect("Failed to read OpenAPI spec");
+    // Regeneration is best-effort: when the Photon spec is not available
+    // (e.g. building with `--all-features` without a Photon checkout) keep the
+    // committed `src/codegen.rs` instead of failing the build.
+    let spec_content = match fs::read_to_string(&spec_path) {
+        Ok(content) => content,
+        Err(err) => {
+            println!(
+                "cargo::warning=zolana-api: skipping codegen, cannot read OpenAPI spec at {}: {err}",
+                spec_path.display()
+            );
+            return;
+        }
+    };
     let mut spec: serde_yaml::Value =
         serde_yaml::from_str(&spec_content).expect("Failed to parse OpenAPI spec");
 

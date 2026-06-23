@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
     instruction::{InstructionAccount, InstructionView},
@@ -43,6 +44,7 @@ impl SplTransferCpi<'_> {
 }
 
 #[inline(never)]
+#[profile]
 pub fn settle_spl(settlement: &SettlementAccountsSpl<'_>, amount: u64) -> ProgramResult {
     match settlement.cpi_authority {
         Some(cpi_authority) => {

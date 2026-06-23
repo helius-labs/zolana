@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use pinocchio::{
     cpi::{Seed, Signer},
     ProgramResult,
@@ -8,6 +9,7 @@ use zolana_interface::{DEFAULT_SOL_INTERFACE_INDEX_SEED, SOL_INTERFACE_PDA_SEED}
 use super::account::SettlementAccountsSol;
 
 #[inline(never)]
+#[profile]
 pub fn settle_sol(
     settlement: &SettlementAccountsSol<'_>,
     amount: u64,

@@ -14,7 +14,7 @@ ctr = { workspace = true }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
-light-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 rand = { workspace = true }
 thiserror = { workspace = true }
 

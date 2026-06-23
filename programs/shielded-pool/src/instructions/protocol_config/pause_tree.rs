@@ -1,5 +1,5 @@
-use light_account_checks::AccountIterator;
 use pinocchio::{AccountView, ProgramResult};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::PauseTreeData,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,

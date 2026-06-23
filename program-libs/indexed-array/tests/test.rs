@@ -1,13 +1,13 @@
 use std::{cmp::Ordering, str::FromStr};
 
-use light_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
-use light_indexed_array::{
+use num_bigint::{BigUint, RandBigInt, ToBigUint};
+use rand::thread_rng;
+use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
+use zolana_indexed_array::{
     array::{IndexedArray, IndexedElement},
     errors::IndexedArrayError,
     HIGHEST_ADDRESS_PLUS_ONE,
 };
-use num_bigint::{BigUint, RandBigInt, ToBigUint};
-use rand::thread_rng;
 
 #[test]
 pub fn hash_reference_indexed_element() {

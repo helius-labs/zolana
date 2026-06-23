@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use light_account_checks::{checks::check_owner, AccountIterator};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_account_checks::{checks::check_owner, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::CreateTreeData,
@@ -29,7 +29,7 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
     drop(config);
     check_owner(crate::ID.as_array(), tree)?;
 
-    if tree.data_len() != TreeAccount::account_size(STATE_HEIGHT as u8, address_tree_params()) {
+    if tree.data_len() != TreeAccount::account_size() {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
 
