@@ -289,14 +289,10 @@ impl LifecycleWorld {
             indexed_output.output_context.hash, record.output_hash,
             "indexed merge output hash"
         );
-        // Older Photon builds omit tree/leaf_index on merge output slots; inclusion
-        // is verified below via `wait_for_merkle_proof`.
-        if indexed_output.output_context.tree != solana_address::Address::default() {
-            assert_eq!(
-                indexed_output.output_context.tree, self.tree_address,
-                "indexed merge output tree"
-            );
-        }
+        assert_eq!(
+            indexed_output.output_context.tree, self.tree_address,
+            "indexed merge output tree"
+        );
 
         let payload = &indexed_output.payload;
         if payload.len() != 105 || payload.first() != Some(&MERGE) {
