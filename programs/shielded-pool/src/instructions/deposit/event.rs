@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use pinocchio::ProgramResult;
 use zolana_interface::{
     event::{
@@ -20,6 +21,7 @@ pub(crate) struct ProoflessOutputCtx {
     pub output_tree: [u8; 32],
 }
 
+#[profile]
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
     let output_data = encode_output_data(&OutputData::Proofless(ProoflessOutput {
         owner: d.owner,

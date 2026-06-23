@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
@@ -20,6 +21,7 @@ pub struct TransactAccounts<'a> {
 }
 
 impl<'a> TransactAccounts<'a> {
+    #[profile]
     pub fn validate_and_parse(
         program_id: &Address,
         accounts: &'a mut [AccountView],

@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use zolana_interface::{
     event::{DepositWithdraw, GeneralEvent, Input},
     instruction::{instruction_data::transact::TransactIxDataRef, OutputUtxo},
@@ -11,6 +12,7 @@ pub struct TreeWrite {
     pub output_tree: [u8; 32],
 }
 
+#[profile]
 pub fn build_transact_event(
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &TransactProofInputs,
