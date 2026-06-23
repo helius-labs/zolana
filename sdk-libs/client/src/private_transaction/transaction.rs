@@ -36,6 +36,12 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub witness: ScopedSpendWitness,
+    /// Program data hash committed by this input UTXO. Current transfer assembly
+    /// only supports clean/default inputs, but the field belongs with the selected
+    /// input so future program-data spends can plumb it into the proof witness.
+    pub program_data_hash: Option<[u8; 32]>,
+    /// Zone data hash committed by this input UTXO. See `program_data_hash`.
+    pub zone_data_hash: Option<[u8; 32]>,
 }
 
 impl SpendUtxo {
@@ -60,7 +66,12 @@ impl SpendUtxo {
             nullifier: [0u8; 32],
             nullifier_secret: [0u8; BLINDING_LEN],
         };
-        Self { utxo, witness }
+        Self {
+            utxo,
+            witness,
+            program_data_hash: None,
+            zone_data_hash: None,
+        }
     }
 
     pub fn is_dummy(&self) -> bool {
@@ -79,6 +90,8 @@ impl SpendUtxo {
         Ok(Self {
             utxo,
             witness: ScopedSpendWitness::from_nullifier_key(&request, nullifier_key)?,
+            program_data_hash: None,
+            zone_data_hash: None,
         })
     }
 }

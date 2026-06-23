@@ -223,6 +223,8 @@ fn select_inputs(
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
             witness,
+            program_data_hash: None,
+            zone_data_hash: None,
         });
         total = total
             .checked_add(entry.utxo.amount)
