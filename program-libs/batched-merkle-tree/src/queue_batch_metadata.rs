@@ -54,8 +54,10 @@ impl QueueBatches {
         self.batch_size / self.zkp_batch_size
     }
 
-    pub fn get_current_batch(&self) -> &Batch {
-        &self.batches[self.currently_processing_batch_index as usize]
+    pub fn get_current_batch(&self) -> Result<&Batch, BatchedMerkleTreeError> {
+        self.batches
+            .get(self.currently_processing_batch_index as usize)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)
     }
 
     pub fn get_current_batch_index(&self) -> usize {
@@ -70,16 +72,23 @@ impl QueueBatches {
         }
     }
 
-    pub fn get_previous_batch(&self) -> &Batch {
-        &self.batches[self.get_previous_batch_index()]
+    pub fn get_previous_batch(&self) -> Result<&Batch, BatchedMerkleTreeError> {
+        self.batches
+            .get(self.get_previous_batch_index())
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_previous_batch_mut(&mut self) -> &mut Batch {
-        &mut self.batches[self.get_previous_batch_index()]
+    pub fn get_previous_batch_mut(&mut self) -> Result<&mut Batch, BatchedMerkleTreeError> {
+        let index = self.get_previous_batch_index();
+        self.batches
+            .get_mut(index)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_current_batch_mut(&mut self) -> &mut Batch {
-        &mut self.batches[self.currently_processing_batch_index as usize]
+    pub fn get_current_batch_mut(&mut self) -> Result<&mut Batch, BatchedMerkleTreeError> {
+        self.batches
+            .get_mut(self.currently_processing_batch_index as usize)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)
     }
 
     /// Validates that the batch size is properly divisible by the ZKP batch size.
@@ -144,12 +153,15 @@ impl QueueBatches {
     }
 
     /// Increment the currently_processing_batch_index if current state is BatchState::Full.
-    pub fn increment_currently_processing_batch_index_if_full(&mut self) {
-        let state = self.get_current_batch().get_state();
+    pub fn increment_currently_processing_batch_index_if_full(
+        &mut self,
+    ) -> Result<(), BatchedMerkleTreeError> {
+        let state = self.get_current_batch()?.get_state();
         if state == BatchState::Full {
             self.currently_processing_batch_index =
                 (self.currently_processing_batch_index + 1) % self.num_batches;
         }
+        Ok(())
     }
 
     pub fn init(
@@ -188,31 +200,43 @@ fn test_increment_currently_processing_batch_index_if_full() {
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_full()
         .unwrap();
     // increment currently_processing_batch_index
-    metadata.increment_currently_processing_batch_index_if_full();
+    metadata
+        .increment_currently_processing_batch_index_if_full()
+        .unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 1);
     assert_eq!(metadata.pending_batch_index, 0);
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_full()
         .unwrap();
     // increment currently_processing_batch_index
-    metadata.increment_currently_processing_batch_index_if_full();
+    metadata
+        .increment_currently_processing_batch_index_if_full()
+        .unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_inserted()
         .unwrap();
     // try incrementing next full batch index with state not full
-    metadata.increment_currently_processing_batch_index_if_full();
+    metadata
+        .increment_currently_processing_batch_index_if_full()
+        .unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_fill(None)
         .unwrap();
-    metadata.increment_currently_processing_batch_index_if_full();
+    metadata
+        .increment_currently_processing_batch_index_if_full()
+        .unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
 }
 
@@ -251,18 +275,26 @@ fn test_get_num_zkp_batches() {
 #[test]
 fn test_get_current_batch() {
     let mut metadata = QueueBatches::new_output_queue(10, 2).unwrap();
-    assert_eq!(metadata.get_current_batch().get_state(), BatchState::Fill);
+    assert_eq!(
+        metadata.get_current_batch().unwrap().get_state(),
+        BatchState::Fill
+    );
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_full()
         .unwrap();
-    assert_eq!(metadata.get_current_batch().get_state(), BatchState::Full);
+    assert_eq!(
+        metadata.get_current_batch().unwrap().get_state(),
+        BatchState::Full
+    );
     metadata
         .get_current_batch_mut()
+        .unwrap()
         .advance_state_to_inserted()
         .unwrap();
     assert_eq!(
-        metadata.get_current_batch().get_state(),
+        metadata.get_current_batch().unwrap().get_state(),
         BatchState::Inserted
     );
 }
@@ -273,33 +305,33 @@ fn test_get_current_batch_index_and_batch() {
     {
         let previous_batch_index = metadata.get_previous_batch_index();
         assert_eq!(previous_batch_index, 1);
-        let previous_batch = metadata.get_previous_batch();
+        let previous_batch = metadata.get_previous_batch().unwrap();
         assert_eq!(previous_batch.start_index, 10);
-        let previous_batch = metadata.get_previous_batch_mut();
+        let previous_batch = metadata.get_previous_batch_mut().unwrap();
         assert_eq!(previous_batch.start_index, 10);
     }
 
     {
         metadata.currently_processing_batch_index = 1;
         assert_eq!(metadata.get_previous_batch_index(), 0);
-        let previous_batch = metadata.get_previous_batch();
+        let previous_batch = metadata.get_previous_batch().unwrap();
         assert_eq!(previous_batch.start_index, 0);
-        let previous_batch = metadata.get_previous_batch_mut();
+        let previous_batch = metadata.get_previous_batch_mut().unwrap();
         assert_eq!(previous_batch.start_index, 0);
     }
     {
         metadata.currently_processing_batch_index = 0;
-        let previous_batch = metadata.get_previous_batch();
+        let previous_batch = metadata.get_previous_batch().unwrap();
         assert_eq!(previous_batch.start_index, 10);
-        let previous_batch = metadata.get_previous_batch_mut();
+        let previous_batch = metadata.get_previous_batch_mut().unwrap();
         assert_eq!(previous_batch.start_index, 10);
     }
     {
         metadata.currently_processing_batch_index = 1;
         assert_eq!(metadata.get_previous_batch_index(), 0);
-        let previous_batch = metadata.get_previous_batch();
+        let previous_batch = metadata.get_previous_batch().unwrap();
         assert_eq!(previous_batch.start_index, 0);
-        let previous_batch = metadata.get_previous_batch_mut();
+        let previous_batch = metadata.get_previous_batch_mut().unwrap();
         assert_eq!(previous_batch.start_index, 0);
     }
 }

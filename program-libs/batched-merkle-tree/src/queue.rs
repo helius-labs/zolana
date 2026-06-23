@@ -28,7 +28,7 @@ pub(crate) fn insert_into_current_queue_batch<const NUM_ITERS: usize, const BYTE
     current_slot: &u64,
 ) -> Result<(), BatchedMerkleTreeError> {
     let batch_index = batch_metadata.currently_processing_batch_index as usize;
-    let current_batch = batch_metadata.get_current_batch_mut();
+    let current_batch = batch_metadata.get_current_batch_mut()?;
     // 1. Check that the current batch is ready (BatchState::Fill).
     //      1.1. If the current batch is inserted, clear the batch.
     {
@@ -99,7 +99,7 @@ pub(crate) fn insert_into_current_queue_batch<const NUM_ITERS: usize, const BYTE
     };
 
     // 3. If batch is full, increment currently_processing_batch_index.
-    batch_metadata.increment_currently_processing_batch_index_if_full();
+    batch_metadata.increment_currently_processing_batch_index_if_full()?;
 
     Ok(())
 }

@@ -293,7 +293,11 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         // The initial root is written at index 0 and the write head advanced to 1.
         let init_root = if tree_type == TreeType::StateV2 {
             // Root for binary Merkle tree with all zero leaves.
-            Some(zolana_hasher::Poseidon::zero_bytes()[height as usize])
+            Some(
+                *zolana_hasher::Poseidon::zero_bytes()
+                    .get(height as usize)
+                    .ok_or(MerkleTreeMetadataError::InvalidHeight)?,
+            )
         } else if tree_type == TreeType::AddressV2 {
             // Sanity check since init value is hardcoded.
             #[cfg(not(test))]
@@ -389,8 +393,12 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         instruction_data: InstructionDataBatchNullifyInputs,
     ) -> Result<BatchEvent, BatchedMerkleTreeError> {
         let pending_batch_index = self.queue_batches.pending_batch_index as usize;
-        let first_ready_zkp_batch_index =
-            self.queue_batches.batches[pending_batch_index].get_first_ready_zkp_batch()?;
+        let first_ready_zkp_batch_index = self
+            .queue_batches
+            .batches
+            .get(pending_batch_index)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+            .get_first_ready_zkp_batch()?;
         let new_root = instruction_data.new_root;
         let circuit_batch_size = self.queue_batches.zkp_batch_size;
 
@@ -437,7 +445,11 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             let root_history_capacity = self.root_history_capacity;
             let sequence_number = self.sequence_number;
             // 3. Mark batch as inserted in the merkle tree.
-            let pending_batch_state = self.queue_batches.batches[pending_batch_index]
+            let pending_batch_state = self
+                .queue_batches
+                .batches
+                .get_mut(pending_batch_index)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree(
                     sequence_number,
                     root_index,
@@ -664,10 +676,13 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         let batch_size = self.queue_batches.batch_size;
         let previous_pending_batch_index = if 0 == current_batch { 1 } else { 0 };
         let current_batch_is_half_full = {
-            let current_batch_is_not_inserted =
-                self.queue_batches.batches[current_batch].get_state() != BatchState::Inserted;
-            let num_inserted_elements =
-                self.queue_batches.batches[current_batch].get_num_inserted_elements();
+            let current = self
+                .queue_batches
+                .batches
+                .get(current_batch)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
+            let current_batch_is_not_inserted = current.get_state() != BatchState::Inserted;
+            let num_inserted_elements = current.get_num_inserted_elements();
             let current_batch_is_half_full = num_inserted_elements >= batch_size / 2;
             current_batch_is_half_full && current_batch_is_not_inserted
         };
