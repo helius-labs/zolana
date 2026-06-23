@@ -126,18 +126,14 @@ fn write_program_config_fixture(account_dir: &str) {
     );
 
     std::fs::create_dir_all(account_dir).expect("create smart account account dir");
-    std::fs::write(
-        format!("{account_dir}/squads_program_config.json"),
-        json,
-    )
-    .expect("write squads program config fixture");
+    std::fs::write(format!("{account_dir}/squads_program_config.json"), json)
+        .expect("write squads program config fixture");
 }
 
 fn base64_encode(input: &[u8]) -> String {
-    const CHARS: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let ch = |idx: u32| char::from(*CHARS.get((idx & 0x3F) as usize).expect("base64 index"));
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b0 = u32::from(*chunk.first().unwrap_or(&0));
         let b1 = u32::from(*chunk.get(1).unwrap_or(&0));

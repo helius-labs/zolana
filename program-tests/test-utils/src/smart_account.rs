@@ -35,10 +35,8 @@ pub fn program_config_pda() -> (Pubkey, u8) {
 /// Deterministic non-executable treasury for tests. The ProgramConfig fixture
 /// stores this address so `create_smart_account` passes its treasury key check.
 pub fn treasury_pda() -> Pubkey {
-    let (pda, _) = Pubkey::find_program_address(
-        &[SEED_PREFIX, b"treasury"],
-        &SMART_ACCOUNT_PROGRAM_ID,
-    );
+    let (pda, _) =
+        Pubkey::find_program_address(&[SEED_PREFIX, b"treasury"], &SMART_ACCOUNT_PROGRAM_ID);
     pda
 }
 
