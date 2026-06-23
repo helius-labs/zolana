@@ -72,6 +72,8 @@ pub struct LifecycleWorld {
     /// The most recent merge, kept so the consolidated-output assert can reconstruct
     /// and verify the merged UTXO.
     pub(crate) last_merge: Option<crate::steps::merge::MergeRecord>,
+    pub(crate) protocol_settings: Pubkey,
+    pub(crate) protocol_vault: Pubkey,
     pub(crate) merge_settings: Pubkey,
     pub(crate) merge_vault: Pubkey,
     pub(crate) merge_key: Keypair,
@@ -230,6 +232,8 @@ impl LifecycleWorld {
             last_rail: None,
             last_transact: None,
             last_merge: None,
+            protocol_settings,
+            protocol_vault,
             merge_settings,
             merge_vault,
             merge_key,
