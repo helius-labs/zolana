@@ -1,11 +1,9 @@
-use light_merkle_tree_metadata::{errors::MerkleTreeMetadataError, QueueType};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     batch::{Batch, BatchState},
     constants::NUM_BATCHES,
     errors::BatchedMerkleTreeError,
-    queue::BatchedQueueMetadata,
     BorshDeserialize, BorshSerialize,
 };
 
@@ -33,6 +31,11 @@ pub struct QueueBatches {
     /// Number of elements in a ZKP batch.
     /// A batch has one or more ZKP batches.
     pub zkp_batch_size: u64,
+    /// Bloom filter capacity in bits. Matches upstream's `bloom_filter_capacity`
+    /// at the same struct offset. Set at init from the `BLOOM` byte size so that
+    /// indexers parsing our account with the upstream crate size the bloom
+    /// region correctly (`bloom_filter_capacity / 8` bytes).
+    pub bloom_filter_capacity: u64,
     /// Batch elements are currently inserted in.
     pub currently_processing_batch_index: u64,
     /// Next batch to be inserted into the tree.
@@ -99,6 +102,7 @@ impl QueueBatches {
         Ok(QueueBatches {
             num_batches: NUM_BATCHES as u64,
             zkp_batch_size,
+            bloom_filter_capacity: 0,
             batch_size,
             currently_processing_batch_index: 0,
             pending_batch_index: 0,
@@ -120,6 +124,7 @@ impl QueueBatches {
         Ok(QueueBatches {
             num_batches: NUM_BATCHES as u64,
             zkp_batch_size,
+            bloom_filter_capacity: 0,
             batch_size,
             currently_processing_batch_index: 0,
             pending_batch_index: 0,
@@ -157,48 +162,6 @@ impl QueueBatches {
         self.batch_size = batch_size;
         self.zkp_batch_size = zkp_batch_size;
         Ok(())
-    }
-
-    pub fn get_size_parameters(
-        &self,
-        queue_type: u64,
-    ) -> Result<(usize, usize, usize), MerkleTreeMetadataError> {
-        let num_batches = self.num_batches as usize;
-        // Input queues don't store values.
-        let num_value_stores = if queue_type == QueueType::OutputStateV2 as u64 {
-            num_batches
-        } else if queue_type == QueueType::InputStateV2 as u64 {
-            0
-        } else {
-            return Err(MerkleTreeMetadataError::InvalidQueueType);
-        };
-        // Output queues don't use bloom filters.
-        let num_stores = if queue_type == QueueType::OutputStateV2 as u64 {
-            0
-        } else {
-            num_batches
-        };
-        Ok((num_value_stores, num_stores, num_batches))
-    }
-
-    pub fn queue_account_size(&self, queue_type: u64) -> Result<usize, BatchedMerkleTreeError> {
-        let (num_value_vec, _num_bloom_filter_stores, num_hash_chain_store) =
-            self.get_size_parameters(queue_type)?;
-        let account_size = if queue_type == QueueType::InputStateV2 as u64 {
-            // Input queue is part of the Merkle tree account.
-            0
-        } else {
-            // Output queue is a separate account.
-            BatchedQueueMetadata::LEN
-        };
-        let value_vecs_size = (self.batch_size as usize)
-            .saturating_mul(core::mem::size_of::<[u8; 32]>())
-            * num_value_vec;
-        let hash_chain_store_size = (self.get_num_zkp_batches() as usize)
-            .saturating_mul(core::mem::size_of::<[u8; 32]>())
-            * num_hash_chain_store;
-        let size = account_size + value_vecs_size + hash_chain_store_size;
-        Ok(size)
     }
 }
 
@@ -268,58 +231,6 @@ fn test_batch_size_validation() {
     // Test valid batch size
     assert!(QueueBatches::new_input_queue(9, 3, 0).is_ok());
     assert!(QueueBatches::new_output_queue(9, 3).is_ok());
-}
-
-#[test]
-fn test_output_queue_account_size() {
-    let metadata = QueueBatches::new_output_queue(10, 2).unwrap();
-    // Metadata::size, value array (10 *[u8;32])
-    // + hash chain(5 *[u8;32])
-    // + hashed merkle tree pubkey + hashed queue pubkey
-    let queue_size = 448 + (10 * 32) * 2 + (5 * 32) * 2 + 32 + 32;
-    assert_eq!(
-        metadata
-            .queue_account_size(QueueType::OutputStateV2 as u64)
-            .unwrap(),
-        queue_size
-    );
-}
-
-#[test]
-fn test_imput_queue_account_size() {
-    let metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
-    let queue_size = (5 * 32) * 2;
-    assert_eq!(
-        metadata
-            .queue_account_size(QueueType::InputStateV2 as u64)
-            .unwrap(),
-        queue_size
-    );
-    assert_eq!(
-        metadata.queue_account_size(4).unwrap_err(),
-        MerkleTreeMetadataError::InvalidQueueType.into()
-    );
-}
-
-#[test]
-fn test_get_size_parameters() {
-    let metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
-    assert_eq!(
-        metadata
-            .get_size_parameters(QueueType::InputStateV2 as u64)
-            .unwrap(),
-        (0, 2, 2)
-    );
-    assert_eq!(
-        metadata
-            .get_size_parameters(QueueType::OutputStateV2 as u64)
-            .unwrap(),
-        (2, 0, 2)
-    );
-    assert_eq!(
-        metadata.get_size_parameters(1).unwrap_err(),
-        MerkleTreeMetadataError::InvalidQueueType
-    );
 }
 
 #[test]
