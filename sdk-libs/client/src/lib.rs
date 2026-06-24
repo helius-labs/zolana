@@ -8,6 +8,7 @@ pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod user_registry;
+pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
@@ -42,4 +43,5 @@ pub use user_registry::{
     resolve_registered_address, resolved_address_from_record, try_resolve_registered_address,
     validate_registered_keypair,
 };
+pub use wallet_authority::{ApprovalRequest, P256Signature, WalletAuthority};
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};

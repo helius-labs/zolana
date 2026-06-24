@@ -32,6 +32,9 @@ impl UtxoInputs {
         asset: &Address,
         amount: u64,
         blinding: &[u8; 31],
+        program_data_hash: &[u8; 32],
+        zone_data_hash: &[u8; 32],
+        zone_program_id: &Option<Address>,
     ) -> Result<Self, ClientError> {
         Ok(Self {
             domain: be(&right_align(&UTXO_DOMAIN.to_be_bytes())),
@@ -39,9 +42,9 @@ impl UtxoInputs {
             asset: be(&asset_field(asset)?),
             amount: be(&right_align(&amount.to_be_bytes())),
             blinding: be(&right_align(blinding)),
-            data_hash: BigUint::ZERO,
-            zone_data_hash: BigUint::ZERO,
-            zone_program_id: BigUint::ZERO,
+            data_hash: be(program_data_hash),
+            zone_data_hash: be(zone_data_hash),
+            zone_program_id: be(&zone_program_id_field(zone_program_id)?),
         })
     }
 

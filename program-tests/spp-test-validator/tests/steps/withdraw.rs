@@ -10,6 +10,7 @@ use cucumber::when;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
@@ -85,7 +86,7 @@ impl LifecycleWorld {
 
         let spends: Vec<SpendUtxo> = inputs
             .iter()
-            .map(|u| SpendUtxo::from((u.clone(), &from_keypair)))
+            .map(|u| SpendUtxo::from_keypair(u.clone(), &from_keypair))
             .collect();
         let mut tx =
             ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
@@ -96,7 +97,12 @@ impl LifecycleWorld {
                 user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
-        let signed = tx.sign(&from_keypair, &self.assets, sender_view_tag)?;
+        let signed = tx.sign(
+            Pubkey::default(),
+            &from_keypair,
+            &self.assets,
+            sender_view_tag,
+        )?;
 
         let commitments = signed.input_commitments()?;
         let mut spend_proofs = Vec::new();

@@ -11,8 +11,14 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::SolanaRpc;
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_client::{ApprovalRequest, ClientError, P256Signature, SolanaRpc, WalletAuthority};
+use zolana_keypair::shielded::ShieldedAddress;
+use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_transaction::transfer::{
+    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
+};
+use zolana_transaction::TransactionEncryption;
 
 use super::{
     registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
@@ -42,6 +48,80 @@ struct SolanaKeypairFile {
 pub(super) struct WalletMaterial {
     pub(super) keypair: ShieldedKeypair,
     pub(super) funding: Keypair,
+}
+
+impl WalletMaterial {
+    pub(super) fn owner_pubkey(&self) -> Pubkey {
+        self.funding.pubkey()
+    }
+
+    fn check_owner_pubkey(&self, owner_pubkey: Pubkey) -> std::result::Result<(), ClientError> {
+        if owner_pubkey == self.owner_pubkey() {
+            Ok(())
+        } else {
+            Err(ClientError::AddressResolution(format!(
+                "wallet file belongs to owner_pubkey {}, got {owner_pubkey}",
+                self.owner_pubkey()
+            )))
+        }
+    }
+}
+
+impl WalletAuthority for WalletMaterial {
+    fn shielded_address(
+        &self,
+        owner_pubkey: Pubkey,
+    ) -> std::result::Result<ShieldedAddress, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        Ok(self.keypair.shielded_address()?)
+    }
+
+    fn derive_sender_view_tag(
+        &self,
+        owner_pubkey: Pubkey,
+        tx_count: u64,
+    ) -> std::result::Result<ViewTag, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        Ok(self.keypair.get_sender_view_tag(tx_count)?)
+    }
+
+    fn encrypt_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender: &TransferSenderPlaintext,
+        recipients: &[RecipientOutput],
+    ) -> std::result::Result<TransferEncryptedUtxos, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        Ok(self
+            .keypair
+            .viewing_key
+            .encrypt_transfer(first_nullifier, sender, recipients)?)
+    }
+
+    fn request_user_approval(
+        &self,
+        request: ApprovalRequest,
+    ) -> std::result::Result<(), ClientError> {
+        self.check_owner_pubkey(request.owner_pubkey)
+    }
+
+    fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> std::result::Result<P256Signature, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        WalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+    }
+
+    fn spend_nullifier_key(
+        &self,
+        owner_pubkey: Pubkey,
+    ) -> std::result::Result<NullifierKey, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        Ok(self.keypair.nullifier_key.clone())
+    }
 }
 
 pub(super) fn run_init(opts: InitOptions) -> Result<()> {
@@ -175,11 +255,6 @@ pub(super) fn clone_keypair(keypair: &ShieldedKeypair) -> Result<ShieldedKeypair
     )?)
 }
 
-#[allow(dead_code)]
-fn _assert_pubkey_public(pubkey: Pubkey) -> Pubkey {
-    pubkey
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -218,5 +293,62 @@ mod tests {
         );
         assert_ne!(loaded.funding.pubkey(), Pubkey::default());
         assert_eq!(loaded.funding.pubkey(), funding.pubkey());
+    }
+
+    #[test]
+    fn wrong_owner_pubkey_is_rejected() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let owner_pubkey = material.owner_pubkey();
+        let wrong = Pubkey::new_unique();
+
+        let err = match material.shielded_address(wrong) {
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+        assert!(err.to_string().contains(&owner_pubkey.to_string()));
+
+        material
+            .shielded_address(owner_pubkey)
+            .expect("correct owner_pubkey should succeed");
+    }
+
+    #[test]
+    fn wrong_owner_pubkey_rejected_for_spend_nullifier_key() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let wrong = Pubkey::new_unique();
+
+        let err = match material.spend_nullifier_key(wrong) {
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+
+        material
+            .spend_nullifier_key(material.owner_pubkey())
+            .expect("correct owner_pubkey should succeed");
+    }
+
+    #[test]
+    fn wrong_owner_pubkey_rejected_for_sign_p256() {
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let funding = Keypair::new();
+        let material = WalletMaterial { keypair, funding };
+        let wrong = Pubkey::new_unique();
+        let message_hash = [7u8; 32];
+
+        let err = match material.sign_p256(wrong, &message_hash) {
+            Ok(_) => panic!("wrong owner_pubkey should fail"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::AddressResolution(_)));
+
+        material
+            .sign_p256(material.owner_pubkey(), &message_hash)
+            .expect("correct owner_pubkey should succeed");
     }
 }

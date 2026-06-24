@@ -3,18 +3,15 @@ use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
-    shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::ViewTag,
-};
+use zolana_keypair::shielded::ShieldedAddress;
+use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 
-use crate::{
-    error::ClientError,
-    private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget},
-    rpc::Rpc,
-    user_registry::try_resolve_registered_address,
-};
+use crate::error::ClientError;
+use crate::private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget};
+use crate::rpc::Rpc;
+use crate::user_registry::try_resolve_registered_address;
+use crate::wallet_authority::WalletAuthority;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -66,10 +63,11 @@ pub struct CreatedWithdrawal {
     pub withdrawal: TransactWithdrawal,
 }
 
-pub struct CreateTransfer<'a, R: Rpc> {
+pub struct CreateTransfer<'a, R: Rpc, A: WalletAuthority> {
     pub rpc: &'a R,
     pub wallet: &'a Wallet,
-    pub keypair: &'a ShieldedKeypair,
+    pub authority: &'a A,
+    pub owner_pubkey: Pubkey,
     pub payer: Address,
     pub recipient_owner: Pubkey,
     pub asset: Address,
@@ -77,9 +75,10 @@ pub struct CreateTransfer<'a, R: Rpc> {
     pub assets: &'a AssetRegistry,
 }
 
-pub struct CreateWithdrawal<'a> {
+pub struct CreateWithdrawal<'a, A: WalletAuthority> {
     pub wallet: &'a Wallet,
-    pub keypair: &'a ShieldedKeypair,
+    pub authority: &'a A,
+    pub owner_pubkey: Pubkey,
     pub payer: Address,
     pub recipient: Pubkey,
     pub asset: Address,
@@ -87,14 +86,15 @@ pub struct CreateWithdrawal<'a> {
     pub assets: &'a AssetRegistry,
 }
 
-pub fn create_transfer<R: Rpc>(
-    request: CreateTransfer<'_, R>,
+pub fn create_transfer<R: Rpc, A: WalletAuthority>(
+    request: CreateTransfer<'_, R, A>,
 ) -> Result<CreatedTransfer, ClientError> {
     let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
     else {
         let withdrawal = create_withdrawal(CreateWithdrawal {
             wallet: request.wallet,
-            keypair: request.keypair,
+            authority: request.authority,
+            owner_pubkey: request.owner_pubkey,
             payer: request.payer,
             recipient: request.recipient_owner,
             asset: request.asset,
@@ -110,21 +110,31 @@ pub fn create_transfer<R: Rpc>(
             },
         });
     };
-    let wait_tag = next_sender_view_tag(request.wallet, request.keypair)?;
+    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
-        request.keypair,
+        request.authority,
+        request.owner_pubkey,
         request.asset,
         request.amount,
     )?;
-    let mut tx = Transaction::new(request.keypair.shielded_address()?, inputs, request.payer);
+    let mut tx = Transaction::new(
+        request.authority.shielded_address(request.owner_pubkey)?,
+        inputs,
+        request.payer,
+    );
     tx.send(
         &recipient.address,
         request.asset,
         request.amount,
         recipient.view_tag,
     )?;
-    let signed = tx.sign(request.keypair, request.assets, wait_tag)?;
+    let signed = tx.sign(
+        request.owner_pubkey,
+        request.authority,
+        request.assets,
+        wait_tag,
+    )?;
     Ok(CreatedTransfer {
         signed,
         wait_tag,
@@ -132,18 +142,30 @@ pub fn create_transfer<R: Rpc>(
     })
 }
 
-pub fn create_withdrawal(request: CreateWithdrawal<'_>) -> Result<CreatedWithdrawal, ClientError> {
-    let wait_tag = next_sender_view_tag(request.wallet, request.keypair)?;
+pub fn create_withdrawal<A: WalletAuthority>(
+    request: CreateWithdrawal<'_, A>,
+) -> Result<CreatedWithdrawal, ClientError> {
+    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
-        request.keypair,
+        request.authority,
+        request.owner_pubkey,
         request.asset,
         request.amount,
     )?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
-    let mut tx = Transaction::new(request.keypair.shielded_address()?, inputs, request.payer);
+    let mut tx = Transaction::new(
+        request.authority.shielded_address(request.owner_pubkey)?,
+        inputs,
+        request.payer,
+    );
     tx.withdraw(request.asset, request.amount, target)?;
-    let signed = tx.sign(request.keypair, request.assets, wait_tag)?;
+    let signed = tx.sign(
+        request.owner_pubkey,
+        request.authority,
+        request.assets,
+        wait_tag,
+    )?;
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,
@@ -184,17 +206,24 @@ fn withdrawal_target(
 
 fn select_inputs(
     wallet: &Wallet,
-    keypair: &ShieldedKeypair,
+    authority: &impl WalletAuthority,
+    owner_pubkey: Pubkey,
     asset: Address,
     amount: u64,
 ) -> Result<Vec<SpendUtxo>, ClientError> {
+    let nullifier_key = authority.spend_nullifier_key(owner_pubkey)?;
     let mut selected = Vec::new();
     let mut total = 0u64;
     for entry in &wallet.utxos {
         if entry.spent || entry.utxo.asset != asset {
             continue;
         }
-        selected.push(SpendUtxo::from((entry.utxo.clone(), keypair)));
+        selected.push(SpendUtxo {
+            utxo: entry.utxo.clone(),
+            nullifier_key: nullifier_key.clone(),
+            program_data_hash: None,
+            zone_data_hash: None,
+        });
         total = total
             .checked_add(entry.utxo.amount)
             .ok_or(ClientError::SelectedBalanceOverflow)?;
@@ -213,19 +242,21 @@ fn select_inputs(
 
 fn next_sender_view_tag(
     wallet: &Wallet,
-    keypair: &ShieldedKeypair,
+    authority: &impl WalletAuthority,
+    owner_pubkey: Pubkey,
 ) -> Result<ViewTag, ClientError> {
     let entry = wallet
         .viewing_key_history
         .last()
         .ok_or(ClientError::WalletViewingHistoryMissing)?;
-    Ok(keypair.get_sender_view_tag(entry.tx_count)?)
+    authority.derive_sender_view_tag(owner_pubkey, entry.tx_count)
 }
 
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
+    use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{Data, Utxo, WalletUtxo};
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
@@ -313,7 +344,8 @@ mod tests {
         let result = create_transfer(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
-            keypair: &sender,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: owner,
             asset: SOL_MINT,
@@ -339,7 +371,8 @@ mod tests {
         let result = create_transfer(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
-            keypair: &sender,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: recipient,
             asset: SOL_MINT,
@@ -370,7 +403,8 @@ mod tests {
         let result = create_transfer(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
-            keypair: &sender,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient_owner: recipient,
             asset,
@@ -402,7 +436,8 @@ mod tests {
 
         let result = create_withdrawal(CreateWithdrawal {
             wallet: &wallet,
-            keypair: &sender,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
             payer: Address::default(),
             recipient,
             asset,

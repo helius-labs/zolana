@@ -1,5 +1,7 @@
 use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
+use zolana_keypair::hash::sha256;
 use zolana_keypair::SignatureType;
+use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::error::ClientError;
@@ -73,10 +75,8 @@ impl SignedTransaction {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let utxo_hash =
-                    spend
-                        .utxo
-                        .hash(&spend.nullifier_key.pubkey()?, &[0u8; 32], &[0u8; 32])?;
+                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -110,7 +110,8 @@ impl SignedTransaction {
             let SpendUtxo {
                 utxo,
                 nullifier_key,
-                ..
+                program_data_hash,
+                zone_data_hash,
             } = spend;
             // Real inputs have their own proof; a dummy (zero owner) is proofless and
             // mirrors the first real input's roots downstream.
@@ -127,6 +128,8 @@ impl SignedTransaction {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
+                program_data_hash,
+                zone_data_hash,
                 proof,
             });
         }
@@ -274,5 +277,35 @@ impl SignedTransaction {
             public_input_hash,
             ix,
         })
+    }
+
+    pub(crate) fn message_hash(&self) -> Result<[u8; 32], ClientError> {
+        // Dummies contribute zero to match circuit private_tx hashing.
+        let mut input_hashes = Vec::with_capacity(self.shape.n_inputs);
+        for spend in &self.inputs {
+            if spend.is_dummy() {
+                input_hashes.push([0u8; 32]);
+            } else {
+                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+                input_hashes.push(spend.utxo.hash(
+                    &nullifier_pubkey,
+                    &spend.program_data_hash.unwrap_or([0u8; 32]),
+                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
+                )?);
+            }
+        }
+
+        let mut output_hashes = Vec::with_capacity(self.shape.n_outputs);
+        for output in &self.outputs {
+            if output.is_dummy() {
+                output_hashes.push([0u8; 32]);
+            } else {
+                output_hashes.push(output.hash()?);
+            }
+        }
+
+        let external_data_hash = self.external_data.hash()?;
+        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
+        Ok(sha256(&private_tx))
     }
 }

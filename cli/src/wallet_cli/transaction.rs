@@ -31,7 +31,8 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let transfer = create_transfer(CreateTransfer {
         rpc: &rpc,
         wallet: &ctx.wallet,
-        keypair: &ctx.material.keypair,
+        authority: &ctx.material,
+        owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         recipient_owner,
         asset,

@@ -154,10 +154,8 @@ impl PreparedMerge {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let utxo_hash =
-                    spend
-                        .utxo
-                        .hash(&spend.nullifier_key.pubkey()?, &[0u8; 32], &[0u8; 32])?;
+                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
@@ -205,6 +203,8 @@ impl PreparedMerge {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
+                program_data_hash: None,
+                zone_data_hash: None,
                 proof,
             });
         }

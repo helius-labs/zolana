@@ -112,6 +112,8 @@ fn real_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key,
+        program_data_hash: None,
+        zone_data_hash: None,
         proof: Some(proof),
     }
 }
@@ -121,16 +123,19 @@ fn real_input() -> TransferSpendInput {
 fn dummy_input() -> TransferSpendInput {
     let mut blinding = [0u8; 31];
     rand::thread_rng().fill_bytes(&mut blinding);
+    let utxo = Utxo {
+        owner: PublicKey::zeroed(),
+        asset: SOL_MINT,
+        amount: 0,
+        blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
     TransferSpendInput {
-        utxo: Utxo {
-            owner: PublicKey::zeroed(),
-            asset: SOL_MINT,
-            amount: 0,
-            blinding,
-            zone_program_id: None,
-            data: Data::default(),
-        },
+        utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
+        program_data_hash: None,
+        zone_data_hash: None,
         proof: None,
     }
 }

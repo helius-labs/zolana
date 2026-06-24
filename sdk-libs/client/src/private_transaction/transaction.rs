@@ -1,30 +1,29 @@
-use p256::ecdsa::signature::hazmat::PrehashSigner;
-use p256::ecdsa::{Signature, SigningKey as EcdsaSigningKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
 use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::hash::{sha256, sha256_be};
+use zolana_keypair::hash::sha256_be;
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
 use zolana_keypair::viewing_key::{random_blinding, ViewTag};
 use zolana_keypair::{NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
-use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::transfer::{
     RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, RECIPIENT_CIPHERTEXT_LEN,
     SENDER_SLOT_COUNT,
 };
 use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_MINT};
+use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
 
 use crate::error::ClientError;
 use crate::private_transaction::field::{asset_field, signed_to_field};
 use crate::private_transaction::signed_transaction::SignedTransaction;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer::TransferProver;
-use crate::prover::transfer_p256::{P256Owner, PublicAmounts, TransferP256Prover};
+use crate::prover::transfer_p256::{PublicAmounts, TransferP256Prover};
 use crate::rpc::{MerkleProof, NonInclusionProof};
+use crate::wallet_authority::{ApprovalRequest, WalletAuthority};
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -35,19 +34,12 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
-    pub zone_data_hash: Option<[u8; 32]>,
+    /// Program data hash committed by this input UTXO. Current transfer assembly
+    /// only supports clean/default inputs, but the field belongs with the selected
+    /// input so future program-data spends can plumb it into the proof witness.
     pub program_data_hash: Option<[u8; 32]>,
-}
-
-impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
-    fn from((utxo, keypair): (Utxo, &ShieldedKeypair)) -> Self {
-        Self {
-            utxo,
-            nullifier_key: NullifierKey::from_secret(*keypair.nullifier_key.secret()),
-            zone_data_hash: None,
-            program_data_hash: None,
-        }
-    }
+    /// Zone data hash committed by this input UTXO. See `program_data_hash`.
+    pub zone_data_hash: Option<[u8; 32]>,
 }
 
 impl SpendUtxo {
@@ -57,23 +49,37 @@ impl SpendUtxo {
     /// indistinguishable from a real one. The circuit skips the ownership,
     /// inclusion, and nullifier checks for it.
     pub fn new_dummy() -> Self {
+        let utxo = Utxo {
+            owner: PublicKey::zeroed(),
+            asset: Address::default(),
+            amount: 0,
+            blinding: random_blinding(),
+            zone_program_id: None,
+            data: Data::default(),
+        };
         Self {
-            utxo: Utxo {
-                owner: PublicKey::zeroed(),
-                asset: Address::default(),
-                amount: 0,
-                blinding: random_blinding(),
-                zone_program_id: None,
-                data: Data::default(),
-            },
+            utxo,
             nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
-            zone_data_hash: None,
             program_data_hash: None,
+            zone_data_hash: None,
         }
     }
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
+    }
+
+    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Self {
+        Self::from_nullifier_key(utxo, &keypair.nullifier_key)
+    }
+
+    pub fn from_nullifier_key(utxo: Utxo, nullifier_key: &NullifierKey) -> Self {
+        Self {
+            utxo,
+            nullifier_key: nullifier_key.clone(),
+            program_data_hash: None,
+            zone_data_hash: None,
+        }
     }
 }
 
@@ -206,26 +212,34 @@ impl Transaction {
         Ok(self)
     }
 
-    pub fn sign(
+    pub fn sign<A: WalletAuthority>(
         self,
-        keypair: &ShieldedKeypair,
+        owner_pubkey: Pubkey,
+        authority: &A,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, ClientError> {
-        let mut sealed = self.assemble(keypair, assets, sender_view_tag)?;
-        if keypair.signing_pubkey().signature_type()? == SignatureType::P256 {
-            sealed.p256_owner = Some(precompute_p256(&sealed, keypair)?);
+        authority.request_user_approval(ApprovalRequest {
+            owner_pubkey,
+            summary: format!(
+                "private transaction with {} input(s), {} recipient(s)",
+                self.inputs.len(),
+                self.recipients.len()
+            ),
+        })?;
+        let mut assembled_transaction =
+            self.assemble(owner_pubkey, authority, assets, sender_view_tag)?;
+        if authority
+            .shielded_address(owner_pubkey)?
+            .signing_pubkey
+            .signature_type()?
+            == SignatureType::P256
+        {
+            let message_hash = assembled_transaction.message_hash()?;
+            let signature = authority.sign_p256(owner_pubkey, &message_hash)?;
+            assembled_transaction.p256_owner = Some(signature.into());
         }
-        Ok(sealed)
-    }
-
-    pub fn finalize(
-        self,
-        keypair: &ShieldedKeypair,
-        assets: &AssetRegistry,
-        sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, ClientError> {
-        self.assemble(keypair, assets, sender_view_tag)
+        Ok(assembled_transaction)
     }
 
     fn spl_asset(&self) -> Result<Option<Address>, ClientError> {
@@ -286,9 +300,12 @@ impl Transaction {
 
     fn first_nullifier(&self) -> Result<[u8; 32], ClientError> {
         let spend = self.inputs.first().ok_or(ClientError::NoInputs)?;
-        let utxo_hash = spend
-            .utxo
-            .hash(&spend.nullifier_key.pubkey()?, &[0u8; 32], &[0u8; 32])?;
+        let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+        let utxo_hash = spend.utxo.hash(
+            &nullifier_pubkey,
+            &spend.program_data_hash.unwrap_or([0u8; 32]),
+            &spend.zone_data_hash.unwrap_or([0u8; 32]),
+        )?;
         Ok(spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?)
@@ -311,9 +328,10 @@ impl Transaction {
         }
     }
 
-    fn assemble(
+    fn assemble<A: WalletAuthority>(
         self,
-        keypair: &ShieldedKeypair,
+        owner_pubkey: Pubkey,
+        authority: &A,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, ClientError> {
@@ -360,7 +378,7 @@ impl Transaction {
             }
         });
 
-        let sender_pubkey = keypair.viewing_pubkey();
+        let sender_pubkey = authority.shielded_address(owner_pubkey)?.viewing_pubkey;
         let mut recipient_outputs = Vec::with_capacity(self.recipients.len());
         let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
         for (i, recipient) in self.recipients.iter().enumerate() {
@@ -417,10 +435,12 @@ impl Transaction {
         };
 
         let first_nullifier = self.first_nullifier()?;
-        let encrypted =
-            keypair
-                .viewing_key
-                .encrypt_transfer(&first_nullifier, &sender, &recipient_outputs)?;
+        let encrypted = authority.encrypt_transfer(
+            owner_pubkey,
+            &first_nullifier,
+            &sender,
+            &recipient_outputs,
+        )?;
 
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
 
@@ -510,58 +530,6 @@ impl Transaction {
             Ok(assets.asset_id(asset)?)
         }
     }
-}
-
-/// Sign the P256 ownership rail over the finalized transaction. The message is the
-/// same `private_tx_hash` the prover proves: real input/output hashes with `0` for
-/// every dummy slot, plus the final `external_data` hash. Signing here covers the
-/// full padded shape, so the prover only converts and cannot alter signed state.
-/// The eddsa rail does not call this; its Solana signer is checked by the program.
-fn precompute_p256(
-    sealed: &SignedTransaction,
-    keypair: &ShieldedKeypair,
-) -> Result<P256Owner, ClientError> {
-    // Dummies (zero owner) contribute 0 to both hash chains, matching the circuit.
-    let mut input_hashes = Vec::with_capacity(sealed.inputs.len());
-    for spend in &sealed.inputs {
-        if spend.is_dummy() {
-            input_hashes.push([0u8; 32]);
-        } else {
-            let nullifier_pk = spend.nullifier_key.pubkey()?;
-            input_hashes.push(spend.utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])?);
-        }
-    }
-
-    let mut output_hashes = Vec::with_capacity(sealed.outputs.len());
-    for output in &sealed.outputs {
-        if output.is_dummy() {
-            output_hashes.push([0u8; 32]);
-        } else {
-            output_hashes.push(output.hash()?);
-        }
-    }
-
-    let external_data_hash = sealed.external_data.hash()?;
-    let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
-    let message_hash = sha256(&private_tx);
-
-    let signing_key = EcdsaSigningKey::from_slice(keypair.signing_key.secret_bytes().as_slice())
-        .map_err(|e| ClientError::P256Signature(e.to_string()))?;
-    let signature: Signature = signing_key
-        .sign_prehash(&message_hash)
-        .map_err(|e| ClientError::P256Signature(e.to_string()))?;
-    let bytes = signature.to_bytes();
-    let mut sig_r = [0u8; 32];
-    let mut sig_s = [0u8; 32];
-    sig_r.copy_from_slice(&bytes[..32]);
-    sig_s.copy_from_slice(&bytes[32..]);
-
-    let pubkey = keypair.signing_pubkey().as_p256()?;
-    Ok(P256Owner {
-        pubkey,
-        sig_r,
-        sig_s,
-    })
 }
 
 /// A view tag for a dummy output slot, drawn from the same byte distribution as a

@@ -11,10 +11,13 @@ use crate::private_transaction::transaction::SpendProof;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
 use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+use crate::wallet_authority::P256Signature;
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
+    pub program_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's roots, so it has no proof of its own.
     pub proof: Option<SpendProof>,
@@ -44,6 +47,16 @@ pub struct P256Owner {
     pub pubkey: P256Pubkey,
     pub sig_r: [u8; 32],
     pub sig_s: [u8; 32],
+}
+
+impl From<P256Signature> for P256Owner {
+    fn from(signature: P256Signature) -> Self {
+        Self {
+            pubkey: signature.pubkey,
+            sig_r: signature.sig_r,
+            sig_s: signature.sig_s,
+        }
+    }
 }
 
 pub struct TransferP256Prover {
@@ -218,16 +231,22 @@ pub(crate) fn assemble_inputs(
             continue;
         };
 
-        let nullifier_pk = spend.nullifier_key.pubkey()?;
-        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pk)?;
+        let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
+        let program_data_hash = spend.program_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
         let utxo_inputs = UtxoInputs::new(
             &owner_field,
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
+            &program_data_hash,
+            &zone_data_hash,
+            &spend.utxo.zone_program_id,
         )?;
-        // Note: zone data and program data is not supported.
-        let utxo_hash = spend.utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])?;
+        let utxo_hash = spend
+            .utxo
+            .hash(&nullifier_pubkey, &program_data_hash, &zone_data_hash)?;
         let nullifier = spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;

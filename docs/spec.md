@@ -976,7 +976,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the `merge_transact` instruction and checks it matches this public input. Its own public input for the same reason as in the [SPP Proof](#spp-proof---solana-privacy-zk-proof): SPP cannot recompute `private_tx_hash` (it covers the private input UTXO hashes), so the proof must expose `external_data_hash` to bind it to the instruction. |
-| pk_field(user_signing_pk) | owner identity; derived by SPP from `user_record.signing_pubkey` (see [merge_transact](#merge_transact)). The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
+| pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
 | pk_field(user_viewing_pk) | derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
 | ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a GCM tag. |
@@ -993,7 +993,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 
 | Input | Description |
 | --- | --- |
-| user P256 signing key witness | Canonical P256 point `(x, y)` and compressed-key parity, used to recompute `pk_field(user_signing_pk)` (see [Shielded Address](#shielded-address)). |
+| owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and compressed-key parity and recomputes `pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
 | `user_nullifier_pk` | shared owner's nullifier commitment, a 32-byte field element |
 | `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
 | `user_viewing_pk` | owner's P256 viewing pubkey; the proof recomputes the public `pk_field(user_viewing_pk)` from it, which SPP checks against `UserRecord.viewing_pubkey` |
@@ -1619,6 +1619,10 @@ struct MergeTransactIxData {
     /// [Output UTXO Serialization § Merge](#merge). SPP recomputes `ciphertext_hash`
     /// from it for the public input hash.
     encrypted_utxo: Vec<u8>,
+    /// Selects the owner rail for the `pk_field(user_signing_pk)` public input:
+    /// false derives it from `user_record.owner_p256` (P256), true from the
+    /// registry account `owner` (ed25519 signing key).
+    eddsa_owner: bool,
 }
 ```
 
@@ -1628,7 +1632,7 @@ struct MergeTransactIxData {
 2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
 3. `tree_account` is not paused.
 4. `payer` is a member of `protocol_config.merge_authorities`.
-5. `user_record` has `merge_service` enabled. SPP derives `pk_field(user_record.signing_pubkey)` and `pk_field(user_record.viewing_pubkey)` and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key.
+5. `user_record` has `merge_service` enabled. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.

@@ -5,8 +5,12 @@
 #[path = "test_indexer.rs"]
 mod test_indexer;
 
+use p256::ecdsa::signature::hazmat::PrehashVerifier;
+use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey as EcdsaVerifyingKey};
+use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::private_transaction::field::signed_to_field;
 use zolana_client::{
@@ -40,7 +44,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         zone_program_id: None,
         data: Data::default(),
     };
-    SpendUtxo::from((utxo, sender))
+    SpendUtxo::from_keypair(utxo, sender)
 }
 
 fn registry() -> AssetRegistry {
@@ -49,6 +53,7 @@ fn registry() -> AssetRegistry {
 
 fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, ClientError> {
     tx.sign(
+        Pubkey::default(),
         sender,
         &registry(),
         sender.get_sender_view_tag(0).expect("sender view tag"),
@@ -499,19 +504,16 @@ fn rail_follows_input_owner_type() {
     );
     assert!(p256_tx.requires_p256_owner().unwrap());
 
-    let ed_input = SpendUtxo {
-        utxo: Utxo {
-            owner: PublicKey::from_ed25519(&[1u8; 32]),
-            asset: SOL_MINT,
-            amount: 10,
-            blinding: blinding(&mut rng),
-            zone_program_id: None,
-            data: Data::default(),
-        },
-        nullifier_key: NullifierKey::from_secret(blinding(&mut rng)),
-        zone_data_hash: None,
-        program_data_hash: None,
+    let ed_utxo = Utxo {
+        owner: PublicKey::from_ed25519(&[1u8; 32]),
+        asset: SOL_MINT,
+        amount: 10,
+        blinding: blinding(&mut rng),
+        zone_program_id: None,
+        data: Data::default(),
     };
+    let ed_input =
+        SpendUtxo::from_nullifier_key(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)));
     let ed_tx = Transaction::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
@@ -520,7 +522,12 @@ fn rail_follows_input_owner_type() {
     assert!(!ed_tx.requires_p256_owner().unwrap());
 
     let signed = ed_tx
-        .finalize(&sender, &registry(), sender.get_sender_view_tag(0).unwrap())
+        .sign(
+            Pubkey::default(),
+            &sender,
+            &registry(),
+            sender.get_sender_view_tag(0).unwrap(),
+        )
         .unwrap();
     let mut indexer = TestIndexer::new();
     let commitments = signed.input_commitments().unwrap();
@@ -532,6 +539,40 @@ fn rail_follows_input_owner_type() {
         signed.into_prover(&input_merkle_proofs).unwrap(),
         CircuitType::Eddsa(_)
     ));
+}
+
+#[test]
+fn p256_owner_signature_matches_built_private_tx_hash() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        vec![p256_input(&sender, 100, &mut rng)],
+        Address::default(),
+    );
+    tx.send(
+        &recipient.shielded_address().unwrap(),
+        SOL_MINT,
+        60,
+        recipient.recipient_bootstrap_view_tag(),
+    )
+    .unwrap();
+    let signed = sign(tx, &sender).unwrap();
+    let prover = prover_of(signed);
+    let owner = prover.p256_owner.clone();
+    let built = prover.build().unwrap();
+    let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
+    let public_key = owner.pubkey.to_p256().unwrap();
+    let point = public_key.to_encoded_point(false);
+    let verifying_key = EcdsaVerifyingKey::from_encoded_point(&point).unwrap();
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[..32].copy_from_slice(&owner.sig_r);
+    sig_bytes[32..].copy_from_slice(&owner.sig_s);
+    let signature = EcdsaSignature::from_slice(&sig_bytes).unwrap();
+    verifying_key
+        .verify_prehash(&message_hash, &signature)
+        .expect("signature verifies against built private tx hash");
 }
 
 #[test]

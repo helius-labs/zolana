@@ -41,8 +41,8 @@ use crate::{
     LifecycleWorld,
 };
 
-/// What the consolidated-output assert needs after a merge: the appended output and
-/// the ciphertext that lets the owner reconstruct it, plus the consumed nullifiers.
+/// What the consolidated-output assert needs after a merge: the appended output
+/// and the ciphertext that lets the owner reconstruct it.
 pub(crate) struct MergeRecord {
     pub(crate) actor: String,
     pub(crate) asset: Address,
@@ -151,6 +151,8 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
+                program_data_hash: None,
+                zone_data_hash: None,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -162,16 +164,19 @@ impl LifecycleWorld {
         // input's roots, so it carries no proof of its own).
         let owner = keypair.signing_pubkey();
         while spend_inputs.len() < MERGE_INPUT_COUNT {
+            let utxo = Utxo {
+                owner,
+                asset,
+                amount: 0,
+                blinding: random_blinding(),
+                zone_program_id: None,
+                data: Data::default(),
+            };
             spend_inputs.push(TransferSpendInput {
-                utxo: Utxo {
-                    owner,
-                    asset,
-                    amount: 0,
-                    blinding: random_blinding(),
-                    zone_program_id: None,
-                    data: Data::default(),
-                },
+                utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
+                program_data_hash: None,
+                zone_data_hash: None,
                 proof: None,
             });
         }
@@ -259,7 +264,7 @@ impl LifecycleWorld {
     /// the owner decrypts the published ciphertext with its viewing key, reconstructs
     /// the merged UTXO, and confirms the reconstruction hashes to the output hash the
     /// tree appended. Also confirms the indexer serves an inclusion proof for that
-    /// output and that the spent inputs' nullifiers are now consumed.
+    /// output.
     ///
     /// NOTE: this does not go through `Wallet::sync`/`assert_utxos` because the merge
     /// scheme is not yet wired into `Wallet::sync` (D-phase, in flight). When merge
