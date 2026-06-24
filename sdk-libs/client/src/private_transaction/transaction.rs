@@ -23,9 +23,7 @@ use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::transfer::TransferProver;
 use crate::prover::transfer_p256::{PublicAmounts, TransferP256Prover};
 use crate::rpc::{MerkleProof, NonInclusionProof};
-use crate::wallet_authority::{
-    ApprovalRequest, ScopedSpendWitness, SpendWitnessRequest, WalletAuthority,
-};
+use crate::wallet_authority::{ApprovalRequest, WalletAuthority};
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
@@ -35,7 +33,7 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 #[derive(Clone)]
 pub struct SpendUtxo {
     pub utxo: Utxo,
-    pub witness: ScopedSpendWitness,
+    pub nullifier_key: NullifierKey,
     /// Program data hash committed by this input UTXO. Current transfer assembly
     /// only supports clean/default inputs, but the field belongs with the selected
     /// input so future program-data spends can plumb it into the proof witness.
@@ -59,16 +57,9 @@ impl SpendUtxo {
             zone_program_id: None,
             data: Data::default(),
         };
-        // Dummy slots never use witness data (they are filtered before commitment
-        // lookup and handled via `proof: None`), so a zero witness is sufficient.
-        let witness = ScopedSpendWitness {
-            nullifier_pubkey: [0u8; 32],
-            nullifier: [0u8; 32],
-            nullifier_secret: [0u8; BLINDING_LEN],
-        };
         Self {
             utxo,
-            witness,
+            nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
             program_data_hash: None,
             zone_data_hash: None,
         }
@@ -78,21 +69,23 @@ impl SpendUtxo {
         self.utxo.owner.is_zero()
     }
 
-    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Result<Self, ClientError> {
+    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Self {
         Self::from_nullifier_key(utxo, &keypair.nullifier_key)
     }
 
-    pub fn from_nullifier_key(
-        utxo: Utxo,
-        nullifier_key: &NullifierKey,
-    ) -> Result<Self, ClientError> {
-        let request = SpendWitnessRequest::new(utxo.clone());
-        Ok(Self {
+    pub fn from_nullifier_key(utxo: Utxo, nullifier_key: &NullifierKey) -> Self {
+        Self {
             utxo,
-            witness: ScopedSpendWitness::from_nullifier_key(&request, nullifier_key)?,
+            nullifier_key: nullifier_key.clone(),
             program_data_hash: None,
             zone_data_hash: None,
-        })
+        }
+    }
+}
+
+impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
+    fn from((utxo, keypair): (Utxo, &ShieldedKeypair)) -> Self {
+        Self::from_keypair(utxo, keypair)
     }
 }
 
@@ -322,7 +315,15 @@ impl Transaction {
 
     fn first_nullifier(&self) -> Result<[u8; 32], ClientError> {
         let spend = self.inputs.first().ok_or(ClientError::NoInputs)?;
-        Ok(spend.witness.nullifier)
+        let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+        let utxo_hash = spend.utxo.hash(
+            &nullifier_pubkey,
+            &spend.program_data_hash.unwrap_or([0u8; 32]),
+            &spend.zone_data_hash.unwrap_or([0u8; 32]),
+        )?;
+        Ok(spend
+            .nullifier_key
+            .nullifier(&utxo_hash, &spend.utxo.blinding)?)
     }
 
     fn external_accounts(&self) -> (Address, Address, Address) {

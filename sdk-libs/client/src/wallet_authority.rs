@@ -1,14 +1,13 @@
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey as EcdsaSigningKey};
 use solana_pubkey::Pubkey;
-use zolana_keypair::constants::BLINDING_LEN;
 use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{NullifierKey, P256Pubkey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
-use zolana_transaction::{TransactionEncryption, Utxo};
+use zolana_transaction::TransactionEncryption;
 
 use crate::error::ClientError;
 
@@ -23,51 +22,6 @@ pub struct P256Signature {
 pub struct ApprovalRequest {
     pub owner_pubkey: Pubkey,
     pub summary: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpendWitnessRequest {
-    pub utxo: Utxo,
-    pub program_data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
-}
-
-impl SpendWitnessRequest {
-    pub fn new(utxo: Utxo) -> Self {
-        Self {
-            utxo,
-            program_data_hash: None,
-            zone_data_hash: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ScopedSpendWitness {
-    pub nullifier_pubkey: [u8; 32],
-    pub nullifier: [u8; 32],
-    pub nullifier_secret: [u8; BLINDING_LEN],
-}
-
-impl ScopedSpendWitness {
-    pub fn from_nullifier_key(
-        request: &SpendWitnessRequest,
-        nullifier_key: &NullifierKey,
-    ) -> Result<Self, ClientError> {
-        let program_data_hash = request.program_data_hash.unwrap_or([0u8; 32]);
-        let zone_data_hash = request.zone_data_hash.unwrap_or([0u8; 32]);
-        let nullifier_pubkey = nullifier_key.pubkey()?;
-        let utxo_hash =
-            request
-                .utxo
-                .hash(&nullifier_pubkey, &program_data_hash, &zone_data_hash)?;
-        let nullifier = nullifier_key.nullifier(&utxo_hash, &request.utxo.blinding)?;
-        Ok(Self {
-            nullifier_pubkey,
-            nullifier,
-            nullifier_secret: *nullifier_key.secret(),
-        })
-    }
 }
 
 pub trait WalletAuthority {
@@ -97,11 +51,7 @@ pub trait WalletAuthority {
         message_hash: &[u8; 32],
     ) -> Result<P256Signature, ClientError>;
 
-    fn create_spend_witness(
-        &self,
-        owner_pubkey: Pubkey,
-        request: SpendWitnessRequest,
-    ) -> Result<ScopedSpendWitness, ClientError>;
+    fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
 }
 
 impl WalletAuthority for ShieldedKeypair {
@@ -151,11 +101,7 @@ impl WalletAuthority for ShieldedKeypair {
         })
     }
 
-    fn create_spend_witness(
-        &self,
-        _owner_pubkey: Pubkey,
-        request: SpendWitnessRequest,
-    ) -> Result<ScopedSpendWitness, ClientError> {
-        ScopedSpendWitness::from_nullifier_key(&request, &self.nullifier_key)
+    fn spend_nullifier_key(&self, _owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
+        Ok(self.nullifier_key.clone())
     }
 }

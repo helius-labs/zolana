@@ -154,11 +154,11 @@ impl PreparedMerge {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                let utxo_hash =
-                    spend
-                        .utxo
-                        .hash(&spend.witness.nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
-                let nullifier = spend.witness.nullifier;
+                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+                let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
+                let nullifier = spend
+                    .nullifier_key
+                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 Ok(InputCommitment {
                     index,
                     utxo_hash,
@@ -185,7 +185,11 @@ impl PreparedMerge {
         let mut spends = Vec::with_capacity(inputs.len());
         let mut real_index = 0;
         for spend in inputs {
-            let SpendUtxo { utxo, witness, .. } = spend;
+            let SpendUtxo {
+                utxo,
+                nullifier_key,
+                ..
+            } = spend;
             let proof = if utxo.owner.is_zero() {
                 None
             } else {
@@ -198,7 +202,7 @@ impl PreparedMerge {
             };
             spends.push(TransferSpendInput {
                 utxo,
-                witness,
+                nullifier_key,
                 proof,
             });
         }

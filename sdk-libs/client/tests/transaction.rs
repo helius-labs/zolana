@@ -44,7 +44,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         zone_program_id: None,
         data: Data::default(),
     };
-    SpendUtxo::from_keypair(utxo, sender).expect("test spend witness")
+    SpendUtxo::from((utxo, sender))
 }
 
 fn registry() -> AssetRegistry {
@@ -513,8 +513,7 @@ fn rail_follows_input_owner_type() {
         data: Data::default(),
     };
     let ed_input =
-        SpendUtxo::from_nullifier_key(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)))
-            .unwrap();
+        SpendUtxo::from_nullifier_key(ed_utxo, &NullifierKey::from_secret(blinding(&mut rng)));
     let ed_tx = Transaction::new(
         sender.shielded_address().unwrap(),
         vec![ed_input],
@@ -574,28 +573,6 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
     verifying_key
         .verify_prehash(&message_hash, &signature)
         .expect("signature verifies against built private tx hash");
-}
-
-#[test]
-fn spend_witness_matches_nullifier_key_derivation() {
-    let mut rng = rand::thread_rng();
-    let sender = ShieldedKeypair::new().unwrap();
-    let spend = p256_input(&sender, 100, &mut rng);
-    let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();
-    let utxo_hash = spend
-        .utxo
-        .hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])
-        .unwrap();
-    let nullifier = sender
-        .nullifier_key
-        .nullifier(&utxo_hash, &spend.utxo.blinding)
-        .unwrap();
-    assert_eq!(spend.witness.nullifier_pubkey, nullifier_pubkey);
-    assert_eq!(spend.witness.nullifier, nullifier);
-    assert_eq!(
-        spend.witness.nullifier_secret,
-        *sender.nullifier_key.secret()
-    );
 }
 
 #[test]

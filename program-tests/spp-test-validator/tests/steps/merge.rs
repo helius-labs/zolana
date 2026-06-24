@@ -19,10 +19,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{
-    MergeProver, ProverClient, ScopedSpendWitness, SpendProof, SpendWitnessRequest,
-    TransferSpendInput,
-};
+use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     pda,
@@ -147,13 +144,9 @@ impl LifecycleWorld {
                 .nullifier(&utxo_hash, &utxo.blinding)?;
             let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
             let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-            let witness = ScopedSpendWitness::from_nullifier_key(
-                &SpendWitnessRequest::new(utxo.clone()),
-                &keypair.nullifier_key,
-            )?;
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
-                witness,
+                nullifier_key: keypair.nullifier_key.clone(),
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -173,13 +166,9 @@ impl LifecycleWorld {
                 zone_program_id: None,
                 data: Data::default(),
             };
-            let witness = ScopedSpendWitness::from_nullifier_key(
-                &SpendWitnessRequest::new(utxo.clone()),
-                &keypair.nullifier_key,
-            )?;
             spend_inputs.push(TransferSpendInput {
                 utxo,
-                witness,
+                nullifier_key: keypair.nullifier_key.clone(),
                 proof: None,
             });
         }

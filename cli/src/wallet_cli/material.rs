@@ -11,13 +11,10 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    ApprovalRequest, ClientError, P256Signature, ScopedSpendWitness, SolanaRpc,
-    SpendWitnessRequest, WalletAuthority,
-};
+use zolana_client::{ApprovalRequest, ClientError, P256Signature, SolanaRpc, WalletAuthority};
 use zolana_keypair::shielded::ShieldedAddress;
 use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::transfer::{
     RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
 };
@@ -118,13 +115,12 @@ impl WalletAuthority for WalletMaterial {
         WalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
     }
 
-    fn create_spend_witness(
+    fn spend_nullifier_key(
         &self,
         owner_pubkey: Pubkey,
-        request: SpendWitnessRequest,
-    ) -> std::result::Result<ScopedSpendWitness, ClientError> {
+    ) -> std::result::Result<NullifierKey, ClientError> {
         self.check_owner_pubkey(owner_pubkey)?;
-        ScopedSpendWitness::from_nullifier_key(&request, &self.keypair.nullifier_key)
+        Ok(self.keypair.nullifier_key.clone())
     }
 }
 
@@ -267,8 +263,6 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use zolana_keypair::constants::BLINDING_LEN;
-
     use super::*;
 
     fn temp_root(prefix: &str) -> PathBuf {
@@ -322,28 +316,20 @@ mod tests {
     }
 
     #[test]
-    fn wrong_owner_pubkey_rejected_for_spend_witness() {
+    fn wrong_owner_pubkey_rejected_for_spend_nullifier_key() {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
         let wrong = Pubkey::new_unique();
-        let request = SpendWitnessRequest::new(zolana_transaction::Utxo {
-            owner: material.keypair.signing_pubkey(),
-            asset: zolana_transaction::SOL_MINT,
-            amount: 1,
-            blinding: [1u8; BLINDING_LEN],
-            zone_program_id: None,
-            data: zolana_transaction::Data::default(),
-        });
 
-        let err = match material.create_spend_witness(wrong, request.clone()) {
+        let err = match material.spend_nullifier_key(wrong) {
             Ok(_) => panic!("wrong owner_pubkey should fail"),
             Err(err) => err,
         };
         assert!(matches!(err, ClientError::AddressResolution(_)));
 
         material
-            .create_spend_witness(material.owner_pubkey(), request)
+            .spend_nullifier_key(material.owner_pubkey())
             .expect("correct owner_pubkey should succeed");
     }
 

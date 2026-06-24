@@ -11,7 +11,7 @@ use crate::error::ClientError;
 use crate::private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget};
 use crate::rpc::Rpc;
 use crate::user_registry::try_resolve_registered_address;
-use crate::wallet_authority::{SpendWitnessRequest, WalletAuthority};
+use crate::wallet_authority::WalletAuthority;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -213,17 +213,16 @@ fn select_inputs(
     asset: Address,
     amount: u64,
 ) -> Result<Vec<SpendUtxo>, ClientError> {
+    let nullifier_key = authority.spend_nullifier_key(owner_pubkey)?;
     let mut selected = Vec::new();
     let mut total = 0u64;
     for entry in &wallet.utxos {
         if entry.spent || entry.utxo.asset != asset {
             continue;
         }
-        let witness = authority
-            .create_spend_witness(owner_pubkey, SpendWitnessRequest::new(entry.utxo.clone()))?;
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
-            witness,
+            nullifier_key: nullifier_key.clone(),
             program_data_hash: None,
             zone_data_hash: None,
         });

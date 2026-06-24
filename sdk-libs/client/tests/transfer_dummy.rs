@@ -21,8 +21,8 @@ use groth16_solana::groth16::Groth16Verifier;
 use rand::RngCore;
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, ScopedSpendWitness, Shape,
-    SpendWitnessRequest, TransferProver, TransferSpendInput,
+    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
+    TransferSpendInput,
 };
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
 use zolana_interface::verifying_keys::transfer_2_3;
@@ -109,15 +109,9 @@ fn real_input() -> TransferSpendInput {
         .pop()
         .expect("one proof");
 
-    let witness = ScopedSpendWitness::from_nullifier_key(
-        &SpendWitnessRequest::new(utxo.clone()),
-        &nullifier_key,
-    )
-    .expect("spend witness");
-
     TransferSpendInput {
         utxo,
-        witness,
+        nullifier_key,
         proof: Some(proof),
     }
 }
@@ -137,11 +131,7 @@ fn dummy_input() -> TransferSpendInput {
     };
     TransferSpendInput {
         utxo,
-        witness: ScopedSpendWitness {
-            nullifier_pubkey: [0u8; 32],
-            nullifier: [0u8; 32],
-            nullifier_secret: [0u8; 31],
-        },
+        nullifier_key: NullifierKey::from_secret([0u8; 31]),
         proof: None,
     }
 }

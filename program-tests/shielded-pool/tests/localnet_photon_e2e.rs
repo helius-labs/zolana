@@ -823,7 +823,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
-        spends.push(SpendUtxo::from_keypair(utxo, &sender)?);
+        spends.push(SpendUtxo::from((utxo, &sender)));
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----
