@@ -16,6 +16,8 @@ use crate::wallet_authority::P256Signature;
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
+    pub program_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's roots, so it has no proof of its own.
     pub proof: Option<SpendProof>,
@@ -231,13 +233,20 @@ pub(crate) fn assemble_inputs(
 
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
+        let program_data_hash = spend.program_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
         let utxo_inputs = UtxoInputs::new(
             &owner_field,
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
+            &program_data_hash,
+            &zone_data_hash,
+            &spend.utxo.zone_program_id,
         )?;
-        let utxo_hash = spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?;
+        let utxo_hash = spend
+            .utxo
+            .hash(&nullifier_pubkey, &program_data_hash, &zone_data_hash)?;
         let nullifier = spend
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;

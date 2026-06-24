@@ -83,12 +83,6 @@ impl SpendUtxo {
     }
 }
 
-impl From<(Utxo, &ShieldedKeypair)> for SpendUtxo {
-    fn from((utxo, keypair): (Utxo, &ShieldedKeypair)) -> Self {
-        Self::from_keypair(utxo, keypair)
-    }
-}
-
 struct Recipient {
     address: ShieldedAddress,
     asset: Address,
@@ -233,28 +227,19 @@ impl Transaction {
                 self.recipients.len()
             ),
         })?;
-        let mut sealed = self.assemble(owner_pubkey, authority, assets, sender_view_tag)?;
+        let mut assembled_transaction =
+            self.assemble(owner_pubkey, authority, assets, sender_view_tag)?;
         if authority
             .shielded_address(owner_pubkey)?
             .signing_pubkey
             .signature_type()?
             == SignatureType::P256
         {
-            let message_hash = sealed.message_hash()?;
+            let message_hash = assembled_transaction.message_hash()?;
             let signature = authority.sign_p256(owner_pubkey, &message_hash)?;
-            sealed.p256_owner = Some(signature.into());
+            assembled_transaction.p256_owner = Some(signature.into());
         }
-        Ok(sealed)
-    }
-
-    pub fn finalize<A: WalletAuthority>(
-        self,
-        owner_pubkey: Pubkey,
-        authority: &A,
-        assets: &AssetRegistry,
-        sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, ClientError> {
-        self.assemble(owner_pubkey, authority, assets, sender_view_tag)
+        Ok(assembled_transaction)
     }
 
     fn spl_asset(&self) -> Result<Option<Address>, ClientError> {

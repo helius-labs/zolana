@@ -545,6 +545,9 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
+            &[0u8; 32],
+            &[0u8; 32],
+            &args.utxo.zone_program_id,
         )?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_proof.path.iter().map(be).collect(),
@@ -823,7 +826,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
-        spends.push(SpendUtxo::from((utxo, &sender)));
+        spends.push(SpendUtxo::from_keypair(utxo, &sender));
     }
 
     // ---- build the encrypted transfer with the high-level client builder ----

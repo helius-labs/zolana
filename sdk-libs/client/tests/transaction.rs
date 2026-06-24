@@ -44,7 +44,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         zone_program_id: None,
         data: Data::default(),
     };
-    SpendUtxo::from((utxo, sender))
+    SpendUtxo::from_keypair(utxo, sender)
 }
 
 fn registry() -> AssetRegistry {
@@ -522,7 +522,7 @@ fn rail_follows_input_owner_type() {
     assert!(!ed_tx.requires_p256_owner().unwrap());
 
     let signed = ed_tx
-        .finalize(
+        .sign(
             Pubkey::default(),
             &sender,
             &registry(),

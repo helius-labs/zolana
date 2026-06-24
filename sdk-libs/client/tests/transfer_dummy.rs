@@ -112,6 +112,8 @@ fn real_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key,
+        program_data_hash: None,
+        zone_data_hash: None,
         proof: Some(proof),
     }
 }
@@ -132,6 +134,8 @@ fn dummy_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
+        program_data_hash: None,
+        zone_data_hash: None,
         proof: None,
     }
 }

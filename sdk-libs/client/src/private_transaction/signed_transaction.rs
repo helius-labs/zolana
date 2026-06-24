@@ -110,7 +110,8 @@ impl SignedTransaction {
             let SpendUtxo {
                 utxo,
                 nullifier_key,
-                ..
+                program_data_hash,
+                zone_data_hash,
             } = spend;
             // Real inputs have their own proof; a dummy (zero owner) is proofless and
             // mirrors the first real input's roots downstream.
@@ -127,6 +128,8 @@ impl SignedTransaction {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
+                program_data_hash,
+                zone_data_hash,
                 proof,
             });
         }
@@ -284,7 +287,11 @@ impl SignedTransaction {
                 input_hashes.push([0u8; 32]);
             } else {
                 let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                input_hashes.push(spend.utxo.hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])?);
+                input_hashes.push(spend.utxo.hash(
+                    &nullifier_pubkey,
+                    &spend.program_data_hash.unwrap_or([0u8; 32]),
+                    &spend.zone_data_hash.unwrap_or([0u8; 32]),
+                )?);
             }
         }
 

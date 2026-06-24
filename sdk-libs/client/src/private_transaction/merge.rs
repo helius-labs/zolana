@@ -203,6 +203,8 @@ impl PreparedMerge {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
+                program_data_hash: None,
+                zone_data_hash: None,
                 proof,
             });
         }

@@ -79,7 +79,7 @@ impl TransferWorld {
                     data: Data::default(),
                 };
                 match input.owner {
-                    crate::world::Owner::P256 => SpendUtxo::from((utxo, &sender)),
+                    crate::world::Owner::P256 => SpendUtxo::from_keypair(utxo, &sender),
                     crate::world::Owner::Solana => SpendUtxo::from_nullifier_key(
                         utxo,
                         &NullifierKey::from_secret(random_blinding(&mut rng)),
@@ -128,13 +128,9 @@ impl TransferWorld {
 
         let view_tag = sender.get_sender_view_tag(0).expect("sender view tag");
         let owner_pubkey = Pubkey::default();
-        let signed = if tx.requires_p256_owner().expect("rail") {
-            tx.sign(owner_pubkey, &sender, &assets, view_tag)
-                .expect("sign")
-        } else {
-            tx.finalize(owner_pubkey, &sender, &assets, view_tag)
-                .expect("finalize")
-        };
+        let signed = tx
+            .sign(owner_pubkey, &sender, &assets, view_tag)
+            .expect("sign");
 
         let commitments = signed.input_commitments().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
