@@ -15,9 +15,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
-    instruction::CreateProtocolConfig, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
+    instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, settings_pda, smart_account_pda, treasury_pda,
     Permissions, SmartAccountSigner,
@@ -237,24 +236,30 @@ impl LifecycleWorld {
         )?;
 
         let tree = Keypair::new();
-        let create_tree_ixs = create_tree_instructions(
-            &rpc,
+        let rent = rpc
+            .get_minimum_balance_for_rent_exemption(tree_account_size())
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let alloc_ix = zolana_program_test::system_create_account_ix(
             &payer.pubkey(),
-            &tree_vault,
             &tree.pubkey(),
+            rent,
             tree_account_size() as u64,
-        )?;
-        let create_tree_sync = execute_sync_ix(
-            &tree_settings,
-            0,
-            &[tree_key.pubkey()],
-            &create_tree_ixs,
+            &pda::shielded_pool_program_id(),
         );
+        send_transaction(&mut rpc, &[alloc_ix], &payer.pubkey(), &[&payer, &tree])?;
+        let create_tree_ix = zolana_interface::instruction::CreateTree {
+            authority: tree_vault,
+            tree: tree.pubkey(),
+            owner: tree_vault,
+        }
+        .instruction();
+        let create_tree_sync =
+            execute_sync_ix(&tree_settings, 0, &[tree_key.pubkey()], &[create_tree_ix]);
         send_transaction(
             &mut rpc,
             &[create_tree_sync],
             &payer.pubkey(),
-            &[&payer, &tree, &tree_key],
+            &[&payer, &tree_key],
         )?;
 
         let tree_address = Address::new_from_array(tree.pubkey().to_bytes());
