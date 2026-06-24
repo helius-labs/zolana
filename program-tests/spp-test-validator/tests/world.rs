@@ -13,7 +13,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{SolanaRpc, ZolanaIndexer};
+use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -246,7 +246,6 @@ impl LifecycleWorld {
             tree_account_size() as u64,
             &pda::shielded_pool_program_id(),
         );
-        send_transaction(&mut rpc, &[alloc_ix], &payer.pubkey(), &[&payer, &tree])?;
         let create_tree_ix = zolana_interface::instruction::CreateTree {
             authority: tree_vault,
             tree: tree.pubkey(),
@@ -257,9 +256,9 @@ impl LifecycleWorld {
             execute_sync_ix(&tree_settings, 0, &[tree_key.pubkey()], &[create_tree_ix]);
         send_transaction(
             &mut rpc,
-            &[create_tree_sync],
+            &[alloc_ix, create_tree_sync],
             &payer.pubkey(),
-            &[&payer, &tree_key],
+            &[&payer, &tree, &tree_key],
         )?;
 
         let tree_address = Address::new_from_array(tree.pubkey().to_bytes());
