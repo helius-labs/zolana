@@ -5,12 +5,18 @@ use anyhow::{anyhow, Result};
 use cucumber::given;
 use solana_address::Address;
 use solana_signer::Signer;
+use zolana_client::Rpc;
+use zolana_interface::{
+    instruction::{CreateAssetCounter, CreateSplInterface},
+    pda,
+};
 use zolana_test_utils::{
-    spl::{create_mint, create_spl_interface, create_token_account, ensure_asset_counter},
+    smart_account::execute_sync_ix,
+    spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };
 
-use crate::{world::SplAsset, LifecycleWorld};
+use crate::{localnet::send_transaction, world::SplAsset, LifecycleWorld};
 
 // SOL occupies asset id 1; the first registered SPL mint gets id 2.
 const FIRST_SPL_ASSET_ID: u64 = 2;
@@ -24,13 +30,47 @@ impl LifecycleWorld {
     pub(crate) fn ensure_spl_assets(&mut self, count: usize) -> Result<()> {
         let payer = self.payer.insecure_clone();
         let authority = self.authority.insecure_clone();
+        let protocol_vault = self.protocol_vault;
+        let protocol_settings = self.protocol_settings;
 
         while self.spls.len() < count {
             let asset_id = FIRST_SPL_ASSET_ID + self.spls.len() as u64;
 
             let mint = create_mint(&self.rpc, &payer)?;
-            ensure_asset_counter(&self.rpc, &authority)?;
-            let (registry, vault) = create_spl_interface(&self.rpc, &authority, &mint)?;
+
+            // Both CreateAssetCounter and CreateSplInterface check protocol_authority
+            // in ProtocolConfig, which is now the protocol vault PDA. Wrap each in
+            // execute_sync_ix so the vault signs via the Squads CPI mechanism.
+            let counter_addr = Address::new_from_array(pda::spl_asset_counter().to_bytes());
+            if self.rpc.get_account(counter_addr)?.is_none() {
+                let ix = CreateAssetCounter {
+                    authority: protocol_vault,
+                }
+                .instruction();
+                let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
+                send_transaction(
+                    &mut self.rpc,
+                    &[sync_ix],
+                    &payer.pubkey(),
+                    &[&payer, &authority],
+                )?;
+            }
+
+            let ix = CreateSplInterface {
+                authority: protocol_vault,
+                mint,
+            }
+            .instruction();
+            let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
+            send_transaction(
+                &mut self.rpc,
+                &[sync_ix],
+                &payer.pubkey(),
+                &[&payer, &authority],
+            )?;
+            let registry = pda::spl_asset_registry(&mint);
+            let vault = pda::spl_asset_vault(&mint);
+
             assert_create_spl_interface(
                 &self.rpc,
                 &registry,

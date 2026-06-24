@@ -44,6 +44,7 @@
 - [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
 - [SPP - Solana Privacy Program](#spp---solana-privacy-program)
   - [Accounts](#accounts)
+    - [Authority Governance](#authority-governance)
     - [Zone Accounts](#zone-accounts)
   - [Instructions](#instructions)
     - [transact](#transact)
@@ -1106,6 +1107,28 @@ struct ProtocolConfig {
 When a `*_is_permissionless` flag is set, any signer may call the corresponding
 creation instruction; otherwise the transaction signer must equal the matching
 creation authority.
+
+### Authority Governance
+
+All five authority fields store vault PDAs of [Squads smart accounts](https://github.com/Squads-Protocol/smart-account-program) (program `SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG`). SPP checks only that the address is a signer; threshold and key membership are validated by the smart account program.
+
+**Hierarchy**
+
+| Config field | Smart account | Kind | Threshold | `settings_authority` |
+| --- | --- | --- | --- | --- |
+| `protocol_authority` | Protocol authority | autonomous | 2-of-5 | — |
+| `forester_authority` | Forester | controlled | 1-of-N | Protocol authority vault |
+| `merge_authority` | Merge | controlled | 1-of-N | Protocol authority vault |
+| `tree_creation_authority` | Tree creation | controlled | 1-of-N | Protocol authority vault |
+| `zone_creation_authority` | Zone creation | controlled | 1-of-N | Protocol authority vault |
+
+**Key management**
+
+Signer changes on any smart account in the hierarchy require a 2-of-5 protocol authority transaction.
+
+**Sync execution**
+
+Operators submit `execute_transaction_sync_v2` with a single key (`threshold = 1`, `time_lock = 0`). The smart account program validates the key and CPIs into SPP with the vault PDA as signer.
 
 ### Zone Accounts
 

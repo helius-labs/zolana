@@ -34,6 +34,8 @@ use zolana_user_registry_interface::{
     user_record_pda,
 };
 
+use zolana_test_utils::smart_account;
+
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},
     LifecycleWorld,
@@ -216,18 +218,24 @@ impl LifecycleWorld {
         let merge_ix = MergeTransact {
             tree: self.tree,
             protocol_config: pda::protocol_config(),
-            payer: self.authority.pubkey(),
+            payer: self.merge_vault,
             user_record: user_record_pda(&owner_solana.pubkey()).0,
             data,
         }
         .instruction();
+        let sync_ix = smart_account::execute_sync_ix(
+            &self.merge_settings,
+            0,
+            &[self.merge_key.pubkey()],
+            &[merge_ix],
+        );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let authority = self.authority.insecure_clone();
+        let merge_key = self.merge_key.insecure_clone();
         send_transaction(
             &mut self.rpc,
-            &[compute_budget, merge_ix],
-            &authority.pubkey(),
-            &[&authority],
+            &[compute_budget, sync_ix],
+            &merge_key.pubkey(),
+            &[&merge_key],
         )?;
 
         // Record what the consolidated-output assert needs: the appended output

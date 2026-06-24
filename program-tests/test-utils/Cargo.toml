@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+borsh = { workspace = true }
 bytemuck = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }

@@ -9931,6 +9931,7 @@ dependencies = [
 name = "zolana-test-utils"
 version = "0.1.0"
 dependencies = [
+ "borsh 1.6.1",
  "bytemuck",
  "solana-account 3.4.0",
  "solana-address 2.6.1",

@@ -209,6 +209,15 @@ jobs:
           key: proving-keys-transfer-keys-v4
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
+      - name: Cache Squads smart account binary
+        uses: actions/cache@v4
+        id: squads-cache
+        with:
+          path: target/deploy/squads_smart_account_program.so
+          key: squads-smart-account-SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG
+      - name: Fetch Squads smart account binary
+        if: steps.squads-cache.outputs.cache-hit != 'true'
+        run: just fetch-smart-account
       - run: just ${{ matrix.recipe }}
       - name: Dump prover and photon logs on failure
         if: failure()
