@@ -115,7 +115,17 @@ fn pid_is_merge_service(pid: u32) -> bool {
         return false;
     }
     let command = String::from_utf8_lossy(&output.stdout);
-    command.contains("merge-service") && command.contains("run-loop")
+    command_is_merge_service(&command)
+}
+
+fn command_is_merge_service(command: &str) -> bool {
+    let mut has_merge_service = false;
+    let mut has_service_mode = false;
+    for arg in command.split_whitespace() {
+        has_merge_service |= arg == "merge-service";
+        has_service_mode |= arg == "start" || arg == "run-loop";
+    }
+    has_merge_service && has_service_mode
 }
 
 #[cfg(test)]
@@ -153,5 +163,29 @@ mod tests {
             assert!(guard.path.exists());
         }
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn command_matcher_accepts_foreground_and_background_service_modes() {
+        assert!(command_is_merge_service(
+            "/path/to/zolana wallet merge-service start --interval-secs 30"
+        ));
+        assert!(command_is_merge_service(
+            "/path/to/zolana wallet merge-service run-loop --interval-secs 30"
+        ));
+    }
+
+    #[test]
+    fn command_matcher_rejects_non_service_merge_commands() {
+        assert!(!command_is_merge_service(
+            "/path/to/zolana wallet merge-service status"
+        ));
+        assert!(!command_is_merge_service(
+            "/path/to/zolana wallet merge-service stop"
+        ));
+        assert!(!command_is_merge_service(
+            "/path/to/zolana wallet merge-service once"
+        ));
+        assert!(!command_is_merge_service("/path/to/zolana wallet balance"));
     }
 }
