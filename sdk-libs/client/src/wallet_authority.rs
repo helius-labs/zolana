@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
@@ -64,6 +65,7 @@ pub struct EncryptedTransfer {
     pub slots: Vec<OutputCiphertext>,
 }
 
+/// Synchronous authority for tests and local direct-key wallets.
 pub trait WalletAuthority {
     fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
 
@@ -96,6 +98,105 @@ pub trait WalletAuthority {
     ) -> Result<P256Signature, ClientError>;
 
     fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+}
+
+/// Async authority for production wallet hosts where approval, key access, or
+/// signing may cross a process, device, or remote custody boundary.
+#[async_trait(?Send)]
+pub trait AsyncWalletAuthority {
+    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
+
+    async fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    async fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    async fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
+        Ok(())
+    }
+
+    async fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError>;
+
+    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+}
+
+#[async_trait(?Send)]
+impl<T> AsyncWalletAuthority for T
+where
+    T: WalletAuthority + ?Sized,
+{
+    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
+        WalletAuthority::shielded_address(self, owner_pubkey)
+    }
+
+    async fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError> {
+        WalletAuthority::encrypt_confidential_transfer(
+            self,
+            owner_pubkey,
+            first_nullifier,
+            sender_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError> {
+        WalletAuthority::encrypt_anonymous_transfer(
+            self,
+            owner_pubkey,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
+        WalletAuthority::request_user_approval(self, request)
+    }
+
+    async fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError> {
+        WalletAuthority::sign_p256(self, owner_pubkey, message_hash)
+    }
+
+    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
+        WalletAuthority::spend_nullifier_key(self, owner_pubkey)
+    }
 }
 
 fn recipient_slot_index(i: usize) -> Result<u32, ClientError> {

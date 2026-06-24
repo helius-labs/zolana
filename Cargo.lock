@@ -9764,6 +9764,7 @@ dependencies = [
 name = "zolana-client"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.13.1",
  "borsh 1.6.1",
  "bs58",
