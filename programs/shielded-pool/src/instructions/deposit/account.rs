@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
@@ -33,6 +34,7 @@ pub struct DepositAccounts<'a> {
 }
 
 impl<'a> DepositAccounts<'a> {
+    #[profile]
     pub fn validate_and_parse(
         program_id: &Address,
         accounts: &'a mut [AccountView],

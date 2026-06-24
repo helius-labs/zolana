@@ -184,7 +184,10 @@ fn bench_cu_deposit() {
             "Compute unit profiling for the shielded-pool deposit and transact instructions, \
              replayed under mollusk from litesvm-built account state: proof-free SOL and SPL \
              shields, plus Groth16-proven (2,3) eddsa transact shapes -- a shielded transfer and \
-             SOL/SPL withdrawals."
+             SOL/SPL withdrawals. Event emittance is broken out as dedicated rows: \
+             `emit_proofless_event` (deposit), `build_transact_event` + `emit_general_event` \
+             (transact); each `emit_*_event` total includes the self-CPI invoke and the \
+             re-entrant `process_instruction` event no-op."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-shielded-pool".into()),

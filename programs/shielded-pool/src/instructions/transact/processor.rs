@@ -57,23 +57,7 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
         apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut proof_inputs)?
     };
 
-    let (user_sol_account, user_spl_token_account, spl_token_interface) =
-        settlement_accounts(&transact_accounts);
-    proof_inputs.external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: TRANSACT,
-        expiry_unix_ts: ix.expiry_unix_ts,
-        relayer_fee: ix.relayer_fee,
-        public_sol_amount: ix.public_sol_amount,
-        public_spl_amount: ix.public_spl_amount,
-        user_sol_account: &user_sol_account,
-        user_spl_token_account: &user_spl_token_account,
-        spl_token_interface: &spl_token_interface,
-        cpi_signer: ix.cpi_signer,
-        output_utxo_hashes: &ix.output_utxo_hashes,
-        output_ciphertexts: &ix.output_ciphertexts,
-    }
-    .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    proof_inputs.external_data_hash = transact_external_data_hash(&transact_accounts, &ix)?;
 
     proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -112,6 +96,30 @@ fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8;
         ),
         None => ([0u8; 32], [0u8; 32], [0u8; 32]),
     }
+}
+
+#[profile]
+fn transact_external_data_hash(
+    accounts: &TransactAccounts<'_>,
+    ix: &TransactIxDataRef<'_>,
+) -> Result<[u8; 32], ProgramError> {
+    let (user_sol_account, user_spl_token_account, spl_token_interface) =
+        settlement_accounts(accounts);
+    ExternalDataHash {
+        spp_instruction_discriminator: TRANSACT,
+        expiry_unix_ts: ix.expiry_unix_ts,
+        relayer_fee: ix.relayer_fee,
+        public_sol_amount: ix.public_sol_amount,
+        public_spl_amount: ix.public_spl_amount,
+        user_sol_account: &user_sol_account,
+        user_spl_token_account: &user_spl_token_account,
+        spl_token_interface: &spl_token_interface,
+        cpi_signer: ix.cpi_signer,
+        output_utxo_hashes: &ix.output_utxo_hashes,
+        output_ciphertexts: &ix.output_ciphertexts,
+    }
+    .hash()
+    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }
 
 #[profile]

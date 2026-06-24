@@ -1,6 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use groth16_solana::groth16::Groth16Verifyingkey;
+use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::{Hasher, Sha256};
 use zolana_interface::{
@@ -65,6 +66,7 @@ impl<'a> TransactProof<'a> {
             .any(|input| input.eddsa_signer_index == P256_OWNED_SIGNER)
     }
 
+    #[profile]
     fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let n_in = self.n_inputs();
         let shape = ShieldedPoolError::InvalidTransactShape;

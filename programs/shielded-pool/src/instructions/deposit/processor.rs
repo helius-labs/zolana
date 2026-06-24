@@ -125,33 +125,19 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         Some(cpi) => solana_pk_hash(&cpi.program_id)?,
         None => zero,
     };
-    // Nest the recipient `owner` with the right-aligned `blinding` into the
-    // owner commitment, matching the SDK's `owner_utxo_hash`.
-    let mut blinding = [0u8; 32];
-    blinding[1..].copy_from_slice(&d.blinding);
-    let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-    let utxo_hash = Poseidon::hashv(&[
-        field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
-        asset_field.as_slice(),
-        field_from_u64(amount).as_slice(),
-        program_data_hash.as_slice(),
-        policy_data_hash.as_slice(),
-        zone_program_id.as_slice(),
-        owner_utxo_hash.as_slice(),
-    ])
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    let utxo_hash = deposit_utxo_hash(
+        &d.owner,
+        &d.blinding,
+        &asset_field,
+        amount,
+        &program_data_hash,
+        &policy_data_hash,
+        &zone_program_id,
+    )?;
 
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
-    let first_output_leaf_index = {
-        let mut tree =
-            TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(ShieldedPoolError::from)?;
-        let index = tree.utxo_tree().next_index();
-        tree.utxo_tree().append(utxo_hash);
-        index
-    };
+    let first_output_leaf_index = append_deposit_leaf(parsed.tree, utxo_hash)?;
 
     // Proofless shields are deposit-only; the SOL rail always deposits.
     match &parsed.settlement {
@@ -170,4 +156,45 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
             output_tree,
         },
     )
+}
+
+#[profile]
+fn deposit_utxo_hash(
+    owner: &[u8; 32],
+    blinding: &[u8; 31],
+    asset_field: &[u8; 32],
+    amount: u64,
+    program_data_hash: &[u8; 32],
+    policy_data_hash: &[u8; 32],
+    zone_program_id: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
+    // Nest the recipient `owner` with the right-aligned `blinding` into the
+    // owner commitment, matching the SDK's `owner_utxo_hash`.
+    let mut blinding_field = [0u8; 32];
+    blinding_field[1..].copy_from_slice(blinding);
+    let owner_utxo_hash = Poseidon::hashv(&[owner.as_slice(), blinding_field.as_slice()])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    Poseidon::hashv(&[
+        field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
+        asset_field.as_slice(),
+        field_from_u64(amount).as_slice(),
+        program_data_hash.as_slice(),
+        policy_data_hash.as_slice(),
+        zone_program_id.as_slice(),
+        owner_utxo_hash.as_slice(),
+    ])
+    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
+}
+
+#[profile]
+fn append_deposit_leaf(
+    tree_account: &mut AccountView,
+    utxo_hash: [u8; 32],
+) -> Result<u64, ProgramError> {
+    let mut tree =
+        TreeAccount::from_account_view_mut(tree_account, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+    let index = tree.utxo_tree().next_index();
+    tree.utxo_tree().append(utxo_hash);
+    Ok(index)
 }

@@ -1,3 +1,4 @@
+use light_program_profiler::profile;
 use zolana_interface::{
     event::{GeneralEvent, Input},
     instruction::{instruction_data::merge_transact::MergeTransactIxDataRef, OutputUtxo},
@@ -12,6 +13,7 @@ pub struct MergeTreeWrite {
     pub output_tree: [u8; 32],
 }
 
+#[profile]
 pub fn build_merge_event(
     ix: &MergeTransactIxDataRef<'_>,
     tree_write: MergeTreeWrite,
