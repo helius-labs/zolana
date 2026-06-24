@@ -80,7 +80,7 @@ pub struct CreateWithdrawal<'a, A: WalletAuthority> {
     pub authority: &'a A,
     pub owner_pubkey: Pubkey,
     pub payer: Address,
-    pub recipient_owner: Pubkey,
+    pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
@@ -96,7 +96,7 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
             authority: request.authority,
             owner_pubkey: request.owner_pubkey,
             payer: request.payer,
-            recipient_owner: request.recipient_owner,
+            recipient: request.recipient_owner,
             asset: request.asset,
             amount: request.amount,
             assets: request.assets,
@@ -153,7 +153,7 @@ pub fn create_withdrawal<A: WalletAuthority>(
         request.asset,
         request.amount,
     )?;
-    let (target, withdrawal) = withdrawal_target(request.recipient_owner, request.asset)?;
+    let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
     let mut tx = Transaction::new(
         request.authority.shielded_address(request.owner_pubkey)?,
         inputs,
@@ -174,22 +174,20 @@ pub fn create_withdrawal<A: WalletAuthority>(
 }
 
 fn withdrawal_target(
-    recipient_owner: Pubkey,
+    recipient: Pubkey,
     asset: Address,
 ) -> Result<(WithdrawalTarget, TransactWithdrawal), ClientError> {
     if asset == SOL_MINT {
         return Ok((
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient_owner.to_bytes()),
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient: recipient_owner,
-            }),
+            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
         ));
     }
 
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let user_spl_token = pda::associated_token_address(&recipient_owner, &mint);
+    let user_spl_token = pda::associated_token_address(&recipient, &mint);
     let vault = pda::spl_asset_vault(&mint);
     Ok((
         WithdrawalTarget::Spl {
@@ -199,7 +197,7 @@ fn withdrawal_target(
         TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(pda::shielded_pool_cpi_authority()),
             vault,
-            recipient: recipient_owner,
+            recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
         }),
@@ -441,7 +439,7 @@ mod tests {
             authority: &sender,
             owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: recipient,
+            recipient,
             asset,
             amount: 1,
             assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
