@@ -1,4 +1,6 @@
-use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TransactIxData};
+use zolana_interface::instruction::instruction_data::transact::{
+    InputUtxo, TransactIxData, TransactProof,
+};
 use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::transact::builder::inputs_require_p256;
 use zolana_transaction::instructions::transact::SignedTransaction;
@@ -54,7 +56,7 @@ pub struct AssembledTransfer {
 }
 
 impl AssembledTransfer {
-    pub fn with_proof(mut self, proof: [u8; 192]) -> TransactIxData {
+    pub fn with_proof(mut self, proof: TransactProof) -> TransactIxData {
         self.ix.proof = proof;
         self.ix
     }
@@ -275,7 +277,7 @@ pub fn assemble(
     }
 
     let ix = TransactIxData {
-        proof: [0u8; 192],
+        proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts,
         relayer_fee,
         private_tx_hash: private_tx,

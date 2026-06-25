@@ -26,7 +26,7 @@ use zolana_transaction::{
 
 use crate::{
     localnet::{
-        pack_proof, send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+        send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
         SPL_CHANGE_POSITION, ZERO,
     },
     world::Rail,
@@ -220,7 +220,7 @@ impl LifecycleWorld {
             }
         };
         self.last_rail = Some(rail);
-        let ix_data = assembled.with_proof(pack_proof(&proof)?);
+        let ix_data = assembled.with_proof(transact_proof(&proof)?);
 
         let transfer_ix = Transact {
             payer: fee_payer.pubkey(),

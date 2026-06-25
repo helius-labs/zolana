@@ -8,7 +8,7 @@ pub use instruction_data::{
     BatchUpdateNullifierTreeData, CompressedProof, CpiSignerData, CreateProtocolConfigData,
     CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
     MergeTransactIxData, MergeTransactIxDataRef, OutputCiphertext, OutputCiphertextRef, OutputUtxo,
-    PauseTreeData, TransactIxData, TransactIxDataRef, UpdateProtocolConfigData,
+    PauseTreeData, TransactIxData, TransactIxDataRef, TransactProof, UpdateProtocolConfigData,
     UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneDepositIxData,
 };
 pub use zolana_event::{tag, tag::InstructionTag};

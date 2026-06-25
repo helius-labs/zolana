@@ -2,9 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum KeypairError {
-    #[error("AEAD encryption/decryption failed")]
-    Aead,
-
     #[error("invalid public key")]
     InvalidPublicKey,
 

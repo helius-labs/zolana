@@ -399,7 +399,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### Merge view tag
 
-5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` instead tags the merged output with the owner's viewing-pubkey x-coordinate (its [`recipient_bootstrap_view_tag`](#recipient-view-tag)), so a wallet rediscovers it through `Wallet::sync`; the program derives this tag from the proof-bound viewing key, and replay protection comes from the input nullifiers.
+5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate single-use view tag.
     - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
@@ -409,7 +409,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### View Tag Selection
 
-In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact` tags by the owner's viewing-pubkey x-coordinate. Wallets select recipient tags as follows:
+In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact`, being confidential, tags by the owner's signing pubkey. Wallets select recipient tags as follows:
 
 ```mermaid
 flowchart TD
@@ -422,7 +422,7 @@ flowchart TD
 
 ## Methods
 
-1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-GCM decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
+1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
 2. `get_sender_view_tag(tx_count)` — policy-zone anonymous transfers only; tags the sender's own change UTXOs. The default zone tags change by the sender's owner pubkey.
 3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
 4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
@@ -534,7 +534,7 @@ Output UTXO serialization is the per-output ciphertext layout for shielded
 transactions. Each output's ciphertext lives in its own
 [`OutputUtxo.data`](#transact) slot; SPP does not parse `data`. Serialization is a
 default-zone convention; policy zones can define their own.
-UTXOs are encrypted with ECDH AES-GCM, except in the Plaintext Transfer scheme.
+UTXOs are encrypted with ECDH AES-256-CTR, except in the Plaintext Transfer scheme.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
 [transact](#transact) instruction, not part of any per-output payload. Each output
 slot is tagged by its `owner` pubkey.
@@ -776,7 +776,7 @@ for `i = 0 .. M-1`.
 ### Plaintext Layout
 
 ```rust
-/// 83 B plaintext → 99 B ciphertext (after the 16-byte GCM tag) with an empty
+/// 83 B plaintext → 83 B ciphertext (no tag) with an empty
 /// `data` field. See [Program Data](#program-data) for the growth per
 /// populated record.
 struct SplitBundlePlaintext {
@@ -799,7 +799,7 @@ struct SplitBundlePlaintext {
 ### Instruction Data Layout
 
 ```rust
-/// 151 bytes total when the plaintext `data` field is empty; populated
+/// 135 bytes total when the plaintext `data` field is empty; populated
 /// records grow the ciphertext by `3 + len` bytes each. Packed; the
 /// ciphertext is prefixed with a `u16_le` length.
 /// Tagged by the sender's `owner` pubkey in the transact instruction data
@@ -810,7 +810,7 @@ struct SplitEncryptedUtxos {
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
     salt: [u8; 16],
-    /// 83-byte plaintext + 16-byte GCM tag.
+    /// 83-byte plaintext (no tag).
     ciphertext: Vec<u8>,
 }
 ```
@@ -972,7 +972,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | pk_field(user_signing_pk) | owner identity; derived by SPP from the registry record by the rail the `merge_transact` `eddsa_owner` flag selects: `pk_field(owner_p256)` for a P256 owner, or `pk_field` of the registry account `owner` (the ed25519 signing key) for a Solana owner. The proof computes the same `pk_field` in its public input hash, so it fails unless they match. Stands in for `owner_hash` as the public identifier. |
 | pk_field(user_viewing_pk) | derived by SPP from `user_record.viewing_pubkey`. The proof computes the same `pk_field`, so the output is provably encrypted to the owner's registered viewing key. |
 | tx_viewing_pk | instruction data (from the merge ciphertext blob) |
-| ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a GCM tag. |
+| ciphertext_hash | `Poseidon` over the ciphertext, recomputed by SPP from the blob's `ciphertext`. Replaces exposing the raw ciphertext and is the integrity binding in place of a tag. |
 
 **Private Inputs (per input UTXO)**
 
@@ -1018,7 +1018,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, and the external-data hash, so the proof cannot be replayed with different state. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
-| Verifiable encryption | The public `ciphertext_hash` equals `Poseidon` over `ciphertext = AES-256-CTR(aes_key, nonce, plaintext)`, where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. There is no GCM tag; integrity comes from `ciphertext_hash` plus the plaintext-to-output binding. |
+| Verifiable encryption | The public `ciphertext_hash` equals `Poseidon` over `ciphertext = AES-256-CTR(aes_key, nonce, plaintext)`, where `(aes_key, nonce)` are derived by the Poseidon KDF below from `tx_viewing_sk` and `user_viewing_pk`. There is no tag; integrity comes from `ciphertext_hash` plus the plaintext-to-output binding. |
 
 **Verifiable encryption: DHKEM(P-256) + Poseidon KDF + AES-256-CTR.** All steps are checked by the merge proof.
 
@@ -1626,7 +1626,7 @@ struct MergeTransactIxData {
 2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
 3. `tree_account` is not paused.
 4. `payer` is a member of `protocol_config.merge_authorities`.
-5. `user_record` has `merge_service` enabled. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key.
+5. `user_record` has `merge_service` enabled. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.

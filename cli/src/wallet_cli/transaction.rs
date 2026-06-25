@@ -93,8 +93,8 @@ pub(super) fn submit_private_transaction(
         ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
         ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
     };
-    let proof_bytes = ProofCompressed::try_from(proof)?.to_transact_proof_bytes();
-    let data = assembled.with_proof(proof_bytes);
+    let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+    let data = assembled.with_proof(proof);
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,

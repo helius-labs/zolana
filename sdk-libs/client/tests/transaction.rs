@@ -18,6 +18,7 @@ use zolana_client::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
+use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
@@ -323,7 +324,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
         zolana_client::assemble(signed, &proofs)
             .unwrap()
-            .with_proof([0u8; 192])
+            .with_proof(TransactProof::zeroed_eddsa())
     };
 
     let change_only = build(false);
@@ -387,7 +388,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
     let assembled = zolana_client::assemble(signed, &proofs).unwrap();
-    let ix = assembled.with_proof([0u8; 192]);
+    let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
     assert_eq!(ix.inputs.len(), 2);

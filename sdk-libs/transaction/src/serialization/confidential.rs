@@ -57,7 +57,7 @@ impl TransferRecipientPlaintext {
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferSenderPlaintext {
     #[wincode(with = "PublicKeySchema")]
-    pub owner_pubkey: PublicKey,
+    pub owner_pubkey: PublicKey, // TODO: remove see spec.md
     pub spl_asset_id: u64,
     pub spl_amount: u64,
     pub sol_amount: u64,
@@ -139,7 +139,7 @@ impl UtxoSerialization for ConfidentialRecipient {
         let salt = cx.salt.ok_or(TransactionError::MissingEncryptionContext)?;
         Ok(cx
             .viewing_key
-            .decrypt_slot_ctr(&tx_viewing_pk, body, salt, cx.slot_index)?)
+            .decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)?)
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
@@ -175,7 +175,7 @@ impl UtxoSerialization for ConfidentialRecipient {
     fn encrypt(bytes: &[u8], cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
         Ok(cx
             .tx
-            .encrypt_slot_ctr(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?)
+            .encrypt_slot(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?)
     }
 }
 
@@ -202,7 +202,7 @@ impl UtxoSerialization for ConfidentialSenderBundle {
         let salt = cx.salt.ok_or(TransactionError::MissingEncryptionContext)?;
         Ok(cx
             .viewing_key
-            .decrypt_slot_ctr(&tx_viewing_pk, body, salt, cx.slot_index)?)
+            .decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)?)
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
@@ -257,6 +257,6 @@ impl UtxoSerialization for ConfidentialSenderBundle {
     fn encrypt(bytes: &[u8], cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
         Ok(cx
             .tx
-            .encrypt_slot_ctr(&cx.self_pubkey, bytes, cx.salt, cx.slot_index)?)
+            .encrypt_slot(&cx.self_pubkey, bytes, cx.salt, cx.slot_index)?)
     }
 }

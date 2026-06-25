@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use zolana_event::OutputData;
 use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,

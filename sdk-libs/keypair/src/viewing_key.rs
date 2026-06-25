@@ -303,32 +303,6 @@ impl ViewingKey {
         self.encrypt_utxo(recipient_pubkey, plaintext, &salt, slot_index)
     }
 
-    pub fn encrypt_slot_ctr(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        encryption::encrypt_utxo_ctr(&self.secret, recipient_pubkey, plaintext, &salt, slot_index)
-    }
-
-    pub fn decrypt_slot_ctr(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        encryption::decrypt_utxo_ctr(
-            &self.secret,
-            tx_viewing_pubkey,
-            ciphertext,
-            &salt,
-            slot_index,
-        )
-    }
-
     pub fn decrypt_slot_ephemeral(
         &self,
         recipient_pubkey: &P256Pubkey,

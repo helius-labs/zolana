@@ -5,7 +5,7 @@ use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::{Hasher, Sha256};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::transact::TransactIxDataRef,
+    instruction::instruction_data::transact::{TransactIxDataRef, TransactProof as ProofData},
     verifying_keys::{transfer_2_3, transfer_p256_2_3},
 };
 
@@ -39,14 +39,43 @@ impl<'a> TransactProof<'a> {
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        let verifying_key =
-            select_verifying_key(self.n_inputs(), self.n_outputs(), self.is_p256())?;
+        let is_p256 = self.is_p256();
+        let verifying_key = select_verifying_key(self.n_inputs(), self.n_outputs(), is_p256)?;
+        let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
+        let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
+        // The proof variant must agree with the rail derived from the inputs: the
+        // eddsa rail is vanilla Groth16 (no commitment), the P256 rail is
+        // BSB22-committed. Any mismatch is rejected before verification.
+        let proof = match (&self.ix.proof, is_p256) {
+            (ProofData::Eddsa { a, b, c }, false) => verifier::CompressedGroth16Proof {
+                a,
+                b,
+                c,
+                commitment: None,
+            },
+            (
+                ProofData::P256 {
+                    a,
+                    b,
+                    c,
+                    commitment,
+                    commitment_pok,
+                },
+                true,
+            ) => verifier::CompressedGroth16Proof {
+                a,
+                b,
+                c,
+                commitment: Some((commitment, commitment_pok)),
+            },
+            _ => return Err(ShieldedPoolError::MismatchedTransactProofRail.into()),
+        };
         verifier::verify_groth16(
-            self.ix.proof,
+            proof,
             public_input_hash,
             verifying_key,
-            ShieldedPoolError::InvalidTransactProofEncoding,
-            ShieldedPoolError::TransactProofVerificationFailed,
+            encoding_err,
+            verify_err,
         )
     }
 

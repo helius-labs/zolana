@@ -11,7 +11,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             transact as transact_ix,
-            transact::{ExternalDataHash, InputUtxo, TransactIxData},
+            transact::{ExternalDataHash, InputUtxo, TransactIxData, TransactProof},
         },
         tag,
     },
@@ -42,17 +42,8 @@ pub fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-pub fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
-    let compressed = ProofCompressed::try_from(*proof)?;
-    let mut out = [0u8; 192];
-    out[0..32].copy_from_slice(&compressed.a);
-    out[32..96].copy_from_slice(&compressed.b);
-    out[96..128].copy_from_slice(&compressed.c);
-    if let Some(commitment) = compressed.commitment {
-        out[128..160].copy_from_slice(&commitment.commitment);
-        out[160..192].copy_from_slice(&commitment.commitment_pok);
-    }
-    Ok(out)
+pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }
 
 /// Mirror of the eddsa-only `TransactProof::public_input_hash`.
@@ -135,7 +126,7 @@ pub fn new_transact_ix_data(
     output_ciphertexts: Vec<transact_ix::OutputCiphertext>,
 ) -> TransactIxData {
     TransactIxData {
-        proof: [0u8; 192],
+        proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         relayer_fee: 0,
         private_tx_hash: [0u8; 32],
@@ -235,7 +226,7 @@ pub fn prove_and_verify_transfer(
     prover_inputs: &TransferInputs,
     public_input_hash: [u8; 32],
     label: &str,
-) -> Result<[u8; 192]> {
+) -> Result<TransactProof> {
     let proof = ProverClient::local().prove_transfer(prover_inputs)?;
     let public_inputs = [public_input_hash];
     let mut verifier = Groth16Verifier::new(

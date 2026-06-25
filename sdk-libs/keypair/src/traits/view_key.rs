@@ -63,29 +63,12 @@ pub trait ViewingKeyTrait {
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
 
-    fn encrypt_slot_ctr(
-        // TODO: convert all encryption to ctr
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError>;
-
     // --- per-slot UTXO decryption ---
 
     fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
         tx_viewing_pubkey: &P256Pubkey,
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError>;
-
-    fn decrypt_slot_ctr(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
@@ -180,16 +163,6 @@ impl ViewingKeyTrait for ViewingKey {
         self.encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
     }
 
-    fn encrypt_slot_ctr(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.encrypt_slot_ctr(recipient_pubkey, plaintext, salt, slot_index)
-    }
-
     fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
@@ -198,16 +171,6 @@ impl ViewingKeyTrait for ViewingKey {
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError> {
         self.decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    fn decrypt_slot_ctr(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.decrypt_slot_ctr(tx_viewing_pubkey, ciphertext, salt, slot_index)
     }
 
     fn decrypt_slot_ephemeral(
@@ -306,17 +269,6 @@ impl ViewingKeyTrait for ShieldedKeypair {
             .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
     }
 
-    fn encrypt_slot_ctr(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .encrypt_slot_ctr(recipient_pubkey, plaintext, salt, slot_index)
-    }
-
     fn decrypt_utxo(
         &self,
         ciphertext: &[u8],
@@ -326,17 +278,6 @@ impl ViewingKeyTrait for ShieldedKeypair {
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    fn decrypt_slot_ctr(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_slot_ctr(tx_viewing_pubkey, ciphertext, salt, slot_index)
     }
 
     fn decrypt_slot_ephemeral(

@@ -284,7 +284,7 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
-        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData},
+        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
         SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
@@ -371,7 +371,7 @@ fn tx_size(args: Vec<String>) {
             });
         }
         TransactIxData {
-            proof: [0u8; 192],
+            proof: TransactProof::zeroed_eddsa(),
             expiry_unix_ts: 0,
             relayer_fee: 0,
             private_tx_hash: [0u8; 32],
@@ -404,11 +404,16 @@ fn tx_size(args: Vec<String>) {
         bincode::serialize(&tx).unwrap().len()
     };
 
-    // TransactIxData.proof is [u8; 192] in the struct, but EdDSA (Solana rail)
-    // vanilla Groth16 proofs are 128 B. P256 rail adds 32 B proof_commitment +
-    // 32 B proof_commitment_pok for a total of 192 B.
-    const STRUCT_PROOF_LEN: usize = 192;
+    // TransactIxData.proof is now a wincode enum: a 1-byte rail tag plus the
+    // compressed Groth16 points. The EdDSA (Solana) rail is vanilla Groth16 (128 B,
+    // no commitment); the P256 rail adds 32 B proof_commitment + 32 B
+    // proof_commitment_pok (192 B). The fixture above bakes the EdDSA variant.
+    const RAIL_TAG_LEN: usize = 1;
     const EDDSA_PROOF_LEN: usize = 128;
+    // Serialized proof bytes the fixture bakes (EdDSA rail): tag + payload.
+    const FIXTURE_PROOF_SER_LEN: usize = RAIL_TAG_LEN + EDDSA_PROOF_LEN;
+    // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
+    const LEGACY_PROOF_LEN: usize = 192;
 
     let make_tx_sizes = |n: usize,
                          m: usize,
@@ -420,7 +425,7 @@ fn tx_size(args: Vec<String>) {
         let transfer_data = build_ix_data(None, r, m, n, sender_len, recipient_len);
         let shield_data = build_ix_data(Some(1000), r, m, n, sender_len, recipient_len);
 
-        let adj = proof_len as isize - STRUCT_PROOF_LEN as isize;
+        let adj = proof_len as isize - FIXTURE_PROOF_SER_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
 
         let ix_len = adjust(make_ix_bytes(&transfer_data).len());
@@ -489,7 +494,7 @@ fn tx_size(args: Vec<String>) {
             r,
             current_sender_data_len(r),
             current_recipient_data_len,
-            STRUCT_PROOF_LEN,
+            LEGACY_PROOF_LEN,
         );
         let fmt = |v: usize, show: bool| {
             if show {
@@ -512,7 +517,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target EdDSA (AES-256-CTR, no redundant pubkeys, 128 B proof):");
+    println!("Spec-target EdDSA (AES-256-CTR, no redundant pubkeys, enum proof: 1 B tag + 128 B):");
     println!("  P256 rail adds 64 B (proof_commitment 32 B + proof_commitment_pok 32 B).");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
@@ -536,7 +541,7 @@ fn tx_size(args: Vec<String>) {
             r,
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
-            EDDSA_PROOF_LEN,
+            FIXTURE_PROOF_SER_LEN,
         );
         let fmt = |v: usize, show: bool| {
             if show {

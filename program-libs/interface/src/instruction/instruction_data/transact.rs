@@ -4,6 +4,43 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 use super::deposit::CpiSignerData;
 
+/// The Groth16 proof carried by a `transact` instruction. The two proving rails
+/// have different proof sizes, so the proof is a tagged enum instead of a padded
+/// fixed-width blob: the Solana-only eddsa rail omits the 64-byte BSB22 commitment
+/// the P256 rail requires. The components are the compressed wire-format points
+/// (G1 -> 32 bytes, G2 -> 64 bytes); the program decompresses them only at the
+/// `groth16-solana` verifier boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum TransactProof {
+    /// Solana-only eddsa rail: vanilla Groth16, no BSB22 commitment (128 bytes).
+    Eddsa {
+        a: [u8; 32],
+        b: [u8; 64],
+        c: [u8; 32],
+    },
+    /// P256 rail: BSB22-committed Groth16 (192 bytes).
+    P256 {
+        a: [u8; 32],
+        b: [u8; 64],
+        c: [u8; 32],
+        commitment: [u8; 32],
+        commitment_pok: [u8; 32],
+    },
+}
+
+impl TransactProof {
+    /// A zeroed eddsa-rail proof, used as a placeholder before the real proof is
+    /// attached and as a dummy in tests.
+    pub const fn zeroed_eddsa() -> Self {
+        TransactProof::Eddsa {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
+        }
+    }
+}
+
 /// One spent input UTXO (spec: `transact` `InputUtxo`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct InputUtxo {
@@ -28,17 +65,9 @@ pub struct OutputCiphertext {
 /// `transact` instruction data (spec: SPP `transact`).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
-    pub proof: [u8; 192],
     pub expiry_unix_ts: u64,
     pub relayer_fee: u16,
     pub private_tx_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
-    pub inputs: Vec<InputUtxo>,
-    /// Signed public amount: positive deposits into the pool, negative
-    /// withdraws. `None` for a pure shielded transfer.
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
-    pub cpi_signer: Option<CpiSignerData>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
     /// this transaction; copied verbatim into the logged `GeneralEvent` so an
     /// indexer need not parse the per-output `data`.
@@ -47,6 +76,14 @@ pub struct TransactIxData {
     /// copied into the logged `GeneralEvent` so wallets can derive the AES
     /// key/nonce without parsing the per-output `data`.
     pub salt: [u8; 16],
+    pub proof: TransactProof,
+    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
+    pub inputs: Vec<InputUtxo>,
+    /// Signed public amount: positive deposits into the pool, negative
+    /// withdraws. `None` for a pure shielded transfer.
+    pub public_sol_amount: Option<i64>,
+    pub public_spl_amount: Option<i64>,
+    pub cpi_signer: Option<CpiSignerData>,
     /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
     /// change, then recipients / dummies). Appended to the UTXO tree and folded
     /// into the proof's output hash chain. Dummy outputs carry real-looking
@@ -93,17 +130,17 @@ pub struct OutputCiphertextRef<'a> {
 /// vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct TransactIxDataRef<'a> {
-    pub proof: &'a [u8; 192],
     pub expiry_unix_ts: u64,
     pub relayer_fee: u16,
     pub private_tx_hash: &'a [u8; 32],
+    pub tx_viewing_pk: &'a [u8; 33],
+    pub salt: &'a [u8; 16],
+    pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
     pub cpi_signer: Option<CpiSignerData>,
-    pub tx_viewing_pk: &'a [u8; 33],
-    pub salt: &'a [u8; 16],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub output_utxo_hashes: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<OutputCiphertextRef<'a>, FixIntLen<u8>>")]
@@ -222,6 +259,91 @@ impl<O: OutputCiphertextBytes> ExternalDataHash<'_, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn eddsa_proof() -> TransactProof {
+        TransactProof::Eddsa {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+        }
+    }
+
+    fn p256_proof() -> TransactProof {
+        TransactProof::P256 {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: [4u8; 32],
+            commitment_pok: [5u8; 32],
+        }
+    }
+
+    #[test]
+    fn transact_proof_round_trips_both_rails() {
+        for proof in [eddsa_proof(), p256_proof()] {
+            let bytes = wincode::serialize(&proof).unwrap();
+            let decoded: TransactProof = wincode::deserialize_exact(&bytes).unwrap();
+            assert_eq!(decoded, proof);
+        }
+    }
+
+    /// The eddsa rail omits the 64-byte BSB22 commitment, so its serialized proof
+    /// is exactly 64 bytes shorter than the P256 rail (the 1-byte tag is shared).
+    #[test]
+    fn eddsa_proof_is_64_bytes_shorter_than_p256() {
+        let eddsa = wincode::serialize(&eddsa_proof()).unwrap();
+        let p256 = wincode::serialize(&p256_proof()).unwrap();
+        assert_eq!(eddsa.len() + 64, p256.len());
+        // 1-byte tag + a(32) + b(64) + c(32).
+        assert_eq!(eddsa.len(), 1 + 128);
+    }
+
+    fn ix_data(proof: TransactProof) -> TransactIxData {
+        TransactIxData {
+            proof,
+            expiry_unix_ts: 7,
+            relayer_fee: 11,
+            private_tx_hash: [9u8; 32],
+            inputs: vec![InputUtxo {
+                nullifier_hash: [1u8; 32],
+                nullifier_tree_root_index: 2,
+                utxo_tree_root_index: 3,
+                tree_index: 0,
+                eddsa_signer_index: 0,
+            }],
+            public_sol_amount: Some(-5),
+            public_spl_amount: None,
+            cpi_signer: None,
+            tx_viewing_pk: [4u8; 33],
+            salt: [6u8; 16],
+            output_utxo_hashes: vec![[8u8; 32]],
+            output_ciphertexts: vec![OutputCiphertext {
+                view_tag: [0u8; 32],
+                data: vec![1, 2, 3],
+            }],
+        }
+    }
+
+    #[test]
+    fn ix_data_round_trips_both_rails_owned_and_ref() {
+        for proof in [eddsa_proof(), p256_proof()] {
+            let owned = ix_data(proof);
+            let bytes = owned.serialize().unwrap();
+            assert_eq!(TransactIxData::deserialize(&bytes).unwrap(), owned);
+            let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
+            assert_eq!(view.proof, proof);
+            assert_eq!(view.output_ciphertexts.len(), 1);
+        }
+    }
+
+    /// The eddsa rail's serialized `TransactIxData` is 64 bytes smaller than the
+    /// P256 rail's: the only difference is the omitted BSB22 commitment.
+    #[test]
+    fn ix_data_eddsa_is_64_bytes_smaller() {
+        let eddsa = ix_data(eddsa_proof()).serialize().unwrap();
+        let p256 = ix_data(p256_proof()).serialize().unwrap();
+        assert_eq!(eddsa.len() + 64, p256.len());
+    }
 
     fn hash_of(
         output_utxo_hashes: &[[u8; 32]],

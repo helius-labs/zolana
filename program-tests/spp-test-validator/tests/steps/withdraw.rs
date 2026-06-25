@@ -23,7 +23,7 @@ use zolana_test_utils::test_validator_asserts::{
 use zolana_transaction::{utxo::derive_blinding, Utxo, SOL_MINT};
 
 use crate::{
-    localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO},
+    localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
     world::Rail,
     LifecycleWorld,
 };
@@ -118,7 +118,7 @@ impl LifecycleWorld {
             }
         };
         self.last_rail = Some(rail);
-        let ix_data = assembled.with_proof(pack_proof(&proof)?);
+        let ix_data = assembled.with_proof(transact_proof(&proof)?);
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),

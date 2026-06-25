@@ -180,7 +180,6 @@ ark-std = "0.5"
 # Client keypair crypto.
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
 ed25519-dalek = "2.2.0"
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 aes = { version = "0.8", default-features = false }
 ctr = { version = "0.9", default-features = false }
 hkdf = "0.12"
@@ -237,15 +236,6 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.aes]
-opt-level = 3
-
-[profile.dev.package.aes-gcm]
-opt-level = 3
-
-[profile.dev.package.ghash]
-opt-level = 3
-
-[profile.dev.package.polyval]
 opt-level = 3
 
 [profile.dev.package.ark-ff]
