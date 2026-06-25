@@ -128,9 +128,7 @@ impl WalletAuthority for ShieldedKeypair {
             recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
         };
         slots.push(ConfidentialSenderBundle::encode_plaintext(
-            sender,
-            sender_tag,
-            &sender_cx,
+            sender, sender_tag, &sender_cx,
         )?);
 
         for (i, recipient) in recipients.iter().enumerate() {
