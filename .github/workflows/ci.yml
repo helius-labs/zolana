@@ -10,6 +10,8 @@ jobs:
   test:
     name: Run tests
     runs-on: ubuntu-24.04
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     services:
       postgres:
         image: postgres:16
@@ -28,11 +30,26 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Configure SSH for Cargo dependencies
+        env:
+          RINGS_DEPLOY_KEY: ${{ secrets.RINGS_DEPLOY_KEY || secrets.ZOLANA_DEPLOY_KEY }}
+        run: |
+          if [ -z "$RINGS_DEPLOY_KEY" ]; then
+            echo "RINGS_DEPLOY_KEY secret is required to fetch protocol dependencies" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$RINGS_DEPLOY_KEY" > ~/.ssh/rings_deploy_key
+          chmod 600 ~/.ssh/rings_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git config --global core.sshCommand "ssh -i ~/.ssh/rings_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: 1.95.0
           override: true
 
       - name: Cache dependencies
@@ -44,41 +61,20 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install additional tools
+      - name: Install cargo-machete
         run: |
-          npm install -g @apidevtools/swagger-cli
-          wget https://dl.min.io/server/minio/release/linux-amd64/minio
-          chmod +x minio
+          cargo install cargo-machete --version 0.9.2 --locked
 
-      - name: Start light-prover container
-        run: |
-          docker run -d -p 3001:3001 docker.io/sergeytimoshin/prover:latest
+      - name: Install OpenAPI validator
+        # open_api_tests calls update_docs(true), which runs `swagger-cli validate`.
+        run: npm install -g @apidevtools/swagger-cli
 
-      - name: Wait for light-prover to be ready
-        run: |
-          echo "Waiting for light-prover to be ready..."
-          CONTAINER_ID=$(docker ps -q --filter ancestor=docker.io/sergeytimoshin/prover:latest)
-          for i in {1..60}; do
-            if curl -f http://localhost:3001/health > /dev/null 2>&1; then
-              echo "Prover is ready!"
-              exit 0
-            fi
-            echo "Attempt $i/60: prover not ready yet, waiting 10 seconds..."
-            docker logs --tail 10 $CONTAINER_ID
-            sleep 10
-          done
-          echo "Prover failed to become ready within 10 minutes"
-          docker logs $CONTAINER_ID
-          exit 1
-
-      - name: Set environment variables
-        run: |
-          echo "MAINNET_RPC_URL=https://api.mainnet-beta.solana.com" >> $GITHUB_ENV
-          echo "DEVNET_RPC_URL=https://api.devnet.solana.com" >> $GITHUB_ENV
-          echo "TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres" >> $GITHUB_ENV
-          echo "DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres" >> $GITHUB_ENV
+      - name: Check unused dependencies
+        run: cargo machete
 
       - name: Run migrations
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: cargo run --bin photon-migration up
 
       - name: Run tests

@@ -1,2 +1,2 @@
-pub mod custom;
+pub mod rings;
 pub mod standard;

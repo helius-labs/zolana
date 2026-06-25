@@ -128,7 +128,7 @@ async fn upload_chunks(
         all_data.extend_from_slice(&chunk);
     }
 
-    let total_size = all_data.len() as u64;
+    let total_size = u64::try_from(all_data.len()).context("Upload size does not fit in u64")?;
     info!(
         "Total upload size: {} bytes ({:.2} MB)",
         total_size,
@@ -159,9 +159,13 @@ async fn upload_chunks(
 
     // Upload in chunks
     let mut offset: u64 = 0;
+    let chunk_size = u64::try_from(CHUNK_SIZE).context("Chunk size does not fit in u64")?;
     'outer: while offset < total_size {
-        let chunk_end = std::cmp::min(offset + CHUNK_SIZE as u64, total_size);
-        let chunk_data = &all_data[offset as usize..chunk_end as usize];
+        let chunk_end = std::cmp::min(offset.saturating_add(chunk_size), total_size);
+        let offset_usize = usize::try_from(offset).context("Chunk offset does not fit in usize")?;
+        let chunk_end_usize =
+            usize::try_from(chunk_end).context("Chunk end does not fit in usize")?;
+        let chunk_data = &all_data[offset_usize..chunk_end_usize];
         let is_last_chunk = chunk_end == total_size;
 
         let content_range = format!("bytes {}-{}/{}", offset, chunk_end - 1, total_size);
@@ -264,7 +268,7 @@ async fn upload_chunks(
         offset = chunk_end;
 
         // Log progress every 100MB
-        if offset % (100 * 1024 * 1024) < CHUNK_SIZE as u64 {
+        if offset % (100 * 1024 * 1024) < chunk_size {
             info!(
                 "Upload progress: {:.1}% ({:.2} MB / {:.2} MB)",
                 (offset as f64 / total_size as f64) * 100.0,
@@ -384,7 +388,7 @@ async fn get_token_from_service_account(credentials_path: &str) -> Result<String
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .context("System clock is before UNIX_EPOCH")?
         .as_secs();
 
     let claims = Claims {

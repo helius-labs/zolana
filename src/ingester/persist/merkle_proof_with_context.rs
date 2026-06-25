@@ -11,10 +11,10 @@ use log::info;
 pub struct MerkleProofWithContext {
     pub proof: Vec<Hash>,
     pub root: Hash,
-    pub leaf_index: u32,
+    pub leaf_index: u64,
     pub hash: Hash,
     pub merkle_tree: SerializablePubkey,
-    pub root_seq: u64,
+    pub root_seq: Option<u64>,
 }
 
 impl MerkleProofWithContext {
@@ -24,8 +24,15 @@ impl MerkleProofWithContext {
             self.leaf_index, self.merkle_tree
         );
         let leaf_index = self.leaf_index;
-        let tree_height = (self.proof.len() + 1) as u32;
-        let node_index = leaf_index_to_node_index(leaf_index, tree_height);
+        let tree_height = u32::try_from(self.proof.len().saturating_add(1)).map_err(|_| {
+            PhotonApiError::UnexpectedError(format!(
+                "Proof length {} does not fit in u32",
+                self.proof.len()
+            ))
+        })?;
+        let node_index = leaf_index_to_node_index(leaf_index, tree_height).map_err(|error| {
+            PhotonApiError::UnexpectedError(format!("Invalid proof leaf index: {}", error))
+        })?;
         let mut computed_root = self.hash.to_vec();
         info!("leaf_index: {}, node_index: {}", leaf_index, node_index);
 

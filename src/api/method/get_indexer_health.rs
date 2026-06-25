@@ -4,10 +4,8 @@ use super::super::error::PhotonApiError;
 use crate::common::typedefs::context::Context;
 use solana_client::nonblocking::rpc_client::RpcClient;
 
-// TODO: Make this an environment variable.
-pub const HEALTH_CHECK_SLOT_DISTANCE: i64 = 20;
+pub const HEALTH_CHECK_SLOT_DISTANCE: u64 = 20;
 
-// TODO: Make sure that get_indexer_health formatting matches the Solana RPC formatting.
 pub async fn get_indexer_health(
     conn: &DatabaseConnection,
     rpc: &RpcClient,
@@ -18,9 +16,9 @@ pub async fn get_indexer_health(
         .await
         .map_err(|e| PhotonApiError::UnexpectedError(format!("RPC error: {}", e)))?;
 
-    let slots_behind = slot as i64 - context.slot as i64;
+    let slots_behind = slot.saturating_sub(context.slot);
     if slots_behind > HEALTH_CHECK_SLOT_DISTANCE {
-        return Err(PhotonApiError::StaleSlot(slots_behind as u64));
+        return Err(PhotonApiError::StaleSlot(slots_behind));
     }
     Ok("ok".to_string())
 }

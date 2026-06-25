@@ -1,67 +1,52 @@
-use crate::common::typedefs::account::{Account, AccountWithContext};
-use crate::common::typedefs::hash::Hash;
-use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
+use crate::common::{rings_tree::RingsTreeKind, typedefs::hash::Hash};
 use crate::dao::generated::state_trees;
 use crate::ingester::error::IngesterError;
-use crate::ingester::parser::state_update::LeafNullification;
-use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, ZERO_BYTES};
+use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level};
 use crate::ingester::persist::{compute_parent_hash, get_node_direct_ancestors};
 use crate::migration::OnConflict;
-use itertools::Itertools;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set};
 use std::cmp::max;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct LeafNode {
-    pub tree: SerializablePubkey,
-    pub leaf_index: u32,
+    /// Raw tree account identity returned in API proof contexts.
+    pub tree: Vec<u8>,
+    /// Logical tree role stored alongside `tree` in `state_trees`.
+    pub tree_kind: RingsTreeKind,
+    pub leaf_index: u64,
     pub hash: Hash,
-    pub seq: Option<u32>,
+    pub seq: Option<u64>,
 }
 
 impl LeafNode {
-    pub fn node_index(&self, tree_height: u32) -> i64 {
+    pub fn node_index(&self, tree_height: u32) -> Result<i64, IngesterError> {
         leaf_index_to_node_index(self.leaf_index, tree_height)
     }
 }
 
-// leaf_index should be u64 / i64 to avoid overflow
-pub fn leaf_index_to_node_index(leaf_index: u32, tree_height: u32) -> i64 {
-    2_i64.pow(tree_height - 1) + leaf_index as i64
-}
-
-impl From<Account> for LeafNode {
-    fn from(account: Account) -> Self {
-        Self {
-            tree: account.tree,
-            leaf_index: account.leaf_index.0 as u32,
-            hash: account.hash,
-            seq: account.seq.map(|x| x.0 as u32),
-        }
+pub fn leaf_index_to_node_index(leaf_index: u64, tree_height: u32) -> Result<i64, IngesterError> {
+    if tree_height == 0 {
+        return Err(IngesterError::ParserError(
+            "Tree height must be greater than zero".to_string(),
+        ));
     }
-}
-
-impl From<AccountWithContext> for LeafNode {
-    fn from(account: AccountWithContext) -> Self {
-        Self {
-            tree: account.account.tree,
-            leaf_index: account.account.leaf_index.0 as u32,
-            hash: account.account.hash,
-            seq: account.account.seq.map(|x| x.0 as u32),
-        }
+    let first_leaf_index = 1_i64.checked_shl(tree_height - 1).ok_or_else(|| {
+        IngesterError::ParserError(format!("Tree height {} is too large", tree_height))
+    })?;
+    let leaf_index = i64_from_u64(leaf_index, "leaf index")?;
+    if leaf_index >= first_leaf_index {
+        return Err(IngesterError::ParserError(format!(
+            "Leaf index {} is out of range for tree height {}",
+            leaf_index, tree_height
+        )));
     }
-}
-
-impl From<LeafNullification> for LeafNode {
-    fn from(leaf_nullification: LeafNullification) -> Self {
-        Self {
-            tree: SerializablePubkey::from(leaf_nullification.tree),
-            leaf_index: leaf_nullification.leaf_index as u32,
-            hash: Hash::from(ZERO_BYTES[0]),
-            seq: Some(leaf_nullification.seq as u32),
-        }
-    }
+    first_leaf_index.checked_add(leaf_index).ok_or_else(|| {
+        IngesterError::ParserError(format!(
+            "Node index overflow for leaf index {} and tree height {}",
+            leaf_index, tree_height
+        ))
+    })
 }
 
 pub async fn persist_leaf_nodes(
@@ -77,8 +62,14 @@ pub async fn persist_leaf_nodes(
 
     let leaf_locations = leaf_nodes
         .iter()
-        .map(|node| (node.tree.to_bytes_vec(), node.node_index(tree_height)))
-        .collect::<Vec<_>>();
+        .map(|node| {
+            Ok((
+                node.tree.clone(),
+                i32::from(node.tree_kind),
+                node.node_index(tree_height)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, IngesterError>>()?;
 
     let node_locations_to_models =
         get_proof_nodes(txn, leaf_locations, true, false, tree_height).await?;
@@ -90,17 +81,24 @@ pub async fn persist_leaf_nodes(
     let mut models_to_updates = HashMap::new();
 
     for leaf_node in leaf_nodes.clone() {
-        let node_idx = leaf_node.node_index(tree_height);
-        let tree = leaf_node.tree;
-        let key = (tree.to_bytes_vec(), node_idx);
+        let node_idx = leaf_node.node_index(tree_height)?;
+        let key = (
+            leaf_node.tree.clone(),
+            i32::from(leaf_node.tree_kind),
+            node_idx,
+        );
 
         let model = state_trees::ActiveModel {
-            tree: Set(tree.to_bytes_vec()),
+            tree: Set(leaf_node.tree.clone()),
+            tree_kind: Set(i32::from(leaf_node.tree_kind)),
             level: Set(0),
             node_idx: Set(node_idx),
             hash: Set(leaf_node.hash.to_vec()),
-            leaf_idx: Set(Some(leaf_node.leaf_index as i64)),
-            seq: Set(leaf_node.seq.map(|x| x as i64)),
+            leaf_idx: Set(Some(i64_from_u64(leaf_node.leaf_index, "leaf index")?)),
+            seq: Set(leaf_node
+                .seq
+                .map(|seq| i64_from_u64(seq, "sequence"))
+                .transpose()?),
         };
 
         let existing_seq = node_locations_to_hashes_and_seq
@@ -110,42 +108,60 @@ pub async fn persist_leaf_nodes(
 
         if let Some(existing_seq) = existing_seq {
             if let Some(leaf_node_seq) = leaf_node.seq {
-                if leaf_node_seq >= existing_seq as u32 {
+                let existing_seq = u64_from_i64(existing_seq, "existing sequence")?;
+                if leaf_node_seq >= existing_seq {
                     models_to_updates.insert(key.clone(), model);
-                    node_locations_to_hashes_and_seq
-                        .insert(key, (leaf_node.hash.to_vec(), Some(leaf_node_seq as i64)));
+                    node_locations_to_hashes_and_seq.insert(
+                        key,
+                        (
+                            leaf_node.hash.to_vec(),
+                            Some(i64_from_u64(leaf_node_seq, "sequence")?),
+                        ),
+                    );
                 }
             }
         }
     }
 
-    let all_ancestors = leaf_nodes
-        .iter()
-        .flat_map(|leaf_node| {
-            get_node_direct_ancestors(leaf_node.node_index(tree_height))
-                .iter()
-                .enumerate()
-                .map(move |(i, &idx)| (leaf_node.tree.to_bytes_vec(), idx, i))
-                .collect::<Vec<(Vec<u8>, i64, usize)>>()
-        })
-        .sorted_by(|a, b| {
-            // Need to sort elements before dedup
-            a.0.cmp(&b.0) // Sort by tree
-                .then_with(|| a.1.cmp(&b.1)) // Then by node index
-        }) // Need to sort elements before dedup
-        .dedup()
-        .collect::<Vec<(Vec<u8>, i64, usize)>>();
+    let mut all_ancestors = Vec::new();
+    for leaf_node in &leaf_nodes {
+        for (i, idx) in get_node_direct_ancestors(leaf_node.node_index(tree_height)?)
+            .iter()
+            .enumerate()
+        {
+            all_ancestors.push((
+                leaf_node.tree.clone(),
+                i32::from(leaf_node.tree_kind),
+                *idx,
+                i,
+            ));
+        }
+    }
+    all_ancestors.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    all_ancestors.dedup();
 
-    for (tree, node_index, child_level) in all_ancestors.into_iter().rev() {
+    for (tree, tree_kind, node_index, child_level) in all_ancestors.into_iter().rev() {
+        let zero_hash = zero_hash_for_level(child_level)
+            .ok_or_else(|| {
+                IngesterError::ParserError(format!(
+                    "Tree level {} exceeds zero hash table",
+                    child_level
+                ))
+            })?
+            .to_vec();
         let (left_child_hash, left_child_seq) = node_locations_to_hashes_and_seq
-            .get(&(tree.clone(), node_index * 2))
+            .get(&(tree.clone(), tree_kind, node_index * 2))
             .cloned()
-            .unwrap_or((ZERO_BYTES[child_level].to_vec(), Some(0)));
+            .unwrap_or((zero_hash.clone(), Some(0)));
 
         let (right_child_hash, right_child_seq) = node_locations_to_hashes_and_seq
-            .get(&(tree.clone(), node_index * 2 + 1))
+            .get(&(tree.clone(), tree_kind, node_index * 2 + 1))
             .cloned()
-            .unwrap_or((ZERO_BYTES[child_level].to_vec(), Some(0)));
+            .unwrap_or((zero_hash, Some(0)));
 
         let level = child_level + 1;
 
@@ -154,14 +170,17 @@ pub async fn persist_leaf_nodes(
         let seq = max(left_child_seq, right_child_seq);
         let model = state_trees::ActiveModel {
             tree: Set(tree.clone()),
-            level: Set(level as i64),
+            tree_kind: Set(tree_kind),
+            level: Set(i64::try_from(level).map_err(|_| {
+                IngesterError::ParserError(format!("Tree level {} does not fit in i64", level))
+            })?),
             node_idx: Set(node_index),
             hash: Set(hash.clone()),
             leaf_idx: Set(None),
             seq: Set(seq),
         };
 
-        let key = (tree.clone(), node_index);
+        let key = (tree.clone(), tree_kind, node_index);
         models_to_updates.insert(key.clone(), model);
         node_locations_to_hashes_and_seq.insert(key, (hash, seq));
     }
@@ -182,22 +201,27 @@ pub async fn persist_leaf_nodes(
     let max_seq = seq_values.last().copied();
 
     log::debug!(
-        "Persisting {} tree nodes (seq range: {:?} to {:?}) for tree {:?}",
+        "Persisting {} tree nodes (seq range: {:?} to {:?}) for tree {:?} kind {:?}",
         update_count,
         min_seq,
         max_seq,
-        leaf_nodes.first().map(|n| &n.tree)
+        leaf_nodes.first().map(|n| &n.tree),
+        leaf_nodes.first().map(|n| n.tree_kind)
     );
 
     let mut query = state_trees::Entity::insert_many(models_to_updates.into_values())
         .on_conflict(
-            OnConflict::columns([state_trees::Column::Tree, state_trees::Column::NodeIdx])
-                .update_columns([
-                    state_trees::Column::Hash,
-                    state_trees::Column::Seq,
-                    state_trees::Column::LeafIdx,
-                ])
-                .to_owned(),
+            OnConflict::columns([
+                state_trees::Column::Tree,
+                state_trees::Column::TreeKind,
+                state_trees::Column::NodeIdx,
+            ])
+            .update_columns([
+                state_trees::Column::Hash,
+                state_trees::Column::Seq,
+                state_trees::Column::LeafIdx,
+            ])
+            .to_owned(),
         )
         .build(txn.get_database_backend());
     query.sql = format!(
@@ -209,9 +233,37 @@ pub async fn persist_leaf_nodes(
     })?;
 
     log::debug!(
-        "Successfully persisted {} nodes for tree {:?}",
+        "Successfully persisted {} nodes for tree {:?} kind {:?}",
         update_count,
-        leaf_nodes.first().map(|n| &n.tree)
+        leaf_nodes.first().map(|n| &n.tree),
+        leaf_nodes.first().map(|n| n.tree_kind)
     );
     Ok(())
+}
+
+pub(crate) fn i64_from_u64(value: u64, field: &str) -> Result<i64, IngesterError> {
+    i64::try_from(value)
+        .map_err(|_| IngesterError::ParserError(format!("{} {} does not fit in i64", field, value)))
+}
+
+pub(crate) fn u64_from_i64(value: i64, field: &str) -> Result<u64, IngesterError> {
+    u64::try_from(value).map_err(|_| {
+        IngesterError::ParserError(format!("{} {} must be non-negative", field, value))
+    })
+}
+
+pub(crate) fn i64_from_usize(value: usize, field: &str) -> Result<i64, IngesterError> {
+    i64::try_from(value)
+        .map_err(|_| IngesterError::ParserError(format!("{} {} does not fit in i64", field, value)))
+}
+
+pub(crate) fn u64_from_usize(value: usize, field: &str) -> Result<u64, IngesterError> {
+    u64::try_from(value)
+        .map_err(|_| IngesterError::ParserError(format!("{} {} does not fit in u64", field, value)))
+}
+
+pub(crate) fn usize_from_i64(value: i64, field: &str) -> Result<usize, IngesterError> {
+    usize::try_from(value).map_err(|_| {
+        IngesterError::ParserError(format!("{} {} must be non-negative", field, value))
+    })
 }

@@ -1,3 +1,4 @@
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use futures::StreamExt;
 use log::{error, info};
@@ -14,10 +15,18 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server, StatusCode};
-use std::convert::Infallible;
-use tower::ServiceBuilder;
+use bytes::Bytes;
+use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
+use hyper::body::{Frame, Incoming};
+use hyper::service::service_fn;
+use hyper::{Request, Response, StatusCode};
+use hyper_util::{
+    rt::{TokioExecutor, TokioIo},
+    server::conn::auto::Builder,
+};
+use tokio::net::TcpListener;
+
+type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
 
 /// Photon Snapshotter: a utility to create snapshots of Photon's state at regular intervals.
 #[derive(Parser, Debug)]
@@ -90,44 +99,49 @@ struct Args {
     disable_api: bool,
 }
 
-async fn continously_run_snapshotter(
+async fn continuously_run_snapshotter(
     directory_adapter: Arc<DirectoryAdapter>,
     block_stream_config: BlockStreamConfig,
     full_snapshot_interval_slots: u64,
     incremental_snapshot_interval_slots: u64,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        photon_indexer::snapshot::update_snapshot(
+        if let Err(err) = photon_indexer::snapshot::update_snapshot(
             directory_adapter,
             block_stream_config,
-            incremental_snapshot_interval_slots,
             full_snapshot_interval_slots,
+            incremental_snapshot_interval_slots,
         )
-        .await;
+        .await
+        {
+            error!("Snapshot generation failed: {}", err);
+        }
     })
 }
 
 async fn stream_bytes(
     directory_adapter: Arc<DirectoryAdapter>,
-) -> Result<Response<Body>, hyper::http::Error> {
+) -> Result<Response<ResponseBody>, hyper::http::Error> {
     let byte_stream = load_byte_stream_from_directory_adapter(directory_adapter).await;
     info!("Finished loading byte stream");
     let byte_stream = byte_stream.map(|bytes| {
-        bytes.map_err(|e| {
-            error!("Error reading byte: {:?}", e);
-            io::Error::other("Stream Error")
-        })
+        bytes
+            .map_err(|e| {
+                error!("Error reading byte: {:?}", e);
+                io::Error::other("Stream Error")
+            })
+            .map(Frame::data)
     });
 
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/octet-stream")
-        .body(Body::wrap_stream(byte_stream))
+        .body(StreamBody::new(byte_stream).boxed_unsync())
 }
 
 async fn fetch_slot(
     directory_adapter: Arc<DirectoryAdapter>,
-) -> Result<Response<hyper::Body>, hyper::http::Error> {
+) -> Result<Response<ResponseBody>, hyper::http::Error> {
     let snapshot_files = get_snapshot_files_with_metadata(directory_adapter.as_ref()).await;
 
     match snapshot_files {
@@ -136,25 +150,25 @@ async fn fetch_slot(
             match last_snapshot {
                 Some(snapshot) => Response::builder()
                     .status(StatusCode::OK)
-                    .body(Body::from(snapshot.end_slot.to_string())),
+                    .body(full_body(snapshot.end_slot.to_string())),
                 None => Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(Body::from("No snapshots found")),
+                    .body(full_body("No snapshots found")),
             }
         }
         Err(e) => {
             error!("Error fetching snapshot files: {:?}", e);
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("Internal Server Error"))
+                .body(full_body("Internal Server Error"))
         }
     }
 }
 
 async fn handle_request(
-    req: Request<Body>,
+    req: Request<Incoming>,
     directory_adapter: Arc<DirectoryAdapter>,
-) -> Result<Response<Body>, hyper::http::Error> {
+) -> Result<Response<ResponseBody>, hyper::http::Error> {
     match req.uri().path() {
         "/download" => match stream_bytes(directory_adapter).await {
             Ok(response) => Ok(response),
@@ -162,54 +176,73 @@ async fn handle_request(
                 error!("Error creating stream: {:?}", e);
                 Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::from("Internal Server Error"))
+                    .body(full_body("Internal Server Error"))
             }
         },
         "/health" | "/readiness" | "/healthz" => Response::builder()
             .status(StatusCode::OK)
-            .body(Body::from("OK")),
+            .body(full_body("OK")),
         "/slot" => fetch_slot(directory_adapter).await,
         _ => Response::builder()
             .status(StatusCode::NOT_FOUND)
-            .body(Body::from("404 Not Found")),
+            .body(full_body("404 Not Found")),
     }
     .map_err(|e| {
         error!("Error building response: {:?}", e);
         e
     })
 }
+
+fn full_body(body: impl Into<Bytes>) -> ResponseBody {
+    Full::new(body.into())
+        .map_err(|never| match never {})
+        .boxed_unsync()
+}
+
 async fn create_server(
     port: u16,
     directory_adapter: Arc<DirectoryAdapter>,
 ) -> tokio::task::JoinHandle<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    // Spawn the server task
     tokio::spawn(async move {
-        let make_svc = make_service_fn(move |_conn| {
-            let layer = ServiceBuilder::new();
-            let directory_adapter = directory_adapter.clone();
-            async move {
-                Ok::<_, Infallible>(layer.service(service_fn(move |req| {
-                    handle_request(req, directory_adapter.clone())
-                })))
+        let listener = match TcpListener::bind(addr).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                error!("Failed to bind snapshotter API server: {}", e);
+                return;
             }
-        });
-
-        let server = Server::bind(&addr).serve(make_svc);
+        };
         info!("Listening on http://{}", addr);
 
-        if let Err(e) = server.await {
-            error!("Server error: {}", e);
+        loop {
+            let (stream, remote_addr) = match listener.accept().await {
+                Ok(connection) => connection,
+                Err(e) => {
+                    error!("Failed to accept snapshotter API connection: {}", e);
+                    continue;
+                }
+            };
+            let directory_adapter = directory_adapter.clone();
+
+            tokio::spawn(async move {
+                let service = service_fn(move |req| handle_request(req, directory_adapter.clone()));
+                if let Err(e) = Builder::new(TokioExecutor::new())
+                    .serve_connection(TokioIo::new(stream), service)
+                    .await
+                {
+                    error!("Snapshotter API error serving {}: {}", remote_addr, e);
+                }
+            });
         }
     })
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let args = Args::parse();
     setup_logging(args.logging_format);
-    setup_metrics(args.metrics_endpoint);
+    setup_metrics(args.metrics_endpoint)?;
 
     let rpc_client = get_rpc_client(&args.rpc_url);
 
@@ -223,18 +256,17 @@ async fn main() {
         }
         (None, Some(r2_bucket), None) => Arc::new(
             DirectoryAdapter::from_r2_bucket_and_prefix_and_env(r2_bucket, args.r2_prefix.clone())
-                .await,
+                .await?,
         ),
         (None, None, Some(gcs_bucket)) => Arc::new(
             DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
                 gcs_bucket,
                 args.gcs_prefix.clone(),
             )
-            .await,
+            .await?,
         ),
         _ => {
-            error!("Exactly one of snapshot_dir, r2_bucket, or gcs_bucket must be provided");
-            return;
+            bail!("Exactly one of snapshot_dir, r2_bucket, or gcs_bucket must be provided");
         }
     };
     let snapshotter_handle = if args.disable_snapshot_generation {
@@ -243,18 +275,20 @@ async fn main() {
         info!("Starting snapshotter...");
         let snapshot_files = get_snapshot_files_with_metadata(directory_adapter.as_ref())
             .await
-            .unwrap();
+            .context("Failed to inspect snapshot source")?;
 
         let last_indexed_slot = match args.start_slot {
             Some(start_slot) => {
                 if !snapshot_files.is_empty() {
-                    panic!("Cannot specify start_slot when snapshot files are present");
+                    bail!("Cannot specify start_slot when snapshot files are present");
                 }
                 let start_slot = match start_slot.as_str() {
                     "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
                     _ => {
-                        fetch_block_parent_slot(&rpc_client, start_slot.parse::<u64>().unwrap())
-                            .await
+                        let start_slot = start_slot
+                            .parse::<u64>()
+                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                        fetch_block_parent_slot(&rpc_client, start_slot).await?
                     }
                 };
                 start_slot
@@ -263,13 +297,16 @@ async fn main() {
                 if snapshot_files.is_empty() {
                     get_network_start_slot(&rpc_client).await
                 } else {
-                    snapshot_files.last().unwrap().end_slot
+                    snapshot_files
+                        .last()
+                        .context("Snapshot list became empty unexpectedly")?
+                        .end_slot
                 }
             }
         };
         info!("Starting from slot: {}", last_indexed_slot + 1);
         Some(
-            continously_run_snapshotter(
+            continuously_run_snapshotter(
                 directory_adapter.clone(),
                 BlockStreamConfig {
                     rpc_client: rpc_client.clone(),
@@ -277,8 +314,8 @@ async fn main() {
                     last_indexed_slot,
                     geyser_url: args.grpc_url.clone(),
                 },
-                args.incremental_snapshot_interval_slots,
                 args.snapshot_interval_slots,
+                args.incremental_snapshot_interval_slots,
             )
             .await,
         )
@@ -323,4 +360,5 @@ async fn main() {
             }
         }
     }
+    Ok(())
 }

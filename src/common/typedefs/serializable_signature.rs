@@ -6,8 +6,11 @@ use serde::{
 };
 use solana_signature::Signature;
 use utoipa::{
-    openapi::{ObjectBuilder, RefOr, Schema, SchemaType},
-    ToSchema,
+    openapi::{
+        schema::{ObjectBuilder, Schema, Type},
+        RefOr,
+    },
+    PartialSchema, ToSchema,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -42,24 +45,21 @@ impl Serialize for SerializableSignature {
     }
 }
 
-impl<'__s> ToSchema<'__s> for SerializableSignature {
-    fn schema() -> (&'__s str, RefOr<Schema>) {
-        let example = Some(serde_json::Value::String(
-            "5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c".to_string(),
-        ));
+impl PartialSchema for SerializableSignature {
+    fn schema() -> RefOr<Schema> {
+        let example =
+            serde_json::Value::String("5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c".to_string());
         let schema = Schema::Object(
             ObjectBuilder::new()
-                .schema_type(SchemaType::String)
+                .schema_type(Type::String)
                 .description(Some("A Solana transaction signature."))
-                .example(example.clone())
-                .default(example)
+                .examples([example.clone()])
+                .default(Some(example))
                 .build(),
         );
 
-        ("SerializableSignature", RefOr::T(schema))
-    }
-
-    fn aliases() -> Vec<(&'static str, utoipa::openapi::schema::Schema)> {
-        Vec::new()
+        RefOr::T(schema)
     }
 }
+
+impl ToSchema for SerializableSignature {}

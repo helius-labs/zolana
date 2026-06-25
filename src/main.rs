@@ -1,9 +1,9 @@
-use std::fs::File;
+use std::{fs::File, time::Duration};
 
-use async_std::stream::StreamExt;
+use anyhow::{bail, Context, Result};
 use async_stream::stream;
 use clap::Parser;
-use futures::pin_mut;
+use futures::{pin_mut, StreamExt};
 use jsonrpsee::server::ServerHandle;
 use log::{error, info, warn};
 use photon_indexer::api::{self, api::PhotonApi};
@@ -19,22 +19,24 @@ use photon_indexer::ingester::indexer::{
 };
 use photon_indexer::migration::{
     sea_orm::{DatabaseBackend, DatabaseConnection, SqlxPostgresConnector, SqlxSqliteConnector},
-    Migrator, MigratorTrait,
+    MigratorTrait, RingsMigrator,
 };
 
-use photon_indexer::monitor::continously_monitor_photon;
+use photon_indexer::monitor::continuously_monitor_photon;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_block_stream_from_directory_adapter, DirectoryAdapter,
 };
 use solana_client::nonblocking::rpc_client::RpcClient;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
 use std::env::temp_dir;
 use std::sync::Arc;
 
-/// Photon: a compressed transaction Solana indexer
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Photon: the Rings indexer
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Args {
@@ -69,27 +71,6 @@ struct Args {
     #[arg(short, long)]
     max_concurrent_block_fetches: Option<usize>,
 
-    /// Light Prover url to use for verifying proofs
-    #[arg(long, default_value = "http://127.0.0.1:3001")]
-    prover_url: String,
-
-    /// API key for the Light Prover service
-    #[arg(long)]
-    prover_api_key: Option<String>,
-
-    /// Snasphot directory
-    #[arg(long, default_value = None)]
-    snapshot_dir: Option<String>,
-
-    /// GCS bucket name for loading snapshots. The bucket must already exist.
-    /// Credentials must be provided via Application Default Credentials (ADC) or environment variables.
-    #[arg(long)]
-    gcs_bucket: Option<String>,
-
-    /// GCS prefix for snapshot files. All snapshots will be loaded from this prefix in the GCS bucket.
-    #[arg(long, default_value = "")]
-    gcs_prefix: String,
-
     #[arg(short, long, default_value = None)]
     /// Yellowstone gRPC URL. If it's inputed, then the indexer will use gRPC to fetch new blocks
     /// instead of polling. It will still use RPC to fetch blocks if
@@ -103,10 +84,6 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
-    /// Custom account compression program ID (optional)
-    #[arg(long, default_value = "compr6CUsB5m2jS4Y3831ztGSTnDpnKJTKS95d64XVq")]
-    compression_program_id: String,
-
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
     #[arg(long, default_value = None)]
@@ -116,82 +93,116 @@ struct Args {
     /// Connections beyond this limit receive HTTP 429.
     #[arg(long, default_value_t = 1024)]
     max_http_connections: u32,
+
+    /// Local directory containing Rings BlockInfo snapshot files.
+    #[arg(long)]
+    snapshot_dir: Option<String>,
+
+    /// R2 bucket name for Rings BlockInfo snapshots.
+    #[arg(long)]
+    r2_bucket: Option<String>,
+
+    /// R2 prefix for Rings BlockInfo snapshot files.
+    #[arg(long, default_value = "")]
+    r2_prefix: String,
+
+    /// GCS bucket name for Rings BlockInfo snapshots.
+    #[arg(long)]
+    gcs_bucket: Option<String>,
+
+    /// GCS prefix for Rings BlockInfo snapshot files.
+    #[arg(long, default_value = "")]
+    gcs_prefix: String,
 }
 
 async fn start_api_server(
     db: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
-    prover_url: String,
-    prover_api_key: Option<String>,
     api_port: u16,
     max_http_connections: u32,
-) -> ServerHandle {
-    let api = PhotonApi::new(db, rpc_client, prover_url, prover_api_key);
+) -> Result<ServerHandle> {
+    let api = PhotonApi::new(db, rpc_client);
     api::rpc_server::run_server(api, api_port, max_http_connections)
         .await
-        .unwrap()
+        .context("Failed to start API server")
 }
 
-async fn setup_temporary_sqlite_database_pool(max_connections: u32) -> SqlitePool {
+async fn setup_temporary_sqlite_database_pool(max_connections: u32) -> Result<SqlitePool> {
     let dir = temp_dir();
     if !dir.exists() {
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&dir).context("Failed to create temp directory")?;
     }
     let db_name = "photon_indexer.db";
     let path = dir.join(db_name);
-    if path.exists() {
-        std::fs::remove_file(&path).unwrap();
+    let wal_path = dir.join(format!("{db_name}-wal"));
+    let shm_path = dir.join(format!("{db_name}-shm"));
+    for path in [&path, &wal_path, &shm_path] {
+        if path.exists() {
+            std::fs::remove_file(path)
+                .with_context(|| format!("Failed to remove old SQLite file {:?}", path))?;
+        }
     }
     info!("Creating temporary SQLite database at: {:?}", path);
-    File::create(&path).unwrap();
-    let db_path = format!("sqlite:////{}", path.to_str().unwrap());
+    File::create(&path).with_context(|| format!("Failed to create SQLite file {:?}", path))?;
+    let db_path = format!(
+        "sqlite:////{}",
+        path.to_str()
+            .with_context(|| format!("SQLite path {:?} is not valid UTF-8", path))?
+    );
     setup_sqlite_pool(&db_path, max_connections).await
 }
 
-async fn setup_sqlite_pool(db_url: &str, max_connections: u32) -> SqlitePool {
-    let options: SqliteConnectOptions = db_url.parse().unwrap();
+async fn setup_sqlite_pool(db_url: &str, max_connections: u32) -> Result<SqlitePool> {
+    let options: SqliteConnectOptions = db_url
+        .parse::<SqliteConnectOptions>()
+        .context("Failed to parse SQLite database URL")?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(SQLITE_BUSY_TIMEOUT);
     SqlitePoolOptions::new()
         .max_connections(max_connections)
         .min_connections(1)
+        .acquire_timeout(SQLITE_BUSY_TIMEOUT)
         .connect_with(options)
         .await
-        .unwrap()
+        .context("Failed to connect to SQLite database")
 }
 
-pub fn parse_db_type(db_url: &str) -> DatabaseBackend {
+pub fn parse_db_type(db_url: &str) -> Result<DatabaseBackend> {
     if db_url.starts_with("postgres://") {
-        DatabaseBackend::Postgres
+        Ok(DatabaseBackend::Postgres)
     } else if db_url.starts_with("sqlite://") {
-        DatabaseBackend::Sqlite
+        Ok(DatabaseBackend::Sqlite)
     } else {
-        unimplemented!("Unsupported database type: {}", db_url)
+        bail!("Unsupported database type: {}", db_url)
     }
 }
 
 async fn setup_database_connection(
     db_url: Option<String>,
     max_connections: u32,
-) -> Arc<DatabaseConnection> {
-    Arc::new(match db_url {
+) -> Result<Arc<DatabaseConnection>> {
+    Ok(Arc::new(match db_url {
         Some(db_url) => {
-            let db_type = parse_db_type(&db_url);
+            let db_type = parse_db_type(&db_url)?;
             match db_type {
                 DatabaseBackend::Postgres => SqlxPostgresConnector::from_sqlx_postgres_pool(
-                    setup_pg_pool(&db_url, max_connections).await,
+                    setup_pg_pool(&db_url, max_connections).await?,
                 ),
                 DatabaseBackend::Sqlite => SqlxSqliteConnector::from_sqlx_sqlite_pool(
-                    setup_sqlite_pool(&db_url, max_connections).await,
+                    setup_sqlite_pool(&db_url, max_connections).await?,
                 ),
-                _ => unimplemented!("Unsupported database type: {}", db_url),
+                backend => bail!("Unsupported database backend: {:?}", backend),
             }
         }
         None => SqlxSqliteConnector::from_sqlx_sqlite_pool(
-            setup_temporary_sqlite_database_pool(max_connections).await,
+            setup_temporary_sqlite_database_pool(max_connections).await?,
         ),
-    })
+    }))
 }
 
-fn continously_index_new_blocks(
+fn continuously_index_new_blocks(
     block_stream_config: BlockStreamConfig,
     db: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
@@ -210,104 +221,127 @@ fn continously_index_new_blocks(
     })
 }
 
-#[tokio::main]
-async fn main() {
-    let args = Args::parse();
-    setup_logging(args.logging_format);
-    setup_metrics(args.metrics_endpoint);
+async fn snapshot_directory_adapter(args: &Args) -> Result<Option<Arc<DirectoryAdapter>>> {
+    Ok(
+        match (
+            args.snapshot_dir.clone(),
+            args.r2_bucket.clone(),
+            args.gcs_bucket.clone(),
+        ) {
+            (Some(snapshot_dir), None, None) => Some(Arc::new(
+                DirectoryAdapter::from_local_directory(snapshot_dir),
+            )),
+            (None, Some(r2_bucket), None) => Some(Arc::new(
+                DirectoryAdapter::from_r2_bucket_and_prefix_and_env(
+                    r2_bucket,
+                    args.r2_prefix.clone(),
+                )
+                .await?,
+            )),
+            (None, None, Some(gcs_bucket)) => Some(Arc::new(
+                DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
+                    gcs_bucket,
+                    args.gcs_prefix.clone(),
+                )
+                .await?,
+            )),
+            (None, None, None) => None,
+            _ => bail!("Specify only one of --snapshot-dir, --r2-bucket, or --gcs-bucket"),
+        },
+    )
+}
 
-    if let Err(err) =
-        photon_indexer::ingester::parser::set_compression_program_id(&args.compression_program_id)
+async fn load_snapshot_if_present(
+    args: &Args,
+    db_conn: Arc<DatabaseConnection>,
+    rpc_client: Arc<RpcClient>,
+) -> Result<()> {
+    let Some(directory_adapter) = snapshot_directory_adapter(args).await? else {
+        return Ok(());
+    };
+
+    let snapshot_files = get_snapshot_files_with_metadata(directory_adapter.as_ref())
+        .await
+        .context("Failed to inspect snapshot source")?;
+    let Some(last_snapshot) = snapshot_files.last() else {
+        info!("No snapshot files found");
+        return Ok(());
+    };
+
+    let snapshot_end_slot = last_snapshot.end_slot;
+    if let Some(slot) = fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
+        let slot = u64::try_from(slot)
+            .with_context(|| format!("Last indexed slot {} is negative", slot))?;
+        if slot >= snapshot_end_slot {
+            info!(
+                "Skipping snapshot load; database is already indexed through slot {}",
+                snapshot_end_slot
+            );
+            return Ok(());
+        }
+    }
+
+    info!("Syncing tree metadata before loading snapshot...");
+    if let Err(err) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
+        rpc_client.as_ref(),
+        db_conn.as_ref(),
+    )
+    .await
     {
-        error!("Failed to set compression program ID: {}", err);
-        std::process::exit(1);
+        error!("Failed to sync tree metadata before snapshot load: {}", err);
+        return Err(err).context("Failed to sync tree metadata before snapshot load");
     }
 
-    if let Some(expected_owner) = photon_indexer::ingester::parser::EXPECTED_TREE_OWNER {
-        info!("Filtering trees by owner: {}", expected_owner);
-    }
+    info!("Loading Rings BlockInfo snapshot through slot {snapshot_end_slot}...");
+    let block_stream = load_block_stream_from_directory_adapter(directory_adapter.clone()).await;
+    pin_mut!(block_stream);
+    let Some(first_blocks) = block_stream.next().await else {
+        info!("Snapshot source was empty");
+        return Ok(());
+    };
+    let Some(first_block) = first_blocks.first() else {
+        info!("Snapshot contained no blocks");
+        return Ok(());
+    };
+    let last_indexed_slot = first_block.metadata.parent_slot;
+    let replay_stream = stream! {
+        yield first_blocks;
+        while let Some(blocks) = block_stream.next().await {
+            yield blocks;
+        }
+    };
 
-    let db_conn = setup_database_connection(args.db_url.clone(), args.max_db_conn).await;
+    index_block_stream(
+        replay_stream,
+        db_conn,
+        rpc_client,
+        last_indexed_slot,
+        Some(snapshot_end_slot),
+    )
+    .await;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    setup_logging(args.logging_format.clone());
+    setup_metrics(args.metrics_endpoint.clone())?;
+
+    let db_conn = setup_database_connection(args.db_url.clone(), args.max_db_conn).await?;
+    info!("Running Photon as a Rings indexer");
+
     if args.db_url.is_none() {
         info!("Running migrations...");
-        Migrator::up(db_conn.as_ref(), None).await.unwrap();
-    }
-
-    if let Err(e) =
-        photon_indexer::ingester::startup_cleanup::cleanup_stale_address_queues(db_conn.as_ref())
+        RingsMigrator::up(db_conn.as_ref(), None)
             .await
-    {
-        error!("Failed to cleanup stale address queues: {}", e);
+            .context("Failed to run migrations")?;
     }
 
     let is_rpc_node_local = args.rpc_url.contains("127.0.0.1");
     let rpc_client = get_rpc_client(&args.rpc_url);
 
-    // Load snapshot if provided (either from local directory or GCS)
-    let directory_adapter = match (args.snapshot_dir.clone(), args.gcs_bucket.clone()) {
-        (Some(snapshot_dir), None) => Some(Arc::new(DirectoryAdapter::from_local_directory(
-            snapshot_dir,
-        ))),
-        (None, Some(gcs_bucket)) => Some(Arc::new(
-            DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
-                gcs_bucket,
-                args.gcs_prefix.clone(),
-            )
-            .await,
-        )),
-        (None, None) => None,
-        (Some(_), Some(_)) => {
-            error!("Cannot specify both snapshot_dir and gcs_bucket");
-            std::process::exit(1);
-        }
-    };
-
-    if let Some(directory_adapter) = directory_adapter {
-        let snapshot_files = get_snapshot_files_with_metadata(&directory_adapter)
-            .await
-            .unwrap();
-        if !snapshot_files.is_empty() {
-            // Sync tree metadata from on-chain before processing snapshot
-            // This is REQUIRED so the indexer knows about all existing trees
-            info!("Syncing tree metadata from on-chain before loading snapshot...");
-            if let Err(e) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
-                rpc_client.as_ref(),
-                db_conn.as_ref(),
-            )
-            .await
-            {
-                error!(
-                    "Failed to sync tree metadata: {}. Cannot proceed with snapshot loading.",
-                    e
-                );
-                error!("Tree metadata must be synced before loading snapshots to avoid skipping transactions.");
-                std::process::exit(1);
-            }
-            info!("Tree metadata sync completed successfully");
-
-            info!("Detected snapshot files. Loading snapshot...");
-            let last_slot = snapshot_files.last().unwrap().end_slot;
-            let block_stream =
-                load_block_stream_from_directory_adapter(directory_adapter.clone()).await;
-            pin_mut!(block_stream);
-            let first_blocks = block_stream.next().await.unwrap();
-            let last_indexed_slot = first_blocks.first().unwrap().metadata.parent_slot;
-            let block_stream = stream! {
-                yield first_blocks;
-                while let Some(blocks) = block_stream.next().await {
-                    yield blocks;
-                }
-            };
-            index_block_stream(
-                block_stream,
-                db_conn.clone(),
-                rpc_client.clone(),
-                last_indexed_slot,
-                Some(last_slot),
-            )
-            .await;
-        }
-    }
+    load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
     let (indexer_handle, monitor_handle) = match args.disable_indexing {
         true => {
@@ -344,20 +378,17 @@ async fn main() {
                 Some(start_slot) => match start_slot.as_str() {
                     "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
                     _ => {
-                        fetch_block_parent_slot(&rpc_client, start_slot.parse::<u64>().unwrap())
-                            .await
+                        let start_slot = start_slot
+                            .parse::<u64>()
+                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                        fetch_block_parent_slot(&rpc_client, start_slot).await?
                     }
                 },
-                None => fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref())
-                    .await
-                    .unwrap_or(
-                        get_network_start_slot(&rpc_client)
-                            .await
-                            .try_into()
-                            .unwrap(),
-                    )
-                    .try_into()
-                    .unwrap(),
+                None => match fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
+                    Some(slot) => u64::try_from(slot)
+                        .with_context(|| format!("Last indexed slot {} is negative", slot))?,
+                    None => get_network_start_slot(&rpc_client).await,
+                },
             };
 
             let block_stream_config = BlockStreamConfig {
@@ -368,13 +399,13 @@ async fn main() {
             };
 
             (
-                Some(continously_index_new_blocks(
+                Some(continuously_index_new_blocks(
                     block_stream_config,
                     db_conn.clone(),
                     rpc_client.clone(),
                     last_indexed_slot,
                 )),
-                Some(continously_monitor_photon(
+                Some(continuously_monitor_photon(
                     db_conn.clone(),
                     rpc_client.clone(),
                 )),
@@ -393,12 +424,10 @@ async fn main() {
             start_api_server(
                 db_conn.clone(),
                 rpc_client.clone(),
-                args.prover_url,
-                args.prover_api_key,
                 args.port,
                 args.max_http_connections,
             )
-            .await,
+            .await?,
         )
     };
 
@@ -407,21 +436,21 @@ async fn main() {
             if let Some(indexer_handle) = indexer_handle {
                 info!("Shutting down indexer...");
                 indexer_handle.abort();
-                indexer_handle
-                    .await
-                    .expect_err("Indexer should have been aborted");
+                if let Ok(()) = indexer_handle.await {
+                    warn!("Indexer task exited cleanly after abort request");
+                }
             }
             if let Some(api_handler) = &api_handler {
                 info!("Shutting down API server...");
-                api_handler.stop().unwrap();
+                api_handler.stop().context("Failed to stop API server")?;
             }
 
             if let Some(monitor_handle) = monitor_handle {
                 info!("Shutting down monitor...");
                 monitor_handle.abort();
-                monitor_handle
-                    .await
-                    .expect_err("Monitor should have been aborted");
+                if let Ok(()) = monitor_handle.await {
+                    warn!("Monitor task exited cleanly after abort request");
+                }
             }
         }
         Err(err) => {
@@ -432,4 +461,5 @@ async fn main() {
     if let Some(api_handler) = api_handler {
         tokio::spawn(api_handler.stopped());
     }
+    Ok(())
 }

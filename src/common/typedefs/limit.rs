@@ -1,15 +1,26 @@
-use crate::api::method::utils::PAGE_LIMIT;
-use jsonrpsee_core::Serialize;
-use serde::{de, Deserialize, Deserializer};
-use utoipa::ToSchema;
+use serde::{de, Deserialize, Deserializer, Serialize};
+use utoipa::{
+    openapi::{
+        schema::{ObjectBuilder, Schema, Type},
+        KnownFormat, RefOr, SchemaFormat,
+    },
+    PartialSchema, ToSchema,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub const MIN_PAGE_LIMIT: u64 = 1;
+pub const PAGE_LIMIT: u64 = 1000;
+
+const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
+const LIMIT_ERROR: &str = "Value must be between 1 and 1000";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct Limit(pub(crate) u64);
 
 impl Limit {
     pub fn new(value: u64) -> Result<Self, &'static str> {
-        if value > PAGE_LIMIT {
-            Err("Value must be less than or equal to 1000")
+        if !(MIN_PAGE_LIMIT..=PAGE_LIMIT).contains(&value) {
+            Err(LIMIT_ERROR)
         } else {
             Ok(Limit(value))
         }
@@ -19,6 +30,22 @@ impl Limit {
         self.0
     }
 }
+
+impl PartialSchema for Limit {
+    fn schema() -> RefOr<Schema> {
+        let schema = Schema::Object(
+            ObjectBuilder::new()
+                .schema_type(Type::Integer)
+                .format(Some(SchemaFormat::KnownFormat(KnownFormat::UInt64)))
+                .minimum(Some(MIN_PAGE_LIMIT))
+                .maximum(Some(PAGE_LIMIT))
+                .build(),
+        );
+        RefOr::T(schema)
+    }
+}
+
+impl ToSchema for Limit {}
 
 impl Default for Limit {
     fn default() -> Self {
@@ -32,13 +59,44 @@ impl<'de> Deserialize<'de> for Limit {
         D: Deserializer<'de>,
     {
         let value = u64::deserialize(deserializer)?;
-        if value > PAGE_LIMIT {
+        if !(MIN_PAGE_LIMIT..=PAGE_LIMIT).contains(&value) {
             Err(de::Error::invalid_value(
                 de::Unexpected::Unsigned(value),
-                &"a value less than or equal to 1000",
+                &LIMIT_EXPECTATION,
             ))
         } else {
             Ok(Limit(value))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Limit, PAGE_LIMIT};
+
+    #[test]
+    fn constructor_accepts_only_positive_limits_within_page_limit() {
+        assert!(Limit::new(0).is_err());
+        assert_eq!(Limit::new(1).unwrap().value(), 1);
+        assert_eq!(Limit::new(PAGE_LIMIT).unwrap().value(), PAGE_LIMIT);
+        assert!(Limit::new(PAGE_LIMIT + 1).is_err());
+    }
+
+    #[test]
+    fn deserializer_accepts_only_positive_limits_within_page_limit() {
+        assert!(serde_json::from_value::<Limit>(serde_json::json!(0)).is_err());
+        assert_eq!(
+            serde_json::from_value::<Limit>(serde_json::json!(1))
+                .unwrap()
+                .value(),
+            1
+        );
+        assert_eq!(
+            serde_json::from_value::<Limit>(serde_json::json!(PAGE_LIMIT))
+                .unwrap()
+                .value(),
+            PAGE_LIMIT
+        );
+        assert!(serde_json::from_value::<Limit>(serde_json::json!(PAGE_LIMIT + 1)).is_err());
     }
 }

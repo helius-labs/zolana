@@ -30,7 +30,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Create snapshot directory if it doesn't exist
     if !Path::new(&args.snapshot_dir).exists() {
-        std::fs::create_dir_all(&args.snapshot_dir).unwrap();
+        std::fs::create_dir_all(&args.snapshot_dir).with_context(|| {
+            format!("Failed to create snapshot directory {}", args.snapshot_dir)
+        })?;
     }
 
     let http_client = reqwest::Client::new();
@@ -39,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         .get(format!("{}/download", args.snapshot_server_url))
         .send()
         .await
-        .unwrap();
+        .context("Failed to download snapshot")?;
     // Check if the response status is OK
     if !response.status().is_success() {
         error!("Failed to download snapshot: HTTP {}", response.status());

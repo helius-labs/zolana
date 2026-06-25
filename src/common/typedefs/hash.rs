@@ -2,8 +2,11 @@ use core::fmt;
 use std::mem;
 
 use serde::{Deserialize, Serialize};
-use utoipa::openapi::{ObjectBuilder, RefOr, Schema, SchemaType};
-use utoipa::ToSchema;
+use utoipa::openapi::{
+    schema::{ObjectBuilder, Schema, Type},
+    RefOr,
+};
+use utoipa::{PartialSchema, ToSchema};
 
 use serde::de::{self, Visitor};
 use serde::ser::Serializer;
@@ -44,32 +47,25 @@ impl Hash {
     }
 
     pub fn new_unique() -> Self {
-        // Slightly hacky way to get 32 random bytes
         Hash(Pubkey::new_unique().to_bytes())
     }
 }
 
-impl<'__s> ToSchema<'__s> for Hash {
-    fn schema() -> (&'__s str, RefOr<Schema>) {
+impl PartialSchema for Hash {
+    fn schema() -> RefOr<Schema> {
         let schema = Schema::Object(
             ObjectBuilder::new()
-                .schema_type(SchemaType::String)
+                .schema_type(Type::String)
                 .description(Some("A 32-byte hash represented as a base58 string."))
-                .example(Some(serde_json::Value::String(
-                    Hash::try_from("11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP")
-                        .unwrap()
-                        .to_base58(),
-                )))
+                .examples([serde_json::Value::String(Hash::from([1u8; 32]).to_base58())])
                 .build(),
         );
 
-        ("Hash", RefOr::T(schema))
-    }
-
-    fn aliases() -> Vec<(&'static str, utoipa::openapi::schema::Schema)> {
-        Vec::new()
+        RefOr::T(schema)
     }
 }
+
+impl ToSchema for Hash {}
 
 #[derive(Error, Debug, Serialize, Clone, PartialEq, Eq)]
 pub enum ParseHashError {
@@ -178,7 +174,6 @@ impl Serialize for Hash {
 
 #[test]
 fn test_serialization() {
-    // Hacky way to get 32 bytes
     let hash = Hash(Pubkey::new_unique().to_bytes());
     let serialized = serde_json::to_string(&hash).unwrap();
     let deserialized: Hash = serde_json::from_str(&serialized).unwrap();

@@ -1,4 +1,4 @@
-use s3::request::tokio_backend::HyperRequest as RequestImpl;
+use s3::request::tokio_backend::ReqwestRequest as RequestImpl;
 use s3::{
     command::{Command, Multipart},
     error::S3Error,
@@ -13,10 +13,11 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 // The previous 8 MiB default (from rust-s3) only supported ~78 GB, which was exceeded by
 // merged snapshots causing "Part number must be an integer between 1 and 10000" errors.
 const MULTIPART_CHUNK_SIZE: usize = 100 * 1024 * 1024;
+const MULTIPART_CHUNK_SIZE_U64: u64 = MULTIPART_CHUNK_SIZE as u64;
 
 async fn read_chunk<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>, S3Error> {
     let mut chunk = Vec::with_capacity(MULTIPART_CHUNK_SIZE);
-    let mut take = reader.take(MULTIPART_CHUNK_SIZE as u64);
+    let mut take = reader.take(MULTIPART_CHUNK_SIZE_U64);
     take.read_to_end(&mut chunk).await?;
     Ok(chunk)
 }
@@ -28,7 +29,7 @@ pub async fn put_object_stream_custom<R: AsyncRead + Unpin>(
     reader: &mut R,
     s3_path: impl AsRef<str>,
 ) -> Result<PutStreamResponse, S3Error> {
-    pub_oject_stream_with_content_type_and_retries(
+    put_object_stream_with_content_type_and_retries(
         bucket,
         reader,
         s3_path.as_ref(),
@@ -37,7 +38,7 @@ pub async fn put_object_stream_custom<R: AsyncRead + Unpin>(
     .await
 }
 
-async fn pub_oject_stream_with_content_type_and_retries<R: AsyncRead + Unpin>(
+async fn put_object_stream_with_content_type_and_retries<R: AsyncRead + Unpin>(
     bucket: &Bucket,
     reader: &mut R,
     s3_path: &str,
@@ -148,7 +149,7 @@ async fn pub_oject_stream_with_content_type_and_retries<R: AsyncRead + Unpin>(
         .enumerate()
         .map(|(i, x)| Part {
             etag: x,
-            part_number: i as u32 + 1,
+            part_number: u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX),
         })
         .collect::<Vec<Part>>();
     let response_data = bucket
@@ -173,6 +174,7 @@ async fn make_multipart_request(
         content: &chunk,
         multipart: Some(Multipart::new(part_number, upload_id)), // upload_id: &msg.upload_id,
         content_type,
+        custom_headers: None,
     };
     let request = RequestImpl::new(bucket, path, command).await?;
     request.response_data(true).await

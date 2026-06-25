@@ -5,31 +5,19 @@ use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
 
 use crate::api::error::PhotonApiError;
+use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::{prelude::*, tree_metadata};
-use crate::ingester::parser::{get_compression_program_id, EXPECTED_TREE_OWNER};
-use crate::monitor::v1_tree_accounts::{AddressMerkleTreeAccount, StateMerkleTreeAccount};
-use light_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
-use light_compressed_account::TreeType;
+use rings_interface::{pda, state::discriminator::TREE_ACCOUNT_DISCRIMINATOR};
+use rings_tree::TreeAccount;
 
 /// Tree account data extracted from on-chain account
 pub struct TreeAccountData {
     pub queue_pubkey: Pubkey,
-    pub root_history_capacity: usize,
+    pub root_history_capacity: u64,
+    pub input_queue_zkp_batch_size: u64,
     pub height: u32,
     pub sequence_number: u64,
     pub next_index: u64,
-    pub owner: Pubkey,
-}
-
-fn check_tree_owner(owner: &Pubkey) -> bool {
-    match EXPECTED_TREE_OWNER {
-        Some(expected_owner) => {
-            let owner_bytes = owner.to_bytes();
-            let expected_bytes = expected_owner.to_bytes();
-            owner_bytes == expected_bytes
-        }
-        None => true,
-    }
 }
 
 pub async fn sync_tree_metadata(
@@ -38,8 +26,7 @@ pub async fn sync_tree_metadata(
 ) -> Result<(), PhotonApiError> {
     info!("Starting tree metadata sync from on-chain...");
 
-    let compression_program = get_compression_program_id();
-    let program_id = Pubkey::from(compression_program.to_bytes());
+    let program_id = pda::shielded_pool_program_id();
     info!("Fetching all accounts for program: {}", program_id);
 
     let current_slot = rpc_client.get_slot().await.map_err(|e| {
@@ -87,103 +74,14 @@ pub async fn process_tree_account<C>(
 where
     C: ConnectionTrait,
 {
-    if let Ok(data) = process_v1_state_account(account) {
-        if !check_tree_owner(&data.owner) {
-            debug!(
-                "Skipping V1 state tree {} - owner {} does not match expected owner",
-                pubkey, data.owner
-            );
-            return Ok(false);
-        }
-
-        debug!(
-            "Parsed as V1 state tree: {} (queue={}, owner={})",
-            pubkey, data.queue_pubkey, data.owner
-        );
-        upsert_tree_metadata(db, pubkey, TreeType::StateV1, &data, slot).await?;
+    if let Some(data) = process_rings_tree_account(pubkey, account) {
+        // `tree_metadata` is keyed by tree account. Rings stores UTXO/state and
+        // nullifier trees in that one account, so this row only says the account
+        // is known and tracks the on-chain nullifier/indexed-tree metadata.
+        upsert_tree_metadata(db, pubkey, &data, slot).await?;
         info!(
-            "Synced V1 state tree {} with height {}, root_history_capacity {}, seq {}, next_idx {}",
-            pubkey, data.height, data.root_history_capacity, data.sequence_number, data.next_index
-        );
-        return Ok(true);
-    }
-
-    if let Ok(data) = process_v1_address_account(account) {
-        if !check_tree_owner(&data.owner) {
-            debug!(
-                "Skipping V1 address tree {} - owner {} does not match expected owner",
-                pubkey, data.owner
-            );
-            return Ok(false);
-        }
-
-        upsert_tree_metadata(db, pubkey, TreeType::AddressV1, &data, slot).await?;
-        info!("Synced V1 address tree {} with height {}, root_history_capacity {}, seq {}, next_idx {}",
-            pubkey, data.height, data.root_history_capacity, data.sequence_number, data.next_index);
-        return Ok(true);
-    }
-
-    let light_pubkey = light_compressed_account::pubkey::Pubkey::new_from_array(pubkey.to_bytes());
-    if let Ok(tree_account) =
-        BatchedMerkleTreeAccount::state_from_bytes(&mut account.data.clone(), &light_pubkey)
-    {
-        let metadata = tree_account.get_metadata();
-        let data = TreeAccountData {
-            queue_pubkey: Pubkey::new_from_array(metadata.metadata.associated_queue.to_bytes()),
-            root_history_capacity: metadata.root_history_capacity as usize,
-            height: tree_account.height,
-            sequence_number: metadata.sequence_number,
-            next_index: metadata.next_index,
-            owner: Pubkey::new_from_array(metadata.metadata.access_metadata.owner.to_bytes()),
-        };
-
-        if !check_tree_owner(&data.owner) {
-            debug!(
-                "Skipping V2 state tree {} - owner {} does not match expected owner",
-                pubkey, data.owner
-            );
-            return Ok(false);
-        }
-
-        debug!(
-            "Parsed as V2 state tree: {} (queue={}, owner={})",
-            pubkey, data.queue_pubkey, data.owner
-        );
-        upsert_tree_metadata(db, pubkey, TreeType::StateV2, &data, slot).await?;
-
-        info!(
-            "Synced V2 state tree {} with root_history_capacity {}",
-            pubkey, data.root_history_capacity
-        );
-        return Ok(true);
-    }
-
-    if let Ok(tree_account) =
-        BatchedMerkleTreeAccount::address_from_bytes(&mut account.data.clone(), &light_pubkey)
-    {
-        let metadata = tree_account.get_metadata();
-        let data = TreeAccountData {
-            queue_pubkey: pubkey, // For V2 address trees, queue == tree
-            root_history_capacity: metadata.root_history_capacity as usize,
-            height: tree_account.height,
-            sequence_number: metadata.sequence_number,
-            next_index: metadata.next_index,
-            owner: Pubkey::new_from_array(metadata.metadata.access_metadata.owner.to_bytes()),
-        };
-
-        if !check_tree_owner(&data.owner) {
-            debug!(
-                "Skipping V2 address tree {} - owner {} does not match expected owner",
-                pubkey, data.owner
-            );
-            return Ok(false);
-        }
-
-        upsert_tree_metadata(db, pubkey, TreeType::AddressV2, &data, slot).await?;
-
-        info!(
-            "Synced V2 address tree {} with root_history_capacity {}",
-            pubkey, data.root_history_capacity
+            "Synced Rings tree account {} with indexed height {}, root_history_capacity {}, next_idx {}",
+            pubkey, data.height, data.root_history_capacity, data.next_index
         );
         return Ok(true);
     }
@@ -192,52 +90,69 @@ where
     Ok(false)
 }
 
-fn process_v1_state_account(account: &Account) -> Result<TreeAccountData, PhotonApiError> {
-    let tree_account = StateMerkleTreeAccount::from_account_bytes(&account.data).map_err(|e| {
-        PhotonApiError::UnexpectedError(format!("Failed to deserialize state tree account: {}", e))
-    })?;
+fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeAccountData> {
+    let mut data = account.data.clone();
+    let tree = parse_rings_tree_account(pubkey, account, &mut data)?;
+    let nullifier_metadata = tree.nullifer_tree.get_metadata();
 
-    let merkle_tree = tree_account.tree().map_err(|e| {
-        PhotonApiError::UnexpectedError(format!("Failed to parse concurrent merkle tree: {}", e))
-    })?;
-
-    Ok(TreeAccountData {
-        queue_pubkey: Pubkey::new_from_array(tree_account.metadata.associated_queue.to_bytes()),
-        root_history_capacity: merkle_tree.roots.capacity(),
-        height: merkle_tree.height as u32,
-        sequence_number: merkle_tree.sequence_number() as u64,
-        next_index: merkle_tree.next_index() as u64,
-        owner: Pubkey::new_from_array(tree_account.metadata.access_metadata.owner.to_bytes()),
+    Some(TreeAccountData {
+        // Rings UTXO and nullifier trees live in the same account; there is
+        // no separate queue account for Photon to reference.
+        queue_pubkey: pubkey,
+        root_history_capacity: u64::from(nullifier_metadata.root_history_capacity),
+        input_queue_zkp_batch_size: nullifier_metadata.queue_batches.zkp_batch_size,
+        height: tree.nullifer_tree.height,
+        sequence_number: nullifier_metadata.sequence_number,
+        next_index: nullifier_metadata.next_index,
     })
 }
 
-fn process_v1_address_account(account: &Account) -> Result<TreeAccountData, PhotonApiError> {
-    let tree_account =
-        AddressMerkleTreeAccount::from_account_bytes(&account.data).map_err(|e| {
-            PhotonApiError::UnexpectedError(format!(
-                "Failed to deserialize address tree account: {}",
-                e
-            ))
-        })?;
+fn parse_rings_tree_account<'a>(
+    pubkey: Pubkey,
+    account: &Account,
+    data: &'a mut [u8],
+) -> Option<TreeAccount<'a>> {
+    let rings_program = pda::shielded_pool_program_id();
+    if account.owner != rings_program {
+        return None;
+    }
+    let tree = TreeAccount::from_bytes(data, pubkey.to_bytes()).ok()?;
+    if tree.discriminator != TREE_ACCOUNT_DISCRIMINATOR {
+        return None;
+    }
 
-    let indexed_tree = tree_account.tree().map_err(|e| {
-        PhotonApiError::UnexpectedError(format!("Failed to parse indexed merkle tree: {}", e))
-    })?;
+    Some(tree)
+}
 
-    Ok(TreeAccountData {
-        queue_pubkey: Pubkey::new_from_array(tree_account.metadata.associated_queue.to_bytes()),
-        root_history_capacity: indexed_tree.merkle_tree.roots.capacity(),
-        height: indexed_tree.merkle_tree.height as u32,
-        sequence_number: indexed_tree.merkle_tree.sequence_number() as u64,
-        next_index: indexed_tree.merkle_tree.next_index() as u64,
-        owner: Pubkey::new_from_array(tree_account.metadata.access_metadata.owner.to_bytes()),
-    })
+pub(crate) fn rings_state_roots(pubkey: Pubkey, account: &Account) -> Option<Vec<[u8; 32]>> {
+    let mut data = account.data.clone();
+    let tree = parse_rings_tree_account(pubkey, account, &mut data)?;
+    let current_root = tree.utxo_tree.root();
+    let root_history_capacity =
+        usize::try_from(RingsTreeKind::State.root_history_capacity()).ok()?;
+    let mut roots = Vec::with_capacity(root_history_capacity);
+    if current_root.iter().any(|byte| *byte != 0) {
+        roots.push(current_root);
+    }
+
+    for root_index in 0..root_history_capacity {
+        let Ok(root_index) = u16::try_from(root_index) else {
+            break;
+        };
+        let Ok(root) = tree.get_utxo_tree_root(root_index) else {
+            continue;
+        };
+        if root.iter().any(|byte| *byte != 0) && !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+
+    Some(roots)
 }
 
 pub async fn upsert_tree_metadata<C>(
     db: &C,
     tree_pubkey: Pubkey,
-    tree_type: TreeType,
     data: &TreeAccountData,
     slot: u64,
 ) -> Result<(), PhotonApiError>
@@ -249,12 +164,18 @@ where
     let model = tree_metadata::ActiveModel {
         tree_pubkey: Set(tree_bytes),
         queue_pubkey: Set(data.queue_pubkey.to_bytes().to_vec()),
-        tree_type: Set(tree_type as i32),
-        height: Set(data.height as i32),
-        root_history_capacity: Set(data.root_history_capacity as i64),
-        sequence_number: Set(data.sequence_number as i64),
-        next_index: Set(data.next_index as i64),
-        last_synced_slot: Set(slot as i64),
+        height: Set(i32_from_u32(data.height, "tree height")?),
+        root_history_capacity: Set(i64_from_u64(
+            data.root_history_capacity,
+            "root history capacity",
+        )?),
+        input_queue_zkp_batch_size: Set(i64_from_u64(
+            data.input_queue_zkp_batch_size,
+            "input queue ZKP batch size",
+        )?),
+        sequence_number: Set(i64_from_u64(data.sequence_number, "sequence number")?),
+        next_index: Set(i64_from_u64(data.next_index, "next index")?),
+        last_synced_slot: Set(i64_from_u64(slot, "last synced slot")?),
     };
 
     TreeMetadata::insert(model)
@@ -262,7 +183,9 @@ where
             sea_orm::sea_query::OnConflict::column(tree_metadata::Column::TreePubkey)
                 .update_columns([
                     tree_metadata::Column::QueuePubkey,
-                    tree_metadata::Column::TreeType,
+                    tree_metadata::Column::Height,
+                    tree_metadata::Column::RootHistoryCapacity,
+                    tree_metadata::Column::InputQueueZkpBatchSize,
                     tree_metadata::Column::SequenceNumber,
                     tree_metadata::Column::NextIndex,
                     tree_metadata::Column::LastSyncedSlot,
@@ -275,4 +198,16 @@ where
     debug!("Upserted tree metadata for {}", tree_pubkey);
 
     Ok(())
+}
+
+fn i32_from_u32(value: u32, field: &str) -> Result<i32, PhotonApiError> {
+    i32::try_from(value).map_err(|_| {
+        PhotonApiError::UnexpectedError(format!("{} {} does not fit in i32", field, value))
+    })
+}
+
+fn i64_from_u64(value: u64, field: &str) -> Result<i64, PhotonApiError> {
+    i64::try_from(value).map_err(|_| {
+        PhotonApiError::UnexpectedError(format!("{} {} does not fit in i64", field, value))
+    })
 }

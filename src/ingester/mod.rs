@@ -1,4 +1,3 @@
-use std::thread::sleep;
 use std::time::Duration;
 
 use cadence_macros::statsd_count;
@@ -18,7 +17,6 @@ use sea_orm::TransactionTrait;
 use solana_client::nonblocking::rpc_client::RpcClient;
 
 use self::parser::state_update::StateUpdate;
-use self::persist::persist_state_update;
 use self::persist::MAX_SQL_INSERTS;
 use self::typedefs::block_info::BlockInfo;
 use self::typedefs::block_info::BlockMetadata;
@@ -29,7 +27,6 @@ pub mod fetchers;
 pub mod indexer;
 pub mod parser;
 pub mod persist;
-pub mod startup_cleanup;
 pub mod typedefs;
 
 async fn derive_block_state_update(
@@ -45,23 +42,6 @@ async fn derive_block_state_update(
     Ok(StateUpdate::merge_updates(state_updates))
 }
 
-pub async fn index_block(
-    db: &DatabaseConnection,
-    block: &BlockInfo,
-    rpc_client: &RpcClient,
-) -> Result<(), IngesterError> {
-    let txn = db.begin().await?;
-    index_block_metadatas(&txn, vec![&block.metadata]).await?;
-    let mut resolver = TreeResolver::new(rpc_client);
-    persist_state_update(
-        &txn,
-        derive_block_state_update(db, block, &mut resolver).await?,
-    )
-    .await?;
-    txn.commit().await?;
-    Ok(())
-}
-
 async fn index_block_metadatas(
     tx: &DatabaseTransaction,
     blocks: Vec<&BlockMetadata>,
@@ -71,12 +51,12 @@ async fn index_block_metadatas(
             .iter()
             .map(|block| {
                 Ok::<blocks::ActiveModel, IngesterError>(blocks::ActiveModel {
-                    slot: Set(block.slot as i64),
-                    parent_slot: Set(block.parent_slot as i64),
+                    slot: Set(i64_from_u64(block.slot, "block slot")?),
+                    parent_slot: Set(i64_from_u64(block.parent_slot, "parent slot")?),
                     block_time: Set(block.block_time),
                     blockhash: Set(block.blockhash.clone().into()),
                     parent_blockhash: Set(block.parent_blockhash.clone().into()),
-                    block_height: Set(block.block_height as i64),
+                    block_height: Set(i64_from_u64(block.block_height, "block height")?),
                 })
             })
             .collect::<Result<Vec<blocks::ActiveModel>, IngesterError>>()?;
@@ -95,23 +75,33 @@ async fn index_block_metadatas(
     Ok(())
 }
 
+fn i64_from_u64(value: u64, field: &str) -> Result<i64, IngesterError> {
+    i64::try_from(value)
+        .map_err(|_| IngesterError::ParserError(format!("{} {} does not fit in i64", field, value)))
+}
+
 pub async fn index_block_batch(
     db: &DatabaseConnection,
     block_batch: &Vec<BlockInfo>,
     rpc_client: &RpcClient,
 ) -> Result<(), IngesterError> {
+    if block_batch.is_empty() {
+        return Ok(());
+    }
     let blocks_len = block_batch.len();
-    let tx = db.begin().await?;
-    let block_metadatas: Vec<&BlockMetadata> = block_batch.iter().map(|b| &b.metadata).collect();
-    index_block_metadatas(&tx, block_metadatas).await?;
     let mut state_updates = Vec::new();
     let mut resolver = TreeResolver::new(rpc_client);
     for block in block_batch {
         state_updates.push(derive_block_state_update(db, block, &mut resolver).await?);
     }
-    persist::persist_state_update(&tx, StateUpdate::merge_updates(state_updates)).await?;
+    let state_update = StateUpdate::merge_updates(state_updates);
+
+    let tx = db.begin().await?;
+    let block_metadatas: Vec<&BlockMetadata> = block_batch.iter().map(|b| &b.metadata).collect();
+    index_block_metadatas(&tx, block_metadatas).await?;
+    persist::persist_state_update(&tx, state_update).await?;
     metric! {
-        statsd_count!("blocks_indexed", blocks_len as i64);
+        statsd_count!("blocks_indexed", i64::try_from(blocks_len).unwrap_or(i64::MAX));
     }
     tx.commit().await?;
     Ok(())
@@ -126,15 +116,23 @@ pub async fn index_block_batch_with_infinite_retries(
         match index_block_batch(db, &block_batch, rpc_client).await {
             Ok(()) => return,
             Err(e) => {
-                let start_block = block_batch.first().unwrap().metadata.slot;
-                let end_block = block_batch.last().unwrap().metadata.slot;
+                let Some(start_block) = block_batch.first().map(|block| block.metadata.slot) else {
+                    return;
+                };
+                let end_block = block_batch
+                    .last()
+                    .map(|block| block.metadata.slot)
+                    .unwrap_or(start_block);
                 log::error!(
                     "Failed to index block batch {}-{}. Got error {}",
                     start_block,
                     end_block,
                     e
                 );
-                sleep(Duration::from_secs(1));
+                metric! {
+                    statsd_count!("block_batch_index_failures", 1);
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
     }

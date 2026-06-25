@@ -1,8 +1,7 @@
 use crate::common::typedefs::hash::ParseHashError;
 use crate::metric;
 use cadence_macros::statsd_count;
-use jsonrpsee::core::Error as RpcError;
-use jsonrpsee::types::error::CallError;
+use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
@@ -23,9 +22,7 @@ pub enum PhotonApiError {
     StaleSlot(u64),
 }
 
-// TODO: Simplify error conversions and ensure we adhere
-// to the proper RPC and HTTP codes.
-impl From<PhotonApiError> for RpcError {
+impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
             PhotonApiError::ValidationError(_) => {
@@ -84,10 +81,14 @@ impl From<ParsePubkeyError> for PhotonApiError {
     }
 }
 
-fn invalid_request(e: PhotonApiError) -> RpcError {
-    RpcError::Call(CallError::from_std_error(e))
+fn invalid_request(e: PhotonApiError) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned(ErrorCode::InvalidRequest.code(), e.to_string(), None::<()>)
 }
 
-fn internal_server_error() -> RpcError {
-    RpcError::Call(CallError::Failed(anyhow::anyhow!("Internal server error")))
+fn internal_server_error() -> ErrorObjectOwned {
+    ErrorObjectOwned::owned(
+        ErrorCode::InternalError.code(),
+        "Internal server error",
+        None::<()>,
+    )
 }

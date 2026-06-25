@@ -1,18 +1,19 @@
-use core::fmt;
-use std::{env, net::UdpSocket, path::PathBuf, sync::Arc, thread::sleep, time::Duration};
+use std::{env, fmt, net::UdpSocket, path::PathBuf, sync::Arc, time::Duration};
 
+use anyhow::{Context, Result};
 use cadence::{BufferedUdpMetricSink, QueuingMetricSink, StatsdClient};
 use cadence_macros::set_global_default;
 use clap::{Parser, ValueEnum};
-use sea_orm::{DatabaseBackend, DatabaseConnection, SqlxPostgresConnector};
+use sea_orm::{DatabaseBackend, Value};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcBlockConfig};
 use solana_commitment_config::CommitmentConfig;
-use solana_transaction_status::{TransactionDetails, UiTransactionEncoding};
+use solana_transaction_status_client_types::{TransactionDetails, UiTransactionEncoding};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
-pub mod token_layout;
+pub mod bn254;
+pub mod rings_tree;
 pub mod typedefs;
 
 pub fn relative_project_path(path: &str) -> PathBuf {
@@ -31,22 +32,27 @@ macro_rules! metric {
     };
 }
 
-pub fn setup_metrics(metrics_endpoint: Option<String>) {
+pub fn setup_metrics(metrics_endpoint: Option<String>) -> Result<()> {
     if let Some(metrics_endpoint) = metrics_endpoint {
         let env = env::var("ENV").unwrap_or("dev".to_string());
-        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        socket.set_nonblocking(true).unwrap();
-        let (host, port) = {
-            let mut iter = metrics_endpoint.split(":");
-            (iter.next().unwrap(), iter.next().unwrap())
-        };
-        let port = port.parse::<u16>().unwrap();
-        let udp_sink = BufferedUdpMetricSink::from((host, port), socket).unwrap();
+        let socket = UdpSocket::bind("0.0.0.0:0").context("Failed to bind metrics UDP socket")?;
+        socket
+            .set_nonblocking(true)
+            .context("Failed to make metrics UDP socket nonblocking")?;
+        let (host, port) = metrics_endpoint
+            .split_once(':')
+            .with_context(|| format!("Invalid metrics endpoint '{}'", metrics_endpoint))?;
+        let port = port
+            .parse::<u16>()
+            .with_context(|| format!("Invalid metrics port '{}'", port))?;
+        let udp_sink = BufferedUdpMetricSink::from((host, port), socket)
+            .context("Failed to create metrics UDP sink")?;
         let queuing_sink = QueuingMetricSink::from(udp_sink);
         let builder = StatsdClient::builder("photon", queuing_sink);
         let client = builder.with_tag("env", env).build();
         set_global_default(client);
     }
+    Ok(())
 }
 
 pub async fn get_genesis_hash_with_infinite_retry(rpc_client: &RpcClient) -> String {
@@ -55,14 +61,14 @@ pub async fn get_genesis_hash_with_infinite_retry(rpc_client: &RpcClient) -> Str
             Ok(genesis_hash) => return genesis_hash.to_string(),
             Err(e) => {
                 log::error!("Failed to fetch genesis hash: {}", e);
-                sleep(Duration::from_secs(5));
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
     }
 }
 
-pub async fn fetch_block_parent_slot(rpc_client: &RpcClient, slot: u64) -> u64 {
-    rpc_client
+pub async fn fetch_block_parent_slot(rpc_client: &RpcClient, slot: u64) -> Result<u64> {
+    Ok(rpc_client
         .get_block_with_config(
             slot,
             RpcBlockConfig {
@@ -74,8 +80,8 @@ pub async fn fetch_block_parent_slot(rpc_client: &RpcClient, slot: u64) -> u64 {
             },
         )
         .await
-        .unwrap()
-        .parent_slot
+        .with_context(|| format!("Failed to fetch block {}", slot))?
+        .parent_slot)
 }
 
 pub async fn get_network_start_slot(rpc_client: &RpcClient) -> u64 {
@@ -118,19 +124,15 @@ pub fn setup_logging(logging_format: LoggingFormat) {
     }
 }
 
-pub async fn setup_pg_pool(database_url: &str, max_connections: u32) -> PgPool {
-    let options: PgConnectOptions = database_url.parse().unwrap();
+pub async fn setup_pg_pool(database_url: &str, max_connections: u32) -> Result<PgPool> {
+    let options: PgConnectOptions = database_url
+        .parse()
+        .context("Failed to parse Postgres database URL")?;
     PgPoolOptions::new()
         .max_connections(max_connections)
         .connect_with(options)
         .await
-        .unwrap()
-}
-
-pub async fn setup_pg_connection(database_url: &str, max_connections: u32) -> DatabaseConnection {
-    SqlxPostgresConnector::from_sqlx_postgres_pool(
-        setup_pg_pool(database_url, max_connections).await,
-    )
+        .context("Failed to connect to Postgres database")
 }
 
 pub async fn fetch_current_slot_with_infinite_retry(client: &RpcClient) -> u64 {
@@ -141,7 +143,7 @@ pub async fn fetch_current_slot_with_infinite_retry(client: &RpcClient) -> u64 {
             }
             Err(e) => {
                 log::error!("Failed to fetch current slot: {}", e);
-                sleep(Duration::from_secs(5));
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
     }
@@ -155,11 +157,14 @@ pub fn get_rpc_client(rpc_url: &str) -> Arc<RpcClient> {
     ))
 }
 
-pub fn format_bytes(bytes: Vec<u8>, database_backend: DatabaseBackend) -> String {
-    let hex_bytes = hex::encode(bytes);
+pub fn bind_sql_value(
+    params: &mut Vec<Value>,
+    database_backend: DatabaseBackend,
+    value: impl Into<Value>,
+) -> String {
+    params.push(value.into());
     match database_backend {
-        DatabaseBackend::Postgres => format!("E'\\\\x{}'", hex_bytes),
-        DatabaseBackend::Sqlite => format!("x'{}'", hex_bytes),
-        _ => unimplemented!(),
+        DatabaseBackend::Postgres => format!("${}", params.len()),
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => "?".to_string(),
     }
 }

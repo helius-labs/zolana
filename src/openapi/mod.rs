@@ -1,60 +1,20 @@
 use std::collections::HashSet;
 
-use crate::api::api::PhotonApi;
-use crate::api::method::get_compressed_account_proof::{
-    GetCompressedAccountProofResponseValue, GetCompressedAccountProofResponseValueV2,
+use anyhow::{bail, Context as AnyhowContext, Result};
+
+use crate::api::api::{OpenApiSpec, PhotonApi};
+use crate::api::method::rings::{
+    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest,
+    GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse,
+    GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof,
+    NonInclusionProof, RingsOutputContext, RingsOutputSlot, ShieldedTransaction,
 };
-use crate::api::method::get_compressed_accounts_by_owner::DataSlice;
-use crate::api::method::get_compressed_accounts_by_owner::FilterSelector;
-use crate::api::method::get_compressed_accounts_by_owner::Memcmp;
-use crate::api::method::get_compressed_accounts_by_owner::PaginatedAccountList;
-use crate::api::method::get_compressed_accounts_by_owner::PaginatedAccountListV2;
-use crate::api::method::get_compressed_mint_token_holders::OwnerBalance;
-use crate::api::method::get_compressed_mint_token_holders::OwnerBalanceList;
-use crate::api::method::get_compressed_mint_token_holders::OwnerBalancesResponse;
-use crate::api::method::get_compressed_token_account_balance::TokenAccountBalance;
-use crate::api::method::get_compressed_token_balances_by_owner::TokenBalance;
-use crate::api::method::get_compressed_token_balances_by_owner::TokenBalanceList;
-use crate::api::method::get_compressed_token_balances_by_owner::TokenBalanceListV2;
-use crate::api::method::get_multiple_compressed_accounts::{AccountList, AccountListV2};
-use crate::api::method::get_multiple_new_address_proofs::AddressListWithTrees;
-use crate::api::method::get_multiple_new_address_proofs::AddressWithTree;
-use crate::api::method::get_multiple_new_address_proofs::MerkleContextWithNewAddressProof;
-use crate::api::method::get_queue_elements::{
-    AddressQueueData, InputQueueData, Node, OutputQueueData, QueueRequest, StateQueueData,
-};
-use crate::api::method::get_queue_info::QueueInfo;
-use crate::api::method::get_transaction_with_compression_info::CompressionInfoV2;
-use crate::api::method::get_transaction_with_compression_info::{
-    AccountWithOptionalTokenData, AccountWithOptionalTokenDataV2, ClosedAccountV2,
-    ClosedAccountWithOptionalTokenDataV2,
-};
-use crate::api::method::get_validity_proof::{
-    AccountProofInputs, AddressProofInputs, CompressedProof, CompressedProofWithContext,
-    CompressedProofWithContextV2, MerkleContextV2, RootIndex, TreeContextInfo,
-};
-use crate::api::method::utils::PaginatedSignatureInfoList;
-use crate::api::method::utils::SignatureInfo;
-use crate::api::method::utils::SignatureInfoList;
-use crate::api::method::utils::SignatureInfoListWithError;
-use crate::api::method::utils::SignatureInfoWithError;
-use crate::api::method::utils::{TokenAccount, TokenAccountV2};
-use crate::api::method::utils::{TokenAccountList, TokenAccountListV2};
-use crate::common::typedefs::account::{
-    Account, AccountContext, AccountData, AccountV2, AccountWithContext,
-};
-use crate::common::typedefs::bs58_string::Base58String;
 use crate::common::typedefs::bs64_string::Base64String;
 use crate::common::typedefs::context::Context;
 use crate::common::typedefs::hash::Hash;
 use crate::common::typedefs::limit::Limit;
 use crate::common::typedefs::serializable_pubkey::SerializablePubkey;
 use crate::common::typedefs::serializable_signature::SerializableSignature;
-use crate::common::typedefs::token_data::AccountState;
-use crate::common::typedefs::token_data::TokenData;
-use crate::common::typedefs::unix_timestamp::UnixTimestamp;
-use crate::common::typedefs::unsigned_integer::UnsignedInteger;
-use dirs;
 use utoipa::openapi::Components;
 use utoipa::openapi::Response;
 
@@ -66,88 +26,44 @@ use utoipa::openapi::request_body::RequestBodyBuilder;
 
 use utoipa::openapi::ContentBuilder;
 
-use utoipa::openapi::ObjectBuilder;
+use utoipa::openapi::path::HttpMethod;
 use utoipa::openapi::PathItem;
-use utoipa::openapi::PathItemType;
 
+use utoipa::openapi::schema::{ArrayItems, ObjectBuilder, Schema, SchemaType, Type};
 use utoipa::openapi::RefOr;
 use utoipa::openapi::Required;
 use utoipa::openapi::ResponseBuilder;
 use utoipa::openapi::ResponsesBuilder;
-use utoipa::openapi::Schema;
-use utoipa::openapi::SchemaType;
 
 use utoipa::openapi::ServerBuilder;
 use utoipa::OpenApi;
 
 const JSON_CONTENT_TYPE: &str = "application/json";
+const RINGS_API_SPEC_FILE: &str = "rings.yaml";
+const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
 
 #[derive(OpenApi)]
 #[openapi(components(schemas(
-    InputQueueData,
-    OutputQueueData,
-    AddressQueueData,
-    StateQueueData,
-    Node,
-    QueueRequest,
-    QueueInfo,
-    AccountProofInputs,
-    AddressProofInputs,
     SerializablePubkey,
     Context,
     Hash,
-    CompressionInfoV2,
-    PaginatedAccountList,
-    PaginatedAccountListV2,
-    Account,
-    AccountContext,
-    AccountWithContext,
-    AccountV2,
-    TokenAccountList,
-    TokenAccountListV2,
-    TokenAccount,
-    TokenAccountV2,
-    TokenAccountBalance,
-    AccountList,
-    AccountListV2,
     Limit,
-    Base58String,
     Base64String,
-    SignatureInfoList,
-    PaginatedSignatureInfoList,
-    SignatureInfo,
     SerializableSignature,
-    TokenBalanceList,
-    TokenBalance,
-    TokenData,
-    AccountData,
-    AccountState,
-    AccountWithOptionalTokenData,
-    ClosedAccountWithOptionalTokenDataV2,
-    ClosedAccountV2,
-    AccountWithOptionalTokenDataV2,
-    UnixTimestamp,
-    UnsignedInteger,
-    CompressedProof,
-    CompressedProofWithContext,
-    CompressedProofWithContextV2,
-    RootIndex,
-    MerkleContextWithNewAddressProof,
-    SignatureInfoListWithError,
-    SignatureInfoWithError,
-    DataSlice,
-    FilterSelector,
-    Memcmp,
-    AddressListWithTrees,
-    AddressWithTree,
-    OwnerBalance,
-    OwnerBalanceList,
-    OwnerBalancesResponse,
-    TokenBalanceListV2,
-    MerkleContextV2,
-    TreeContextInfo,
-    GetCompressedAccountProofResponseValue,
-    GetCompressedAccountProofResponseValueV2,
+    GetRingsByTagsRequest,
+    EncryptedUtxoMatch,
+    GetEncryptedUtxosByTagsResponse,
+    RingsOutputContext,
+    RingsOutputSlot,
+    ShieldedTransaction,
+    GetShieldedTransactionsByTagsResponse,
+    GetMerkleProofsRequest,
+    GetMerkleProofsResponse,
+    MerkleContext,
+    MerkleProof,
+    GetNonInclusionProofsRequest,
+    GetNonInclusionProofsResponse,
+    NonInclusionProof,
 )))]
 struct ApiDoc;
 
@@ -158,7 +74,7 @@ fn add_string_property(
     description: &str,
 ) -> ObjectBuilder {
     let string_object = ObjectBuilder::new()
-        .schema_type(SchemaType::String)
+        .schema_type(Type::String)
         .description(Some(description.to_string()))
         .enum_values(Some(vec![value.to_string()]))
         .build();
@@ -172,15 +88,13 @@ fn build_error_response(description: &str) -> Response {
         .property(
             "code",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new()
-                    .schema_type(SchemaType::Integer)
-                    .build(),
+                ObjectBuilder::new().schema_type(Type::Integer).build(),
             )),
         )
         .property(
             "message",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new().schema_type(SchemaType::String).build(),
+                ObjectBuilder::new().schema_type(Type::String).build(),
             )),
         )
         .build();
@@ -189,13 +103,13 @@ fn build_error_response(description: &str) -> Response {
         .property(
             "jsonrpc",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new().schema_type(SchemaType::String).build(),
+                ObjectBuilder::new().schema_type(Type::String).build(),
             )),
         )
         .property(
             "id",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new().schema_type(SchemaType::String).build(),
+                ObjectBuilder::new().schema_type(Type::String).build(),
             )),
         )
         .property("error", RefOr::T(Schema::Object(error_object)))
@@ -206,7 +120,7 @@ fn build_error_response(description: &str) -> Response {
         .content(
             JSON_CONTENT_TYPE,
             ContentBuilder::new()
-                .schema(Schema::Object(response_schema))
+                .schema(Some(Schema::Object(response_schema)))
                 .build(),
         )
         .build()
@@ -263,15 +177,13 @@ fn response_schema(result: RefOr<Schema>) -> RefOr<Schema> {
         .property(
             "code",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new()
-                    .schema_type(SchemaType::Integer)
-                    .build(),
+                ObjectBuilder::new().schema_type(Type::Integer).build(),
             )),
         )
         .property(
             "message",
             RefOr::T(Schema::Object(
-                ObjectBuilder::new().schema_type(SchemaType::String).build(),
+                ObjectBuilder::new().schema_type(Type::String).build(),
             )),
         )
         .build();
@@ -283,17 +195,16 @@ fn response_schema(result: RefOr<Schema>) -> RefOr<Schema> {
 }
 
 // Examples of allOf references are always {}, which is incorrect.
-#[allow(non_snake_case)]
-fn fix_examples_for_allOf_references(schema: RefOr<Schema>) -> RefOr<Schema> {
+fn fix_examples_for_all_of_references(schema: RefOr<Schema>) -> RefOr<Schema> {
     match schema {
         RefOr::T(mut schema) => match schema {
             Schema::Object(ref mut object) => RefOr::T(match object.schema_type {
-                SchemaType::Object => {
+                SchemaType::Type(Type::Object) => {
                     object.properties = object
                         .properties
                         .iter()
                         .map(|(key, value)| {
-                            let new_value = fix_examples_for_allOf_references(value.clone());
+                            let new_value = fix_examples_for_all_of_references(value.clone());
                             (key.clone(), new_value)
                         })
                         .collect();
@@ -320,7 +231,9 @@ fn find_all_components(schema: RefOr<Schema>) -> HashSet<String> {
                 }
             }
             Schema::Array(array) => {
-                components.extend(find_all_components(*array.items));
+                if let ArrayItems::RefOrSchema(items) = array.items {
+                    components.extend(find_all_components(*items));
+                }
             }
             Schema::AllOf(all_of) => {
                 for item in all_of.items {
@@ -340,36 +253,37 @@ fn find_all_components(schema: RefOr<Schema>) -> HashSet<String> {
             _ => {}
         },
         RefOr::Ref(ref_location) => {
-            components.insert(
-                ref_location
-                    .ref_location
-                    .split('/')
-                    .next_back()
-                    .unwrap()
-                    .to_string(),
-            );
+            if let Some(component) = ref_location.ref_location.rsplit('/').next() {
+                components.insert(component.to_string());
+            }
         }
     }
 
     components
 }
 
-fn filter_unused_components(
-    request: RefOr<Schema>,
-    response: RefOr<Schema>,
+fn filter_unused_components_for_specs(
+    specs: &[OpenApiSpec],
     components: &mut Components,
-) {
-    let mut used_components = find_all_components(request);
-    used_components.extend(find_all_components(response));
+) -> Result<()> {
+    let mut used_components = HashSet::new();
+    for spec in specs {
+        if let Some(request) = spec.request.clone() {
+            used_components.extend(find_all_components(request));
+        }
+        used_components.extend(find_all_components(spec.response.clone()));
+    }
 
     let mut check_stack = used_components.clone();
-    while !check_stack.is_empty() {
-        // Pop any element from the stack
-        let current = check_stack.iter().next().unwrap().clone();
+    while let Some(current) = check_stack.iter().next().cloned() {
         check_stack.remove(&current);
-        let schema = components.schemas.get(&current).unwrap().clone();
-        let child_componets = find_all_components(schema.clone());
-        for child in child_componets {
+        let schema = components
+            .schemas
+            .get(&current)
+            .with_context(|| format!("OpenAPI component '{}' is referenced but missing", current))?
+            .clone();
+        let child_components = find_all_components(schema);
+        for child in child_components {
             if !used_components.contains(&child) {
                 used_components.insert(child.clone());
                 check_stack.insert(child);
@@ -383,125 +297,58 @@ fn filter_unused_components(
         .filter(|(k, _)| used_components.contains(*k))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
+
+    Ok(())
 }
 
-pub fn update_docs_new(is_test: bool) {
-    let method_api_specs = PhotonApi::method_api_specs();
-
-    for spec in method_api_specs {
-        let mut doc = ApiDoc::openapi();
-
-        let mut components = doc.components.unwrap();
-        filter_unused_components(
-            spec.request.clone().unwrap_or_default(),
-            spec.response.clone(),
-            &mut components,
-        );
-        components.schemas = components
-            .schemas
-            .iter()
-            .map(|(k, v)| (k.clone(), fix_examples_for_allOf_references(v.clone())))
-            .collect();
-
-        doc.components = Some(components);
-        let content = ContentBuilder::new()
-            .schema(request_schema(&spec.name, spec.request))
-            .build();
-        let request_body = RequestBodyBuilder::new()
-            .content(JSON_CONTENT_TYPE, content)
-            .required(Some(Required::True))
-            .build();
-        let responses = ResponsesBuilder::new().response(
-            "200",
-            ResponseBuilder::new().content(
-                JSON_CONTENT_TYPE,
-                ContentBuilder::new().schema(fix_examples_for_allOf_references(spec.response)).build(),
-            ),
-        )
-        .response("429", build_error_response("Exceeded rate limit."))
-        .response("500", build_error_response("The server encountered an unexpected condition that prevented it from fulfilling the request."));
-        let operation = OperationBuilder::new()
-            .request_body(Some(request_body))
-            .responses(responses)
-            .build();
-        let mut path_item = PathItem::new(PathItemType::Post, operation);
-
-        path_item.summary = Some(spec.name.clone());
-        doc.paths.paths.insert("/".to_string(), path_item);
-        doc.servers = Some(vec![ServerBuilder::new()
-            .url("https://mainnet.helius-rpc.com?api-key=<api_key>".to_string())
-            .build()]);
-
-        let yaml = doc.to_yaml().unwrap();
-
-        let path = match is_test {
-            true => {
-                let tmp_directory = dirs::home_dir().unwrap().join(".tmp");
-
-                // Create tmp directory if it does not exist
-                if !tmp_directory.exists() {
-                    std::fs::create_dir(&tmp_directory).unwrap();
-                }
-
-                relative_project_path(&format!(
-                    "{}/{}.test.yaml",
-                    tmp_directory.display(),
-                    spec.name.clone()
-                ))
-            }
-            false => {
-                relative_project_path(&format!("src/openapi/specs/{}.yaml", spec.name.clone()))
-            }
-        };
-
-        std::fs::write(path.clone(), yaml).unwrap();
-
-        // Call the external swagger-cli validate command and fail if it fails
-        let validate_result = std::process::Command::new("swagger-cli")
-            .arg("validate")
-            .arg(path.to_str().unwrap())
-            .output()
-            .unwrap();
-
-        if !validate_result.status.success() {
-            let stderr = String::from_utf8_lossy(&validate_result.stderr);
-            panic!(
-                "Failed to validate OpenAPI schema for {}. {}",
-                spec.name, stderr
-            );
-        }
-    }
+pub fn update_docs(is_test: bool) -> Result<()> {
+    write_docs_file(
+        is_test,
+        RINGS_API_TEST_SPEC_FILE,
+        RINGS_API_SPEC_FILE,
+        PhotonApi::rings_method_api_specs(),
+        true,
+    )
 }
 
-pub fn update_docs(is_test: bool) {
-    let method_api_specs = PhotonApi::method_api_specs();
+fn write_docs_file(
+    is_test: bool,
+    test_file_name: &str,
+    spec_file_name: &str,
+    method_api_specs: Vec<OpenApiSpec>,
+    filter_components: bool,
+) -> Result<()> {
     let mut doc = ApiDoc::openapi();
-    doc.components = doc.components.map(|components| {
-        let mut components = components.clone();
+    if let Some(mut components) = doc.components.take() {
+        if filter_components {
+            filter_unused_components_for_specs(&method_api_specs, &mut components)?;
+        }
         components.schemas = components
             .schemas
             .iter()
-            .map(|(k, v)| (k.clone(), fix_examples_for_allOf_references(v.clone())))
+            .map(|(k, v)| (k.clone(), fix_examples_for_all_of_references(v.clone())))
             .collect();
-        components
-    });
+        doc.components = Some(components);
+    }
 
     for spec in method_api_specs {
         let content = ContentBuilder::new()
-            .schema(request_schema(&spec.name, spec.request))
+            .schema(Some(request_schema(&spec.name, spec.request)))
             .build();
         let request_body = RequestBodyBuilder::new()
             .content(JSON_CONTENT_TYPE, content)
             .required(Some(Required::True))
             .build();
         let wrapped_response_schema =
-            response_schema(fix_examples_for_allOf_references(spec.response));
+            response_schema(fix_examples_for_all_of_references(spec.response));
 
         let responses = ResponsesBuilder::new().response(
             "200",
             ResponseBuilder::new().content(
                 JSON_CONTENT_TYPE,
-                ContentBuilder::new().schema(wrapped_response_schema).build(),
+                ContentBuilder::new()
+                    .schema(Some(wrapped_response_schema))
+                    .build(),
             ),
         )
         .response("429", build_error_response("Exceeded rate limit."))
@@ -510,7 +357,7 @@ pub fn update_docs(is_test: bool) {
             .request_body(Some(request_body))
             .responses(responses)
             .build();
-        let mut path_item = PathItem::new(PathItemType::Post, operation);
+        let mut path_item = PathItem::new(HttpMethod::Post, operation);
 
         path_item.summary = Some(spec.name.clone());
         doc.paths
@@ -518,40 +365,48 @@ pub fn update_docs(is_test: bool) {
             .insert(format!("/{method}", method = spec.name), path_item);
     }
 
-    // doc.paths.paths.insert("/".to_string(), path_item);
     doc.servers = Some(vec![ServerBuilder::new()
         .url("https://devnet.helius-rpc.com?api-key=<api_key>".to_string())
         .build()]);
-    let yaml = doc.to_yaml().unwrap();
+    let yaml = doc
+        .to_yaml()
+        .context("Failed to serialize OpenAPI schema")?;
 
     let path = match is_test {
         true => {
-            let tmp_directory = dirs::home_dir().unwrap().join(".tmp");
+            let tmp_directory = std::env::temp_dir().join("photon-openapi");
+            std::fs::create_dir_all(&tmp_directory).with_context(|| {
+                format!(
+                    "Failed to create OpenAPI temp directory {}",
+                    tmp_directory.display()
+                )
+            })?;
 
-            // Create tmp directory if it does not exist
-            if !tmp_directory.exists() {
-                std::fs::create_dir(&tmp_directory).unwrap();
-            }
-
-            relative_project_path(&format!("{}/test.yaml", tmp_directory.display()))
+            tmp_directory.join(test_file_name)
         }
-        false => {
-            // relative_project_path(&format!("src/openapi/specs/{}.yaml", spec.name.clone()))
-            relative_project_path("src/openapi/specs/api.yaml")
-        }
+        false => relative_project_path(&format!("src/openapi/specs/{spec_file_name}")),
     };
 
-    std::fs::write(path.clone(), yaml).unwrap();
+    std::fs::write(&path, yaml)
+        .with_context(|| format!("Failed to write OpenAPI schema to {}", path.display()))?;
 
-    // Call the external swagger-cli validate command and fail if it fails
+    let path_str = path
+        .to_str()
+        .with_context(|| format!("OpenAPI schema path is not valid UTF-8: {}", path.display()))?;
     let validate_result = std::process::Command::new("swagger-cli")
         .arg("validate")
-        .arg(path.to_str().unwrap())
+        .arg(path_str)
         .output()
-        .unwrap();
+        .context("Failed to run swagger-cli validate")?;
 
     if !validate_result.status.success() {
         let stderr = String::from_utf8_lossy(&validate_result.stderr);
-        panic!("Failed to validate OpenAPI schema. {}", stderr);
+        bail!(
+            "Failed to validate OpenAPI schema for {}. {}",
+            spec_file_name,
+            stderr
+        );
     }
+
+    Ok(())
 }

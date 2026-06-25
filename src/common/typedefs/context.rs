@@ -2,11 +2,13 @@ use crate::api::error::PhotonApiError;
 use crate::common::typedefs::unsigned_integer::UnsignedInteger;
 use crate::dao::generated::blocks;
 use crate::migration::Expr;
-use jsonrpsee_core::Serialize;
 use sea_orm::{DatabaseConnection, EntityTrait, FromQueryResult, QuerySelect};
-use serde::Deserialize;
-use utoipa::openapi::{ObjectBuilder, RefOr, Schema, SchemaType};
-use utoipa::ToSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::openapi::{
+    schema::{ObjectBuilder, Schema, Type},
+    RefOr,
+};
+use utoipa::{PartialSchema, ToSchema};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromQueryResult, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -14,26 +16,24 @@ pub struct Context {
     pub slot: u64,
 }
 
-impl<'__s> ToSchema<'__s> for Context {
-    fn schema() -> (&'__s str, RefOr<Schema>) {
+impl PartialSchema for Context {
+    fn schema() -> RefOr<Schema> {
         let schema = Schema::Object(
             ObjectBuilder::new()
-                .schema_type(SchemaType::Object)
-                .property("slot", UnsignedInteger::schema().1)
+                .schema_type(Type::Object)
+                .property("slot", UnsignedInteger::schema())
                 .required("slot")
                 .build(),
         );
-        ("Context", RefOr::T(schema))
-    }
-
-    fn aliases() -> Vec<(&'static str, Schema)> {
-        Vec::new()
+        RefOr::T(schema)
     }
 }
 
+impl ToSchema for Context {}
+
 #[derive(FromQueryResult)]
 pub struct ContextModel {
-    // Postgres and SQLlite do not support u64 as return type. We need to use i64 and cast it to u64.
+    // Postgres and SQLite do not support u64 as return type. We validate after reading i64.
     pub slot: i64,
 }
 
@@ -49,7 +49,12 @@ impl Context {
                 "No data has been indexed".to_string(),
             ))?;
         Ok(Context {
-            slot: context.slot as u64,
+            slot: u64::try_from(context.slot).map_err(|_| {
+                PhotonApiError::UnexpectedError(format!(
+                    "Invalid negative slot in database: {}",
+                    context.slot
+                ))
+            })?,
         })
     }
 }

@@ -21,18 +21,27 @@ pub struct BlockStreamConfig {
 
 impl BlockStreamConfig {
     pub fn load_block_stream(&self) -> impl Stream<Item = Vec<BlockInfo>> {
-        let grpc_stream = self.geyser_url.as_ref().map(|geyser_url| {
-            let auth_header = std::env::var("GRPC_X_TOKEN").unwrap();
-            get_grpc_stream_with_rpc_fallback(
-                geyser_url.clone(),
-                auth_header,
-                self.rpc_client.clone(),
-                self.last_indexed_slot,
-                self.max_concurrent_block_fetches,
-            )
+        let grpc_stream = self.geyser_url.as_ref().and_then(|geyser_url| {
+            let auth_header = match std::env::var("GRPC_X_TOKEN") {
+                Ok(auth_header) => auth_header,
+                Err(err) => {
+                    log::error!(
+                        "GRPC_X_TOKEN is required when grpc_url is configured; falling back to RPC polling: {}",
+                        err
+                    );
+                    return None;
+                }
+            };
+            Some(get_grpc_stream_with_rpc_fallback(
+                    geyser_url.clone(),
+                    auth_header,
+                    self.rpc_client.clone(),
+                    self.last_indexed_slot,
+                    self.max_concurrent_block_fetches,
+                ))
         });
 
-        let poller_stream = if self.geyser_url.is_none() {
+        let poller_stream = if grpc_stream.is_none() {
             Some(get_block_poller_stream(
                 self.rpc_client.clone(),
                 self.last_indexed_slot,

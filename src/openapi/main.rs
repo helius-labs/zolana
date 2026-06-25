@@ -1,5 +1,5 @@
 use photon_indexer::openapi::update_docs;
 
-fn main() {
-    update_docs(false);
+fn main() -> anyhow::Result<()> {
+    update_docs(false)
 }

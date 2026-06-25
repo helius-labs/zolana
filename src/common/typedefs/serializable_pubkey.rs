@@ -5,16 +5,17 @@ use std::str::FromStr;
 use borsh::BorshDeserialize;
 use serde::Deserialize;
 
-use light_compressed_account::Pubkey as LightPubkey;
 use serde::de::{self, Visitor};
 use serde::ser::{Serialize, Serializer};
 use serde::Deserializer;
 use solana_pubkey::ParsePubkeyError;
 use solana_pubkey::Pubkey as SolanaPubkey;
 use std::convert::TryFrom;
-use utoipa::openapi::{schema::Schema, RefOr};
-use utoipa::openapi::{ObjectBuilder, SchemaType};
-use utoipa::ToSchema;
+use utoipa::openapi::{
+    schema::{ObjectBuilder, Schema, Type},
+    RefOr,
+};
+use utoipa::{PartialSchema, ToSchema};
 
 #[derive(Default, Clone, PartialEq, Eq, Hash, Copy)]
 pub struct SerializablePubkey(pub SolanaPubkey);
@@ -47,27 +48,24 @@ impl borsh::BorshSerialize for SerializablePubkey {
     }
 }
 
-impl<'__s> ToSchema<'__s> for SerializablePubkey {
-    fn schema() -> (&'__s str, RefOr<Schema>) {
-        let example = Some(serde_json::Value::String(
-            SerializablePubkey(SolanaPubkey::new_unique()).to_string(),
-        ));
+impl PartialSchema for SerializablePubkey {
+    fn schema() -> RefOr<Schema> {
+        let example =
+            serde_json::Value::String(SerializablePubkey(SolanaPubkey::new_unique()).to_string());
         let schema = Schema::Object(
             ObjectBuilder::new()
-                .schema_type(SchemaType::String)
+                .schema_type(Type::String)
                 .description(Some("A Solana public key represented as a base58 string."))
-                .example(example.clone())
-                .default(example)
+                .examples([example.clone()])
+                .default(Some(example))
                 .build(),
         );
 
-        ("SerializablePubkey", RefOr::T(schema))
-    }
-
-    fn aliases() -> Vec<(&'static str, Schema)> {
-        Vec::new()
+        RefOr::T(schema)
     }
 }
+
+impl ToSchema for SerializablePubkey {}
 
 impl TryFrom<&str> for SerializablePubkey {
     type Error = ParsePubkeyError;
@@ -104,12 +102,6 @@ impl From<SerializablePubkey> for Vec<u8> {
 impl From<[u8; 32]> for SerializablePubkey {
     fn from(bytes: [u8; 32]) -> Self {
         SerializablePubkey(SolanaPubkey::from(bytes))
-    }
-}
-
-impl From<LightPubkey> for SerializablePubkey {
-    fn from(pubkey: LightPubkey) -> Self {
-        SerializablePubkey(SolanaPubkey::from(pubkey.to_bytes()))
     }
 }
 

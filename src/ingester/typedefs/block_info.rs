@@ -3,7 +3,7 @@ use solana_clock::{Slot, UnixTimestamp};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status::{
+use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransactionWithStatusMeta, UiConfirmedBlock, UiInstruction, UiTransactionStatusMeta,
 };
@@ -20,6 +20,8 @@ pub struct Instruction {
     pub program_id: Pubkey,
     pub data: Vec<u8>,
     pub accounts: Vec<Pubkey>,
+    #[serde(default)]
+    pub stack_height: Option<u32>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstructionGroup {
@@ -65,7 +67,7 @@ pub fn parse_ui_confirmed_blocked(
     } = block;
 
     let transactions: Result<Vec<_>, _> = transactions
-        .unwrap_or(Vec::new())
+        .unwrap_or_default()
         .into_iter()
         .map(_parse_transaction)
         .collect();
@@ -102,7 +104,9 @@ fn _parse_transaction(
     )?;
     let meta = meta.ok_or(IngesterError::ParserError("Missing metadata".to_string()))?;
 
-    let signature = versioned_transaction.signatures[0];
+    let signature = *versioned_transaction.signatures.first().ok_or_else(|| {
+        IngesterError::ParserError("Transaction is missing a signature".to_string())
+    })?;
     let error = meta.clone().err.map(|e| e.to_string());
     let instruction_groups = parse_instruction_groups(versioned_transaction, meta)?;
     Ok(TransactionInfo {
@@ -160,7 +164,9 @@ impl TryFrom<EncodedConfirmedTransactionWithStatusMeta> for TransactionInfo {
         let versioned_transaction: VersionedTransaction = transaction.decode().ok_or(
             IngesterError::ParserError("Transaction cannot be decoded".to_string()),
         )?;
-        let signature = versioned_transaction.signatures[0];
+        let signature = *versioned_transaction.signatures.first().ok_or_else(|| {
+            IngesterError::ParserError("Transaction is missing a signature".to_string())
+        })?;
         let meta = meta.ok_or(IngesterError::ParserError("Missing metadata".to_string()))?;
         let error = meta.clone().err.map(|e| e.to_string());
         Ok(TransactionInfo {
@@ -194,39 +200,41 @@ pub fn parse_instruction_groups(
         }
     }
 
-    // Convert from solana_sdk::pubkey::Pubkey to solana_pubkey::Pubkey
-    let accounts: Vec<Pubkey> = sdk_accounts
-        .iter()
-        .map(|sdk_pubkey| {
-            let bytes = sdk_pubkey.to_bytes();
-            Pubkey::new_from_array(bytes)
-        })
-        .collect();
-
     // Parse outer instructions and bucket them into groups
     let mut instruction_groups: Vec<InstructionGroup> = versioned_transaction
         .message
         .instructions()
         .iter()
         .map(|ix| {
-            let program_id = accounts[ix.program_id_index as usize];
+            let program_id = sdk_account(
+                &sdk_accounts,
+                usize::from(ix.program_id_index),
+                "outer instruction program id",
+            )?;
             let data = ix.data.clone();
-            let instruction_accounts: Vec<Pubkey> = ix
+            let instruction_accounts: Result<Vec<Pubkey>, IngesterError> = ix
                 .accounts
                 .iter()
-                .map(|account_index| accounts[*account_index as usize])
+                .map(|account_index| {
+                    sdk_account(
+                        &sdk_accounts,
+                        usize::from(*account_index),
+                        "outer instruction account",
+                    )
+                })
                 .collect();
 
-            InstructionGroup {
+            Ok(InstructionGroup {
                 outer_instruction: Instruction {
                     program_id,
                     data,
-                    accounts: instruction_accounts,
+                    accounts: instruction_accounts?,
+                    stack_height: Some(1),
                 },
                 inner_instructions: Vec::new(),
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, IngesterError>>()?;
 
     // Parse inner instructions and place them into the correct instruction group
     if let OptionSerializer::Some(inner_instructions_vec) = meta.inner_instructions.as_ref() {
@@ -235,23 +243,40 @@ pub fn parse_instruction_groups(
             for ui_instruction in inner_instructions.instructions.iter() {
                 match ui_instruction {
                     UiInstruction::Compiled(ui_compiled_instruction) => {
-                        let program_id =
-                            accounts[ui_compiled_instruction.program_id_index as usize];
+                        let program_id = sdk_account(
+                            &sdk_accounts,
+                            usize::from(ui_compiled_instruction.program_id_index),
+                            "inner instruction program id",
+                        )?;
                         let data = bs58::decode(&ui_compiled_instruction.data)
                             .into_vec()
                             .map_err(|e| IngesterError::ParserError(e.to_string()))?;
-                        let instruction_accounts: Vec<Pubkey> = ui_compiled_instruction
-                            .accounts
-                            .iter()
-                            .map(|account_index| accounts[*account_index as usize])
-                            .collect();
-                        instruction_groups[index as usize]
-                            .inner_instructions
-                            .push(Instruction {
-                                program_id,
-                                data,
-                                accounts: instruction_accounts,
-                            });
+                        let instruction_accounts: Result<Vec<Pubkey>, IngesterError> =
+                            ui_compiled_instruction
+                                .accounts
+                                .iter()
+                                .map(|account_index| {
+                                    sdk_account(
+                                        &sdk_accounts,
+                                        usize::from(*account_index),
+                                        "inner instruction account",
+                                    )
+                                })
+                                .collect();
+                        let instruction_group = instruction_groups
+                            .get_mut(usize::from(index))
+                            .ok_or_else(|| {
+                                IngesterError::ParserError(format!(
+                                    "Inner instruction group index {} is out of bounds",
+                                    index
+                                ))
+                            })?;
+                        instruction_group.inner_instructions.push(Instruction {
+                            program_id,
+                            data,
+                            accounts: instruction_accounts?,
+                            stack_height: ui_compiled_instruction.stack_height,
+                        });
                     }
                     UiInstruction::Parsed(_) => {
                         return Err(IngesterError::ParserError(
@@ -264,4 +289,15 @@ pub fn parse_instruction_groups(
     };
 
     Ok(instruction_groups)
+}
+
+fn sdk_account(accounts: &[Pubkey], index: usize, context: &str) -> Result<Pubkey, IngesterError> {
+    accounts.get(index).copied().ok_or_else(|| {
+        IngesterError::ParserError(format!(
+            "{} account index {} is out of bounds for {} accounts",
+            context,
+            index,
+            accounts.len()
+        ))
+    })
 }

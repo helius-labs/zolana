@@ -1,7 +1,6 @@
-use std::{sync::Arc, thread::sleep, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use async_std::stream::StreamExt;
-use futures::{pin_mut, Stream};
+use futures::{pin_mut, Stream, StreamExt};
 use log::info;
 use sea_orm::{sea_query::Expr, DatabaseConnection, EntityTrait, FromQueryResult, QuerySelect};
 use solana_client::nonblocking::rpc_client::RpcClient;
@@ -33,14 +32,10 @@ pub async fn fetch_last_indexed_slot_with_infinite_retry(
             .await;
 
         match context {
-            Ok(context) => {
-                return context
-                    .expect("Always expected maximum query to return a result")
-                    .slot
-            }
+            Ok(context) => return context.and_then(|context| context.slot),
             Err(e) => {
                 log::error!("Failed to fetch current slot from database: {}", e);
-                sleep(Duration::from_secs(5));
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
     }
@@ -66,7 +61,9 @@ pub async fn index_block_stream(
     let mut finished_backfill_slot = None;
 
     while let Some(blocks) = block_stream.next().await {
-        let last_slot_in_block = blocks.last().unwrap().metadata.slot;
+        let Some(last_slot_in_block) = blocks.last().map(|block| block.metadata.slot) else {
+            continue;
+        };
         index_block_batch_with_infinite_retries(db.as_ref(), blocks, rpc_client.as_ref()).await;
 
         for slot in (last_indexed_slot + 1)..(last_slot_in_block + 1) {

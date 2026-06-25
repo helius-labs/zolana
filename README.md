@@ -1,153 +1,106 @@
-# Photon: the Indexer for ZK Compression on Solana
+# Photon: the Rings Indexer
 
-Photon is the core indexer for [ZK Compression](https://www.zkcompression.com) on the Solana blockchain. It offers rapid indexing capabilities, snapshot support, and flexible database options to cater to local and production deployments.
+Photon indexes Rings shielded-pool transactions and exposes the Rings JSON-RPC API:
 
-## 🚀 Quick Start
+- `get_encrypted_utxos_by_tags`
+- `get_shielded_transactions_by_tags`
+- `get_merkle_proofs`
+- `get_non_inclusion_proofs`
 
-### Installation
+## Quick Start
 
-1. Install dependencies:
-
-```bash
-sudo apt install -y build-essential pkg-config libssl-dev
-```
-
-2. Install `photon-indexer`:
-
-```bash
-cargo install photon-indexer
-```
-
-### 🔧 Usage
-
-#### Basic Usage 
-
-* Run Photon with default settings against localnet:
+Run against a local validator:
 
 ```bash
 photon
 ```
 
-#### Configuration
-
-* Connect to Devnet:
+Run against a specific RPC URL:
 
 ```bash
-photon --rpc-url=https://api.devnet.solana.com
+photon --rpc-url=http://127.0.0.1:8899
 ```
 
-* Use gRPC for block streaming (requires GRPC_X_TOKEN env variable):
+Use Postgres instead of the default temporary SQLite database:
+
+```bash
+export DATABASE_URL="postgres://postgres@localhost/postgres"
+photon-migration up
+photon --db-url="$DATABASE_URL"
+```
+
+Use Yellowstone gRPC for block streaming:
 
 ```bash
 photon --rpc-url=https://api.devnet.solana.com --grpc-url=<grpc_url>
 ```
 
-* Use a local Postgres database:
+## Rings BlockInfo Snapshots
+
+Photon snapshots store filtered `BlockInfo` payloads, not materialized database rows. The
+snapshotter keeps only transactions that contain Rings events, so a new Photon binary can replay
+the snapshot through the current parser and persistence code even when the internal database schema
+changes.
+
+Write snapshots to a local directory:
 
 ```bash
-photon --db-url=postgres://postgres@localhost/postgres
+photon-snapshotter \
+  --rpc-url=https://api.mainnet-beta.solana.com \
+  --snapshot-dir=./rings-snapshots \
+  --start-slot=<slot>
 ```
 
-* Specify a start slot:
+Serve existing snapshots without generating new ones:
 
 ```bash
-photon --start-slot=123
+photon-snapshotter --snapshot-dir=./rings-snapshots --disable-snapshot-generation
 ```
 
-* For more advanced options:
+Download snapshots from a snapshotter:
 
 ```bash
-photon --help
+photon-snapshot-loader \
+  --snapshot-server-url=http://127.0.0.1:8825 \
+  --snapshot-dir=./rings-snapshots
 ```
 
-## 📸 Snapshots
-
-Photon supports snapshots for quick bootstrapping. 
-
-### Loading a Snapshot
-
-1. Download a snapshot:
+Bootstrap Photon from snapshots, then continue live indexing from the restored slot:
 
 ```bash
-photon-snapshot-loader --snapshot-dir=~/snapshot --snapshot-server-url=https://photon-devnet-snapshot.helius-rpc.com
+photon \
+  --db-url="$DATABASE_URL" \
+  --rpc-url=https://api.mainnet-beta.solana.com \
+  --snapshot-dir=./rings-snapshots
 ```
 
-2. Run Photon with the snapshot:
+`--r2-bucket`/`--r2-prefix` and `--gcs-bucket`/`--gcs-prefix` are available for remote snapshot
+storage.
+
+## Operations
+
+Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A
+non-contiguous nullifier queue or reconstructed-root mismatch makes the indexer retry the same
+block batch until the underlying data or code is fixed. Alert on stale `getIndexerHealth` results,
+`block_batch_index_failures`, and errors containing `Cannot reconstruct nullifier batch` or
+`Reconstructed nullifier root mismatch`.
+
+## Development
+
+Run the Rings integration tests:
 
 ```bash
-photon --snapshot-dir=~/snapshot --rpc-url=https://api.devnet.solana.com --db-url=postgres://postgres@localhost/postgres
+cargo test --test integration_tests
 ```
 
-### Creating Snapshots
-
-Create a local snapshot:
-```bash
-photon-snapshotter --snapshot-dir=~/snapshot
-```
-
-Store snapshots in an R2 bucket:
-```bash
-photon-snapshotter --r2-bucket=some-bucket --r2-prefix=prefix
-```
-
-Note: Set `R2_ACCESS_KEY`, `R2_ACCOUNT_ID`, and `R2_SECRET_KEY` environment variables when using R2.
-
-## 🗄️ Database Management
-
-Photon supports both Postgres and SQLite. By default, it uses an in-memory SQLite database.
-
-To use a custom database:
-```bash
-export DATABASE_URL="postgres://postgres@localhost/postgres"
-# Set ENABLE_CUSTOM_INDEXES=true to enable program-specific indexes. 
-photon-migration up
-photon --db-url=$DATABASE_URL
-```
-
-## 🗄️ Custom Indexes
-
-Developers can easily add program-specific indexes through a custom migration to speed up queries. See `src/migration/migrations/custom/custom20252201_000001_init.rs` for an example. In the future, we will add tooling to make it easier to add custom indexes. For now, contact the Helius team to add custom indexes.
-
-## 🛠️ Local Development
-
-### Running Tests
-
-1. Set up the environment:
-```bash
-export MAINNET_RPC_URL=https://api.mainnet-beta.solana.com
-export DEVNET_RPC_URL=https://api.devnet.solana.com
-export TEST_DATABASE_URL="postgres://postgres@localhost/postgres"
-```
-
-2. Install additional tools:
-```bash
-npm install -g @apidevtools/swagger-cli
-wget https://dl.min.io/server/minio/release/linux-amd64/minio
-chmod +x minio
-docker run -p 3001:3001 docker.io/pmantica1/light-prover:1
-```
-
-3. Run tests:
-```bash
-cargo test
-```
-
-Note: All migrations run automatically during tests for both Postgres and SQLite.
-
-### Database Model Generation
+Check the main binary:
 
 ```bash
-cargo install sea-orm-cli --version 0.10.6
-sea-orm-cli generate entity -o src/dao/generated
+cargo check --bin photon
 ```
 
-### API Documentation
+Generate the Rings OpenAPI spec:
 
-Generate OpenAPI schemas:
 ```bash
-cargo run --bin=photon-openapi
+cargo run --bin photon-openapi
 ```
-
-## 📬 Support
-
-For support or queries, please open an issue on Github or contact the [Helius discord](https://discord.gg/HjummjUXgq).

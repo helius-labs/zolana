@@ -11,7 +11,7 @@ use solana_client::{
 };
 
 use solana_commitment_config::CommitmentConfig;
-use solana_transaction_status::{TransactionDetails, UiTransactionEncoding};
+use solana_transaction_status_client_types::{TransactionDetails, UiTransactionEncoding};
 
 use crate::{
     ingester::typedefs::block_info::{parse_ui_confirmed_blocked, BlockInfo},
@@ -63,7 +63,10 @@ pub fn get_block_poller_stream(
             let (blocks_to_index, last_indexed_slot_from_cache) = pop_cached_blocks_to_index(&mut block_cache, last_indexed_slot);
             last_indexed_slot = last_indexed_slot_from_cache;
             metric! {
-                statsd_count!("rpc_block_emitted", blocks_to_index.len() as i64);
+                statsd_count!(
+                    "rpc_block_emitted",
+                    i64::try_from(blocks_to_index.len()).unwrap_or(i64::MAX)
+                );
             }
             if !blocks_to_index.is_empty() {
                 yield blocks_to_index;
@@ -78,7 +81,10 @@ fn pop_cached_blocks_to_index(
 ) -> (Vec<BlockInfo>, u64) {
     let mut blocks = Vec::new();
     while let Some(&min_slot) = block_cache.keys().min() {
-        let block: &BlockInfo = block_cache.get(&min_slot).unwrap();
+        let Some(block) = block_cache.get(&min_slot) else {
+            block_cache.remove(&min_slot);
+            continue;
+        };
         if block.metadata.parent_slot == last_indexed_slot {
             last_indexed_slot = block.metadata.slot;
             blocks.push(block.clone());
@@ -114,7 +120,15 @@ pub async fn fetch_block_with_infinite_retries(
                 metric! {
                     statsd_count!("rpc_block_fetched", 1);
                 }
-                return Some(parse_ui_confirmed_blocked(block, slot).unwrap());
+                match parse_ui_confirmed_blocked(block, slot) {
+                    Ok(block) => return Some(block),
+                    Err(err) => {
+                        log::error!("Failed to parse RPC block {}: {}", slot, err);
+                        metric! {
+                            statsd_count!("rpc_block_parse_failed", 1);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 if let solana_client::client_error::ClientErrorKind::RpcError(
@@ -134,5 +148,6 @@ pub async fn fetch_block_with_infinite_retries(
                 }
             }
         }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 }
