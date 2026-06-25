@@ -1258,15 +1258,15 @@ struct TransactIxData {
 }
 ```
 
-Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-size`. Assumes confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
+Total transaction size by circuit shape for the P256 owner rail, computed by `cargo run -p xtask -- tx-size` (which also prints the EdDSA rail and the pre-optimization baseline). EdDSA-owned transactions are 64 B smaller (vanilla Groth16, no proof commitment). Assumes confidential transfers with every `data` field empty (`count = 0`); each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
 
 | Circuit | N | M | ix data (B) | transfer, no ALT (B) | transfer, ALT (B) | shield / unshield, no ALT (B) | shield / unshield, ALT (B) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 522 | — | — | 867 | 810 |
-| 1 in 2 out | 1 | 2 | 484 | — | — | 829 | 772 |
-| 3 in 3 out | 3 | 3 | 674 | 879 | 884 | 1019 | 962 |
-| 5 in 3 out | 5 | 3 | 750 | 955 | 960 | 1095 | 1038 |
-| 1 in 8 out | 1 | 8 | 1168\* | 1373\* | 1378\* | 1513\* | 1456\* |
+| 2 in 2 out | 2 | 2 | 523 | — | — | 868 | 811 |
+| 1 in 2 out | 1 | 2 | 485 | — | — | 830 | 773 |
+| 3 in 3 out | 3 | 3 | 675 | 880 | 885 | 1020 | 963 |
+| 5 in 3 out | 5 | 3 | 751 | 956 | 961 | 1096 | 1039 |
+| 1 in 8 out | 1 | 8 | 1169\* | 1374\* | 1379\* | 1514\* | 1457\* |
 
 "no ALT" = Solana legacy transaction (all accounts inline). "ALT" = Solana v0 transaction with one ALT loaded before the transaction containing `tree_account` (writable), and for shield additionally `vault` and `recipient` (writable). The program account (`program_id`) is always inline because Solana requires instruction program IDs in the static account list. A pure transfer with only one writable account moved to the ALT gains 32 B but pays 37 B (1 B v0 version prefix + 36 B ALT section), so v0+ALT is 5 B larger than legacy for transfers. Shield moves three writable accounts and gains 57 B net (3 × 32 B saved − 39 B ALT overhead). — = shape has no recipient slots (R = M − 2 = 0) and is used only for shield / merge, not transfer.
 

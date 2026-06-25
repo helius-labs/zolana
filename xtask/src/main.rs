@@ -295,7 +295,7 @@ fn tx_size(args: Vec<String>) {
     // Pre-spec recipient: owner_pk(34)+sender_pk(33)+asset(8)+amount(8)+blinding(31)+data(1) = 115 B + 16 B GCM tag
     let current_recipient_data_len = 131_usize;
 
-    // Spec-target: AES-256-CTR (no tag), owner_pubkey and sender_pubkey dropped from ciphertexts.
+    // Current code: AES-256-CTR (no tag), owner_pubkey and sender_pubkey dropped from ciphertexts.
     const OPT_SENDER_DATA_LEN: usize = 58; // type_prefix(1) + 57 B plaintext
     const OPT_RECIPIENT_DATA_LEN: usize = 48; // 48 B plaintext
 
@@ -471,97 +471,73 @@ fn tx_size(args: Vec<String>) {
         (ix_len, t_legacy, t_v0, s_legacy, s_v0)
     };
 
-    println!("Current code (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
-    println!(
-        "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-        "Circuit",
-        "ix data (B)",
-        "transfer, no ALT",
-        "transfer, ALT",
-        "shield, no ALT",
-        "shield, ALT",
-    );
-    println!(
-        "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
-        "", "", "", "", "", ""
-    );
+    // P256 rail proof: 1 B enum tag + 192 B (128 B Groth16 + 32 B proof_commitment
+    // + 32 B proof_commitment_pok).
+    const P256_PROOF_SER_LEN: usize = RAIL_TAG_LEN + 192;
 
-    for &(n, m) in &shapes {
-        let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            n,
-            m,
-            r,
-            current_sender_data_len(r),
-            current_recipient_data_len,
-            LEGACY_PROOF_LEN,
-        );
-        let fmt = |v: usize, show: bool| {
-            if show {
-                v.to_string()
-            } else {
-                "—".to_string()
-            }
-        };
+    let print_table = |title: &str,
+                       sender_len: &dyn Fn(usize) -> usize,
+                       recipient_len: usize,
+                       proof_len: usize| {
+        println!("{title}");
         println!(
-            "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-            format!("{n} in {m} out"),
-            n,
-            m,
-            ix,
-            fmt(tl, r > 0),
-            fmt(tv, r > 0),
-            sl,
-            sv,
+            "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
+            "Circuit",
+            "ix data (B)",
+            "transfer, no ALT",
+            "transfer, ALT",
+            "shield, no ALT",
+            "shield, ALT",
         );
-    }
+        println!(
+            "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
+            "", "", "", "", "", ""
+        );
+        for &(n, m) in &shapes {
+            let r = m.saturating_sub(SENDER_SLOT_COUNT);
+            let (ix, tl, tv, sl, sv) =
+                make_tx_sizes(n, m, r, sender_len(r), recipient_len, proof_len);
+            let fmt = |v: usize, show: bool| {
+                if show {
+                    v.to_string()
+                } else {
+                    "—".to_string()
+                }
+            };
+            println!(
+                "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
+                format!("{n} in {m} out"),
+                n,
+                m,
+                ix,
+                fmt(tl, r > 0),
+                fmt(tv, r > 0),
+                sl,
+                sv,
+            );
+        }
+    };
 
+    print_table(
+        "Legacy baseline (pre-optimization: AES-GCM, redundant pubkeys, 192 B flat proof):",
+        &current_sender_data_len,
+        current_recipient_data_len,
+        LEGACY_PROOF_LEN,
+    );
     println!();
-    println!("Spec-target EdDSA (AES-256-CTR, no redundant pubkeys, enum proof: 1 B tag + 128 B):");
-    println!("  P256 rail adds 64 B (proof_commitment 32 B + proof_commitment_pok 32 B).");
-    println!(
-        "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-        "Circuit",
-        "ix data (B)",
-        "transfer, no ALT",
-        "transfer, ALT",
-        "shield, no ALT",
-        "shield, ALT",
+    print_table(
+        "Current code, EdDSA rail (AES-256-CTR, no redundant pubkeys, enum proof: 1 B tag + 128 B):",
+        &|_| OPT_SENDER_DATA_LEN,
+        OPT_RECIPIENT_DATA_LEN,
+        FIXTURE_PROOF_SER_LEN,
     );
-    println!(
-        "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
-        "", "", "", "", "", ""
+    println!();
+    print_table(
+        "Current code, P256 rail (EdDSA rail + 64 B: proof_commitment 32 B + proof_commitment_pok 32 B):",
+        &|_| OPT_SENDER_DATA_LEN,
+        OPT_RECIPIENT_DATA_LEN,
+        P256_PROOF_SER_LEN,
     );
-
-    for &(n, m) in &shapes {
-        let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(
-            n,
-            m,
-            r,
-            OPT_SENDER_DATA_LEN,
-            OPT_RECIPIENT_DATA_LEN,
-            FIXTURE_PROOF_SER_LEN,
-        );
-        let fmt = |v: usize, show: bool| {
-            if show {
-                v.to_string()
-            } else {
-                "—".to_string()
-            }
-        };
-        println!(
-            "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-            format!("{n} in {m} out"),
-            n,
-            m,
-            ix,
-            fmt(tl, r > 0),
-            fmt(tv, r > 0),
-            sl,
-            sv,
-        );
-    }
 }
 
 fn transfer_accounts(
