@@ -55,6 +55,45 @@ pub enum TransactionError {
     #[error("transaction has no output slots")]
     MissingOutput,
 
+    #[error("missing encryption context for scheme")]
+    MissingEncryptionContext,
+
+    #[error("transaction has no inputs")]
+    NoInputs,
+
+    #[error("withdrawal already set")]
+    WithdrawalAlreadySet,
+
+    #[error("multiple public spl assets in one transaction")]
+    MultiplePublicSplAssets,
+
+    #[error("insufficient balance: requested {requested}, available {available}")]
+    InsufficientBalance { requested: u64, available: u64 },
+
+    #[error("unsupported proof shape: {n_in} input(s), {n_out} output(s)")]
+    UnsupportedShape { n_in: usize, n_out: usize },
+
+    #[error("too many inputs: got {got}, max {max}")]
+    TooManyInputs { got: usize, max: usize },
+
+    #[error("too many outputs: got {got}, max {max}")]
+    TooManyOutputsForShape { got: usize, max: usize },
+
+    #[error("merge input {index} has a different owner rail")]
+    MergeInputRailMismatch { index: usize },
+
+    #[error("merge input {index} has a different asset")]
+    MergeInputAssetMismatch { index: usize },
+
+    #[error("selected balance overflow")]
+    SelectedBalanceOverflow,
+
+    #[error("merge input {index} carries program or zone data, which is not supported")]
+    MergeInputHasData { index: usize },
+
+    #[error("p256 error: {0}")]
+    P256(String),
+
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
 }

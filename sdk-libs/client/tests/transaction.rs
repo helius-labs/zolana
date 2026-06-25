@@ -12,7 +12,7 @@ use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
-use zolana_client::private_transaction::field::signed_to_field;
+use zolana_client::witness::field::signed_to_field;
 use zolana_client::{
     CircuitType, ClientError, MerkleContext, MerkleProof, NonInclusionProof, PublicAmounts, Rpc,
     SignedTransaction, SpendProof, SpendUtxo, Transaction, TransferP256Prover, WithdrawalTarget,

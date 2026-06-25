@@ -6,9 +6,11 @@ use zolana_transaction::{
     OutputUtxo,
 };
 
+use zolana_transaction::instructions::transact::signed_transaction::asset_field;
+
 use crate::{
     error::ClientError,
-    private_transaction::field::{asset_field, be, right_align},
+    prover::field::{be, right_align},
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 

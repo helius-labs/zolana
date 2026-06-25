@@ -22,7 +22,7 @@ pub fn build_merge_event(
     }
 
     let outputs = vec![OutputUtxo {
-        view_tag: [0u8; 32],
+        view_tag: [0u8; 32], // TODO: send view tag in instruction data
         utxo_hash: *ix.output_utxo_hash,
         data: ix.encrypted_utxo.to_vec(),
     }];
@@ -31,7 +31,7 @@ pub fn build_merge_event(
         inputs: tree_write.inputs,
         outputs,
         tx_viewing_pk,
-        salt: [0u8; 16],
+        salt: [0u8; 16], // TODO: send salt in instruction data
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: None,

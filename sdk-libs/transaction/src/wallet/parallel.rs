@@ -12,7 +12,8 @@ use super::{
     ParsedBlob, SyncReport, SyncTransaction, TxIndex, ViewingKeyEntry, Wallet, WalletUtxo,
 };
 use crate::{
-    asset::AssetRegistry, encryption::TransactionEncryption, error::TransactionError, utxo::Utxo,
+    anonymous::AnonymousTransferEncryption, asset::AssetRegistry, error::TransactionError,
+    utxo::Utxo,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

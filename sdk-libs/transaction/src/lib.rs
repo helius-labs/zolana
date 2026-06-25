@@ -11,27 +11,26 @@ use zolana_keypair::{
     P256Pubkey, PublicKey,
 };
 
-pub mod asset;
 pub mod data;
-pub mod encryption;
 pub mod error;
-pub mod plaintext_transfer;
-pub mod split;
-pub mod transaction;
-pub mod transfer;
+pub mod instructions;
+pub mod serialization;
 pub mod utxo;
 pub mod wallet;
 
-pub use asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
-pub use encryption::TransactionEncryption;
 pub use error::TransactionError;
+pub use instructions::transact::{
+    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, OutputUtxo,
+    ShieldedTransaction,
+};
+pub use serialization::scheme::EncryptedScheme;
+pub use serialization::{DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
-pub use transaction::{EncryptedTransaction, ExternalData, InputUtxo, OutputUtxo};
 pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
+pub use wallet::asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT};
 pub use wallet::{
-    AssetBalance, SyncReport, SyncTransaction, ViewingKeyEntry, Wallet, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

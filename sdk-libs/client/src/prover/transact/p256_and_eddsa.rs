@@ -2,16 +2,15 @@ use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
 use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
-use zolana_transaction::transaction::private_tx_hash;
+use zolana_transaction::instructions::transact::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
 use crate::error::ClientError;
-use crate::private_transaction::field::{be, hash_chain, right_align_slice};
-use crate::private_transaction::transaction::SpendProof;
+use crate::prover::field::{be, hash_chain, right_align_slice};
+use crate::prover::transact::witness::SpendProof;
 use crate::prover::shape::{resolve_shape, Shape};
 use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
 use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
-use crate::wallet_authority::P256Signature;
 
 pub struct TransferSpendInput {
     pub utxo: Utxo,
@@ -40,23 +39,13 @@ impl PublicAmounts {
     }
 }
 /// The P256 ownership signature, computed once over the finalized transaction in
-/// [`crate::private_transaction::Transaction::sign`]. The prover only converts it
+/// [`zolana_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
 /// into witness coordinates; it never signs.
 #[derive(Clone)]
 pub struct P256Owner {
     pub pubkey: P256Pubkey,
     pub sig_r: [u8; 32],
     pub sig_s: [u8; 32],
-}
-
-impl From<P256Signature> for P256Owner {
-    fn from(signature: P256Signature) -> Self {
-        Self {
-            pubkey: signature.pubkey,
-            sig_r: signature.sig_r,
-            sig_s: signature.sig_s,
-        }
-    }
 }
 
 pub struct TransferP256Prover {

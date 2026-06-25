@@ -3,16 +3,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use zolana_interface::event::{decode_output_data, DepositView, OutputData};
+use zolana_interface::event::decode_output_data;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    owner_utxo_hash, transfer::OutputCiphertext, utxo_hash, Address, AssetRegistry, SyncReport,
-    SyncTransaction, Wallet, DEFAULT_TAG_WINDOW,
+    AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, SyncReport, Wallet,
+    DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, Rpc, ShieldedTransaction},
+    rpc::{EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -59,8 +59,8 @@ where
     I: Rpc,
 {
     let config = normalized_config(config);
-    let mut transactions: HashMap<String, SyncTransaction> = HashMap::new();
-    let mut proofless_deposits: HashMap<String, DepositView> = HashMap::new();
+    let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
+    let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
 
     for _ in 0..config.rounds {
@@ -71,13 +71,20 @@ where
 
         let mut txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|tx| tx.nullifiers.first().copied().unwrap_or_default());
-        let mut deposits = proofless_deposits.iter().collect::<Vec<_>>();
-        deposits.sort_by_key(|(key, deposit)| (deposit.output_tree, deposit.leaf_index, *key));
-        let deposits = deposits
-            .into_iter()
-            .map(|(_, deposit)| deposit.clone())
+        let mut deposits = proofless_deposits
+            .iter()
+            .map(|(key, tx)| (key.clone(), tx.clone()))
             .collect::<Vec<_>>();
-        report = wallet.sync(&txs, &deposits, assets, now_unix_ts(), config.tag_window)?;
+        deposits.sort_by_key(|(key, tx)| {
+            (
+                tx.output_slots
+                    .first()
+                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                key.clone(),
+            )
+        });
+        txs.extend(deposits.into_iter().map(|(_, tx)| tx));
+        report = wallet.sync(&txs, assets, now_unix_ts(), config.tag_window)?;
 
         if before == (transactions.len(), proofless_deposits.len()) {
             break;
@@ -123,7 +130,7 @@ fn wallet_query_tags(wallet: &Wallet, window: u64) -> Result<Vec<ViewTag>, Clien
 fn fetch_shielded_transactions<I: Rpc>(
     indexer: &I,
     tags: &[ViewTag],
-    out: &mut HashMap<String, SyncTransaction>,
+    out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
 ) -> Result<(), ClientError> {
     for chunk in tags.chunks(config.tag_query_chunk) {
@@ -157,7 +164,7 @@ fn fetch_shielded_transactions<I: Rpc>(
 fn fetch_proofless_deposits<I>(
     indexer: &I,
     tags: &[ViewTag],
-    out: &mut HashMap<String, DepositView>,
+    out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
 ) -> Result<(), ClientError>
 where
@@ -194,60 +201,63 @@ where
 
 fn proofless_deposit_from_indexed_match(
     item: EncryptedUtxoMatch,
-) -> Result<Option<DepositView>, ClientError> {
-    let Ok(OutputData::Proofless(proofless)) = decode_output_data(&item.output_slot.payload) else {
+) -> Result<Option<ShieldedTransaction>, ClientError> {
+    // The wallet deserializes the `ProoflessOutput` from the slot payload itself;
+    // here we only confirm the payload is a decodable proofless output before
+    // wrapping the slot into a proofless `ShieldedTransaction`.
+    if decode_output_data(&item.output_slot.payload).is_err() {
         return Ok(None);
-    };
+    }
 
-    let policy_data_hash = proofless.policy_data_hash.unwrap_or([0u8; 32]);
-    let program_data_hash = proofless.program_data_hash.unwrap_or([0u8; 32]);
-    let owner_commitment = owner_utxo_hash(&proofless.owner, &proofless.blinding)?;
-    let utxo_hash = utxo_hash(
-        Address::new_from_array(proofless.asset),
-        proofless.amount,
-        &program_data_hash,
-        &policy_data_hash,
-        proofless.zone_program_id.map(Address::new_from_array),
-        &owner_commitment,
-    )?;
-
-    Ok(Some(DepositView {
-        view_tag: item.output_slot.view_tag,
-        utxo_hash,
-        asset: proofless.asset,
-        amount: proofless.amount,
-        zone_program_id: proofless.zone_program_id,
-        policy_data_hash: proofless.policy_data_hash,
-        owner: proofless.owner,
-        blinding: proofless.blinding,
-        program_data_hash: proofless.program_data_hash,
-        program_data: proofless.program_data,
-        zone_data: proofless.zone_data,
-        output_tree: item.output_slot.output_context.tree.to_bytes(),
-        leaf_index: item.output_slot.output_context.leaf_index,
+    Ok(Some(ShieldedTransaction {
+        slot: item.slot,
+        tx_signature: item.tx_signature,
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: item.output_slot.view_tag,
+            output_context: OutputContext {
+                hash: item.output_slot.output_context.hash,
+                tree: item.output_slot.output_context.tree,
+                leaf_index: item.output_slot.output_context.leaf_index,
+            },
+            payload: item.output_slot.payload,
+        }],
+        nullifiers: Vec::new(),
+        proofless: true,
     }))
 }
 
-fn convert_sync_transaction(tx: ShieldedTransaction) -> Result<SyncTransaction, ClientError> {
+fn convert_sync_transaction(
+    tx: RpcShieldedTransaction,
+) -> Result<ShieldedTransaction, ClientError> {
     let tx_viewing_pk = tx
         .tx_viewing_pk
         .ok_or_else(|| ClientError::Rpc("indexed transaction missing tx_viewing_pk".into()))?;
     let salt = tx
         .salt
         .ok_or_else(|| ClientError::Rpc("indexed transaction missing salt".into()))?;
-    Ok(SyncTransaction {
-        scheme: zolana_transaction::TRANSFER,
-        tx_viewing_pk,
-        salt,
-        output_slots: tx
-            .output_slots
-            .into_iter()
-            .map(|slot| OutputCiphertext {
-                view_tag: slot.view_tag,
-                data: slot.payload,
-            })
-            .collect(),
+    let output_slots = tx
+        .output_slots
+        .into_iter()
+        .map(|slot| OutputSlot {
+            view_tag: slot.view_tag,
+            output_context: OutputContext {
+                hash: slot.output_context.hash,
+                tree: slot.output_context.tree,
+                leaf_index: slot.output_context.leaf_index,
+            },
+            payload: slot.payload,
+        })
+        .collect();
+    Ok(ShieldedTransaction {
+        slot: tx.slot,
+        tx_signature: tx.tx_signature,
+        tx_viewing_pk: Some(tx_viewing_pk),
+        salt: Some(salt),
+        output_slots,
         nullifiers: tx.nullifiers,
+        proofless: false,
     })
 }
 
@@ -365,16 +375,15 @@ mod tests {
         .expect("decode proofless payload");
 
         let deposit = out.values().next().expect("proofless deposit");
-        assert_eq!(
-            deposit.view_tag,
-            wallet.keypair.recipient_bootstrap_view_tag()
-        );
-        assert_eq!(deposit.owner, output.owner);
-        assert_eq!(deposit.blinding, output.blinding);
-        assert_eq!(deposit.amount, output.amount);
-        assert_ne!(deposit.utxo_hash, [0u8; 32]);
-        assert_eq!(deposit.output_tree, [7u8; 32]);
-        assert_eq!(deposit.leaf_index, 13);
+        assert!(deposit.proofless);
+        let slot = deposit.output_slots.first().expect("proofless slot");
+        assert_eq!(slot.view_tag, wallet.keypair.recipient_bootstrap_view_tag());
+        assert_eq!(slot.output_context.tree.to_bytes(), [7u8; 32]);
+        assert_eq!(slot.output_context.leaf_index, 13);
+        let decoded = decode_output_data(&slot.payload).expect("decode proofless output");
+        assert_eq!(decoded.owner, output.owner);
+        assert_eq!(decoded.blinding, output.blinding);
+        assert_eq!(decoded.amount, output.amount);
     }
 
     #[test]
@@ -449,7 +458,7 @@ mod tests {
                     tree: Address::new_from_array([7u8; 32]),
                     leaf_index: 13,
                 },
-                payload: encode_output_data(&OutputData::Proofless(output)),
+                payload: encode_output_data(output),
             },
             tx_viewing_pk: None,
             salt: None,

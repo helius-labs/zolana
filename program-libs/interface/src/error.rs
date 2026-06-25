@@ -57,6 +57,8 @@ pub enum ShieldedPoolError {
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
     InvalidMergeShape = 7019,
+    #[error("merge output ciphertext must be verifiably encrypted")]
+    InvalidMergeOutputScheme = 7020,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -112,6 +114,7 @@ mod tests {
             (MergeServiceDisabled as u32, 7017),
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
+            (InvalidMergeOutputScheme as u32, 7020),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

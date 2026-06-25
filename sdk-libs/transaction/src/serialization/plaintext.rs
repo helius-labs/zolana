@@ -3,12 +3,13 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey, SignatureType};
 
 use crate::{
-    asset::{AssetRegistry, SOL_MINT},
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
-    PublicKeySchema, TRANSFER_PLAINTEXT,
+    AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
 };
+
+use super::{DecodeCx, OwnerCx, UtxoSerialization};
 
 fn owner_view_tag(owner: &PublicKey) -> Result<ViewTag, TransactionError> {
     Ok(match owner.signature_type()? {
@@ -173,5 +174,97 @@ impl TransferPlaintextUtxos {
             .into_iter()
             .map(|(_, utxo)| utxo)
             .collect())
+    }
+}
+
+pub struct PlaintextEncode {
+    pub blinding_seed: [u8; BLINDING_LEN],
+}
+
+pub struct PlaintextTransfer;
+
+impl UtxoSerialization for PlaintextTransfer {
+    const SCHEME: EncryptedScheme = EncryptedScheme::PlaintextTransfer;
+    type Plaintext = TransferPlaintextUtxos;
+    type EncodeCx = PlaintextEncode;
+
+    fn decrypt(body: &[u8], _cx: &DecodeCx) -> Result<Vec<u8>, TransactionError> {
+        Ok(body.to_vec())
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
+        TransferPlaintextUtxos::deserialize(bytes)
+    }
+
+    fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
+        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+    }
+
+    fn from_utxos(
+        utxos: &[Utxo],
+        owner: &OwnerCx,
+        cx: &Self::EncodeCx,
+    ) -> Result<Self::Plaintext, TransactionError> {
+        let mut sender_owner = None;
+        let mut spl = None;
+        let mut sol_amount = None;
+        let mut spl_data = Data::default();
+        let mut sol_data = Data::default();
+        let mut recipients: Vec<(u8, TransferPlaintextRecipient)> = Vec::new();
+        for utxo in utxos {
+            let position = (0..=u8::MAX)
+                .find(|&p| derive_blinding(&cx.blinding_seed, p) == utxo.blinding)
+                .ok_or(TransactionError::MissingOutput)?;
+            match position {
+                0 => {
+                    sender_owner = Some(utxo.owner);
+                    spl = Some(TransferPlaintextSplChange {
+                        amount: utxo.amount,
+                        asset_id: owner.assets.asset_id(&utxo.asset)?,
+                    });
+                    spl_data = utxo.data.clone();
+                }
+                1 => {
+                    sender_owner = Some(utxo.owner);
+                    sol_amount = Some(utxo.amount);
+                    sol_data = utxo.data.clone();
+                }
+                position => recipients.push((
+                    position,
+                    TransferPlaintextRecipient {
+                        owner_pubkey: utxo.owner,
+                        asset_id: owner.assets.asset_id(&utxo.asset)?,
+                        amount: utxo.amount,
+                        data: utxo.data.clone(),
+                    },
+                )),
+            }
+        }
+        recipients.sort_by_key(|(position, _)| *position);
+        let recipient_slots = recipients
+            .into_iter()
+            .map(|(_, recipient)| recipient)
+            .collect();
+        let sender = sender_owner.map(|owner_pubkey| TransferPlaintextSender {
+            owner_pubkey,
+            spl,
+            sol_amount,
+            spl_data,
+            sol_data,
+        });
+        Ok(TransferPlaintextUtxos {
+            type_prefix: TRANSFER_PLAINTEXT,
+            blinding_seed: cx.blinding_seed,
+            sender,
+            recipient_slots,
+        })
+    }
+
+    fn serialize(plaintext: &Self::Plaintext) -> Result<Vec<u8>, TransactionError> {
+        plaintext.serialize()
+    }
+
+    fn encrypt(bytes: &[u8], _cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
+        Ok(bytes.to_vec())
     }
 }

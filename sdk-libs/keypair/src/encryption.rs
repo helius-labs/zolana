@@ -1,6 +1,11 @@
+use aes::Aes256;
 use aes_gcm::{
     aead::{Aead, Payload},
     Aes256Gcm, KeyInit, Nonce,
+};
+use ctr::{
+    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
+    Ctr32BE,
 };
 use hkdf::Hkdf;
 use p256::{ecdh::diffie_hellman, AffinePoint, SecretKey};
@@ -12,6 +17,20 @@ use crate::{
     error::KeypairError,
     pubkey::P256Pubkey,
 };
+
+type Aes256Ctr = Ctr32BE<Aes256>;
+
+/// AES-256-CTR matching aes/ctr.go: J0 = nonce || 0x00000001 and the counter is
+/// advanced once before the first block, so encryption starts at nonce || 2.
+/// Used for transfer and merge ciphertexts (no authentication tag; integrity
+/// comes from proof-committed hashes).
+pub(crate) fn ctr_apply(key: &[u8; 32], nonce: &[u8; GCM_NONCE_LEN], buf: &mut [u8]) {
+    let mut iv = [0u8; 16];
+    iv[..GCM_NONCE_LEN].copy_from_slice(nonce);
+    iv[15] = 2;
+    let mut cipher = Aes256Ctr::new(GenericArray::from_slice(key), GenericArray::from_slice(&iv));
+    cipher.apply_keystream(buf);
+}
 
 pub(crate) fn ecdh_x(
     secret_key: &SecretKey,
@@ -128,6 +147,38 @@ pub(crate) fn decrypt_ephemeral(
             },
         )
         .map_err(|_| KeypairError::Aead)
+}
+
+pub(crate) fn encrypt_utxo_ctr(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
+    plaintext: &[u8],
+    salt: &[u8; SALT_LEN],
+    slot: u32,
+) -> Result<Vec<u8>, KeypairError> {
+    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
+    let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
+    let (key, nonce) =
+        derive_key_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, ENC_INFO_TRANSFER, salt, slot)?;
+    let mut buf = plaintext.to_vec();
+    ctr_apply(&key, &nonce, &mut buf);
+    Ok(buf)
+}
+
+pub(crate) fn decrypt_utxo_ctr(
+    viewing_secret_key: &SecretKey,
+    ephemeral_pubkey: &P256Pubkey,
+    ciphertext: &[u8],
+    salt: &[u8; SALT_LEN],
+    slot: u32,
+) -> Result<Vec<u8>, KeypairError> {
+    let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
+    let dh = Zeroizing::new(ecdh_x(viewing_secret_key, ephemeral_pubkey)?);
+    let (key, nonce) =
+        derive_key_nonce(&dh, ephemeral_pubkey, &recipient_pubkey, ENC_INFO_TRANSFER, salt, slot)?;
+    let mut buf = ciphertext.to_vec();
+    ctr_apply(&key, &nonce, &mut buf);
+    Ok(buf)
 }
 
 pub(crate) fn encrypt_utxo(

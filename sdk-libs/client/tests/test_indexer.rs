@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
+use zolana_client::witness::field::BN254_MODULUS_DEC;
 use zolana_client::{
     ClientError, InputCommitment, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
     ProveResult, ProverClient, ProverInputs, Rpc, SignedTransaction, SpendProof,

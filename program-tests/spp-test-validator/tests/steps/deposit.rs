@@ -5,8 +5,9 @@ use anyhow::{anyhow, Result};
 use cucumber::{given, then};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::{indexed_events_from_instruction_groups, proofless_output};
+use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use zolana_program_test::deposit_output_from_event;
 use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{
@@ -120,19 +121,16 @@ impl LifecycleWorld {
             .ok_or_else(|| anyhow!("{name} has no recorded deposit"))?;
         let keypair = actor.keypair.clone();
 
-        // Decode the deposit transaction into the DepositView the program recorded.
+        // Decode the deposit transaction into the proofless deposit the program recorded.
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let groups = self
             .rpc
             .fetch_confirmed_instruction_groups(&record.signature)?;
         let events = indexed_events_from_instruction_groups(program_id, &groups.groups);
-        let general_event = events
+        let indexed = events
             .first()
-            .ok_or_else(|| anyhow!("deposit emitted no event"))?
-            .decoded
-            .as_ref()
-            .map_err(|e| anyhow!("deposit event decode failed: {e:?}"))?;
-        let event = proofless_output(general_event)
+            .ok_or_else(|| anyhow!("deposit emitted no event"))?;
+        let event = deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
         let mut wallet = Wallet::new(keypair)?;

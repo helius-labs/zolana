@@ -8,7 +8,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    private_transaction::field::asset_field, spawn_prover, Merge, PreparedMerge, ProverClient, Rpc,
+    witness::field::asset_field, spawn_prover, Merge, PreparedMerge, ProverClient, Rpc,
     SpendUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;

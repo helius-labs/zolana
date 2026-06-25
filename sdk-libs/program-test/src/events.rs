@@ -1,10 +1,50 @@
 use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use zolana_event::{indexed_events_from_instruction_groups, proofless_output, DepositView};
+use zolana_event::{indexed_events_from_instruction_groups, proofless_output, ProoflessOutput};
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 
 use crate::{ProgramTestError, TestIndexer};
+
+/// A proofless deposit reconstructed from a `GeneralEvent`: the borsh
+/// [`ProoflessOutput`] body plus the output-slot context (view tag, UTXO hash,
+/// tree, leaf index) the event carries alongside it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DepositOutput {
+    pub view_tag: [u8; 32],
+    pub utxo_hash: [u8; 32],
+    pub output_tree: [u8; 32],
+    pub leaf_index: u64,
+    pub output: ProoflessOutput,
+}
+
+impl DepositOutput {
+    /// Wraps the deposit into a proofless [`ShieldedTransaction`] whose single
+    /// output slot carries the encoded [`ProoflessOutput`] payload, so a wallet
+    /// can rediscover it via `Wallet::sync`.
+    pub fn to_shielded_transaction(
+        &self,
+        tx_signature: solana_signature::Signature,
+    ) -> zolana_transaction::ShieldedTransaction {
+        zolana_transaction::ShieldedTransaction {
+            slot: 0,
+            tx_signature,
+            tx_viewing_pk: None,
+            salt: None,
+            output_slots: vec![zolana_transaction::OutputSlot {
+                view_tag: self.view_tag,
+                output_context: zolana_transaction::OutputContext {
+                    hash: self.utxo_hash,
+                    tree: zolana_transaction::Address::new_from_array(self.output_tree),
+                    leaf_index: self.leaf_index,
+                },
+                payload: zolana_event::encode_output_data(self.output.clone()),
+            }],
+            nullifiers: Vec::new(),
+            proofless: true,
+        }
+    }
+}
 
 pub fn parsed_instruction_from_compiled(
     account_keys: &[Pubkey],
@@ -92,59 +132,59 @@ pub fn indexed_events_from_meta(
     ))
 }
 
+pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, ProgramTestError> {
+    let general_event = match &event.decoded {
+        Ok(general_event) => general_event,
+        Err(err) => {
+            return Err(ProgramTestError::Event(format!(
+                "invalid shielded-pool event tag={} payload_len={} error={err:?}",
+                event.tag,
+                event.payload.len()
+            )));
+        }
+    };
+    let output = proofless_output(general_event).map_err(|err| {
+        ProgramTestError::Event(format!(
+            "invalid proofless output tag={} payload_len={} error={err:?}",
+            event.tag,
+            event.payload.len()
+        ))
+    })?;
+    let slot = general_event.outputs.first().ok_or_else(|| {
+        ProgramTestError::Event("proofless deposit event has no output slot".into())
+    })?;
+    Ok(DepositOutput {
+        view_tag: slot.view_tag,
+        utxo_hash: slot.utxo_hash,
+        output_tree: general_event.output_tree,
+        leaf_index: general_event.first_output_leaf_index,
+        output,
+    })
+}
+
 pub fn index_events(
     indexer: &mut TestIndexer,
     events: &[IndexedEvent],
 ) -> Result<(), ProgramTestError> {
     for event in events {
-        match &event.decoded {
-            Ok(general_event) => {
-                let event = proofless_output(general_event).map_err(|err| {
-                    ProgramTestError::Event(format!(
-                        "invalid proofless output tag={} payload_len={} error={err:?}",
-                        event.tag,
-                        event.payload.len()
-                    ))
-                })?;
-                indexer.record_deposit(&event)?;
-            }
-            Err(err) => {
-                return Err(ProgramTestError::Event(format!(
-                    "invalid shielded-pool event tag={} payload_len={} error={err:?}",
-                    event.tag,
-                    event.payload.len()
-                )));
-            }
-        }
+        let deposit = deposit_output_from_event(event)?;
+        indexer.record_deposit(&deposit)?;
     }
     Ok(())
 }
 
-pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositView, ProgramTestError> {
-    let mut proofless_views = events.iter().map(|event| match &event.decoded {
-        Ok(general_event) => proofless_output(general_event).map_err(|err| {
-            ProgramTestError::Event(format!(
-                "invalid proofless output tag={} payload_len={} error={err:?}",
-                event.tag,
-                event.payload.len()
-            ))
-        }),
-        Err(err) => Err(ProgramTestError::Event(format!(
-            "invalid shielded-pool event tag={} payload_len={} error={err:?}",
-            event.tag,
-            event.payload.len()
-        ))),
-    });
-    let Some(event) = proofless_views.next() else {
+pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, ProgramTestError> {
+    let mut deposits = events.iter().map(deposit_output_from_event);
+    let Some(deposit) = deposits.next() else {
         return Err(ProgramTestError::Event(
             "no proofless deposit event emitted by transaction".into(),
         ));
     };
-    let event = event?;
-    if proofless_views.next().transpose()?.is_some() {
+    let deposit = deposit?;
+    if deposits.next().transpose()?.is_some() {
         return Err(ProgramTestError::Event(
             "expected one proofless deposit view".into(),
         ));
     }
-    Ok(event)
+    Ok(deposit)
 }

@@ -13,7 +13,7 @@ use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use solana_instruction::AccountMeta;
 use solana_message::{compiled_instruction::CompiledInstruction, Message};
 use solana_pubkey::Pubkey;
-use zolana_event::{decode_event_payload, proofless_output, DepositView};
+use zolana_event::{decode_event_payload, proofless_output, ProoflessOutput};
 use zolana_interface::{
     event::GeneralEvent,
     instruction::{
@@ -187,14 +187,17 @@ fn append_indexed_events(output: &mut String, events: &[IndexedEvent]) {
 fn event_summary(event: &IndexedEvent) -> String {
     match &event.decoded {
         Ok(event) => match proofless_output(event) {
-            Ok(output) => format!(
-                "deposit amount={} asset={} view_tag={} utxo_hash={} leaf_index={}",
-                output.amount,
-                pubkey(&output.asset),
-                short_hex(&output.view_tag),
-                short_hex(&output.utxo_hash),
-                output.leaf_index
-            ),
+            Ok(output) => {
+                let slot = event.outputs.first();
+                format!(
+                    "deposit amount={} asset={} view_tag={} utxo_hash={} leaf_index={}",
+                    output.amount,
+                    pubkey(&output.asset),
+                    slot.map_or_else(|| "?".to_string(), |s| short_hex(&s.view_tag)),
+                    slot.map_or_else(|| "?".to_string(), |s| short_hex(&s.utxo_hash)),
+                    event.first_output_leaf_index
+                )
+            }
             Err(_) => format!(
                 "general_event inputs={} outputs={} first_output_leaf_index={}",
                 event.inputs.len(),
@@ -523,11 +526,18 @@ fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
     ]
 }
 
-fn proofless_view_fields(data: DepositView) -> Vec<DecodedField> {
+fn proofless_view_fields(event: &GeneralEvent, data: &ProoflessOutput) -> Vec<DecodedField> {
+    let slot = event.outputs.first();
     vec![
-        field("view_tag", short_hex(&data.view_tag)),
-        field("utxo_hash", short_hex(&data.utxo_hash)),
-        field("leaf_index", data.leaf_index),
+        field(
+            "view_tag",
+            slot.map_or_else(|| "?".to_string(), |s| short_hex(&s.view_tag)),
+        ),
+        field(
+            "utxo_hash",
+            slot.map_or_else(|| "?".to_string(), |s| short_hex(&s.utxo_hash)),
+        ),
+        field("leaf_index", event.first_output_leaf_index),
         field("owner", short_hex(&data.owner)),
         field("blinding", short_hex(&data.blinding)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
@@ -559,7 +569,7 @@ fn event_fields(event: GeneralEvent) -> Vec<DecodedField> {
     }
     if let Ok(proofless) = proofless_output(&event) {
         fields.push(field("output_data", "proofless"));
-        fields.extend(proofless_view_fields(proofless));
+        fields.extend(proofless_view_fields(&event, &proofless));
     }
     fields
 }

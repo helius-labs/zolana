@@ -2,7 +2,6 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::DepositView;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CpiSignerData, CreateZoneConfigData, DepositSplAccounts,
@@ -15,7 +14,7 @@ use zolana_transaction::Wallet;
 
 use crate::{
     instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path, single_deposit_view,
-    wallet_data::wallet_shield_fields, ProgramTestError, ZolanaProgramTest,
+    wallet_data::wallet_shield_fields, DepositOutput, ProgramTestError, ZolanaProgramTest,
 };
 
 impl ZolanaProgramTest {
@@ -197,7 +196,7 @@ impl ZolanaProgramTest {
         tree: &Pubkey,
         depositor: &Keypair,
         data: &ZoneDepositIxData,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let ix = ZoneDeposit {
             tree: *tree,
             depositor: depositor.pubkey(),
@@ -225,7 +224,7 @@ impl ZolanaProgramTest {
         user_token: &Pubkey,
         mint: &Pubkey,
         data: &ZoneDepositIxData,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let ix = ZoneDeposit {
             tree: *tree,
             depositor: depositor.pubkey(),

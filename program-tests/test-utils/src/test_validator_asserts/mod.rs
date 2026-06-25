@@ -19,8 +19,8 @@ use solana_signature::Signature;
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
 };
-use zolana_event::DepositView;
 use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
+use zolana_program_test::DepositOutput;
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -36,22 +36,24 @@ pub fn expected_deposit_view(
     data: &DepositIxData,
     expected_amount: u64,
     expected_asset: Address,
-    event: &DepositView,
-) -> DepositView {
-    DepositView {
+    event: &DepositOutput,
+) -> DepositOutput {
+    DepositOutput {
         view_tag: data.view_tag,
         utxo_hash: event.utxo_hash,
-        asset: expected_asset.to_bytes(),
-        amount: expected_amount,
-        zone_program_id: None,
-        policy_data_hash: None,
-        owner: data.owner,
-        blinding: data.blinding,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        zone_data: None,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
+        output: zolana_event::ProoflessOutput {
+            owner: data.owner,
+            blinding: data.blinding,
+            asset: expected_asset.to_bytes(),
+            amount: expected_amount,
+            program_data_hash: data.program_data_hash,
+            program_data: data.program_data.clone(),
+            zone_program_id: None,
+            policy_data_hash: None,
+            zone_data: None,
+        },
     }
 }
 
@@ -61,7 +63,7 @@ pub fn assert_indexed_deposit_utxo(
     tag: [u8; 32],
     signature: Signature,
     tree: &Pubkey,
-    event: &DepositView,
+    event: &DepositOutput,
 ) {
     assert_eq!(indexed.output_slot.view_tag, tag, "indexed view tag");
     assert_eq!(indexed.tx_signature, signature, "indexed signature");

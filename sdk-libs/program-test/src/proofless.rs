@@ -2,13 +2,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::DepositView;
 use zolana_interface::{
     instruction::{Deposit, DepositIxData, DepositSplAccounts},
     pda,
 };
 
-use crate::{single_deposit_view, ProgramTestError, ZolanaProgramTest};
+use crate::{single_deposit_view, DepositOutput, ProgramTestError, ZolanaProgramTest};
 
 impl ZolanaProgramTest {
     pub fn deposit(
@@ -16,7 +15,7 @@ impl ZolanaProgramTest {
         tree: &Pubkey,
         depositor: &Keypair,
         data: &DepositIxData,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let ix = Deposit {
             tree: *tree,
             depositor: depositor.pubkey(),
@@ -40,7 +39,7 @@ impl ZolanaProgramTest {
         user_token: &Pubkey,
         mint: &Pubkey,
         data: &DepositIxData,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let ix = Deposit {
             tree: *tree,
             depositor: depositor.pubkey(),
@@ -67,7 +66,7 @@ impl ZolanaProgramTest {
         accounts: Vec<AccountMeta>,
         depositor: &Keypair,
         data: &DepositIxData,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let mut ix = Deposit {
             tree: Pubkey::default(),
             depositor: depositor.pubkey(),
@@ -90,7 +89,7 @@ impl ZolanaProgramTest {
         &mut self,
         ix: Instruction,
         depositor: &Keypair,
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }
@@ -102,7 +101,7 @@ impl ZolanaProgramTest {
         lamports: u64,
         owner: [u8; 32],
         blinding: [u8; 31],
-    ) -> Result<DepositView, ProgramTestError> {
+    ) -> Result<DepositOutput, ProgramTestError> {
         let data = Self::sol_shield_data(lamports, owner, blinding);
         self.deposit(tree, depositor, &data)
     }

@@ -1,12 +1,13 @@
 use num_bigint::BigUint;
-use zolana_transaction::{transaction::private_tx_hash, ExternalData, OutputUtxo};
+use zolana_transaction::instructions::transact::private_tx_hash;
+use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::{
     error::ClientError,
-    private_transaction::field::be,
     prover::{
+        field::be,
         shape::{resolve_shape, Shape},
-        transfer_p256::{
+        transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
         },
         TransferInputs,

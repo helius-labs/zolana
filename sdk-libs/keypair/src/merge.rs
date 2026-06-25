@@ -4,19 +4,15 @@
 //! proof (the Poseidon ciphertext hash is folded into the public input hash),
 //! not a GCM tag, so this path has no authentication tag.
 
-use aes::Aes256;
-use ctr::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
-    Ctr32BE,
-};
 use p256::SecretKey;
 
 use crate::{
-    constants::P256_PUBKEY_LEN, encryption::ecdh_x, error::KeypairError, hash::poseidon,
+    constants::P256_PUBKEY_LEN,
+    encryption::{ctr_apply, ecdh_x},
+    error::KeypairError,
+    hash::poseidon,
     pubkey::P256Pubkey,
 };
-
-type Aes256Ctr = Ctr32BE<Aes256>;
 
 /// Domain separators (32-bit ASCII tags), mirroring
 /// `circuits/verifiable-encryption/poseidon_kdf.go`.
@@ -27,8 +23,6 @@ const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
 
 /// HPKE-style key-schedule info bound into the KDF (spec Merge Proof).
 pub const MERGE_INFO: &[u8] = b"TSPP/merge";
-
-const NONCE_LEN: usize = 12;
 
 fn fe_u32(x: u32) -> [u8; 32] {
     let mut fe = [0u8; 32];
@@ -90,6 +84,8 @@ fn derive_shared_secret(
     ])
 }
 
+const NONCE_LEN: usize = 12;
+
 fn key_schedule(
     shared_secret: &[u8; 32],
     info: &[u8],
@@ -105,16 +101,6 @@ fn key_schedule(
     let mut nonce = [0u8; NONCE_LEN];
     nonce.copy_from_slice(&nonce_raw[20..32]);
     Ok((key, nonce))
-}
-
-/// AES-256-CTR matching aes/ctr.go: J0 = nonce || 0x00000001 and the counter is
-/// advanced once before the first block, so encryption starts at nonce || 2.
-fn ctr_apply(key: &[u8; 32], nonce: &[u8; NONCE_LEN], buf: &mut [u8]) {
-    let mut iv = [0u8; 16];
-    iv[..NONCE_LEN].copy_from_slice(nonce);
-    iv[15] = 2;
-    let mut cipher = Aes256Ctr::new(GenericArray::from_slice(key), GenericArray::from_slice(&iv));
-    cipher.apply_keystream(buf);
 }
 
 fn merge_keys(

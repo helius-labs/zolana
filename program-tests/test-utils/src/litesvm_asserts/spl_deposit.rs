@@ -1,9 +1,8 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_event::DepositView;
 use zolana_interface::instruction::DepositIxData;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SPL `deposit` against the integration-test
@@ -22,7 +21,7 @@ pub fn litesvm_assert_spl_deposit(
     mint: &Pubkey,
     vault: &Pubkey,
     user_token: &Pubkey,
-    event: &DepositView,
+    event: &DepositOutput,
     data: &DepositIxData,
     expected_amount: u64,
     vault_before: u64,
@@ -30,11 +29,11 @@ pub fn litesvm_assert_spl_deposit(
     root_before: [u8; 32],
     recipient: &mut Wallet,
 ) {
-    assert_eq!(event.amount, expected_amount, "event amount");
-    assert_eq!(event.asset, mint.to_bytes(), "event asset is the mint");
-    assert_eq!(event.owner, data.owner, "owner");
+    assert_eq!(event.output.amount, expected_amount, "event amount");
+    assert_eq!(event.output.asset, mint.to_bytes(), "event asset is the mint");
+    assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(event.blinding, data.blinding, "blinding");
+    assert_eq!(event.output.blinding, data.blinding, "blinding");
 
     assert_eq!(
         program_test.token_balance(vault),
@@ -58,8 +57,7 @@ pub fn litesvm_assert_spl_deposit(
     let before = recipient.utxos.len();
     recipient
         .sync(
-            &[],
-            std::slice::from_ref(event),
+            &[event.to_shielded_transaction(solana_signature::Signature::default())],
             &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,

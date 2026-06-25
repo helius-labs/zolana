@@ -546,9 +546,9 @@ Schemes:
 3. Merge — one ciphertext for the single merged output.
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
 
-## AES Nonce derivation
+## AES Key derivation
 
-AES-GCM breaks if a `(key, nonce)` pair repeats. Key and nonce both derive from the single-use transaction viewing key, a per-transaction 16-byte CSPRNG `salt`, and the slot index. `first_nullifier` uniqueness alone prevents reuse; the salt covers the case where a transaction viewing key is derived twice (e.g. a failed transaction rebuilt with the same first nullifier).
+AES-CTR reuses a `(key, nonce)` pair if the same viewing key is derived twice (e.g. a failed transaction rebuilt with the same first nullifier). The `salt` prevents this. Key and nonce both derive from the single-use transaction viewing key, a per-transaction 16-byte CSPRNG `salt`, and the slot index.
 
 Per ciphertext slot `i` — the index in `output_ciphertexts` (`0` = sender bundle,
 `1 + j` = recipient `j`); a dummy slot reuses its own index but is never decrypted:
@@ -558,9 +558,11 @@ ikm        = ECDH_x(tx_viewing_sk, recipient_viewing_pk) || tx_viewing_pk || rec
 okm        = HKDF-SHA256(salt = ∅, IKM = ikm,
                          info = "TSPP/hpke/" || "TSPP/tx" || salt || u32_be(i), L = 44)
 key        = okm[0..32]
-nonce      = okm[32..44]                                    // 12 B, the AES-GCM nonce
-ciphertext = AES-256-GCM(key, nonce, plaintext)
+nonce      = okm[32..44]                                    // 12 B, the AES-CTR nonce
+ciphertext = AES-256-CTR(key, nonce, plaintext)
 ```
+
+Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against `output_utxo_hashes[i]`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
 
 
 ## Program Data
@@ -572,7 +574,7 @@ Data   = count: u8 || records[count]
 record = tag: u8 || len: u16_le || bytes: [u8; len]
 ```
 
-An empty `data` field is the single byte `count = 0`. Each populated record adds `3 + len` bytes to its plaintext and the same to the AES-GCM ciphertext.
+An empty `data` field is the single byte `count = 0`. Each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
 
 | Tag | Record | UTXO field | Description |
 | --- | --- | --- | --- |
@@ -590,15 +592,11 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 #### Recipient
 
 ```rust
-/// 115 B plaintext → 131 B ciphertext (after the 16-byte GCM tag) with an
-/// empty `data` field. See [Program Data](#program-data) for the growth per
-/// populated record.
+/// 48 B plaintext for confidential transfers with an empty `data` field.
+/// Anonymous transfers additionally carry `owner_pubkey: PublicKey` (34 B) and
+/// `sender_pubkey: P256Pubkey` (33 B) before `asset_id`. Each populated data
+/// record adds `3 + len` bytes. See [Program Data](#program-data).
 struct TransferRecipientPlaintext {
-    /// Recipient `signing_pk` (UTXO owner, controls spend).
-    owner_pubkey: PublicKey,
-    /// Sender's `viewing_pk`; lets the recipient derive the shared ECDH key
-    /// and identify the payer.
-    sender_pubkey: P256Pubkey,
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
     asset_id: u64,
     /// In units of `asset_id`.
@@ -623,13 +621,12 @@ blinding_i = Sha256BE(blinding_seed || u8(position_i))
 with `position = 0` for the SPL output and `position = 1` for the SOL output.
 
 ```rust
-/// `recipient_viewing_pks` holds the real recipients, so the bundle grows with
-/// the recipient count `R`. With both `data` fields empty the plaintext is
-/// `92 + 33·R` B → `108 + 33·R` B ciphertext (after the 16-byte GCM tag). See
-/// [Program Data](#program-data) for the growth per populated record.
+/// 57 B plaintext for confidential transfers with both `data` fields empty
+/// (fixed, independent of recipient count). Anonymous transfers additionally
+/// carry `owner_pubkey: PublicKey` (34 B) before `spl_asset_id` and
+/// `recipient_viewing_pks: Vec<P256Pubkey>` (1 + 33·R B) after `blinding_seed`.
+/// Each populated data record adds `3 + len` bytes. See [Program Data](#program-data).
 struct TransferSenderPlaintext {
-    /// Sender's `signing_pk` (UTXO owner for the change outputs).
-    owner_pubkey: PublicKey,
     /// Per-mint Asset registry; `0` if no SPL change.
     spl_asset_id: u64,
     /// `0` if no SPL change.
@@ -638,10 +635,6 @@ struct TransferSenderPlaintext {
     sol_amount: u64,
     /// Seed for the two per-output blindings (formula above).
     blinding_seed: [u8; 31],
-    /// The real recipients' `viewing_pk`s in slot order. Lets the sender
-    /// re-derive each slot's AES key on restore
-    /// (`ECDH(tx_viewing_sk, recipient.viewing_pk)`).
-    recipient_viewing_pks: Vec<P256Pubkey>,
     /// Records for the SPL change UTXO (position 0): `zone_data` hashed via
     /// the zone program's scheme into the `zone_data_hash` slot of
     /// `utxo_hash`, `program_data` via the app program's scheme into the
@@ -662,8 +655,8 @@ shared by every slot. Fields are packed in declaration order; byte vectors are
 prefixed with a `u16_le` length, every other vector with a `u8` count.
 
 ```rust
-/// `sender_ciphertext` is a `92 + 33·R`-byte plaintext (when `data` fields are
-/// empty) + 16-byte GCM tag. Each populated data record grows its ciphertext by
+/// `sender_ciphertext` is a 57-byte plaintext for confidential transfers (when
+/// `data` fields are empty). Each populated data record grows its ciphertext by
 /// `3 + len` bytes. See [Program Data](#program-data).
 struct TransferEncryptedUtxos {
     /// Discriminator (TRANSFER).
@@ -682,8 +675,8 @@ struct TransferEncryptedUtxos {
 #### Recipient slot
 
 ```rust
-/// `ciphertext` is a 115-byte recipient plaintext (plus `3 + len` per populated
-/// data record) + 16-byte GCM tag.
+/// `ciphertext` is a 48-byte recipient plaintext for confidential transfers
+/// (plus `3 + len` per populated data record).
 struct RecipientSlot {
     /// Recipient's signing pubkey — the indexing tag. The confidential proof
     /// binds it to the output UTXO; the anonymous proof leaves it free (a view tag).
@@ -722,22 +715,22 @@ The logged `GeneralEvent` keeps one entry per output position, pairing
 recipient (no dummy padding), so its on-instruction size grows with `R`.
 The table below gives the size as a function of the slot count `R`.
 
-Total: `161 + 198·R` bytes. Example with a single recipient slot: `R = 1`, total `359`.
+Total: `110 + 82·R` bytes. Example with a single recipient slot: `R = 1`, total `192`.
 
 Blob size by slot count:
 
 | R | Bytes |
 | --- | --- |
-| 1 | 359 |
-| 2 | 557 |
-| 4 | 953 |
-| 8 | 1745 |
+| 1 | 192 |
+| 2 | 274 |
+| 4 | 438 |
+| 8 | 766 |
 
-Sizes assume every `data` field is empty (`count = 0`) on every recipient and the sender. Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the AES-GCM ciphertext.
+Sizes assume confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the ciphertext.
 
 ## Plaintext Transfer
 
-The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the GCM tags are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
+The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
 
 A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients and fill `output_ciphertexts` with the real slots only.
 
@@ -1263,18 +1256,19 @@ struct TransactIxData {
 }
 ```
 
-Size by circuit shape (total tx size, ciphertext included)\*:
+Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-size`. Assumes confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
 
-| Circuit | N (nullifiers) | M (output utxo hashes) | ciphertext (B) | tx overhead (B)\*\* | shield / unshield (B) | transfer (B) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 161 | 206 | 787 | — |
-| 1 in 2 out | 1 | 2 | 359 | 206 | 981 | 899 |
-| 3 in 3 out | 3 | 3 | 359 | 206 | 1017 | 935 |
-| 5 in 3 out | 5 | 3 | 359 | 206 | 1021 | 939 |
-| 1 in 8 out | 1 | 8 | 151 | 206 | 965 | 883 |
+| Circuit | N | M | ix data (B) | transfer, no ALT (B) | transfer, ALT (B) | shield / unshield, no ALT (B) | shield / unshield, ALT (B) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 in 2 out | 2 | 2 | 522 | — | — | 867 | 810 |
+| 1 in 2 out | 1 | 2 | 484 | — | — | 829 | 772 |
+| 3 in 3 out | 3 | 3 | 674 | 879 | 884 | 1019 | 962 |
+| 5 in 3 out | 5 | 3 | 750 | 955 | 960 | 1095 | 1038 |
+| 1 in 8 out | 1 | 8 | 1168\* | 1373\* | 1378\* | 1513\* | 1456\* |
 
-\* `private_tx_hash` is 32 B. Transfer ciphertext sizes follow the [Output UTXO Serialization § Transfer](#transfer-2) layout: 161 B at `R = 0` (shield-with-merge: 2 sender change outputs, no recipient slot), 359 B at `R = 1`, and `+198 B` per extra recipient (165 B recipient slot + 33 B `recipient_viewing_pks` entry in the sender plaintext).
-\*\* assumes ALT for `tree_account`, `payer` and `program_id` inline; overhead = 64 (signature) + 3 (message header) + 65 (inline account keys: compact-u16 count + 2 × 32-byte pubkeys for `payer` and `program_id`) + 32 (recent blockhash) + 36 (ALT section: compact-u16 count + 32-byte ALT pubkey + writable count + writable index + readonly count) + 6 (instruction body: program_id_index + account_indices + data_len_varint). Shield/unshield totals add 66 B (`+64` for inline `user_spl_token_account` and `spl_token_interface` pubkeys, `+2` for their indices in the instruction body) because these accounts vary per transaction and cannot be served from the ALT.
+"no ALT" = Solana legacy transaction (all accounts inline). "ALT" = Solana v0 transaction with one ALT loaded before the transaction containing `tree_account` (writable), and for shield additionally `vault` and `recipient` (writable). The program account (`program_id`) is always inline because Solana requires instruction program IDs in the static account list. A pure transfer with only one writable account moved to the ALT gains 32 B but pays 37 B (1 B v0 version prefix + 36 B ALT section), so v0+ALT is 5 B larger than legacy for transfers. Shield moves three writable accounts and gains 57 B net (3 × 32 B saved − 39 B ALT overhead). — = shape has no recipient slots (R = M − 2 = 0) and is used only for shield / merge, not transfer.
+
+\* The 1-in-8-out row uses [UTXO Split](#utxo-split), which has a distinct ciphertext layout. The sizes shown use the standard transfer ciphertext structure with R = 6 recipients and do not reflect the actual UTXO Split encoding.
 
 **Checks**
 

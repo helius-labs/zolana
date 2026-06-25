@@ -21,7 +21,6 @@ digraph G {
             <TR><TD PORT="d" HEIGHT="32" WIDTH="80"></TD></TR>
             <TR><TD PORT="p" HEIGHT="32" WIDTH="80"></TD></TR>
             <TR><TD PORT="r" HEIGHT="32" WIDTH="80"></TD></TR>
-            <TR><TD PORT="x" HEIGHT="32" WIDTH="80"></TD></TR>
         </TABLE>
     >];
 
@@ -31,7 +30,6 @@ digraph G {
             <TR><TD PORT="d" HEIGHT="32" WIDTH="128" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Photon Indexer</FONT></TD></TR>
             <TR><TD PORT="p" HEIGHT="32" WIDTH="128" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Pocket RPC with auditor</FONT></TD></TR>
             <TR><TD PORT="r" HEIGHT="32" WIDTH="128" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Prover</FONT></TD></TR>
-            <TR><TD PORT="x" HEIGHT="32" WIDTH="128" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Relayer</FONT></TD></TR>
         </TABLE>
     >];
 
@@ -78,15 +76,12 @@ digraph G {
     Client:d:e -> RPC:d:w [dir=both, style=dashed, label="fetch encrypted UTXOs"];
     Client:p:e -> RPC:p:w [dir=both, style=dashed, label="fetch decrypted UTXOs"];
     Client:r:e -> RPC:r:w [dir=both, style=dashed, label="fetch proofs"];
-    Client:x:e -> RPC:x:w [label="send transaction"];
 
-    // Relayer can submit a tx directly to SPP (default pocket), via the
-    // ZK Swap program, or via Policy Program N (policy pockets). The
-    // direct-to-SPP arrow enters through the empty first-row cell so it
-    // doesn't cross any Policy box.
-    RPC:x:ne -> Solana:spp:nw   [label="submit tx"];
-    RPC:x:e  -> Solana:zkswap:w;
-    RPC:x:se -> Solana:policyN:w;
+    // Client can submit a tx directly to SPP (default pocket), via the
+    // ZK Swap program, or via Policy Program N (policy pockets).
+    Client -> Solana:spp:nw   [label="submit tx"];
+    Client -> Solana:zkswap:w;
+    Client -> Solana:policyN:w;
 
     // Forester processes the nullifier queue
     Forester -> Solana:tree:w [label="process nullifier queue"];

@@ -1,5 +1,5 @@
 [package]
-name = "zolana-transaction"
+name = "zolana-transaction" # TODO: rename as zolana-sdk
 version = "0.1.0"
 description = "TSPP output UTXO serialization: plaintext and encrypted UTXO layouts for transfer and split, encrypted and decrypted via zolana-keypair."
 license = "Apache-2.0"
@@ -9,12 +9,17 @@ edition.workspace = true
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
+borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
 solana-address = { workspace = true }
+p256 = { workspace = true }
 rayon = { workspace = true, optional = true }
+solana-signature = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
 
 [features]
 parallel = ["dep:rayon"]

@@ -1,64 +1,13 @@
-//! The client-side transaction: the spent input UTXO hashes, the new output
-//! UTXO hashes, and the transaction-level [`ExternalData`]. [`EncryptedTransaction::hash`]
-//! produces the `private_tx_hash` shared as a public input by the SPP and zone proofs.
-
+use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, OutputCiphertext,
-};
+use zolana_event::OutputData;
 use zolana_keypair::hash::poseidon;
+use zolana_keypair::P256Pubkey;
 
 use crate::error::TransactionError;
 use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
 
-/// Transaction-level public data the proofs commit to via `external_data_hash`.
-/// The hash is computed by the canonical [`ExternalDataHash`] from the interface
-/// crate, so the client and the Solana program agree byte-for-byte. The output
-/// commitments and the fixed-length ciphertext slots travel in separate vectors
-/// (`output_ciphertexts[0]` is the sender bundle).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExternalData {
-    pub instruction_discriminator: u8,
-    pub expiry_unix_ts: u64,
-    pub relayer_fee: u16,
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
-    pub user_sol_account: Address,
-    pub user_spl_token: Address,
-    pub spl_token_interface: Address,
-    pub cpi_signer: Option<CpiSignerData>,
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
-    /// change, recipients / dummies).
-    pub output_utxo_hashes: Vec<[u8; 32]>,
-    /// Fixed-length ciphertext slots: `[0]` the sender bundle, `[1..]` recipient
-    /// or dummy slots. Length `1 + (M - SENDER_SLOT_COUNT)`, independent of the
-    /// real recipient count.
-    pub output_ciphertexts: Vec<OutputCiphertext>,
-}
-
-impl ExternalData {
-    /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
-    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        ExternalDataHash {
-            spp_instruction_discriminator: self.instruction_discriminator,
-            expiry_unix_ts: self.expiry_unix_ts,
-            relayer_fee: self.relayer_fee,
-            public_sol_amount: self.public_sol_amount,
-            public_spl_amount: self.public_spl_amount,
-            user_sol_account: self.user_sol_account.as_array(),
-            user_spl_token_account: self.user_spl_token.as_array(),
-            spl_token_interface: self.spl_token_interface.as_array(),
-            cpi_signer: self.cpi_signer,
-            output_utxo_hashes: &self.output_utxo_hashes,
-            output_ciphertexts: &self.output_ciphertexts,
-        }
-        .hash()
-        .map_err(|e| TransactionError::Hash(format!("{e:?}")))
-    }
-}
+use super::external_data::ExternalData;
 
 /// A spent input UTXO and the owner `nullifier_pk` its hash commits to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,4 +113,41 @@ fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
         acc = poseidon(&[&acc, item])?;
     }
     Ok(acc)
+}
+
+/// Identifies an output commitment and where it lives in the UTXO tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputContext {
+    pub hash: [u8; 32],
+    pub tree: Address,
+    pub leaf_index: u64,
+}
+/// One output of a shielded transaction: its view tag and encrypted/plaintext payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputSlot {
+    pub view_tag: [u8; 32],
+    pub output_context: OutputContext,
+    pub payload: Vec<u8>,
+}
+
+impl OutputSlot {
+    pub fn output_data(&self) -> Option<OutputData> {
+        OutputData::try_from_slice(&self.payload).ok()
+    }
+}
+
+/// A shielded transaction with every output slot in UTXO-tree-append order and the
+/// nullifiers it consumed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShieldedTransaction {
+    pub slot: u64,
+    pub tx_signature: solana_signature::Signature,
+    /// `None` when there is nothing to decrypt (proofless or plaintext transfer).
+    pub tx_viewing_pk: Option<P256Pubkey>,
+    /// Transaction-level AES salt shared by every output ciphertext; `None` for
+    /// proofless or plaintext transfers.
+    pub salt: Option<[u8; 16]>,
+    pub output_slots: Vec<OutputSlot>,
+    pub nullifiers: Vec<[u8; 32]>,
+    pub proofless: bool,
 }

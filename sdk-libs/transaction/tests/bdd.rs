@@ -5,11 +5,14 @@ use std::collections::HashMap;
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
-    plaintext_transfer::TransferPlaintextUtxos,
-    split::{SplitBundlePlaintext, SplitEncryptedUtxos},
-    transfer::{RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext},
+    serialization::anonymous::{
+        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
+    },
+    serialization::plaintext::TransferPlaintextUtxos,
+    serialization::split::SplitBundlePlaintext,
     utxo::Utxo,
-    wallet::{SyncTransaction, Wallet},
+    wallet::Wallet,
+    ShieldedTransaction,
 };
 
 #[derive(Default, World)]
@@ -17,14 +20,15 @@ pub struct TransactionWorld {
     pub keypairs: HashMap<String, ShieldedKeypair>,
     pub sender_name: Option<String>,
     pub recipient_names: Vec<String>,
-    pub recipients: Vec<RecipientOutput>,
-    pub sender_plaintext: Option<TransferSenderPlaintext>,
-    pub transfer_blob: Option<TransferEncryptedUtxos>,
+    pub recipient_plaintexts: Vec<AnonymousTransferRecipientPlaintext>,
+    pub recipient_utxos: Vec<Utxo>,
+    pub sender_plaintext: Option<AnonymousTransferSenderPlaintext>,
+    pub transfer_tx: Option<ShieldedTransaction>,
     pub split_bundle: Option<SplitBundlePlaintext>,
-    pub split_blob: Option<SplitEncryptedUtxos>,
+    pub split_tx: Option<ShieldedTransaction>,
     pub plaintext_transfer: Option<TransferPlaintextUtxos>,
     pub first_nullifier: [u8; 32],
-    pub sync_transactions: Vec<SyncTransaction>,
+    pub sync_transactions: Vec<ShieldedTransaction>,
     pub owned_utxos: HashMap<String, Vec<Utxo>>,
     pub spent_utxos: Vec<Utxo>,
     pub sent_counts: HashMap<String, u64>,

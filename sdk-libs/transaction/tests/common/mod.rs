@@ -1,11 +1,17 @@
+use zolana_event::OutputData;
 use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,
 };
-use zolana_transaction::{
-    transfer::{RecipientOutput, TransferSenderPlaintext, SENDER_SLOT_COUNT},
-    wallet::SyncTransaction,
-    AssetRegistry, Data, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
+use zolana_transaction::serialization::anonymous::{
+    AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
+    AnonymousTransferSenderPlaintext,
 };
+use zolana_transaction::{
+    Address, AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx,
+    ShieldedTransaction, Utxo, UtxoSerialization, SOL_MINT,
+};
+
+const SENDER_SLOT_COUNT: usize = 2;
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut signing_bytes = [0u8; 32];
@@ -47,10 +53,50 @@ pub struct TransferSpec<'a> {
     pub blinding_seed: [u8; BLINDING_LEN],
 }
 
+fn encrypted_payload(scheme: EncryptedScheme, ciphertext: Vec<u8>) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(1 + ciphertext.len());
+    blob.push(scheme.as_byte());
+    blob.extend_from_slice(&ciphertext);
+    borsh::to_vec(&OutputData::Encrypted(blob)).expect("output data serialization is infallible")
+}
+
+fn empty_slot() -> OutputSlot {
+    OutputSlot {
+        view_tag: [0u8; 32],
+        output_context: OutputContext {
+            hash: [0u8; 32],
+            tree: Address::new_from_array([0u8; 32]),
+            leaf_index: 0,
+        },
+        payload: Vec::new(),
+    }
+}
+
+fn slot(view_tag: ViewTag, hash: [u8; 32], payload: Vec<u8>) -> OutputSlot {
+    OutputSlot {
+        view_tag,
+        output_context: OutputContext {
+            hash,
+            tree: Address::new_from_array([0u8; 32]),
+            leaf_index: 0,
+        },
+        payload,
+    }
+}
+
 pub fn build_transfer(
     assets: &AssetRegistry,
     spec: TransferSpec<'_>,
-) -> (SyncTransaction, Utxo, Vec<Utxo>) {
+) -> (ShieldedTransaction, Utxo, Vec<Utxo>) {
+    let tx_key = spec
+        .sender
+        .viewing_key
+        .get_transaction_viewing_key(&spec.first_nullifier)
+        .unwrap();
+    let tx_viewing_pk = tx_key.pubkey();
+    let mut salt = [0u8; 16];
+    salt.copy_from_slice(&spec.first_nullifier[..16]);
+
     let recipient_utxo = Utxo {
         owner: spec.recipient.signing_pubkey(),
         asset: SOL_MINT,
@@ -59,10 +105,8 @@ pub fn build_transfer(
         zone_program_id: None,
         data: Data::default(),
     };
-    let recipient_plaintext = recipient_utxo
-        .to_recipient_plaintext(spec.sender.viewing_pubkey(), assets)
-        .unwrap();
-    let sender_plaintext = TransferSenderPlaintext {
+
+    let sender_plaintext = AnonymousTransferSenderPlaintext {
         owner_pubkey: spec.sender.signing_pubkey(),
         spl_asset_id: 0,
         spl_amount: 0,
@@ -72,32 +116,76 @@ pub fn build_transfer(
         spl_data: Data::default(),
         sol_data: Data::default(),
     };
-    let change = sender_plaintext.clone().into_utxos(assets, None).unwrap();
-    let blob = spec
-        .sender
-        .viewing_key
-        .encrypt_transfer(
-            &spec.first_nullifier,
-            &sender_plaintext,
-            &[RecipientOutput {
-                view_tag: spec.slot_tag,
-                plaintext: recipient_plaintext,
-            }],
-        )
+
+    let sender_owner_cx = OwnerCx {
+        owner: spec.sender.signing_pubkey(),
+        assets,
+        zone_program_id: None,
+    };
+    let change =
+        AnonymousSenderBundle::into_utxos(sender_plaintext.clone(), &sender_owner_cx).unwrap();
+
+    let sender_cx = AnonymousSenderEncode {
+        tx: tx_key.clone(),
+        self_pubkey: spec.sender.viewing_pubkey(),
+        salt,
+        slot_index: 0,
+        blinding_seed: spec.blinding_seed,
+        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
+    };
+    let sender_bytes = AnonymousSenderBundle::serialize(&sender_plaintext).unwrap();
+    let sender_ciphertext = AnonymousSenderBundle::encrypt(&sender_bytes, &sender_cx).unwrap();
+    let sender_payload = encrypted_payload(EncryptedScheme::AnonymousSender, sender_ciphertext);
+
+    let nullifier_pk = spec.sender.nullifier_key.pubkey().unwrap();
+    let sender_hash = change
+        .first()
+        .map(|utxo| utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap())
+        .unwrap_or([0u8; 32]);
+
+    let recipient_owner_cx = OwnerCx {
+        owner: spec.recipient.signing_pubkey(),
+        assets,
+        zone_program_id: None,
+    };
+    let recipient_cx = AnonymousRecipientEncode {
+        tx: tx_key,
+        recipient_pubkey: spec.recipient.viewing_pubkey(),
+        sender_pubkey: spec.sender.viewing_pubkey(),
+        salt,
+        slot_index: SENDER_SLOT_COUNT as u32,
+    };
+    let recipient_ciphertext = AnonymousRecipient::encode(
+        std::slice::from_ref(&recipient_utxo),
+        &recipient_owner_cx,
+        spec.slot_tag,
+        &recipient_cx,
+    )
+    .unwrap();
+
+    let recipient_nullifier_pk = spec.recipient.nullifier_key.pubkey().unwrap();
+    let recipient_hash = recipient_utxo
+        .hash(&recipient_nullifier_pk, &[0u8; 32], &[0u8; 32])
         .unwrap();
-    let output_slots = blob
-        .to_output_ciphertexts(
-            spec.sender_view_tag,
-            SENDER_SLOT_COUNT,
-            SENDER_SLOT_COUNT + blob.recipient_slots.len(),
-        )
-        .unwrap();
-    let tx = SyncTransaction {
-        scheme: TRANSFER,
-        tx_viewing_pk: blob.tx_viewing_pk,
-        salt: blob.salt,
+
+    let output_slots = vec![
+        slot(spec.sender_view_tag, sender_hash, sender_payload),
+        empty_slot(),
+        slot(
+            recipient_ciphertext.view_tag,
+            recipient_hash,
+            recipient_ciphertext.data,
+        ),
+    ];
+
+    let tx = ShieldedTransaction {
+        slot: 0,
+        tx_signature: solana_signature::Signature::default(),
+        tx_viewing_pk: Some(tx_viewing_pk),
+        salt: Some(salt),
         output_slots,
         nullifiers: vec![spec.first_nullifier],
+        proofless: false,
     };
     (tx, recipient_utxo, change)
 }

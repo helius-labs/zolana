@@ -1,86 +1,48 @@
-use rand::rngs::OsRng;
-use rand::RngCore;
 use solana_address::Address;
-use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_keypair::constants::BLINDING_LEN;
+use zolana_keypair::constants::{BLINDING_LEN, VIEW_TAG_LEN};
 use zolana_keypair::hash::sha256_be;
-use zolana_keypair::shielded::{ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::shielded::ShieldedAddress;
 use zolana_keypair::viewing_key::{random_blinding, ViewTag};
-use zolana_keypair::{NullifierKey, PublicKey, SignatureType};
-use zolana_transaction::asset::{AssetRegistry, SOL_ASSET_ID};
-use zolana_transaction::transfer::{
-    RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext, RECIPIENT_CIPHERTEXT_LEN,
-    SENDER_SLOT_COUNT,
-};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait};
 
-use crate::error::ClientError;
-use crate::private_transaction::field::{asset_field, signed_to_field};
-use crate::private_transaction::signed_transaction::SignedTransaction;
-use crate::prover::shape::{resolve_shape, Shape};
-use crate::prover::transfer::TransferProver;
-use crate::prover::transfer_p256::{PublicAmounts, TransferP256Prover};
-use crate::rpc::{MerkleProof, NonInclusionProof};
-use crate::wallet_authority::{ApprovalRequest, WalletAuthority};
+use crate::data::Data;
+use crate::error::TransactionError;
+use crate::instructions::types::SpendUtxo;
+use crate::serialization::confidential::{
+    ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
+    ConfidentialSenderEncode,
+};
+use crate::serialization::{OwnerCx, UtxoSerialization};
+use crate::utxo::{derive_blinding, Utxo};
+use crate::{AssetRegistry, SOL_MINT};
+
+use super::signed_transaction::{asset_field, signed_to_field, PublicAmounts, SignedTransaction};
+use super::{ExternalData, OutputUtxo};
 
 const TRANSACT_DISCRIMINATOR: u8 = 0;
 const SPL_CHANGE_POSITION: u8 = 0;
 const SOL_CHANGE_POSITION: u8 = 1;
 const RECIPIENT_POSITION_BASE: u8 = 2;
 
-#[derive(Clone)]
-pub struct SpendUtxo {
-    pub utxo: Utxo,
-    pub nullifier_key: NullifierKey,
-    /// Program data hash committed by this input UTXO. Current transfer assembly
-    /// only supports clean/default inputs, but the field belongs with the selected
-    /// input so future program-data spends can plumb it into the proof witness.
-    pub program_data_hash: Option<[u8; 32]>,
-    /// Zone data hash committed by this input UTXO. See `program_data_hash`.
-    pub zone_data_hash: Option<[u8; 32]>,
-}
+/// Fixed number of leading sender-owned output slots in a transfer: SPL change at
+/// slot 0 (and the sender bundle ciphertext), SOL change at slot 1. Recipients
+/// always start at slot 2.
+const SENDER_SLOT_COUNT: usize = 2;
 
-impl SpendUtxo {
-    /// Padding input that fills a fixed proof shape. `owner = 0` makes it
-    /// unspendable and marks it as a dummy ([`Self::is_dummy`]); the random blinding
-    /// is the sole source of unpredictability for its nullifier, which is
-    /// indistinguishable from a real one. The circuit skips the ownership,
-    /// inclusion, and nullifier checks for it.
-    pub fn new_dummy() -> Self {
-        let utxo = Utxo {
-            owner: PublicKey::zeroed(),
-            asset: Address::default(),
-            amount: 0,
-            blinding: random_blinding(),
-            zone_program_id: None,
-            data: Data::default(),
-        };
-        Self {
-            utxo,
-            nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
-            program_data_hash: None,
-            zone_data_hash: None,
+pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
+
+pub fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, TransactionError> {
+    for spend in inputs {
+        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
+        if spend.is_dummy() {
+            continue;
+        }
+        if spend.utxo.owner.signature_type()? == SignatureType::P256 {
+            return Ok(true);
         }
     }
-
-    pub fn is_dummy(&self) -> bool {
-        self.utxo.owner.is_zero()
-    }
-
-    pub fn from_keypair(utxo: Utxo, keypair: &ShieldedKeypair) -> Self {
-        Self::from_nullifier_key(utxo, &keypair.nullifier_key)
-    }
-
-    pub fn from_nullifier_key(utxo: Utxo, nullifier_key: &NullifierKey) -> Self {
-        Self {
-            utxo,
-            nullifier_key: nullifier_key.clone(),
-            program_data_hash: None,
-            zone_data_hash: None,
-        }
-    }
+    Ok(false)
 }
 
 struct Recipient {
@@ -106,34 +68,58 @@ struct Withdrawal {
     target: WithdrawalTarget,
 }
 
-pub struct InputCommitment {
-    pub index: usize,
-    pub utxo_hash: [u8; 32],
-    pub nullifier: [u8; 32],
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Shape {
+    pub n_inputs: usize,
+    pub n_outputs: usize,
 }
 
-#[derive(Clone)]
-pub struct SpendProof {
-    pub state: MerkleProof,
-    pub nullifier: NonInclusionProof,
-}
-
-pub enum CircuitType {
-    P256(TransferP256Prover),
-    Eddsa(TransferProver),
-}
-
-pub(crate) fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, ClientError> {
-    for spend in inputs {
-        // A dummy's zero owner reads as P256; skip it so it never forces the rail.
-        if spend.is_dummy() {
-            continue;
-        }
-        if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-            return Ok(true);
+impl Shape {
+    pub const fn new(n_inputs: usize, n_outputs: usize) -> Self {
+        Self {
+            n_inputs,
+            n_outputs,
         }
     }
-    Ok(false)
+}
+
+pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
+    SUPPORTED_SHAPES
+        .iter()
+        .copied()
+        .find(|s| n_in <= s.n_inputs && n_out <= s.n_outputs)
+        .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
+}
+
+pub fn resolve_shape(
+    declared: Option<Shape>,
+    n_in: usize,
+    n_out: usize,
+) -> Result<Shape, TransactionError> {
+    match declared {
+        Some(shape) => {
+            if !SUPPORTED_SHAPES.contains(&shape) {
+                return Err(TransactionError::UnsupportedShape {
+                    n_in: shape.n_inputs,
+                    n_out: shape.n_outputs,
+                });
+            }
+            if n_in > shape.n_inputs {
+                return Err(TransactionError::TooManyInputs {
+                    got: n_in,
+                    max: shape.n_inputs,
+                });
+            }
+            if n_out > shape.n_outputs {
+                return Err(TransactionError::TooManyOutputsForShape {
+                    got: n_out,
+                    max: shape.n_outputs,
+                });
+            }
+            Ok(shape)
+        }
+        None => canonical_shape(n_in, n_out),
+    }
 }
 
 pub struct Transaction {
@@ -149,15 +135,13 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn new(owner: ShieldedAddress, inputs: Vec<SpendUtxo>, payer: Address) -> Self {
-        let mut blinding_seed = [0u8; BLINDING_LEN];
-        OsRng.fill_bytes(&mut blinding_seed);
         Self {
             owner,
             inputs,
             recipients: Vec::new(),
             withdrawal: None,
             payer_pubkey_hash: sha256_be(payer.as_array()),
-            blinding_seed,
+            blinding_seed: random_blinding(),
             shape: None,
             // Never expires by default; the program rejects `current_ts > expiry`,
             // so callers that want a relayer deadline set it explicitly.
@@ -175,7 +159,7 @@ impl Transaction {
         self
     }
 
-    pub fn requires_p256_owner(&self) -> Result<bool, ClientError> {
+    pub fn requires_p256_owner(&self) -> Result<bool, TransactionError> {
         inputs_require_p256(&self.inputs)
     }
 
@@ -185,7 +169,7 @@ impl Transaction {
         asset: Address,
         amount: u64,
         view_tag: ViewTag,
-    ) -> Result<&mut Self, ClientError> {
+    ) -> Result<&mut Self, TransactionError> {
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
@@ -200,9 +184,9 @@ impl Transaction {
         asset: Address,
         amount: u64,
         target: WithdrawalTarget,
-    ) -> Result<&mut Self, ClientError> {
+    ) -> Result<&mut Self, TransactionError> {
         if self.withdrawal.is_some() {
-            return Err(ClientError::WithdrawalAlreadySet);
+            return Err(TransactionError::WithdrawalAlreadySet);
         }
         self.withdrawal = Some(Withdrawal {
             asset,
@@ -212,37 +196,25 @@ impl Transaction {
         Ok(self)
     }
 
-    pub fn sign<A: WalletAuthority>(
+    pub fn sign<K>(
         self,
-        owner_pubkey: Pubkey,
-        authority: &A,
+        keypair: &K,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, ClientError> {
-        authority.request_user_approval(ApprovalRequest {
-            owner_pubkey,
-            summary: format!(
-                "private transaction with {} input(s), {} recipient(s)",
-                self.inputs.len(),
-                self.recipients.len()
-            ),
-        })?;
-        let mut assembled_transaction =
-            self.assemble(owner_pubkey, authority, assets, sender_view_tag)?;
-        if authority
-            .shielded_address(owner_pubkey)?
-            .signing_pubkey
-            .signature_type()?
-            == SignatureType::P256
-        {
+    ) -> Result<SignedTransaction, TransactionError>
+    where
+        K: ShieldedKeypairTrait + ViewingKeyTrait,
+    {
+        let mut assembled_transaction = self.assemble(keypair, assets, sender_view_tag)?;
+        if keypair.curve()? == SignatureType::P256 {
             let message_hash = assembled_transaction.message_hash()?;
-            let signature = authority.sign_p256(owner_pubkey, &message_hash)?;
-            assembled_transaction.p256_owner = Some(signature.into());
+            let signature = keypair.sign(&message_hash);
+            assembled_transaction.p256_owner = Some(signature);
         }
         Ok(assembled_transaction)
     }
 
-    fn spl_asset(&self) -> Result<Option<Address>, ClientError> {
+    fn spl_asset(&self) -> Result<Option<Address>, TransactionError> {
         let mut found: Option<Address> = None;
         let assets = self
             .inputs
@@ -254,7 +226,7 @@ impl Transaction {
             if asset != SOL_MINT {
                 match found {
                     Some(existing) if existing != asset => {
-                        return Err(ClientError::MultiplePublicSplAssets)
+                        return Err(TransactionError::MultiplePublicSplAssets)
                     }
                     _ => found = Some(asset),
                 }
@@ -287,10 +259,10 @@ impl Transaction {
             .sum()
     }
 
-    fn change(&self, asset: &Address, public: i128) -> Result<u64, ClientError> {
+    fn change(&self, asset: &Address, public: i128) -> Result<u64, TransactionError> {
         let leftover = self.input_sum(asset) + public - self.recipient_sum(asset);
         if leftover < 0 {
-            return Err(ClientError::InsufficientBalance {
+            return Err(TransactionError::InsufficientBalance {
                 requested: (-leftover) as u64,
                 available: 0,
             });
@@ -298,8 +270,8 @@ impl Transaction {
         Ok(leftover as u64)
     }
 
-    fn first_nullifier(&self) -> Result<[u8; 32], ClientError> {
-        let spend = self.inputs.first().ok_or(ClientError::NoInputs)?;
+    fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
+        let spend = self.inputs.first().ok_or(TransactionError::NoInputs)?;
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let utxo_hash = spend.utxo.hash(
             &nullifier_pubkey,
@@ -328,13 +300,15 @@ impl Transaction {
         }
     }
 
-    fn assemble<A: WalletAuthority>(
+    fn assemble<K>(
         self,
-        owner_pubkey: Pubkey,
-        authority: &A,
+        keypair: &K,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, ClientError> {
+    ) -> Result<SignedTransaction, TransactionError>
+    where
+        K: ShieldedKeypairTrait + ViewingKeyTrait,
+    {
         let owner_hash = self.owner.owner_hash()?;
         let spl_asset = self.spl_asset()?;
         let (public_sol, public_spl) = self.public_amounts();
@@ -378,13 +352,16 @@ impl Transaction {
             }
         });
 
-        let sender_pubkey = authority.shielded_address(owner_pubkey)?.viewing_pubkey;
-        let mut recipient_outputs = Vec::with_capacity(self.recipients.len());
+        let sender_viewing_pubkey = keypair.viewing_pubkey();
+        let signing_pubkey = keypair.signing_pubkey();
+        let zone_program_id: Option<Address> = None;
+
+        let mut recipient_outputs: Vec<(ViewTag, Utxo, P256Pubkey, u8)> =
+            Vec::with_capacity(self.recipients.len());
         let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
         for (i, recipient) in self.recipients.iter().enumerate() {
             let position = RECIPIENT_POSITION_BASE + i as u8;
             let blinding = derive_blinding(&self.blinding_seed, position);
-            let asset_id = self.asset_id(assets, &recipient.asset)?;
             outputs.push(OutputUtxo {
                 owner_hash: recipient.address.owner_hash()?,
                 asset: recipient.asset,
@@ -393,54 +370,116 @@ impl Transaction {
                 ..Default::default()
             });
             recipient_viewing_pks.push(recipient.address.viewing_pubkey);
-            recipient_outputs.push(RecipientOutput {
-                view_tag: recipient.view_tag,
-                plaintext: TransferRecipientPlaintext {
-                    owner_pubkey: recipient.address.signing_pubkey,
-                    sender_pubkey,
-                    asset_id,
+            recipient_outputs.push((
+                recipient.view_tag,
+                Utxo {
+                    owner: recipient.address.signing_pubkey,
+                    asset: recipient.asset,
                     amount: recipient.amount,
                     blinding,
+                    zone_program_id: None,
                     data: Data::default(),
                 },
-            });
+                recipient.address.viewing_pubkey,
+                position,
+            ));
         }
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let max_recipients = shape
             .n_outputs
             .checked_sub(SENDER_SLOT_COUNT)
-            .ok_or(ClientError::MissingOutput)?;
+            .ok_or(TransactionError::MissingOutput)?;
         // Pad recipient_viewing_pks to MAX_RECIPIENTS with a throwaway pubkey (the
         // sender's own viewing key) so the encrypted sender bundle is fixed-size and
         // does not reveal the real recipient count. A dummy slot's trial-decrypt
         // fails on its random bytes regardless of this pubkey.
         while recipient_viewing_pks.len() < max_recipients {
-            recipient_viewing_pks.push(sender_pubkey);
+            recipient_viewing_pks.push(sender_viewing_pubkey);
         }
 
-        let spl_asset_id = match spl_asset {
-            Some(asset) => self.asset_id(assets, &asset)?,
-            None => 0,
-        };
-        let sender = TransferSenderPlaintext {
-            owner_pubkey: self.owner.signing_pubkey,
-            spl_asset_id,
-            spl_amount: spl_change,
-            sol_amount: sol_change,
-            blinding_seed: self.blinding_seed,
-            recipient_viewing_pks,
-            spl_data: Data::default(),
-            sol_data: Data::default(),
-        };
-
         let first_nullifier = self.first_nullifier()?;
-        let encrypted = authority.encrypt_transfer(
-            owner_pubkey,
-            &first_nullifier,
-            &sender,
-            &recipient_outputs,
+        let salt = zolana_keypair::random_salt();
+        let tx = keypair.get_transaction_viewing_key(&first_nullifier)?;
+        let tx_viewing_pk = tx.pubkey();
+
+        // Sender change bundle: the SPL and SOL change UTXOs owned by the sender, at
+        // ciphertext slot 0. Empty change is conveyed by a zero-amount UTXO.
+        let mut change_utxos = Vec::with_capacity(SENDER_SLOT_COUNT);
+        if let Some(asset) = spl_asset {
+            change_utxos.push(Utxo {
+                owner: signing_pubkey,
+                asset,
+                amount: spl_change,
+                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                zone_program_id: None,
+                data: Data::default(),
+            });
+        }
+        change_utxos.push(Utxo {
+            owner: signing_pubkey,
+            asset: SOL_MINT,
+            amount: sol_change,
+            blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+            zone_program_id: None,
+            data: Data::default(),
+        });
+
+        let sender_owner_cx = OwnerCx {
+            owner: signing_pubkey,
+            assets,
+            zone_program_id,
+        };
+        let sender_ciphertext = ConfidentialSenderBundle::encode(
+            &change_utxos,
+            &sender_owner_cx,
+            sender_view_tag,
+            &ConfidentialSenderEncode {
+                tx: tx.clone(),
+                self_pubkey: sender_viewing_pubkey,
+                salt,
+                slot_index: 0,
+                blinding_seed: self.blinding_seed,
+                recipient_viewing_pks,
+            },
         )?;
+
+        let mut output_ciphertexts = Vec::with_capacity(1 + max_recipients);
+        output_ciphertexts.push(sender_ciphertext);
+
+        for (view_tag, utxo, recipient_pubkey, position) in &recipient_outputs {
+            let slot_index = u32::from(*position) - SENDER_SLOT_COUNT as u32 + 1;
+            let recipient_owner_cx = OwnerCx {
+                owner: utxo.owner,
+                assets,
+                zone_program_id,
+            };
+            let ciphertext = ConfidentialRecipient::encode(
+                core::slice::from_ref(utxo),
+                &recipient_owner_cx,
+                *view_tag,
+                &ConfidentialRecipientEncode {
+                    tx: tx.clone(),
+                    recipient_pubkey: *recipient_pubkey,
+                    salt,
+                    slot_index,
+                },
+            )?;
+            output_ciphertexts.push(ciphertext);
+        }
+
+        // Fill the remaining slots with random L-byte dummies under same-distribution
+        // view tags so the recipient count is hidden. A real recipient ciphertext is
+        // indistinguishable from random to an observer, so a same-length random filler
+        // hides whether the slot holds a real recipient. The filler length is derived
+        // from the real recipient ciphertext layout by encoding a throwaway recipient.
+        let dummy_len = dummy_ciphertext_len(&tx, sender_viewing_pubkey, salt, assets)?;
+        while output_ciphertexts.len() < 1 + max_recipients {
+            output_ciphertexts.push(OutputCiphertext {
+                view_tag: random_view_tag(),
+                data: random_dummy_ciphertext(dummy_len),
+            });
+        }
 
         let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
 
@@ -466,27 +505,6 @@ impl Transaction {
             output_utxo_hashes.push(output.hash()?);
         }
 
-        // Fixed-length ciphertext vector: the sender bundle, the real recipient
-        // ciphertexts, then random L-byte dummies under same-distribution view tags
-        // so the recipient count is hidden.
-        let mut output_ciphertexts = Vec::with_capacity(1 + max_recipients);
-        output_ciphertexts.push(OutputCiphertext {
-            view_tag: sender_view_tag,
-            data: encrypted.sender_ciphertext.clone(),
-        });
-        for recipient in &encrypted.recipient_slots {
-            output_ciphertexts.push(OutputCiphertext {
-                view_tag: recipient.view_tag,
-                data: recipient.ciphertext.clone(),
-            });
-        }
-        while output_ciphertexts.len() < 1 + max_recipients {
-            output_ciphertexts.push(OutputCiphertext {
-                view_tag: random_view_tag(),
-                data: random_dummy_ciphertext(),
-            });
-        }
-
         let external_data = ExternalData {
             instruction_discriminator: TRANSACT_DISCRIMINATOR,
             expiry_unix_ts: self.expiry_unix_ts,
@@ -497,8 +515,8 @@ impl Transaction {
             user_spl_token,
             spl_token_interface,
             cpi_signer: None,
-            tx_viewing_pk: *encrypted.tx_viewing_pk.as_bytes(),
-            salt: encrypted.salt,
+            tx_viewing_pk: *tx_viewing_pk.as_bytes(),
+            salt,
             output_utxo_hashes,
             output_ciphertexts,
         };
@@ -522,14 +540,6 @@ impl Transaction {
             p256_owner: None,
         })
     }
-
-    fn asset_id(&self, assets: &AssetRegistry, asset: &Address) -> Result<u64, ClientError> {
-        if asset == &SOL_MINT {
-            Ok(SOL_ASSET_ID)
-        } else {
-            Ok(assets.asset_id(asset)?)
-        }
-    }
 }
 
 /// A view tag for a dummy output slot, drawn from the same byte distribution as a
@@ -537,17 +547,55 @@ impl Transaction {
 /// bytes), bytes `1..32` random. A uniformly random tag would have a nonzero
 /// leading byte 255/256 of the time and mark the slot as a dummy, leaking the
 /// recipient count.
-fn random_view_tag() -> [u8; 32] {
-    let mut tag = [0u8; 32];
-    OsRng.fill_bytes(&mut tag[1..]);
+fn random_view_tag() -> [u8; VIEW_TAG_LEN] {
+    let mut tag = [0u8; VIEW_TAG_LEN];
+    tag[1..].copy_from_slice(&random_blinding());
     tag
 }
 
-/// Random `RECIPIENT_CIPHERTEXT_LEN` bytes for a dummy output slot. A real GCM
-/// ciphertext is indistinguishable from random to an observer, so a same-length
-/// random filler hides whether the slot holds a real recipient.
-fn random_dummy_ciphertext() -> Vec<u8> {
-    let mut data = vec![0u8; RECIPIENT_CIPHERTEXT_LEN];
-    OsRng.fill_bytes(&mut data);
+/// Random `len` bytes for a dummy output slot.
+fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
+    let mut data = Vec::with_capacity(len);
+    while data.len() < len {
+        let chunk = random_blinding();
+        let take = (len - data.len()).min(chunk.len());
+        data.extend_from_slice(&chunk[..take]);
+    }
     data
+}
+
+/// The exact `OutputCiphertext::data` byte length of a real recipient slot, derived
+/// by encoding a throwaway recipient through the same path. This keeps dummy slots
+/// byte-length-indistinguishable from real ones without pinning a brittle constant.
+fn dummy_ciphertext_len(
+    tx: &zolana_keypair::ViewingKey,
+    throwaway_pubkey: P256Pubkey,
+    salt: [u8; zolana_keypair::constants::SALT_LEN],
+    assets: &AssetRegistry,
+) -> Result<usize, TransactionError> {
+    let utxo = Utxo {
+        owner: PublicKey::zeroed(),
+        asset: SOL_MINT,
+        amount: 0,
+        blinding: random_blinding(),
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let owner_cx = OwnerCx {
+        owner: utxo.owner,
+        assets,
+        zone_program_id: None,
+    };
+    let ciphertext = ConfidentialRecipient::encode(
+        core::slice::from_ref(&utxo),
+        &owner_cx,
+        [0u8; VIEW_TAG_LEN],
+        &ConfidentialRecipientEncode {
+            tx: tx.clone(),
+            recipient_pubkey: throwaway_pubkey,
+            salt,
+            slot_index: 0,
+        },
+    )?;
+    Ok(ciphertext.data.len())
 }

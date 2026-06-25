@@ -9,7 +9,7 @@
 use cucumber::{then, when};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::private_transaction::field::{asset_field, signed_to_field};
+use zolana_client::witness::field::{asset_field, signed_to_field};
 use zolana_client::{
     CircuitType, PublicAmounts, Rpc, Shape, SpendUtxo, Transaction, WithdrawalTarget,
 };

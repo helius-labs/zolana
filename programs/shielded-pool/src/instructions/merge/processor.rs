@@ -5,7 +5,7 @@ use pinocchio::{
 };
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{EventKind, Input},
+    event::{EventKind, Input, OutputData},
     instruction::instruction_data::merge_transact::{
         MergeExternalDataHash, MergeTransactIxDataRef, MERGE_INPUT_COUNT,
     },
@@ -26,6 +26,10 @@ use crate::instructions::{
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+
+    if ix.encrypted_utxo.first() != Some(&OutputData::VERIFIABLY_ENCRYPTED_TAG) {
+        return Err(ShieldedPoolError::InvalidMergeOutputScheme.into());
+    }
 
     let clock = Clock::get()?;
     if clock.unix_timestamp < 0 || (clock.unix_timestamp as u64) > ix.expiry_unix_ts {

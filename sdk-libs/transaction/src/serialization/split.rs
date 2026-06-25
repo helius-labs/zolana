@@ -2,16 +2,25 @@ use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
-    P256Pubkey, PublicKey,
+    P256Pubkey, PublicKey, ViewingKey,
 };
 
 use crate::{
-    asset::AssetRegistry,
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
-    P256PubkeySchema, PublicKeySchema, SPLIT,
+    AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SPLIT,
 };
+
+use super::{DecodeCx, OwnerCx, UtxoSerialization};
+
+pub struct SplitEncode {
+    pub tx: ViewingKey,
+    pub recipient_pubkey: P256Pubkey,
+    pub salt: [u8; SALT_LEN],
+    pub slot_index: u32,
+    pub blinding_seed: [u8; BLINDING_LEN],
+}
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct SplitBundlePlaintext {
@@ -86,5 +95,59 @@ impl SplitEncryptedUtxos {
             return Err(TransactionError::BadDiscriminator(parsed.type_prefix));
         }
         Ok(parsed)
+    }
+}
+
+pub struct Split;
+
+impl UtxoSerialization for Split {
+    const SCHEME: EncryptedScheme = EncryptedScheme::Split;
+    type Plaintext = SplitBundlePlaintext;
+    type EncodeCx = SplitEncode;
+
+    fn decrypt(body: &[u8], cx: &DecodeCx) -> Result<Vec<u8>, TransactionError> {
+        let tx_viewing_pk = cx
+            .tx_viewing_pk
+            .ok_or(TransactionError::MissingEncryptionContext)?;
+        let salt = cx.salt.ok_or(TransactionError::MissingEncryptionContext)?;
+        Ok(cx
+            .viewing_key
+            .decrypt_utxo(body, &tx_viewing_pk, salt, cx.slot_index)?)
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
+        SplitBundlePlaintext::deserialize(bytes)
+    }
+
+    fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
+        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+    }
+
+    fn from_utxos(
+        utxos: &[Utxo],
+        owner: &OwnerCx,
+        cx: &SplitEncode,
+    ) -> Result<Self::Plaintext, TransactionError> {
+        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let num_outputs =
+            u8::try_from(utxos.len()).map_err(|_| TransactionError::TooManyOutputs)?;
+        Ok(SplitBundlePlaintext {
+            owner_pubkey: first.owner,
+            num_outputs,
+            asset_id: owner.assets.asset_id(&first.asset)?,
+            asset_amount: first.amount,
+            blinding_seed: cx.blinding_seed,
+            data: first.data.clone(),
+        })
+    }
+
+    fn serialize(plaintext: &Self::Plaintext) -> Result<Vec<u8>, TransactionError> {
+        plaintext.serialize()
+    }
+
+    fn encrypt(bytes: &[u8], cx: &SplitEncode) -> Result<Vec<u8>, TransactionError> {
+        Ok(cx
+            .tx
+            .encrypt_slot(&cx.recipient_pubkey, bytes, cx.salt, cx.slot_index)?)
     }
 }

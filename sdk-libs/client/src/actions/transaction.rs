@@ -5,13 +5,16 @@ use zolana_interface::{
 };
 use zolana_keypair::shielded::ShieldedAddress;
 use zolana_keypair::viewing_key::ViewTag;
+use zolana_transaction::instructions::transact::{
+    SignedTransaction, Transaction, WithdrawalTarget,
+};
+use zolana_transaction::instructions::types::SpendUtxo;
 use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 
 use crate::error::ClientError;
-use crate::private_transaction::{SignedTransaction, SpendUtxo, Transaction, WithdrawalTarget};
 use crate::rpc::Rpc;
 use crate::user_registry::try_resolve_registered_address;
-use crate::wallet_authority::WalletAuthority;
+use crate::wallet_authority::{ApprovalRequest, WalletAuthority};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -129,12 +132,14 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         request.amount,
         recipient.view_tag,
     )?;
-    let signed = tx.sign(
-        request.owner_pubkey,
-        request.authority,
-        request.assets,
-        wait_tag,
-    )?;
+    request.authority.request_user_approval(ApprovalRequest {
+        owner_pubkey: request.owner_pubkey,
+        summary: format!(
+            "private transfer of {} to {}",
+            request.amount, request.recipient_owner
+        ),
+    })?;
+    let signed = tx.sign(request.authority, request.assets, wait_tag)?;
     Ok(CreatedTransfer {
         signed,
         wait_tag,
@@ -160,12 +165,11 @@ pub fn create_withdrawal<A: WalletAuthority>(
         request.payer,
     );
     tx.withdraw(request.asset, request.amount, target)?;
-    let signed = tx.sign(
-        request.owner_pubkey,
-        request.authority,
-        request.assets,
-        wait_tag,
-    )?;
+    request.authority.request_user_approval(ApprovalRequest {
+        owner_pubkey: request.owner_pubkey,
+        summary: format!("withdraw {} to {}", request.amount, request.recipient),
+    })?;
+    let signed = tx.sign(request.authority, request.assets, wait_tag)?;
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,

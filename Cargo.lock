@@ -9519,11 +9519,20 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bs58",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "sha2 0.10.9",
+ "solana-hash 4.4.0",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
  "zolana-interface",
  "zolana-program-test",
+ "zolana-transaction",
  "zolana-user-registry-interface",
 ]
 
@@ -9952,12 +9961,17 @@ name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "borsh 1.6.1",
  "criterion",
  "cucumber",
  "light-poseidon 0.4.0",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "p256",
  "proptest",
  "rayon",
  "solana-address 2.6.1",
+ "solana-signature 3.4.1",
  "thiserror 2.0.18",
  "tokio",
  "wincode",
