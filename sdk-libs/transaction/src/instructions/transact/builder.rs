@@ -73,7 +73,6 @@ struct Recipient {
     address: ShieldedAddress,
     asset: Address,
     amount: u64,
-    view_tag: ViewTag,
 }
 
 pub enum WithdrawalTarget {
@@ -192,13 +191,11 @@ impl Transaction {
         recipient: &ShieldedAddress,
         asset: Address,
         amount: u64,
-        view_tag: ViewTag,
     ) -> Result<&mut Self, TransactionError> {
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
             amount,
-            view_tag,
         });
         Ok(self)
     }
@@ -228,9 +225,8 @@ impl Transaction {
         self,
         keypair: &K,
         assets: &AssetRegistry,
-        sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, TransactionError> {
-        let mut signed = self.assemble(keypair, assets, sender_view_tag)?;
+        let mut signed = self.assemble(keypair, assets)?;
         if keypair.curve()? == SignatureType::P256 {
             let message_hash = signed.message_hash()?;
             signed.p256_owner = Some(keypair.sign(&message_hash));
@@ -242,13 +238,16 @@ impl Transaction {
         self,
         keypair: &K,
         assets: &AssetRegistry,
-        sender_view_tag: ViewTag,
     ) -> Result<SignedTransaction, TransactionError> {
         let prepared = self.prepare(assets)?;
         let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
         let salt = zolana_keypair::random_salt();
         let tx_viewing_pk = tx.pubkey();
 
+        let sender_view_tag = prepared
+            .sender_plaintext
+            .owner_pubkey
+            .confidential_view_tag()?;
         let mut slots = Vec::with_capacity(1 + prepared.recipients.len());
         slots.push(ConfidentialSenderBundle::encode_plaintext(
             &prepared.sender_plaintext,
@@ -332,7 +331,7 @@ impl Transaction {
             });
             recipient_viewing_pks.push(recipient.address.viewing_pubkey);
             recipients.push(PreparedRecipient {
-                view_tag: recipient.view_tag,
+                view_tag: recipient.address.signing_pubkey.confidential_view_tag()?,
                 recipient_pubkey: recipient.address.viewing_pubkey,
                 plaintext: TransferRecipientPlaintext {
                     asset_id,
@@ -538,7 +537,7 @@ impl PreparedTransaction {
             let dummy_len = dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt, assets)?;
             while output_ciphertexts.len() < 1 + max_recipients {
                 output_ciphertexts.push(OutputCiphertext {
-                    view_tag: random_view_tag(),
+                    view_tag: random_view_tag()?,
                     data: random_dummy_ciphertext(dummy_len),
                 });
             }
@@ -572,15 +571,15 @@ impl PreparedTransaction {
     }
 }
 
-/// A view tag for a dummy output slot, drawn from the same byte distribution as a
-/// derived one: byte 0 is `0` (derived tags right-align a 31-byte value into 32
-/// bytes), bytes `1..32` random. A uniformly random tag would have a nonzero
-/// leading byte 255/256 of the time and mark the slot as a dummy, leaking the
-/// recipient count.
-fn random_view_tag() -> [u8; VIEW_TAG_LEN] {
-    let mut tag = [0u8; VIEW_TAG_LEN];
-    tag[1..].copy_from_slice(&random_blinding());
-    tag
+/// A view tag for a dummy output slot: the Poseidon hash of 31 random bytes. The
+/// result is a 32-byte field element, indistinguishable from a real owner-pubkey
+/// tag, so a dummy slot does not stand out and leak the recipient count. The 31
+/// random bytes are left-padded to a 32-byte big-endian field element (leading byte
+/// zero keeps it below the BN254 modulus).
+fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
+    let mut input = [0u8; 32];
+    input[1..].copy_from_slice(&random_blinding());
+    Ok(zolana_keypair::hash::poseidon(&[&input])?)
 }
 
 /// Random `len` bytes for a dummy output slot.

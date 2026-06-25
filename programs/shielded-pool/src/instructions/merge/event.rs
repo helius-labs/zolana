@@ -22,9 +22,9 @@ pub fn build_merge_event(
         tx_viewing_pk.copy_from_slice(blob_pk);
     }
 
-    // The merged output is owner-indexed like a confidential recipient: the view
-    // tag is the owner's viewing-pubkey x-coordinate, so `Wallet::sync` rediscovers
-    // it via the recipient bootstrap scan.
+    // The merged output is owner-indexed like every confidential output: the view
+    // tag is the owner signing pubkey, so `Wallet::sync` rediscovers it via the
+    // confidential owner-pubkey scan.
     let outputs = vec![OutputUtxo {
         view_tag: output_view_tag,
         utxo_hash: *ix.output_utxo_hash,

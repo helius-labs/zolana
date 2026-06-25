@@ -423,7 +423,7 @@ impl Wallet {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
-        let owner_tag = self.keypair.owner_hash()?;
+        let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),
             nullifier_pk: self.keypair.nullifier_key.pubkey()?,
@@ -443,6 +443,8 @@ impl Wallet {
                 ..
             } = entry;
 
+            // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
+            // x-coordinate); also catches proofless deposits.
             let bootstrap = key.recipient_bootstrap_view_tag();
             if let Some(sites) = index.recipient_sites.get(&bootstrap) {
                 for site in sites {
@@ -452,9 +454,18 @@ impl Wallet {
                     }
                 }
             }
+            // Confidential default-zone scan: every confidential output is tagged by
+            // the owner signing pubkey. Recipient slots and merge outputs live in
+            // `recipient_sites`; the owner's own change rides the sender bundle in
+            // `sender_sites` (decoded at slot 0).
             if let Some(sites) = index.recipient_sites.get(&owner_tag) {
                 for site in sites {
                     ctx.decode_slot(transactions, key, assets, *site)?;
+                }
+            }
+            if let Some(txs) = index.sender_sites.get(&owner_tag) {
+                for &t in txs {
+                    ctx.decode_slot(transactions, key, assets, (t, 0))?;
                 }
             }
 

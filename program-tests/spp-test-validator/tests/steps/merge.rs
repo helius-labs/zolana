@@ -6,7 +6,8 @@
 //! merge authority then runs the consolidation on the owner's behalf, proving on
 //! the 8-in/1-out merge circuit.
 //!
-//! The consolidated output carries the owner's bootstrap view tag, so `Wallet::sync`
+//! The consolidated output carries the owner's signing-pubkey view tag (the
+//! confidential default-zone tag), so `Wallet::sync`
 //! rediscovers it: `assert_merged` syncs and full-struct asserts the actor's wallet
 //! (the merged output present, the consumed inputs spent), the standard
 //! "syncs / UTXOs match" path used by the other lifecycle steps.
@@ -235,12 +236,13 @@ impl LifecycleWorld {
             &[&merge_key],
         )?;
 
-        // The merged output carries the owner's bootstrap view tag, so the indexed
-        // transaction is located by that tag and added to the synced stream; the
-        // owner's `Wallet::sync` then rediscovers the consolidated output and marks
-        // the consumed inputs spent from the transaction's nullifiers.
-        let bootstrap_tag = keypair.recipient_bootstrap_view_tag();
-        let indexed = wait_for_indexed_transaction(&self.indexer, bootstrap_tag, sig);
+        // The merged output carries the owner's signing-pubkey view tag (the
+        // confidential default-zone tag), so the indexed transaction is located by
+        // that tag and added to the synced stream; the owner's `Wallet::sync` then
+        // rediscovers the consolidated output and marks the consumed inputs spent
+        // from the transaction's nullifiers.
+        let owner_tag = keypair.signing_pubkey().confidential_view_tag()?;
+        let indexed = wait_for_indexed_transaction(&self.indexer, owner_tag, sig);
 
         // The consolidated output owned by the actor, tracked like a transfer
         // recipient UTXO so `assert_utxos` matches the synced wallet.

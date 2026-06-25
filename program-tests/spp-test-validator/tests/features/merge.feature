@@ -2,7 +2,7 @@ Feature: Merge service consolidates an owner's UTXOs over Photon
   A UTXO owner registers on the user-registry and opts into the merge service. The
   configured merge authority then consolidates several of the owner's same-asset,
   P256-owned UTXOs into one output, proving on the 8-in/1-out merge circuit. The merged
-  output carries the owner's bootstrap view tag, so the owner's `Wallet::sync`
+  output carries the owner's signing-pubkey view tag, so the owner's `Wallet::sync`
   rediscovers it. The merge fails for an owner who never opted in.
 
   Background:

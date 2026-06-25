@@ -55,11 +55,7 @@ fn registry() -> AssetRegistry {
 }
 
 fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, TransactionError> {
-    tx.sign(
-        sender,
-        &registry(),
-        sender.get_sender_view_tag(0).expect("sender view tag"),
-    )
+    tx.sign(sender, &registry())
 }
 
 fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
@@ -180,13 +176,8 @@ fn transfer_round_trip_outputs_and_bundle() {
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(
-        &recipient.shielded_address().unwrap(),
-        SOL_MINT,
-        60,
-        recipient.recipient_bootstrap_view_tag(),
-    )
-    .unwrap();
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+        .unwrap();
 
     let signed = sign(tx, &sender).unwrap();
     let first_nullifier = signed
@@ -255,7 +246,7 @@ fn transfer_round_trip_outputs_and_bundle() {
     );
     assert_eq!(
         prover.external_data.output_ciphertexts[0].view_tag,
-        sender.get_sender_view_tag(0).unwrap()
+        sender.signing_pubkey().confidential_view_tag().unwrap()
     );
 
     // The encrypted bundle decrypts back to the sender change + recipient.
@@ -285,16 +276,14 @@ fn transfer_round_trip_outputs_and_bundle() {
 
 /// A change-only transfer (recipient slot is a dummy) and a one-recipient transfer
 /// must be byte-shape-indistinguishable in `output_ciphertexts`: same slot count,
-/// every recipient/dummy slot the same derived ciphertext length under a
-/// same-distribution view tag (byte 0 = 0), and the same fixed bundle size.
+/// every recipient/dummy slot the same derived ciphertext length, and the same
+/// fixed bundle size.
 ///
-/// The real recipient here uses a shared HKDF view tag (`get_send_shared_view_tag`),
-/// the established-pair case where k-hiding applies: those tags are a 31-byte value
-/// right-aligned into 32 bytes, so byte 0 is always 0, and the dummy tag mirrors that.
-/// A uniformly random dummy tag would fail the `view_tag[0] == 0` check 255/256 of the
-/// time and mark the slot as a dummy, leaking k. (The bootstrap first-contact tag is
-/// the recipient's pubkey x-coordinate, byte 0 arbitrary; it already identifies the
-/// recipient, so it is exempt from k-hiding and not used here.)
+/// In the confidential default zone a real recipient slot is tagged by the owner
+/// pubkey (a 32-byte value with an arbitrary leading byte). A dummy slot's view tag
+/// is the Poseidon hash of 31 random bytes, also a 32-byte value, so a dummy does
+/// not stand out by tag length or ciphertext length and the recipient count stays
+/// hidden.
 #[test]
 fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     let build = |with_recipient: bool| {
@@ -307,17 +296,8 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         );
         if with_recipient {
             let recipient = ShieldedKeypair::new().unwrap();
-            let recipient_view_tag = sender
-                .viewing_key
-                .get_send_shared_view_tag(&recipient.viewing_pubkey(), 0)
+            tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
                 .unwrap();
-            tx.send(
-                &recipient.shielded_address().unwrap(),
-                SOL_MINT,
-                60,
-                recipient_view_tag,
-            )
-            .unwrap();
         }
         let signed = sign(tx, &sender).unwrap();
         let commitments = signed.input_commitments().unwrap();
@@ -336,9 +316,9 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         one_recipient.output_ciphertexts.len(),
     );
 
-    // The dummy slot (change_only) and the real recipient slot (one_recipient) are both
-    // the same byte length under a byte-0-zero view tag, so neither stands out. The
-    // recipient ciphertext length is derived rather than pinned to a constant.
+    // The dummy slot (change_only) and the real recipient slot (one_recipient) are
+    // the same byte length, so neither stands out. The recipient ciphertext length is
+    // derived rather than pinned to a constant.
     let recipient_len = one_recipient
         .output_ciphertexts
         .get(1)
@@ -348,10 +328,6 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     for ix in [&change_only, &one_recipient] {
         for slot in ix.output_ciphertexts.get(1..).expect("recipient region") {
             assert_eq!(slot.data.len(), recipient_len);
-            assert_eq!(
-                slot.view_tag[0], 0,
-                "recipient/dummy view tag must have a zero leading byte"
-            );
         }
     }
 
@@ -367,20 +343,15 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let recipient = ShieldedKeypair::new().unwrap();
-    let recipient_view_tag = recipient.recipient_bootstrap_view_tag();
+    let recipient_view_tag = recipient.signing_pubkey().confidential_view_tag().unwrap();
 
     let mut tx = Transaction::new(
         sender.shielded_address().unwrap(),
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(
-        &recipient.shielded_address().unwrap(),
-        SOL_MINT,
-        60,
-        recipient_view_tag,
-    )
-    .unwrap();
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+        .unwrap();
     let signed = sign(tx, &sender).unwrap();
 
     let commitments = signed.input_commitments().unwrap();
@@ -405,10 +376,14 @@ fn assemble_carries_ciphertext_and_decrypts() {
     assert_eq!(ix.public_sol_amount, None);
     assert_eq!(ix.public_spl_amount, None);
 
-    // output_ciphertexts[0] is the sender bundle under the sender view tag; the
-    // recipient slot holds the recipient view tag and a non-empty ciphertext.
+    // output_ciphertexts[0] is the sender bundle under the sender's owner-pubkey tag;
+    // the recipient slot holds the recipient's owner-pubkey tag and a non-empty
+    // ciphertext.
     let bundle = ix.output_ciphertexts.first().expect("bundle slot");
-    assert_eq!(bundle.view_tag, sender.get_sender_view_tag(0).unwrap());
+    assert_eq!(
+        bundle.view_tag,
+        sender.signing_pubkey().confidential_view_tag().unwrap()
+    );
     assert!(!bundle.data.is_empty());
     let recipient_slot = ix
         .output_ciphertexts
@@ -576,9 +551,7 @@ fn rail_follows_input_owner_type() {
     );
     assert!(!ed_tx.requires_p256_owner().unwrap());
 
-    let signed = ed_tx
-        .sign(&sender, &registry(), sender.get_sender_view_tag(0).unwrap())
-        .unwrap();
+    let signed = ed_tx.sign(&sender, &registry()).unwrap();
     let mut indexer = TestIndexer::new();
     let commitments = signed.input_commitments().unwrap();
     for commitment in &commitments {
@@ -601,13 +574,8 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(
-        &recipient.shielded_address().unwrap(),
-        SOL_MINT,
-        60,
-        recipient.recipient_bootstrap_view_tag(),
-    )
-    .unwrap();
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+        .unwrap();
     let signed = sign(tx, &sender).unwrap();
     let prover = prover_of(signed);
     let owner = prover.p256_owner.clone();
@@ -647,13 +615,8 @@ fn oversend_is_insufficient_balance() {
         vec![p256_input(&sender, 100, &mut rng)],
         Address::default(),
     );
-    tx.send(
-        &recipient.shielded_address().unwrap(),
-        SOL_MINT,
-        200,
-        recipient.recipient_bootstrap_view_tag(),
-    )
-    .unwrap();
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 200)
+        .unwrap();
     match sign(tx, &sender) {
         Err(TransactionError::InsufficientBalance {
             requested,
@@ -708,14 +671,12 @@ fn two_distinct_spl_assets_are_rejected() {
         &ra.shielded_address().unwrap(),
         Address::new_from_array([2u8; 32]),
         1,
-        ra.recipient_bootstrap_view_tag(),
     )
     .unwrap();
     tx.send(
         &rb.shielded_address().unwrap(),
         Address::new_from_array([3u8; 32]),
         1,
-        rb.recipient_bootstrap_view_tag(),
     )
     .unwrap();
     assert!(matches!(

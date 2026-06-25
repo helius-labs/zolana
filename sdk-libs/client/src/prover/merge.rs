@@ -9,7 +9,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
 use zolana_keypair::{
-    merge::{encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs},
+    merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::instructions::merge::PreparedMerge;
@@ -118,7 +118,7 @@ impl MergeProver {
         // Verifiable encryption of the merged output to the owner's viewing key.
         let plaintext = merge_plaintext(&self.output)?;
         let (ciphertext, tx_viewing_pk) =
-            encrypt_merge(&self.tx_viewing_sk, &self.user_viewing_pk, &plaintext)?;
+            encrypt_verifiable(&self.tx_viewing_sk, &self.user_viewing_pk, &plaintext)?;
         let MergeCiphertextPublicInputs {
             tx_viewing_pk_lo: tx_pk_lo,
             tx_viewing_pk_hi: tx_pk_hi,

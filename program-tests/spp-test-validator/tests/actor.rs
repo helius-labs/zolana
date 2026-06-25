@@ -38,7 +38,6 @@ pub(crate) struct Actor {
     pub(crate) wallet: Wallet,
     pub(crate) spendable: Vec<Utxo>,
     pub(crate) expected: Vec<WalletUtxo>,
-    pub(crate) send_counter: u64,
     pub(crate) last_deposit: Option<DepositRecord>,
     /// The ed25519 keypair that authorizes this actor's eddsa spends. The eddsa rail
     /// reads the owner at signer index 0 (the fee payer), so an eddsa actor pays and
@@ -59,7 +58,6 @@ impl Actor {
             wallet,
             spendable: Vec::new(),
             expected: Vec::new(),
-            send_counter: 0,
             last_deposit: None,
             solana_signer: None,
         })

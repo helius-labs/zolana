@@ -1,6 +1,6 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey, SignatureType};
+use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 
 use crate::{
     data::Data,
@@ -10,13 +10,6 @@ use crate::{
 };
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
-
-fn owner_view_tag(owner: &PublicKey) -> Result<ViewTag, TransactionError> {
-    Ok(match owner.signature_type()? {
-        SignatureType::P256 => owner.as_p256()?.x(),
-        SignatureType::Ed25519 => owner.as_ed25519()?,
-    })
-}
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferPlaintextSplChange {
@@ -47,7 +40,7 @@ impl TransferPlaintextSender {
         if self.sol_amount.is_none() && !self.sol_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
-        let view_tag = owner_view_tag(&self.owner_pubkey)?;
+        let view_tag = self.owner_pubkey.confidential_view_tag()?;
         let mut utxos = Vec::new();
         if let Some(spl) = self.spl {
             utxos.push((
@@ -95,7 +88,7 @@ impl TransferPlaintextRecipient {
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<(ViewTag, Utxo), TransactionError> {
-        let view_tag = owner_view_tag(&self.owner_pubkey)?;
+        let view_tag = self.owner_pubkey.confidential_view_tag()?;
         let utxo = Utxo {
             owner: self.owner_pubkey,
             asset: assets.resolve(self.asset_id)?,

@@ -143,6 +143,13 @@ impl PublicKey {
         Ok(body)
     }
 
+    pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
+        match self.signature_type()? {
+            SignatureType::P256 => Ok(self.as_p256()?.x()),
+            SignatureType::Ed25519 => self.as_ed25519(),
+        }
+    }
+
     pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
         match self.signature_type()? {
             SignatureType::P256 => {

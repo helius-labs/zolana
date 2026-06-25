@@ -277,20 +277,20 @@ impl ViewingKey {
 
     /// Decrypts a merge ciphertext (Poseidon KDF + AES-256-CTR) to its plaintext
     /// bundle. The owner reconstructs the merged UTXO from the recovered fields.
-    pub fn decrypt_merge(
+    pub fn decrypt_verifiable(
         &self,
         tx_viewing_pubkey: &P256Pubkey,
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, KeypairError> {
-        crate::merge::decrypt_merge(&self.secret, tx_viewing_pubkey, ciphertext)
+        crate::merge::decrypt_verifiable(&self.secret, tx_viewing_pubkey, ciphertext)
     }
 
-    pub fn encrypt_merge(
+    pub fn encrypt_verifiable(
         &self,
         user_viewing_pk: &P256Pubkey,
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        crate::merge::encrypt_merge(&self.secret, user_viewing_pk, plaintext)
+        crate::merge::encrypt_verifiable(&self.secret, user_viewing_pk, plaintext)
     }
 
     pub fn encrypt_slot(

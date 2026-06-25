@@ -109,7 +109,6 @@ impl TransferWorld {
                 &recipient.shielded_address().expect("recipient address"),
                 asset_addr(send.asset),
                 send.amount,
-                recipient.recipient_bootstrap_view_tag(),
             )
             .expect("send");
         }
@@ -127,8 +126,7 @@ impl TransferWorld {
                 .expect("withdraw");
         }
 
-        let view_tag = sender.get_sender_view_tag(0).expect("sender view tag");
-        let signed = tx.sign(&sender, &assets, view_tag).expect("sign");
+        let signed = tx.sign(&sender, &assets).expect("sign");
 
         let commitments = signed.input_commitments().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
@@ -360,7 +358,7 @@ fn assert_outputs(
     );
     assert_eq!(
         external_data.output_ciphertexts.first().unwrap().view_tag,
-        sender.get_sender_view_tag(0).unwrap()
+        sender.signing_pubkey().confidential_view_tag().unwrap()
     );
 
     // The encrypted bundle decrypts to the same sender change and recipients.

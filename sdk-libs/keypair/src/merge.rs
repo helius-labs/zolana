@@ -117,7 +117,7 @@ fn merge_keys(
 /// Encrypts the merge bundle plaintext to the owner's viewing key under the
 /// ephemeral `tx_viewing_sk`. Returns the ciphertext and the ephemeral public
 /// key (`tx_viewing_pk`) the wallet uses to decrypt.
-pub fn encrypt_merge(
+pub fn encrypt_verifiable(
     tx_viewing_sk: &SecretKey,
     user_viewing_pk: &P256Pubkey,
     plaintext: &[u8],
@@ -135,7 +135,7 @@ pub fn encrypt_merge(
 }
 
 /// Decrypts a merge ciphertext with the owner's viewing key.
-pub fn decrypt_merge(
+pub fn decrypt_verifiable(
     user_viewing_sk: &SecretKey,
     tx_viewing_pk: &P256Pubkey,
     ciphertext: &[u8],
@@ -211,11 +211,11 @@ mod tests {
         let user_pk = pubkey(&user_sk);
 
         let plaintext: Vec<u8> = (0..71u8).collect();
-        let (ciphertext, tx_pk) = encrypt_merge(&tx_sk, &user_pk, &plaintext).unwrap();
+        let (ciphertext, tx_pk) = encrypt_verifiable(&tx_sk, &user_pk, &plaintext).unwrap();
         assert_eq!(ciphertext.len(), plaintext.len());
         assert_ne!(ciphertext, plaintext);
 
-        let recovered = decrypt_merge(&user_sk, &tx_pk, &ciphertext).unwrap();
+        let recovered = decrypt_verifiable(&user_sk, &tx_pk, &ciphertext).unwrap();
         assert_eq!(recovered, plaintext);
     }
 
@@ -235,7 +235,7 @@ mod tests {
         let user_pk = pubkey(&secret_key_from_u32(7));
         let plaintext: Vec<u8> = (0..71u8).collect();
 
-        let (ciphertext, tx_pk) = encrypt_merge(&tx_sk, &user_pk, &plaintext).unwrap();
+        let (ciphertext, tx_pk) = encrypt_verifiable(&tx_sk, &user_pk, &plaintext).unwrap();
         let ct_hash = merge_ciphertext_hash(&ciphertext).unwrap();
 
         assert_eq!(
@@ -254,7 +254,7 @@ mod tests {
             "ciphertext hash mismatch",
         );
 
-        let recovered = decrypt_merge(&secret_key_from_u32(7), &tx_pk, &ciphertext).unwrap();
+        let recovered = decrypt_verifiable(&secret_key_from_u32(7), &tx_pk, &ciphertext).unwrap();
         assert_eq!(recovered, plaintext);
     }
 
@@ -263,8 +263,8 @@ mod tests {
         let tx_sk = SecretKey::random(&mut OsRng);
         let user_pk = pubkey(&SecretKey::random(&mut OsRng));
         let pt = vec![7u8; 71];
-        let (c1, _) = encrypt_merge(&tx_sk, &user_pk, &pt).unwrap();
-        let (c2, _) = encrypt_merge(&tx_sk, &user_pk, &pt).unwrap();
+        let (c1, _) = encrypt_verifiable(&tx_sk, &user_pk, &pt).unwrap();
+        let (c2, _) = encrypt_verifiable(&tx_sk, &user_pk, &pt).unwrap();
         assert_eq!(c1, c2);
     }
 }

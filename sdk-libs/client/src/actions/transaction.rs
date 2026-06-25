@@ -114,7 +114,6 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
             },
         });
     };
-    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
         request.authority,
@@ -123,13 +122,9 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         request.amount,
     )?;
     let address = request.authority.shielded_address(request.owner_pubkey)?;
+    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.send(
-        &recipient.address,
-        request.asset,
-        request.amount,
-        recipient.view_tag,
-    )?;
+    tx.send(&recipient.address, request.asset, request.amount)?;
     let prepared = tx.prepare(request.assets)?;
     let recipient_slots: Vec<ConfidentialRecipientSlot> = prepared
         .recipients
@@ -180,7 +175,6 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
 pub fn create_withdrawal<A: WalletAuthority>(
     request: CreateWithdrawal<'_, A>,
 ) -> Result<CreatedWithdrawal, ClientError> {
-    let wait_tag = next_sender_view_tag(request.wallet, request.authority, request.owner_pubkey)?;
     let inputs = select_inputs(
         request.wallet,
         request.authority,
@@ -190,6 +184,7 @@ pub fn create_withdrawal<A: WalletAuthority>(
     )?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
     let address = request.authority.shielded_address(request.owner_pubkey)?;
+    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
     let prepared = tx.prepare(request.assets)?;
@@ -301,18 +296,6 @@ fn select_inputs(
         });
     }
     Ok(selected)
-}
-
-fn next_sender_view_tag(
-    wallet: &Wallet,
-    authority: &impl WalletAuthority,
-    owner_pubkey: Pubkey,
-) -> Result<ViewTag, ClientError> {
-    let entry = wallet
-        .viewing_key_history
-        .last()
-        .ok_or(ClientError::WalletViewingHistoryMissing)?;
-    authority.derive_sender_view_tag(owner_pubkey, entry.tx_count)
 }
 
 #[cfg(test)]

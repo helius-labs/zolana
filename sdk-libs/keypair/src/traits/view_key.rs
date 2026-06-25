@@ -81,17 +81,15 @@ pub trait ViewingKeyTrait {
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
 
-    // --- merge encryption/decryption ---
-
-    fn encrypt_merge(
-        // TODO: rename to encrypt_verifiable (encryption with poseidon kdf keypair)
+    // encryption with poseidon kdf keypair
+    fn encrypt_verifiable(
         &self,
         user_viewing_pk: &P256Pubkey,
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, P256Pubkey), KeypairError>;
 
-    fn decrypt_merge(
-        // TODO: rename to decrypt_verifiable (decryption with poseidon kdf keypair)
+    // decryption with poseidon kdf keypair
+    fn decrypt_verifiable(
         &self,
         tx_viewing_pubkey: &P256Pubkey,
         ciphertext: &[u8],
@@ -183,20 +181,20 @@ impl ViewingKeyTrait for ViewingKey {
         self.decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
     }
 
-    fn encrypt_merge(
+    fn encrypt_verifiable(
         &self,
         user_viewing_pk: &P256Pubkey,
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.encrypt_merge(user_viewing_pk, plaintext)
+        self.encrypt_verifiable(user_viewing_pk, plaintext)
     }
 
-    fn decrypt_merge(
+    fn decrypt_verifiable(
         &self,
         tx_viewing_pubkey: &P256Pubkey,
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, KeypairError> {
-        self.decrypt_merge(tx_viewing_pubkey, ciphertext)
+        self.decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 }
 
@@ -291,20 +289,21 @@ impl ViewingKeyTrait for ShieldedKeypair {
             .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
     }
 
-    fn encrypt_merge(
+    fn encrypt_verifiable(
         &self,
         user_viewing_pk: &P256Pubkey,
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.viewing_key.encrypt_merge(user_viewing_pk, plaintext)
+        self.viewing_key
+            .encrypt_verifiable(user_viewing_pk, plaintext)
     }
 
-    fn decrypt_merge(
+    fn decrypt_verifiable(
         &self,
         tx_viewing_pubkey: &P256Pubkey,
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
-            .decrypt_merge(tx_viewing_pubkey, ciphertext)
+            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 }

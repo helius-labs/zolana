@@ -105,6 +105,9 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
 
 fn wallet_query_tags(wallet: &Wallet, window: u64) -> Result<Vec<ViewTag>, ClientError> {
     let mut tags = HashSet::new();
+    // Confidential default-zone outputs (sender change, recipients, merge) are all
+    // tagged by the owner signing pubkey.
+    tags.insert(wallet.keypair.signing_pubkey().confidential_view_tag()?);
     for entry in &wallet.viewing_key_history {
         tags.insert(entry.key.recipient_bootstrap_view_tag());
         for n in 0..entry.tx_count.saturating_add(window) {

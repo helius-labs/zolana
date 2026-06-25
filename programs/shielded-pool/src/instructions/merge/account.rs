@@ -37,8 +37,13 @@ impl<'a> MergeTransactAccounts<'a> {
 /// `pk_field` of the signing key (rail-selected) and the compressed viewing key
 /// (its `pk_field` is computed by the processor). Feeding these into the
 /// recomputed public-input hash binds the proof to the registered keys.
+///
+/// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
+/// confidential default-zone tag): the signing key's 32-byte x-coordinate for a
+/// P256 owner, or the full ed25519 key. Rail-selected like `signing_pk_field`.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
+    pub signing_view_tag: [u8; 32],
     pub viewing: [u8; 33],
 }
 
@@ -63,16 +68,20 @@ pub fn load_user_record(
     if !record.merge_service {
         return Err(ShieldedPoolError::MergeServiceDisabled.into());
     }
+    let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
+        signing_view_tag.copy_from_slice(&record.owner);
         solana_pk_hash(&record.owner)?
     } else {
         let owner_p256 = record
             .owner_p256
             .ok_or(ShieldedPoolError::InvalidUserRecord)?;
+        signing_view_tag.copy_from_slice(&owner_p256[1..]);
         pk_field_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
     };
     Ok(UserPkFields {
         signing_pk_field,
+        signing_view_tag,
         viewing: record.viewing_pubkey,
     })
 }

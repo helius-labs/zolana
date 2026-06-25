@@ -68,7 +68,9 @@ impl UtxoSerialization for Merge {
         let pk_array = <[u8; P256_PUBKEY_LEN]>::try_from(pk_bytes)
             .map_err(|_| TransactionError::Deserialize("merge tx_viewing_pk".to_string()))?;
         let tx_viewing_pk = P256Pubkey::from_bytes(pk_array)?;
-        Ok(cx.viewing_key.decrypt_merge(&tx_viewing_pk, ciphertext)?)
+        Ok(cx
+            .viewing_key
+            .decrypt_verifiable(&tx_viewing_pk, ciphertext)?)
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self::Plaintext, TransactionError> {
@@ -110,7 +112,7 @@ impl UtxoSerialization for Merge {
     }
 
     fn encrypt(bytes: &[u8], cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
-        let (ciphertext, tx_viewing_pk) = cx.tx.encrypt_merge(&cx.user_viewing_pk, bytes)?;
+        let (ciphertext, tx_viewing_pk) = cx.tx.encrypt_verifiable(&cx.user_viewing_pk, bytes)?;
         let mut out = Vec::with_capacity(P256_PUBKEY_LEN + ciphertext.len());
         out.extend_from_slice(tx_viewing_pk.as_bytes());
         out.extend_from_slice(&ciphertext);

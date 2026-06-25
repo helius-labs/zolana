@@ -29,9 +29,6 @@ pub enum ClientError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
-    #[error("wallet viewing history missing")]
-    WalletViewingHistoryMissing,
-
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 

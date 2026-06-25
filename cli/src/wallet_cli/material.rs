@@ -77,20 +77,11 @@ impl WalletAuthority for WalletMaterial {
         Ok(self.keypair.shielded_address()?)
     }
 
-    fn derive_sender_view_tag(
-        &self,
-        owner_pubkey: Pubkey,
-        tx_count: u64,
-    ) -> std::result::Result<ViewTag, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
-        Ok(self.keypair.get_sender_view_tag(tx_count)?)
-    }
-
     fn encrypt_confidential_transfer(
         &self,
         owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
+        sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, ClientError> {
@@ -99,7 +90,7 @@ impl WalletAuthority for WalletMaterial {
             &self.keypair,
             owner_pubkey,
             first_nullifier,
-            sender_view_tag,
+            sender_tag,
             sender,
             recipients,
         )

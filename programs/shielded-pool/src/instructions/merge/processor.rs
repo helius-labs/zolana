@@ -51,12 +51,11 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
     let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
-    // Owner-indexing view tag for the merged output: the viewing pubkey's
-    // x-coordinate (the compressed point minus its 1-byte parity prefix), matching
-    // a recipient's `recipient_bootstrap_view_tag`. Derived from the proof-bound
-    // viewing key, so a relayer cannot alter it.
-    let mut output_view_tag = [0u8; 32];
-    output_view_tag.copy_from_slice(&pk_fields.viewing[1..]);
+    // Owner-indexing view tag for the merged output: the owner signing pubkey (the
+    // confidential default-zone tag, like every other confidential output). The
+    // proof binds `signing_pk_field` to the same registered key, so a relayer cannot
+    // alter it.
+    let output_view_tag = pk_fields.signing_view_tag;
 
     let external_data_hash = MergeExternalDataHash {
         expiry_unix_ts: ix.expiry_unix_ts,

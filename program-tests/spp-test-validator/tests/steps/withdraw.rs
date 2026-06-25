@@ -75,9 +75,7 @@ impl LifecycleWorld {
             .map(|k| k.insecure_clone())
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
-        let send_index = self.actor(from).send_counter;
-        let sender_view_tag = from_keypair.get_sender_view_tag(send_index)?;
-        self.actor_mut(from).send_counter += 1;
+        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
         let spends: Vec<SpendUtxo> = inputs
             .iter()
@@ -92,7 +90,7 @@ impl LifecycleWorld {
                 user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
-        let signed = tx.sign(&from_keypair, &self.assets, sender_view_tag)?;
+        let signed = tx.sign(&from_keypair, &self.assets)?;
 
         let commitments = signed.input_commitments()?;
         let mut spend_proofs = Vec::new();

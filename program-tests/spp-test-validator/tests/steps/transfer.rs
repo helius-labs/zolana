@@ -168,7 +168,8 @@ impl LifecycleWorld {
             .transpose()?;
         let to_view_tag = to_keypair
             .as_ref()
-            .map(|k| k.recipient_bootstrap_view_tag());
+            .map(|k| k.signing_pubkey().confidential_view_tag())
+            .transpose()?;
         // An eddsa actor pays and signs its own spend (the owner sits at signer index
         // 0 / the fee payer); a P256 actor falls back to the global payer.
         let fee_payer = self
@@ -178,9 +179,7 @@ impl LifecycleWorld {
             .map(|k| k.insecure_clone())
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
-        let send_index = self.actor(from).send_counter;
-        let sender_view_tag = from_keypair.get_sender_view_tag(send_index)?;
-        self.actor_mut(from).send_counter += 1;
+        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
         let spends: Vec<SpendUtxo> = inputs
             .iter()
@@ -188,10 +187,10 @@ impl LifecycleWorld {
             .collect();
         let mut tx =
             ClientTransaction::new(from_keypair.shielded_address()?, spends, payer_address);
-        if let (Some(addr), Some(tag)) = (&to_address, to_view_tag) {
-            tx.send(addr, send_asset, amount, tag)?;
+        if let Some(addr) = &to_address {
+            tx.send(addr, send_asset, amount)?;
         }
-        let signed = tx.sign(&from_keypair, &self.assets, sender_view_tag)?;
+        let signed = tx.sign(&from_keypair, &self.assets)?;
 
         let commitments = signed.input_commitments()?;
         let mut spend_proofs = Vec::new();

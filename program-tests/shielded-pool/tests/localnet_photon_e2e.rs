@@ -789,8 +789,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let sender = ShieldedKeypair::new()?;
     let recipient = ShieldedKeypair::new()?;
     let recipient_address = recipient.shielded_address()?;
-    let recipient_view_tag = recipient.recipient_bootstrap_view_tag();
-    let sender_view_tag = sender.get_sender_view_tag(0)?;
+    let recipient_view_tag = recipient.signing_pubkey().confidential_view_tag()?;
     let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
     let sender_nullifier_pk = sender_nullifier_key.pubkey()?;
 
@@ -831,13 +830,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // ---- build the encrypted transfer with the high-level client builder ----
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let mut tx = ClientTransaction::new(sender.shielded_address()?, spends, payer_address);
-    tx.send(
-        &recipient_address,
-        SOL_MINT,
-        TRANSFER_AMOUNT,
-        recipient_view_tag,
-    )?;
-    let signed = tx.sign(&sender, &assets, sender_view_tag)?;
+    tx.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
+    let signed = tx.sign(&sender, &assets)?;
 
     let commitments = signed.input_commitments()?;
     let mut spend_proofs = Vec::new();

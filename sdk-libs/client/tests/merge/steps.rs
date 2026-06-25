@@ -116,7 +116,7 @@ impl MergeWorld {
         // reconstructs the merged UTXO purely from the recovered fields, proving
         // the verifiable encryption yields a spendable output.
         let recovered = sender
-            .decrypt_merge(&result.tx_viewing_pk, &result.ciphertext)
+            .decrypt_verifiable(&result.tx_viewing_pk, &result.ciphertext)
             .expect("decrypt merge ciphertext");
         assert_eq!(recovered.len(), 8 + 32 + 31, "merge plaintext length");
         let amount = u64::from_be_bytes(recovered[0..8].try_into().unwrap());
