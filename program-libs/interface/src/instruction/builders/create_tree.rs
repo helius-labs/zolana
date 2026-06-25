@@ -1,6 +1,7 @@
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 
 use crate::{
     instruction::{tag, CreateTreeData},
@@ -20,12 +21,34 @@ pub struct CreateTree {
 
 impl CreateTree {
     pub fn instruction(&self) -> Instruction {
+        self.build_instruction(None)
+    }
+
+    /// Build a create-tree instruction with custom nullifier-tree params.
+    /// Tree creation remains authority-gated, and the program validates the
+    /// account layout during initialization.
+    pub fn instruction_with_nullifier_params(
+        &self,
+        params: InitAddressTreeAccountsInstructionData,
+    ) -> Instruction {
+        self.build_instruction(Some(params))
+    }
+
+    fn build_instruction(
+        &self,
+        params: Option<InitAddressTreeAccountsInstructionData>,
+    ) -> Instruction {
         let mut data = vec![tag::CREATE_TREE];
         CreateTreeData {
             owner: self.owner.to_bytes(),
         }
         .serialize(&mut data)
         .expect("shielded-pool instruction serialization is infallible");
+        if let Some(params) = params {
+            params
+                .serialize(&mut data)
+                .expect("shielded-pool instruction serialization is infallible");
+        }
 
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,

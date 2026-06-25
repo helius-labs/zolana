@@ -42,7 +42,7 @@ func SetupBatchAddressAppend(height uint32, batchSize uint32) (*common.BatchProo
 }
 
 func ImportBatchAddressAppendSetup(treeHeight uint32, batchSize uint32, pkPath string, vkPath string) (*common.BatchProofSystem, error) {
-	circuit := InitBatchAddressTreeAppendCircuit(batchSize, treeHeight)
+	circuit := InitBatchAddressTreeAppendCircuit(treeHeight, batchSize)
 
 	fmt.Println("Compiling circuit")
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circuit)

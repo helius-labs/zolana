@@ -2,7 +2,8 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 use crate::prover::inputs::{
-    MergeInputs, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
+    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs, UtxoInputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -290,6 +291,70 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BatchAddressAppendParametersJson {
+    #[serde(rename = "circuitType")]
+    pub circuit_type: String,
+    #[serde(rename = "stateTreeHeight")]
+    pub state_tree_height: u32,
+    #[serde(rename = "publicInputHash")]
+    pub public_input_hash: String,
+    #[serde(rename = "oldRoot")]
+    pub old_root: String,
+    #[serde(rename = "newRoot")]
+    pub new_root: String,
+    #[serde(rename = "hashchainHash")]
+    pub hashchain_hash: String,
+    #[serde(rename = "startIndex")]
+    pub start_index: u64,
+    #[serde(rename = "lowElementValues")]
+    pub low_element_values: Vec<String>,
+    #[serde(rename = "lowElementIndices")]
+    pub low_element_indices: Vec<String>,
+    #[serde(rename = "lowElementNextValues")]
+    pub low_element_next_values: Vec<String>,
+    #[serde(rename = "newElementValues")]
+    pub new_element_values: Vec<String>,
+    #[serde(rename = "lowElementProofs")]
+    pub low_element_proofs: Vec<Vec<String>>,
+    #[serde(rename = "newElementProofs")]
+    pub new_element_proofs: Vec<Vec<String>>,
+    #[serde(rename = "treeHeight")]
+    pub tree_height: u32,
+    #[serde(rename = "batchSize")]
+    pub batch_size: u32,
+}
+
+/// Serialize a batch address-append witness to the prover server's JSON request
+/// body. This circuit is used by the nullifier-tree forester path.
+pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) -> String {
+    let strings = |values: &[BigUint]| values.iter().map(big_uint_to_string).collect();
+    let proof_strings = |proofs: &[Vec<BigUint>]| {
+        proofs
+            .iter()
+            .map(|proof| proof.iter().map(big_uint_to_string).collect())
+            .collect()
+    };
+    let json = BatchAddressAppendParametersJson {
+        circuit_type: "address-append".to_string(),
+        state_tree_height: 0,
+        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+        old_root: big_uint_to_string(&inputs.old_root),
+        new_root: big_uint_to_string(&inputs.new_root),
+        hashchain_hash: big_uint_to_string(&inputs.hashchain_hash),
+        start_index: inputs.start_index,
+        low_element_values: strings(&inputs.low_element_values),
+        low_element_indices: strings(&inputs.low_element_indices),
+        low_element_next_values: strings(&inputs.low_element_next_values),
+        new_element_values: strings(&inputs.new_element_values),
+        low_element_proofs: proof_strings(&inputs.low_element_proofs),
+        new_element_proofs: proof_strings(&inputs.new_element_proofs),
+        tree_height: inputs.tree_height,
+        batch_size: inputs.batch_size,
+    };
+    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
 /// Serialize the Solana-only transfer witness to the prover server's JSON request body.
 pub(crate) fn to_json(inputs: &TransferInputs) -> String {
     let json = TransferInputsJson {
@@ -406,5 +471,51 @@ mod merge_tests {
         assert!(!in0["ownerPkHash"].is_null());
         assert!(!in0["nullifierSecret"].is_null());
         assert_eq!(value["output"]["hash"], "0xabc");
+    }
+
+    #[test]
+    fn to_json_batch_address_append_shape() {
+        let inputs = BatchAddressAppendInputs {
+            public_input_hash: BigUint::from(1u8),
+            old_root: BigUint::from(2u8),
+            new_root: BigUint::from(3u8),
+            hashchain_hash: BigUint::from(4u8),
+            start_index: 5,
+            low_element_values: vec![BigUint::from(6u8), BigUint::from(7u8)],
+            low_element_indices: vec![BigUint::from(8u8), BigUint::from(9u8)],
+            low_element_next_values: vec![BigUint::from(10u8), BigUint::from(11u8)],
+            new_element_values: vec![BigUint::from(12u8), BigUint::from(13u8)],
+            low_element_proofs: vec![
+                vec![BigUint::from(14u8), BigUint::from(15u8)],
+                vec![BigUint::from(16u8), BigUint::from(17u8)],
+            ],
+            new_element_proofs: vec![
+                vec![BigUint::from(18u8), BigUint::from(19u8)],
+                vec![BigUint::from(20u8), BigUint::from(21u8)],
+            ],
+            tree_height: 40,
+            batch_size: 2,
+        };
+
+        let value: serde_json::Value =
+            serde_json::from_str(&to_json_batch_address_append(&inputs)).unwrap();
+        assert_eq!(value["circuitType"], "address-append");
+        assert_eq!(value["stateTreeHeight"], 0);
+        assert_eq!(value["publicInputHash"], "0x1");
+        assert_eq!(value["oldRoot"], "0x2");
+        assert_eq!(value["newRoot"], "0x3");
+        assert_eq!(value["hashchainHash"], "0x4");
+        assert_eq!(value["startIndex"], 5);
+        assert_eq!(value["treeHeight"], 40);
+        assert_eq!(value["batchSize"], 2);
+        assert_eq!(value["lowElementValues"], serde_json::json!(["0x6", "0x7"]));
+        assert_eq!(
+            value["lowElementProofs"],
+            serde_json::json!([["0xe", "0xf"], ["0x10", "0x11"]])
+        );
+        assert_eq!(
+            value["newElementProofs"],
+            serde_json::json!([["0x12", "0x13"], ["0x14", "0x15"]])
+        );
     }
 }

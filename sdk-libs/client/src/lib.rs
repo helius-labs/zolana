@@ -23,11 +23,11 @@ pub use prover::transact::{
     assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof,
 };
 pub use prover::{
-    canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments,
-    MergeProofResult, MergeProver, P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts,
-    Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferP256ProofResult, TransferP256Prover, TransferProofResult, TransferProver,
-    TransferSpendInput, UtxoInputs, SUPPORTED_SHAPES,
+    canonical_shape, resolve_shape, spawn_prover, BatchAddressAppendInputs, Commitments,
+    CompressedCommitments, MergeProofResult, MergeProver, P256Owner, Proof, ProofCompressed,
+    ProverClient, PublicAmounts, Shape, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
+    TransferProver, TransferSpendInput, UtxoInputs, SUPPORTED_SHAPES,
 };
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
