@@ -50,6 +50,7 @@ use zolana_keypair::{NullifierKey, ViewingKey};
 use zolana_program_test::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
 };
+use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::transaction::private_tx_hash;
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -60,7 +61,7 @@ use crate::transact_common::{
     prove_and_verify_transfer, public_input_hash, public_sol_field, start_prover, transfer_output,
     TransferProverInputsArgs,
 };
-use nullifier_test_forester::NullifierTestForester;
+use nullifier_test_forester::{ForesterAuthority, NullifierTestForester};
 
 use zolana_client::{
     ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
@@ -604,6 +605,10 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
 
     let payer = Keypair::new();
     let authority = Keypair::new();
+    let forester_key = Keypair::new();
+    let merge_key = Keypair::new();
+    let tree_key = Keypair::new();
+    let zone_key = Keypair::new();
     print_signature(
         "airdrop forester-test payer",
         &rpc.airdrop(&payer.pubkey(), 20_000_000_000)?,
@@ -612,41 +617,75 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         "airdrop forester-test authority",
         &rpc.airdrop(&authority.pubkey(), 1_000_000_000)?,
     );
+    print_signature(
+        "airdrop forester-test forester",
+        &rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?,
+    );
 
-    let authority_bytes = authority.pubkey().to_bytes();
+    let accounts = smart_account::standard_accounts();
+    for ix in accounts.create_ixs(
+        &payer.pubkey(),
+        StandardSigners {
+            protocol: authority.pubkey(),
+            forester: forester_key.pubkey(),
+            merge: merge_key.pubkey(),
+            tree: tree_key.pubkey(),
+            zone: zone_key.pubkey(),
+        },
+    ) {
+        send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
+    }
+    print_signature(
+        "airdrop forester-test protocol-vault",
+        &rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?,
+    );
+
     let create_config = CreateProtocolConfig {
-        authority: authority.pubkey(),
-        protocol_authority: authority_bytes.into(),
-        tree_creation_authority: authority_bytes.into(),
+        authority: accounts.protocol_vault,
+        protocol_authority: accounts.protocol_vault.to_bytes().into(),
+        tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
-        forester_authority: authority_bytes.into(),
-        zone_creation_authority: authority_bytes.into(),
+        forester_authority: accounts.forester_vault.to_bytes().into(),
+        zone_creation_authority: accounts.zone_vault.to_bytes().into(),
         zone_creation_is_permissionless: false,
-        merge_authority: authority_bytes.into(),
+        merge_authority: accounts.merge_vault.to_bytes().into(),
     }
     .instruction();
+    let create_config = execute_sync_ix(
+        &accounts.protocol_settings,
+        0,
+        &[authority.pubkey()],
+        &[create_config],
+    );
     let create_config_sig = send_transaction(
         &mut rpc,
         &[create_config],
-        &authority.pubkey(),
-        &[&authority],
+        &payer.pubkey(),
+        &[&payer, &authority],
     )?;
     print_signature("create_protocol_config", &create_config_sig);
 
     let tree = Keypair::new();
-    let create_tree = create_tree_instructions_with_nullifier_params(
+    let mut create_tree = create_tree_instructions_with_nullifier_params(
         &rpc,
         &payer.pubkey(),
-        &authority.pubkey(),
+        &accounts.tree_vault,
         &tree.pubkey(),
         tree_account_size() as u64,
         localnet_nullifier_params(),
     )?;
+    let alloc_tree = create_tree.remove(0);
+    let create_tree = execute_sync_ix(
+        &accounts.tree_settings,
+        0,
+        &[tree_key.pubkey()],
+        &create_tree,
+    );
     let create_tree_sig = send_transaction(
         &mut rpc,
-        &create_tree,
+        &[alloc_tree, create_tree],
         &payer.pubkey(),
-        &[&payer, &tree, &authority],
+        &[&payer, &tree, &tree_key],
     )?;
     print_signature("create_tree_small_nullifier_batch", &create_tree_sig);
     let tree_pubkey = tree.pubkey();
@@ -910,8 +949,17 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     let mut forester = NullifierTestForester::default();
     let mut previous_forester_roots = before_forester;
     for batch_index in 0..LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT {
-        let forester_sig =
-            forester.run_once(&mut rpc, &authority, tree_pubkey, &queued_nullifiers)?;
+        let forester_sig = forester.run(
+            &mut rpc,
+            ForesterAuthority {
+                signer: &forester_key,
+                settings: accounts.forester_settings,
+                account_index: 0,
+                vault: accounts.forester_vault,
+            },
+            tree_pubkey,
+            &queued_nullifiers,
+        )?;
         print_signature(
             &format!("batch_update_nullifier_tree_{batch_index}"),
             &forester_sig,
@@ -1316,6 +1364,10 @@ fn restart_localnet() {
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
+    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
+    let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
+    let smart_account_account_dir = "/tmp/zolana-photon-smart-account-accounts";
+    smart_account::write_program_config_fixture(smart_account_account_dir);
 
     let status = std::process::Command::new(&cli)
         .current_dir(root)
@@ -1333,6 +1385,11 @@ fn restart_localnet() {
             "--sbf-program",
             &program_id,
             &program_so,
+            "--sbf-program",
+            &smart_account_id,
+            &smart_account_so,
+            "--account-dir",
+            smart_account_account_dir,
         ])
         .status()
         .expect("run zolana test-validator");

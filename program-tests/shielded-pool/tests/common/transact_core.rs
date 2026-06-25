@@ -43,16 +43,7 @@ pub fn fe(value: u64) -> [u8; 32] {
 }
 
 pub fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
-    let compressed = ProofCompressed::try_from(*proof)?;
-    let mut out = [0u8; 192];
-    out[0..32].copy_from_slice(&compressed.a);
-    out[32..96].copy_from_slice(&compressed.b);
-    out[96..128].copy_from_slice(&compressed.c);
-    if let Some(commitment) = compressed.commitment {
-        out[128..160].copy_from_slice(&commitment.commitment);
-        out[160..192].copy_from_slice(&commitment.commitment_pok);
-    }
-    Ok(out)
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof_bytes())
 }
 
 /// Mirror of the eddsa-only `TransactProof::public_input_hash`.

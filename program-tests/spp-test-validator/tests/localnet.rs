@@ -24,16 +24,7 @@ pub(crate) const RECIPIENT_POSITION_BASE: u8 = 2;
 /// Pack a Groth16 proof (with optional BSB22 commitment) into the 192-byte
 /// layout the program reads.
 pub(crate) fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
-    let compressed = ProofCompressed::try_from(*proof)?;
-    let mut out = [0u8; 192];
-    out[0..32].copy_from_slice(&compressed.a);
-    out[32..96].copy_from_slice(&compressed.b);
-    out[96..128].copy_from_slice(&compressed.c);
-    if let Some(commitment) = compressed.commitment {
-        out[128..160].copy_from_slice(&commitment.commitment);
-        out[160..192].copy_from_slice(&commitment.commitment_pok);
-    }
-    Ok(out)
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof_bytes())
 }
 
 /// Start the persistent prover server (idempotent), pointing it at the committed
@@ -72,11 +63,10 @@ pub(crate) fn restart_localnet() {
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
 
-    // Inject a pre-initialised ProgramConfig so the validator starts with
-    // smart_account_index = 0. Seeds for the three accounts are therefore
-    // deterministic: protocol = 1, forester = 2, merge = 3.
+    // Inject a pre-initialised ProgramConfig so the standard smart-account
+    // seeds are deterministic.
     let account_dir = "/tmp/zolana-smart-account-accounts";
-    write_program_config_fixture(account_dir);
+    smart_account::write_program_config_fixture(account_dir);
 
     let status = std::process::Command::new(&cli)
         .current_dir(root)
@@ -106,45 +96,6 @@ pub(crate) fn restart_localnet() {
         .status()
         .expect("run zolana test-validator");
     assert!(status.success(), "zolana test-validator restart failed");
-}
-
-fn write_program_config_fixture(account_dir: &str) {
-    let (pda, _) = smart_account::program_config_pda();
-
-    // 160-byte ProgramConfig layout:
-    // discriminator[8] + smart_account_index[16] + authority[32] + smart_account_creation_fee[8] + treasury[32] + _reserved[64]
-    // smart_account_index = 0 means the first settings seed = 1.
-    // treasury must be a non-executable, non-default pubkey.
-    let mut data = [0u8; 160];
-    data[..8].copy_from_slice(&smart_account::PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR);
-    data[64..96].copy_from_slice(&smart_account::treasury_pda().to_bytes());
-    let encoded = base64_encode(&data);
-
-    let json = format!(
-        r#"{{"pubkey":"{pda}","account":{{"lamports":1000000,"data":["{encoded}","base64"],"owner":"{}","executable":false,"rentEpoch":18446744073709551615}}}}"#,
-        smart_account::SMART_ACCOUNT_PROGRAM_ID,
-    );
-
-    std::fs::create_dir_all(account_dir).expect("create smart account account dir");
-    std::fs::write(format!("{account_dir}/squads_program_config.json"), json)
-        .expect("write squads program config fixture");
-}
-
-fn base64_encode(input: &[u8]) -> String {
-    const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let ch = |idx: u32| char::from(*CHARS.get((idx & 0x3F) as usize).expect("base64 index"));
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b0 = u32::from(*chunk.first().unwrap_or(&0));
-        let b1 = u32::from(*chunk.get(1).unwrap_or(&0));
-        let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(ch(n >> 18));
-        out.push(ch(n >> 12));
-        out.push(if chunk.len() > 1 { ch(n >> 6) } else { '=' });
-        out.push(if chunk.len() > 2 { ch(n) } else { '=' });
-    }
-    out
 }
 
 pub(crate) fn send_transaction(
