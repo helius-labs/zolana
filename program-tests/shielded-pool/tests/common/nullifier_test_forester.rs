@@ -14,6 +14,7 @@ use zolana_client::{
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_test_utils::smart_account;
 use zolana_tree::TreeAccount;
 
 type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
@@ -23,14 +24,46 @@ pub struct NullifierTestForester {
     inserted_nullifiers: Vec<[u8; 32]>,
 }
 
+#[derive(Clone, Copy)]
+pub struct ForesterAuthority<'a> {
+    pub signer: &'a Keypair,
+    pub settings: Pubkey,
+    pub account_index: u8,
+    pub vault: Pubkey,
+}
+
 impl NullifierTestForester {
-    pub fn run_once(
+    pub fn run(
         &mut self,
         rpc: &mut SolanaRpc,
-        authority: &Keypair,
+        authority: ForesterAuthority<'_>,
         pool_tree: Pubkey,
         queued_nullifiers: &[[u8; 32]],
     ) -> Result<Signature> {
+        let (batch_update, batch_len) =
+            self.build_instruction(rpc, authority.vault, pool_tree, queued_nullifiers)?;
+        let execute = smart_account::execute_sync_ix(
+            &authority.settings,
+            authority.account_index,
+            &[authority.signer.pubkey()],
+            &[batch_update],
+        );
+        let fee_payer = authority.signer.pubkey();
+        let (blockhash, _) = rpc.get_latest_blockhash()?;
+        let message = Message::new(&[execute], Some(&fee_payer));
+        let tx = Transaction::new(&[authority.signer], message, blockhash);
+        let signature = rpc.send_transaction(&tx)?;
+        self.mark_batch_inserted(queued_nullifiers, batch_len);
+        Ok(signature)
+    }
+
+    fn build_instruction(
+        &self,
+        rpc: &SolanaRpc,
+        authority: Pubkey,
+        pool_tree: Pubkey,
+        queued_nullifiers: &[[u8; 32]],
+    ) -> Result<(solana_instruction::Instruction, usize)> {
         let plan = ForesterPlan::from_chain(rpc, pool_tree)?;
         let start = self.inserted_nullifiers.len();
         let end = start + plan.zkp_batch_size;
@@ -55,22 +88,24 @@ impl NullifierTestForester {
             },
         };
 
-        let authority_pubkey = authority.pubkey();
-        let ix = BatchUpdateNullifierTree {
-            authority: authority_pubkey,
-            tree: pool_tree,
-            new_root: batch_update.new_root,
-            compressed_proof_a: batch_update.compressed_proof.a,
-            compressed_proof_b: batch_update.compressed_proof.b,
-            compressed_proof_c: batch_update.compressed_proof.c,
-        }
-        .instruction();
-        let (blockhash, _) = rpc.get_latest_blockhash()?;
-        let message = Message::new(&[ix], Some(&authority_pubkey));
-        let tx = Transaction::new(&[authority], message, blockhash);
-        let signature = rpc.send_transaction(&tx)?;
-        self.inserted_nullifiers.extend_from_slice(batch_values);
-        Ok(signature)
+        Ok((
+            BatchUpdateNullifierTree {
+                authority,
+                tree: pool_tree,
+                new_root: batch_update.new_root,
+                compressed_proof_a: batch_update.compressed_proof.a,
+                compressed_proof_b: batch_update.compressed_proof.b,
+                compressed_proof_c: batch_update.compressed_proof.c,
+            }
+            .instruction(),
+            batch_values.len(),
+        ))
+    }
+
+    fn mark_batch_inserted(&mut self, queued_nullifiers: &[[u8; 32]], batch_len: usize) {
+        let start = self.inserted_nullifiers.len();
+        self.inserted_nullifiers
+            .extend_from_slice(&queued_nullifiers[start..start + batch_len]);
     }
 
     fn build_inputs(

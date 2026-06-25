@@ -136,7 +136,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
 # so the protocol-config singleton never collides across tests.
-test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon
+test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -349,6 +349,13 @@ fetch-smart-account:
     solana program dump SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG \
         target/deploy/squads_smart_account_program.so \
         --url https://api.mainnet-beta.solana.com
+
+ensure-smart-account:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f target/deploy/squads_smart_account_program.so ]]; then
+        just fetch-smart-account
+    fi
 
 build-prover-server:
     mkdir -p target

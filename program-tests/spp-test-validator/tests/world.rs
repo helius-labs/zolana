@@ -17,10 +17,7 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_test_utils::smart_account::{
-    create_smart_account_ix, execute_sync_ix, settings_pda, smart_account_pda, treasury_pda,
-    Permissions, SmartAccountSigner,
-};
+use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -114,116 +111,37 @@ impl LifecycleWorld {
         rpc.airdrop(&tree_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&zone_key.pubkey(), 1_000_000_000)?;
 
-        // Seeds are deterministic: the injected ProgramConfig starts with
-        // smart_account_index = 0; the program uses index + 1 as each seed.
-        let (protocol_settings, _) = settings_pda(1);
-        let (protocol_vault, _) = smart_account_pda(&protocol_settings, 0);
-        let (forester_settings, _) = settings_pda(2);
-        let (forester_vault, _) = smart_account_pda(&forester_settings, 0);
-        let (merge_settings, _) = settings_pda(3);
-        let (merge_vault, _) = smart_account_pda(&merge_settings, 0);
-        let (tree_settings, _) = settings_pda(4);
-        let (tree_vault, _) = smart_account_pda(&tree_settings, 0);
-        let (zone_settings, _) = settings_pda(5);
-        let (zone_vault, _) = smart_account_pda(&zone_settings, 0);
-
-        let signer_all = |key: Pubkey| {
-            vec![SmartAccountSigner {
-                key,
-                permissions: Permissions::all(),
-            }]
-        };
-
-        let treasury = treasury_pda();
-
-        send_transaction(
-            &mut rpc,
-            &[create_smart_account_ix(
-                &payer.pubkey(),
-                &treasury,
-                1,
-                None,
-                &signer_all(authority.pubkey()),
-                1,
-                0,
-            )],
+        let accounts = smart_account::standard_accounts();
+        for ix in accounts.create_ixs(
             &payer.pubkey(),
-            &[&payer],
-        )?;
-        send_transaction(
-            &mut rpc,
-            &[create_smart_account_ix(
-                &payer.pubkey(),
-                &treasury,
-                2,
-                Some(protocol_vault),
-                &signer_all(forester_key.pubkey()),
-                1,
-                0,
-            )],
-            &payer.pubkey(),
-            &[&payer],
-        )?;
-        send_transaction(
-            &mut rpc,
-            &[create_smart_account_ix(
-                &payer.pubkey(),
-                &treasury,
-                3,
-                Some(protocol_vault),
-                &signer_all(merge_key.pubkey()),
-                1,
-                0,
-            )],
-            &payer.pubkey(),
-            &[&payer],
-        )?;
-        send_transaction(
-            &mut rpc,
-            &[create_smart_account_ix(
-                &payer.pubkey(),
-                &treasury,
-                4,
-                Some(protocol_vault),
-                &signer_all(tree_key.pubkey()),
-                1,
-                0,
-            )],
-            &payer.pubkey(),
-            &[&payer],
-        )?;
-        send_transaction(
-            &mut rpc,
-            &[create_smart_account_ix(
-                &payer.pubkey(),
-                &treasury,
-                5,
-                Some(protocol_vault),
-                &signer_all(zone_key.pubkey()),
-                1,
-                0,
-            )],
-            &payer.pubkey(),
-            &[&payer],
-        )?;
+            StandardSigners {
+                protocol: authority.pubkey(),
+                forester: forester_key.pubkey(),
+                merge: merge_key.pubkey(),
+                tree: tree_key.pubkey(),
+                zone: zone_key.pubkey(),
+            },
+        ) {
+            send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        }
 
         // The shielded pool program requires the fee payer == protocol_authority,
         // so we CPI via execute_sync_ix with the protocol vault as the inner fee payer.
-        rpc.airdrop(&protocol_vault, 5_000_000_000)?;
+        rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
 
         let create_config_ix = CreateProtocolConfig {
-            authority: protocol_vault,
-            protocol_authority: protocol_vault.to_bytes().into(),
-            tree_creation_authority: tree_vault.to_bytes().into(),
+            authority: accounts.protocol_vault,
+            protocol_authority: accounts.protocol_vault.to_bytes().into(),
+            tree_creation_authority: accounts.tree_vault.to_bytes().into(),
             tree_creation_is_permissionless: false,
-            forester_authority: forester_vault.to_bytes().into(),
-            zone_creation_authority: zone_vault.to_bytes().into(),
+            forester_authority: accounts.forester_vault.to_bytes().into(),
+            zone_creation_authority: accounts.zone_vault.to_bytes().into(),
             zone_creation_is_permissionless: false,
-            merge_authority: merge_vault.to_bytes().into(),
+            merge_authority: accounts.merge_vault.to_bytes().into(),
         }
         .instruction();
         let create_config_sync = execute_sync_ix(
-            &protocol_settings,
+            &accounts.protocol_settings,
             0,
             &[authority.pubkey()],
             &[create_config_ix],
@@ -247,13 +165,17 @@ impl LifecycleWorld {
             &pda::shielded_pool_program_id(),
         );
         let create_tree_ix = zolana_interface::instruction::CreateTree {
-            authority: tree_vault,
+            authority: accounts.tree_vault,
             tree: tree.pubkey(),
-            owner: tree_vault,
+            owner: accounts.tree_vault,
         }
         .instruction();
-        let create_tree_sync =
-            execute_sync_ix(&tree_settings, 0, &[tree_key.pubkey()], &[create_tree_ix]);
+        let create_tree_sync = execute_sync_ix(
+            &accounts.tree_settings,
+            0,
+            &[tree_key.pubkey()],
+            &[create_tree_ix],
+        );
         send_transaction(
             &mut rpc,
             &[alloc_ix, create_tree_sync],
@@ -277,10 +199,10 @@ impl LifecycleWorld {
             last_rail: None,
             last_transact: None,
             last_merge: None,
-            protocol_settings,
-            protocol_vault,
-            merge_settings,
-            merge_vault,
+            protocol_settings: accounts.protocol_settings,
+            protocol_vault: accounts.protocol_vault,
+            merge_settings: accounts.merge_settings,
+            merge_vault: accounts.merge_vault,
             merge_key,
         })
     }
