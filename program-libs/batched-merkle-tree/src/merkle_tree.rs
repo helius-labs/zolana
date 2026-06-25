@@ -775,6 +775,15 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         &self.layout.root_history.data
     }
 
+    /// Return a stored queue hash-chain for a pending ZKP batch.
+    pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
+        self.layout
+            .hash_chains
+            .get(batch_index)
+            .and_then(|chain| chain.data.get(zkp_batch_index))
+            .copied()
+    }
+
     /// Return a reference to the metadata of the tree.
     pub fn get_metadata(&self) -> &BatchedMerkleTreeMetadata {
         &self.layout.metadata

@@ -24,11 +24,11 @@ pub use private_transaction::{
     SignedTransaction, SpendProof, SpendUtxo, Transaction, WithdrawalTarget, MERGE_INPUTS,
 };
 pub use prover::{
-    canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments,
-    MergeProofResult, MergeProver, P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts,
-    Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferP256ProofResult, TransferP256Prover, TransferProofResult, TransferProver,
-    TransferSpendInput, UtxoInputs, SUPPORTED_SHAPES,
+    canonical_shape, resolve_shape, spawn_prover, BatchAddressAppendInputs, Commitments,
+    CompressedCommitments, MergeProofResult, MergeProver, P256Owner, Proof, ProofCompressed,
+    ProverClient, PublicAmounts, Shape, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
+    TransferProver, TransferSpendInput, UtxoInputs, SUPPORTED_SHAPES,
 };
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,

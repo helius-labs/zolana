@@ -33,11 +33,18 @@ func (circuit *BatchAddressTreeAppendCircuit) Define(api frontend.API) error {
 	currentRoot := circuit.OldRoot
 
 	for i := uint32(0); i < circuit.BatchSize; i++ {
-		oldLowLeafHash := abstractor.Call(api, gadget.LeafHashGadget{
-			LeafLowerRangeValue:  circuit.LowElementValues[i],
-			LeafHigherRangeValue: circuit.LowElementNextValues[i],
-			Value:                circuit.NewElementValues[i],
-		})
+		gadget.AssertStrictlyOrderedFullField(
+			api,
+			circuit.LowElementValues[i],
+			circuit.NewElementValues[i],
+			circuit.LowElementNextValues[i],
+		)
+
+		oldLowLeafHash := gadget.IndexedLeafHash(
+			api,
+			circuit.LowElementValues[i],
+			circuit.LowElementNextValues[i],
+		)
 
 		lowLeafHash := gadget.PoseidonHash(api, []frontend.Variable{
 			circuit.LowElementValues[i],

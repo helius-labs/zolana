@@ -62,3 +62,12 @@ func IsLessLimbs(api frontend.API, a, b fieldLimbs) frontend.Variable {
 	loLess := isLessBounded(api, a.lo, b.lo, a.loBits)
 	return api.Add(hiLess, api.Mul(hiEqual, loLess))
 }
+
+func AssertIsLessFullField(api frontend.API, a, b frontend.Variable) {
+	api.AssertIsEqual(IsLessLimbs(api, CanonicalLimbs(api, a), CanonicalLimbs(api, b)), 1)
+}
+
+func AssertStrictlyOrderedFullField(api frontend.API, lo, mid, hi frontend.Variable) {
+	AssertIsLessFullField(api, lo, mid)
+	AssertIsLessFullField(api, mid, hi)
+}

@@ -201,6 +201,26 @@ pub struct MergeInputs {
     pub public_input_hash: BigUint,
 }
 
+/// Flat witness for the batch address-append circuit used by the nullifier tree
+/// forester. Mirrors prover/server/prover/nullifier_tree/params.go
+/// BatchAddressAppendParameters.
+#[derive(Debug, Clone)]
+pub struct BatchAddressAppendInputs {
+    pub public_input_hash: BigUint,
+    pub old_root: BigUint,
+    pub new_root: BigUint,
+    pub hashchain_hash: BigUint,
+    pub start_index: u64,
+    pub low_element_values: Vec<BigUint>,
+    pub low_element_indices: Vec<BigUint>,
+    pub low_element_next_values: Vec<BigUint>,
+    pub new_element_values: Vec<BigUint>,
+    pub low_element_proofs: Vec<Vec<BigUint>>,
+    pub new_element_proofs: Vec<Vec<BigUint>>,
+    pub tree_height: u32,
+    pub batch_size: u32,
+}
+
 /// Flat, pre-computed witness for the Solana-only spp_transaction circuit. This
 /// rail has no P256 gadget, so there is no P256 pubkey/signature/message-hash.
 /// Mirrors prover/server/prover/transfer_eddsa_only/params.go TransferParameters.

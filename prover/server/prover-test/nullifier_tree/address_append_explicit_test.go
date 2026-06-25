@@ -3,6 +3,7 @@ package nullifiertreetest
 import (
 	"math/big"
 	"testing"
+	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover/nullifier_tree"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -41,4 +42,65 @@ func TestBuildAddressAppendParamsFromExplicitValues(t *testing.T) {
 	if err := test.IsSolved(&circuit, witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("circuit not satisfied by explicit-value witness: %v", err)
 	}
+}
+
+func TestBuildNullifierAppendParamsFromFullFieldSentinel(t *testing.T) {
+	const height, batch = 40, 10
+	tree, err := protocol.NewNullifierTree()
+	if err != nil {
+		t.Fatalf("new nullifier tree: %v", err)
+	}
+
+	params := &nullifiertree.BatchAddressAppendParameters{
+		StartIndex:           tree.NextIndex(),
+		TreeHeight:           height,
+		BatchSize:            batch,
+		OldRoot:              tree.Root(),
+		LowElementValues:     make([]big.Int, batch),
+		LowElementIndices:    make([]big.Int, batch),
+		LowElementNextValues: make([]big.Int, batch),
+		NewElementValues:     make([]big.Int, batch),
+		LowElementProofs:     make([][]big.Int, batch),
+		NewElementProofs:     make([][]big.Int, batch),
+	}
+
+	for i := uint32(0); i < batch; i++ {
+		value := big.NewInt(int64(1000 + i))
+		witness, err := tree.InsertWithWitness(value, height)
+		if err != nil {
+			t.Fatalf("insert witness %d: %v", i, err)
+		}
+		params.LowElementValues[i].Set(witness.LowValue)
+		params.LowElementIndices[i].SetUint64(witness.LowIndex)
+		params.LowElementNextValues[i].Set(witness.NextValue)
+		params.NewElementValues[i].Set(value)
+		params.LowElementProofs[i] = copyBigInts(witness.LowElementProof)
+		params.NewElementProofs[i] = copyBigInts(witness.NewElementProof)
+	}
+
+	params.NewRoot = tree.Root()
+	params.HashchainHash = computeNewElementsHashChain(params.NewElementValues)
+	params.PublicInputHash = computePublicInputHash(
+		params.OldRoot,
+		params.NewRoot,
+		params.HashchainHash,
+		params.StartIndex,
+	)
+
+	assignment, err := params.CreateWitness()
+	if err != nil {
+		t.Fatalf("create witness: %v", err)
+	}
+	circuit := nullifiertree.InitBatchAddressTreeAppendCircuit(height, batch)
+	if err := test.IsSolved(&circuit, assignment, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("circuit not satisfied by nullifier-tree witness: %v", err)
+	}
+}
+
+func copyBigInts(values []*big.Int) []big.Int {
+	out := make([]big.Int, len(values))
+	for i, value := range values {
+		out[i].Set(value)
+	}
+	return out
 }

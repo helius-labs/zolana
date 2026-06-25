@@ -118,28 +118,20 @@ where
         new_element: &IndexedElement<I>,
         new_element_next_value: &BigUint,
     ) -> Result<(), IndexedReferenceMerkleTreeError> {
-        // Update the low element.
         let new_low_leaf = new_low_element.hash::<H>(&new_element.value)?;
-        println!("reference update new low leaf hash {:?}", new_low_leaf);
         self.merkle_tree.update(
             &new_low_leaf,
             usize::try_from(new_low_element.index).unwrap(),
         )?;
-        println!("reference updated root {:?}", self.merkle_tree.root());
-        // Append the new element.
         let new_leaf = new_element.hash::<H>(new_element_next_value)?;
-        println!("reference update new leaf hash {:?}", new_leaf);
         self.merkle_tree.append(&new_leaf)?;
-        println!("reference appended root {:?}", self.merkle_tree.root());
 
         Ok(())
     }
 
     // TODO: add append with new value, so that we don't need to compute the lowlevel values manually
     pub fn append(&mut self, value: &BigUint) -> Result<(), IndexedReferenceMerkleTreeError> {
-        println!("\n\nappending {:?}", value);
         let nullifier_bundle = self.indexed_array.append(value)?;
-        println!("\n\nnullifier_bundle {:?}", nullifier_bundle);
         self.update(
             &nullifier_bundle.new_low_element,
             &nullifier_bundle.new_element,

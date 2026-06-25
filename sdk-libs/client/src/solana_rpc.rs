@@ -146,7 +146,7 @@ impl SolanaRpc {
         Ok(ConfirmedInstructionGroups { groups })
     }
 
-    fn fetch_confirmed_transaction(
+    pub fn fetch_confirmed_transaction(
         &self,
         signature: &Signature,
     ) -> Result<EncodedConfirmedTransactionWithStatusMeta, ClientError> {
