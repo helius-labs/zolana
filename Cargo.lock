@@ -9966,7 +9966,6 @@ dependencies = [
  "cucumber",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.6",
- "num-traits",
  "p256",
  "proptest",
  "rayon",

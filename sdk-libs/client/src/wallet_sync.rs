@@ -275,7 +275,8 @@ mod tests {
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-    use zolana_transaction::{Address, SOL_MINT};
+    use zolana_transaction::serialization::Proofless;
+    use zolana_transaction::{Address, OwnerCx, UtxoSerialization, SOL_MINT};
 
     use super::*;
     use crate::rpc::{
@@ -356,10 +357,7 @@ mod tests {
         let wallet =
             Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
         let output = proofless_output_for_wallet(&wallet, 1_234);
-        let item = encrypted_match(
-            wallet.keypair.recipient_bootstrap_view_tag(),
-            output.clone(),
-        );
+        let item = encrypted_match(&wallet, output.clone());
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![item],
@@ -393,10 +391,7 @@ mod tests {
         let output = proofless_output_for_wallet(&wallet, 42);
         let indexer = MockIndexer {
             transactions: Vec::new(),
-            matches: vec![encrypted_match(
-                wallet.keypair.recipient_bootstrap_view_tag(),
-                output,
-            )],
+            matches: vec![encrypted_match(&wallet, output)],
         };
 
         sync_wallet(&mut wallet, &indexer, &AssetRegistry::default())
@@ -411,10 +406,7 @@ mod tests {
     fn proofless_fetch_skips_rows_with_viewing_material() {
         let wallet =
             Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
-        let mut item = encrypted_match(
-            wallet.keypair.recipient_bootstrap_view_tag(),
-            proofless_output_for_wallet(&wallet, 1),
-        );
+        let mut item = encrypted_match(&wallet, proofless_output_for_wallet(&wallet, 1));
         item.salt = Some([1u8; 16]);
         let indexer = MockIndexer {
             transactions: Vec::new(),
@@ -447,14 +439,14 @@ mod tests {
         }
     }
 
-    fn encrypted_match(view_tag: ViewTag, output: ProoflessOutput) -> EncryptedUtxoMatch {
+    fn encrypted_match(wallet: &Wallet, output: ProoflessOutput) -> EncryptedUtxoMatch {
         EncryptedUtxoMatch {
             slot: 1,
             tx_signature: Signature::default(),
             output_slot: OutputSlot {
-                view_tag,
+                view_tag: wallet.keypair.recipient_bootstrap_view_tag(),
                 output_context: OutputContext {
-                    hash: [0u8; 32],
+                    hash: proofless_leaf_hash(wallet, &output),
                     tree: Address::new_from_array([7u8; 32]),
                     leaf_index: 13,
                 },
@@ -463,5 +455,28 @@ mod tests {
             tx_viewing_pk: None,
             salt: None,
         }
+    }
+
+    fn proofless_leaf_hash(wallet: &Wallet, output: &ProoflessOutput) -> [u8; 32] {
+        let assets = AssetRegistry::default();
+        let owner_cx = OwnerCx {
+            owner: wallet.keypair.signing_pubkey(),
+            assets: &assets,
+            zone_program_id: None,
+        };
+        let program_data_hash = output.program_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = output.policy_data_hash.unwrap_or([0u8; 32]);
+        let utxo = Proofless::into_utxos(output.clone(), &owner_cx)
+            .expect("proofless into utxos")
+            .into_iter()
+            .next()
+            .expect("proofless utxo");
+        let nullifier_pk = wallet
+            .keypair
+            .nullifier_key
+            .pubkey()
+            .expect("nullifier pubkey");
+        utxo.hash(&nullifier_pk, &program_data_hash, &zone_data_hash)
+            .expect("proofless leaf hash")
     }
 }

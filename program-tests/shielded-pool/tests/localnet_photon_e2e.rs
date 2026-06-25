@@ -20,7 +20,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::private_transaction::field::{be, right_align_slice};
+use zolana_client::prover::field::{be, right_align_slice};
 use zolana_client::{
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, Rpc, ShieldedTransaction, SolanaRpc,
@@ -39,7 +39,7 @@ use zolana_keypair::hash::owner_hash;
 use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
 use zolana_program_test::{create_tree_instructions, rpc_state_root, ZolanaProgramTest};
-use zolana_transaction::transaction::private_tx_hash;
+use zolana_transaction::instructions::transact::private_tx_hash;
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
@@ -53,13 +53,12 @@ use crate::transact_common::{
 use zolana_client::{
     ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
 };
+use zolana_event::OutputData;
 use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_transaction::transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT};
+use zolana_transaction::serialization::confidential::ConfidentialSenderBundle;
+use zolana_transaction::serialization::{DecodeCx, UtxoSerialization};
 use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{
-    AssetRegistry, SyncTransaction, TransactionEncryption, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
-    TRANSFER,
-};
+use zolana_transaction::{AssetRegistry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW};
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
@@ -838,7 +837,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         TRANSFER_AMOUNT,
         recipient_view_tag,
     )?;
-    let signed = tx.sign(Pubkey::default(), &sender, &assets, sender_view_tag)?;
+    let signed = tx.sign(&sender, &assets, sender_view_tag)?;
 
     let commitments = signed.input_commitments()?;
     let mut spend_proofs = Vec::new();
@@ -848,7 +847,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
-    let assembled = signed.assemble(&spend_proofs)?;
+    let assembled = zolana_client::assemble(signed, &spend_proofs)?;
     let proof = match &assembled.prover_inputs {
         ProverInputs::P256(inputs) => ProverClient::local().prove_transfer_p256(inputs)?,
         ProverInputs::Eddsa(_) => {
@@ -897,14 +896,6 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let salt = indexed
         .salt
         .ok_or_else(|| anyhow!("indexed transfer missing salt"))?;
-    let slots: Vec<OutputCiphertext> = indexed
-        .output_slots
-        .iter()
-        .map(|slot| OutputCiphertext {
-            view_tag: slot.view_tag,
-            data: slot.payload.clone(),
-        })
-        .collect();
     let first_nullifier = commitments
         .first()
         .ok_or_else(|| anyhow!("no input commitment"))?
@@ -912,16 +903,33 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     // Independently reconstruct the expected recipient UTXO: the sender bundle in
     // slot 0 decrypts to the shared blinding seed, from which the recipient's
-    // blinding (output position 2 = first recipient slot) derives.
-    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
-        tx_viewing_pk,
-        salt,
-        &slots,
-        SENDER_SLOT_COUNT,
+    // blinding (output position 2 = first recipient slot) derives. Each slot's
+    // borsh `OutputData` carries a scheme byte plus the per-scheme ciphertext body.
+    let sender_slot = indexed
+        .output_slots
+        .first()
+        .ok_or_else(|| anyhow!("indexed transfer missing sender slot"))?;
+    let sender_blob = match sender_slot
+        .output_data()
+        .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
+    {
+        OutputData::Encrypted(blob)
+        | OutputData::VerifiablyEncrypted(blob)
+        | OutputData::Plaintext(blob) => blob,
+    };
+    let (_scheme, sender_ciphertext) = sender_blob
+        .split_first()
+        .ok_or_else(|| anyhow!("sender bundle missing scheme byte"))?;
+    let sender_plaintext = ConfidentialSenderBundle::decode(
+        sender_ciphertext,
+        &DecodeCx {
+            viewing_key: &sender.viewing_key,
+            tx_viewing_pk: Some(tx_viewing_pk),
+            salt: Some(salt),
+            slot_index: 0,
+            first_nullifier: Some(first_nullifier),
+        },
     )?;
-    let (sender_plaintext, _) = sender
-        .viewing_key
-        .decrypt_transfer(&first_nullifier, &blob)?;
     let expected_utxo = Utxo {
         owner: recipient_address.signing_pubkey,
         asset: SOL_MINT,
@@ -934,15 +942,13 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // The recipient wallet is handed only the on-chain ciphertext and recovers by
     // decrypting it. `Wallet::store` keeps only recipient-owned notes, so the
     // sender's change slot (encrypted to the sender) is not stored.
-    let sync_tx = SyncTransaction {
-        scheme: TRANSFER,
-        tx_viewing_pk,
-        salt,
-        output_slots: slots,
-        nullifiers: indexed.nullifiers,
-    };
     let mut wallet = Wallet::new(recipient)?;
-    wallet.sync(&[sync_tx], &[], &assets, 0, DEFAULT_TAG_WINDOW)?;
+    wallet.sync(
+        std::slice::from_ref(&indexed),
+        &assets,
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
     assert_eq!(
         wallet.utxos.len(),
         1,
@@ -954,14 +960,21 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         .ok_or_else(|| anyhow!("recipient did not recover the transferred UTXO by decryption"))?;
 
     // Full-struct comparison against an independently derived expected UTXO (hash
-    // and nullifier computed the same way the wallet does).
+    // and nullifier computed the same way the wallet does). The output context is
+    // located in the indexed transaction by the independently computed hash.
     let nullifier_pk = wallet.keypair.nullifier_key.pubkey()?;
     let expected_hash = expected_utxo.hash(&nullifier_pk, &zero, &zero)?;
+    let output_context = indexed
+        .output_slots
+        .iter()
+        .find(|slot| slot.output_context.hash == expected_hash)
+        .map(|slot| slot.output_context.clone())
+        .ok_or_else(|| anyhow!("expected output not found in indexed transfer"))?;
     let expected_nullifier =
-        expected_utxo.nullifier(&expected_hash, &wallet.keypair.nullifier_key)?;
+        expected_utxo.nullifier(&output_context.hash, &wallet.keypair.nullifier_key)?;
     let expected = WalletUtxo {
         utxo: expected_utxo,
-        hash: expected_hash,
+        output_context,
         nullifier: expected_nullifier,
         spent: false,
     };
@@ -969,7 +982,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     // The decrypted note is the exact committed on-chain output, so its hash is
     // Merkle-provable (and therefore spendable by the recipient).
-    wait_for_merkle_proof(&indexer, tree_address, recovered.hash)?;
+    wait_for_merkle_proof(&indexer, tree_address, recovered.output_context.hash)?;
 
     println!(
         "encrypted shield-transfer recovered by decryption via rpc={rpc_url} indexer={indexer_url}"
