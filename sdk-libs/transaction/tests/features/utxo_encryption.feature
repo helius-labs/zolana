@@ -9,9 +9,9 @@ Feature: UTXO encryption round-trips
     Given a shielded keypair "owner"
     Then a split by "owner" round-trips through utxos
 
-  Scenario: A zone-owned recipient UTXO round-trips
+  Scenario: A zone-owned recipient UTXO with data is rejected
     Given a shielded keypair "owner"
-    Then a zone-owned recipient utxo for "owner" round-trips
+    Then a zone-owned recipient utxo with data for "owner" is rejected
 
   Scenario: Zone data without a zone program id is rejected
     Given a shielded keypair "owner"

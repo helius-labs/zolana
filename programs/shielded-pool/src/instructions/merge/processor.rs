@@ -5,9 +5,10 @@ use pinocchio::{
 };
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{EventKind, Input, OutputData},
+    event::{EventKind, Input},
     instruction::instruction_data::merge_transact::{
-        MergeExternalDataHash, MergeTransactIxDataRef, MERGE_INPUT_COUNT,
+        MergeExternalDataHash, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+        MERGE_INPUT_COUNT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
@@ -27,7 +28,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
 
-    if ix.encrypted_utxo.first() != Some(&OutputData::VERIFIABLY_ENCRYPTED_TAG) {
+    if ix.encrypted_utxo.first() != Some(&MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
         return Err(ShieldedPoolError::InvalidMergeOutputScheme.into());
     }
 
@@ -50,6 +51,12 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
     let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
+    // Owner-indexing view tag for the merged output: the viewing pubkey's
+    // x-coordinate (the compressed point minus its 1-byte parity prefix), matching
+    // a recipient's `recipient_bootstrap_view_tag`. Derived from the proof-bound
+    // viewing key, so a relayer cannot alter it.
+    let mut output_view_tag = [0u8; 32];
+    output_view_tag.copy_from_slice(&pk_fields.viewing[1..]);
 
     let external_data_hash = MergeExternalDataHash {
         expiry_unix_ts: ix.expiry_unix_ts,
@@ -78,7 +85,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut derived)?
     };
 
-    let event = build_merge_event(&ix, tree_write);
+    let event = build_merge_event(&ix, tree_write, output_view_tag);
     MergeProof::new(&ix, derived).verify()?;
     emit_general_event(EventKind::Merge, event)
 }

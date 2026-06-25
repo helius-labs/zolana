@@ -7,12 +7,13 @@ use std::sync::Once;
 use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
+use zolana_client::prover::merge::MergeProver;
 use zolana_client::{
-    witness::field::asset_field, spawn_prover, Merge, PreparedMerge, ProverClient, Rpc,
-    SpendUtxo, MERGE_INPUTS,
+    spawn_prover, Merge, MergeWitness, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_transaction::instructions::transact::signed_transaction::asset_field;
 use zolana_transaction::{Data, OutputUtxo, Utxo};
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
@@ -72,22 +73,25 @@ impl MergeWorld {
             inputs.push(SpendUtxo::from_keypair(utxo, &sender));
         }
 
-        // The plan derives the merged output and owner identity; converting it to a
-        // PreparedMerge pads to MERGE_INPUTS, and into_prover folds in the proofs.
-        // The prover never sees the high-level plan.
+        // The plan derives the merged output and owner identity; preparing it pads to
+        // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
+        // proofs. The prover never sees the high-level plan.
         let merge = Merge::new(&sender, inputs)
             .expect("build merge plan")
             .with_expiry(0);
-        let prepared = PreparedMerge::from(merge);
+        let prepared = merge.prepare();
         let commitments = prepared.input_commitments().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("merkle proofs");
-        let result = prepared
-            .into_prover(&proofs)
-            .expect("merge prover")
-            .build()
-            .expect("build merge proof");
+        let result = MergeProver::try_from(MergeWitness {
+            prepared,
+            nullifier_key: sender.nullifier_key.clone(),
+            proofs,
+        })
+        .expect("merge prover")
+        .build()
+        .expect("build merge proof");
 
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)

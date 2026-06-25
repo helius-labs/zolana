@@ -30,7 +30,11 @@ pub fn litesvm_assert_spl_deposit(
     recipient: &mut Wallet,
 ) {
     assert_eq!(event.output.amount, expected_amount, "event amount");
-    assert_eq!(event.output.asset, mint.to_bytes(), "event asset is the mint");
+    assert_eq!(
+        event.output.asset,
+        mint.to_bytes(),
+        "event asset is the mint"
+    );
     assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
     assert_eq!(event.output.blinding, data.blinding, "blinding");
@@ -69,7 +73,10 @@ pub fn litesvm_assert_spl_deposit(
         "recipient wallet must discover the SPL deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
     assert_eq!(
         utxo.utxo.asset.to_bytes(),
         mint.to_bytes(),

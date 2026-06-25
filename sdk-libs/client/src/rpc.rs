@@ -19,11 +19,7 @@ pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 use zolana_transaction::instructions::transact::SignedTransaction;
 use zolana_transaction::instructions::types::InputCommitment;
 
-use crate::{
-    error::ClientError,
-    prover::transact::witness::SpendProof,
-    prover::ProofCompressed,
-};
+use crate::{error::ClientError, prover::transact::witness::SpendProof, prover::ProofCompressed};
 
 pub const STATE_TREE_HEIGHT: usize = 26;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;

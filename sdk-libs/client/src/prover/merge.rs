@@ -16,7 +16,7 @@ use zolana_transaction::instructions::merge::PreparedMerge;
 use zolana_transaction::instructions::transact::private_tx_hash;
 use zolana_transaction::instructions::transact::signed_transaction::asset_field;
 use zolana_transaction::instructions::types::SpendUtxo;
-use zolana_transaction::{OutputUtxo, MERGE};
+use zolana_transaction::{EncryptedScheme, OutputUtxo};
 
 use crate::{
     error::ClientError,
@@ -220,14 +220,16 @@ impl MergeProver {
     }
 }
 
-/// Assembles the on-instruction `encrypted_utxo` blob:
-/// `MERGE discriminator || tx_viewing_pk (33) || ciphertext (71)`.
+/// Assembles the on-instruction `encrypted_utxo` payload in the unified output
+/// encoding `borsh(OutputData::VerifiablyEncrypted([EncryptedScheme::Merge,
+/// tx_viewing_pk(33), ciphertext]))`, the same form transact emits and
+/// `Wallet::sync` decodes.
 pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Vec<u8> {
     let mut blob = Vec::with_capacity(1 + 33 + ciphertext.len());
-    blob.push(MERGE);
+    blob.push(EncryptedScheme::Merge.as_byte());
     blob.extend_from_slice(tx_viewing_pk.as_bytes());
     blob.extend_from_slice(ciphertext);
-    blob
+    zolana_event::encode_verifiably_encrypted(blob)
 }
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE

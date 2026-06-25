@@ -5,28 +5,30 @@
 #[path = "test_indexer.rs"]
 mod test_indexer;
 
+use borsh::BorshDeserialize;
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey as EcdsaVerifyingKey};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
-use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
-use zolana_client::witness::field::signed_to_field;
 use zolana_client::{
-    CircuitType, ClientError, MerkleContext, MerkleProof, NonInclusionProof, PublicAmounts, Rpc,
+    CircuitType, MerkleContext, MerkleProof, NonInclusionProof, PublicAmounts, Rpc,
     SignedTransaction, SpendProof, SpendUtxo, Transaction, TransferP256Prover, WithdrawalTarget,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+use zolana_event::OutputData;
 use zolana_keypair::shielded::ShieldedKeypair;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
-use zolana_transaction::transfer::{
-    OutputCiphertext, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
+use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
+use zolana_transaction::serialization::confidential::{
+    ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
+    TransferSenderPlaintext,
 };
+use zolana_transaction::serialization::{DecodeCx, UtxoSerialization};
 use zolana_transaction::utxo::derive_blinding;
 use zolana_transaction::{
-    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionEncryption, Utxo, SOL_ASSET_ID,
-    SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionError, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
@@ -51,9 +53,8 @@ fn registry() -> AssetRegistry {
     AssetRegistry::new([]).expect("registry")
 }
 
-fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, ClientError> {
+fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, TransactionError> {
     tx.sign(
-        Pubkey::default(),
         sender,
         &registry(),
         sender.get_sender_view_tag(0).expect("sender view tag"),
@@ -69,10 +70,7 @@ fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("input merkle proofs");
-    match signed
-        .into_prover(&input_merkle_proofs)
-        .expect("into prover")
-    {
+    match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover") {
         CircuitType::P256(prover) => prover,
         CircuitType::Eddsa(_) => panic!("expected P256 rail"),
     }
@@ -111,34 +109,61 @@ fn fake_spend_proof(root_index: u16) -> SpendProof {
     }
 }
 
+/// Decode the sender bundle (slot 0) with the sender's viewing key and each
+/// recipient slot (`1 + i`) with that recipient's viewing key. The ix shape is
+/// `[bundle, recipients / dummies]` with no empty change placeholder, so the bundle
+/// covers one leading slot here.
 fn decrypt(
     sender: &ShieldedKeypair,
+    recipients: &[&ShieldedKeypair],
     first_nullifier: &[u8; 32],
     external_data: &ExternalData,
 ) -> (TransferSenderPlaintext, Vec<TransferRecipientPlaintext>) {
-    // `ExternalData.output_ciphertexts` is the ix shape: `[bundle, recipients /
-    // dummies]` with no empty change placeholder, so the bundle covers one leading
-    // slot here (`sender_slot_count = 1`).
-    let slots: Vec<OutputCiphertext> = external_data
-        .output_ciphertexts
-        .iter()
-        .map(|slot| OutputCiphertext {
-            view_tag: slot.view_tag,
-            data: slot.data.clone(),
-        })
-        .collect();
     let tx_viewing_pk = P256Pubkey::from_bytes(external_data.tx_viewing_pk).unwrap();
-    let blob = TransferEncryptedUtxos::from_output_ciphertexts(
-        tx_viewing_pk,
-        external_data.salt,
-        &slots,
-        1,
+    let slot_body = |slot_index: usize| -> Vec<u8> {
+        let slot = external_data.output_ciphertexts.get(slot_index).unwrap();
+        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+        let blob = match output_data {
+            OutputData::Encrypted(blob)
+            | OutputData::VerifiablyEncrypted(blob)
+            | OutputData::Plaintext(blob) => blob,
+        };
+        let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
+        body.to_vec()
+    };
+
+    let sender_body = slot_body(0);
+    let sender_pt = ConfidentialSenderBundle::decode(
+        &sender_body,
+        &DecodeCx {
+            viewing_key: &sender.viewing_key,
+            tx_viewing_pk: Some(tx_viewing_pk),
+            salt: Some(external_data.salt),
+            slot_index: 0,
+            first_nullifier: Some(*first_nullifier),
+        },
     )
     .unwrap();
-    sender
-        .viewing_key
-        .decrypt_transfer(first_nullifier, &blob)
-        .unwrap()
+    let recipients_pt: Vec<TransferRecipientPlaintext> = recipients
+        .iter()
+        .enumerate()
+        .map(|(i, recipient)| {
+            let slot_index = i + 1;
+            let body = slot_body(slot_index);
+            ConfidentialRecipient::decode(
+                &body,
+                &DecodeCx {
+                    viewing_key: &recipient.viewing_key,
+                    tx_viewing_pk: Some(tx_viewing_pk),
+                    salt: Some(external_data.salt),
+                    slot_index: slot_index as u32,
+                    first_nullifier: Some(*first_nullifier),
+                },
+            )
+            .unwrap()
+        })
+        .collect();
+    (sender_pt, recipients_pt)
 }
 
 #[test]
@@ -170,7 +195,12 @@ fn transfer_round_trip_outputs_and_bundle() {
         .unwrap()
         .nullifier;
     let prover = prover_of(signed);
-    let (sender_pt, recipients_pt) = decrypt(&sender, &first_nullifier, &prover.external_data);
+    let (sender_pt, recipients_pt) = decrypt(
+        &sender,
+        &[&recipient],
+        &first_nullifier,
+        &prover.external_data,
+    );
     let seed = sender_pt.blinding_seed;
 
     // Proof outputs: empty SPL slot (position 0), SOL change (position 1), and the
@@ -244,8 +274,6 @@ fn transfer_round_trip_outputs_and_bundle() {
     assert_eq!(
         recipients_pt,
         vec![TransferRecipientPlaintext {
-            owner_pubkey: recipient.signing_pubkey(),
-            sender_pubkey: sender.viewing_pubkey(),
             asset_id: SOL_ASSET_ID,
             amount: 60,
             blinding: derive_blinding(&seed, 2),
@@ -256,7 +284,7 @@ fn transfer_round_trip_outputs_and_bundle() {
 
 /// A change-only transfer (recipient slot is a dummy) and a one-recipient transfer
 /// must be byte-shape-indistinguishable in `output_ciphertexts`: same slot count,
-/// every recipient/dummy slot exactly `RECIPIENT_CIPHERTEXT_LEN` bytes under a
+/// every recipient/dummy slot the same derived ciphertext length under a
 /// same-distribution view tag (byte 0 = 0), and the same fixed bundle size.
 ///
 /// The real recipient here uses a shared HKDF view tag (`get_send_shared_view_tag`),
@@ -268,8 +296,6 @@ fn transfer_round_trip_outputs_and_bundle() {
 /// recipient, so it is exempt from k-hiding and not used here.)
 #[test]
 fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
-    use zolana_transaction::transfer::RECIPIENT_CIPHERTEXT_LEN;
-
     let build = |with_recipient: bool| {
         let mut rng = rand::thread_rng();
         let sender = ShieldedKeypair::new().unwrap();
@@ -295,7 +321,9 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let signed = sign(tx, &sender).unwrap();
         let commitments = signed.input_commitments().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
-        signed.assemble(&proofs).unwrap().with_proof([0u8; 192])
+        zolana_client::assemble(signed, &proofs)
+            .unwrap()
+            .with_proof([0u8; 192])
     };
 
     let change_only = build(false);
@@ -308,10 +336,17 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     );
 
     // The dummy slot (change_only) and the real recipient slot (one_recipient) are both
-    // exactly L bytes under a byte-0-zero view tag, so neither stands out.
+    // the same byte length under a byte-0-zero view tag, so neither stands out. The
+    // recipient ciphertext length is derived rather than pinned to a constant.
+    let recipient_len = one_recipient
+        .output_ciphertexts
+        .get(1)
+        .expect("recipient slot")
+        .data
+        .len();
     for ix in [&change_only, &one_recipient] {
         for slot in ix.output_ciphertexts.get(1..).expect("recipient region") {
-            assert_eq!(slot.data.len(), RECIPIENT_CIPHERTEXT_LEN);
+            assert_eq!(slot.data.len(), recipient_len);
             assert_eq!(
                 slot.view_tag[0], 0,
                 "recipient/dummy view tag must have a zero leading byte"
@@ -351,7 +386,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
-    let assembled = signed.assemble(&proofs).unwrap();
+    let assembled = zolana_client::assemble(signed, &proofs).unwrap();
     let ix = assembled.with_proof([0u8; 192]);
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
@@ -383,28 +418,47 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .expect("recipient slot present");
     assert!(!recipient_slot.data.is_empty());
 
-    // The per-output ciphertext slots reconstruct the bundle and decrypt back to
-    // the original transfer (bundle slot 0 + one recipient); the ix shape has no
-    // empty change placeholder, so the bundle covers one leading slot here.
-    let slots: Vec<OutputCiphertext> = ix
-        .output_ciphertexts
-        .iter()
-        .map(|slot| OutputCiphertext {
-            view_tag: slot.view_tag,
-            data: slot.data.clone(),
-        })
-        .collect();
+    // The per-output ciphertext slots decrypt back to the original transfer (bundle
+    // slot 0 decoded by the sender + one recipient slot decoded by the recipient);
+    // the ix shape has no empty change placeholder, so the bundle covers one leading
+    // slot here.
     let tx_viewing_pk = P256Pubkey::from_bytes(ix.tx_viewing_pk).unwrap();
-    let blob =
-        TransferEncryptedUtxos::from_output_ciphertexts(tx_viewing_pk, ix.salt, &slots, 1).unwrap();
-    let (sender_pt, recipients_pt) = sender
-        .viewing_key
-        .decrypt_transfer(&first_nullifier, &blob)
-        .unwrap();
+    let slot_body = |slot_index: usize| -> Vec<u8> {
+        let slot = ix.output_ciphertexts.get(slot_index).unwrap();
+        let output_data = OutputData::try_from_slice(&slot.data).unwrap();
+        let blob = match output_data {
+            OutputData::Encrypted(blob)
+            | OutputData::VerifiablyEncrypted(blob)
+            | OutputData::Plaintext(blob) => blob,
+        };
+        let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
+        body.to_vec()
+    };
+    let sender_pt = ConfidentialSenderBundle::decode(
+        &slot_body(0),
+        &DecodeCx {
+            viewing_key: &sender.viewing_key,
+            tx_viewing_pk: Some(tx_viewing_pk),
+            salt: Some(ix.salt),
+            slot_index: 0,
+            first_nullifier: Some(first_nullifier),
+        },
+    )
+    .unwrap();
+    let recipient_pt = ConfidentialRecipient::decode(
+        &slot_body(1),
+        &DecodeCx {
+            viewing_key: &recipient.viewing_key,
+            tx_viewing_pk: Some(tx_viewing_pk),
+            salt: Some(ix.salt),
+            slot_index: 1,
+            first_nullifier: Some(first_nullifier),
+        },
+    )
+    .unwrap();
     assert_eq!(sender_pt.sol_amount, 40);
-    assert_eq!(recipients_pt.len(), 1);
-    assert_eq!(recipients_pt[0].amount, 60);
-    assert_eq!(recipients_pt[0].owner_pubkey, recipient.signing_pubkey());
+    assert_eq!(recipient_pt.amount, 60);
+    assert_eq!(recipient_pt.asset_id, SOL_ASSET_ID);
 }
 
 #[test]
@@ -436,7 +490,7 @@ fn withdrawal_sets_external_data_and_change() {
         .unwrap()
         .nullifier;
     let prover = prover_of(signed);
-    let (sender_pt, recipients_pt) = decrypt(&sender, &first_nullifier, &prover.external_data);
+    let (sender_pt, recipients_pt) = decrypt(&sender, &[], &first_nullifier, &prover.external_data);
     let seed = sender_pt.blinding_seed;
 
     // Slots 0 and 1 are the sender's change (empty SPL, 70 SOL), both with
@@ -522,12 +576,7 @@ fn rail_follows_input_owner_type() {
     assert!(!ed_tx.requires_p256_owner().unwrap());
 
     let signed = ed_tx
-        .sign(
-            Pubkey::default(),
-            &sender,
-            &registry(),
-            sender.get_sender_view_tag(0).unwrap(),
-        )
+        .sign(&sender, &registry(), sender.get_sender_view_tag(0).unwrap())
         .unwrap();
     let mut indexer = TestIndexer::new();
     let commitments = signed.input_commitments().unwrap();
@@ -536,7 +585,7 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        signed.into_prover(&input_merkle_proofs).unwrap(),
+        zolana_client::into_prover(signed, &input_merkle_proofs).unwrap(),
         CircuitType::Eddsa(_)
     ));
 }
@@ -583,7 +632,7 @@ fn sign_without_inputs_is_no_inputs() {
         vec![],
         Address::default(),
     );
-    assert!(matches!(sign(tx, &sender), Err(ClientError::NoInputs)));
+    assert!(matches!(sign(tx, &sender), Err(TransactionError::NoInputs)));
 }
 
 #[test]
@@ -605,7 +654,7 @@ fn oversend_is_insufficient_balance() {
     )
     .unwrap();
     match sign(tx, &sender) {
-        Err(ClientError::InsufficientBalance {
+        Err(TransactionError::InsufficientBalance {
             requested,
             available,
         }) => assert_eq!((requested, available), (100, 0)),
@@ -638,7 +687,7 @@ fn second_withdraw_is_rejected() {
                 user_sol_account: Address::default(),
             },
         ),
-        Err(ClientError::WithdrawalAlreadySet)
+        Err(TransactionError::WithdrawalAlreadySet)
     ));
 }
 
@@ -670,6 +719,6 @@ fn two_distinct_spl_assets_are_rejected() {
     .unwrap();
     assert!(matches!(
         sign(tx, &sender),
-        Err(ClientError::MultiplePublicSplAssets)
+        Err(TransactionError::MultiplePublicSplAssets)
     ));
 }

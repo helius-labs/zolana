@@ -11,8 +11,6 @@ use zolana_transaction::{
     ShieldedTransaction, Utxo, UtxoSerialization, SOL_MINT,
 };
 
-const SENDER_SLOT_COUNT: usize = 2;
-
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut signing_bytes = [0u8; 32];
     signing_bytes[0] = 0x10;
@@ -153,7 +151,7 @@ pub fn build_transfer(
         recipient_pubkey: spec.recipient.viewing_pubkey(),
         sender_pubkey: spec.sender.viewing_pubkey(),
         salt,
-        slot_index: SENDER_SLOT_COUNT as u32,
+        slot_index: 1,
     };
     let recipient_ciphertext = AnonymousRecipient::encode(
         std::slice::from_ref(&recipient_utxo),

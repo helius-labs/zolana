@@ -13,9 +13,7 @@ pub use transact_core::{
 
 use anyhow::{Context, Result};
 use num_bigint::BigUint;
-use zolana_client::private_transaction::field::{
-    be, hash_chain, right_align_slice, signed_to_field, BN254_MODULUS_DEC,
-};
+use zolana_client::prover::field::{be, hash_chain, right_align_slice};
 use zolana_client::{
     TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
 };
@@ -27,6 +25,9 @@ use zolana_interface::instruction::{
 use zolana_keypair::hash::hash_field;
 use zolana_keypair::NullifierKey;
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
+use zolana_transaction::instructions::transact::signed_transaction::{
+    signed_to_field, BN254_MODULUS_DEC,
+};
 use zolana_transaction::{OutputUtxo, Utxo};
 
 /// Mirror of `public_input_hash` for the SPL rail: the `public_spl_amount`

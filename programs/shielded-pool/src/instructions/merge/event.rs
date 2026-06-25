@@ -15,14 +15,18 @@ pub struct MergeTreeWrite {
 pub fn build_merge_event(
     ix: &MergeTransactIxDataRef<'_>,
     tree_write: MergeTreeWrite,
+    output_view_tag: [u8; 32],
 ) -> GeneralEvent {
     let mut tx_viewing_pk = [0u8; 33];
     if let Ok(blob_pk) = ix.tx_viewing_pk() {
         tx_viewing_pk.copy_from_slice(blob_pk);
     }
 
+    // The merged output is owner-indexed like a confidential recipient: the view
+    // tag is the owner's viewing-pubkey x-coordinate, so `Wallet::sync` rediscovers
+    // it via the recipient bootstrap scan.
     let outputs = vec![OutputUtxo {
-        view_tag: [0u8; 32], // TODO: send view tag in instruction data
+        view_tag: output_view_tag,
         utxo_hash: *ix.output_utxo_hash,
         data: ix.encrypted_utxo.to_vec(),
     }];

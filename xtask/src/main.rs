@@ -287,7 +287,7 @@ fn tx_size(args: Vec<String>) {
         instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData},
         SHIELDED_POOL_PROGRAM_ID,
     };
-    use zolana_transaction::transfer::SENDER_SLOT_COUNT;
+    use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
 
     // Pre-spec sender: owner_pk(34)+amounts(24)+blinding(31)+viewing_pks(1+33R)+data(2) = 92+33R
     // sender_slot_data(R) = type_prefix(1) + plaintext + GCM-tag(16) = 109 + 33R
@@ -426,12 +426,42 @@ fn tx_size(args: Vec<String>) {
         let ix_len = adjust(make_ix_bytes(&transfer_data).len());
 
         let ta = transfer_accounts(payer_pk, tree_pk, spp_pk);
-        let sa = shield_accounts(payer_pk, tree_pk, vault_pk, recipient_pk, user_token_pk, token_program_pk, spp_pk);
+        let sa = shield_accounts(
+            payer_pk,
+            tree_pk,
+            vault_pk,
+            recipient_pk,
+            user_token_pk,
+            token_program_pk,
+            spp_pk,
+        );
 
-        let t_legacy = adjust(legacy_tx_len(Instruction { program_id: spp_pk, accounts: ta.clone(), data: make_ix_bytes(&transfer_data) }));
-        let t_v0 = adjust(v0_tx_len(Instruction { program_id: spp_pk, accounts: ta, data: make_ix_bytes(&transfer_data) }, &[alt_transfer.clone()]));
-        let s_legacy = adjust(legacy_tx_len(Instruction { program_id: spp_pk, accounts: sa.clone(), data: make_ix_bytes(&shield_data) }));
-        let s_v0 = adjust(v0_tx_len(Instruction { program_id: spp_pk, accounts: sa, data: make_ix_bytes(&shield_data) }, &[alt_shield.clone()]));
+        let t_legacy = adjust(legacy_tx_len(Instruction {
+            program_id: spp_pk,
+            accounts: ta.clone(),
+            data: make_ix_bytes(&transfer_data),
+        }));
+        let t_v0 = adjust(v0_tx_len(
+            Instruction {
+                program_id: spp_pk,
+                accounts: ta,
+                data: make_ix_bytes(&transfer_data),
+            },
+            std::slice::from_ref(&alt_transfer),
+        ));
+        let s_legacy = adjust(legacy_tx_len(Instruction {
+            program_id: spp_pk,
+            accounts: sa.clone(),
+            data: make_ix_bytes(&shield_data),
+        }));
+        let s_v0 = adjust(v0_tx_len(
+            Instruction {
+                program_id: spp_pk,
+                accounts: sa,
+                data: make_ix_bytes(&shield_data),
+            },
+            std::slice::from_ref(&alt_shield),
+        ));
 
         (ix_len, t_legacy, t_v0, s_legacy, s_v0)
     };
@@ -439,18 +469,45 @@ fn tx_size(args: Vec<String>) {
     println!("Current code (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-        "Circuit", "ix data (B)", "transfer, no ALT", "transfer, ALT", "shield, no ALT", "shield, ALT",
+        "Circuit",
+        "ix data (B)",
+        "transfer, no ALT",
+        "transfer, ALT",
+        "shield, no ALT",
+        "shield, ALT",
     );
-    println!("|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|", "", "", "", "", "", "");
+    println!(
+        "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
+        "", "", "", "", "", ""
+    );
 
     for &(n, m) in &shapes {
         let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(n, m, r, current_sender_data_len(r), current_recipient_data_len, STRUCT_PROOF_LEN);
-        let fmt = |v: usize, show: bool| if show { v.to_string() } else { "—".to_string() };
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(
+            n,
+            m,
+            r,
+            current_sender_data_len(r),
+            current_recipient_data_len,
+            STRUCT_PROOF_LEN,
+        );
+        let fmt = |v: usize, show: bool| {
+            if show {
+                v.to_string()
+            } else {
+                "—".to_string()
+            }
+        };
         println!(
             "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-            format!("{n} in {m} out"), n, m, ix,
-            fmt(tl, r > 0), fmt(tv, r > 0), sl, sv,
+            format!("{n} in {m} out"),
+            n,
+            m,
+            ix,
+            fmt(tl, r > 0),
+            fmt(tv, r > 0),
+            sl,
+            sv,
         );
     }
 
@@ -459,23 +516,54 @@ fn tx_size(args: Vec<String>) {
     println!("  P256 rail adds 64 B (proof_commitment 32 B + proof_commitment_pok 32 B).");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-        "Circuit", "ix data (B)", "transfer, no ALT", "transfer, ALT", "shield, no ALT", "shield, ALT",
+        "Circuit",
+        "ix data (B)",
+        "transfer, no ALT",
+        "transfer, ALT",
+        "shield, no ALT",
+        "shield, ALT",
     );
-    println!("|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|", "", "", "", "", "", "");
+    println!(
+        "|{:-<16}|---|---|{:-<13}|{:-<23}|{:-<20}|{:-<21}|{:-<18}|",
+        "", "", "", "", "", ""
+    );
 
     for &(n, m) in &shapes {
         let r = m.saturating_sub(SENDER_SLOT_COUNT);
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(n, m, r, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN, EDDSA_PROOF_LEN);
-        let fmt = |v: usize, show: bool| if show { v.to_string() } else { "—".to_string() };
+        let (ix, tl, tv, sl, sv) = make_tx_sizes(
+            n,
+            m,
+            r,
+            OPT_SENDER_DATA_LEN,
+            OPT_RECIPIENT_DATA_LEN,
+            EDDSA_PROOF_LEN,
+        );
+        let fmt = |v: usize, show: bool| {
+            if show {
+                v.to_string()
+            } else {
+                "—".to_string()
+            }
+        };
         println!(
             "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
-            format!("{n} in {m} out"), n, m, ix,
-            fmt(tl, r > 0), fmt(tv, r > 0), sl, sv,
+            format!("{n} in {m} out"),
+            n,
+            m,
+            ix,
+            fmt(tl, r > 0),
+            fmt(tv, r > 0),
+            sl,
+            sv,
         );
     }
 }
 
-fn transfer_accounts(payer: solana_pubkey::Pubkey, tree: solana_pubkey::Pubkey, spp: solana_pubkey::Pubkey) -> Vec<solana_instruction::AccountMeta> {
+fn transfer_accounts(
+    payer: solana_pubkey::Pubkey,
+    tree: solana_pubkey::Pubkey,
+    spp: solana_pubkey::Pubkey,
+) -> Vec<solana_instruction::AccountMeta> {
     use solana_instruction::AccountMeta;
     vec![
         AccountMeta::new(payer, true),

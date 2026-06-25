@@ -399,7 +399,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### Merge view tag
 
-5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` indexes the merged output by the owner pubkey (the public `pk_field(user_signing_pk)`), with replay protection from the input nullifiers, so it needs no separate view tag.
+5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` instead tags the merged output with the owner's viewing-pubkey x-coordinate (its [`recipient_bootstrap_view_tag`](#recipient-view-tag)), so a wallet rediscovers it through `Wallet::sync`; the program derives this tag from the proof-bound viewing key, and replay protection comes from the input nullifiers.
     - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
@@ -409,7 +409,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### View Tag Selection
 
-In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact` indexes by the owner pubkey. Wallets select recipient tags as follows:
+In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact` tags by the owner's viewing-pubkey x-coordinate. Wallets select recipient tags as follows:
 
 ```mermaid
 flowchart TD

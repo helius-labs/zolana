@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{
-    private_transaction::field::{be, hash_chain},
+    prover::field::{be, hash_chain},
     spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput, TransferInputs,
     TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };

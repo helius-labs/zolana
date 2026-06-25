@@ -11,7 +11,7 @@ use crate::error::TransactionError;
 use crate::instructions::types::SpendUtxo;
 use crate::serialization::confidential::{
     ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
-    ConfidentialSenderEncode,
+    ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
 };
 use crate::serialization::{OwnerCx, UtxoSerialization};
 use crate::utxo::{derive_blinding, Utxo};
@@ -28,9 +28,33 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 /// Fixed number of leading sender-owned output slots in a transfer: SPL change at
 /// slot 0 (and the sender bundle ciphertext), SOL change at slot 1. Recipients
 /// always start at slot 2.
-const SENDER_SLOT_COUNT: usize = 2;
+pub const SENDER_SLOT_COUNT: usize = 2;
 
 pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
+
+pub struct PreparedRecipient {
+    pub view_tag: ViewTag,
+    pub recipient_pubkey: P256Pubkey,
+    pub plaintext: TransferRecipientPlaintext,
+}
+
+pub struct PreparedTransaction {
+    pub inputs: Vec<SpendUtxo>,
+    pub outputs: Vec<OutputUtxo>,
+    pub sender_plaintext: TransferSenderPlaintext,
+    pub recipients: Vec<PreparedRecipient>,
+    pub first_nullifier: [u8; 32],
+    pub public_amounts: PublicAmounts,
+    pub shape: Shape,
+    pub max_recipients: usize,
+    pub payer_pubkey_hash: [u8; 32],
+    pub expiry_unix_ts: u64,
+    pub public_sol_amount: Option<i64>,
+    pub public_spl_amount: Option<i64>,
+    pub user_sol_account: Address,
+    pub user_spl_token: Address,
+    pub spl_token_interface: Address,
+}
 
 pub fn inputs_require_p256(inputs: &[SpendUtxo]) -> Result<bool, TransactionError> {
     for spend in inputs {
@@ -196,22 +220,190 @@ impl Transaction {
         Ok(self)
     }
 
-    pub fn sign<K>(
+    /// Keypair rail: assemble with the owner's own viewing key and sign in place,
+    /// no separate authority. The authority rail is [`Self::prepare`] +
+    /// [`PreparedTransaction::finalize`], with encryption/signing delegated to a
+    /// `WalletAuthority`.
+    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
         sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, TransactionError>
-    where
-        K: ShieldedKeypairTrait + ViewingKeyTrait,
-    {
-        let mut assembled_transaction = self.assemble(keypair, assets, sender_view_tag)?;
+    ) -> Result<SignedTransaction, TransactionError> {
+        let mut signed = self.assemble(keypair, assets, sender_view_tag)?;
         if keypair.curve()? == SignatureType::P256 {
-            let message_hash = assembled_transaction.message_hash()?;
-            let signature = keypair.sign(&message_hash);
-            assembled_transaction.p256_owner = Some(signature);
+            let message_hash = signed.message_hash()?;
+            signed.p256_owner = Some(keypair.sign(&message_hash));
         }
-        Ok(assembled_transaction)
+        Ok(signed)
+    }
+
+    fn assemble<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+        self,
+        keypair: &K,
+        assets: &AssetRegistry,
+        sender_view_tag: ViewTag,
+    ) -> Result<SignedTransaction, TransactionError> {
+        let prepared = self.prepare(assets)?;
+        let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
+        let salt = zolana_keypair::random_salt();
+        let tx_viewing_pk = tx.pubkey();
+
+        let mut slots = Vec::with_capacity(1 + prepared.recipients.len());
+        slots.push(ConfidentialSenderBundle::encode_plaintext(
+            &prepared.sender_plaintext,
+            sender_view_tag,
+            &ConfidentialSenderEncode {
+                tx: tx.clone(),
+                self_pubkey: keypair.viewing_pubkey(),
+                salt,
+                slot_index: 0,
+                blinding_seed: prepared.sender_plaintext.blinding_seed,
+                recipient_viewing_pks: prepared.sender_plaintext.recipient_viewing_pks.clone(),
+            },
+        )?);
+        for (i, recipient) in prepared.recipients.iter().enumerate() {
+            slots.push(ConfidentialRecipient::encode_plaintext(
+                &recipient.plaintext,
+                recipient.view_tag,
+                &ConfidentialRecipientEncode {
+                    tx: tx.clone(),
+                    recipient_pubkey: recipient.recipient_pubkey,
+                    salt,
+                    slot_index: (i + 1) as u32,
+                },
+            )?);
+        }
+
+        prepared.finalize(tx_viewing_pk, salt, slots, assets)
+    }
+
+    pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransaction, TransactionError> {
+        let owner_hash = self.owner.owner_hash()?;
+        let spl_asset = self.spl_asset()?;
+        let (public_sol, public_spl) = self.public_amounts();
+        let sol_change = self.change(&SOL_MINT, public_sol)?;
+        let spl_change = match spl_asset {
+            Some(asset) => self.change(&asset, public_spl)?,
+            None => 0,
+        };
+
+        let mut outputs = Vec::new();
+        outputs.push(match spl_asset {
+            Some(asset) if spl_change > 0 => OutputUtxo {
+                owner_hash,
+                asset,
+                amount: spl_change,
+                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ..Default::default()
+            },
+            _ => OutputUtxo {
+                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ..Default::default()
+            },
+        });
+        outputs.push(if sol_change > 0 {
+            OutputUtxo {
+                owner_hash,
+                asset: SOL_MINT,
+                amount: sol_change,
+                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ..Default::default()
+            }
+        } else {
+            OutputUtxo {
+                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ..Default::default()
+            }
+        });
+
+        let mut recipients = Vec::with_capacity(self.recipients.len());
+        let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
+        for (i, recipient) in self.recipients.iter().enumerate() {
+            let position = RECIPIENT_POSITION_BASE + i as u8;
+            let blinding = derive_blinding(&self.blinding_seed, position);
+            let asset_id = self.asset_id(assets, &recipient.asset)?;
+            outputs.push(OutputUtxo {
+                owner_hash: recipient.address.owner_hash()?,
+                asset: recipient.asset,
+                amount: recipient.amount,
+                blinding,
+                ..Default::default()
+            });
+            recipient_viewing_pks.push(recipient.address.viewing_pubkey);
+            recipients.push(PreparedRecipient {
+                view_tag: recipient.view_tag,
+                recipient_pubkey: recipient.address.viewing_pubkey,
+                plaintext: TransferRecipientPlaintext {
+                    asset_id,
+                    amount: recipient.amount,
+                    blinding,
+                    data: Data::default(),
+                },
+            });
+        }
+
+        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
+        let max_recipients = shape
+            .n_outputs
+            .checked_sub(SENDER_SLOT_COUNT)
+            .ok_or(TransactionError::MissingOutput)?;
+        let sender_viewing_pubkey = self.owner.viewing_pubkey;
+        while recipient_viewing_pks.len() < max_recipients {
+            recipient_viewing_pks.push(sender_viewing_pubkey);
+        }
+
+        let spl_asset_id = match spl_asset {
+            Some(asset) => self.asset_id(assets, &asset)?,
+            None => 0,
+        };
+        let sender_plaintext = TransferSenderPlaintext {
+            owner_pubkey: self.owner.signing_pubkey,
+            spl_asset_id,
+            spl_amount: spl_change,
+            sol_amount: sol_change,
+            blinding_seed: self.blinding_seed,
+            recipient_viewing_pks,
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        };
+
+        let first_nullifier = self.first_nullifier()?;
+        let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
+        let public_amounts = PublicAmounts {
+            sol: signed_to_field(public_sol),
+            spl: signed_to_field(public_spl),
+            asset: match (public_spl != 0, spl_asset) {
+                (true, Some(asset)) => asset_field(&asset)?,
+                _ => [0u8; 32],
+            },
+        };
+
+        Ok(PreparedTransaction {
+            inputs: self.inputs,
+            outputs,
+            sender_plaintext,
+            recipients,
+            first_nullifier,
+            public_amounts,
+            shape,
+            max_recipients,
+            payer_pubkey_hash: self.payer_pubkey_hash,
+            expiry_unix_ts: self.expiry_unix_ts,
+            public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
+            public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
+            user_sol_account,
+            user_spl_token,
+            spl_token_interface,
+        })
+    }
+
+    fn asset_id(&self, assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionError> {
+        if asset == &SOL_MINT {
+            Ok(crate::SOL_ASSET_ID)
+        } else {
+            Ok(assets.asset_id(asset)?)
+        }
     }
 
     fn spl_asset(&self) -> Result<Option<Address>, TransactionError> {
@@ -299,218 +491,65 @@ impl Transaction {
             None => (Address::default(), Address::default(), Address::default()),
         }
     }
+}
 
-    fn assemble<K>(
+impl PreparedTransaction {
+    pub fn finalize(
         self,
-        keypair: &K,
+        tx_viewing_pk: P256Pubkey,
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        slots: Vec<OutputCiphertext>,
         assets: &AssetRegistry,
-        sender_view_tag: ViewTag,
-    ) -> Result<SignedTransaction, TransactionError>
-    where
-        K: ShieldedKeypairTrait + ViewingKeyTrait,
-    {
-        let owner_hash = self.owner.owner_hash()?;
-        let spl_asset = self.spl_asset()?;
-        let (public_sol, public_spl) = self.public_amounts();
-        let sol_change = self.change(&SOL_MINT, public_sol)?;
-        let spl_change = match spl_asset {
-            Some(asset) => self.change(&asset, public_spl)?,
-            None => 0,
-        };
+    ) -> Result<SignedTransaction, TransactionError> {
+        let PreparedTransaction {
+            mut inputs,
+            mut outputs,
+            public_amounts,
+            shape,
+            max_recipients,
+            payer_pubkey_hash,
+            expiry_unix_ts,
+            public_sol_amount,
+            public_spl_amount,
+            user_sol_account,
+            user_spl_token,
+            spl_token_interface,
+            ..
+        } = self;
 
-        // Output positions are fixed so every party can locate slots without
-        // decrypting the sender bundle: slot 0 is the sender's SPL change, slot 1
-        // the SOL change, and recipients follow at slot 2+. Absent change is an
-        // empty (owner = 0) UTXO whose blinding still derives from its position, so
-        // the sender bundle ciphertext on slot 0 stays fixed-size.
-        let mut outputs = Vec::new();
-        outputs.push(match spl_asset {
-            Some(asset) if spl_change > 0 => OutputUtxo {
-                owner_hash,
-                asset,
-                amount: spl_change,
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                ..Default::default()
-            },
-            _ => OutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                ..Default::default()
-            },
-        });
-        outputs.push(if sol_change > 0 {
-            OutputUtxo {
-                owner_hash,
-                asset: SOL_MINT,
-                amount: sol_change,
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
-                ..Default::default()
-            }
-        } else {
-            OutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
-                ..Default::default()
-            }
-        });
-
-        let sender_viewing_pubkey = keypair.viewing_pubkey();
-        let signing_pubkey = keypair.signing_pubkey();
-        let zone_program_id: Option<Address> = None;
-
-        let mut recipient_outputs: Vec<(ViewTag, Utxo, P256Pubkey, u8)> =
-            Vec::with_capacity(self.recipients.len());
-        let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
-        for (i, recipient) in self.recipients.iter().enumerate() {
-            let position = RECIPIENT_POSITION_BASE + i as u8;
-            let blinding = derive_blinding(&self.blinding_seed, position);
-            outputs.push(OutputUtxo {
-                owner_hash: recipient.address.owner_hash()?,
-                asset: recipient.asset,
-                amount: recipient.amount,
-                blinding,
-                ..Default::default()
-            });
-            recipient_viewing_pks.push(recipient.address.viewing_pubkey);
-            recipient_outputs.push((
-                recipient.view_tag,
-                Utxo {
-                    owner: recipient.address.signing_pubkey,
-                    asset: recipient.asset,
-                    amount: recipient.amount,
-                    blinding,
-                    zone_program_id: None,
-                    data: Data::default(),
-                },
-                recipient.address.viewing_pubkey,
-                position,
-            ));
-        }
-
-        let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
-        let max_recipients = shape
-            .n_outputs
-            .checked_sub(SENDER_SLOT_COUNT)
-            .ok_or(TransactionError::MissingOutput)?;
-        // Pad recipient_viewing_pks to MAX_RECIPIENTS with a throwaway pubkey (the
-        // sender's own viewing key) so the encrypted sender bundle is fixed-size and
-        // does not reveal the real recipient count. A dummy slot's trial-decrypt
-        // fails on its random bytes regardless of this pubkey.
-        while recipient_viewing_pks.len() < max_recipients {
-            recipient_viewing_pks.push(sender_viewing_pubkey);
-        }
-
-        let first_nullifier = self.first_nullifier()?;
-        let salt = zolana_keypair::random_salt();
-        let tx = keypair.get_transaction_viewing_key(&first_nullifier)?;
-        let tx_viewing_pk = tx.pubkey();
-
-        // Sender change bundle: the SPL and SOL change UTXOs owned by the sender, at
-        // ciphertext slot 0. Empty change is conveyed by a zero-amount UTXO.
-        let mut change_utxos = Vec::with_capacity(SENDER_SLOT_COUNT);
-        if let Some(asset) = spl_asset {
-            change_utxos.push(Utxo {
-                owner: signing_pubkey,
-                asset,
-                amount: spl_change,
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                zone_program_id: None,
-                data: Data::default(),
-            });
-        }
-        change_utxos.push(Utxo {
-            owner: signing_pubkey,
-            asset: SOL_MINT,
-            amount: sol_change,
-            blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
-            zone_program_id: None,
-            data: Data::default(),
-        });
-
-        let sender_owner_cx = OwnerCx {
-            owner: signing_pubkey,
-            assets,
-            zone_program_id,
-        };
-        let sender_ciphertext = ConfidentialSenderBundle::encode(
-            &change_utxos,
-            &sender_owner_cx,
-            sender_view_tag,
-            &ConfidentialSenderEncode {
-                tx: tx.clone(),
-                self_pubkey: sender_viewing_pubkey,
-                salt,
-                slot_index: 0,
-                blinding_seed: self.blinding_seed,
-                recipient_viewing_pks,
-            },
-        )?;
-
-        let mut output_ciphertexts = Vec::with_capacity(1 + max_recipients);
-        output_ciphertexts.push(sender_ciphertext);
-
-        for (view_tag, utxo, recipient_pubkey, position) in &recipient_outputs {
-            let slot_index = u32::from(*position) - SENDER_SLOT_COUNT as u32 + 1;
-            let recipient_owner_cx = OwnerCx {
-                owner: utxo.owner,
-                assets,
-                zone_program_id,
-            };
-            let ciphertext = ConfidentialRecipient::encode(
-                core::slice::from_ref(utxo),
-                &recipient_owner_cx,
-                *view_tag,
-                &ConfidentialRecipientEncode {
-                    tx: tx.clone(),
-                    recipient_pubkey: *recipient_pubkey,
-                    salt,
-                    slot_index,
-                },
-            )?;
-            output_ciphertexts.push(ciphertext);
-        }
-
-        // Fill the remaining slots with random L-byte dummies under same-distribution
-        // view tags so the recipient count is hidden. A real recipient ciphertext is
-        // indistinguishable from random to an observer, so a same-length random filler
-        // hides whether the slot holds a real recipient. The filler length is derived
-        // from the real recipient ciphertext layout by encoding a throwaway recipient.
-        let dummy_len = dummy_ciphertext_len(&tx, sender_viewing_pubkey, salt, assets)?;
-        while output_ciphertexts.len() < 1 + max_recipients {
-            output_ciphertexts.push(OutputCiphertext {
-                view_tag: random_view_tag(),
-                data: random_dummy_ciphertext(dummy_len),
-            });
-        }
-
-        let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
-
-        // Pad to the fixed proof shape here, before signing, so the dummy output
-        // hashes are part of the signed external data. A dummy output has
-        // `owner_hash = 0` (random blinding) and is never a recipient; empty SOL/SPL
-        // change slots are dummies in the same sense (owner = 0, no value).
         while outputs.len() < shape.n_outputs {
             outputs.push(OutputUtxo {
                 blinding: random_blinding(),
                 ..Default::default()
             });
         }
-
-        let mut inputs = self.inputs;
         while inputs.len() < shape.n_inputs {
             inputs.push(SpendUtxo::new_dummy());
         }
 
-        // All output commitments in tree-append order.
         let mut output_utxo_hashes = Vec::with_capacity(outputs.len());
         for output in &outputs {
             output_utxo_hashes.push(output.hash()?);
         }
 
+        let mut output_ciphertexts = slots;
+        if output_ciphertexts.len() < 1 + max_recipients {
+            let throwaway = zolana_keypair::ViewingKey::new();
+            let dummy_len = dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt, assets)?;
+            while output_ciphertexts.len() < 1 + max_recipients {
+                output_ciphertexts.push(OutputCiphertext {
+                    view_tag: random_view_tag(),
+                    data: random_dummy_ciphertext(dummy_len),
+                });
+            }
+        }
+
         let external_data = ExternalData {
             instruction_discriminator: TRANSACT_DISCRIMINATOR,
-            expiry_unix_ts: self.expiry_unix_ts,
+            expiry_unix_ts,
             relayer_fee: 0,
-            public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
-            public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
+            public_sol_amount,
+            public_spl_amount,
             user_sol_account,
             user_spl_token,
             spl_token_interface,
@@ -521,21 +560,12 @@ impl Transaction {
             output_ciphertexts,
         };
 
-        let public_amounts = PublicAmounts {
-            sol: signed_to_field(public_sol),
-            spl: signed_to_field(public_spl),
-            asset: match (public_spl != 0, spl_asset) {
-                (true, Some(asset)) => asset_field(&asset)?,
-                _ => [0u8; 32],
-            },
-        };
-
         Ok(SignedTransaction {
             inputs,
             outputs,
             public_amounts,
             external_data,
-            payer_pubkey_hash: self.payer_pubkey_hash,
+            payer_pubkey_hash,
             shape,
             p256_owner: None,
         })

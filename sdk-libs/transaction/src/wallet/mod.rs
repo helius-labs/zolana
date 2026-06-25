@@ -1,4 +1,6 @@
 pub mod asset;
+#[cfg(feature = "parallel")]
+mod parallel;
 mod state;
 mod sync;
 

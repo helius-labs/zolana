@@ -83,7 +83,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![DataRecord::ProgramData(vec![1, 2, 3])]),
+        data: Data::default(),
     };
 
     let sender_pt = AnonymousTransferSenderPlaintext {
@@ -177,8 +177,8 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
     assert_eq!(recovered_recipient, recipient_utxo);
 }
 
-#[then(expr = "a zone-owned recipient utxo for {string} round-trips")]
-fn zone_owned_round_trips(world: &mut TransactionWorld, name: String) {
+#[then(expr = "a zone-owned recipient utxo with data for {string} is rejected")]
+fn zone_owned_with_data_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let zone_program_id = Some(Address::new_from_array([9u8; 32]));
@@ -191,10 +191,11 @@ fn zone_owned_round_trips(world: &mut TransactionWorld, name: String) {
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
     let pt = utxo.to_recipient_plaintext(&registry).unwrap();
-    let recovered = pt
-        .into_utxo(kp.signing_pubkey(), &registry, zone_program_id)
-        .unwrap();
-    assert_eq!(recovered, utxo);
+    assert_eq!(
+        pt.into_utxo(kp.signing_pubkey(), &registry, zone_program_id)
+            .unwrap_err(),
+        TransactionError::UnsupportedOutputData
+    );
 }
 
 #[then(expr = "zone data without a zone program id is rejected for {string}")]
@@ -210,7 +211,7 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
     assert_eq!(
         pt.into_utxo(kp.signing_pubkey(), &registry, None)
             .unwrap_err(),
-        TransactionError::MissingZoneProgramId
+        TransactionError::UnsupportedOutputData
     );
 }
 
@@ -222,7 +223,7 @@ fn zone_id_without_data_not_set(world: &mut TransactionWorld, name: String) {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+        data: Data::default(),
     };
     let utxo = pt
         .into_utxo(

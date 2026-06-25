@@ -91,7 +91,10 @@ pub fn assert_spl_deposit<R: Rpc, I: Rpc>(
         "recipient wallet must discover the SPL deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
     assert_eq!(
         utxo.utxo.asset.to_bytes(),
         mint.to_bytes(),

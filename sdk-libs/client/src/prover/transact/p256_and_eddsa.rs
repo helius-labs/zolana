@@ -7,8 +7,8 @@ use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
 use crate::error::ClientError;
 use crate::prover::field::{be, hash_chain, right_align_slice};
-use crate::prover::transact::witness::SpendProof;
 use crate::prover::shape::{resolve_shape, Shape};
+use crate::prover::transact::witness::SpendProof;
 use crate::prover::{TransferInput, TransferOutput, TransferP256Inputs, UtxoInputs};
 use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
 

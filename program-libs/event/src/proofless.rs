@@ -40,3 +40,8 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
     borsh::to_vec(&OutputData::Plaintext(blob))
         .expect("shielded-pool output data serialization is infallible")
 }
+
+pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
+    borsh::to_vec(&OutputData::VerifiablyEncrypted(blob))
+        .expect("shielded-pool output data serialization is infallible")
+}

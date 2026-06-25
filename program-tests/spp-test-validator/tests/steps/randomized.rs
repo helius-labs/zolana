@@ -7,7 +7,7 @@
 //! Verification is maximal: each submitted transaction is followed by its strongest
 //! existing full assert. A deposit runs the deposit assert; a transfer or
 //! consolidation syncs and full-struct asserts each involved actor; a merge service
-//! consolidation runs the merge assert (decrypt + reconstruct + inclusion); a
+//! consolidation syncs and full-struct asserts the owner (plus an inclusion check); a
 //! withdrawal checks the recipient credit inside `withdraw_sol` and asserts the
 //! sender. After the run, every actor is synced and asserted again, and an on-chain
 //! conservation invariant ties the pool's SOL custody and SPL vault balances to the
@@ -15,10 +15,9 @@
 //!
 //! Merge uses the eddsa owner rail: each actor registers under its own ed25519
 //! signing key and the configured merge authority consolidates its SOL UTXOs into one
-//! output. The merged output carries no view tag, so `Wallet::sync` cannot rediscover
-//! it; the consumed inputs are marked spent directly so the wallet view stays
-//! consistent, and the orphaned output value remains in pool custody (conservation
-//! still holds).
+//! output. The merged output carries the owner's bootstrap view tag, so `Wallet::sync`
+//! rediscovers it and marks the consumed inputs spent, keeping the wallet view
+//! consistent.
 
 use std::collections::BTreeMap;
 
@@ -31,9 +30,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
-use zolana_transaction::{Utxo, SOL_MINT};
+use zolana_transaction::SOL_MINT;
 
-use crate::{actor::Actor, localnet::ZERO, LifecycleWorld};
+use crate::{actor::Actor, LifecycleWorld};
 
 /// Maximum real inputs the 8-in/1-out merge circuit consolidates at once.
 const MAX_MERGE_INPUTS: usize = 8;
@@ -268,22 +267,13 @@ impl LifecycleWorld {
 
     /// Register `name` for the merge service on first use (under its own ed25519
     /// signing key, the eddsa owner rail) and consolidate up to `MAX_MERGE_INPUTS` of
-    /// its SOL UTXOs into one output. The merged output is not rediscoverable by sync,
-    /// so the consumed inputs are marked spent directly and the merge is verified by
-    /// `assert_merged`.
+    /// its SOL UTXOs into one output. `merge` tracks the consolidated output and the
+    /// consumed inputs in the actor's expected set; `assert_merged` then syncs and
+    /// full-struct asserts the owner.
     fn rand_merge(&mut self, name: &str) -> Result<()> {
         let count = self.spendable_count(name, SOL_MINT).min(MAX_MERGE_INPUTS);
-        let consumed: Vec<Utxo> = self
-            .actor(name)
-            .spendable
-            .iter()
-            .filter(|utxo| utxo.asset == SOL_MINT)
-            .take(count)
-            .cloned()
-            .collect();
         let owner = self.ensure_merge_registered(name)?;
         self.merge(name, &owner, SOL_MINT, count)?;
-        self.mark_merge_inputs_spent(name, &consumed)?;
         self.assert_merged(name)
     }
 
@@ -296,30 +286,6 @@ impl LifecycleWorld {
         self.merge_owners
             .insert(name.to_string(), owner.insecure_clone());
         Ok(owner)
-    }
-
-    /// Mark merge-consumed inputs spent in the actor's tracked sets. Deposited inputs
-    /// are untracked (in `spendable` only) so they match nothing; transfer-derived
-    /// inputs are flagged in both `wallet.utxos` and `expected`. `Wallet::sync` only
-    /// ever sets `spent`, so the flag survives later syncs.
-    fn mark_merge_inputs_spent(&mut self, name: &str, consumed: &[Utxo]) -> Result<()> {
-        let nullifier_pk = self.actor(name).keypair.nullifier_key.pubkey()?;
-        let mut consumed_hashes = Vec::with_capacity(consumed.len());
-        for utxo in consumed {
-            consumed_hashes.push(utxo.hash(&nullifier_pk, &ZERO, &ZERO)?);
-        }
-        let actor = self.actor_mut(name);
-        for note in actor.expected.iter_mut() {
-            if consumed_hashes.contains(&note.hash) {
-                note.spent = true;
-            }
-        }
-        for note in actor.wallet.utxos.iter_mut() {
-            if consumed_hashes.contains(&note.hash) {
-                note.spent = true;
-            }
-        }
-        Ok(())
     }
 
     /// Sync and full-struct assert the sender, and the recipient when there is one.

@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use zolana_client::prover::transact::assemble;
 use zolana_client::{
     create_transfer, CreateTransfer, InputCommitment, ProofCompressed, ProverClient, ProverInputs,
     Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
@@ -86,7 +87,7 @@ pub(super) fn submit_private_transaction(
     // `assemble` runs the witness build once: the per-input nullifiers, root
     // indices, and dummy padding come out of the prover, so the instruction data
     // and the proof commit to identical values by construction.
-    let assembled = signed.assemble(&proofs)?;
+    let assembled = assemble(signed, &proofs)?;
     let prover = ProverClient::new(request.prover_url.to_string());
     let proof = match &assembled.prover_inputs {
         ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,

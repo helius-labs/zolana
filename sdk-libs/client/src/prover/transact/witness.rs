@@ -248,13 +248,12 @@ pub fn assemble(
         .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
     let mut inputs = Vec::with_capacity(shape.n_inputs);
     for i in 0..shape.n_inputs {
-        let nullifier_hash =
-            *nullifiers
-                .get(i)
-                .ok_or(ClientError::WitnessInputCountMismatch {
-                    got: nullifiers.len(),
-                    expected: shape.n_inputs,
-                })?;
+        let nullifier_hash = *nullifiers
+            .get(i)
+            .ok_or(ClientError::WitnessInputCountMismatch {
+                got: nullifiers.len(),
+                expected: shape.n_inputs,
+            })?;
         let &(utxo_tree_root_index, nullifier_tree_root_index) =
             root_indices
                 .get(i)

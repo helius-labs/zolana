@@ -275,7 +275,7 @@ mod tests {
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-    use zolana_transaction::SOL_MINT;
+    use zolana_transaction::{Address, SOL_MINT};
 
     use super::*;
     use crate::rpc::{

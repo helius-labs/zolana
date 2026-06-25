@@ -6,11 +6,10 @@
 //! merge authority then runs the consolidation on the owner's behalf, proving on
 //! the 8-in/1-out merge circuit.
 //!
-//! NOTE: the consolidated output carries no transfer-style view tag, so it is not
-//! discovered by `Wallet::sync` (the merge scheme is not wired into sync yet).
-//! `assert_merged` therefore verifies the output by decrypting the published
-//! ciphertext and reconstructing the UTXO, instead of the standard
-//! "syncs / UTXOs match" path. Swap it for that path once merge sync lands.
+//! The consolidated output carries the owner's bootstrap view tag, so `Wallet::sync`
+//! rediscovers it: `assert_merged` syncs and full-struct asserts the actor's wallet
+//! (the merged output present, the consumed inputs spent), the standard
+//! "syncs / UTXOs match" path used by the other lifecycle steps.
 
 use anyhow::{anyhow, Result};
 use cucumber::{given, then, when};
@@ -26,7 +25,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
-    wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
@@ -41,18 +40,11 @@ use crate::{
     LifecycleWorld,
 };
 
-/// What the consolidated-output assert needs after a merge: the appended output
-/// and the ciphertext that lets the owner reconstruct it.
+/// What the consolidated-output assert needs after a merge: the actor that owns
+/// the appended output and the output's hash (for the inclusion-proof check).
 pub(crate) struct MergeRecord {
     pub(crate) actor: String,
-    pub(crate) asset: Address,
-    pub(crate) total: u64,
     pub(crate) output_hash: [u8; 32],
-    pub(crate) output_blinding: [u8; 31],
-    pub(crate) tx_viewing_pk: zolana_keypair::P256Pubkey,
-    pub(crate) ciphertext: Vec<u8>,
-    // TODO: re-enable with the consumption check in assert_merged.
-    // pub(crate) input_nullifiers: Vec<[u8; 32]>,
 }
 
 impl LifecycleWorld {
@@ -236,94 +228,87 @@ impl LifecycleWorld {
         );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        send_transaction(
+        let sig = send_transaction(
             &mut self.rpc,
             &[compute_budget, sync_ix],
             &merge_key.pubkey(),
             &[&merge_key],
         )?;
 
-        // Record what the consolidated-output assert needs: the appended output
-        // hash and the published ciphertext the owner decrypts.
-        self.last_merge = Some(MergeRecord {
-            actor: name.to_string(),
+        // The merged output carries the owner's bootstrap view tag, so the indexed
+        // transaction is located by that tag and added to the synced stream; the
+        // owner's `Wallet::sync` then rediscovers the consolidated output and marks
+        // the consumed inputs spent from the transaction's nullifiers.
+        let bootstrap_tag = keypair.recipient_bootstrap_view_tag();
+        let indexed = wait_for_indexed_transaction(&self.indexer, bootstrap_tag, sig);
+
+        // The consolidated output owned by the actor, tracked like a transfer
+        // recipient UTXO so `assert_utxos` matches the synced wallet.
+        let merged_utxo = self.build_expected(
+            name,
+            keypair.signing_pubkey(),
             asset,
             total,
-            output_hash: result.output_hash,
             output_blinding,
-            tx_viewing_pk: result.tx_viewing_pk,
-            ciphertext: result.ciphertext,
-            // TODO: re-enable with the consumption check in assert_merged.
-            // input_nullifiers,
+            &indexed,
+        )?;
+        self.actor_mut(name).expected.push(merged_utxo);
+
+        // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
+        for input in &inputs {
+            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            if let Some(note) = self
+                .actor_mut(name)
+                .expected
+                .iter_mut()
+                .find(|n| n.output_context.hash == consumed_hash)
+            {
+                note.spent = true;
+            }
+        }
+
+        self.indexed.push(indexed);
+
+        // Record what the inclusion-proof assert needs: the appended output hash.
+        self.last_merge = Some(MergeRecord {
+            actor: name.to_string(),
+            output_hash: result.output_hash,
         });
         Ok(())
     }
 
-    /// Functional assert for the consolidated output. The merge output carries no
-    /// transfer-style view tag, so it is not discovered by `Wallet::sync`; instead
-    /// the owner decrypts the published ciphertext with its viewing key, reconstructs
-    /// the merged UTXO, and confirms the reconstruction hashes to the output hash the
-    /// tree appended. Also confirms the indexer serves an inclusion proof for that
-    /// output.
-    ///
-    /// NOTE: this does not go through `Wallet::sync`/`assert_utxos` because the merge
-    /// scheme is not yet wired into `Wallet::sync` (D-phase, in flight). When merge
-    /// sync lands, replace this with the standard "syncs / UTXOs match" assert.
-    pub(crate) fn assert_merged(&self, name: &str) -> Result<()> {
-        let record = self
-            .last_merge
-            .as_ref()
-            .ok_or_else(|| anyhow!("no merge recorded"))?;
-        if record.actor != name {
-            return Err(anyhow!("last merge was for {}, not {name}", record.actor));
-        }
-        let keypair = self.actor(name).keypair.clone();
+    /// Functional assert for the consolidated output, the standard
+    /// "syncs / UTXOs match" path: the owner's `Wallet::sync` rediscovers the merged
+    /// output by its bootstrap view tag and marks the consumed inputs spent, and the
+    /// synced wallet must match the tracked expected set. Also confirms the indexer
+    /// serves an inclusion proof for the appended output.
+    pub(crate) fn assert_merged(&mut self, name: &str) -> Result<()> {
+        let output_hash = {
+            let record = self
+                .last_merge
+                .as_ref()
+                .ok_or_else(|| anyhow!("no merge recorded"))?;
+            if record.actor != name {
+                return Err(anyhow!("last merge was for {}, not {name}", record.actor));
+            }
+            record.output_hash
+        };
 
-        // Owner reconstructs the merged UTXO from the published ciphertext.
-        let plaintext = keypair.decrypt_merge(&record.tx_viewing_pk, &record.ciphertext)?;
-        let amount = u64::from_be_bytes(
-            plaintext
-                .get(0..8)
-                .ok_or_else(|| anyhow!("merge plaintext too short"))?
-                .try_into()?,
+        self.sync(name)?;
+        let merged_present = self
+            .actor(name)
+            .wallet
+            .utxos
+            .iter()
+            .any(|w| w.output_context.hash == output_hash);
+        assert!(
+            merged_present,
+            "{name}'s synced wallet should hold the consolidated output"
         );
-        let blinding: [u8; 31] = plaintext
-            .get(40..71)
-            .ok_or_else(|| anyhow!("merge plaintext too short"))?
-            .try_into()?;
-        assert_eq!(amount, record.total, "recovered merged amount");
-        assert_eq!(
-            blinding, record.output_blinding,
-            "recovered merged blinding"
-        );
-
-        let reconstructed = self.build_expected(
-            name,
-            keypair.signing_pubkey(),
-            record.asset,
-            amount,
-            blinding,
-        )?;
-        assert_eq!(
-            reconstructed.hash, record.output_hash,
-            "owner reconstructs the merged output from the ciphertext",
-        );
+        self.assert_utxos(name)?;
 
         // The output was appended to the tree (inclusion proof is served).
-        let _ = wait_for_merkle_proof(&self.indexer, self.tree_address, record.output_hash);
-        // TODO: re-enable once consumption is checkable post-merge. The merge inserts
-        // the input nullifiers into the batched queue, but `get_non_inclusion_proofs`
-        // proves non-inclusion against the nullifier *tree* (not the queue), so a
-        // valid proof still exists until a forester batches the queue (which the test
-        // does not run). Consumption is enforced on-chain by the queue bloom filter.
-        // for nullifier in &record.input_nullifiers {
-        //     let consumed = self
-        //         .indexer
-        //         .get_non_inclusion_proofs(self.tree_address, vec![*nullifier])
-        //         .map(|response| response.proofs.is_empty())
-        //         .unwrap_or(true);
-        //     assert!(consumed, "merged input nullifier should be consumed");
-        // }
+        let _ = wait_for_merkle_proof(&self.indexer, self.tree_address, output_hash);
         Ok(())
     }
 

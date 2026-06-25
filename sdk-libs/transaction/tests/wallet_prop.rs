@@ -345,9 +345,9 @@ impl Harness {
         prop_assert_eq!(wallet.last_synced, sequential.last_synced);
 
         let mut actual = wallet.utxos.clone();
-        actual.sort_by_key(|u| u.hash);
+        actual.sort_by_key(|u| u.output_context.hash);
         let mut expected = sequential.utxos.clone();
-        expected.sort_by_key(|u| u.hash);
+        expected.sort_by_key(|u| u.output_context.hash);
         prop_assert_eq!(actual, expected);
 
         prop_assert_eq!(

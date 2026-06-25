@@ -19,13 +19,13 @@ use crate::EncryptedScheme;
 
 use super::state::{SyncReport, ViewingKeyEntry, Wallet, WalletUtxo};
 
-struct TxIndex {
-    sender_sites: HashMap<ViewTag, Vec<usize>>,
-    recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
+pub(super) struct TxIndex {
+    pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,
+    pub(super) recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
 }
 
 impl TxIndex {
-    fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
+    pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         for (t, tx) in transactions.iter().enumerate() {
@@ -77,18 +77,18 @@ impl TxIndex {
 }
 
 #[derive(Default)]
-struct SlotOutcome {
-    sender: Option<P256Pubkey>,
-    recipients: Vec<P256Pubkey>,
+pub(super) struct SlotOutcome {
+    pub(super) sender: Option<P256Pubkey>,
+    pub(super) recipients: Vec<P256Pubkey>,
 }
 
-struct SyncCtx<'a> {
-    keypair: &'a ShieldedKeypair,
-    owner: PublicKey,
-    nullifier_pk: [u8; 32],
-    utxos: &'a mut Vec<WalletUtxo>,
-    processed_slots: HashSet<(usize, usize)>,
-    report: SyncReport,
+pub(super) struct SyncCtx<'a> {
+    pub(super) keypair: &'a ShieldedKeypair,
+    pub(super) owner: PublicKey,
+    pub(super) nullifier_pk: [u8; 32],
+    pub(super) utxos: &'a mut Vec<WalletUtxo>,
+    pub(super) processed_slots: HashSet<(usize, usize)>,
+    pub(super) report: SyncReport,
 }
 
 impl SyncCtx<'_> {
@@ -141,10 +141,12 @@ impl SyncCtx<'_> {
         &mut self,
         utxos: Vec<Utxo>,
         output_context: &OutputContext,
+        program_data_hash: &[u8; 32],
+        zone_data_hash: &[u8; 32],
     ) -> Result<bool, TransactionError> {
         let mut stored = false;
         for utxo in utxos {
-            let hash = utxo.hash(&self.nullifier_pk, &[0u8; 32], &[0u8; 32])?;
+            let hash = utxo.hash(&self.nullifier_pk, program_data_hash, zone_data_hash)?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
                 continue;
@@ -160,7 +162,7 @@ impl SyncCtx<'_> {
     /// bundles (passed as slot 0) store their change against the whole
     /// transaction. The returned [`SlotOutcome`] carries the counterparty
     /// pubkeys that drive `known_senders` / `known_recipients`.
-    fn decode_slot(
+    pub(super) fn decode_slot(
         &mut self,
         transactions: &[ShieldedTransaction],
         key: &ViewingKey,
@@ -184,7 +186,14 @@ impl SyncCtx<'_> {
             return Ok(outcome);
         };
         let output_context = slot.output_context.clone();
-        let cx = DecodeCx::for_slot(key, tx, site.1 as u32);
+        let encrypted_slot_index = tx
+            .output_slots
+            .iter()
+            .take(site.1 + 1)
+            .filter(|slot| slot.output_data().is_some())
+            .count()
+            .saturating_sub(1) as u32;
+        let cx = DecodeCx::for_slot(key, tx, encrypted_slot_index);
         let owner_cx = OwnerCx {
             owner: self.owner,
             assets,
@@ -206,11 +215,18 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
+                        let program_data_hash = plaintext.program_data_hash.unwrap_or([0u8; 32]);
+                        let zone_data_hash = plaintext.policy_data_hash.unwrap_or([0u8; 32]);
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(utxos, &output_context)? {
+                        if self.store_recipient_utxos(
+                            utxos,
+                            &output_context,
+                            &program_data_hash,
+                            &zone_data_hash,
+                        )? {
                             self.processed_slots.insert(site);
                         }
                     }
@@ -253,7 +269,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(utxos, &output_context)? {
+                        if self.store_recipient_utxos(
+                            utxos,
+                            &output_context,
+                            &[0u8; 32],
+                            &[0u8; 32],
+                        )? {
                             self.processed_slots.insert(site);
                             outcome.sender = Some(sender);
                         }
@@ -268,7 +289,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(utxos, &output_context)? {
+                        if self.store_recipient_utxos(
+                            utxos,
+                            &output_context,
+                            &[0u8; 32],
+                            &[0u8; 32],
+                        )? {
                             self.processed_slots.insert(site);
                         }
                     }
@@ -344,7 +370,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        if self.store_recipient_utxos(utxos, &output_context)? {
+                        if self.store_recipient_utxos(
+                            utxos,
+                            &output_context,
+                            &[0u8; 32],
+                            &[0u8; 32],
+                        )? {
                             self.processed_slots.insert(site);
                         }
                     }

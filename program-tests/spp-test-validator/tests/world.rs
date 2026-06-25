@@ -21,7 +21,7 @@ use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, settings_pda, smart_account_pda, treasury_pda,
     Permissions, SmartAccountSigner,
 };
-use zolana_transaction::{AssetRegistry, SyncTransaction};
+use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
     actor::Actor,
@@ -62,7 +62,7 @@ pub struct LifecycleWorld {
     /// The Solana keypair each actor registered on the user-registry under, kept so
     /// the merge step can derive the `user_record` PDA the program reads.
     pub(crate) merge_owners: BTreeMap<String, Keypair>,
-    pub(crate) indexed: Vec<SyncTransaction>,
+    pub(crate) indexed: Vec<ShieldedTransaction>,
     pub(crate) spls: Vec<SplAsset>,
     pub(crate) last_rail: Option<Rail>,
     /// The most recent `transact` instruction and its transaction signature, kept

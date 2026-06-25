@@ -29,19 +29,19 @@ Regenerate with `just bench-tree`.
 
 | Function                 |   Total CU |     Net CU |
 | ------------------------ | ---------- | ---------- |
-| `bench_nullifier_insert` |        559 |        559 |
+| `bench_nullifier_insert` |        595 |        595 |
 
 ## 3. Nullifier insert x10
 
 | Function                 |   Total CU |     Net CU |
 | ------------------------ | ---------- | ---------- |
-| `bench_nullifier_insert` |     13,105 |     13,105 |
+| `bench_nullifier_insert` |     13,402 |     13,402 |
 
 ## 4. Tree init
 
 | Function                 |   Total CU |     Net CU |
 | ------------------------ | ---------- | ---------- |
-| `bench_init`             |        922 |        922 |
+| `bench_init`             |        941 |        941 |
 
 ## 5. Utxo append x1
 
@@ -60,4 +60,3 @@ Regenerate with `just bench-tree`.
 | Function                 |   Total CU |     Net CU |
 | ------------------------ | ---------- | ---------- |
 | `bench_append_batch`     |     29,392 |     29,392 |
-

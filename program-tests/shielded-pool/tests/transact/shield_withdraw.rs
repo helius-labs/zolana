@@ -31,7 +31,9 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{transaction::private_tx_hash, Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::private_tx_hash, Data, OutputUtxo, Utxo, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{

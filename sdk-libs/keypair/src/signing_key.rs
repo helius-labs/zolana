@@ -1,6 +1,7 @@
 use ed25519_dalek::Signer as Ed25519Signer;
 use ed25519_dalek::SigningKey as DalekSigningKey;
 use ed25519_dalek::Verifier as Ed25519Verifier;
+use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use p256::ecdsa::{Signature as EcdsaSig, SigningKey as EcdsaSigningKey, VerifyingKey};
 use p256::SecretKey;
 use rand::rngs::OsRng;
@@ -78,7 +79,9 @@ impl SigningKey {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
                 let signing = EcdsaSigningKey::from(sk);
-                let sig: EcdsaSig = signing.sign(msg);
+                let sig: EcdsaSig = signing
+                    .sign_prehash(msg)
+                    .expect("p256 prehash signing is infallible for a 32-byte digest");
                 let mut out = [0u8; 64];
                 out.copy_from_slice(sig.to_bytes().as_slice());
                 out
@@ -92,7 +95,7 @@ impl SigningKey {
             SigningKeyInner::P256(sk) => {
                 let vk = VerifyingKey::from(sk.public_key());
                 match EcdsaSig::from_slice(sig) {
-                    Ok(parsed) => vk.verify(msg, &parsed).is_ok(),
+                    Ok(parsed) => vk.verify_prehash(msg, &parsed).is_ok(),
                     Err(_) => false,
                 }
             }

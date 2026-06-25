@@ -158,8 +158,14 @@ pub(crate) fn encrypt_utxo_ctr(
 ) -> Result<Vec<u8>, KeypairError> {
     let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
     let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
-    let (key, nonce) =
-        derive_key_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, ENC_INFO_TRANSFER, salt, slot)?;
+    let (key, nonce) = derive_key_nonce(
+        &dh,
+        &ephemeral_pubkey,
+        recipient_pubkey,
+        ENC_INFO_TRANSFER,
+        salt,
+        slot,
+    )?;
     let mut buf = plaintext.to_vec();
     ctr_apply(&key, &nonce, &mut buf);
     Ok(buf)
@@ -174,8 +180,14 @@ pub(crate) fn decrypt_utxo_ctr(
 ) -> Result<Vec<u8>, KeypairError> {
     let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
     let dh = Zeroizing::new(ecdh_x(viewing_secret_key, ephemeral_pubkey)?);
-    let (key, nonce) =
-        derive_key_nonce(&dh, ephemeral_pubkey, &recipient_pubkey, ENC_INFO_TRANSFER, salt, slot)?;
+    let (key, nonce) = derive_key_nonce(
+        &dh,
+        ephemeral_pubkey,
+        &recipient_pubkey,
+        ENC_INFO_TRANSFER,
+        salt,
+        slot,
+    )?;
     let mut buf = ciphertext.to_vec();
     ctr_apply(&key, &nonce, &mut buf);
     Ok(buf)

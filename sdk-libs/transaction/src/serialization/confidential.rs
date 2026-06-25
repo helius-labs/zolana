@@ -40,6 +40,9 @@ impl TransferRecipientPlaintext {
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<Utxo, TransactionError> {
+        if !self.data.is_empty() {
+            return Err(TransactionError::UnsupportedOutputData);
+        }
         Ok(Utxo {
             owner,
             asset: assets.resolve(self.asset_id)?,

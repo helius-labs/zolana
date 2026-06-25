@@ -46,6 +46,9 @@ pub enum TransactionError {
     #[error("zone data present without zone program id")]
     MissingZoneProgramId,
 
+    #[error("program/zone data on this output cannot be processed yet")]
+    UnsupportedOutputData,
+
     #[error("poseidon hash failed: {0}")]
     Poseidon(String),
 

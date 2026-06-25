@@ -5,6 +5,7 @@ use zolana_interface::{
 };
 use zolana_keypair::shielded::ShieldedAddress;
 use zolana_keypair::viewing_key::ViewTag;
+use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::transact::{
     SignedTransaction, Transaction, WithdrawalTarget,
 };
@@ -14,7 +15,7 @@ use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 use crate::error::ClientError;
 use crate::rpc::Rpc;
 use crate::user_registry::try_resolve_registered_address;
-use crate::wallet_authority::{ApprovalRequest, WalletAuthority};
+use crate::wallet_authority::{ApprovalRequest, ConfidentialRecipientSlot, WalletAuthority};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
@@ -121,16 +122,30 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         request.asset,
         request.amount,
     )?;
-    let mut tx = Transaction::new(
-        request.authority.shielded_address(request.owner_pubkey)?,
-        inputs,
-        request.payer,
-    );
+    let address = request.authority.shielded_address(request.owner_pubkey)?;
+    let mut tx = Transaction::new(address, inputs, request.payer);
     tx.send(
         &recipient.address,
         request.asset,
         request.amount,
         recipient.view_tag,
+    )?;
+    let prepared = tx.prepare(request.assets)?;
+    let recipient_slots: Vec<ConfidentialRecipientSlot> = prepared
+        .recipients
+        .iter()
+        .map(|r| ConfidentialRecipientSlot {
+            view_tag: r.view_tag,
+            recipient_pubkey: r.recipient_pubkey,
+            plaintext: r.plaintext.clone(),
+        })
+        .collect();
+    let encrypted = request.authority.encrypt_confidential_transfer(
+        request.owner_pubkey,
+        &prepared.first_nullifier,
+        wait_tag,
+        &prepared.sender_plaintext,
+        &recipient_slots,
     )?;
     request.authority.request_user_approval(ApprovalRequest {
         owner_pubkey: request.owner_pubkey,
@@ -139,7 +154,22 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
             request.amount, request.recipient_owner
         ),
     })?;
-    let signed = tx.sign(request.authority, request.assets, wait_tag)?;
+    let mut signed = prepared.finalize(
+        encrypted.tx_viewing_pk,
+        encrypted.salt,
+        encrypted.slots,
+        request.assets,
+    )?;
+    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
+        let message_hash = signed.message_hash()?;
+        let sig = request
+            .authority
+            .sign_p256(request.owner_pubkey, &message_hash)?;
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&sig.sig_r);
+        bytes[32..].copy_from_slice(&sig.sig_s);
+        signed.p256_owner = Some(bytes);
+    }
     Ok(CreatedTransfer {
         signed,
         wait_tag,
@@ -159,17 +189,46 @@ pub fn create_withdrawal<A: WalletAuthority>(
         request.amount,
     )?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
-    let mut tx = Transaction::new(
-        request.authority.shielded_address(request.owner_pubkey)?,
-        inputs,
-        request.payer,
-    );
+    let address = request.authority.shielded_address(request.owner_pubkey)?;
+    let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
+    let prepared = tx.prepare(request.assets)?;
+    let recipient_slots: Vec<ConfidentialRecipientSlot> = prepared
+        .recipients
+        .iter()
+        .map(|r| ConfidentialRecipientSlot {
+            view_tag: r.view_tag,
+            recipient_pubkey: r.recipient_pubkey,
+            plaintext: r.plaintext.clone(),
+        })
+        .collect();
+    let encrypted = request.authority.encrypt_confidential_transfer(
+        request.owner_pubkey,
+        &prepared.first_nullifier,
+        wait_tag,
+        &prepared.sender_plaintext,
+        &recipient_slots,
+    )?;
     request.authority.request_user_approval(ApprovalRequest {
         owner_pubkey: request.owner_pubkey,
         summary: format!("withdraw {} to {}", request.amount, request.recipient),
     })?;
-    let signed = tx.sign(request.authority, request.assets, wait_tag)?;
+    let mut signed = prepared.finalize(
+        encrypted.tx_viewing_pk,
+        encrypted.salt,
+        encrypted.slots,
+        request.assets,
+    )?;
+    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
+        let message_hash = signed.message_hash()?;
+        let sig = request
+            .authority
+            .sign_p256(request.owner_pubkey, &message_hash)?;
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&sig.sig_r);
+        bytes[32..].copy_from_slice(&sig.sig_s);
+        signed.p256_owner = Some(bytes);
+    }
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,
@@ -308,7 +367,11 @@ mod tests {
             .expect("nullifier");
         wallet.utxos.push(WalletUtxo {
             utxo,
-            hash,
+            output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                hash,
+                tree: Address::default(),
+                leaf_index: 0,
+            },
             nullifier,
             spent: false,
         });

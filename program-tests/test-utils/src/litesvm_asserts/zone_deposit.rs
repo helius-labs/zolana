@@ -71,7 +71,10 @@ pub fn litesvm_assert_zone_deposit(
         "recipient wallet must discover the zone deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
     assert_eq!(
         utxo.utxo.zone_program_id.map(|id| id.to_bytes()),
         Some(expected_zone_program_id),

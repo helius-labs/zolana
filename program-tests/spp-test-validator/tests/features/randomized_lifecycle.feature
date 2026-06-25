@@ -11,8 +11,8 @@ Feature: Randomized mixed-asset eddsa workload
 
   Each transaction is followed by its strongest full assert (deposit -> deposit
   assert; transfer/consolidate -> sync + full-struct UTXO assert on each involved
-  actor; merge -> decrypt + reconstruct + inclusion assert; withdrawal -> recipient
-  credit + sender UTXO assert). After the run, every actor is synced and asserted
+  actor; merge -> sync + full-struct UTXO assert + inclusion check; withdrawal ->
+  recipient credit + sender UTXO assert). After the run, every actor is synced and asserted
   again, and an on-chain conservation invariant ties the pool's SOL custody and SPL
   vault balances to the net deposited minus withdrawn.
 

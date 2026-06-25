@@ -7,9 +7,14 @@ use crate::instruction::tag::MERGE_TRANSACT;
 /// carry distinct, in-window nullifiers and valid root indices.
 pub const MERGE_INPUT_COUNT: usize = 8;
 
-/// Byte length of the `encrypted_utxo` blob: `type_prefix(1) || tx_viewing_pk(33)
-/// || ciphertext(71)`.
-pub const MERGE_ENCRYPTED_UTXO_LEN: usize = 105;
+/// Byte length of the `encrypted_utxo` payload, the unified output encoding
+/// `borsh(OutputData::VerifiablyEncrypted([scheme(1) || tx_viewing_pk(33) ||
+/// ciphertext(71)]))`: borsh enum tag(1) || vec len u32-le(4) || blob(105).
+pub const MERGE_ENCRYPTED_UTXO_LEN: usize = 110;
+
+/// First byte every merge `encrypted_utxo` must carry: the borsh
+/// `OutputData::VerifiablyEncrypted` discriminant.
+pub const MERGE_ENCRYPTED_UTXO_TYPE_PREFIX: u8 = 2;
 
 /// `merge_transact` instruction data (spec: SPP `merge_transact`).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -83,18 +88,19 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
-    /// `tx_viewing_pk = encrypted_utxo[1..34]` (after the 1-byte type prefix).
+    /// `tx_viewing_pk = encrypted_utxo[6..39]` (after the borsh tag(1) + vec
+    /// len(4) + scheme(1) prefix).
     pub fn tx_viewing_pk(&self) -> Result<&'a [u8; 33], wincode::ReadError> {
         self.encrypted_utxo
-            .get(1..34)
+            .get(6..39)
             .and_then(|s| s.try_into().ok())
             .ok_or(wincode::ReadError::Custom("encrypted_utxo too short"))
     }
 
-    /// `ciphertext = encrypted_utxo[34..105]`.
+    /// `ciphertext = encrypted_utxo[39..110]`.
     pub fn ciphertext(&self) -> Result<&'a [u8], wincode::ReadError> {
         self.encrypted_utxo
-            .get(34..MERGE_ENCRYPTED_UTXO_LEN)
+            .get(39..MERGE_ENCRYPTED_UTXO_LEN)
             .ok_or(wincode::ReadError::Custom("encrypted_utxo too short"))
     }
 }
@@ -158,8 +164,8 @@ mod tests {
         assert_eq!(view.encrypted_utxo, owned.encrypted_utxo.as_slice());
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);
         // Blob accessors.
-        assert_eq!(view.tx_viewing_pk().unwrap(), &owned.encrypted_utxo[1..34]);
-        assert_eq!(view.ciphertext().unwrap(), &owned.encrypted_utxo[34..105]);
+        assert_eq!(view.tx_viewing_pk().unwrap(), &owned.encrypted_utxo[6..39]);
+        assert_eq!(view.ciphertext().unwrap(), &owned.encrypted_utxo[39..110]);
     }
 
     #[test]

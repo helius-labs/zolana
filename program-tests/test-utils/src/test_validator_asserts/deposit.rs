@@ -73,7 +73,10 @@ pub fn assert_deposit<R: Rpc, I: Rpc>(
         "recipient wallet must discover the deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
     assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
     Ok(())
 }

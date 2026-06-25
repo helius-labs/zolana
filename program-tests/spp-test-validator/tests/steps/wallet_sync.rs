@@ -18,7 +18,7 @@ impl LifecycleWorld {
         let actor = self.actor_mut(name);
         actor
             .wallet
-            .sync(&indexed, &[], &assets, 0, DEFAULT_TAG_WINDOW)?;
+            .sync(&indexed, &assets, 0, DEFAULT_TAG_WINDOW)?;
 
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
         let mut spendable_hashes: Vec<[u8; 32]> = Vec::new();
@@ -29,7 +29,7 @@ impl LifecycleWorld {
             .wallet
             .utxos
             .iter()
-            .filter(|w| !w.spent && !spendable_hashes.contains(&w.hash))
+            .filter(|w| !w.spent && !spendable_hashes.contains(&w.output_context.hash))
             .map(|w| w.utxo.clone())
             .collect();
         actor.spendable.extend(newly_spendable);
@@ -42,8 +42,8 @@ impl LifecycleWorld {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
-        actual.sort_by_key(|u| u.hash);
-        expected.sort_by_key(|u| u.hash);
+        actual.sort_by_key(|u| u.output_context.hash);
+        expected.sort_by_key(|u| u.output_context.hash);
         assert_eq!(
             actual, expected,
             "synced UTXOs for {name} do not match expected"
@@ -59,7 +59,7 @@ impl LifecycleWorld {
         let actor = self.actor_mut(name);
         actor
             .wallet
-            .sync(&indexed, &[], &assets, 0, DEFAULT_TAG_WINDOW)?;
+            .sync(&indexed, &assets, 0, DEFAULT_TAG_WINDOW)?;
         assert!(
             actor.wallet.utxos.is_empty(),
             "{name} should not decrypt any UTXOs but found {}",

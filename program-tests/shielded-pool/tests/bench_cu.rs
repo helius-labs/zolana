@@ -28,7 +28,7 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_keypair::{hash::hash_field, hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{transaction::private_tx_hash, Data, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, Wallet, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 mod common;
