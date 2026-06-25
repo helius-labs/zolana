@@ -1,5 +1,5 @@
 use solana_address::Address;
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     P256Pubkey, PublicKey, ViewingKey,
@@ -9,7 +9,7 @@ use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
-    AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
+    AssetRegistry, EncryptedScheme, SOL_MINT,
 };
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
@@ -56,14 +56,10 @@ impl TransferRecipientPlaintext {
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferSenderPlaintext {
-    #[wincode(with = "PublicKeySchema")]
-    pub owner_pubkey: PublicKey, // TODO: remove see spec.md
     pub spl_asset_id: u64,
     pub spl_amount: u64,
     pub sol_amount: u64,
     pub blinding_seed: [u8; BLINDING_LEN],
-    #[wincode(with = "containers::Vec<P256PubkeySchema, FixIntLen<u8>>")]
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
     pub spl_data: Data,
     pub sol_data: Data,
 }
@@ -84,6 +80,7 @@ impl TransferSenderPlaintext {
 
     pub fn into_utxos(
         self,
+        owner: PublicKey,
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
@@ -96,7 +93,7 @@ impl TransferSenderPlaintext {
         let mut utxos = Vec::new();
         if self.spl_amount > 0 {
             utxos.push(Utxo {
-                owner: self.owner_pubkey,
+                owner,
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
                 blinding: derive_blinding(&self.blinding_seed, 0),
@@ -106,7 +103,7 @@ impl TransferSenderPlaintext {
         }
         if self.sol_amount > 0 {
             utxos.push(Utxo {
-                owner: self.owner_pubkey,
+                owner,
                 asset: SOL_MINT,
                 amount: self.sol_amount,
                 blinding: derive_blinding(&self.blinding_seed, 1),
@@ -185,7 +182,6 @@ pub struct ConfidentialSenderEncode {
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
     pub blinding_seed: [u8; BLINDING_LEN],
-    pub recipient_viewing_pks: Vec<P256Pubkey>,
 }
 
 pub struct ConfidentialSenderBundle;
@@ -210,7 +206,7 @@ impl UtxoSerialization for ConfidentialSenderBundle {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+        plaintext.into_utxos(cx.owner, cx.assets, cx.zone_program_id)
     }
 
     fn from_utxos(
@@ -218,8 +214,7 @@ impl UtxoSerialization for ConfidentialSenderBundle {
         owner: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
-        let owner_pubkey = first.owner;
+        utxos.first().ok_or(TransactionError::MissingOutput)?;
 
         let mut spl_asset_id = 0u64;
         let mut spl_amount = 0u64;
@@ -239,12 +234,10 @@ impl UtxoSerialization for ConfidentialSenderBundle {
         }
 
         Ok(TransferSenderPlaintext {
-            owner_pubkey,
             spl_asset_id,
             spl_amount,
             sol_amount,
             blinding_seed: cx.blinding_seed,
-            recipient_viewing_pks: cx.recipient_viewing_pks.clone(),
             spl_data,
             sol_data,
         })

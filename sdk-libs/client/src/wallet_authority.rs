@@ -125,7 +125,6 @@ impl WalletAuthority for ShieldedKeypair {
             salt,
             slot_index: 0,
             blinding_seed: sender.blinding_seed,
-            recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
         };
         slots.push(ConfidentialSenderBundle::encode_plaintext(
             sender, sender_tag, &sender_cx,

@@ -284,7 +284,10 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
-        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
+        instruction::{
+            tag, Deposit, DepositSplAccounts, InputUtxo, OutputCiphertext, TransactIxData,
+            TransactProof,
+        },
         SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
@@ -537,6 +540,74 @@ fn tx_size(args: Vec<String>) {
         &|_| OPT_SENDER_DATA_LEN,
         OPT_RECIPIENT_DATA_LEN,
         P256_PROOF_SER_LEN,
+    );
+
+    let registry_pk = Pubkey::from([7u8; 32]);
+
+    let sol_deposit = Deposit {
+        tree: tree_pk,
+        depositor: payer_pk,
+        spl: None,
+        view_tag: [0u8; 32],
+        owner: [0u8; 32],
+        blinding: [0u8; 31],
+        public_amount: Some(1000),
+        program_data_hash: None,
+        program_data: None,
+        cpi_signer: None,
+    }
+    .instruction();
+
+    let spl_deposit = Deposit {
+        tree: tree_pk,
+        depositor: payer_pk,
+        spl: Some(DepositSplAccounts {
+            user_token: user_token_pk,
+            vault: vault_pk,
+            registry: registry_pk,
+            token_program: token_program_pk,
+        }),
+        view_tag: [0u8; 32],
+        owner: [0u8; 32],
+        blinding: [0u8; 31],
+        public_amount: Some(1000),
+        program_data_hash: None,
+        program_data: None,
+        cpi_signer: None,
+    }
+    .instruction();
+
+    let alt_deposit_sol = AddressLookupTableAccount {
+        key: Pubkey::from([12u8; 32]),
+        addresses: vec![tree_pk],
+    };
+    let alt_deposit_spl = AddressLookupTableAccount {
+        key: Pubkey::from([13u8; 32]),
+        addresses: vec![tree_pk, vault_pk, registry_pk],
+    };
+
+    let sol_ix_len = sol_deposit.data.len();
+    let sol_no_alt = legacy_tx_len(sol_deposit.clone());
+    let sol_alt = v0_tx_len(sol_deposit.clone(), std::slice::from_ref(&alt_deposit_sol));
+
+    let spl_ix_len = spl_deposit.data.len();
+    let spl_no_alt = legacy_tx_len(spl_deposit.clone());
+    let spl_alt = v0_tx_len(spl_deposit.clone(), std::slice::from_ref(&alt_deposit_spl));
+
+    println!();
+    println!("Proofless deposit (no proof, no ciphertext; DepositIxData):");
+    println!(
+        "| {:<7} | {:>12} | {:>10} | {:>8} |",
+        "Variant", "ix data (B)", "tx, no ALT", "tx, ALT"
+    );
+    println!("|{:-<9}|{:-<14}|{:-<12}|{:-<10}|", "", "", "", "");
+    println!(
+        "| {:<7} | {:>12} | {:>10} | {:>8} |",
+        "SOL", sol_ix_len, sol_no_alt, sol_alt
+    );
+    println!(
+        "| {:<7} | {:>12} | {:>10} | {:>8} |",
+        "SPL", spl_ix_len, spl_no_alt, spl_alt
     );
 }
 

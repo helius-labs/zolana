@@ -368,22 +368,10 @@ fn assert_outputs(
     assert_eq!(
         sender_pt,
         TransferSenderPlaintext {
-            owner_pubkey: sender.signing_pubkey(),
             spl_asset_id: if has_spl { SPL_ASSET_ID } else { 0 },
             spl_amount: change(Asset::Spl),
             sol_amount: change(Asset::Sol),
             blinding_seed: seed,
-            // Padded to MAX_RECIPIENTS (1 for the (2,3) shape) with the sender's own
-            // viewing key so the bundle is fixed-size and hides the recipient count.
-            recipient_viewing_pks: {
-                const MAX_RECIPIENTS: usize = 1;
-                let mut pks: Vec<P256Pubkey> =
-                    recipients.iter().map(|r| r.viewing_pubkey()).collect();
-                while pks.len() < MAX_RECIPIENTS {
-                    pks.push(sender.viewing_pubkey());
-                }
-                pks
-            },
             spl_data: Data::default(),
             sol_data: Data::default(),
         }

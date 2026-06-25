@@ -253,12 +253,10 @@ fn transfer_round_trip_outputs_and_bundle() {
     assert_eq!(
         sender_pt,
         TransferSenderPlaintext {
-            owner_pubkey: sender.signing_pubkey(),
             spl_asset_id: 0,
             spl_amount: 0,
             sol_amount: 40,
             blinding_seed: seed,
-            recipient_viewing_pks: vec![recipient.viewing_pubkey()],
             spl_data: Data::default(),
             sol_data: Data::default(),
         }

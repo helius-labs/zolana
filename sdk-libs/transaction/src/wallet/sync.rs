@@ -320,7 +320,6 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let pks = plaintext.recipient_viewing_pks.clone();
                         let Ok(utxos) = ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx)
                         else {
                             self.report.undecryptable_candidates += 1;
@@ -330,7 +329,6 @@ impl SyncCtx<'_> {
                             self.store_in_tx(utxo, tx)?;
                         }
                         self.processed_slots.insert(site);
-                        outcome.recipients = pks;
                     }
                     EncryptedScheme::Split => {
                         let Ok(plaintext) = Split::decode(body, &cx) else {

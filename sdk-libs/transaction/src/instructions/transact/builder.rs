@@ -244,10 +244,7 @@ impl Transaction {
         let salt = zolana_keypair::random_salt();
         let tx_viewing_pk = tx.pubkey();
 
-        let sender_view_tag = prepared
-            .sender_plaintext
-            .owner_pubkey
-            .confidential_view_tag()?;
+        let sender_view_tag = keypair.signing_pubkey().confidential_view_tag()?;
         let mut slots = Vec::with_capacity(1 + prepared.recipients.len());
         slots.push(ConfidentialSenderBundle::encode_plaintext(
             &prepared.sender_plaintext,
@@ -258,7 +255,6 @@ impl Transaction {
                 salt,
                 slot_index: 0,
                 blinding_seed: prepared.sender_plaintext.blinding_seed,
-                recipient_viewing_pks: prepared.sender_plaintext.recipient_viewing_pks.clone(),
             },
         )?);
         for (i, recipient) in prepared.recipients.iter().enumerate() {
@@ -317,7 +313,6 @@ impl Transaction {
         });
 
         let mut recipients = Vec::with_capacity(self.recipients.len());
-        let mut recipient_viewing_pks = Vec::with_capacity(self.recipients.len());
         for (i, recipient) in self.recipients.iter().enumerate() {
             let position = RECIPIENT_POSITION_BASE + i as u8;
             let blinding = derive_blinding(&self.blinding_seed, position);
@@ -329,7 +324,6 @@ impl Transaction {
                 blinding,
                 ..Default::default()
             });
-            recipient_viewing_pks.push(recipient.address.viewing_pubkey);
             recipients.push(PreparedRecipient {
                 view_tag: recipient.address.signing_pubkey.confidential_view_tag()?,
                 recipient_pubkey: recipient.address.viewing_pubkey,
@@ -347,22 +341,15 @@ impl Transaction {
             .n_outputs
             .checked_sub(SENDER_SLOT_COUNT)
             .ok_or(TransactionError::MissingOutput)?;
-        let sender_viewing_pubkey = self.owner.viewing_pubkey;
-        while recipient_viewing_pks.len() < max_recipients {
-            recipient_viewing_pks.push(sender_viewing_pubkey);
-        }
-
         let spl_asset_id = match spl_asset {
             Some(asset) => self.asset_id(assets, &asset)?,
             None => 0,
         };
         let sender_plaintext = TransferSenderPlaintext {
-            owner_pubkey: self.owner.signing_pubkey,
             spl_asset_id,
             spl_amount: spl_change,
             sol_amount: sol_change,
             blinding_seed: self.blinding_seed,
-            recipient_viewing_pks,
             spl_data: Data::default(),
             sol_data: Data::default(),
         };
