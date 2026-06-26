@@ -178,6 +178,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     .instruction();
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
+    capture_fixture(&rpc, "proofless_shield", &shield_sig);
 
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, shield_sig)?;
@@ -347,6 +348,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     .instruction();
     let transfer_sig = send_transaction(&mut rpc, &[transfer_ix], &payer.pubkey(), &[&payer])?;
     print_signature("shielded_transfer", &transfer_sig);
+    capture_fixture(&rpc, "shielded_transfer", &transfer_sig);
 
     let indexed_transfer =
         wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
@@ -518,6 +520,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[&payer, &recipient_owner],
     )?;
     print_signature("unshield", &withdraw_sig);
+    capture_fixture(&rpc, "unshield", &withdraw_sig);
     let indexed_withdraw = wait_for_indexed_transaction(&indexer, [0u8; 32], withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
     let first_page = wait_for("paginated indexed transactions", || {
@@ -708,6 +711,27 @@ fn wait_for<T>(
 
 fn print_signature(label: &str, signature: &Signature) {
     println!("{label}: {signature}");
+}
+
+/// When `RINGS_FIXTURE_DIR` is set, write the confirmed transaction's
+/// `getTransaction` JSON to `<dir>/<signature>` and print its slot. This
+/// regenerates the photon-indexer parser fixtures in
+/// `tests/data/transactions/rings_e2e/` against the current event
+/// serialization. No-op when the env var is unset, so normal runs are
+/// unaffected.
+fn capture_fixture(rpc: &SolanaRpc, label: &str, signature: &Signature) {
+    let Ok(dir) = std::env::var("RINGS_FIXTURE_DIR") else {
+        return;
+    };
+    let json = rpc
+        .fetch_confirmed_transaction_json(signature)
+        .expect("fetch transaction json for fixture");
+    let slot = rpc
+        .fetch_confirmed_transaction_slot(signature)
+        .expect("fetch transaction slot for fixture");
+    let path = format!("{dir}/{signature}");
+    std::fs::write(&path, json).expect("write rings fixture");
+    println!("captured fixture {label}: slot={slot} path={path}");
 }
 
 /// Restart a fresh validator + Photon indexer so each test runs against clean
@@ -903,6 +927,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         &[&payer],
     )?;
     print_signature("encrypted_transfer", &transfer_sig);
+    capture_fixture(&rpc, "encrypted_transfer", &transfer_sig);
 
     let indexed = wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
     assert!(

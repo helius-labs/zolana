@@ -146,6 +146,26 @@ impl SolanaRpc {
         Ok(ConfirmedInstructionGroups { groups })
     }
 
+    /// Fetch a confirmed transaction and serialize it to the same pretty JSON
+    /// shape the RPC `getTransaction` (encoding `json`) call returns. Used to
+    /// capture indexer test fixtures.
+    pub fn fetch_confirmed_transaction_json(
+        &self,
+        signature: &Signature,
+    ) -> Result<String, ClientError> {
+        let transaction = self.fetch_confirmed_transaction(signature)?;
+        serde_json::to_string_pretty(&transaction)
+            .map_err(|err| ClientError::Rpc(format!("serialize transaction {signature}: {err}")))
+    }
+
+    /// Slot the given confirmed transaction landed in.
+    pub fn fetch_confirmed_transaction_slot(
+        &self,
+        signature: &Signature,
+    ) -> Result<u64, ClientError> {
+        Ok(self.fetch_confirmed_transaction(signature)?.slot)
+    }
+
     fn fetch_confirmed_transaction(
         &self,
         signature: &Signature,
