@@ -40,20 +40,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aes-gcm"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
-dependencies = [
- "aead",
- "aes",
- "cipher",
- "ctr",
- "ghash",
- "subtle",
-]
-
-[[package]]
 name = "aes-gcm-siv"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2297,16 +2283,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghash"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
-dependencies = [
- "opaque-debug",
- "polyval",
-]
-
-[[package]]
 name = "gherkin"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2365,7 +2341,7 @@ dependencies = [
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66#6f44fe18ece7e9f2d09141707f7822e9321c7b66"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5#3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -5051,7 +5027,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -5069,7 +5045,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cucumber",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "hex",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
@@ -9519,11 +9495,20 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bs58",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "sha2 0.10.9",
+ "solana-hash 4.4.0",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
  "zolana-interface",
  "zolana-program-test",
+ "zolana-transaction",
  "zolana-user-registry-interface",
 ]
 
@@ -9687,7 +9672,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "num-bigint 0.4.6",
  "num-traits",
  "rand 0.8.6",
@@ -9760,7 +9745,7 @@ dependencies = [
  "bs58",
  "cucumber",
  "futures",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "num-bigint 0.4.6",
  "num-traits",
  "p256",
@@ -9839,7 +9824,7 @@ version = "0.1.0"
 dependencies = [
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-program-error 3.0.1",
@@ -9857,7 +9842,6 @@ name = "zolana-keypair"
 version = "0.1.0"
 dependencies = [
  "aes",
- "aes-gcm",
  "ctr",
  "cucumber",
  "ed25519-dalek 2.2.0",
@@ -9952,12 +9936,16 @@ name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
+ "borsh 1.6.1",
  "criterion",
  "cucumber",
  "light-poseidon 0.4.0",
+ "num-bigint 0.4.6",
+ "p256",
  "proptest",
  "rayon",
  "solana-address 2.6.1",
+ "solana-signature 3.4.1",
  "thiserror 2.0.18",
  "tokio",
  "wincode",

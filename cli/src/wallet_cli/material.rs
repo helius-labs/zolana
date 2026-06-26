@@ -11,14 +11,15 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ApprovalRequest, ClientError, P256Signature, SolanaRpc, WalletAuthority};
+use zolana_client::{
+    AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
+    EncryptedTransfer, P256Signature, SolanaRpc, WalletAuthority,
+};
 use zolana_keypair::shielded::ShieldedAddress;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::transfer::{
-    RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext,
-};
-use zolana_transaction::TransactionEncryption;
+use zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext;
+use zolana_transaction::serialization::confidential::TransferSenderPlaintext;
 
 use super::{
     registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
@@ -76,27 +77,42 @@ impl WalletAuthority for WalletMaterial {
         Ok(self.keypair.shielded_address()?)
     }
 
-    fn derive_sender_view_tag(
-        &self,
-        owner_pubkey: Pubkey,
-        tx_count: u64,
-    ) -> std::result::Result<ViewTag, ClientError> {
-        self.check_owner_pubkey(owner_pubkey)?;
-        Ok(self.keypair.get_sender_view_tag(tx_count)?)
-    }
-
-    fn encrypt_transfer(
+    fn encrypt_confidential_transfer(
         &self,
         owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
         sender: &TransferSenderPlaintext,
-        recipients: &[RecipientOutput],
-    ) -> std::result::Result<TransferEncryptedUtxos, ClientError> {
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> std::result::Result<EncryptedTransfer, ClientError> {
         self.check_owner_pubkey(owner_pubkey)?;
-        Ok(self
-            .keypair
-            .viewing_key
-            .encrypt_transfer(first_nullifier, sender, recipients)?)
+        WalletAuthority::encrypt_confidential_transfer(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            sender_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> std::result::Result<EncryptedTransfer, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        WalletAuthority::encrypt_anonymous_transfer(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
     }
 
     fn request_user_approval(

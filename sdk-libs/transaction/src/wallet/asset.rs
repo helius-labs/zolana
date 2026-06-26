@@ -48,6 +48,16 @@ impl AssetRegistry {
             .find_map(|(id, m)| (m == mint).then_some(*id))
             .ok_or(TransactionError::UnknownMint(*mint))
     }
+
+    pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
+        for mint in self.0.values() {
+            let mint_field = zolana_keypair::hash::hash_field(mint.as_array())?;
+            if &mint_field == field {
+                return Ok(Some(*mint));
+            }
+        }
+        Ok(None)
+    }
 }
 
 impl Default for AssetRegistry {

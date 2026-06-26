@@ -7,10 +7,7 @@ use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
 use zolana_transaction::wallet::SyncReport;
-use zolana_transaction::{
-    wallet::{SyncTransaction, Wallet},
-    AssetRegistry, Utxo,
-};
+use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet};
 
 const NUM_CPS: usize = 3;
 const WINDOW: u64 = 8;
@@ -68,7 +65,7 @@ struct Harness {
     alice: ShieldedKeypair,
     cps: Vec<CpState>,
     assets: AssetRegistry,
-    txs: Vec<SyncTransaction>,
+    txs: Vec<ShieldedTransaction>,
     expected: Vec<(Utxo, bool)>,
     counter: u64,
     tx_next: u64,
@@ -270,9 +267,7 @@ impl Harness {
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
         let mut wallet = Wallet::new(keypair).unwrap();
-        let report = wallet
-            .sync(&self.txs, &[], &self.assets, at, WINDOW)
-            .unwrap();
+        let report = wallet.sync(&self.txs, &self.assets, at, WINDOW).unwrap();
         prop_assert_eq!(report.unparsed_transactions, 0);
         prop_assert_eq!(report.undecryptable_candidates, 0);
         prop_assert_eq!(wallet.last_synced, at);
@@ -350,9 +345,9 @@ impl Harness {
         prop_assert_eq!(wallet.last_synced, sequential.last_synced);
 
         let mut actual = wallet.utxos.clone();
-        actual.sort_by_key(|u| u.hash);
+        actual.sort_by_key(|u| u.output_context.hash);
         let mut expected = sequential.utxos.clone();
-        expected.sort_by_key(|u| u.hash);
+        expected.sort_by_key(|u| u.output_context.hash);
         prop_assert_eq!(actual, expected);
 
         prop_assert_eq!(

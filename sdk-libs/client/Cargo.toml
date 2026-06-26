@@ -29,7 +29,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
-rand = { workspace = true }
 futures = { workspace = true }
 bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
@@ -53,6 +52,7 @@ zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
+rand = { workspace = true }
 
 [[test]]
 name = "transaction_proving"

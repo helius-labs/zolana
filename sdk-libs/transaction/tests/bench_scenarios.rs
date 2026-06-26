@@ -4,11 +4,10 @@ use std::time::{Duration, Instant};
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
+use zolana_transaction::serialization::split::{Split, SplitEncode};
 use zolana_transaction::{
-    split::SplitBundlePlaintext,
-    transfer::OutputCiphertext,
-    wallet::{SyncReport, SyncTransaction, Wallet},
-    AssetRegistry, Data, TransactionEncryption, Utxo, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SPLIT,
+    Address, AssetRegistry, Data, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
+    SyncReport, Utxo, UtxoSerialization, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 const KNOWN_SENDERS: usize = 100;
@@ -32,6 +31,18 @@ const MAX_SYNC_TIME: Duration = Duration::from_millis(9_600);
 const MIN_PARALLEL_SYNC_TIME: Duration = Duration::from_millis(700);
 #[cfg(feature = "parallel")]
 const MAX_PARALLEL_SYNC_TIME: Duration = Duration::from_millis(950);
+
+fn slot(view_tag: ViewTag, hash: [u8; 32], payload: Vec<u8>) -> OutputSlot {
+    OutputSlot {
+        view_tag,
+        output_context: OutputContext {
+            hash,
+            tree: Address::new_from_array([0u8; 32]),
+            leaf_index: 0,
+        },
+        payload,
+    }
+}
 
 fn shared_receives_for(sender: usize) -> u64 {
     TOP_PAIR_SHARED_RECEIVES
@@ -69,7 +80,7 @@ struct Scenario {
     sender_tx_counts: Vec<u64>,
     recipients: Vec<ShieldedKeypair>,
     assets: AssetRegistry,
-    txs: Vec<SyncTransaction>,
+    txs: Vec<ShieldedTransaction>,
     counter: u64,
     hot: Option<Utxo>,
     split_inputs: Vec<Utxo>,
@@ -237,28 +248,57 @@ impl Scenario {
             self.tx_next = tx_idx + 1;
             self.tx_max = tx_idx;
             let sender_view_tag = self.alice.get_sender_view_tag(tx_idx).unwrap();
-            let bundle = SplitBundlePlaintext {
-                owner_pubkey: self.alice.signing_pubkey(),
-                num_outputs: SPLIT_OUTPUTS,
-                asset_id: SOL_ASSET_ID,
-                asset_amount: input.amount / u64::from(SPLIT_OUTPUTS),
-                blinding_seed: unique31(&mut self.counter, 0xCC),
-                data: Data::default(),
-            };
-            let blob = self
+
+            let tx_key = self
                 .alice
                 .viewing_key
-                .encrypt_split(&first_nullifier, &bundle)
+                .get_transaction_viewing_key(&first_nullifier)
                 .unwrap();
-            self.txs.push(SyncTransaction {
-                scheme: SPLIT,
-                tx_viewing_pk: blob.tx_viewing_pk,
-                salt: blob.salt,
-                output_slots: vec![OutputCiphertext {
-                    view_tag: sender_view_tag,
-                    data: blob.ciphertext.clone(),
-                }],
+            let tx_viewing_pk = tx_key.pubkey();
+            let mut salt = [0u8; 16];
+            salt.copy_from_slice(&first_nullifier[..16]);
+            let blinding_seed = unique31(&mut self.counter, 0xCC);
+            let asset_amount = input.amount / u64::from(SPLIT_OUTPUTS);
+
+            let outputs: Vec<Utxo> = (0..SPLIT_OUTPUTS)
+                .map(|i| Utxo {
+                    owner: self.alice.signing_pubkey(),
+                    asset: SOL_MINT,
+                    amount: asset_amount,
+                    blinding: zolana_transaction::derive_blinding(&blinding_seed, i),
+                    zone_program_id: None,
+                    data: Data::default(),
+                })
+                .collect();
+
+            let owner_cx = OwnerCx {
+                owner: self.alice.signing_pubkey(),
+                assets: &self.assets,
+                zone_program_id: None,
+            };
+            let cx = SplitEncode {
+                tx: tx_key,
+                recipient_pubkey: self.alice.viewing_pubkey(),
+                salt,
+                slot_index: 0,
+                blinding_seed,
+            };
+            let ciphertext = Split::encode(&outputs, &owner_cx, sender_view_tag, &cx).unwrap();
+
+            let mut output_slots = vec![slot(sender_view_tag, [0u8; 32], ciphertext.data)];
+            for output in &outputs {
+                let output_hash = output.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+                output_slots.push(slot(sender_view_tag, output_hash, Vec::new()));
+            }
+
+            self.txs.push(ShieldedTransaction {
+                slot: 0,
+                tx_signature: solana_signature::Signature::default(),
+                tx_viewing_pk: Some(tx_viewing_pk),
+                salt: Some(salt),
+                output_slots,
                 nullifiers: vec![first_nullifier],
+                proofless: false,
             });
         }
     }
@@ -311,7 +351,7 @@ fn defi_trader_full_sync() {
     let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync(&scenario.txs, &[], &scenario.assets, 1, DEFAULT_TAG_WINDOW)
+        .sync(&scenario.txs, &scenario.assets, 1i64, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 

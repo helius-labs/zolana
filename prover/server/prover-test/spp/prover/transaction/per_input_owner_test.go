@@ -62,7 +62,7 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 }
 
 // Spec UTXO Ownership: Ed25519 owners may differ per input. Each input's
-// solana_owner_pk_hashes entry carries its own owner's pk_field.
+// input_owner_pk_hashes entry carries its own owner's pk_field.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	tx, payerHash, err := benchmarkTransaction(shape, false)
@@ -80,7 +80,7 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("distinct Solana owners must build: %v", err)
 	}
-	entries := built.publicInputs.SolanaOwnerPkHashes
+	entries := built.publicInputs.InputOwnerPkHashes
 	if entries[0].Sign() == 0 || entries[1].Sign() == 0 {
 		t.Fatalf("both entries must be non-zero, got %v / %v", entries[0], entries[1])
 	}
@@ -117,7 +117,7 @@ func TestBuildProofAssignmentAcceptsMixedP256AndSolanaOwners(t *testing.T) {
 	if !built.transcript.requiresP256OwnerWitness {
 		t.Fatal("a P256-owned input must select the P256 rail")
 	}
-	entries := built.publicInputs.SolanaOwnerPkHashes
+	entries := built.publicInputs.InputOwnerPkHashes
 	if entries[0].Sign() != 0 {
 		t.Fatalf("P256-owned input must carry entry 0, got %v", entries[0])
 	}

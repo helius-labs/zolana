@@ -1,12 +1,13 @@
 use num_bigint::BigUint;
-use zolana_transaction::{transaction::private_tx_hash, ExternalData, OutputUtxo};
+use zolana_transaction::instructions::transact::private_tx_hash;
+use zolana_transaction::{ExternalData, OutputUtxo};
 
 use crate::{
     error::ClientError,
-    private_transaction::field::be,
     prover::{
+        field::be,
         shape::{resolve_shape, Shape},
-        transfer_p256::{
+        transact::p256_and_eddsa::{
             assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
         },
         TransferInputs,
@@ -35,7 +36,10 @@ pub struct TransferProofResult {
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        let assembled_inputs = assemble_inputs(&self.inputs, false)?;
+        // The eddsa rail has no P256 owner, so the shared signing pk_field is 0 even
+        // in the confidential variant; only the output owner tags are bound.
+        let p256_signing_pk_field = [0u8; 32];
+        let assembled_inputs = assemble_inputs(&self.inputs, false, None)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
@@ -54,7 +58,9 @@ impl TransferProver {
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
             payer_pubkey_hash: &self.payer_pubkey_hash,
-            solana_owner_pk_hashes: &assembled_inputs.solana_owner_pk_hashes,
+            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
+            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
+            p256_signing_pk_field: &p256_signing_pk_field,
         }
         .hash()?;
 

@@ -15,14 +15,18 @@ pub struct MergeTreeWrite {
 pub fn build_merge_event(
     ix: &MergeTransactIxDataRef<'_>,
     tree_write: MergeTreeWrite,
+    output_view_tag: [u8; 32],
 ) -> GeneralEvent {
     let mut tx_viewing_pk = [0u8; 33];
     if let Ok(blob_pk) = ix.tx_viewing_pk() {
         tx_viewing_pk.copy_from_slice(blob_pk);
     }
 
+    // The merged output is owner-indexed like every confidential output: the view
+    // tag is the owner signing pubkey, so `Wallet::sync` rediscovers it via the
+    // confidential owner-pubkey scan.
     let outputs = vec![OutputUtxo {
-        view_tag: [0u8; 32],
+        view_tag: output_view_tag,
         utxo_hash: *ix.output_utxo_hash,
         data: ix.encrypted_utxo.to_vec(),
     }];
@@ -31,7 +35,7 @@ pub fn build_merge_event(
         inputs: tree_write.inputs,
         outputs,
         tx_viewing_pk,
-        salt: [0u8; 16],
+        salt: [0u8; 16], // TODO: send salt in instruction data
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
         relay_fee: None,

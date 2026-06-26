@@ -34,15 +34,18 @@ type InputParams struct {
 	NullifierTreeRoot *big.Int
 	Nullifier         *big.Int
 
-	SolanaOwnerPkHash *big.Int
-	NullifierSecret   *big.Int
+	OwnerPkHash     *big.Int
+	NullifierSecret *big.Int
 }
 
-// OutputParams mirrors txcircuit.Output.
+// OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk are used by
+// the confidential variant; 0 otherwise.
 type OutputParams struct {
-	Utxo    UtxoParams
-	IsDummy *big.Int
-	Hash    *big.Int
+	Utxo        UtxoParams
+	IsDummy     *big.Int
+	Hash        *big.Int
+	OwnerPkHash *big.Int
+	NullifierPk *big.Int
 }
 
 // TransferParameters is the flat, pre-computed witness for the Solana-only
@@ -66,6 +69,9 @@ type TransferParameters struct {
 	PayerPubkeyHash      *big.Int
 	DataHash             *big.Int
 	ZoneDataHash         *big.Int
+
+	// Confidential selects the confidential variant (binds output owner tags).
+	Confidential bool
 
 	PublicInputHash *big.Int
 }

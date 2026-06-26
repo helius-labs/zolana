@@ -74,6 +74,49 @@ func P256PkFieldFromPointCircuit(
 	}), nil
 }
 
+// OwnerPkFieldGadget folds a P256 OWNER public key into pk_field using only the
+// x-coordinate: Poseidon(x_low128, x_high128). The y-parity is intentionally
+// excluded (it is carried in the encrypted data, not the owner identity), so a
+// P256 owner pk_field has the same shape as an ed25519 owner pk_field
+// (hash_field over the two 128-bit halves). The VIEWING key keeps the
+// parity-folding P256PkFieldGadget.
+type OwnerPkFieldGadget struct {
+	XLow128  frontend.Variable
+	XHigh128 frontend.Variable
+}
+
+func (gadget OwnerPkFieldGadget) DefineGadget(api frontend.API) interface{} {
+	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.XLow128, gadget.XHigh128})
+}
+
+// OwnerPkFieldFromPubkeyCircuit derives the parity-free owner pk_field from a
+// P256 public key (asserting it is on the curve).
+func OwnerPkFieldFromPubkeyCircuit(
+	api frontend.API,
+	pub P256PublicKey,
+) (frontend.Variable, error) {
+	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](
+		api,
+		sw_emulated.GetCurveParams[emulated.P256Fp](),
+	)
+	if err != nil {
+		return nil, err
+	}
+	point := sw_emulated.AffinePoint[emulated.P256Fp](pub)
+	curve.AssertIsOnCurve(&point)
+	fp, err := emulated.NewField[emulated.P256Fp](api)
+	if err != nil {
+		return nil, err
+	}
+	xBits := fp.ToBitsCanonical(&point.X)
+	xLow128 := gnarkbits.FromBinary(api, xBits[:p256LimbBits])
+	xHigh128 := gnarkbits.FromBinary(api, xBits[p256LimbBits:])
+	return abstractor.Call(api, OwnerPkFieldGadget{
+		XLow128:  xLow128,
+		XHigh128: xHigh128,
+	}), nil
+}
+
 // p256MessageHashToP256Fr reconstructs the full 256-bit SHA-256 ECDSA message
 // digest from its two big-endian 128-bit limbs. Each limb is range-checked to
 // 128 bits by ToBinary; concatenating low (bits 0..128) then high (bits

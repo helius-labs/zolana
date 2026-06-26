@@ -2,6 +2,7 @@ use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
+use zolana_interface::instruction::instruction_data::transact::TransactProof;
 
 use crate::error::ClientError;
 
@@ -72,16 +73,24 @@ impl TryFrom<Proof> for ProofCompressed {
 }
 
 impl ProofCompressed {
-    pub fn to_transact_proof_bytes(self) -> [u8; 192] {
-        let mut out = [0u8; 192];
-        out[0..32].copy_from_slice(&self.a);
-        out[32..96].copy_from_slice(&self.b);
-        out[96..128].copy_from_slice(&self.c);
-        if let Some(commitment) = self.commitment {
-            out[128..160].copy_from_slice(&commitment.commitment);
-            out[160..192].copy_from_slice(&commitment.commitment_pok);
+    /// Build the wire-format `transact` proof enum directly from the compressed
+    /// components: the P256 rail keeps its BSB22 commitment, the eddsa rail omits
+    /// it (no padding). The program decompresses these points at verification time.
+    pub fn to_transact_proof(self) -> TransactProof {
+        match self.commitment {
+            Some(commitment) => TransactProof::P256 {
+                a: self.a,
+                b: self.b,
+                c: self.c,
+                commitment: commitment.commitment,
+                commitment_pok: commitment.commitment_pok,
+            },
+            None => TransactProof::Eddsa {
+                a: self.a,
+                b: self.b,
+                c: self.c,
+            },
         }
-        out
     }
 }
 

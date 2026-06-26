@@ -96,11 +96,10 @@ fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> Progra
 
 #[profile]
 fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
-    let slot = 0u64;
     let mut nullifier = tree.nullifer_tree();
-    for value in values {
+    for (i, value) in values.iter().enumerate() {
         nullifier
-            .insert_address_into_queue(value, &slot)
+            .insert_address_into_queue(value, &(i as u64))
             .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())

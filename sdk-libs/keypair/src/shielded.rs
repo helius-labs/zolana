@@ -137,13 +137,13 @@ impl ShieldedKeypair {
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
     }
 
-    pub fn decrypt_merge(
+    pub fn decrypt_verifiable(
         &self,
         tx_viewing_pubkey: &P256Pubkey,
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
-            .decrypt_merge(tx_viewing_pubkey, ciphertext)
+            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {

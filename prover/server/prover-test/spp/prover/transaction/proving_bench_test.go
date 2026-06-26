@@ -76,7 +76,7 @@ func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequ
 			return ProofTransactionRequest{}, nil, err
 		}
 		p256Pubkey = elliptic.MarshalCompressed(elliptic.P256(), p256Priv.PublicKey.X, p256Priv.PublicKey.Y)
-		ownerKeyHash, err = protocol.P256PkField(p256Pubkey)
+		ownerKeyHash, err = protocol.OwnerPkField(p256Pubkey)
 	} else {
 		ownerKeyHash, err = protocol.SolanaPkField(payerPubkey)
 	}

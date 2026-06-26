@@ -1,14 +1,13 @@
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
 use zolana_transaction::{
-    asset::AssetRegistry,
     data::{Data, DataRecord},
-    plaintext_transfer::{
+    serialization::plaintext::{
         TransferPlaintextRecipient, TransferPlaintextSender, TransferPlaintextSplChange,
         TransferPlaintextUtxos,
     },
     utxo::derive_blinding,
-    Address, TransactionError, TRANSFER_PLAINTEXT,
+    Address, AssetRegistry, TransactionError, TRANSFER_PLAINTEXT,
 };
 
 use crate::TransactionWorld;

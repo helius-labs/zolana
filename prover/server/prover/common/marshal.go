@@ -324,11 +324,19 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// Derive the rail from the serialized RequiresP256 flag rather than the
-		// file name, so the circuit type is correct regardless of key naming.
-		if ps.RequiresP256 {
+		// Rail comes from the serialized RequiresP256 flag; the confidentiality mode
+		// is not in the key header (kept stable so existing keys/VKs are untouched),
+		// so it is read from the canonical file name (transfer_confidential_*.key /
+		// transfer_p256_confidential_*.key).
+		ps.Confidential = strings.Contains(strings.ToLower(path), "confidential")
+		switch {
+		case ps.RequiresP256 && ps.Confidential:
+			ps.CircuitType = TransferP256ConfidentialCircuitType
+		case ps.RequiresP256:
 			ps.CircuitType = TransferP256CircuitType
-		} else {
+		case ps.Confidential:
+			ps.CircuitType = TransferConfidentialCircuitType
+		default:
 			ps.CircuitType = TransferCircuitType
 		}
 		return ps, nil

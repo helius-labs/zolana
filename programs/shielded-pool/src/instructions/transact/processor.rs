@@ -10,7 +10,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::{
-        instruction_data::transact::{ExternalDataHash, InputUtxo, TransactIxDataRef},
+        instruction_data::transact::{ExternalDataHash, TransactIxDataRef},
         tag::TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -19,7 +19,7 @@ use zolana_tree::{TreeAccount, TreeError};
 
 use super::{
     account::TransactAccounts,
-    event::{build_transact_event, TreeWrite},
+    event::{build_transact_event, owner_view_tag, sender_slot_count, TreeWrite},
     verify::P256_OWNED_SIGNER,
 };
 use crate::instructions::{
@@ -27,6 +27,7 @@ use crate::instructions::{
     hash::solana_pk_hash,
     settlement::{settle_sol, settle_spl, Settlement},
     transact::verify::{TransactProof, TransactProofInputs},
+    verifier,
 };
 
 #[inline(never)]
@@ -41,7 +42,9 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     }
 
     let mut proof_inputs = TransactProofInputs::default();
-    check_input_signers(accounts, &ix.inputs, &mut proof_inputs)?;
+    check_input_signers(accounts, &ix, &mut proof_inputs)?;
+    proof_inputs.p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
+    fill_output_owner_pk_hashes(&ix, &mut proof_inputs)?;
     let transact_accounts = TransactAccounts::validate_and_parse(&crate::ID, accounts, &ix)?;
 
     let tree_write = {
@@ -160,27 +163,53 @@ fn tree_error(e: TreeError) -> ProgramError {
     }
 }
 
-// Validate each Ed25519 input owner is a signer and record its `pk_field`
-// (`Poseidon(low, high)`) in `proof_inputs`; P256-owned inputs stay zero.
+// Record each input owner's `pk_field` (`Poseidon(low, high)`) in `proof_inputs`.
+// Ed25519 inputs must have their owner account as a signer and use its
+// `solana_pk_hash`; P256-owned inputs route by the shared P256 signing key's
+// `pk_field` (`ix.p256_signing_pk_field`, zero when absent).
 #[profile]
 fn check_input_signers(
     accounts: &[AccountView],
-    inputs: &[InputUtxo],
+    ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
-    for (i, input) in inputs.iter().enumerate() {
-        if input.eddsa_signer_index == P256_OWNED_SIGNER {
-            continue;
-        }
-        let account = accounts
-            .get(usize::from(input.eddsa_signer_index))
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        check_signer(account)?;
+    let p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
+    for (i, input) in ix.inputs.iter().enumerate() {
+        let pk_hash = if input.eddsa_signer_index == P256_OWNED_SIGNER {
+            p256_signing_pk_field
+        } else {
+            let account = accounts
+                .get(usize::from(input.eddsa_signer_index))
+                .ok_or(ProgramError::NotEnoughAccountKeys)?;
+            check_signer(account)?;
+            solana_pk_hash(account.address().as_array())?
+        };
         *proof_inputs
-            .solana_owner_pk_hashes
+            .input_owner_pk_hashes
             .get_mut(i)
-            .ok_or(ShieldedPoolError::InvalidTransactShape)? =
-            solana_pk_hash(account.address().as_array())?;
+            .ok_or(ShieldedPoolError::InvalidTransactShape)? = pk_hash;
+    }
+    Ok(())
+}
+
+// Derive each output owner's `pk_field` from the per-output view_tag using the
+// OWNER mapping (`owner_view_tag`): the leading change positions all map to the
+// sender bundle ciphertext, each tail position to its own ciphertext.
+#[profile]
+fn fill_output_owner_pk_hashes(
+    ix: &TransactIxDataRef<'_>,
+    proof_inputs: &mut TransactProofInputs,
+) -> Result<(), ProgramError> {
+    let error = ShieldedPoolError::InvalidTransactShape;
+    let n_outputs = ix.output_utxo_hashes.len();
+    let n_ciphertexts = ix.output_ciphertexts.len();
+    let sender_slots = sender_slot_count(n_outputs, n_ciphertexts);
+    for i in 0..n_outputs {
+        let view_tag = owner_view_tag(&ix.output_ciphertexts, sender_slots, i).ok_or(error)?;
+        *proof_inputs
+            .output_owner_pk_hashes
+            .get_mut(i)
+            .ok_or(error)? = verifier::hash_field(view_tag, error)?;
     }
     Ok(())
 }

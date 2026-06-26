@@ -92,7 +92,7 @@ func runCli() {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-p256\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-p256\" / \"transfer-confidential\" / \"transfer-p256-confidential\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -106,9 +106,9 @@ func runCli() {
 					var ps *common.TransferProofSystem
 					var err error
 					switch circuit {
-					case common.TransferP256CircuitType:
+					case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
 						ps, err = transfer.SetupTransferCircuit(circuit, nInputs, nOutputs)
-					case common.TransferCircuitType:
+					case common.TransferCircuitType, common.TransferConfidentialCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)
@@ -445,7 +445,7 @@ func runCli() {
 				Name: "start",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
-					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:3001", Required: false},
+					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
 					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{

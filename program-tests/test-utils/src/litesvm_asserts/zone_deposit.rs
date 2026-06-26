@@ -1,9 +1,8 @@
 //! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_event::DepositView;
 use zolana_interface::instruction::ZoneDepositIxData;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `zone_deposit` against the integration-test
@@ -20,7 +19,7 @@ use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 pub fn litesvm_assert_zone_deposit(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
-    event: &DepositView,
+    event: &DepositOutput,
     data: &ZoneDepositIxData,
     expected_amount: u64,
     expected_asset: [u8; 32],
@@ -28,18 +27,18 @@ pub fn litesvm_assert_zone_deposit(
     root_before: [u8; 32],
     recipient: &mut Wallet,
 ) {
-    assert_eq!(event.amount, expected_amount, "event amount");
-    assert_eq!(event.asset, expected_asset, "event asset");
-    assert_eq!(event.owner, data.owner, "owner");
-    assert_eq!(event.blinding, data.blinding, "blinding");
+    assert_eq!(event.output.amount, expected_amount, "event amount");
+    assert_eq!(event.output.asset, expected_asset, "event asset");
+    assert_eq!(event.output.owner, data.owner, "owner");
+    assert_eq!(event.output.blinding, data.blinding, "blinding");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
     assert_eq!(
-        event.zone_program_id,
+        event.output.zone_program_id,
         Some(expected_zone_program_id),
         "UTXO is owned by the zone program"
     );
     assert_eq!(
-        event.policy_data_hash, data.policy_data_hash,
+        event.output.policy_data_hash, data.policy_data_hash,
         "UTXO carries the zone policy hash"
     );
 
@@ -60,8 +59,7 @@ pub fn litesvm_assert_zone_deposit(
     let before = recipient.utxos.len();
     recipient
         .sync(
-            &[],
-            std::slice::from_ref(event),
+            &[event.to_shielded_transaction(solana_signature::Signature::default())],
             &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,
@@ -73,7 +71,10 @@ pub fn litesvm_assert_zone_deposit(
         "recipient wallet must discover the zone deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
     assert_eq!(
         utxo.utxo.zone_program_id.map(|id| id.to_bytes()),
         Some(expected_zone_program_id),

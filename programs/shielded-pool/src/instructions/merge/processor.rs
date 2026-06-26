@@ -7,7 +7,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::instruction_data::merge_transact::{
-        MergeExternalDataHash, MergeTransactIxDataRef, MERGE_INPUT_COUNT,
+        MergeExternalDataHash, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+        MERGE_INPUT_COUNT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
@@ -26,6 +27,10 @@ use crate::instructions::{
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+
+    if ix.encrypted_utxo.first() != Some(&MERGE_ENCRYPTED_UTXO_TYPE_PREFIX) {
+        return Err(ShieldedPoolError::InvalidMergeOutputScheme.into());
+    }
 
     let clock = Clock::get()?;
     if clock.unix_timestamp < 0 || (clock.unix_timestamp as u64) > ix.expiry_unix_ts {
@@ -46,6 +51,11 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
     let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
+    // Owner-indexing view tag for the merged output: the owner signing pubkey (the
+    // confidential default-zone tag, like every other confidential output). The
+    // proof binds `signing_pk_field` to the same registered key, so a relayer cannot
+    // alter it.
+    let output_view_tag = pk_fields.signing_view_tag;
 
     let external_data_hash = MergeExternalDataHash {
         expiry_unix_ts: ix.expiry_unix_ts,
@@ -74,7 +84,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut derived)?
     };
 
-    let event = build_merge_event(&ix, tree_write);
+    let event = build_merge_event(&ix, tree_write, output_view_tag);
     MergeProof::new(&ix, derived).verify()?;
     emit_general_event(EventKind::Merge, event)
 }

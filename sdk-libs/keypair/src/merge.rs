@@ -4,19 +4,15 @@
 //! proof (the Poseidon ciphertext hash is folded into the public input hash),
 //! not a GCM tag, so this path has no authentication tag.
 
-use aes::Aes256;
-use ctr::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
-    Ctr32BE,
-};
 use p256::SecretKey;
 
 use crate::{
-    constants::P256_PUBKEY_LEN, encryption::ecdh_x, error::KeypairError, hash::poseidon,
+    constants::P256_PUBKEY_LEN,
+    encryption::{ctr_apply, ecdh_x},
+    error::KeypairError,
+    hash::poseidon,
     pubkey::P256Pubkey,
 };
-
-type Aes256Ctr = Ctr32BE<Aes256>;
 
 /// Domain separators (32-bit ASCII tags), mirroring
 /// `circuits/verifiable-encryption/poseidon_kdf.go`.
@@ -27,8 +23,6 @@ const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
 
 /// HPKE-style key-schedule info bound into the KDF (spec Merge Proof).
 pub const MERGE_INFO: &[u8] = b"TSPP/merge";
-
-const NONCE_LEN: usize = 12;
 
 fn fe_u32(x: u32) -> [u8; 32] {
     let mut fe = [0u8; 32];
@@ -90,6 +84,8 @@ fn derive_shared_secret(
     ])
 }
 
+const NONCE_LEN: usize = 12;
+
 fn key_schedule(
     shared_secret: &[u8; 32],
     info: &[u8],
@@ -107,16 +103,6 @@ fn key_schedule(
     Ok((key, nonce))
 }
 
-/// AES-256-CTR matching aes/ctr.go: J0 = nonce || 0x00000001 and the counter is
-/// advanced once before the first block, so encryption starts at nonce || 2.
-fn ctr_apply(key: &[u8; 32], nonce: &[u8; NONCE_LEN], buf: &mut [u8]) {
-    let mut iv = [0u8; 16];
-    iv[..NONCE_LEN].copy_from_slice(nonce);
-    iv[15] = 2;
-    let mut cipher = Aes256Ctr::new(GenericArray::from_slice(key), GenericArray::from_slice(&iv));
-    cipher.apply_keystream(buf);
-}
-
 fn merge_keys(
     sk: &SecretKey,
     counterparty: &P256Pubkey,
@@ -131,7 +117,7 @@ fn merge_keys(
 /// Encrypts the merge bundle plaintext to the owner's viewing key under the
 /// ephemeral `tx_viewing_sk`. Returns the ciphertext and the ephemeral public
 /// key (`tx_viewing_pk`) the wallet uses to decrypt.
-pub fn encrypt_merge(
+pub fn encrypt_verifiable(
     tx_viewing_sk: &SecretKey,
     user_viewing_pk: &P256Pubkey,
     plaintext: &[u8],
@@ -149,7 +135,7 @@ pub fn encrypt_merge(
 }
 
 /// Decrypts a merge ciphertext with the owner's viewing key.
-pub fn decrypt_merge(
+pub fn decrypt_verifiable(
     user_viewing_sk: &SecretKey,
     tx_viewing_pk: &P256Pubkey,
     ciphertext: &[u8],
@@ -225,11 +211,11 @@ mod tests {
         let user_pk = pubkey(&user_sk);
 
         let plaintext: Vec<u8> = (0..71u8).collect();
-        let (ciphertext, tx_pk) = encrypt_merge(&tx_sk, &user_pk, &plaintext).unwrap();
+        let (ciphertext, tx_pk) = encrypt_verifiable(&tx_sk, &user_pk, &plaintext).unwrap();
         assert_eq!(ciphertext.len(), plaintext.len());
         assert_ne!(ciphertext, plaintext);
 
-        let recovered = decrypt_merge(&user_sk, &tx_pk, &ciphertext).unwrap();
+        let recovered = decrypt_verifiable(&user_sk, &tx_pk, &ciphertext).unwrap();
         assert_eq!(recovered, plaintext);
     }
 
@@ -249,7 +235,7 @@ mod tests {
         let user_pk = pubkey(&secret_key_from_u32(7));
         let plaintext: Vec<u8> = (0..71u8).collect();
 
-        let (ciphertext, tx_pk) = encrypt_merge(&tx_sk, &user_pk, &plaintext).unwrap();
+        let (ciphertext, tx_pk) = encrypt_verifiable(&tx_sk, &user_pk, &plaintext).unwrap();
         let ct_hash = merge_ciphertext_hash(&ciphertext).unwrap();
 
         assert_eq!(
@@ -268,7 +254,7 @@ mod tests {
             "ciphertext hash mismatch",
         );
 
-        let recovered = decrypt_merge(&secret_key_from_u32(7), &tx_pk, &ciphertext).unwrap();
+        let recovered = decrypt_verifiable(&secret_key_from_u32(7), &tx_pk, &ciphertext).unwrap();
         assert_eq!(recovered, plaintext);
     }
 
@@ -277,8 +263,8 @@ mod tests {
         let tx_sk = SecretKey::random(&mut OsRng);
         let user_pk = pubkey(&SecretKey::random(&mut OsRng));
         let pt = vec![7u8; 71];
-        let (c1, _) = encrypt_merge(&tx_sk, &user_pk, &pt).unwrap();
-        let (c2, _) = encrypt_merge(&tx_sk, &user_pk, &pt).unwrap();
+        let (c1, _) = encrypt_verifiable(&tx_sk, &user_pk, &pt).unwrap();
+        let (c2, _) = encrypt_verifiable(&tx_sk, &user_pk, &pt).unwrap();
         assert_eq!(c1, c2);
     }
 }

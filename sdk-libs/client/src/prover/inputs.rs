@@ -6,9 +6,11 @@ use zolana_transaction::{
     OutputUtxo,
 };
 
+use zolana_transaction::instructions::transact::signed_transaction::asset_field;
+
 use crate::{
     error::ClientError,
-    private_transaction::field::{asset_field, be, right_align},
+    prover::field::{be, right_align},
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
@@ -51,7 +53,7 @@ impl UtxoInputs {
     pub fn from_output(output: &OutputUtxo) -> Result<Self, ClientError> {
         Ok(Self {
             domain: be(&right_align(&UTXO_DOMAIN.to_be_bytes())),
-            owner: be(&output.owner_hash),
+            owner: be(&output.owner_hash()?),
             asset: be(&asset_field(&output.asset)?),
             amount: be(&right_align(&output.amount.to_be_bytes())),
             blinding: be(&right_align(&output.blinding)),
@@ -89,7 +91,7 @@ pub struct TransferInput {
     pub utxo_tree_root: BigUint,
     pub nullifier_tree_root: BigUint,
     pub nullifier: BigUint,
-    pub solana_owner_pk_hash: BigUint,
+    pub owner_pk_hash: BigUint,
     pub nullifier_secret: BigUint,
 }
 
@@ -101,7 +103,7 @@ impl TransferInput {
         blinding: &[u8; 31],
         utxo_tree_root: &[u8; 32],
         nullifier_tree_root: &[u8; 32],
-        solana_owner_pk_hash: &[u8; 32],
+        owner_pk_hash: &[u8; 32],
     ) -> Result<(Self, [u8; 32]), ClientError> {
         let blinding_32 = right_align(blinding);
         let utxo_hash = dummy_utxo_hash(&blinding_32)?;
@@ -119,7 +121,7 @@ impl TransferInput {
                 utxo_tree_root: be(utxo_tree_root),
                 nullifier_tree_root: be(nullifier_tree_root),
                 nullifier: be(&nullifier),
-                solana_owner_pk_hash: be(solana_owner_pk_hash),
+                owner_pk_hash: be(owner_pk_hash),
                 nullifier_secret: BigUint::ZERO,
             },
             nullifier,
@@ -133,6 +135,11 @@ pub struct TransferOutput {
     pub utxo: UtxoInputs,
     pub is_dummy: BigUint,
     pub hash: BigUint,
+    /// Confidential variant: the public owner tag (`signing_pubkey.hash()`) and
+    /// the witnessed `nullifier_pk`, from which the circuit recomputes `owner_hash`.
+    /// Both 0 for a dummy output (the circuit leaves its owner tag unconstrained).
+    pub owner_pk_hash: BigUint,
+    pub nullifier_pk: BigUint,
 }
 
 fn dummy_utxo_hash(blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
@@ -171,13 +178,16 @@ pub struct TransferP256Inputs {
     pub payer_pubkey_hash: BigUint,
     pub data_hash: BigUint,
     pub zone_data_hash: BigUint,
+    /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
+    /// circuit routes ownership by equality. 0 on the eddsa rail (no P256 owner).
+    pub p256_signing_pk_field: BigUint,
     pub public_input_hash: BigUint,
 }
 
 /// Flat, pre-computed witness for the 8-in/1-out merge circuit. Mirrors
 /// prover/server/prover/merge/params.go MergeParameters. The per-input and output
 /// witness reuses [`TransferInput`]/[`TransferOutput`] (assembled the same way as
-/// a transfer); the merge circuit ignores the transfer-only `solanaOwnerPkHash`
+/// a transfer); the merge circuit ignores the transfer-only `ownerPkHash`
 /// and per-input `nullifierSecret` (the secret is shared, below).
 #[derive(Debug, Clone)]
 pub struct MergeInputs {
@@ -185,10 +195,10 @@ pub struct MergeInputs {
     pub output: TransferOutput,
     /// Shared owner P256 signing pubkey coordinates and nullifier secret/commitment.
     /// On the Solana (ed25519) rail the coordinates are a discarded dummy point and
-    /// `solana_owner_pk_hash` carries the owner's pk_field; it is 0 on the P256 rail.
+    /// `owner_pk_hash` carries the owner's pk_field; it is 0 on the P256 rail.
     pub p256_pub_x: BigUint,
     pub p256_pub_y: BigUint,
-    pub solana_owner_pk_hash: BigUint,
+    pub owner_pk_hash: BigUint,
     pub user_nullifier_pk: BigUint,
     pub user_nullifier_secret: BigUint,
     /// Ephemeral P-256 scalar (must be < BN254 modulus so it is a valid circuit

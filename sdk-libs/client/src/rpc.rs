@@ -14,12 +14,12 @@ use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
+pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 
-use crate::{
-    error::ClientError,
-    private_transaction::{InputCommitment, SignedTransaction, SpendProof},
-    prover::ProofCompressed,
-};
+use zolana_transaction::instructions::transact::SignedTransaction;
+use zolana_transaction::instructions::types::InputCommitment;
+
+use crate::{error::ClientError, prover::transact::witness::SpendProof, prover::ProofCompressed};
 
 pub const STATE_TREE_HEIGHT: usize = 26;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
@@ -56,38 +56,6 @@ pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Vec<u8>>,
-}
-
-/// Identifies an output commitment and where it lives in the UTXO tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OutputContext {
-    pub hash: [u8; 32],
-    pub tree: Address,
-    pub leaf_index: u64,
-}
-
-/// One output of a shielded transaction: its view tag and encrypted/plaintext payload.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OutputSlot {
-    pub view_tag: [u8; 32],
-    pub output_context: OutputContext,
-    pub payload: Vec<u8>,
-}
-
-/// A shielded transaction with every output slot in UTXO-tree-append order and the
-/// nullifiers it consumed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ShieldedTransaction {
-    pub slot: u64,
-    pub tx_signature: Signature,
-    /// `None` when there is nothing to decrypt (proofless or plaintext transfer).
-    pub tx_viewing_pk: Option<P256Pubkey>,
-    /// Transaction-level AES salt shared by every output ciphertext; `None` for
-    /// proofless or plaintext transfers.
-    pub salt: Option<[u8; 16]>,
-    pub output_slots: Vec<OutputSlot>,
-    pub nullifiers: Vec<[u8; 32]>,
-    pub proofless: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

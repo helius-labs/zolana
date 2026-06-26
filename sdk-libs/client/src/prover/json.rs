@@ -53,8 +53,8 @@ pub(crate) struct InputParamsJson {
     pub nullifier_tree_root: String,
     #[serde(rename = "nullifier")]
     pub nullifier: String,
-    #[serde(rename = "solanaOwnerPkHash")]
-    pub solana_owner_pk_hash: String,
+    #[serde(rename = "ownerPkHash")]
+    pub owner_pk_hash: String,
     #[serde(rename = "nullifierSecret")]
     pub nullifier_secret: String,
 }
@@ -67,6 +67,10 @@ pub(crate) struct OutputParamsJson {
     pub is_dummy: String,
     #[serde(rename = "hash")]
     pub hash: String,
+    #[serde(rename = "ownerPkHash")]
+    pub owner_pk_hash: String,
+    #[serde(rename = "nullifierPk")]
+    pub nullifier_pk: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,6 +115,8 @@ pub(crate) struct TransferP256InputsJson {
     pub data_hash: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
+    #[serde(rename = "p256SigningPkField")]
+    pub p256_signing_pk_field: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -183,7 +189,7 @@ fn input_to_json(input: &TransferInput) -> InputParamsJson {
         utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
         nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
         nullifier: big_uint_to_string(&input.nullifier),
-        solana_owner_pk_hash: big_uint_to_string(&input.solana_owner_pk_hash),
+        owner_pk_hash: big_uint_to_string(&input.owner_pk_hash),
         nullifier_secret: big_uint_to_string(&input.nullifier_secret),
     }
 }
@@ -193,13 +199,15 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
         utxo: utxo_to_json(&output.utxo),
         is_dummy: big_uint_to_string(&output.is_dummy),
         hash: big_uint_to_string(&output.hash),
+        owner_pk_hash: big_uint_to_string(&output.owner_pk_hash),
+        nullifier_pk: big_uint_to_string(&output.nullifier_pk),
     }
 }
 
 /// Serialize the P256 transfer witness to the prover server's JSON request body.
 pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
     let json = TransferP256InputsJson {
-        circuit_type: "transfer-p256".to_string(),
+        circuit_type: "transfer-p256-confidential".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
@@ -219,6 +227,7 @@ pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
         data_hash: big_uint_to_string(&inputs.data_hash),
         zone_data_hash: big_uint_to_string(&inputs.zone_data_hash),
+        p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -229,7 +238,7 @@ pub(crate) struct MergeParametersJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
     // Reuses the transfer input/output JSON. The merge circuit ignores the
-    // transfer-only `solanaOwnerPkHash`/per-input `nullifierSecret` and output
+    // transfer-only per-input `ownerPkHash`/`nullifierSecret` and output
     // `isDummy` (Go drops unknown keys), so no merge-specific shape is needed.
     #[serde(rename = "inputs")]
     pub inputs: Vec<InputParamsJson>,
@@ -239,8 +248,8 @@ pub(crate) struct MergeParametersJson {
     pub p256_pub_x: String,
     #[serde(rename = "p256PubY")]
     pub p256_pub_y: String,
-    #[serde(rename = "solanaOwnerPkHash")]
-    pub solana_owner_pk_hash: String,
+    #[serde(rename = "ownerPkHash")]
+    pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
     #[serde(rename = "userNullifierSecret")]
@@ -265,7 +274,7 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
         output: output_to_json(&inputs.output),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
         p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
-        solana_owner_pk_hash: big_uint_to_string(&inputs.solana_owner_pk_hash),
+        owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
         tx_viewing_sk: big_uint_to_string(&inputs.tx_viewing_sk),
@@ -284,7 +293,7 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
 /// Serialize the Solana-only transfer witness to the prover server's JSON request body.
 pub(crate) fn to_json(inputs: &TransferInputs) -> String {
     let json = TransferInputsJson {
-        circuit_type: "transfer".to_string(),
+        circuit_type: "transfer-confidential".to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
@@ -338,7 +347,7 @@ mod merge_tests {
             utxo_tree_root: BigUint::from(11u8),
             nullifier_tree_root: BigUint::from(13u8),
             nullifier: BigUint::from(99u8),
-            solana_owner_pk_hash: BigUint::ZERO,
+            owner_pk_hash: BigUint::ZERO,
             nullifier_secret: BigUint::from(4u8),
         };
         let inputs = MergeInputs {
@@ -347,10 +356,12 @@ mod merge_tests {
                 utxo: sample_utxo(),
                 is_dummy: BigUint::ZERO,
                 hash: BigUint::from(0xABCu32),
+                owner_pk_hash: BigUint::ZERO,
+                nullifier_pk: BigUint::ZERO,
             },
             p256_pub_x: BigUint::from(1u8),
             p256_pub_y: BigUint::from(2u8),
-            solana_owner_pk_hash: BigUint::ZERO,
+            owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
             tx_viewing_sk: BigUint::from(5u8),
@@ -367,7 +378,7 @@ mod merge_tests {
             "output",
             "p256PubX",
             "p256PubY",
-            "solanaOwnerPkHash",
+            "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
             "txViewingSk",
@@ -392,7 +403,7 @@ mod merge_tests {
         }
         // Inputs reuse the transfer JSON; the merge circuit ignores these
         // transfer-only fields server-side.
-        assert!(!in0["solanaOwnerPkHash"].is_null());
+        assert!(!in0["ownerPkHash"].is_null());
         assert!(!in0["nullifierSecret"].is_null());
         assert_eq!(value["output"]["hash"], "0xabc");
     }

@@ -7,12 +7,13 @@ use std::sync::Once;
 use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
+use zolana_client::prover::merge::MergeProver;
 use zolana_client::{
-    private_transaction::field::asset_field, spawn_prover, Merge, PreparedMerge, ProverClient, Rpc,
-    SpendUtxo, MERGE_INPUTS,
+    spawn_prover, Merge, MergeWitness, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_transaction::instructions::transact::signed_transaction::asset_field;
 use zolana_transaction::{Data, OutputUtxo, Utxo};
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
@@ -72,22 +73,25 @@ impl MergeWorld {
             inputs.push(SpendUtxo::from_keypair(utxo, &sender));
         }
 
-        // The plan derives the merged output and owner identity; converting it to a
-        // PreparedMerge pads to MERGE_INPUTS, and into_prover folds in the proofs.
-        // The prover never sees the high-level plan.
+        // The plan derives the merged output and owner identity; preparing it pads to
+        // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
+        // proofs. The prover never sees the high-level plan.
         let merge = Merge::new(&sender, inputs)
             .expect("build merge plan")
             .with_expiry(0);
-        let prepared = PreparedMerge::from(merge);
+        let prepared = merge.prepare();
         let commitments = prepared.input_commitments().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("merkle proofs");
-        let result = prepared
-            .into_prover(&proofs)
-            .expect("merge prover")
-            .build()
-            .expect("build merge proof");
+        let result = MergeProver::try_from(MergeWitness {
+            prepared,
+            nullifier_key: sender.nullifier_key.clone(),
+            proofs,
+        })
+        .expect("merge prover")
+        .build()
+        .expect("build merge proof");
 
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)
@@ -112,7 +116,7 @@ impl MergeWorld {
         // reconstructs the merged UTXO purely from the recovered fields, proving
         // the verifiable encryption yields a spendable output.
         let recovered = sender
-            .decrypt_merge(&result.tx_viewing_pk, &result.ciphertext)
+            .decrypt_verifiable(&result.tx_viewing_pk, &result.ciphertext)
             .expect("decrypt merge ciphertext");
         assert_eq!(recovered.len(), 8 + 32 + 31, "merge plaintext length");
         let amount = u64::from_be_bytes(recovered[0..8].try_into().unwrap());
@@ -124,13 +128,14 @@ impl MergeWorld {
             "recovered asset field",
         );
         let reconstructed = OutputUtxo {
-            owner_hash: sender.owner_hash().expect("owner hash"),
+            owner_address: Some(sender.shielded_address().expect("shielded address")),
             asset,
             amount,
             blinding,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
+            owner_tag: None,
         };
         assert_eq!(
             reconstructed.hash().expect("reconstructed utxo hash"),

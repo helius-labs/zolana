@@ -35,11 +35,25 @@ impl<'a> MergeProof<'a> {
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
+        // The merge proof is always BSB22-committed, so its wire format stays a
+        // fixed 192-byte blob: a(0..32) || b(32..96) || c(96..128) ||
+        // commitment(128..160) || commitment_pok(160..192).
+        let proof = self.ix.proof;
+        let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
+        let proof = verifier::CompressedGroth16Proof {
+            a: verifier::chunk::<32>(proof, 0, encoding_err)?,
+            b: verifier::chunk::<64>(proof, 32, encoding_err)?,
+            c: verifier::chunk::<32>(proof, 96, encoding_err)?,
+            commitment: Some((
+                verifier::chunk::<32>(proof, 128, encoding_err)?,
+                verifier::chunk::<32>(proof, 160, encoding_err)?,
+            )),
+        };
         verifier::verify_groth16(
-            self.ix.proof,
+            proof,
             public_input_hash,
             &merge_8_1::VERIFYINGKEY,
-            ShieldedPoolError::InvalidTransactProofEncoding,
+            encoding_err,
             PROOF_ERR,
         )
     }

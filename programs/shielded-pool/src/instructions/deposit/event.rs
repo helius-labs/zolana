@@ -1,8 +1,6 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    event::{
-        encode_output_data, DepositWithdraw, EventKind, GeneralEvent, OutputData, ProoflessOutput,
-    },
+    event::{encode_output_data, DepositWithdraw, EventKind, GeneralEvent, ProoflessOutput},
     instruction::OutputUtxo,
 };
 
@@ -21,7 +19,7 @@ pub(crate) struct ProoflessOutputCtx {
 }
 
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
-    let output_data = encode_output_data(&OutputData::Proofless(ProoflessOutput {
+    let output_data = encode_output_data(ProoflessOutput {
         owner: d.owner,
         blinding: d.blinding,
         asset: ctx.asset,
@@ -31,7 +29,7 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
         zone_program_id: d.cpi_signer.map(|cpi| cpi.program_id),
         policy_data_hash: d.policy_data_hash,
         zone_data: d.zone_data,
-    }));
+    });
     let event = GeneralEvent {
         inputs: Vec::new(),
         outputs: vec![OutputUtxo {

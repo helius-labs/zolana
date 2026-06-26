@@ -1111,11 +1111,11 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256CircuitType:
+	case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
 		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
 		// runs well over the 10s floor on slower CI hardware.
 		return 60
-	case common.TransferCircuitType:
+	case common.TransferCircuitType, common.TransferConfidentialCircuitType:
 		return 30
 	case common.MergeCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
@@ -1134,9 +1134,9 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
-	case common.TransferP256CircuitType:
+	case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
 		return handler.transferProof(buf)
-	case common.TransferCircuitType:
+	case common.TransferCircuitType, common.TransferConfidentialCircuitType:
 		return handler.transferEddsaProof(buf)
 	case common.MergeCircuitType:
 		return handler.mergeProof(buf)
@@ -1199,7 +1199,11 @@ func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.TransferP256CircuitType, params.NInputs, params.NOutputs)
+	circuitType := common.TransferP256CircuitType
+	if params.Confidential {
+		circuitType = common.TransferP256ConfidentialCircuitType
+	}
+	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer: %w", err))
 	}
@@ -1220,7 +1224,11 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.TransferCircuitType, params.NInputs, params.NOutputs)
+	circuitType := common.TransferCircuitType
+	if params.Confidential {
+		circuitType = common.TransferConfidentialCircuitType
+	}
+	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
 	}

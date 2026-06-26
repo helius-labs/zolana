@@ -1,6 +1,9 @@
 use zolana_interface::{
     event::{DepositWithdraw, GeneralEvent, Input},
-    instruction::{instruction_data::transact::TransactIxDataRef, OutputUtxo},
+    instruction::{
+        instruction_data::transact::{OutputCiphertextRef, TransactIxDataRef},
+        OutputUtxo,
+    },
 };
 
 use super::verify::TransactProofInputs;
@@ -9,6 +12,35 @@ pub struct TreeWrite {
     pub inputs: Vec<Input>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
+}
+
+/// Number of leading output positions covered by the sender bundle ciphertext
+/// (`output_ciphertexts[0]`). The remaining ciphertexts are the per-recipient
+/// tail slots. Shared by the event/data mapping and the owner public-input
+/// mapping so the two cannot drift.
+pub fn sender_slot_count(n_outputs: usize, n_ciphertexts: usize) -> usize {
+    n_outputs.saturating_sub(n_ciphertexts.saturating_sub(1))
+}
+
+/// View_tag for the OWNER public-input mapping at output position `i`. Every
+/// position resolves to a concrete ciphertext: the leading `sender_slot_count`
+/// change positions all map to the sender bundle (`output_ciphertexts[0]`), and
+/// each tail position maps to its own ciphertext.
+///
+/// This is intentionally DIFFERENT from the event/data mapping in
+/// [`build_transact_event`], which replicates the bundle only at position 0 and
+/// leaves the middle change positions empty.
+pub fn owner_view_tag<'a>(
+    output_ciphertexts: &'a [OutputCiphertextRef<'a>],
+    sender_slot_count: usize,
+    i: usize,
+) -> Option<&'a [u8; 32]> {
+    let idx = if i < sender_slot_count {
+        0
+    } else {
+        1 + i - sender_slot_count
+    };
+    output_ciphertexts.get(idx).map(|c| c.view_tag)
 }
 
 pub fn build_transact_event(
@@ -23,7 +55,7 @@ pub fn build_transact_event(
     // takes its own ciphertext.
     let n_outputs = ix.output_utxo_hashes.len();
     let n_ciphertexts = ix.output_ciphertexts.len();
-    let sender_slot_count = n_outputs.saturating_sub(n_ciphertexts.saturating_sub(1));
+    let sender_slot_count = sender_slot_count(n_outputs, n_ciphertexts);
     let mut outputs = Vec::with_capacity(n_outputs);
     for (i, utxo_hash) in ix.output_utxo_hashes.iter().enumerate() {
         let ciphertext = if i == 0 {

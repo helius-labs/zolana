@@ -1,12 +1,19 @@
+use borsh::BorshDeserialize;
 use cucumber::then;
+use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
+use zolana_keypair::viewing_key::random_salt;
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey};
 use zolana_transaction::{
-    asset::AssetRegistry,
     data::{Data, DataRecord},
-    split::SplitBundlePlaintext,
-    transfer::{RecipientOutput, TransferRecipientPlaintext, TransferSenderPlaintext},
+    serialization::anonymous::{
+        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
+        AnonymousTransferSenderPlaintext,
+    },
+    serialization::confidential::TransferRecipientPlaintext,
+    serialization::split::{Split, SplitBundlePlaintext, SplitEncode},
+    serialization::{DecodeCx, OwnerCx, UtxoSerialization},
     utxo::Utxo,
-    Address, TransactionEncryption, TransactionError,
+    Address, AssetRegistry, TransactionError,
 };
 
 use crate::TransactionWorld;
@@ -30,6 +37,16 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
         zone_program_id: None,
         data: Data::default(),
     }
+}
+
+fn body(ciphertext: &OutputCiphertext) -> Vec<u8> {
+    let output_data = zolana_event::OutputData::try_from_slice(&ciphertext.data).unwrap();
+    let blob = match output_data {
+        zolana_event::OutputData::Encrypted(blob)
+        | zolana_event::OutputData::VerifiablyEncrypted(blob)
+        | zolana_event::OutputData::Plaintext(blob) => blob,
+    };
+    blob.get(1..).expect("scheme byte").to_vec()
 }
 
 #[then(expr = "a transfer from {string} to {string} round-trips the change and recipient utxos")]
@@ -66,13 +83,10 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![DataRecord::ProgramData(vec![1, 2, 3])]),
+        data: Data::default(),
     };
-    let recipient_pt = recipient_utxo
-        .to_recipient_plaintext(sender.viewing_pubkey(), &registry)
-        .unwrap();
 
-    let sender_pt = TransferSenderPlaintext {
+    let sender_pt = AnonymousTransferSenderPlaintext {
         owner_pubkey: sender.signing_pubkey(),
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 70,
@@ -85,36 +99,86 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
     let expected_change = sender_pt.clone().into_utxos(&registry, None).unwrap();
     assert_eq!(expected_change.len(), 2);
 
-    let output = RecipientOutput {
-        view_tag: alice.viewing_key.recipient_bootstrap_view_tag(),
-        plaintext: recipient_pt,
+    let salt = random_salt();
+    let tx = sender
+        .viewing_key
+        .get_transaction_viewing_key(&first_nullifier)
+        .unwrap();
+    let tx_viewing_pk = tx.pubkey();
+
+    let sender_owner_cx = OwnerCx {
+        owner: sender.signing_pubkey(),
+        assets: &registry,
+        zone_program_id: None,
     };
+    let sender_ciphertext = AnonymousSenderBundle::encode(
+        &expected_change,
+        &sender_owner_cx,
+        sender.get_sender_view_tag(0).unwrap(),
+        &AnonymousSenderEncode {
+            tx: tx.clone(),
+            self_pubkey: sender.viewing_pubkey(),
+            salt,
+            slot_index: 0,
+            blinding_seed: [2u8; BLINDING_LEN],
+            recipient_viewing_pks: vec![alice.viewing_pubkey()],
+        },
+    )
+    .unwrap();
 
-    let blob = sender
-        .viewing_key
-        .encrypt_transfer(&first_nullifier, &sender_pt, std::slice::from_ref(&output))
-        .unwrap();
+    let recipient_owner_cx = OwnerCx {
+        owner: recipient_utxo.owner,
+        assets: &registry,
+        zone_program_id: None,
+    };
+    let recipient_ciphertext = AnonymousRecipient::encode(
+        core::slice::from_ref(&recipient_utxo),
+        &recipient_owner_cx,
+        alice.viewing_key.recipient_bootstrap_view_tag(),
+        &AnonymousRecipientEncode {
+            tx: tx.clone(),
+            recipient_pubkey: alice.viewing_pubkey(),
+            sender_pubkey: sender.viewing_pubkey(),
+            salt,
+            slot_index: 1,
+        },
+    )
+    .unwrap();
 
-    let (recovered_sender, _) = sender
-        .viewing_key
-        .decrypt_transfer(&first_nullifier, &blob)
-        .unwrap();
+    let sender_dcx = DecodeCx {
+        viewing_key: &sender.viewing_key,
+        tx_viewing_pk: Some(tx_viewing_pk),
+        salt: Some(salt),
+        slot_index: 0,
+        first_nullifier: Some(first_nullifier),
+    };
+    let recovered_sender =
+        AnonymousSenderBundle::decode(&body(&sender_ciphertext), &sender_dcx).unwrap();
     assert_eq!(
-        recovered_sender.into_utxos(&registry, None).unwrap(),
+        AnonymousSenderBundle::into_utxos(recovered_sender, &sender_owner_cx).unwrap(),
         expected_change
     );
 
-    let recovered_recipient = alice
-        .viewing_key
-        .decrypt_transfer_recipient(&blob, 0)
-        .unwrap()
-        .into_utxo(&registry, None)
-        .unwrap();
+    let recipient_dcx = DecodeCx {
+        viewing_key: &alice.viewing_key,
+        tx_viewing_pk: Some(tx_viewing_pk),
+        salt: Some(salt),
+        slot_index: 1,
+        first_nullifier: Some(first_nullifier),
+    };
+    let recovered_plaintext =
+        AnonymousRecipient::decode(&body(&recipient_ciphertext), &recipient_dcx).unwrap();
+    let recovered_recipient =
+        AnonymousRecipient::into_utxos(recovered_plaintext, &recipient_owner_cx)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("recipient utxo");
     assert_eq!(recovered_recipient, recipient_utxo);
 }
 
-#[then(expr = "a zone-owned recipient utxo for {string} round-trips")]
-fn zone_owned_round_trips(world: &mut TransactionWorld, name: String) {
+#[then(expr = "a zone-owned recipient utxo with data for {string} is rejected")]
+fn zone_owned_with_data_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let zone_program_id = Some(Address::new_from_array([9u8; 32]));
@@ -126,11 +190,12 @@ fn zone_owned_round_trips(world: &mut TransactionWorld, name: String) {
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
-    let pt = utxo
-        .to_recipient_plaintext(kp.viewing_pubkey(), &registry)
-        .unwrap();
-    let recovered = pt.into_utxo(&registry, zone_program_id).unwrap();
-    assert_eq!(recovered, utxo);
+    let pt = utxo.to_recipient_plaintext(&registry).unwrap();
+    assert_eq!(
+        pt.into_utxo(kp.signing_pubkey(), &registry, zone_program_id)
+            .unwrap_err(),
+        TransactionError::UnsupportedOutputData
+    );
 }
 
 #[then(expr = "zone data without a zone program id is rejected for {string}")]
@@ -138,16 +203,15 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let pt = TransferRecipientPlaintext {
-        owner_pubkey: kp.signing_pubkey(),
-        sender_pubkey: kp.viewing_pubkey(),
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
     };
     assert_eq!(
-        pt.into_utxo(&registry, None).unwrap_err(),
-        TransactionError::MissingZoneProgramId
+        pt.into_utxo(kp.signing_pubkey(), &registry, None)
+            .unwrap_err(),
+        TransactionError::UnsupportedOutputData
     );
 }
 
@@ -156,15 +220,17 @@ fn zone_id_without_data_not_set(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let pt = TransferRecipientPlaintext {
-        owner_pubkey: kp.signing_pubkey(),
-        sender_pubkey: kp.viewing_pubkey(),
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+        data: Data::default(),
     };
     let utxo = pt
-        .into_utxo(&registry, Some(Address::new_from_array([9u8; 32])))
+        .into_utxo(
+            kp.signing_pubkey(),
+            &registry,
+            Some(Address::new_from_array([9u8; 32])),
+        )
         .unwrap();
     assert_eq!(utxo.zone_program_id, None);
 }
@@ -173,7 +239,7 @@ fn zone_id_without_data_not_set(world: &mut TransactionWorld, name: String) {
 fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let owner_pubkey = world.kp(&name).signing_pubkey();
-    let spl_only = TransferSenderPlaintext {
+    let spl_only = AnonymousTransferSenderPlaintext {
         owner_pubkey,
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 0,
@@ -187,7 +253,7 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         spl_only.into_utxos(&registry, None).unwrap_err(),
         TransactionError::DataWithoutOutput
     );
-    let sol_only = TransferSenderPlaintext {
+    let sol_only = AnonymousTransferSenderPlaintext {
         owner_pubkey,
         spl_asset_id: SPL_ASSET_ID,
         spl_amount: 5,
@@ -220,13 +286,36 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
     assert_eq!(expected.len(), 4);
 
     let nf = [11u8; 32];
-    let blob = owner.viewing_key.encrypt_split(&nf, &split_pt).unwrap();
-    let recovered = owner
-        .viewing_key
-        .decrypt_split(&blob)
-        .unwrap()
-        .into_utxos(&registry, None)
-        .unwrap();
+    let salt = random_salt();
+    let tx = owner.viewing_key.get_transaction_viewing_key(&nf).unwrap();
+    let tx_viewing_pk = tx.pubkey();
+    let owner_cx = OwnerCx {
+        owner: owner.signing_pubkey(),
+        assets: &registry,
+        zone_program_id: None,
+    };
+    let ciphertext = Split::encode(
+        &expected,
+        &owner_cx,
+        owner.get_sender_view_tag(0).unwrap(),
+        &SplitEncode {
+            tx: tx.clone(),
+            recipient_pubkey: owner.viewing_pubkey(),
+            salt,
+            slot_index: 0,
+            blinding_seed: [3u8; BLINDING_LEN],
+        },
+    )
+    .unwrap();
+    let dcx = DecodeCx {
+        viewing_key: &owner.viewing_key,
+        tx_viewing_pk: Some(tx_viewing_pk),
+        salt: Some(salt),
+        slot_index: 0,
+        first_nullifier: Some(nf),
+    };
+    let recovered =
+        Split::into_utxos(Split::decode(&body(&ciphertext), &dcx).unwrap(), &owner_cx).unwrap();
 
     assert_eq!(recovered, expected);
 }

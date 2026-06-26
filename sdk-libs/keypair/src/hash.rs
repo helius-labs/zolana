@@ -51,6 +51,6 @@ pub fn owner_hash(
     signing_pubkey: &PublicKey,
     nullifier_pubkey: &[u8; 32],
 ) -> Result<[u8; 32], KeypairError> {
-    let pf = signing_pubkey.hash()?;
+    let pf = signing_pubkey.owner_pk_field()?;
     poseidon(&[&pf, nullifier_pubkey])
 }

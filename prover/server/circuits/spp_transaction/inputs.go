@@ -16,6 +16,10 @@ type spendEnv struct {
 	// requiresP256 is false for the Solana-only circuit variant, which omits the
 	// P256 gadget and must therefore reject P256-owned inputs.
 	requiresP256 bool
+	// confidential routes ownership by equality to p256SigningPkField (the shared
+	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
+	confidential       bool
+	p256SigningPkField frontend.Variable
 }
 
 // constrainInput verifies one spent input: domain, state-tree inclusion, owner
@@ -52,19 +56,26 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	})
 	assertEqualWhen(api, notDummy, stateRoot, in.UtxoTreeRoot)
 
-	// Owner check: the input's SolanaOwnerPkHash selects its path —
-	// 0 binds the owner to the shared witnessed P256 key,
-	// non-zero binds it to the entry itself
-	isP256 := api.IsZero(in.SolanaOwnerPkHash)
+	// Owner check: select the input's path and bind the owner. Anonymous routes on
+	// the 0 sentinel — 0 binds to the shared P256 key (substituted via Select),
+	// non-zero to the entry. Confidential routes by equality to the public
+	// p256SigningPkField, so a P256 owner's pk_field is public in OwnerPkHash and is
+	// already the owner key — no substitution, so the Select is omitted.
+	var isP256, ownerKeyHash frontend.Variable
+	if env.confidential {
+		isP256 = api.IsZero(api.Sub(in.OwnerPkHash, env.p256SigningPkField))
+		ownerKeyHash = in.OwnerPkHash
+	} else {
+		isP256 = api.IsZero(in.OwnerPkHash)
+		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
+	}
 	if !env.requiresP256 {
 		// Solana-only variant: the P256 gadget (incl. the signature check) is
-		// absent, so every real input MUST be Solana-owned (entry != 0).
-		// Otherwise the owner key is 0 and p256SigValid is forced 1, which would
-		// let a UTXO crafted with owner = OwnerHash(0, nullifier_pk) be spent
-		// here with no signature. This restricts the variant to its rail.
+		// absent, so every real input MUST be Solana-owned. Otherwise the owner key
+		// is the P256 path and p256SigValid is forced 1, which would let a UTXO
+		// crafted for that owner be spent here with no signature.
 		assertZeroWhen(api, notDummy, isP256)
 	}
-	ownerKeyHash := api.Select(isP256, env.p256PkField, in.SolanaOwnerPkHash)
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,

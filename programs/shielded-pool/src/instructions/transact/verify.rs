@@ -5,13 +5,15 @@ use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::{Hasher, Sha256};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::transact::TransactIxDataRef,
-    verifying_keys::{transfer_2_3, transfer_p256_2_3},
+    instruction::instruction_data::transact::{TransactIxDataRef, TransactProof as ProofData},
+    verifying_keys::{transfer_confidential_2_3, transfer_p256_confidential_2_3},
 };
 
 use crate::instructions::verifier;
 
 pub const MAX_INPUTS: usize = 5;
+
+pub const MAX_OUTPUTS: usize = 8;
 
 pub const P256_OWNED_SIGNER: u8 = 255;
 
@@ -19,7 +21,9 @@ pub const P256_OWNED_SIGNER: u8 = 255;
 pub struct TransactProofInputs {
     pub utxo_roots: [[u8; 32]; MAX_INPUTS],
     pub nullifier_tree_roots: [[u8; 32]; MAX_INPUTS],
-    pub solana_owner_pk_hashes: [[u8; 32]; MAX_INPUTS],
+    pub input_owner_pk_hashes: [[u8; 32]; MAX_INPUTS],
+    pub output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
+    pub p256_signing_pk_field: [u8; 32],
     pub external_data_hash: [u8; 32],
     pub spl_mint: Option<[u8; 32]>,
     pub program_id_hashchain: [u8; 32],
@@ -39,14 +43,43 @@ impl<'a> TransactProof<'a> {
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        let verifying_key =
-            select_verifying_key(self.n_inputs(), self.n_outputs(), self.is_p256())?;
+        let is_p256 = self.is_p256();
+        let verifying_key = select_verifying_key(self.n_inputs(), self.n_outputs(), is_p256)?;
+        let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
+        let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
+        // The proof variant must agree with the rail derived from the inputs: the
+        // eddsa rail is vanilla Groth16 (no commitment), the P256 rail is
+        // BSB22-committed. Any mismatch is rejected before verification.
+        let proof = match (&self.ix.proof, is_p256) {
+            (ProofData::Eddsa { a, b, c }, false) => verifier::CompressedGroth16Proof {
+                a,
+                b,
+                c,
+                commitment: None,
+            },
+            (
+                ProofData::P256 {
+                    a,
+                    b,
+                    c,
+                    commitment,
+                    commitment_pok,
+                },
+                true,
+            ) => verifier::CompressedGroth16Proof {
+                a,
+                b,
+                c,
+                commitment: Some((commitment, commitment_pok)),
+            },
+            _ => return Err(ShieldedPoolError::MismatchedTransactProofRail.into()),
+        };
         verifier::verify_groth16(
-            self.ix.proof,
+            proof,
             public_input_hash,
             verifying_key,
-            ShieldedPoolError::InvalidTransactProofEncoding,
-            ShieldedPoolError::TransactProofVerificationFailed,
+            encoding_err,
+            verify_err,
         )
     }
 
@@ -67,13 +100,19 @@ impl<'a> TransactProof<'a> {
 
     fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let n_in = self.n_inputs();
+        let n_out = self.n_outputs();
         let shape = ShieldedPoolError::InvalidTransactShape;
         let utxo_roots = self.derived.utxo_roots.get(..n_in).ok_or(shape)?;
         let nullifier_tree_roots = self.derived.nullifier_tree_roots.get(..n_in).ok_or(shape)?;
-        let solana_owner_pk_hashes = self
+        let input_owner_pk_hashes = self
             .derived
-            .solana_owner_pk_hashes
+            .input_owner_pk_hashes
             .get(..n_in)
+            .ok_or(shape)?;
+        let output_owner_pk_hashes = self
+            .derived
+            .output_owner_pk_hashes
+            .get(..n_out)
             .ok_or(shape)?;
 
         let p256_message_hash = if self.is_p256() {
@@ -102,7 +141,9 @@ impl<'a> TransactProof<'a> {
             self.derived.payer_pubkey_hash,
             [0u8; 32],
             [0u8; 32],
-            hash_chain(solana_owner_pk_hashes)?,
+            hash_chain(input_owner_pk_hashes)?,
+            hash_chain(output_owner_pk_hashes)?,
+            self.derived.p256_signing_pk_field,
         ];
         hash_chain(&chain)
     }
@@ -166,8 +207,8 @@ fn select_verifying_key(
     is_p256: bool,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
     match (n_inputs, n_outputs, is_p256) {
-        (2, 3, false) => Ok(&transfer_2_3::VERIFYINGKEY),
-        (2, 3, true) => Ok(&transfer_p256_2_3::VERIFYINGKEY),
+        (2, 3, false) => Ok(&transfer_confidential_2_3::VERIFYINGKEY),
+        (2, 3, true) => Ok(&transfer_p256_confidential_2_3::VERIFYINGKEY),
         _ => Err(ShieldedPoolError::InvalidTransactShape.into()),
     }
 }

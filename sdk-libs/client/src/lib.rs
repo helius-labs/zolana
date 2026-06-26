@@ -2,7 +2,6 @@ pub mod actions;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
-pub mod private_transaction;
 pub mod prover;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
@@ -19,9 +18,9 @@ pub use actions::{
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
-pub use private_transaction::{
-    AssembledTransfer, CircuitType, InputCommitment, Merge, PreparedMerge, ProverInputs,
-    SignedTransaction, SpendProof, SpendUtxo, Transaction, WithdrawalTarget, MERGE_INPUTS,
+pub use prover::merge::MergeWitness;
+pub use prover::transact::{
+    assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof,
 };
 pub use prover::{
     canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments,
@@ -43,5 +42,13 @@ pub use user_registry::{
     resolve_registered_address, resolved_address_from_record, try_resolve_registered_address,
     validate_registered_keypair,
 };
-pub use wallet_authority::{ApprovalRequest, P256Signature, WalletAuthority};
+pub use wallet_authority::{
+    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
+    P256Signature, WalletAuthority,
+};
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
+pub use zolana_transaction::instructions::merge::{Merge, PreparedMerge, MERGE_INPUTS};
+pub use zolana_transaction::instructions::transact::{
+    SignedTransaction, Transaction, WithdrawalTarget,
+};
+pub use zolana_transaction::instructions::types::{InputCommitment, SpendUtxo};

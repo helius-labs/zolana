@@ -3,8 +3,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
-use zolana_event::DepositView;
 use zolana_interface::instruction::DepositIxData;
+use zolana_program_test::DepositOutput;
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
 
 pub struct DepositAssertArgs<'a> {
     pub tree: &'a Pubkey,
-    pub event: &'a DepositView,
+    pub event: &'a DepositOutput,
     pub data: &'a DepositIxData,
     pub expected_amount: u64,
     pub expected_asset: Address,
@@ -61,8 +61,7 @@ pub fn assert_deposit<R: Rpc, I: Rpc>(
     let before = recipient.utxos.len();
     recipient
         .sync(
-            &[],
-            std::slice::from_ref(event),
+            &[event.to_shielded_transaction(signature)],
             &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,
@@ -74,7 +73,10 @@ pub fn assert_deposit<R: Rpc, I: Rpc>(
         "recipient wallet must discover the deposit"
     );
     let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.hash, event.utxo_hash, "wallet UTXO hash");
-    assert_eq!(utxo.utxo.amount, event.amount, "wallet UTXO amount");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
+    assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
     Ok(())
 }

@@ -41,7 +41,7 @@ func TestMergeCircuitProves(t *testing.T) {
 }
 
 // TestMergeCircuitProvesEddsaOwner checks a Solana-owned merge: the owner
-// identity comes from a SolanaPkField witnessed in SolanaOwnerPkHash, and the
+// identity comes from a SolanaPkField witnessed in OwnerPkHash, and the
 // P256 point is a discarded dummy. The rail select must accept it.
 func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 	assignment := buildWitness(t, true)
@@ -51,11 +51,11 @@ func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 }
 
 // TestMergeCircuitRejectsEddsaOwnerMismatch keeps the Solana-owned inputs but
-// flips SolanaOwnerPkHash so the recomputed user_owner_hash no longer matches the
+// flips OwnerPkHash so the recomputed user_owner_hash no longer matches the
 // input owners; ownership uniformity must fail.
 func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
 	a := buildWitness(t, true)
-	a.SolanaOwnerPkHash = big.NewInt(0xBADBAD)
+	a.OwnerPkHash = big.NewInt(0xBADBAD)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected eddsa ownership-uniformity failure, got solved")
 	}
@@ -99,8 +99,8 @@ func buildValidWitness(t *testing.T) *merge.Circuit {
 
 // buildWitness assembles a solved 2-real-input merge witness. With eddsa set the
 // owner is a Solana (ed25519) signer: ownerKeyHash is a SolanaPkField, the
-// circuit's P256 witness is a discarded dummy point, and SolanaOwnerPkHash drives
-// the rail select. With eddsa false the owner is a P256 signer (SolanaOwnerPkHash
+// circuit's P256 witness is a discarded dummy point, and OwnerPkHash drives
+// the rail select. With eddsa false the owner is a P256 signer (OwnerPkHash
 // stays 0).
 func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	t.Helper()
@@ -109,7 +109,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 	// Owner identity: signing key (P256 or Solana) + shared nullifier secret.
 	ownerSk := big.NewInt(11)
 	ownerX, ownerY := curve.ScalarBaseMult(leftPad32(ownerSk))
-	solanaOwnerPkHash := big.NewInt(0)
+	ownerPkHash := big.NewInt(0)
 	var ownerKeyHash *big.Int
 	var err error
 	if eddsa {
@@ -119,10 +119,10 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		if err != nil {
 			t.Fatal(err)
 		}
-		solanaOwnerPkHash = ownerKeyHash
+		ownerPkHash = ownerKeyHash
 	} else {
 		ownerComp := elliptic.MarshalCompressed(curve, ownerX, ownerY)
-		ownerKeyHash, err = protocol.P256PkField(ownerComp)
+		ownerKeyHash, err = protocol.OwnerPkField(ownerComp)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -275,7 +275,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		X: emulated.ValueOf[emulated.P256Fp](ownerX),
 		Y: emulated.ValueOf[emulated.P256Fp](ownerY),
 	}
-	assignment.SolanaOwnerPkHash = solanaOwnerPkHash
+	assignment.OwnerPkHash = ownerPkHash
 	assignment.UserNullifierPk = userNullifierPk
 	assignment.UserNullifierSecret = nullifierSecret
 	assignment.TxViewingSk = txViewingSk

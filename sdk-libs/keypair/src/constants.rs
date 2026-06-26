@@ -6,7 +6,7 @@ pub const BLINDING_LEN: usize = 31;
 
 pub(crate) const ED25519_PUBKEY_LEN: usize = 32;
 
-pub(crate) const GCM_NONCE_LEN: usize = 12;
+pub(crate) const CTR_NONCE_LEN: usize = 12;
 
 pub const SALT_LEN: usize = 16;
 

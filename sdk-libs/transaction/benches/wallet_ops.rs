@@ -6,13 +6,15 @@ use std::hint::black_box;
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
-    split::SplitBundlePlaintext,
-    transfer::{
-        RecipientOutput, TransferEncryptedUtxos, TransferSenderPlaintext, SENDER_SLOT_COUNT,
-    },
-    AssetRegistry, Data, TransactionEncryption, Utxo, SOL_ASSET_ID, SOL_MINT,
+use zolana_transaction::serialization::anonymous::{
+    AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode,
 };
+use zolana_transaction::serialization::split::{Split, SplitEncode};
+use zolana_transaction::{
+    AssetRegistry, Data, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
+};
+
+const SENDER_SLOT_COUNT: usize = 2;
 
 fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
     Utxo {
@@ -25,39 +27,47 @@ fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
     }
 }
 
-fn transfer_blob(recipient_count: u16) -> (ShieldedKeypair, TransferEncryptedUtxos, [u8; 32]) {
+fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option<[u8; 32]>) {
     let assets = AssetRegistry::default();
     let alice = keypair_from_index(0);
     let recipients: Vec<ShieldedKeypair> = (1..=recipient_count).map(keypair_from_index).collect();
     let mut counter = 0u64;
     let first_nullifier = unique_nullifier(&mut counter);
-    let outputs: Vec<RecipientOutput> = recipients
-        .iter()
-        .map(|recipient| {
-            let utxo = sample_utxo(recipient, &mut counter);
-            RecipientOutput {
-                view_tag: recipient.recipient_bootstrap_view_tag(),
-                plaintext: utxo
-                    .to_recipient_plaintext(alice.viewing_pubkey(), &assets)
-                    .unwrap(),
-            }
-        })
-        .collect();
-    let sender_plaintext = TransferSenderPlaintext {
-        owner_pubkey: alice.signing_pubkey(),
-        spl_asset_id: 0,
-        spl_amount: 0,
-        sol_amount: 50,
-        blinding_seed: unique31(&mut counter, 0xCC),
-        recipient_viewing_pks: recipients.iter().map(|r| r.viewing_pubkey()).collect(),
-        spl_data: Data::default(),
-        sol_data: Data::default(),
-    };
-    let blob = alice
+
+    let tx_key = alice
         .viewing_key
-        .encrypt_transfer(&first_nullifier, &sender_plaintext, &outputs)
+        .get_transaction_viewing_key(&first_nullifier)
         .unwrap();
-    (alice, blob, first_nullifier)
+    let mut salt = [0u8; 16];
+    salt.copy_from_slice(&first_nullifier[..16]);
+    let blinding_seed = unique31(&mut counter, 0xCC);
+
+    let change = vec![Utxo {
+        owner: alice.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: 50,
+        blinding: blinding_seed,
+        zone_program_id: None,
+        data: Data::default(),
+    }];
+
+    let owner_cx = OwnerCx {
+        owner: alice.signing_pubkey(),
+        assets: &assets,
+        zone_program_id: None,
+    };
+    let cx = AnonymousSenderEncode {
+        tx: tx_key,
+        self_pubkey: alice.viewing_pubkey(),
+        salt,
+        slot_index: 0,
+        blinding_seed,
+        recipient_viewing_pks: recipients.iter().map(|r| r.viewing_pubkey()).collect(),
+    };
+    let plaintext = AnonymousSenderBundle::from_utxos(&change, &owner_cx, &cx).unwrap();
+    let bytes = AnonymousSenderBundle::serialize(&plaintext).unwrap();
+    let body = AnonymousSenderBundle::encrypt(&bytes, &cx).unwrap();
+    (alice, body, Some(first_nullifier))
 }
 
 fn primitives(c: &mut Criterion) {
@@ -123,16 +133,29 @@ fn primitives(c: &mut Criterion) {
 fn decrypt(c: &mut Criterion) {
     let mut group = c.benchmark_group("decrypt");
     for recipient_count in [1u16, 2, 4, 8] {
-        let (alice, blob, first_nullifier) = transfer_blob(recipient_count);
+        let (alice, body, first_nullifier) = sender_bundle_body(recipient_count);
+        let mut salt = [0u8; 16];
+        if let Some(nullifier) = first_nullifier {
+            salt.copy_from_slice(&nullifier[..16]);
+        }
+        let tx_viewing_pk = alice
+            .viewing_key
+            .get_transaction_viewing_key(&first_nullifier.unwrap())
+            .unwrap()
+            .pubkey();
         group.bench_with_input(
             BenchmarkId::new("decrypt_transfer", recipient_count),
             &recipient_count,
             |b, _| {
                 b.iter(|| {
-                    alice
-                        .viewing_key
-                        .decrypt_transfer(black_box(&first_nullifier), black_box(&blob))
-                        .unwrap()
+                    let cx = DecodeCx {
+                        viewing_key: &alice.viewing_key,
+                        tx_viewing_pk: Some(tx_viewing_pk),
+                        salt: Some(salt),
+                        slot_index: 0,
+                        first_nullifier,
+                    };
+                    AnonymousSenderBundle::decode(black_box(&body), &cx).unwrap()
                 })
             },
         );
@@ -156,41 +179,69 @@ fn decrypt(c: &mut Criterion) {
             blinding_seed: unique31(&mut counter, 0xCC),
         },
     );
-    let recipient_blob = TransferEncryptedUtxos::from_output_ciphertexts(
-        tx.tx_viewing_pk,
-        tx.salt,
-        &tx.output_slots,
-        SENDER_SLOT_COUNT,
-    )
-    .unwrap();
+    let recipient_slot = tx
+        .output_slots
+        .get(SENDER_SLOT_COUNT)
+        .expect("recipient slot");
+    let recipient_body = match recipient_slot.output_data().expect("recipient output data") {
+        zolana_event::OutputData::Encrypted(blob)
+        | zolana_event::OutputData::VerifiablyEncrypted(blob)
+        | zolana_event::OutputData::Plaintext(blob) => blob
+            .get(1..)
+            .map(<[u8]>::to_vec)
+            .expect("recipient ciphertext body"),
+    };
     group.bench_function("decrypt_transfer_recipient", |b| {
         b.iter(|| {
-            alice
-                .viewing_key
-                .decrypt_transfer_recipient(black_box(&recipient_blob), 0)
-                .unwrap()
+            let cx = DecodeCx::for_slot(&alice.viewing_key, &tx, SENDER_SLOT_COUNT as u32);
+            AnonymousRecipient::decode(black_box(&recipient_body), &cx).unwrap()
         })
     });
 
-    let bundle = SplitBundlePlaintext {
-        owner_pubkey: alice.signing_pubkey(),
-        num_outputs: 8,
-        asset_id: SOL_ASSET_ID,
-        asset_amount: 100,
-        blinding_seed: unique31(&mut counter, 0xCC),
-        data: Data::default(),
-    };
     let split_nullifier = unique_nullifier(&mut counter);
-    let split_blob = alice
+    let split_tx_key = alice
         .viewing_key
-        .encrypt_split(&split_nullifier, &bundle)
+        .get_transaction_viewing_key(&split_nullifier)
         .unwrap();
+    let split_tx_viewing_pk = split_tx_key.pubkey();
+    let mut split_salt = [0u8; 16];
+    split_salt.copy_from_slice(&split_nullifier[..16]);
+    let split_blinding_seed = unique31(&mut counter, 0xCC);
+    let split_outputs: Vec<Utxo> = (0..8u8)
+        .map(|i| Utxo {
+            owner: alice.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: 100,
+            blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
+            zone_program_id: None,
+            data: Data::default(),
+        })
+        .collect();
+    let split_owner_cx = OwnerCx {
+        owner: alice.signing_pubkey(),
+        assets: &assets,
+        zone_program_id: None,
+    };
+    let split_cx = SplitEncode {
+        tx: split_tx_key,
+        recipient_pubkey: alice.viewing_pubkey(),
+        salt: split_salt,
+        slot_index: 0,
+        blinding_seed: split_blinding_seed,
+    };
+    let split_plaintext = Split::from_utxos(&split_outputs, &split_owner_cx, &split_cx).unwrap();
+    let split_bytes = Split::serialize(&split_plaintext).unwrap();
+    let split_body = Split::encrypt(&split_bytes, &split_cx).unwrap();
     group.bench_function("decrypt_split", |b| {
         b.iter(|| {
-            alice
-                .viewing_key
-                .decrypt_split(black_box(&split_blob))
-                .unwrap()
+            let cx = DecodeCx {
+                viewing_key: &alice.viewing_key,
+                tx_viewing_pk: Some(split_tx_viewing_pk),
+                salt: Some(split_salt),
+                slot_index: 0,
+                first_nullifier: Some(split_nullifier),
+            };
+            Split::decode(black_box(&split_body), &cx).unwrap()
         })
     });
     group.finish();

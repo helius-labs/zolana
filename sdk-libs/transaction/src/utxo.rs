@@ -2,12 +2,11 @@ use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
 pub use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::{
-    constants::BLINDING_LEN, hash::sha256_be, NullifierKey, P256Pubkey, PublicKey,
-};
+use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
-    asset::AssetRegistry, data::Data, error::TransactionError, transfer::TransferRecipientPlaintext,
+    data::Data, error::TransactionError, serialization::confidential::TransferRecipientPlaintext,
+    AssetRegistry,
 };
 
 fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
@@ -137,12 +136,21 @@ impl Utxo {
 
     pub fn to_recipient_plaintext(
         &self,
-        sender_pubkey: P256Pubkey,
         assets: &AssetRegistry,
     ) -> Result<TransferRecipientPlaintext, TransactionError> {
         Ok(TransferRecipientPlaintext {
-            owner_pubkey: self.owner,
-            sender_pubkey,
+            asset_id: assets.asset_id(&self.asset)?,
+            amount: self.amount,
+            blinding: self.blinding,
+            data: self.data.clone(),
+        })
+    }
+
+    pub fn to_confidential_recipient_plaintext(
+        &self,
+        assets: &AssetRegistry,
+    ) -> Result<TransferRecipientPlaintext, TransactionError> {
+        Ok(TransferRecipientPlaintext {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,

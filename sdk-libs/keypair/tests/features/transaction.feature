@@ -10,16 +10,11 @@ Feature: Transaction slot encryption
     And a random viewing key "alice"
     Then "sender" encrypts the same payload to "alice" in two slots with distinct ciphertexts
 
-  Scenario: A stranger cannot decrypt a slot
+  Scenario: A stranger recovers a different plaintext
     Given a random viewing key "sender"
     And a random viewing key "alice"
     And a random viewing key "stranger"
-    Then "stranger" cannot decrypt a slot from "sender" to "alice"
-
-  Scenario: A tampered slot is rejected
-    Given a random viewing key "sender"
-    And a random viewing key "alice"
-    Then a tampered slot from "sender" to "alice" is rejected
+    Then "stranger" recovers a different plaintext for a slot from "sender" to "alice"
 
   Scenario: The golden ciphertext decrypts
     Given a viewing key "eph" from scalar 1

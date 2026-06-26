@@ -59,7 +59,7 @@ zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "6f44fe18ece7e9f2d09141707f7822e9321c7b66", features = ["bsb22"] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"
@@ -180,7 +180,6 @@ ark-std = "0.5"
 # Client keypair crypto.
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
 ed25519-dalek = "2.2.0"
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 aes = { version = "0.8", default-features = false }
 ctr = { version = "0.9", default-features = false }
 hkdf = "0.12"
@@ -237,15 +236,6 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.aes]
-opt-level = 3
-
-[profile.dev.package.aes-gcm]
-opt-level = 3
-
-[profile.dev.package.ghash]
-opt-level = 3
-
-[profile.dev.package.polyval]
 opt-level = 3
 
 [profile.dev.package.ark-ff]

@@ -34,15 +34,18 @@ type InputParams struct {
 	NullifierTreeRoot *big.Int
 	Nullifier         *big.Int
 
-	SolanaOwnerPkHash *big.Int
-	NullifierSecret   *big.Int
+	OwnerPkHash     *big.Int
+	NullifierSecret *big.Int
 }
 
-// OutputParams mirrors txcircuit.Output.
+// OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk are used by
+// the confidential variant; 0 otherwise.
 type OutputParams struct {
-	Utxo    UtxoParams
-	IsDummy *big.Int
-	Hash    *big.Int
+	Utxo        UtxoParams
+	IsDummy     *big.Int
+	Hash        *big.Int
+	OwnerPkHash *big.Int
+	NullifierPk *big.Int
 }
 
 // TransferParameters is the flat, pre-computed witness for the P256-capable
@@ -76,6 +79,11 @@ type TransferParameters struct {
 	PayerPubkeyHash      *big.Int
 	DataHash             *big.Int
 	ZoneDataHash         *big.Int
+
+	// Confidential selects the confidential variant; P256SigningPkField is the
+	// shared P256 signing key's pk_field (0 otherwise).
+	Confidential       bool
+	P256SigningPkField *big.Int
 
 	PublicInputHash *big.Int
 }

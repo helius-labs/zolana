@@ -4,7 +4,7 @@
 
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{spawn_prover, ProverClient, TransferP256ProofResult, TransferProofResult};
-use zolana_interface::verifying_keys::{transfer_2_3, transfer_p256_2_3};
+use zolana_interface::verifying_keys::{transfer_confidential_2_3, transfer_p256_confidential_2_3};
 
 pub(crate) fn start_prover() {
     // Point the prover at the in-repo proving keys (once, to avoid a concurrent
@@ -38,7 +38,7 @@ pub(crate) fn prove_and_verify_p256(result: &TransferP256ProofResult) {
         &commitments.commitment,
         &commitments.commitment_pok,
         &public_inputs,
-        &transfer_p256_2_3::VERIFYINGKEY,
+        &transfer_p256_confidential_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");
@@ -55,7 +55,7 @@ pub(crate) fn prove_and_verify_eddsa(result: &TransferProofResult) {
         &proof.b,
         &proof.c,
         &public_inputs,
-        &transfer_2_3::VERIFYINGKEY,
+        &transfer_confidential_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");

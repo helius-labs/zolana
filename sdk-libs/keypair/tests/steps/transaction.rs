@@ -41,37 +41,23 @@ fn distinct_slots(world: &mut KeypairWorld, sender: String, recipient: String) {
     assert_ne!(c0, c1);
 }
 
-#[then(expr = "{string} cannot decrypt a slot from {string} to {string}")]
+#[then(expr = "{string} recovers a different plaintext for a slot from {string} to {string}")]
 fn stranger_cannot(world: &mut KeypairWorld, stranger: String, sender: String, recipient: String) {
     let nf = [7u8; 32];
     let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
     let salt = random_salt();
     let recipient_pk = world.vk(&recipient).pubkey();
     let ct = tx.encrypt_slot(&recipient_pk, b"payload", salt, 1).unwrap();
-    assert!(world
+    let recovered = world
         .vk(&stranger)
         .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
-        .is_err());
-}
-
-#[then(expr = "a tampered slot from {string} to {string} is rejected")]
-fn tampered_rejected(world: &mut KeypairWorld, sender: String, recipient: String) {
-    let nf = [7u8; 32];
-    let tx = world.vk(&sender).get_transaction_viewing_key(&nf).unwrap();
-    let salt = random_salt();
-    let recipient_pk = world.vk(&recipient).pubkey();
-    let mut ct = tx.encrypt_slot(&recipient_pk, b"payload", salt, 1).unwrap();
-    ct[0] ^= 0xff;
-    assert!(world
-        .vk(&recipient)
-        .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
-        .is_err());
+        .unwrap();
+    assert_ne!(recovered, b"payload");
 }
 
 #[then(expr = "{string} decrypts the golden ciphertext from {string}")]
 fn golden_decrypts(world: &mut KeypairWorld, recipient: String, ephemeral: String) {
-    let ciphertext =
-        hex::decode("0dedf6fb1c2c64f57a31740887dbc87d6502ea3e4791598dc543358cd9").unwrap();
+    let ciphertext = hex::decode("0dedf6fb1c2c64f57a31740887").unwrap();
     let plaintext = world
         .vk(&recipient)
         .decrypt_utxo(&ciphertext, &world.vk(&ephemeral).pubkey(), [0u8; 16], 0)

@@ -29,6 +29,28 @@ pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32
     Poseidon::hashv(&[&bool_fe(y_is_odd), &x_hash])
 }
 
+/// Owner-identity `pk_field` of a SEC1-compressed P256 public key: the parity-free
+/// `Poseidon(x_low_128, x_high_128)` (the y-parity is carried in the encrypted data,
+/// not the owner identity), so a P256 owner has the same pk_field shape as an ed25519
+/// owner. Matches the circuit `OwnerPkFieldGadget` and keypair
+/// `PublicKey::owner_pk_field`. The compressed prefix is still validated.
+pub fn owner_pk_field_compressed(
+    compressed: &[u8; P256_PUBKEY_LEN],
+) -> Result<[u8; 32], HasherError> {
+    let prefix = compressed[0];
+    if prefix != 0x02 && prefix != 0x03 {
+        return Err(HasherError::InvalidInputLength(usize::from(prefix), 0));
+    }
+    let x = compressed
+        .get(1..P256_PUBKEY_LEN)
+        .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
+    let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
+    let low = x
+        .get(16..32)
+        .ok_or(HasherError::InvalidInputLength(16, 32))?;
+    Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])
+}
+
 /// `pack33` mirrors `Pack33To2FECircuit`: `lo[1..32] = b[0..31]` and the trailing
 /// two bytes go into `hi[30..32]`. Returns `(lo, hi)`.
 pub fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {

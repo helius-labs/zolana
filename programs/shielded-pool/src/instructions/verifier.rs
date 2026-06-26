@@ -59,49 +59,65 @@ fn right_align_16(bytes: &[u8]) -> [u8; 32] {
     out
 }
 
-/// Decompress the 192-byte proof and verify it against `verifying_key` for the
-/// single `public_input_hash`. Runs the BSB22 commitment pairing when the VK
-/// carries a commitment, the vanilla pairing otherwise.
+/// The compressed Groth16 proof points handed to [`verify_groth16`]. `commitment`
+/// carries the BSB22 commitment point and its proof-of-knowledge for the P256 rail
+/// and is `None` for the vanilla eddsa rail.
+pub struct CompressedGroth16Proof<'a> {
+    pub a: &'a [u8; 32],
+    pub b: &'a [u8; 64],
+    pub c: &'a [u8; 32],
+    pub commitment: Option<(&'a [u8; 32], &'a [u8; 32])>,
+}
+
+/// Decompress the compressed proof points and verify them against `verifying_key`
+/// for the single `public_input_hash`. `proof.commitment` must be `Some` exactly
+/// when the VK carries a commitment (`new_with_commitment`) and `None` for the
+/// vanilla rail (`new`). A mismatch is rejected with `encoding_err`.
 #[inline(never)]
 #[profile]
 pub fn verify_groth16(
-    proof: &[u8; 192],
+    proof: CompressedGroth16Proof,
     public_input_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
     encoding_err: ShieldedPoolError,
     verify_err: ShieldedPoolError,
 ) -> ProgramResult {
-    let proof_a = decompress_g1(chunk::<32>(proof, 0, encoding_err)?).map_err(|_| encoding_err)?;
-    let proof_b = decompress_g2(chunk::<64>(proof, 32, encoding_err)?).map_err(|_| encoding_err)?;
-    let proof_c = decompress_g1(chunk::<32>(proof, 96, encoding_err)?).map_err(|_| encoding_err)?;
+    let proof_a = decompress_g1(proof.a).map_err(|_| encoding_err)?;
+    let proof_b = decompress_g2(proof.b).map_err(|_| encoding_err)?;
+    let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
     let public_inputs = [public_input_hash];
 
-    if verifying_key.vk_commitment_g2.is_some() {
-        let commitment =
-            decompress_g1(chunk::<32>(proof, 128, encoding_err)?).map_err(|_| encoding_err)?;
-        let commitment_pok =
-            decompress_g1(chunk::<32>(proof, 160, encoding_err)?).map_err(|_| encoding_err)?;
-        let mut verifier = Groth16Verifier::new_with_commitment(
-            &proof_a,
-            &proof_b,
-            &proof_c,
-            &commitment,
-            &commitment_pok,
-            &public_inputs,
-            verifying_key,
-        )
-        .map_err(|_| verify_err)?;
-        verifier.verify().map_err(|_| verify_err)?;
-    } else {
-        let mut verifier =
-            Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
-                .map_err(|_| verify_err)?;
-        verifier.verify().map_err(|_| verify_err)?;
+    match (proof.commitment, verifying_key.vk_commitment_g2.is_some()) {
+        (Some((commitment, commitment_pok)), true) => {
+            let commitment = decompress_g1(commitment).map_err(|_| encoding_err)?;
+            let commitment_pok = decompress_g1(commitment_pok).map_err(|_| encoding_err)?;
+            let mut verifier = Groth16Verifier::new_with_commitment(
+                &proof_a,
+                &proof_b,
+                &proof_c,
+                &commitment,
+                &commitment_pok,
+                &public_inputs,
+                verifying_key,
+            )
+            .map_err(|_| verify_err)?;
+            verifier.verify().map_err(|_| verify_err)?;
+        }
+        (None, false) => {
+            let mut verifier =
+                Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
+                    .map_err(|_| verify_err)?;
+            verifier.verify().map_err(|_| verify_err)?;
+        }
+        _ => return Err(encoding_err.into()),
     }
     Ok(())
 }
 
-fn chunk<const N: usize>(
+/// Borrow a fixed-size sub-array from `data` at `start`, mapping a length mismatch
+/// to `encoding_err`. Used by `merge_transact`, whose proof is still a fixed
+/// 192-byte blob (it always carries a BSB22 commitment).
+pub(crate) fn chunk<const N: usize>(
     data: &[u8],
     start: usize,
     encoding_err: ShieldedPoolError,

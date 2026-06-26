@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use zolana_client::{
-    private_transaction::field::{be, hash_chain},
+    prover::field::{be, hash_chain},
     spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput, TransferInputs,
     TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
@@ -11,11 +11,11 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             transact as transact_ix,
-            transact::{ExternalDataHash, InputUtxo, TransactIxData},
+            transact::{ExternalDataHash, InputUtxo, TransactIxData, TransactProof},
         },
         tag,
     },
-    verifying_keys::transfer_2_3,
+    verifying_keys::transfer_confidential_2_3,
 };
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::OutputUtxo;
@@ -42,20 +42,15 @@ pub fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-pub fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
-    let compressed = ProofCompressed::try_from(*proof)?;
-    let mut out = [0u8; 192];
-    out[0..32].copy_from_slice(&compressed.a);
-    out[32..96].copy_from_slice(&compressed.b);
-    out[96..128].copy_from_slice(&compressed.c);
-    if let Some(commitment) = compressed.commitment {
-        out[128..160].copy_from_slice(&commitment.commitment);
-        out[160..192].copy_from_slice(&commitment.commitment_pok);
-    }
-    Ok(out)
+pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }
 
-/// Mirror of the eddsa-only `TransactProof::public_input_hash`.
+/// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
+/// rail. The 15-element anonymous chain is followed by the two confidential
+/// elements: `[15] HashChain(output_owner_pk_hashes)` and `[16]
+/// p256_signing_pk_field` (zero on the eddsa rail). Mirrors the client
+/// `PublicInputs::hash()` exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn public_input_hash(
     nullifiers: &[[u8; 32]],
@@ -66,7 +61,9 @@ pub fn public_input_hash(
     external_data_hash: &[u8; 32],
     public_sol_amount: &[u8; 32],
     payer_pubkey_hash: &[u8; 32],
-    solana_owner_pk_hashes: &[[u8; 32]],
+    input_owner_pk_hashes: &[[u8; 32]],
+    output_owner_pk_hashes: &[[u8; 32]],
+    p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
     let chain = [
@@ -84,9 +81,57 @@ pub fn public_input_hash(
         *payer_pubkey_hash,
         zero, // data_hash
         zero, // zone_data_hash
-        hash_chain(solana_owner_pk_hashes).expect("owner chain"),
+        hash_chain(input_owner_pk_hashes).expect("input owner chain"),
+        hash_chain(output_owner_pk_hashes).expect("output owner chain"),
+        *p256_signing_pk_field,
     ];
     hash_chain(&chain).expect("public input hash")
+}
+
+/// Per-output owner `pk_field` the program reconstructs as `hash_field(view_tag)`,
+/// using the bundle-replication OWNER mapping (mirrors the program's
+/// `owner_view_tag` + `sender_slot_count`): the leading `sender_slot_count`
+/// positions all map to `output_ciphertexts[0]`, each tail position to its own
+/// ciphertext.
+pub fn output_owner_pk_hashes(
+    output_ciphertexts: &[transact_ix::OutputCiphertext],
+    n_outputs: usize,
+) -> Result<Vec<[u8; 32]>> {
+    let n_ciphertexts = output_ciphertexts.len();
+    let sender_slots = n_outputs.saturating_sub(n_ciphertexts.saturating_sub(1));
+    (0..n_outputs)
+        .map(|i| {
+            let idx = if i < sender_slots {
+                0
+            } else {
+                1 + i - sender_slots
+            };
+            let ciphertext = output_ciphertexts
+                .get(idx)
+                .ok_or_else(|| anyhow!("missing output ciphertext at {idx}"))?;
+            hash_field(&ciphertext.view_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+        })
+        .collect()
+}
+
+/// Stamp the confidential owner tag onto each witness output. `owner_pk_hashes[i]`
+/// is the program's `hash_field(view_tag[i])` (so the public output-owner chain
+/// matches), and `nullifier_pks[i]` is the real output's nullifier pubkey from
+/// which the circuit recomputes `owner_hash` (zero for a dummy, whose owner the
+/// circuit leaves unconstrained).
+pub fn set_output_owner_tags(
+    outputs: &mut [TransferOutput],
+    owner_pk_hashes: &[[u8; 32]],
+    nullifier_pks: &[[u8; 32]],
+) {
+    for ((output, owner), nullifier_pk) in outputs
+        .iter_mut()
+        .zip(owner_pk_hashes.iter())
+        .zip(nullifier_pks.iter())
+    {
+        output.owner_pk_hash = be(owner);
+        output.nullifier_pk = be(nullifier_pk);
+    }
 }
 
 /// One circuit-dummy input carrying a chosen nullifier plus the real tree roots
@@ -113,7 +158,7 @@ pub fn dummy_input(
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(nullifier),
-        solana_owner_pk_hash: be(owner_hash),
+        owner_pk_hash: be(owner_hash),
         nullifier_secret: be(&zero),
     }
 }
@@ -133,12 +178,14 @@ pub fn new_transact_ix_data(
     public_sol_amount: Option<i64>,
     output_utxo_hashes: Vec<[u8; 32]>,
     output_ciphertexts: Vec<transact_ix::OutputCiphertext>,
+    p256_signing_pk_field: Option<[u8; 32]>,
 ) -> TransactIxData {
     TransactIxData {
-        proof: [0u8; 192],
+        proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
         relayer_fee: 0,
         private_tx_hash: [0u8; 32],
+        p256_signing_pk_field,
         inputs,
         public_sol_amount,
         public_spl_amount: None,
@@ -185,7 +232,6 @@ pub fn ix_output_ciphertext(view_tag: [u8; 32]) -> transact_ix::OutputCiphertext
 /// and that hash so callers can wire both consistently.
 pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8; 32])> {
     let output = OutputUtxo {
-        owner_hash: [0u8; 32],
         blinding: *blinding,
         ..Default::default()
     };
@@ -193,11 +239,16 @@ pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8
         .hash()
         .map_err(|e| anyhow!("dummy output hash: {e:?}"))?;
     let utxo = UtxoInputs::from_output(&output).map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
+    let zero = [0u8; 32];
     Ok((
         TransferOutput {
             utxo,
             is_dummy: be(&fe(1)),
             hash: be(&hash),
+            // Patched by `set_output_owner_tags` once the per-output view_tag
+            // mapping is known; a dummy's nullifier_pk stays 0 (unconstrained).
+            owner_pk_hash: be(&zero),
+            nullifier_pk: be(&zero),
         },
         hash,
     ))
@@ -235,7 +286,7 @@ pub fn prove_and_verify_transfer(
     prover_inputs: &TransferInputs,
     public_input_hash: [u8; 32],
     label: &str,
-) -> Result<[u8; 192]> {
+) -> Result<TransactProof> {
     let proof = ProverClient::local().prove_transfer(prover_inputs)?;
     let public_inputs = [public_input_hash];
     let mut verifier = Groth16Verifier::new(
@@ -243,7 +294,7 @@ pub fn prove_and_verify_transfer(
         &proof.b,
         &proof.c,
         &public_inputs,
-        &transfer_2_3::VERIFYINGKEY,
+        &transfer_confidential_2_3::VERIFYINGKEY,
     )
     .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
     verifier

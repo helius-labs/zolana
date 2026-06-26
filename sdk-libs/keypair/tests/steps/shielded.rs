@@ -39,8 +39,9 @@ fn from_keys_derives_nullifier(world: &mut KeypairWorld, signing: String, viewin
 #[then(expr = "the facade of {string} signs and computes nullifiers consistently")]
 fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
     let kp = world.keypair(&name);
-    let msg = b"private_tx_hash";
-    assert!(kp.signing_key.verify(msg, &kp.sign(msg)));
+    // The signing API signs a 32-byte prehash digest (the transaction message_hash).
+    let msg = [7u8; 32];
+    assert!(kp.signing_key.verify(&msg, &kp.sign(&msg)));
     let utxo_hash = [5u8; 32];
     let blinding = [6u8; BLINDING_LEN];
     assert_eq!(

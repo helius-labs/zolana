@@ -81,3 +81,7 @@ path = "tests/transact/transact.rs"
 [[test]]
 name = "shield_withdraw"
 path = "tests/transact/shield_withdraw.rs"
+
+[[test]]
+name = "p256"
+path = "tests/transact/p256.rs"

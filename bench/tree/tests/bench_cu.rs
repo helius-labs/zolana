@@ -96,7 +96,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, and end-to-end nullifier insert (bloom + hash chain + non-inclusion)."
+            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, and end-to-end nullifier insert (bloom + hash chain + non-inclusion).\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),

@@ -17,8 +17,11 @@ type Circuit struct {
 	// RequiresP256 picks the rail at compile time. True: include the emulated
 	// P256 ECDSA gadget (most of the constraints) for P256 owners. False:
 	// Solana-only, no gadget (~7x smaller), every real input must be
-	// Solana-owned (SolanaOwnerPkHash != 0).
+	// Solana-owned.
 	RequiresP256 bool `gnark:"-"`
+	// Confidential selects the owner-tag variant: bind each output owner_hash to a
+	// public pk_field tag and expose P256 input owners. False leaves owners free.
+	Confidential bool `gnark:"-"`
 
 	Inputs  []Input
 	Outputs []Output
@@ -26,6 +29,9 @@ type Circuit struct {
 	ExternalDataHash frontend.Variable
 	P256Pub          P256PublicKey
 	P256Sig          P256Signature
+	// P256SigningPkField is the shared P256 signing key's pk_field; public in the
+	// confidential variant so SPP fills the P256-owned input owner entries.
+	P256SigningPkField frontend.Variable
 
 	PrivateTxHash frontend.Variable
 	// P256 ECDSA message digest (full SHA-256) carried as two big-endian 128-bit
@@ -59,37 +65,53 @@ type Input struct {
 	NullifierTreeRoot frontend.Variable
 	Nullifier         frontend.Variable
 
-	SolanaOwnerPkHash frontend.Variable
-	NullifierSecret   frontend.Variable
+	OwnerPkHash     frontend.Variable
+	NullifierSecret frontend.Variable
 }
 
 type Output struct {
 	Utxo    UtxoCircuitFields
 	IsDummy frontend.Variable
 	Hash    frontend.Variable
+
+	// Confidential variant only: OwnerPkHash is the public owner tag, NullifierPk
+	// the witnessed nullifier pubkey; together they recompute Utxo.Owner.
+	OwnerPkHash frontend.Variable
+	NullifierPk frontend.Variable
 }
 
 // Transfer circuit with p256 ecdsa signature verification.
 // Input utxos must be owned by the signing p256 ecdsa key
 // or an eddsa key that is checked by the verifying Solana program.
 func NewTransferP256Circuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, true)
+	return newCircuit(shape, true, false)
 }
 
 // Transfer circuit without p256 ecdsa signature verification.
 // Input utxos must be owned by an eddsa key that is checked
 // by the verifying Solana program.
 func NewTransferCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, false)
+	return newCircuit(shape, false, false)
 }
 
-func newCircuit(shape Shape, requiresP256 bool) (*Circuit, error) {
+// Confidential variants additionally bind every output owner to a public pk_field
+// tag and expose P256 input owners via p256_signing_pk_field.
+func NewTransferP256ConfidentialCircuit(shape Shape) (*Circuit, error) {
+	return newCircuit(shape, true, true)
+}
+
+func NewTransferConfidentialCircuit(shape Shape) (*Circuit, error) {
+	return newCircuit(shape, false, true)
+}
+
+func newCircuit(shape Shape, requiresP256, confidential bool) (*Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
 	c := &Circuit{
 		Shape:        shape,
 		RequiresP256: requiresP256,
+		Confidential: confidential,
 		Inputs:       make([]Input, shape.NInputs),
 		Outputs:      make([]Output, shape.NOutputs),
 	}
@@ -122,9 +144,13 @@ func (c *Circuit) Define(api frontend.API) error {
 	}
 
 	// Ownership
-	env := spendEnv{requiresP256: c.RequiresP256}
+	env := spendEnv{
+		requiresP256:       c.RequiresP256,
+		confidential:       c.Confidential,
+		p256SigningPkField: c.P256SigningPkField,
+	}
 	if c.RequiresP256 {
-		ownerKeyHash, err := P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
+		ownerKeyHash, err := OwnerPkFieldFromPubkeyCircuit(api, c.P256Pub)
 		if err != nil {
 			return err
 		}
@@ -148,6 +174,12 @@ func (c *Circuit) Define(api frontend.API) error {
 		env.p256PkField = frontend.Variable(0)
 		env.p256SigValid = frontend.Variable(1)
 	}
+	// Confidential variant exposes the shared P256 signing key's pk_field so SPP
+	// can reconstruct P256-owned input entries; pin it to the recomputed key
+	// (0 on the Solana-only rail).
+	if c.Confidential {
+		api.AssertIsEqual(c.P256SigningPkField, env.p256PkField)
+	}
 	// Inputs
 	// TODO: move this into constrainInput
 	nullifierPks := make([]frontend.Variable, c.Shape.NInputs)
@@ -164,7 +196,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	// Outputs
 	OutputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
-		OutputHashes[i] = constrainOutput(api, c.Outputs[i])
+		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential)
 	}
 
 	// Sumcheck
@@ -197,7 +229,7 @@ func (c *Circuit) Define(api frontend.API) error {
 }
 
 func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
-	return gadget.HashChain(api, []frontend.Variable{
+	fields := []frontend.Variable{
 		gadget.HashChain(api, c.InputNullifiers()),
 		gadget.HashChain(api, c.OutputHashes()),
 		gadget.HashChain(api, c.InputUtxoRoots()),
@@ -212,14 +244,29 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PayerPubkeyHash,
 		c.DataHash,
 		c.ZoneDataHash,
-		gadget.HashChain(api, c.InputSolanaOwnerPkHashes()),
-	})
+		gadget.HashChain(api, c.InputOwnerPkHashes()),
+	}
+	if c.Confidential {
+		fields = append(fields,
+			gadget.HashChain(api, c.OutputOwnerPkHashes()),
+			c.P256SigningPkField,
+		)
+	}
+	return gadget.HashChain(api, fields)
 }
 
-func (c *Circuit) InputSolanaOwnerPkHashes() []frontend.Variable {
+func (c *Circuit) InputOwnerPkHashes() []frontend.Variable {
 	out := make([]frontend.Variable, len(c.Inputs))
 	for i := range c.Inputs {
-		out[i] = c.Inputs[i].SolanaOwnerPkHash
+		out[i] = c.Inputs[i].OwnerPkHash
+	}
+	return out
+}
+
+func (c *Circuit) OutputOwnerPkHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(c.Outputs))
+	for i := range c.Outputs {
+		out[i] = c.Outputs[i].OwnerPkHash
 	}
 	return out
 }

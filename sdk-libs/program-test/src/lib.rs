@@ -30,9 +30,9 @@ use zolana_interface::{state::state_root_offset, SHIELDED_POOL_PROGRAM_ID};
 mod admin;
 pub mod events;
 pub use events::{
-    index_events, indexed_events_from_meta, parsed_instruction_from_compiled,
-    parsed_instruction_groups_from_meta, single_deposit_view, IndexedEvent, InstructionGroup,
-    ParsedInstruction,
+    deposit_output_from_event, index_events, indexed_events_from_meta,
+    parsed_instruction_from_compiled, parsed_instruction_groups_from_meta, single_deposit_view,
+    DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction,
 };
 pub mod indexer;
 pub use indexer::{IndexedPayload, IndexedUtxo, IndexerError, ProoflessOutput, TestIndexer};

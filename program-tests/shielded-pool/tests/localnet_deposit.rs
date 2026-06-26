@@ -7,9 +7,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_event::{
-    indexed_events_from_instruction_groups, instruction_may_emit_events, DepositView,
-};
+use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
     pda,
@@ -19,8 +17,8 @@ use zolana_interface::{
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
-    ZONE_TEST_PROGRAM_ID,
+    single_deposit_view, DepositOutput, IndexedEvent, IndexedTransaction, TestIndexer,
+    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -219,16 +217,18 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     })
 }
 
-fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositView) -> TestResult {
+fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositOutput) -> TestResult {
     wallet.sync(
-        &[],
-        std::slice::from_ref(view),
+        &[view.to_shielded_transaction(Signature::default())],
         &AssetRegistry::default(),
         0,
         DEFAULT_TAG_WINDOW,
     )?;
     assert_eq!(wallet.utxos.len(), 1);
-    assert_eq!(wallet.utxos[0].hash, view.utxo_hash);
+    assert_eq!(
+        wallet.utxos.first().expect("one utxo").output_context.hash,
+        view.utxo_hash
+    );
     Ok(())
 }
 

@@ -2,6 +2,7 @@
 
 use cucumber::{then, when};
 use solana_keypair::Keypair;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
@@ -98,15 +99,20 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
             .rpc()
             .deposit(&tree, &depositor, &data)
             .expect("deposit");
-        assert_eq!(event.amount, amount, "event must carry the settled amount");
-        assert_eq!(event.asset, [0u8; 32], "SOL asset is the zero address");
-        assert_eq!(event.owner, data.owner);
-        assert_eq!(event.blinding, data.blinding);
+        assert_eq!(
+            event.output.amount, amount,
+            "event must carry the settled amount"
+        );
+        assert_eq!(
+            event.output.asset, [0u8; 32],
+            "SOL asset is the zero address"
+        );
+        assert_eq!(event.output.owner, data.owner);
+        assert_eq!(event.output.blinding, data.blinding);
         let before = recipient.utxos.len();
         recipient
             .sync(
-                &[],
-                std::slice::from_ref(&event),
+                &[event.to_shielded_transaction(Signature::default())],
                 &AssetRegistry::default(),
                 0,
                 DEFAULT_TAG_WINDOW,

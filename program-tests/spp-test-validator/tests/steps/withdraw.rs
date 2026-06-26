@@ -10,25 +10,20 @@ use cucumber::when;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
+    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
     WithdrawalTarget,
 };
 use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{
-    transfer::{OutputCiphertext, TransferEncryptedUtxos, SENDER_SLOT_COUNT},
-    utxo::derive_blinding,
-    SyncTransaction, TransactionEncryption, Utxo, SOL_MINT, TRANSFER,
-};
+use zolana_transaction::{utxo::derive_blinding, Utxo, SOL_MINT};
 
 use crate::{
-    localnet::{pack_proof, send_transaction, SOL_CHANGE_POSITION, ZERO},
+    localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
     world::Rail,
     LifecycleWorld,
 };
@@ -80,9 +75,7 @@ impl LifecycleWorld {
             .map(|k| k.insecure_clone())
             .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
-        let send_index = self.actor(from).send_counter;
-        let sender_view_tag = from_keypair.get_sender_view_tag(send_index)?;
-        self.actor_mut(from).send_counter += 1;
+        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
         let spends: Vec<SpendUtxo> = inputs
             .iter()
@@ -97,12 +90,7 @@ impl LifecycleWorld {
                 user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
-        let signed = tx.sign(
-            Pubkey::default(),
-            &from_keypair,
-            &self.assets,
-            sender_view_tag,
-        )?;
+        let signed = tx.sign(&from_keypair, &self.assets)?;
 
         let commitments = signed.input_commitments()?;
         let mut spend_proofs = Vec::new();
@@ -117,7 +105,7 @@ impl LifecycleWorld {
             spend_proofs.push(SpendProof { state, nullifier });
         }
 
-        let assembled = signed.assemble(&spend_proofs)?;
+        let assembled = assemble(signed, &spend_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (
                 ProverClient::local().prove_transfer_p256(inputs)?,
@@ -128,7 +116,7 @@ impl LifecycleWorld {
             }
         };
         self.last_rail = Some(rail);
-        let ix_data = assembled.with_proof(pack_proof(&proof)?);
+        let ix_data = assembled.with_proof(transact_proof(&proof)?);
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
@@ -150,45 +138,11 @@ impl LifecycleWorld {
         self.last_transact = Some((sig, withdraw_ix));
 
         // The withdrawal has no recipient slot, so locate the indexed transaction by
-        // the sender's view tag and decrypt the sender bundle for the change seed.
+        // the sender's view tag. Decode the sender bundle for the change seed: the
+        // expected set is rebuilt independently from the seed (not from `Wallet::sync`)
+        // so `assert_utxos` is a real cross-check of the synced wallet.
         let indexed = wait_for_indexed_transaction(&self.indexer, sender_view_tag, sig);
-        let tx_viewing_pk = indexed
-            .tx_viewing_pk
-            .ok_or_else(|| anyhow!("withdrawal missing tx_viewing_pk"))?;
-        let salt = indexed
-            .salt
-            .ok_or_else(|| anyhow!("withdrawal missing salt"))?;
-        let slots: Vec<OutputCiphertext> = indexed
-            .output_slots
-            .iter()
-            .map(|slot| OutputCiphertext {
-                view_tag: slot.view_tag,
-                data: slot.payload.clone(),
-            })
-            .collect();
-        let first_nullifier = commitments
-            .first()
-            .ok_or_else(|| anyhow!("no input commitment"))?
-            .nullifier;
-        let blob = TransferEncryptedUtxos::from_output_ciphertexts(
-            tx_viewing_pk,
-            salt,
-            &slots,
-            SENDER_SLOT_COUNT,
-        )?;
-        let (sender_plaintext, _) = from_keypair
-            .viewing_key
-            .decrypt_transfer(&first_nullifier, &blob)?;
-        let seed = sender_plaintext.blinding_seed;
-
-        let sync_tx = SyncTransaction {
-            scheme: TRANSFER,
-            tx_viewing_pk,
-            salt,
-            output_slots: slots,
-            nullifiers: indexed.nullifiers.clone(),
-        };
-        self.indexed.push(sync_tx);
+        let seed = super::transfer::decode_sender_seed(&from_keypair.viewing_key, &indexed)?;
 
         // The only output is the sender's SOL change (= sum(inputs) - amount) at the
         // fixed SOL change position. No recipient UTXO: the SOL left the pool.
@@ -200,9 +154,11 @@ impl LifecycleWorld {
                 SOL_MINT,
                 change,
                 derive_blinding(&seed, SOL_CHANGE_POSITION),
+                &indexed,
             )?;
             self.actor_mut(from).expected.push(change_utxo);
         }
+        self.indexed.push(indexed);
 
         // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
         let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
@@ -212,7 +168,7 @@ impl LifecycleWorld {
                 .actor_mut(from)
                 .expected
                 .iter_mut()
-                .find(|n| n.hash == consumed_hash)
+                .find(|n| n.output_context.hash == consumed_hash)
             {
                 note.spent = true;
             }

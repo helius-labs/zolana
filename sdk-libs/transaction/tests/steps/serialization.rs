@@ -7,18 +7,16 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     data::{Data, DataRecord},
-    split::{SplitBundlePlaintext, SplitEncryptedUtxos},
-    transfer::{
-        RecipientSlot, TransferEncryptedUtxos, TransferRecipientPlaintext, TransferSenderPlaintext,
-    },
-    TransactionError, SPLIT, TRANSFER, VIEW_TAG_LEN,
+    serialization::anonymous::AnonymousTransferSenderPlaintext,
+    serialization::confidential::TransferRecipientPlaintext,
+    serialization::split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    TransactionError, SPLIT,
 };
 
 use crate::TransactionWorld;
 
 #[then(expr = "a recipient plaintext for {string} round-trips with and without program data")]
-fn recipient_plaintext_round_trips(world: &mut TransactionWorld, name: String) {
-    let owner = world.kp(&name).signing_pubkey();
+fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String) {
     for data in [
         Data::default(),
         Data::new(vec![
@@ -27,8 +25,6 @@ fn recipient_plaintext_round_trips(world: &mut TransactionWorld, name: String) {
         ]),
     ] {
         let pt = TransferRecipientPlaintext {
-            owner_pubkey: owner,
-            sender_pubkey: ViewingKey::new().pubkey(),
             asset_id: 2,
             amount: 42,
             blinding: [1u8; BLINDING_LEN],
@@ -40,10 +36,8 @@ fn recipient_plaintext_round_trips(world: &mut TransactionWorld, name: String) {
 }
 
 #[then(expr = "duplicate data records are rejected for {string}")]
-fn duplicate_data_records_rejected(world: &mut TransactionWorld, name: String) {
+fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
     let pt = TransferRecipientPlaintext {
-        owner_pubkey: world.kp(&name).signing_pubkey(),
-        sender_pubkey: ViewingKey::new().pubkey(),
         asset_id: 2,
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
@@ -64,10 +58,8 @@ fn duplicate_data_records_rejected(world: &mut TransactionWorld, name: String) {
 }
 
 #[then(expr = "out-of-order data records are rejected for {string}")]
-fn out_of_order_data_records_rejected(world: &mut TransactionWorld, name: String) {
+fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
     let pt = TransferRecipientPlaintext {
-        owner_pubkey: world.kp(&name).signing_pubkey(),
-        sender_pubkey: ViewingKey::new().pubkey(),
         asset_id: 2,
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
@@ -89,7 +81,7 @@ fn out_of_order_data_records_rejected(world: &mut TransactionWorld, name: String
 
 #[then(expr = "a sender plaintext for {string} to {string} round-trips")]
 fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, recipient: String) {
-    let pt = TransferSenderPlaintext {
+    let pt = AnonymousTransferSenderPlaintext {
         owner_pubkey: world.kp(&sender).signing_pubkey(),
         spl_asset_id: 2,
         spl_amount: 100,
@@ -100,48 +92,46 @@ fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, re
         sol_data: Data::default(),
     };
     let bytes = pt.serialize().unwrap();
-    assert_eq!(TransferSenderPlaintext::deserialize(&bytes).unwrap(), pt);
+    assert_eq!(
+        AnonymousTransferSenderPlaintext::deserialize(&bytes).unwrap(),
+        pt
+    );
 }
 
 #[then(expr = "a transfer blob round-trips and rejects a wrong discriminator")]
 fn transfer_blob_round_trips(_world: &mut TransactionWorld) {
-    let blob = TransferEncryptedUtxos {
-        type_prefix: TRANSFER,
+    let blob = SplitEncryptedUtxos {
+        type_prefix: SPLIT,
         tx_viewing_pk: ViewingKey::new().pubkey(),
         salt: [1u8; SALT_LEN],
-        sender_ciphertext: vec![7u8; 142],
-        recipient_slots: vec![RecipientSlot {
-            view_tag: [3u8; VIEW_TAG_LEN],
-            ciphertext: vec![8u8; 132],
-        }],
+        ciphertext: vec![7u8; 142],
     };
     let bytes = blob.serialize().unwrap();
-    assert_eq!(TransferEncryptedUtxos::deserialize(&bytes).unwrap(), blob);
+    assert_eq!(SplitEncryptedUtxos::deserialize(&bytes).unwrap(), blob);
 
     let mut bad = blob;
     bad.type_prefix = 9;
     let bytes = bad.serialize().unwrap();
     assert_eq!(
-        TransferEncryptedUtxos::deserialize(&bytes).unwrap_err(),
+        SplitEncryptedUtxos::deserialize(&bytes).unwrap_err(),
         TransactionError::BadDiscriminator(9)
     );
 }
 
 #[then(expr = "a blob with an invalid viewing pubkey is rejected")]
 fn invalid_viewing_pubkey_rejected(_world: &mut TransactionWorld) {
-    let blob = TransferEncryptedUtxos {
-        type_prefix: TRANSFER,
+    let blob = SplitEncryptedUtxos {
+        type_prefix: SPLIT,
         tx_viewing_pk: ViewingKey::new().pubkey(),
         salt: [1u8; SALT_LEN],
-        sender_ciphertext: vec![7u8; 16],
-        recipient_slots: vec![],
+        ciphertext: vec![7u8; 16],
     };
     let mut bytes = blob.serialize().unwrap();
     for byte in bytes.get_mut(1..34).unwrap() {
         *byte = 0xff;
     }
     assert_eq!(
-        TransferEncryptedUtxos::deserialize(&bytes).unwrap_err(),
+        SplitEncryptedUtxos::deserialize(&bytes).unwrap_err(),
         TransactionError::Deserialize("Custom error: invalid p256 public key".to_string())
     );
 }

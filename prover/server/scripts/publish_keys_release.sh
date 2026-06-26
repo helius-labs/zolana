@@ -9,13 +9,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v4}"
+tag="${1:-transfer-keys-v5}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 
 key_assets=(
     "${keys_dir}/transfer_2_3.key"
     "${keys_dir}/transfer_p256_2_3.key"
+    "${keys_dir}/transfer_confidential_2_3.key"
+    "${keys_dir}/transfer_p256_confidential_2_3.key"
     "${keys_dir}/merge_8_1.key"
 )
 

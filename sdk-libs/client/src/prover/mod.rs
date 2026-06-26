@@ -1,20 +1,20 @@
 mod client;
+pub mod field;
 mod inputs;
 mod json;
-pub mod merge_p256;
+pub mod merge;
 mod proof;
 pub mod shape;
-pub mod transfer;
-pub mod transfer_p256;
+pub mod transact;
 
 pub use client::{spawn_prover, ProverClient, PROVE_PATH, SERVER_ADDRESS};
 pub use inputs::{
     MergeInputs, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
 };
-pub use merge_p256::{MergeProofResult, MergeProver};
+pub use merge::{MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use shape::{canonical_shape, resolve_shape, Shape, SUPPORTED_SHAPES};
-pub use transfer::{TransferProofResult, TransferProver};
-pub use transfer_p256::{
-    P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferSpendInput,
+pub use transact::{
+    P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
+    TransferProver, TransferSpendInput,
 };

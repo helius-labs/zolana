@@ -9,6 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
+use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_test_utils::smart_account;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -21,8 +22,8 @@ pub(crate) const SPL_CHANGE_POSITION: u8 = 0;
 pub(crate) const SOL_CHANGE_POSITION: u8 = 1;
 pub(crate) const RECIPIENT_POSITION_BASE: u8 = 2;
 
-/// Pack a Groth16 proof (with optional BSB22 commitment) into the 192-byte
-/// layout the program reads.
+/// Pack a Groth16 proof (always BSB22-committed) into the 192-byte layout the
+/// `merge_transact` program path reads.
 pub(crate) fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
     let compressed = ProofCompressed::try_from(*proof)?;
     let mut out = [0u8; 192];
@@ -34,6 +35,12 @@ pub(crate) fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
         out[160..192].copy_from_slice(&commitment.commitment_pok);
     }
     Ok(out)
+}
+
+/// Build the `transact` proof enum: the eddsa rail omits the BSB22 commitment, the
+/// P256 rail keeps it.
+pub(crate) fn transact_proof(proof: &Proof) -> Result<TransactProof> {
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }
 
 /// Start the persistent prover server (idempotent), pointing it at the committed

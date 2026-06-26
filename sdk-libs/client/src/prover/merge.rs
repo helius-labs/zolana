@@ -9,16 +9,21 @@ use zolana_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
 use zolana_keypair::{
-    merge::{encrypt_merge, merge_public_contribution, MergeCiphertextPublicInputs},
+    merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{transaction::private_tx_hash, OutputUtxo, MERGE};
+use zolana_transaction::instructions::merge::PreparedMerge;
+use zolana_transaction::instructions::transact::private_tx_hash;
+use zolana_transaction::instructions::transact::signed_transaction::asset_field;
+use zolana_transaction::instructions::types::SpendUtxo;
+use zolana_transaction::{EncryptedScheme, OutputUtxo};
 
 use crate::{
     error::ClientError,
-    private_transaction::field::{asset_field, be, hash_chain},
     prover::{
-        transfer_p256::{assemble_inputs, assemble_outputs, TransferSpendInput},
+        field::{be, hash_chain},
+        transact::p256_and_eddsa::{assemble_inputs, assemble_outputs, TransferSpendInput},
+        transact::witness::SpendProof,
         MergeInputs,
     },
 };
@@ -91,7 +96,7 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let assembled_inputs = assemble_inputs(&self.inputs, true)?;
+        let assembled_inputs = assemble_inputs(&self.inputs, true, None)?;
 
         let utxo_tree_root_indices: Vec<u16> = assembled_inputs
             .root_indices
@@ -113,7 +118,7 @@ impl MergeProver {
         // Verifiable encryption of the merged output to the owner's viewing key.
         let plaintext = merge_plaintext(&self.output)?;
         let (ciphertext, tx_viewing_pk) =
-            encrypt_merge(&self.tx_viewing_sk, &self.user_viewing_pk, &plaintext)?;
+            encrypt_verifiable(&self.tx_viewing_sk, &self.user_viewing_pk, &plaintext)?;
         let MergeCiphertextPublicInputs {
             tx_viewing_pk_lo: tx_pk_lo,
             tx_viewing_pk_hi: tx_pk_hi,
@@ -141,7 +146,7 @@ impl MergeProver {
         // SPP checks both against the owner's registry record; the owner recombines
         // the signing pk_field with their nullifier_pk to get user_owner_hash, so
         // the owner need not be carried in the ciphertext.
-        let user_signing_pk_hash = self.signing_pubkey.hash()?;
+        let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
         let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let public_input = hash_chain(&[
             hash_chain(&assembled_inputs.nullifiers)?,
@@ -158,11 +163,11 @@ impl MergeProver {
         ])?;
 
         // Owner rail select, mirroring the merge circuit: a P256 owner witnesses its
-        // real point (pk_field recomputed in-circuit, solana_owner_pk_hash = 0); a
+        // real point (pk_field recomputed in-circuit, owner_pk_hash = 0); a
         // Solana owner witnesses a discarded dummy point and feeds its pk_field
-        // through solana_owner_pk_hash.
+        // through owner_pk_hash.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
-        let (pub_x, pub_y, solana_owner_pk_hash) = if eddsa_owner {
+        let (pub_x, pub_y, owner_pk_hash) = if eddsa_owner {
             let (x, y) = dummy_p256_xy()?;
             (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
         } else {
@@ -188,7 +193,7 @@ impl MergeProver {
             output,
             p256_pub_x: be(&pub_x),
             p256_pub_y: be(&pub_y),
-            solana_owner_pk_hash,
+            owner_pk_hash,
             user_nullifier_pk: be(&user_nullifier_pk),
             user_nullifier_secret: be(&user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&sk_bytes),
@@ -215,14 +220,16 @@ impl MergeProver {
     }
 }
 
-/// Assembles the on-instruction `encrypted_utxo` blob:
-/// `MERGE discriminator || tx_viewing_pk (33) || ciphertext (71)`.
+/// Assembles the on-instruction `encrypted_utxo` payload in the unified output
+/// encoding `borsh(OutputData::VerifiablyEncrypted([EncryptedScheme::Merge,
+/// tx_viewing_pk(33), ciphertext]))`, the same form transact emits and
+/// `Wallet::sync` decodes.
 pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Vec<u8> {
     let mut blob = Vec::with_capacity(1 + 33 + ciphertext.len());
-    blob.push(MERGE);
+    blob.push(EncryptedScheme::Merge.as_byte());
     blob.extend_from_slice(tx_viewing_pk.as_bytes());
     blob.extend_from_slice(ciphertext);
-    blob
+    zolana_event::encode_verifiably_encrypted(blob)
 }
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE
@@ -282,4 +289,70 @@ fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out[1..].copy_from_slice(bytes);
     out
+}
+/// A prepared merge plus the owner nullifier key and the fetched Merkle proofs,
+/// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
+/// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the
+/// caller supplies it from the keypair.
+pub struct MergeWitness {
+    pub prepared: PreparedMerge,
+    pub nullifier_key: NullifierKey,
+    pub proofs: Vec<SpendProof>,
+}
+
+impl TryFrom<MergeWitness> for MergeProver {
+    type Error = ClientError;
+
+    fn try_from(witness: MergeWitness) -> Result<Self, Self::Error> {
+        let MergeWitness {
+            prepared,
+            nullifier_key,
+            proofs,
+        } = witness;
+        let PreparedMerge {
+            inputs,
+            output,
+            expiry_unix_ts,
+            signing_pubkey,
+            user_viewing_pk,
+            tx_viewing_sk,
+        } = prepared;
+
+        let mut spends = Vec::with_capacity(inputs.len());
+        let mut real_index = 0;
+        for spend in inputs {
+            let SpendUtxo {
+                utxo,
+                nullifier_key,
+                ..
+            } = spend;
+            let proof = if utxo.owner.is_zero() {
+                None
+            } else {
+                let proof = proofs
+                    .get(real_index)
+                    .ok_or(ClientError::MissingInputMerkleProof { index: real_index })?
+                    .clone();
+                real_index += 1;
+                Some(proof)
+            };
+            spends.push(TransferSpendInput {
+                utxo,
+                nullifier_key,
+                program_data_hash: None,
+                zone_data_hash: None,
+                proof,
+            });
+        }
+
+        Ok(MergeProver {
+            inputs: spends,
+            output,
+            expiry_unix_ts,
+            signing_pubkey,
+            nullifier_key,
+            user_viewing_pk,
+            tx_viewing_sk,
+        })
+    }
 }

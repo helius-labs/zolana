@@ -170,7 +170,7 @@ func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.Inputs[0].SolanaOwnerPkHash = spptest.Fe(12345)
+	assignment.Inputs[0].OwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -191,7 +191,7 @@ func TestSolanaCircuitSolvesSolanaInputs(t *testing.T) {
 }
 
 // Soundness guard: the Solana-only variant must reject a P256-owned input
-// (solana_owner_pk_hashes[i] == 0 on a real slot), since it skips the
+// (input_owner_pk_hashes[i] == 0 on a real slot), since it skips the
 // signature gadget. Otherwise a UTXO owned by OwnerHash(0, nullifier_pk)
 // could be spent with no signature.
 func TestSolanaCircuitRejectsP256Input(t *testing.T) {
@@ -208,7 +208,7 @@ func TestSolanaCircuitRejectsP256Input(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Spec UTXO Ownership: each input's solana_owner_pk_hashes entry selects its own path
+// Spec UTXO Ownership: each input's input_owner_pk_hashes entry selects its own path
 func TestCircuitAcceptsMixedP256AndSolanaInputs(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
@@ -241,7 +241,7 @@ func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
 	circuit := MustNewCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
-	assignment.Inputs[1].SolanaOwnerPkHash = testSolanaPkField(t)
+	assignment.Inputs[1].OwnerPkHash = testSolanaPkField(t)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -257,7 +257,7 @@ func TestCircuitRejectsP256OwnerWithNonZeroOwnerKey(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	priv := spptest.FixedP256Key(t, 11)
 	rewriteSingleInputAsP256(t, assignment, priv, priv)
-	assignment.Inputs[0].SolanaOwnerPkHash = testSolanaPkField(t)
+	assignment.Inputs[0].OwnerPkHash = testSolanaPkField(t)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -296,7 +296,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 	in.UtxoTreeRoot = spptest.Fe(0)
 	in.NullifierTreeRoot = spptest.Fe(0)
 	in.Nullifier = spptest.Fe(0)
-	in.SolanaOwnerPkHash = spptest.Fe(0)
+	in.OwnerPkHash = spptest.Fe(0)
 
 	// The dummy contributes 0 to the private-tx-hash chain, so recompute it (and
 	// the derived P256 message hash) with the input hash zeroed, then refresh the
@@ -334,7 +334,7 @@ func TestDummyInputAcceptsMimickedPublicColumns(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
-	assignment.Inputs[0].SolanaOwnerPkHash = testSolanaPkField(t)
+	assignment.Inputs[0].OwnerPkHash = testSolanaPkField(t)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
 	assignment.Inputs[0].NullifierTreeRoot = spptest.Fe(9)
