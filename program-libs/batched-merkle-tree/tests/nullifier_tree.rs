@@ -136,8 +136,7 @@ impl NullifierForester {
         let result = account
             .update_tree_from_address_queue(instruction_data)
             .unwrap();
-        assert_eq!(result.applied_count, 1);
-        let event = result.event.unwrap();
+        let event = result.unwrap();
         assert_eq!(event.num_update, 1);
         assert_eq!(event.new_root, new_root);
         self.inserted_into_tree += zkp_batch_size;
@@ -369,7 +368,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
             let result = account
                 .update_tree_from_address_queue(prep.instruction)
                 .unwrap();
-            match result.event {
+            match result {
                 Some(event) => {
                     assert_eq!(event.first_zkp_batch_index as usize, applied);
                     applied += event.num_update as usize;
@@ -378,7 +377,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
                         *expected_new_roots.get(applied - 1).unwrap()
                     );
                 }
-                None => assert_eq!(result.applied_count, 0),
+                None => {}
             }
         }
 
@@ -430,10 +429,10 @@ fn nullifier_tree_reverse_order_submission_cascades() {
             .update_tree_from_address_queue(prep.instruction)
             .unwrap();
         if offset < last_index {
-            assert_eq!(result.applied_count, 0);
+            assert!(result.is_none());
             assert_eq!(account.get_root().unwrap(), genesis_root);
         } else {
-            assert_eq!(result.applied_count as usize, prepared.len());
+            assert_eq!(result.unwrap().num_update as usize, prepared.len());
         }
     }
 
@@ -470,7 +469,7 @@ fn nullifier_tree_partial_prefix_waits_then_cascades() {
         let result = account
             .update_tree_from_address_queue(prep.instruction)
             .unwrap();
-        assert_eq!(result.applied_count, 0);
+        assert!(result.is_none());
         assert_eq!(account.get_root().unwrap(), genesis_root);
     }
 
@@ -478,7 +477,7 @@ fn nullifier_tree_partial_prefix_waits_then_cascades() {
     let result = account
         .update_tree_from_address_queue(prepared.first().unwrap().instruction)
         .unwrap();
-    assert_eq!(result.applied_count as usize, prepared.len());
+    assert_eq!(result.unwrap().num_update as usize, prepared.len());
     assert_eq!(account.get_root().unwrap(), forester.reference.root());
 }
 
@@ -510,7 +509,7 @@ fn nullifier_tree_duplicate_index_applies_once() {
         let result = account
             .update_tree_from_address_queue(resend.instruction)
             .unwrap();
-        assert_eq!(result.applied_count, 0);
+        assert!(result.is_none());
     }
 
     let mut total_applied = 0usize;
@@ -519,7 +518,7 @@ fn nullifier_tree_duplicate_index_applies_once() {
         let result = account
             .update_tree_from_address_queue(prep.instruction)
             .unwrap();
-        total_applied += result.applied_count as usize;
+        total_applied += result.map_or(0, |e| e.num_update as usize);
     }
 
     assert_eq!(total_applied, prepared.len());
@@ -555,7 +554,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
         let result = account
             .update_tree_from_address_queue(prep.instruction)
             .unwrap();
-        assert_eq!(result.applied_count, 1);
+        assert_eq!(result.unwrap().num_update, 1);
     }
 
     let prefix_root = {
@@ -568,7 +567,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
         let result = account
             .update_tree_from_address_queue(prep.instruction)
             .unwrap();
-        assert_eq!(result.applied_count, 0);
+        assert!(result.is_none());
         assert_eq!(account.get_root().unwrap(), prefix_root);
     }
 

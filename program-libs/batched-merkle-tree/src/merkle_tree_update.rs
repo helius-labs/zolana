@@ -5,9 +5,7 @@ use zolana_merkle_tree_metadata::{
 
 use crate::{
     errors::BatchedMerkleTreeError,
-    merkle_tree::{
-        AddressUpdateResult, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
-    },
+    merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
     verify::verify_batch_address_update,
     zero_copy::ChangelogEntry,
 };
@@ -29,17 +27,14 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     pub fn update_tree_from_address_queue(
         &mut self,
         instruction_data: InstructionDataAddressAppendInputs,
-    ) -> Result<AddressUpdateResult, BatchedMerkleTreeError> {
+    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         // 1. Reject non-address trees.
         if self.tree_type != TreeType::AddressV2 as u64 {
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
         }
         // 2. Verify the proof and cache it in the changelog.
         if !self.submit_address_update(&instruction_data)? {
-            return Ok(AddressUpdateResult {
-                event: None,
-                applied_count: 0,
-            });
+            return Ok(None);
         }
         // 3. Apply cached updates in order.
         self.apply_cached_changelog_updates()
@@ -168,7 +163,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     /// 5. Record the new root in the cascade event.
     fn apply_cached_changelog_updates(
         &mut self,
-    ) -> Result<AddressUpdateResult, BatchedMerkleTreeError> {
+    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
@@ -191,20 +186,16 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .get(batch_slot)
                 .and_then(|chain| chain.data.get(idx))
             {
-                Some(entry) => *entry,
-                None => break,
+                Some(entry) if entry.occupied != 0 => *entry,
+                _ => break,
             };
-            if entry.occupied == 0 {
-                break;
-            }
 
             // 2. Stop unless the entry's old root, next index, and hash chain
             //    match the live tree. These are the proof's public inputs, so a
             //    match binds the entry to a verified transition. A cursor entry
             //    can only become applicable by being applied, so a mismatch here
             //    never resolves on its own: clear the slot so a corrected proof
-            //    can be resubmitted (submit skips an occupied slot) instead of
-            //    wedging the batch.
+            //    can be resubmitted (submit skips an occupied slot).
             let current_root = match self.get_root() {
                 Some(root) => root,
                 None => break,
@@ -259,34 +250,21 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             //    batch fixes the shared fields; later batches only advance the
             //    count and the final root (intermediate roots live in
             //    root_history).
-            match &mut event {
-                Some(event) => {
-                    event.num_update += 1;
-                    event.new_root = entry.new_root;
-                }
-                None => {
-                    event = Some(BatchAddressAppendEvent {
-                        merkle_tree_pubkey: self.pubkey().to_bytes(),
-                        zkp_batch_size: zkp_batch_size as u16,
-                        old_next_index,
-                        start_sequence_number: sequence_number,
-                        first_root_index: root_index,
-                        num_update: 1,
-                        first_zkp_batch_index: idx as u32,
-                        new_root: entry.new_root,
-                    });
-                }
-            }
+            let event = event.get_or_insert_with(|| BatchAddressAppendEvent {
+                merkle_tree_pubkey: self.pubkey().to_bytes(),
+                zkp_batch_size: zkp_batch_size as u16,
+                old_next_index,
+                start_sequence_number: sequence_number,
+                first_root_index: root_index,
+                num_update: 0,
+                first_zkp_batch_index: idx as u32,
+                new_root: entry.new_root,
+            });
+            event.num_update += 1;
+            event.new_root = entry.new_root;
         }
 
-        let applied_count = event
-            .as_ref()
-            .map(|event| event.num_update as u64)
-            .unwrap_or(0);
-        Ok(AddressUpdateResult {
-            event,
-            applied_count,
-        })
+        Ok(event)
     }
 
     /// Reset the changelog entry at `[batch_slot][idx]` to empty (`occupied = 0`),

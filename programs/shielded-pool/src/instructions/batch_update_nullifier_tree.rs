@@ -31,13 +31,13 @@ pub fn process_batch_update_nullifier_tree(
     let mut tree = TreeAccount::from_account_view_mut(tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
         .map_err(ShieldedPoolError::from)?;
 
-    let result = tree
+    let event = tree
         .nullifer_tree()
         .update_tree_from_address_queue(instruction)
         .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
-    if let Some(event) = result.event {
+    if let Some(event) = event {
         emit_batch_address_append_event(&event)?;
     }
     Ok(())

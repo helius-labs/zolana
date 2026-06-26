@@ -16,9 +16,8 @@ use zolana_account_checks::{
 };
 use zolana_hasher::{hash_to_field_size::hash_to_bn254_field_size_be, Hasher};
 use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError, events::batch::BatchAddressAppendEvent,
-    merkle_tree::MerkleTreeMetadata, QueueType, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2,
-    STATE_MERKLE_TREE_TYPE_V2,
+    errors::MerkleTreeMetadataError, merkle_tree::MerkleTreeMetadata, QueueType, TreeType,
+    ADDRESS_MERKLE_TREE_TYPE_V2, STATE_MERKLE_TREE_TYPE_V2,
 };
 
 use super::batch::Batch;
@@ -40,12 +39,6 @@ pub struct InstructionDataBatchNullifyInputs {
 pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
 
 pub type InstructionDataBatchAppendInputs = InstructionDataBatchNullifyInputs;
-
-#[derive(Debug, PartialEq)]
-pub struct AddressUpdateResult {
-    pub event: Option<BatchAddressAppendEvent>,
-    pub applied_count: u64,
-}
 
 /// Batched Merkle tree zero copy account.
 /// The account is used for batched state and address Merkle trees,
@@ -849,7 +842,7 @@ mod test {
             })
             .unwrap();
 
-        assert_eq!(result.applied_count, 0);
+        assert!(result.is_none());
         let entry = account
             .layout
             .changelog
@@ -916,7 +909,7 @@ mod test {
             })
             .unwrap();
 
-        assert_eq!(result.applied_count, 0);
+        assert!(result.is_none());
         let entry = account
             .layout
             .changelog
