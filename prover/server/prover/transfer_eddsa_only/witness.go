@@ -31,10 +31,13 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	circuit := &txcircuit.Circuit{
 		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
 		RequiresP256: false,
+		Confidential: p.Confidential,
 		Inputs:       make([]txcircuit.Input, p.NInputs),
 		Outputs:      make([]txcircuit.Output, p.NOutputs),
 
-		ExternalDataHash: p.ExternalDataHash,
+		// Solana-only rail has no P256 owner, so the shared signing field is 0.
+		P256SigningPkField: big.NewInt(0),
+		ExternalDataHash:   p.ExternalDataHash,
 		P256Pub: txcircuit.P256PublicKey{
 			X: emulated.ValueOf[emulated.P256Fp](big.NewInt(0)),
 			Y: emulated.ValueOf[emulated.P256Fp](big.NewInt(0)),
@@ -78,7 +81,7 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 			UtxoTreeRoot:             in.UtxoTreeRoot,
 			NullifierTreeRoot:        in.NullifierTreeRoot,
 			Nullifier:                in.Nullifier,
-			SolanaOwnerPkHash:        in.SolanaOwnerPkHash,
+			OwnerPkHash:              in.OwnerPkHash,
 			NullifierSecret:          in.NullifierSecret,
 		}
 	}
@@ -86,11 +89,22 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	for i := range p.Outputs {
 		out := p.Outputs[i]
 		circuit.Outputs[i] = txcircuit.Output{
-			Utxo:    utxoFields(out.Utxo),
-			IsDummy: out.IsDummy,
-			Hash:    out.Hash,
+			Utxo:        utxoFields(out.Utxo),
+			IsDummy:     out.IsDummy,
+			Hash:        out.Hash,
+			OwnerPkHash: orZero(out.OwnerPkHash),
+			NullifierPk: orZero(out.NullifierPk),
 		}
 	}
 
 	return circuit, nil
+}
+
+// orZero returns big.NewInt(0) for a nil pointer so gnark always sees an assigned
+// witness value (the confidential-only fields are absent on anonymous params).
+func orZero(x *big.Int) *big.Int {
+	if x == nil {
+		return big.NewInt(0)
+	}
+	return x
 }

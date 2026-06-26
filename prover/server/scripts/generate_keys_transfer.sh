@@ -17,6 +17,8 @@ shapes=(
 rails=(
     "transfer transfer"
     "transfer-p256 transfer_p256"
+    "transfer-confidential transfer_confidential"
+    "transfer-p256-confidential transfer_p256_confidential"
 )
 
 for entry in "${rails[@]}"; do

@@ -16,6 +16,8 @@ repo="helius-labs/zolana"
 key_assets=(
     "${keys_dir}/transfer_2_3.key"
     "${keys_dir}/transfer_p256_2_3.key"
+    "${keys_dir}/transfer_confidential_2_3.key"
+    "${keys_dir}/transfer_p256_confidential_2_3.key"
     "${keys_dir}/merge_8_1.key"
 )
 

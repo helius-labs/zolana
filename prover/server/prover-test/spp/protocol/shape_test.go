@@ -122,7 +122,7 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"payer_pubkey_hash",
 		"data_hash",
 		"zone_data_hash",
-		"solana_owner_pk_hashes",
+		"input_owner_pk_hashes",
 	}
 
 	names := PublicInputNames()

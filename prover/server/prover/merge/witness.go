@@ -30,7 +30,7 @@ func (p *MergeParameters) CreateWitness() (*mergecircuit.Circuit, error) {
 		X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 		Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
 	}
-	circuit.SolanaOwnerPkHash = p.SolanaOwnerPkHash
+	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
 	circuit.TxViewingSk = p.TxViewingSk

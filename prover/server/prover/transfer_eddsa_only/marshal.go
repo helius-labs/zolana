@@ -30,14 +30,16 @@ type InputParamsJSON struct {
 	UtxoTreeRoot             string         `json:"utxoTreeRoot"`
 	NullifierTreeRoot        string         `json:"nullifierTreeRoot"`
 	Nullifier                string         `json:"nullifier"`
-	SolanaOwnerPkHash        string         `json:"solanaOwnerPkHash"`
+	OwnerPkHash              string         `json:"ownerPkHash"`
 	NullifierSecret          string         `json:"nullifierSecret"`
 }
 
 type OutputParamsJSON struct {
-	Utxo    UtxoParamsJSON `json:"utxo"`
-	IsDummy string         `json:"isDummy"`
-	Hash    string         `json:"hash"`
+	Utxo        UtxoParamsJSON `json:"utxo"`
+	IsDummy     string         `json:"isDummy"`
+	Hash        string         `json:"hash"`
+	OwnerPkHash string         `json:"ownerPkHash"`
+	NullifierPk string         `json:"nullifierPk"`
 }
 
 type TransferParametersJSON struct {
@@ -71,8 +73,12 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 }
 
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
+	circuitType := common.TransferCircuitType
+	if p.Confidential {
+		circuitType = common.TransferConfidentialCircuitType
+	}
 	paramsJson := TransferParametersJSON{
-		CircuitType:          common.TransferCircuitType,
+		CircuitType:          circuitType,
 		NInputs:              p.NInputs,
 		NOutputs:             p.NOutputs,
 		ExternalDataHash:     feHex(p.ExternalDataHash),
@@ -101,7 +107,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 			UtxoTreeRoot:             feHex(in.UtxoTreeRoot),
 			NullifierTreeRoot:        feHex(in.NullifierTreeRoot),
 			Nullifier:                feHex(in.Nullifier),
-			SolanaOwnerPkHash:        feHex(in.SolanaOwnerPkHash),
+			OwnerPkHash:              feHex(in.OwnerPkHash),
 			NullifierSecret:          feHex(in.NullifierSecret),
 		}
 	}
@@ -109,9 +115,11 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 	paramsJson.Outputs = make([]OutputParamsJSON, len(p.Outputs))
 	for i, out := range p.Outputs {
 		paramsJson.Outputs[i] = OutputParamsJSON{
-			Utxo:    utxoParamsToJSON(out.Utxo),
-			IsDummy: feHex(out.IsDummy),
-			Hash:    feHex(out.Hash),
+			Utxo:        utxoParamsToJSON(out.Utxo),
+			IsDummy:     feHex(out.IsDummy),
+			Hash:        feHex(out.Hash),
+			OwnerPkHash: feHex(out.OwnerPkHash),
+			NullifierPk: feHex(out.NullifierPk),
 		}
 	}
 
@@ -122,6 +130,7 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	var err error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
+	p.Confidential = params.CircuitType == common.TransferConfidentialCircuitType
 
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
 		return err
@@ -191,7 +200,7 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		if input.Nullifier, err = feFromHex(in.Nullifier); err != nil {
 			return err
 		}
-		if input.SolanaOwnerPkHash, err = feFromHex(in.SolanaOwnerPkHash); err != nil {
+		if input.OwnerPkHash, err = feFromHex(in.OwnerPkHash); err != nil {
 			return err
 		}
 		if input.NullifierSecret, err = feFromHex(in.NullifierSecret); err != nil {
@@ -211,6 +220,12 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 			return err
 		}
 		if output.Hash, err = feFromHex(out.Hash); err != nil {
+			return err
+		}
+		if output.OwnerPkHash, err = feFromHex(out.OwnerPkHash); err != nil {
+			return err
+		}
+		if output.NullifierPk, err = feFromHex(out.NullifierPk); err != nil {
 			return err
 		}
 		p.Outputs[i] = output

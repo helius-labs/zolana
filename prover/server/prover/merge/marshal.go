@@ -43,7 +43,7 @@ type MergeParametersJSON struct {
 	Output              OutputParamsJSON   `json:"output"`
 	P256PubX            string             `json:"p256PubX"`
 	P256PubY            string             `json:"p256PubY"`
-	SolanaOwnerPkHash   string             `json:"solanaOwnerPkHash"`
+	OwnerPkHash         string             `json:"ownerPkHash"`
 	UserNullifierPk     string             `json:"userNullifierPk"`
 	UserNullifierSecret string             `json:"userNullifierSecret"`
 	TxViewingSk         string             `json:"txViewingSk"`
@@ -70,7 +70,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		CircuitType:         common.MergeCircuitType,
 		P256PubX:            feHex(p.P256PubX),
 		P256PubY:            feHex(p.P256PubY),
-		SolanaOwnerPkHash:   feHex(p.SolanaOwnerPkHash),
+		OwnerPkHash:         feHex(p.OwnerPkHash),
 		UserNullifierPk:     feHex(p.UserNullifierPk),
 		UserNullifierSecret: feHex(p.UserNullifierSecret),
 		TxViewingSk:         feHex(p.TxViewingSk),
@@ -113,7 +113,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.P256PubY, err = feFromHex(params.P256PubY); err != nil {
 		return err
 	}
-	if p.SolanaOwnerPkHash, err = feFromHex(params.SolanaOwnerPkHash); err != nil {
+	if p.OwnerPkHash, err = feFromHex(params.OwnerPkHash); err != nil {
 		return err
 	}
 	if p.UserNullifierPk, err = feFromHex(params.UserNullifierPk); err != nil {

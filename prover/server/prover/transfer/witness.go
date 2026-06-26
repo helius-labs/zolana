@@ -1,6 +1,8 @@
 package transfer
 
 import (
+	"math/big"
+
 	txcircuit "zolana/prover/circuits/spp_transaction"
 
 	"github.com/consensys/gnark/frontend"
@@ -27,10 +29,12 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	circuit := &txcircuit.Circuit{
 		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
 		RequiresP256: true,
+		Confidential: p.Confidential,
 		Inputs:       make([]txcircuit.Input, p.NInputs),
 		Outputs:      make([]txcircuit.Output, p.NOutputs),
 
-		ExternalDataHash: p.ExternalDataHash,
+		P256SigningPkField: orZero(p.P256SigningPkField),
+		ExternalDataHash:   p.ExternalDataHash,
 		P256Pub: txcircuit.P256PublicKey{
 			X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 			Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
@@ -74,7 +78,7 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 			UtxoTreeRoot:             in.UtxoTreeRoot,
 			NullifierTreeRoot:        in.NullifierTreeRoot,
 			Nullifier:                in.Nullifier,
-			SolanaOwnerPkHash:        in.SolanaOwnerPkHash,
+			OwnerPkHash:              in.OwnerPkHash,
 			NullifierSecret:          in.NullifierSecret,
 		}
 	}
@@ -82,11 +86,22 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	for i := range p.Outputs {
 		out := p.Outputs[i]
 		circuit.Outputs[i] = txcircuit.Output{
-			Utxo:    utxoFields(out.Utxo),
-			IsDummy: out.IsDummy,
-			Hash:    out.Hash,
+			Utxo:        utxoFields(out.Utxo),
+			IsDummy:     out.IsDummy,
+			Hash:        out.Hash,
+			OwnerPkHash: orZero(out.OwnerPkHash),
+			NullifierPk: orZero(out.NullifierPk),
 		}
 	}
 
 	return circuit, nil
+}
+
+// orZero returns big.NewInt(0) for a nil pointer so gnark always sees an assigned
+// witness value (the confidential-only fields are absent on anonymous params).
+func orZero(x *big.Int) *big.Int {
+	if x == nil {
+		return big.NewInt(0)
+	}
+	return x
 }

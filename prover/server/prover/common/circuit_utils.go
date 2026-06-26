@@ -36,14 +36,17 @@ type BatchProofSystem struct {
 }
 
 // TransferProofSystem holds the keys and constraints for one spp_transaction
-// circuit shape and ownership rail. RequiresP256 selects the P256-capable circuit
-// (true) or the Solana-only variant (false). It mirrors BatchProofSystem but is
-// keyed by (NInputs, NOutputs, RequiresP256) instead of (TreeHeight, BatchSize).
+// circuit shape, ownership rail, and confidentiality mode. RequiresP256 selects
+// the P256-capable circuit (true) or the Solana-only variant (false);
+// Confidential selects the owner-tag-binding variant. It mirrors BatchProofSystem
+// but is keyed by (NInputs, NOutputs, RequiresP256, Confidential) instead of
+// (TreeHeight, BatchSize).
 type TransferProofSystem struct {
 	CircuitType      CircuitType
 	NInputs          uint32
 	NOutputs         uint32
 	RequiresP256     bool
+	Confidential     bool
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem

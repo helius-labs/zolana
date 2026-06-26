@@ -25,7 +25,7 @@ type inputWitnesses struct {
 	utxoRoots                []*big.Int
 	nullifierTreeRoots       []*big.Int
 	nullifiers               []*big.Int
-	solanaOwnerPkHashes      []*big.Int
+	inputOwnerPkHashes       []*big.Int
 	solanaOwnerPubkeys       []string
 	requiresP256OwnerWitness bool
 }
@@ -37,13 +37,13 @@ func buildInputWitnesses(
 	nullifierTree *protocol.NullifierTree,
 ) (inputWitnesses, error) {
 	inputs := inputWitnesses{
-		inputs:              make([]txcircuit.Input, shape.NInputs),
-		hashes:              make([]*big.Int, shape.NInputs),
-		utxoRoots:           make([]*big.Int, shape.NInputs),
-		nullifierTreeRoots:  make([]*big.Int, shape.NInputs),
-		nullifiers:          make([]*big.Int, shape.NInputs),
-		solanaOwnerPkHashes: make([]*big.Int, shape.NInputs),
-		solanaOwnerPubkeys:  make([]string, len(requests)),
+		inputs:             make([]txcircuit.Input, shape.NInputs),
+		hashes:             make([]*big.Int, shape.NInputs),
+		utxoRoots:          make([]*big.Int, shape.NInputs),
+		nullifierTreeRoots: make([]*big.Int, shape.NInputs),
+		nullifiers:         make([]*big.Int, shape.NInputs),
+		inputOwnerPkHashes: make([]*big.Int, shape.NInputs),
+		solanaOwnerPubkeys: make([]string, len(requests)),
 	}
 
 	for i, request := range requests {
@@ -69,11 +69,11 @@ func buildInputWitnesses(
 		witness.NullifierSecret = input.nullifierSecret
 		if input.isP256 {
 			inputs.requiresP256OwnerWitness = true
-			witness.SolanaOwnerPkHash = big.NewInt(0)
-			inputs.solanaOwnerPkHashes[i] = big.NewInt(0)
+			witness.OwnerPkHash = big.NewInt(0)
+			inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 		} else {
-			witness.SolanaOwnerPkHash = input.ownerKeyHash
-			inputs.solanaOwnerPkHashes[i] = input.ownerKeyHash
+			witness.OwnerPkHash = input.ownerKeyHash
+			inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
 			inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
 		}
 		utxoRoot := state.root
@@ -129,7 +129,7 @@ func buildInputWitnesses(
 		inputs.utxoRoots[i] = big.NewInt(0)
 		inputs.nullifierTreeRoots[i] = big.NewInt(0)
 		inputs.nullifiers[i] = nullifier
-		inputs.solanaOwnerPkHashes[i] = big.NewInt(0)
+		inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 	}
 	return inputs, nil
 }
@@ -145,7 +145,7 @@ func newInputWitness() txcircuit.Input {
 		NullifierNextValue:       big.NewInt(0),
 		UtxoTreeRoot:             big.NewInt(0),
 		NullifierTreeRoot:        big.NewInt(0),
-		SolanaOwnerPkHash:        big.NewInt(0),
+		OwnerPkHash:              big.NewInt(0),
 		NullifierSecret:          big.NewInt(0),
 	}
 }

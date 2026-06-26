@@ -10,7 +10,7 @@ services:
     image: sergeytimoshin/prover-light:1.0.0
     container_name: prover
     ports:
-      - "3001:3001"
+      - "5000:5000"
     volumes:
       - ./proving-keys:/proving-keys/:ro
     command: >

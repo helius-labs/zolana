@@ -13,15 +13,21 @@ import (
 func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
 	switch circuit {
 	case common.TransferP256CircuitType:
-		return SetupTransfer(nInputs, nOutputs)
+		return SetupTransfer(nInputs, nOutputs, false)
+	case common.TransferP256ConfidentialCircuitType:
+		return SetupTransfer(nInputs, nOutputs, true)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
 	}
 }
 
-func SetupTransfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
-	fmt.Println("Setting up transfer (p256): nInputs", nInputs, "nOutputs", nOutputs)
-	ccs, err := R1CSTransfer(nInputs, nOutputs)
+func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.TransferProofSystem, error) {
+	circuitType := common.TransferP256CircuitType
+	if confidential {
+		circuitType = common.TransferP256ConfidentialCircuitType
+	}
+	fmt.Println("Setting up", circuitType, ": nInputs", nInputs, "nOutputs", nOutputs)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, confidential)
 	if err != nil {
 		return nil, err
 	}
@@ -30,10 +36,11 @@ func SetupTransfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem
 		return nil, err
 	}
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferP256CircuitType,
+		CircuitType:      circuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,
+		Confidential:     confidential,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,
@@ -42,7 +49,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSystem
 
 func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath string) (*common.TransferProofSystem, error) {
 	fmt.Println("Compiling circuit")
-	ccs, err := R1CSTransfer(nInputs, nOutputs)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, false)
 	if err != nil {
 		fmt.Println("Error compiling circuit")
 		return nil, err

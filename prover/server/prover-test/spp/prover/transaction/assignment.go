@@ -129,6 +129,7 @@ func buildProofAssignment(
 		RequiresP256:         requiresP256,
 		Inputs:               inputs.inputs,
 		Outputs:              outputs.outputs,
+		P256SigningPkField:   big.NewInt(0),
 		ExternalDataHash:     external.hash,
 		P256Pub:              p256Pub,
 		P256Sig:              p256Sig,
@@ -247,7 +248,7 @@ func buildPublicInputs(
 		PublicSplAssetPubkey: external.publicSplAsset,
 		ProgramIDHashchain:   external.programIDHashchain,
 		PayerPubkeyHash:      new(big.Int).Set(payerHash),
-		SolanaOwnerPkHashes:  inputs.solanaOwnerPkHashes,
+		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
 		DataHash:             external.dataHash,
 		ZoneDataHash:         external.zoneDataHash,
 	}
