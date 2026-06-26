@@ -59,7 +59,7 @@ zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "6f44fe18ece7e9f2d09141707f7822e9321c7b66", features = ["bsb22"] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"
@@ -190,15 +190,6 @@ wincode = { version = "0.5", features = ["derive"] }
 
 [patch.crates-io]
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
-
-# groth16-solana's BSB22 `hash_to_field` bound `sol_sha256` via a bare `extern "C"`
-# symbol. Under the static-syscalls SBF ABI (platform-tools v1.54+) such a symbol
-# does not resolve and silently returns a zeroed digest, so the BSB22
-# commitment-derived public input vanishes and every committed (merge / P256)
-# on-chain proof verification fails. The local fork fixes the binding to use
-# pinocchio's `define_syscall!`-bound `sol_sha256` (as the alt_bn128 ops already do).
-[patch."https://github.com/Lightprotocol/groth16-solana"]
-groth16-solana = { path = "../groth16-solana" }
 
 [profile.dev]
 opt-level = 0

@@ -146,7 +146,7 @@ impl MergeProver {
         // SPP checks both against the owner's registry record; the owner recombines
         // the signing pk_field with their nullifier_pk to get user_owner_hash, so
         // the owner need not be carried in the ciphertext.
-        let user_signing_pk_hash = self.signing_pubkey.hash()?;
+        let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
         let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let public_input = hash_chain(&[
             hash_chain(&assembled_inputs.nullifiers)?,
