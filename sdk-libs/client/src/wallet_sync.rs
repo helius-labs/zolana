@@ -6,8 +6,8 @@ use std::{
 use zolana_interface::event::decode_output_data;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, SyncReport, Wallet,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, AssetRegistry, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
+    SyncReport, Wallet, DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
@@ -70,20 +70,25 @@ where
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
 
         let mut txs = transactions.values().cloned().collect::<Vec<_>>();
-        txs.sort_by_key(|tx| tx.nullifiers.first().copied().unwrap_or_default());
-        let mut deposits = proofless_deposits
-            .iter()
-            .map(|(key, tx)| (key.clone(), tx.clone()))
-            .collect::<Vec<_>>();
-        deposits.sort_by_key(|(key, tx)| {
+        txs.sort_by(|a, b| (a.slot, a.tx_signature).cmp(&(b.slot, b.tx_signature)));
+        let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
+        deposits.sort_by(|a, b| {
             (
-                tx.output_slots
+                a.output_slots
                     .first()
                     .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
-                key.clone(),
+                a.slot,
+                a.tx_signature,
             )
+                .cmp(&(
+                    b.output_slots
+                        .first()
+                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+                    b.slot,
+                    b.tx_signature,
+                ))
         });
-        txs.extend(deposits.into_iter().map(|(_, tx)| tx));
+        txs.extend(deposits);
         report = wallet.sync(&txs, assets, now_unix_ts(), config.tag_window)?;
 
         if before == (transactions.len(), proofless_deposits.len()) {
@@ -92,6 +97,17 @@ where
     }
 
     Ok(report)
+}
+
+pub fn get_private_transactions(wallet: &Wallet) -> &[PrivateTransaction] {
+    wallet.private_transactions()
+}
+
+pub fn get_private_token_balances(
+    wallet: &Wallet,
+    assets: &AssetRegistry,
+) -> Result<Vec<AssetBalance>, ClientError> {
+    Ok(wallet.balances(assets, true)?)
 }
 
 fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
@@ -185,7 +201,11 @@ where
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                     continue;
                 }
-                let key = item.tx_signature.to_string();
+                let key = format!(
+                    "{}:{}",
+                    item.tx_signature,
+                    item.output_slot.output_context.leaf_index
+                );
                 if out.contains_key(&key) {
                     continue;
                 }
@@ -404,6 +424,16 @@ mod tests {
         assert_eq!(wallet.utxos.len(), 1);
         assert_eq!(wallet.utxos[0].utxo.amount, 42);
         assert!(!wallet.utxos[0].spent);
+        assert_eq!(wallet.private_transactions().len(), 1);
+        let tx = &wallet.private_transactions()[0];
+        assert_eq!(tx.kind, zolana_transaction::PrivateTransactionKind::Deposit);
+        assert_eq!(
+            tx.direction,
+            zolana_transaction::PrivateTransactionDirection::Inbound
+        );
+        assert_eq!(tx.amount, 42);
+        assert_eq!(tx.id.slot, 1);
+        assert_eq!(tx.id.index, 13);
     }
 
     #[test]

@@ -8,6 +8,48 @@ use crate::{
 };
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
+pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrivateTransactionId {
+    pub signature: String,
+    pub slot: u64,
+    /// Stable row discriminator within the transaction. For received outputs this
+    /// is the UTXO leaf index when available; sender-side aggregate rows use a
+    /// high local row index range.
+    pub index: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionKind {
+    Deposit,
+    PrivateTransfer,
+    PublicWithdrawal,
+    Split,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionDirection {
+    Inbound,
+    Outbound,
+    SelfTransfer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateTransactionStatus {
+    Confirmed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrivateTransaction {
+    pub id: PrivateTransactionId,
+    pub kind: PrivateTransactionKind,
+    pub direction: PrivateTransactionDirection,
+    pub status: PrivateTransactionStatus,
+    pub asset: Address,
+    pub amount: u64,
+    pub counterparty_viewing_pubkey: Option<P256Pubkey>,
+}
 
 pub struct ViewingKeyEntry {
     pub key: ViewingKey,
@@ -58,6 +100,7 @@ pub struct Wallet {
     pub keypair: ShieldedKeypair,
     pub viewing_key_history: Vec<ViewingKeyEntry>,
     pub utxos: Vec<WalletUtxo>,
+    pub transactions: Vec<PrivateTransaction>,
     /// Every input nullifier ever observed across synced transactions. Kept
     /// permanently so a UTXO discovered after its spend was seen still marks
     /// spent.
@@ -72,9 +115,18 @@ impl Wallet {
             keypair,
             viewing_key_history: vec![ViewingKeyEntry::new(key, 0)],
             utxos: Vec::new(),
+            transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
         })
+    }
+
+    pub fn private_transactions(&self) -> &[PrivateTransaction] {
+        &self.transactions
+    }
+
+    pub fn get_private_transactions(&self) -> Vec<PrivateTransaction> {
+        self.transactions.clone()
     }
 
     pub(super) fn unspent(&self) -> impl Iterator<Item = &WalletUtxo> {
