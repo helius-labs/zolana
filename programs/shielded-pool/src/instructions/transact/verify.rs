@@ -104,7 +104,11 @@ impl<'a> TransactProof<'a> {
         let shape = ShieldedPoolError::InvalidTransactShape;
         let utxo_roots = self.derived.utxo_roots.get(..n_in).ok_or(shape)?;
         let nullifier_tree_roots = self.derived.nullifier_tree_roots.get(..n_in).ok_or(shape)?;
-        let input_owner_pk_hashes = self.derived.input_owner_pk_hashes.get(..n_in).ok_or(shape)?;
+        let input_owner_pk_hashes = self
+            .derived
+            .input_owner_pk_hashes
+            .get(..n_in)
+            .ok_or(shape)?;
         let output_owner_pk_hashes = self
             .derived
             .output_owner_pk_hashes

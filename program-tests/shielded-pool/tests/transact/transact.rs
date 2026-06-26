@@ -23,9 +23,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::{
-    instruction_data::transact::TransactIxData, Transact,
-};
+use zolana_interface::instruction::{instruction_data::transact::TransactIxData, Transact};
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::instructions::transact::private_tx_hash;
@@ -230,4 +228,3 @@ fn transact_rejects_tampered_output_view_tag() {
         "tampered output view_tag must be rejected, got: {result:?}"
     );
 }
-

@@ -206,8 +206,10 @@ fn fill_output_owner_pk_hashes(
     let sender_slots = sender_slot_count(n_outputs, n_ciphertexts);
     for i in 0..n_outputs {
         let view_tag = owner_view_tag(&ix.output_ciphertexts, sender_slots, i).ok_or(error)?;
-        *proof_inputs.output_owner_pk_hashes.get_mut(i).ok_or(error)? =
-            verifier::hash_field(view_tag, error)?;
+        *proof_inputs
+            .output_owner_pk_hashes
+            .get_mut(i)
+            .ok_or(error)? = verifier::hash_field(view_tag, error)?;
     }
     Ok(())
 }

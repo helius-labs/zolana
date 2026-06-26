@@ -101,7 +101,11 @@ pub fn output_owner_pk_hashes(
     let sender_slots = n_outputs.saturating_sub(n_ciphertexts.saturating_sub(1));
     (0..n_outputs)
         .map(|i| {
-            let idx = if i < sender_slots { 0 } else { 1 + i - sender_slots };
+            let idx = if i < sender_slots {
+                0
+            } else {
+                1 + i - sender_slots
+            };
             let ciphertext = output_ciphertexts
                 .get(idx)
                 .ok_or_else(|| anyhow!("missing output ciphertext at {idx}"))?;

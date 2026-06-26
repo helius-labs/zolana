@@ -78,7 +78,8 @@ impl TransferP256Prover {
         // The shared P256 signing key's pk_field: the value every P256-owned input
         // exposes as its owner tag and that the circuit asserts equals its in-circuit
         // P256 pk_field. Folded into the confidential public-input hash.
-        let p256_signing_pk_field = PublicKey::from_p256(&self.p256_owner.pubkey).owner_pk_field()?;
+        let p256_signing_pk_field =
+            PublicKey::from_p256(&self.p256_owner.pubkey).owner_pk_field()?;
         let assembled_inputs = assemble_inputs(&self.inputs, true, Some(&p256_signing_pk_field))?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -333,7 +334,10 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
                 address.signing_pubkey.owner_pk_field()?,
                 address.nullifier_pubkey,
             ),
-            None => (hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?, [0u8; 32]),
+            None => (
+                hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?,
+                [0u8; 32],
+            ),
         };
         assembled.push(TransferOutput {
             utxo: UtxoInputs::from_output(output)?,

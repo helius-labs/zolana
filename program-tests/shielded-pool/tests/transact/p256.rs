@@ -40,8 +40,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs, SpendProof,
-    SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
+    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
+    SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_keypair::hash::owner_hash;
@@ -110,7 +110,8 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_field = owner_hash(&sender.signing_pubkey(), &sender_nullifier_pk).expect("owner field");
+    let owner_field =
+        owner_hash(&sender.signing_pubkey(), &sender_nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the P256-owned UTXO.
     let event = env
@@ -120,7 +121,10 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     let utxo_hash = utxo
         .hash(&sender_nullifier_pk, &zero, &zero)
         .expect("utxo hash");
-    assert_eq!(utxo_hash, event.utxo_hash, "client utxo hash matches on-chain");
+    assert_eq!(
+        utxo_hash, event.utxo_hash,
+        "client utxo hash matches on-chain"
+    );
 
     // The UTXO is leaf 0; its inclusion proof is against the post-shield root at
     // history index 1. Reference trees seeded to match the on-chain roots.

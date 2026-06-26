@@ -403,9 +403,8 @@ fn shield_transfer_then_withdraw_sol() {
         ],
         None,
     );
-    let transfer_owner_pk_hashes =
-        output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
-            .expect("transfer output owner pk hashes");
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+        .expect("transfer output owner pk hashes");
     let mut transfer_outputs = vec![
         transfer_output(&change_output).expect("change transfer output"),
         transfer_output(&recipient_output).expect("recipient transfer output"),
@@ -570,10 +569,16 @@ fn shield_transfer_then_withdraw_sol() {
         ],
         None,
     );
-    let withdraw_owner_pk_hashes =
-        output_owner_pk_hashes(&withdraw_ix_data.output_ciphertexts, withdraw_output_hashes.len())
-            .expect("withdraw output owner pk hashes");
-    set_output_owner_tags(&mut withdraw_outputs, &withdraw_owner_pk_hashes, &[zero, zero, zero]);
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
+        &withdraw_ix_data.output_ciphertexts,
+        withdraw_output_hashes.len(),
+    )
+    .expect("withdraw output owner pk hashes");
+    set_output_owner_tags(
+        &mut withdraw_outputs,
+        &withdraw_owner_pk_hashes,
+        &[zero, zero, zero],
+    );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())
             .expect("withdraw external data hash");

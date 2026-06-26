@@ -213,31 +213,37 @@ pub fn assemble(
         ..
     } = tx.external_data.clone();
 
-    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_field) =
-        match into_prover(tx, input_proofs)? {
-            CircuitType::P256(prover) => {
-                let result = prover.build()?;
-                (
-                    ProverInputs::P256(result.inputs),
-                    result.public_input_hash,
-                    result.nullifiers,
-                    result.private_tx_hash,
-                    result.input_root_indices,
-                    Some(result.p256_signing_pk_field),
-                )
-            }
-            CircuitType::Eddsa(prover) => {
-                let result = prover.build()?;
-                (
-                    ProverInputs::Eddsa(result.inputs),
-                    result.public_input_hash,
-                    result.nullifiers,
-                    result.private_tx_hash,
-                    result.input_root_indices,
-                    None,
-                )
-            }
-        };
+    let (
+        prover_inputs,
+        public_input_hash,
+        nullifiers,
+        private_tx,
+        root_indices,
+        p256_signing_pk_field,
+    ) = match into_prover(tx, input_proofs)? {
+        CircuitType::P256(prover) => {
+            let result = prover.build()?;
+            (
+                ProverInputs::P256(result.inputs),
+                result.public_input_hash,
+                result.nullifiers,
+                result.private_tx_hash,
+                result.input_root_indices,
+                Some(result.p256_signing_pk_field),
+            )
+        }
+        CircuitType::Eddsa(prover) => {
+            let result = prover.build()?;
+            (
+                ProverInputs::Eddsa(result.inputs),
+                result.public_input_hash,
+                result.nullifiers,
+                result.private_tx_hash,
+                result.input_root_indices,
+                None,
+            )
+        }
+    };
 
     if nullifiers.len() != shape.n_inputs || root_indices.len() != shape.n_inputs {
         return Err(ClientError::WitnessInputCountMismatch {

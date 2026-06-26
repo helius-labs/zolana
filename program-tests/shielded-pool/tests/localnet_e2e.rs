@@ -234,9 +234,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         ],
         None,
     );
-    let transfer_owner_pk_hashes =
-        output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
-            .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+        .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
     let mut transfer_outputs = vec![
         transfer_output(&change_output)?,
         transfer_output(&recipient_output)?,
@@ -382,10 +381,16 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         ],
         None,
     );
-    let withdraw_owner_pk_hashes =
-        output_owner_pk_hashes(&withdraw_ix_data.output_ciphertexts, withdraw_output_hashes.len())
-            .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
-    set_output_owner_tags(&mut withdraw_outputs, &withdraw_owner_pk_hashes, &[zero, zero, zero]);
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(
+        &withdraw_ix_data.output_ciphertexts,
+        withdraw_output_hashes.len(),
+    )
+    .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
+    set_output_owner_tags(
+        &mut withdraw_outputs,
+        &withdraw_owner_pk_hashes,
+        &[zero, zero, zero],
+    );
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
     let withdraw_private_tx = private_tx_hash(

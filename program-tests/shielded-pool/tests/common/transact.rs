@@ -14,6 +14,7 @@ pub use transact_core::{
 
 use anyhow::{Context, Result};
 use num_bigint::BigUint;
+use solana_address::Address;
 use zolana_client::prover::field::{be, hash_chain, right_align_slice};
 use zolana_client::{
     TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
@@ -23,7 +24,6 @@ use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
 };
-use solana_address::Address;
 use zolana_keypair::hash::hash_field;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
