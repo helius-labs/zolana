@@ -40,6 +40,9 @@ rand = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 zolana-hasher = { workspace = true, features = ["keccak"] }
+zolana-client = { workspace = true }
+zolana-indexed-array = { workspace = true }
+zolana-merkle-tree-metadata = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

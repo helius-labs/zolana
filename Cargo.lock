@@ -9690,7 +9690,9 @@ dependencies = [
  "zerocopy",
  "zolana-account-checks",
  "zolana-bloom-filter",
+ "zolana-client",
  "zolana-hasher",
+ "zolana-indexed-array",
  "zolana-merkle-tree",
  "zolana-merkle-tree-metadata",
 ]
