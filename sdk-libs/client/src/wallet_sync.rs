@@ -6,8 +6,8 @@ use std::{
 use zolana_interface::event::decode_output_data;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, AssetRegistry, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
-    SyncReport, Wallet, DEFAULT_TAG_WINDOW,
+    AssetBalance, AssetRegistry, OutputContext, OutputSlot, PrivateTransaction,
+    ShieldedTransaction, SyncReport, Wallet, DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
@@ -70,7 +70,7 @@ where
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
 
         let mut txs = transactions.values().cloned().collect::<Vec<_>>();
-        txs.sort_by(|a, b| (a.slot, a.tx_signature).cmp(&(b.slot, b.tx_signature)));
+        txs.sort_by_key(|a| (a.slot, a.tx_signature));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
         deposits.sort_by(|a, b| {
             (
@@ -203,8 +203,7 @@ where
                 }
                 let key = format!(
                     "{}:{}",
-                    item.tx_signature,
-                    item.output_slot.output_context.leaf_index
+                    item.tx_signature, item.output_slot.output_context.leaf_index
                 );
                 if out.contains_key(&key) {
                     continue;

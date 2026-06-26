@@ -113,7 +113,11 @@ impl SyncCtx<'_> {
         self.report.stored_utxos += 1;
     }
 
-    fn store(&mut self, utxo: Utxo, output_context: OutputContext) -> Result<bool, TransactionError> {
+    fn store(
+        &mut self,
+        utxo: Utxo,
+        output_context: OutputContext,
+    ) -> Result<bool, TransactionError> {
         if utxo.owner != self.owner {
             return Ok(false);
         }
@@ -203,7 +207,12 @@ impl SyncCtx<'_> {
         });
     }
 
-    fn record_deposit(&mut self, tx: &ShieldedTransaction, output_context: &OutputContext, utxo: &Utxo) {
+    fn record_deposit(
+        &mut self,
+        tx: &ShieldedTransaction,
+        output_context: &OutputContext,
+        utxo: &Utxo,
+    ) {
         self.record(PrivateTransaction {
             id: PrivateTransactionId {
                 signature: tx.tx_signature.to_string(),
