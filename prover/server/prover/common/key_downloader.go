@@ -29,7 +29,7 @@ const (
 	// the keys are fetched with the `gh` CLI (which carries the caller's auth,
 	// or CI's same-repo GITHUB_TOKEN) rather than an unauthenticated URL.
 	TransferKeysRepo       = "helius-labs/zolana"
-	TransferKeysReleaseTag = "transfer-keys-v5"
+	TransferKeysReleaseTag = "transfer-keys-v6"
 )
 
 type DownloadConfig struct {
