@@ -180,7 +180,11 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 		Str("cache_key", key).
 		Msg("Loading BatchProofSystem")
 
-	if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
+	if usesProvingKeysRelease(circuitType, treeHeight, batchSize) {
+		if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
+			return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
+		}
+	} else if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -348,6 +352,10 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 	}
 
 	return ""
+}
+
+func usesProvingKeysRelease(circuitType CircuitType, treeHeight uint32, batchSize uint32) bool {
+	return circuitType == BatchAddressAppendCircuitType && treeHeight == 40 && batchSize == 10
 }
 
 // transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
