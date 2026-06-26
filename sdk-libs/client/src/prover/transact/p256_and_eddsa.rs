@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_keypair::hash::{hash_field, owner_hash, sha256, split_be_128};
-use zolana_keypair::{NullifierKey, P256Pubkey, SignatureType};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, SignatureType};
 use zolana_transaction::instructions::transact::private_tx_hash;
 use zolana_transaction::{ExternalData, OutputUtxo, Utxo};
 
@@ -71,7 +71,11 @@ pub struct TransferP256ProofResult {
 impl TransferP256Prover {
     pub fn build(self) -> Result<TransferP256ProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        let assembled_inputs = assemble_inputs(&self.inputs, true)?;
+        // The shared P256 signing key's pk_field: the value every P256-owned input
+        // exposes as its owner tag and that the circuit asserts equals its in-circuit
+        // P256 pk_field. Folded into the confidential public-input hash.
+        let p256_signing_pk_field = PublicKey::from_p256(&self.p256_owner.pubkey).hash()?;
+        let assembled_inputs = assemble_inputs(&self.inputs, true, Some(&p256_signing_pk_field))?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
@@ -92,7 +96,9 @@ impl TransferP256Prover {
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
             payer_pubkey_hash: &self.payer_pubkey_hash,
-            solana_owner_pk_hashes: &assembled_inputs.solana_owner_pk_hashes,
+            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
+            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
+            p256_signing_pk_field: &p256_signing_pk_field,
         }
         .hash()?;
 
@@ -114,6 +120,7 @@ impl TransferP256Prover {
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             data_hash: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
+            p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };
 
@@ -169,7 +176,7 @@ pub(crate) struct AssembledInputs {
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_roots: Vec<[u8; 32]>,
     pub nullifier_tree_roots: Vec<[u8; 32]>,
-    pub solana_owner_pk_hashes: Vec<[u8; 32]>,
+    pub input_owner_pk_hashes: Vec<[u8; 32]>,
     /// Per-slot `(utxo_tree_root_index, nullifier_tree_root_index)`, length
     /// `n_inputs`. Real slots take the index from their `SpendProof`; padded
     /// dummy slots mirror the first real input so the on-chain root lookup
@@ -181,6 +188,10 @@ pub(crate) struct AssembledOutputs {
     pub outputs: Vec<TransferOutput>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_output_hashes: Vec<[u8; 32]>,
+    /// Per-output public owner tag: `signing_pubkey.hash()` for a real output, the
+    /// builder's random `view_tag` for a dummy. Folded into the confidential
+    /// public-input hash.
+    pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no padding
@@ -191,22 +202,21 @@ pub(crate) struct AssembledOutputs {
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
     allow_p256: bool,
+    p256_signing_pk_field: Option<&[u8; 32]>,
 ) -> Result<AssembledInputs, ClientError> {
     let mut inputs = Vec::with_capacity(spends.len());
     let mut input_hashes = Vec::with_capacity(spends.len());
     let mut nullifiers = Vec::with_capacity(spends.len());
     let mut utxo_roots = Vec::with_capacity(spends.len());
     let mut nullifier_tree_roots = Vec::with_capacity(spends.len());
-    let mut solana_owner_pk_hashes = Vec::with_capacity(spends.len());
+    let mut input_owner_pk_hashes = Vec::with_capacity(spends.len());
     let mut root_indices = Vec::with_capacity(spends.len());
 
     for (index, spend) in spends.iter().enumerate() {
         let Some(proof) = &spend.proof else {
             let utxo_root = *utxo_roots.first().ok_or(ClientError::NoInputs)?;
             let nf_root = *nullifier_tree_roots.first().ok_or(ClientError::NoInputs)?;
-            let owner = *solana_owner_pk_hashes
-                .first()
-                .ok_or(ClientError::NoInputs)?;
+            let owner = *input_owner_pk_hashes.first().ok_or(ClientError::NoInputs)?;
             let &(ur_index, nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
             let (input, nullifier) =
                 TransferInput::new_dummy(&spend.utxo.blinding, &utxo_root, &nf_root, &owner)?;
@@ -215,7 +225,7 @@ pub(crate) fn assemble_inputs(
             nullifiers.push(nullifier);
             utxo_roots.push(utxo_root);
             nullifier_tree_roots.push(nf_root);
-            solana_owner_pk_hashes.push(owner);
+            input_owner_pk_hashes.push(owner);
             root_indices.push((ur_index, nr_index));
             continue;
         };
@@ -241,11 +251,13 @@ pub(crate) fn assemble_inputs(
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
 
         let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
-        let solana_owner_pk_hash = if is_p256 {
+        // Confidential P256: a P256-owned input exposes the shared signing pk_field
+        // so the circuit routes ownership by equality. Anonymous/merge: 0.
+        let owner_pk_hash = if is_p256 {
             if !allow_p256 {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index });
             }
-            [0u8; 32]
+            p256_signing_pk_field.copied().unwrap_or([0u8; 32])
         } else {
             spend.utxo.owner.hash()?
         };
@@ -268,14 +280,14 @@ pub(crate) fn assemble_inputs(
             utxo_tree_root: be(&state.root),
             nullifier_tree_root: be(&nf.root),
             nullifier: be(&nullifier),
-            solana_owner_pk_hash: be(&solana_owner_pk_hash),
+            owner_pk_hash: be(&owner_pk_hash),
             nullifier_secret: be(&nullifier_secret),
         });
         input_hashes.push(utxo_hash);
         nullifiers.push(nullifier);
         utxo_roots.push(state.root);
         nullifier_tree_roots.push(nf.root);
-        solana_owner_pk_hashes.push(solana_owner_pk_hash);
+        input_owner_pk_hashes.push(owner_pk_hash);
         root_indices.push((state.root_index, nf.root_index));
     }
 
@@ -285,7 +297,7 @@ pub(crate) fn assemble_inputs(
         nullifiers,
         utxo_roots,
         nullifier_tree_roots,
-        solana_owner_pk_hashes,
+        input_owner_pk_hashes,
         root_indices,
     })
 }
@@ -297,10 +309,21 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
     let mut assembled = Vec::with_capacity(outputs.len());
     let mut hashes = Vec::with_capacity(outputs.len());
     let mut private_tx_hashes = Vec::with_capacity(outputs.len());
+    let mut output_owner_pk_hashes = Vec::with_capacity(outputs.len());
 
     for output in outputs {
         let is_dummy = output.is_dummy();
         let hash = output.hash()?;
+        // Confidential owner tag: a real output exposes its owner's `pk_field`
+        // (`signing_pubkey.hash()`) and witnesses the `nullifier_pk`, so the circuit
+        // recomputes `owner_hash` and binds the tag. A dummy slot carries the
+        // builder's random `view_tag` (a Poseidon hash) so its public tag is
+        // indistinguishable from a real one; the circuit leaves it unconstrained and
+        // `nullifier_pk` is unused (0).
+        let (owner_pk_field, nullifier_pk) = match &output.owner_address {
+            Some(address) => (address.signing_pubkey.hash()?, address.nullifier_pubkey),
+            None => (output.owner_tag.unwrap_or([0u8; 32]), [0u8; 32]),
+        };
         assembled.push(TransferOutput {
             utxo: UtxoInputs::from_output(output)?,
             is_dummy: if is_dummy {
@@ -309,15 +332,19 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
                 BigUint::ZERO
             },
             hash: be(&hash),
+            owner_pk_hash: be(&owner_pk_field),
+            nullifier_pk: be(&nullifier_pk),
         });
         hashes.push(hash);
         private_tx_hashes.push(if is_dummy { [0u8; 32] } else { hash });
+        output_owner_pk_hashes.push(owner_pk_field);
     }
 
     Ok(AssembledOutputs {
         outputs: assembled,
         output_hashes: hashes,
         private_tx_output_hashes: private_tx_hashes,
+        output_owner_pk_hashes,
     })
 }
 
@@ -331,7 +358,12 @@ pub(crate) struct PublicInputs<'a> {
     pub external_data_hash: &'a [u8; 32],
     pub public_amounts: &'a PublicAmounts,
     pub payer_pubkey_hash: &'a [u8; 32],
-    pub solana_owner_pk_hashes: &'a [[u8; 32]],
+    pub input_owner_pk_hashes: &'a [[u8; 32]],
+    /// Confidential variant only: appended after the 15-element anonymous chain as
+    /// `HashChain(output_owner_pk_hashes)` then `p256_signing_pk_field`. Mirrors
+    /// `prover/server/prover-test/spp/protocol/public_inputs.go` (PublicInputHash).
+    pub output_owner_pk_hashes: &'a [[u8; 32]],
+    pub p256_signing_pk_field: &'a [u8; 32],
 }
 
 impl PublicInputs<'_> {
@@ -351,7 +383,10 @@ impl PublicInputs<'_> {
             *self.payer_pubkey_hash,
             [0u8; 32],
             [0u8; 32],
-            hash_chain(self.solana_owner_pk_hashes)?,
+            hash_chain(self.input_owner_pk_hashes)?,
+            // Confidential appendix (the client always uses the confidential variant).
+            hash_chain(self.output_owner_pk_hashes)?,
+            *self.p256_signing_pk_field,
         ];
         hash_chain(&elements)
     }

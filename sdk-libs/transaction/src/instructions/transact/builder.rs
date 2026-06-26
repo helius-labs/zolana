@@ -278,7 +278,6 @@ impl Transaction {
     }
 
     pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransaction, TransactionError> {
-        let owner_hash = self.owner.owner_hash()?;
         let spl_asset = self.spl_asset()?;
         let (public_sol, public_spl) = self.public_amounts();
         let sol_change = self.change(&SOL_MINT, public_sol)?;
@@ -290,7 +289,7 @@ impl Transaction {
         let mut outputs = Vec::new();
         outputs.push(match spl_asset {
             Some(asset) if spl_change > 0 => OutputUtxo {
-                owner_hash,
+                owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
                 blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
@@ -303,7 +302,7 @@ impl Transaction {
         });
         outputs.push(if sol_change > 0 {
             OutputUtxo {
-                owner_hash,
+                owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
@@ -323,7 +322,7 @@ impl Transaction {
             let blinding = derive_blinding(&self.blinding_seed, position);
             let asset_id = self.asset_id(assets, &recipient.asset)?;
             outputs.push(OutputUtxo {
-                owner_hash: recipient.address.owner_hash()?,
+                owner_address: Some(recipient.address),
                 asset: recipient.asset,
                 amount: recipient.amount,
                 blinding,
@@ -516,9 +515,20 @@ impl PreparedTransaction {
             ..
         } = self;
 
-        while outputs.len() < shape.n_outputs {
+        // Each padded recipient slot gets one random view tag, shared between its
+        // dummy output (folded into the confidential proof's owner-tag chain) and
+        // its dummy ciphertext, so the dummy is indistinguishable from a real
+        // recipient and the proof's tag equals the published tag. The dummy outputs
+        // (positions >= RECIPIENT_POSITION_BASE) align 1:1 with the dummy
+        // ciphertexts (indices >= 1 + real recipient count).
+        let dummy_recipient_count = shape.n_outputs.saturating_sub(outputs.len());
+        let dummy_tags = (0..dummy_recipient_count)
+            .map(|_| random_view_tag())
+            .collect::<Result<Vec<_>, _>>()?;
+        for tag in &dummy_tags {
             outputs.push(OutputUtxo {
                 blinding: random_blinding(),
+                owner_tag: Some(*tag),
                 ..Default::default()
             });
         }
@@ -535,9 +545,16 @@ impl PreparedTransaction {
         if output_ciphertexts.len() < 1 + max_recipients {
             let throwaway = zolana_keypair::ViewingKey::new();
             let dummy_len = dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt, assets)?;
+            let mut tags = dummy_tags.iter();
             while output_ciphertexts.len() < 1 + max_recipients {
+                // Reuse the aligned dummy output's tag; fall back to a fresh one only
+                // if the arrays ever diverge in length.
+                let view_tag = match tags.next() {
+                    Some(tag) => *tag,
+                    None => random_view_tag()?,
+                };
                 output_ciphertexts.push(OutputCiphertext {
-                    view_tag: random_view_tag()?,
+                    view_tag,
                     data: random_dummy_ciphertext(dummy_len),
                 });
             }

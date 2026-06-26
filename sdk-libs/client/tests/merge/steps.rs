@@ -128,13 +128,14 @@ impl MergeWorld {
             "recovered asset field",
         );
         let reconstructed = OutputUtxo {
-            owner_hash: sender.owner_hash().expect("owner hash"),
+            owner_address: Some(sender.shielded_address().expect("shielded address")),
             asset,
             amount,
             blinding,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
+            owner_tag: None,
         };
         assert_eq!(
             reconstructed.hash().expect("reconstructed utxo hash"),

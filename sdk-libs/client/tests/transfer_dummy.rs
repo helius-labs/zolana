@@ -7,11 +7,11 @@
 //! least one real input to supply the public tree roots) plus one dummy input, and
 //! three dummy outputs. The mechanical prover only converts these slots. The real
 //! input carries zero value, so the witness balances at zero and selects the vanilla
-//! Solana-only eddsa rail (`transfer_2_3`). The proof is produced on the prover
-//! server and verified against the committed verifying key.
+//! Solana-only eddsa rail (`transfer_confidential`). The proof is produced on the
+//! prover server and verified against the committed verifying key.
 //!
 //! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_2_3.key` proving key available.
+//! `transfer_confidential_2_3.key` proving key available.
 //!
 //! Run with: `cargo test -p zolana-client --test transfer_dummy`
 
@@ -25,7 +25,7 @@ use zolana_client::{
     TransferSpendInput,
 };
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_interface::verifying_keys::transfer_2_3;
+use zolana_interface::verifying_keys::transfer_confidential_2_3;
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
 
@@ -179,7 +179,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         &proof.b,
         &proof.c,
         &public_inputs,
-        &transfer_2_3::VERIFYINGKEY,
+        &transfer_confidential_2_3::VERIFYINGKEY,
     )
     .expect("construct verifier");
     verifier.verify().expect("groth16 proof verifies");

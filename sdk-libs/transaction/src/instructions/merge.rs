@@ -62,7 +62,7 @@ impl Merge {
         }
 
         let output = OutputUtxo {
-            owner_hash: keypair.owner_hash()?,
+            owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
             blinding: random_blinding(),

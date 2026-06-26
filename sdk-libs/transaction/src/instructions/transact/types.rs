@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputData;
 use zolana_keypair::hash::poseidon;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::{P256Pubkey, ShieldedAddress};
 
 use crate::error::TransactionError;
 use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
@@ -28,20 +28,39 @@ impl InputUtxo {
     }
 }
 
-/// A new output UTXO. The sender commits to the recipient's `owner_hash`
-/// directly, since it only knows the recipient's identity, not its keys.
+/// A new output UTXO. In the confidential default zone the sender knows the
+/// recipient's [`ShieldedAddress`], so the output carries it and the proof
+/// recomputes `owner_hash` from it and exposes `signing_pubkey.hash()` as the
+/// public owner tag. A `None` address is a dummy slot (empty SOL/SPL change or
+/// padding to the fixed proof shape).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct OutputUtxo {
-    pub owner_hash: [u8; 32],
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub program_data_hash: Option<[u8; 32]>,
+    pub owner_address: Option<ShieldedAddress>,
+    /// Confidential owner tag for a dummy recipient slot: the random `view_tag`
+    /// the builder also writes to the slot's `OutputCiphertext`, so the proof's
+    /// `output_owner_pk_hashes` entry is a real-looking Poseidon hash (not `0`)
+    /// that matches the published tag and never flags the slot as padding.
+    /// `None` for real outputs (the tag derives from `owner_address`) and for the
+    /// fixed change slots.
+    pub owner_tag: Option<[u8; 32]>,
 }
 
 impl OutputUtxo {
+    /// `owner_hash = Poseidon(signing_pubkey.hash(), nullifier_pubkey)` derived
+    /// from the recipient address; `0` (permanently unspendable) for a dummy slot.
+    pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {
+        match &self.owner_address {
+            Some(address) => Ok(address.owner_hash()?),
+            None => Ok([0u8; 32]),
+        }
+    }
+
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         utxo_hash(
             self.asset,
@@ -49,16 +68,15 @@ impl OutputUtxo {
             &self.program_data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
             self.zone_program_id,
-            &owner_utxo_hash(&self.owner_hash, &self.blinding)?,
+            &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,
         )
     }
 
-    /// `owner_hash = 0` is permanently unspendable and holds no value, so the slot
-    /// is a dummy: an empty SOL/SPL change slot or padding to the fixed proof shape.
-    /// It still gets a distinct `utxo_hash`, but contributes `0` to the private-tx
-    /// hash chain.
+    /// A dummy slot has no owner address: its `owner_hash` is `0`, so it holds no
+    /// value and contributes `0` to the private-tx hash chain (it still gets a
+    /// distinct `utxo_hash`).
     pub fn is_dummy(&self) -> bool {
-        self.owner_hash == [0u8; 32]
+        self.owner_address.is_none()
     }
 }
 

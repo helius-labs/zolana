@@ -168,8 +168,8 @@ fn transfer_round_trip_outputs_and_bundle() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let recipient = ShieldedKeypair::new().unwrap();
-    let sender_owner = sender.shielded_address().unwrap().owner_hash().unwrap();
-    let recipient_owner = recipient.shielded_address().unwrap().owner_hash().unwrap();
+    let sender_addr = sender.shielded_address().unwrap();
+    let recipient_addr = recipient.shielded_address().unwrap();
 
     let mut tx = Transaction::new(
         sender.shielded_address().unwrap(),
@@ -205,14 +205,14 @@ fn transfer_round_trip_outputs_and_bundle() {
                 ..Default::default()
             },
             OutputUtxo {
-                owner_hash: sender_owner,
+                owner_address: Some(sender_addr),
                 asset: SOL_MINT,
                 amount: 40,
                 blinding: derive_blinding(&seed, 1),
                 ..Default::default()
             },
             OutputUtxo {
-                owner_hash: recipient_owner,
+                owner_address: Some(recipient_addr),
                 asset: SOL_MINT,
                 amount: 60,
                 blinding: derive_blinding(&seed, 2),
@@ -441,7 +441,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
 fn withdrawal_sets_external_data_and_change() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
-    let sender_owner = sender.shielded_address().unwrap().owner_hash().unwrap();
+    let sender_addr = sender.shielded_address().unwrap();
     let dest = Address::new_from_array([9u8; 32]);
 
     let mut tx = Transaction::new(
@@ -483,7 +483,7 @@ fn withdrawal_sets_external_data_and_change() {
     assert_eq!(
         prover.outputs.get(1).unwrap(),
         &OutputUtxo {
-            owner_hash: sender_owner,
+            owner_address: Some(sender_addr),
             asset: SOL_MINT,
             amount: 70,
             blinding: derive_blinding(&seed, 1),

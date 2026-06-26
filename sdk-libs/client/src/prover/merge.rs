@@ -96,7 +96,7 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let assembled_inputs = assemble_inputs(&self.inputs, true)?;
+        let assembled_inputs = assemble_inputs(&self.inputs, true, None)?;
 
         let utxo_tree_root_indices: Vec<u16> = assembled_inputs
             .root_indices
@@ -163,11 +163,11 @@ impl MergeProver {
         ])?;
 
         // Owner rail select, mirroring the merge circuit: a P256 owner witnesses its
-        // real point (pk_field recomputed in-circuit, solana_owner_pk_hash = 0); a
+        // real point (pk_field recomputed in-circuit, owner_pk_hash = 0); a
         // Solana owner witnesses a discarded dummy point and feeds its pk_field
-        // through solana_owner_pk_hash.
+        // through owner_pk_hash.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
-        let (pub_x, pub_y, solana_owner_pk_hash) = if eddsa_owner {
+        let (pub_x, pub_y, owner_pk_hash) = if eddsa_owner {
             let (x, y) = dummy_p256_xy()?;
             (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
         } else {
@@ -193,7 +193,7 @@ impl MergeProver {
             output,
             p256_pub_x: be(&pub_x),
             p256_pub_y: be(&pub_y),
-            solana_owner_pk_hash,
+            owner_pk_hash,
             user_nullifier_pk: be(&user_nullifier_pk),
             user_nullifier_secret: be(&user_nullifier_secret),
             tx_viewing_sk: BigUint::from_bytes_be(&sk_bytes),

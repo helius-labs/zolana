@@ -254,14 +254,14 @@ fn assert_outputs(
         .collect();
     let seed = sender_pt.blinding_seed;
 
-    let owner_hash = sender.shielded_address().unwrap().owner_hash().unwrap();
+    let owner_addr = sender.shielded_address().unwrap();
     let mut expected = Vec::new();
     // Slots 0 and 1 hold the sender's SPL and SOL change: a real change UTXO when
-    // kept, otherwise an empty (owner = 0) UTXO whose blinding still derives from
+    // kept, otherwise an empty (owner = None) UTXO whose blinding still derives from
     // its fixed position.
     expected.push(if change(Asset::Spl) > 0 {
         OutputUtxo {
-            owner_hash,
+            owner_address: Some(owner_addr),
             asset: spl_mint(),
             amount: change(Asset::Spl),
             blinding: derive_blinding(&seed, 0),
@@ -275,7 +275,7 @@ fn assert_outputs(
     });
     expected.push(if change(Asset::Sol) > 0 {
         OutputUtxo {
-            owner_hash,
+            owner_address: Some(owner_addr),
             asset: SOL_MINT,
             amount: change(Asset::Sol),
             blinding: derive_blinding(&seed, 1),
@@ -289,7 +289,7 @@ fn assert_outputs(
     });
     for (i, (recipient, send)) in recipients.iter().zip(&plan.sends).enumerate() {
         expected.push(OutputUtxo {
-            owner_hash: recipient.shielded_address().unwrap().owner_hash().unwrap(),
+            owner_address: Some(recipient.shielded_address().unwrap()),
             asset: asset_addr(send.asset),
             amount: send.amount,
             blinding: derive_blinding(&seed, 2 + i as u8),
