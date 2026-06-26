@@ -7,8 +7,9 @@ mod transact_core;
 #[allow(unused_imports)]
 pub use transact_core::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, pack_proof,
-    prove_and_verify_transfer, public_input_hash, start_prover, TransferProverInputsArgs,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    pack_proof, prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
+    TransferProverInputsArgs,
 };
 
 use anyhow::{Context, Result};
@@ -22,13 +23,49 @@ use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
 };
+use solana_address::Address;
 use zolana_keypair::hash::hash_field;
-use zolana_keypair::NullifierKey;
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::instructions::transact::signed_transaction::{
     signed_to_field, BN254_MODULUS_DEC,
 };
 use zolana_transaction::{OutputUtxo, Utxo};
+
+/// A fixed dummy viewing pubkey for real test outputs: the proof math
+/// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid
+/// P256 point works and a constant keeps the run deterministic.
+#[allow(dead_code)]
+fn test_viewing_pubkey() -> P256Pubkey {
+    ViewingKey::from_bytes(&[5u8; 32])
+        .expect("viewing key")
+        .pubkey()
+}
+
+/// A real (non-dummy) output owned by `signing_pubkey`/`nullifier_pubkey`. The
+/// resulting `owner_hash` is `Poseidon(signing_pubkey.owner_pk_field, nullifier)`,
+/// which the circuit recomputes from the witness `owner_pk_hash` + `nullifier_pk`
+/// stamped by [`set_output_owner_tags`].
+#[allow(dead_code)]
+pub fn real_output(
+    signing_pubkey: PublicKey,
+    nullifier_pubkey: [u8; 32],
+    asset: Address,
+    amount: u64,
+    blinding: [u8; 31],
+) -> OutputUtxo {
+    OutputUtxo {
+        asset,
+        amount,
+        blinding,
+        owner_address: Some(ShieldedAddress {
+            signing_pubkey,
+            nullifier_pubkey,
+            viewing_pubkey: test_viewing_pubkey(),
+        }),
+        ..Default::default()
+    }
+}
 
 /// Mirror of `public_input_hash` for the SPL rail: the `public_spl_amount`
 /// (chain index 8) and `public_spl_asset_pubkey` (`hash_field(mint)`, index 9)
@@ -44,7 +81,9 @@ pub fn public_input_hash_spl(
     public_spl_amount: &[u8; 32],
     mint: &[u8; 32],
     payer_pubkey_hash: &[u8; 32],
-    solana_owner_pk_hashes: &[[u8; 32]],
+    input_owner_pk_hashes: &[[u8; 32]],
+    output_owner_pk_hashes: &[[u8; 32]],
+    p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
     let chain = [
@@ -62,7 +101,9 @@ pub fn public_input_hash_spl(
         *payer_pubkey_hash,
         zero, // data_hash
         zero, // zone_data_hash
-        hash_chain(solana_owner_pk_hashes).expect("owner chain"),
+        hash_chain(input_owner_pk_hashes).expect("input owner chain"),
+        hash_chain(output_owner_pk_hashes).expect("output owner chain"),
+        *p256_signing_pk_field,
     ];
     hash_chain(&chain).expect("public input hash spl")
 }
@@ -163,18 +204,24 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(args.nullifier),
-        solana_owner_pk_hash: be(args.owner_pk_hash),
+        owner_pk_hash: be(args.owner_pk_hash),
         nullifier_secret: be(&right_align_slice(args.nullifier_key.secret())?),
     })
 }
 
+/// A real (non-dummy) witness output. The confidential owner tag
+/// (`owner_pk_hash`) and `nullifier_pk` are left zero here and stamped by
+/// [`set_output_owner_tags`] once the per-output view_tag mapping is known.
 #[allow(dead_code)]
 pub fn transfer_output(output: &OutputUtxo) -> Result<TransferOutput> {
     let hash = output.hash()?;
+    let zero = [0u8; 32];
     Ok(TransferOutput {
         utxo: UtxoInputs::from_output(output)?,
         is_dummy: be(&fe(0)),
         hash: be(&hash),
+        owner_pk_hash: be(&zero),
+        nullifier_pk: be(&zero),
     })
 }
 

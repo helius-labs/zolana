@@ -40,14 +40,14 @@ use zolana_keypair::pubkey::PublicKey;
 use zolana_keypair::NullifierKey;
 use zolana_program_test::{create_tree_instructions, rpc_state_root, ZolanaProgramTest};
 use zolana_transaction::instructions::transact::private_tx_hash;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, pack_proof,
-    prove_and_verify_transfer, public_input_hash, public_sol_field, start_prover, transfer_output,
-    TransferProverInputsArgs,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    pack_proof, prove_and_verify_transfer, public_input_hash, public_sol_field, real_output,
+    set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
 };
 
 use zolana_client::{
@@ -242,20 +242,20 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let recipient_public_key = PublicKey::from_ed25519(&recipient_bytes);
     let recipient_owner_field = owner_hash(&recipient_public_key, &recipient_nullifier_pk)?;
 
-    let change_output = OutputUtxo {
-        owner_hash: payer_owner_field,
-        asset: SOL_MINT,
-        amount: CHANGE_AMOUNT,
-        blinding: [13u8; 31],
-        ..Default::default()
-    };
-    let recipient_output = OutputUtxo {
-        owner_hash: recipient_owner_field,
-        asset: SOL_MINT,
-        amount: TRANSFER_AMOUNT,
-        blinding: [17u8; 31],
-        ..Default::default()
-    };
+    let change_output = real_output(
+        payer_utxo.owner,
+        payer_nullifier_pk,
+        SOL_MINT,
+        CHANGE_AMOUNT,
+        [13u8; 31],
+    );
+    let recipient_output = real_output(
+        recipient_public_key,
+        recipient_nullifier_pk,
+        SOL_MINT,
+        TRANSFER_AMOUNT,
+        [17u8; 31],
+    );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
     let transfer_dummy_nullifier = fe(20);
@@ -263,6 +263,11 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
+    // One ciphertext per output (1:1 owner mapping); each real output's view_tag is
+    // its owner's `confidential_view_tag` so the program's `hash_field(view_tag)`
+    // matches that owner's `owner_pk_field`.
+    let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
+    let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
@@ -271,9 +276,24 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         None,
         vec![change_hash, recipient_hash, transfer_dummy_hash],
         vec![
-            ix_output_ciphertext([1u8; 32]),
-            ix_output_ciphertext([2u8; 32]),
+            ix_output_ciphertext(change_view_tag),
+            ix_output_ciphertext(recipient_view_tag),
+            ix_output_ciphertext([3u8; 32]),
         ],
+        None,
+    );
+    let transfer_owner_pk_hashes =
+        output_owner_pk_hashes(&transfer_ix_data.output_ciphertexts, 3)
+            .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
+    let mut transfer_outputs = vec![
+        transfer_output(&change_output)?,
+        transfer_output(&recipient_output)?,
+        transfer_dummy_output,
+    ];
+    set_output_owner_tags(
+        &mut transfer_outputs,
+        &transfer_owner_pk_hashes,
+        &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
     let transfer_external_hash = external_data_hash(&transfer_ix_data, &zero)?;
     let transfer_private_tx = private_tx_hash(
@@ -292,6 +312,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &zero,
         &payer_pubkey_hash,
         &[payer_owner_pk_hash, payer_owner_pk_hash],
+        &transfer_owner_pk_hashes,
+        &zero,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
@@ -302,11 +324,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
                 &payer_owner_pk_hash,
             ),
         ],
-        outputs: vec![
-            transfer_output(&change_output)?,
-            transfer_output(&recipient_output)?,
-            transfer_dummy_output,
-        ],
+        outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
         public_sol_amount: zero,
@@ -331,7 +349,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_sig = send_transaction(&mut rpc, &[transfer_ix], &payer.pubkey(), &[&payer])?;
     print_signature("shielded_transfer", &transfer_sig);
 
-    let indexed_transfer = wait_for_indexed_transaction(&indexer, [2u8; 32], transfer_sig)?;
+    let indexed_transfer =
+        wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
     assert_eq!(indexed_transfer.nullifiers.len(), 2);
     assert_eq!(indexed_transfer.output_slots.len(), 3);
     assert!(!indexed_transfer.proofless);
@@ -410,7 +429,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .iter()
         .map(|(_, hash)| *hash)
         .collect();
-    let withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
+    let mut withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
         .into_iter()
         .map(|(out, _)| out)
         .collect();
@@ -426,7 +445,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             ix_output_ciphertext([1u8; 32]),
             ix_output_ciphertext([2u8; 32]),
         ],
+        None,
     );
+    let withdraw_owner_pk_hashes =
+        output_owner_pk_hashes(&withdraw_ix_data.output_ciphertexts, withdraw_output_hashes.len())
+            .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
+    set_output_owner_tags(&mut withdraw_outputs, &withdraw_owner_pk_hashes, &[zero, zero, zero]);
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())?;
     let withdraw_private_tx = private_tx_hash(
@@ -446,6 +470,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &public_sol_field,
         &recipient_pubkey_hash,
         &[recipient_owner_pk_hash, recipient_owner_pk_hash],
+        &withdraw_owner_pk_hashes,
+        &zero,
     );
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
@@ -558,7 +584,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
         utxo_tree_root: be(&args.state_proof.root),
         nullifier_tree_root: be(&args.nullifier_proof.root),
         nullifier: be(args.nullifier),
-        solana_owner_pk_hash: be(args.owner_pk_hash),
+        owner_pk_hash: be(args.owner_pk_hash),
         nullifier_secret: be(&right_align_slice(args.nullifier_key.secret())?),
     })
 }

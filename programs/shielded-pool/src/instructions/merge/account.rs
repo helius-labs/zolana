@@ -1,6 +1,6 @@
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, merge_utils::pk_field_compressed};
+use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_pk_field_compressed};
 use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
 
 use crate::instructions::hash::solana_pk_hash;
@@ -77,7 +77,7 @@ pub fn load_user_record(
             .owner_p256
             .ok_or(ShieldedPoolError::InvalidUserRecord)?;
         signing_view_tag.copy_from_slice(&owner_p256[1..]);
-        pk_field_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
+        owner_pk_field_compressed(&owner_p256).map_err(|_| ShieldedPoolError::InvalidUserRecord)?
     };
     Ok(UserPkFields {
         signing_pk_field,

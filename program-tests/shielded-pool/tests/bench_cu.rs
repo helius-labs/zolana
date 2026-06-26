@@ -39,9 +39,9 @@ mod transact_common;
 use transact_common::{
     build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
     dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
-    ix_output_ciphertext, new_transact_ix_data, nullifier_tree, prove_and_verify_transfer,
-    public_input_hash, public_input_hash_spl, public_sol_field, spend_input, start_prover,
-    SpendInputArgs, TransferProverInputsArgs,
+    ix_output_ciphertext, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
+    set_output_owner_tags, spend_input, start_prover, SpendInputArgs, TransferProverInputsArgs,
 };
 
 const PLAIN_PROGRAM_PATH: &str = concat!(
@@ -360,7 +360,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
@@ -373,7 +373,12 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
             ix_output_ciphertext([1u8; 32]),
             ix_output_ciphertext([2u8; 32]),
         ],
+        None,
     );
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
+            .expect("output owner pk hashes");
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
     let private_tx = private_tx_hash(&[zero, zero], &[zero, zero, zero], &external_data_hash)
@@ -391,6 +396,8 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &zero,
         &payer_pubkey_hash,
         &[owner_hash, owner_hash],
+        &owner_pk_hashes,
+        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
@@ -500,7 +507,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -513,7 +520,12 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
             ix_output_ciphertext([1u8; 32]),
             ix_output_ciphertext([2u8; 32]),
         ],
+        None,
     );
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
+            .expect("output owner pk hashes");
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
     let private_tx = private_tx_hash(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
@@ -531,6 +543,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &public_sol_field,
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
+        &owner_pk_hashes,
+        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![
@@ -660,7 +674,7 @@ fn bench_withdrawal_spl(
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -673,7 +687,12 @@ fn bench_withdrawal_spl(
             ix_output_ciphertext([1u8; 32]),
             ix_output_ciphertext([2u8; 32]),
         ],
+        None,
     );
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
+            .expect("output owner pk hashes");
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     // SPL withdrawal carries the public amount in `public_spl_amount`; the SOL
     // amount stays `None`.
     transact_ix_data.public_spl_amount = Some(-(AMOUNT as i64));
@@ -696,6 +715,8 @@ fn bench_withdrawal_spl(
         &mint.to_bytes(),
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
+        &owner_pk_hashes,
+        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs_spl(
         TransferProverInputsArgs {

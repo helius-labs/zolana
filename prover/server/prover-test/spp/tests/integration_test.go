@@ -100,7 +100,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 	}
 	p256Pubkey := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
 	nullifierSecret := big.NewInt(19)
-	ownerKeyHash, err := protocol.P256PkField(p256Pubkey)
+	ownerKeyHash, err := protocol.OwnerPkField(p256Pubkey)
 	if err != nil {
 		t.Fatal(err)
 	}

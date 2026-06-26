@@ -66,6 +66,10 @@ pub struct TransferP256ProofResult {
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
     pub input_root_indices: Vec<(u16, u16)>,
+    /// The shared P256 owner `pk_field` (big-endian) exposed as the `Transact`
+    /// instruction's `p256_signing_pk_field`; equals the value folded into the
+    /// confidential public-input hash.
+    pub p256_signing_pk_field: [u8; 32],
 }
 
 impl TransferP256Prover {
@@ -74,7 +78,7 @@ impl TransferP256Prover {
         // The shared P256 signing key's pk_field: the value every P256-owned input
         // exposes as its owner tag and that the circuit asserts equals its in-circuit
         // P256 pk_field. Folded into the confidential public-input hash.
-        let p256_signing_pk_field = PublicKey::from_p256(&self.p256_owner.pubkey).hash()?;
+        let p256_signing_pk_field = PublicKey::from_p256(&self.p256_owner.pubkey).owner_pk_field()?;
         let assembled_inputs = assemble_inputs(&self.inputs, true, Some(&p256_signing_pk_field))?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -131,6 +135,7 @@ impl TransferP256Prover {
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
             input_root_indices: assembled_inputs.root_indices,
+            p256_signing_pk_field,
         })
     }
 }
@@ -188,9 +193,11 @@ pub(crate) struct AssembledOutputs {
     pub outputs: Vec<TransferOutput>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_output_hashes: Vec<[u8; 32]>,
-    /// Per-output public owner tag: `signing_pubkey.hash()` for a real output, the
-    /// builder's random `view_tag` for a dummy. Folded into the confidential
-    /// public-input hash.
+    /// Per-output public owner tag: `signing_pubkey.owner_pk_field()`
+    /// (`hash_field(view_tag)`) for a real output, `hash_field(view_tag)` of the
+    /// builder's random tag for a dummy. Folded into the confidential
+    /// public-input hash and matches the program's `hash_field(view_tag)`
+    /// reconstruction.
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
 
@@ -259,7 +266,7 @@ pub(crate) fn assemble_inputs(
             }
             p256_signing_pk_field.copied().unwrap_or([0u8; 32])
         } else {
-            spend.utxo.owner.hash()?
+            spend.utxo.owner.owner_pk_field()?
         };
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
@@ -315,14 +322,18 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
         let is_dummy = output.is_dummy();
         let hash = output.hash()?;
         // Confidential owner tag: a real output exposes its owner's `pk_field`
-        // (`signing_pubkey.hash()`) and witnesses the `nullifier_pk`, so the circuit
-        // recomputes `owner_hash` and binds the tag. A dummy slot carries the
-        // builder's random `view_tag` (a Poseidon hash) so its public tag is
-        // indistinguishable from a real one; the circuit leaves it unconstrained and
-        // `nullifier_pk` is unused (0).
+        // (`signing_pubkey.owner_pk_field()` == `hash_field(view_tag)`) and witnesses
+        // the `nullifier_pk`, so the circuit recomputes `owner_hash` and binds the
+        // tag. A dummy slot folds `hash_field` of the builder's random `view_tag` so
+        // its public tag matches the program's `hash_field(view_tag)` reconstruction
+        // and is indistinguishable from a real one; the circuit leaves it
+        // unconstrained and `nullifier_pk` is unused (0).
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
-            Some(address) => (address.signing_pubkey.hash()?, address.nullifier_pubkey),
-            None => (output.owner_tag.unwrap_or([0u8; 32]), [0u8; 32]),
+            Some(address) => (
+                address.signing_pubkey.owner_pk_field()?,
+                address.nullifier_pubkey,
+            ),
+            None => (hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?, [0u8; 32]),
         };
         assembled.push(TransferOutput {
             utxo: UtxoInputs::from_output(output)?,

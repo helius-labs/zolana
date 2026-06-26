@@ -377,7 +377,7 @@ func rewriteInputAsP256(
 	nullifierSecret := spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
 	compressed := elliptic.MarshalCompressed(elliptic.P256(), ownerPriv.PublicKey.X, ownerPriv.PublicKey.Y)
-	ownerKeyHash, err := protocol.P256PkField(compressed)
+	ownerKeyHash, err := protocol.OwnerPkField(compressed)
 	if err != nil {
 		t.Fatalf("P256 owner key hash: %v", err)
 	}

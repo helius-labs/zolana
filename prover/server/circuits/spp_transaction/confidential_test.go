@@ -42,7 +42,9 @@ func defaultOutputOwnerTag(t testing.TB) (*big.Int, *big.Int) {
 func mustP256PkField(t testing.TB, priv *ecdsa.PrivateKey) *big.Int {
 	t.Helper()
 	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
-	pkField, err := protocol.P256PkField(compressed)
+	// Owner pk_field is parity-free (matches OwnerPkFieldGadget); the viewing key
+	// keeps the parity-folding P256PkField.
+	pkField, err := protocol.OwnerPkField(compressed)
 	if err != nil {
 		t.Fatalf("p256 pk field: %v", err)
 	}

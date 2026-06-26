@@ -225,7 +225,10 @@ fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositOutput) -> TestRes
         DEFAULT_TAG_WINDOW,
     )?;
     assert_eq!(wallet.utxos.len(), 1);
-    assert_eq!(wallet.utxos[0].hash, view.utxo_hash);
+    assert_eq!(
+        wallet.utxos.first().expect("one utxo").output_context.hash,
+        view.utxo_hash
+    );
     Ok(())
 }
 

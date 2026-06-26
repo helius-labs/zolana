@@ -270,6 +270,7 @@ fn assert_outputs(
     } else {
         OutputUtxo {
             blinding: derive_blinding(&seed, 0),
+            owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
     });
@@ -284,6 +285,7 @@ fn assert_outputs(
     } else {
         OutputUtxo {
             blinding: derive_blinding(&seed, 1),
+            owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
     });

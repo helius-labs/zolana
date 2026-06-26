@@ -150,7 +150,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		p256SigningPkField: c.P256SigningPkField,
 	}
 	if c.RequiresP256 {
-		ownerKeyHash, err := P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
+		ownerKeyHash, err := OwnerPkFieldFromPubkeyCircuit(api, c.P256Pub)
 		if err != nil {
 			return err
 		}

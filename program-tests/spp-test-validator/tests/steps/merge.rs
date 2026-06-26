@@ -178,13 +178,14 @@ impl LifecycleWorld {
         // blinding the owner recovers by decrypting the published merge ciphertext.
         let output_blinding = random_blinding();
         let output = OutputUtxo {
-            owner_hash: keypair.owner_hash()?,
+            owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
             blinding: output_blinding,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
+            owner_tag: None,
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

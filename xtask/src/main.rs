@@ -375,6 +375,7 @@ fn tx_size(args: Vec<String>) {
             expiry_unix_ts: 0,
             relayer_fee: 0,
             private_tx_hash: [0u8; 32],
+            p256_signing_pk_field: None,
             inputs,
             public_sol_amount: None,
             public_spl_amount: public_spl,

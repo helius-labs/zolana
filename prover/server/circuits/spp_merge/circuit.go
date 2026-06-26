@@ -111,7 +111,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	// Owner hash binding: user_owner_hash = OwnerHash(pk_field(signing_pk),
 	// user_nullifier_pk). The pk_field is recomputed from the witnessed P256
 	// point so the proof references no opaque owner.
-	p256PkField, err := transaction.P256PkFieldFromPubkeyCircuit(api, c.P256Pub)
+	p256PkField, err := transaction.OwnerPkFieldFromPubkeyCircuit(api, c.P256Pub)
 	if err != nil {
 		return err
 	}

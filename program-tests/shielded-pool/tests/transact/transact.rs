@@ -23,7 +23,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::TransferOutput;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::Transact;
+use zolana_interface::instruction::{
+    instruction_data::transact::TransactIxData, Transact,
+};
 use zolana_keypair::hash::hash_field;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::instructions::transact::private_tx_hash;
@@ -31,8 +33,9 @@ use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, prove_and_verify_transfer,
-    public_input_hash, start_prover, TransferProverInputsArgs,
+    external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
+    prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
+    TransferProverInputsArgs,
 };
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
@@ -68,12 +71,10 @@ impl TransactEnv {
     }
 }
 
-#[test]
-fn transact_sends_valid_proof() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
-
+/// Build a valid (2,3) eddsa-rail `transact` instruction data with a real proof:
+/// two circuit-dummy inputs and three dummy outputs, bound to the on-chain roots
+/// and the payer. Shared by the positive and negative scenarios.
+fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     let payer = env.rpc.payer.pubkey();
     let payer_bytes = payer.to_bytes();
     let roots = tree_roots(&env.rpc, &env.tree.pubkey());
@@ -84,18 +85,19 @@ fn transact_sends_valid_proof() {
     // inserts both into the nullifier tree; zeros or duplicates are rejected).
     let nullifiers = [fe(1), fe(2)];
 
-    // Three dummy outputs (`owner_hash = 0`) with distinct blindings. Each has a real
-    // `utxo_hash` that the program appends to the tree and the proof commits via the
-    // public output chain; all three contribute `0` to `private_tx_hash`.
+    // Three dummy outputs with distinct blindings. Each has a real `utxo_hash` that
+    // the program appends to the tree and the proof commits via the public output
+    // chain; all three contribute `0` to `private_tx_hash`.
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
     // Instruction data; `proof` and `private_tx_hash` are filled in once the
-    // external-data hash (which excludes both) is known.
+    // external-data hash (which excludes both) is known. The eddsa rail carries no
+    // P256 owner, so `p256_signing_pk_field` is `None`.
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
@@ -107,7 +109,16 @@ fn transact_sends_valid_proof() {
             ix_output_ciphertext([1u8; 32]),
             ix_output_ciphertext([2u8; 32]),
         ],
+        None,
     );
+
+    // Confidential owner tags: the program reconstructs each output's owner
+    // `pk_field` as `hash_field(view_tag)` via the bundle-replication mapping. All
+    // three outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.output_ciphertexts, output_hashes.len())
+            .expect("output owner pk hashes");
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
     // external_data_hash via the shared interface struct: the program computes
     // the identical value on-chain. No settlement, so the account fields are 0.
@@ -122,8 +133,6 @@ fn transact_sends_valid_proof() {
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
-    // The public output chain folds the real output hashes (even for dummies),
-    // exactly as the program's `output_chain` folds `output_utxo_hashes`.
     let public_input_hash = public_input_hash(
         &nullifiers,
         &output_hashes,
@@ -134,6 +143,8 @@ fn transact_sends_valid_proof() {
         &zero,
         &payer_pubkey_hash,
         &[owner_hash, owner_hash],
+        &owner_pk_hashes,
+        &zero,
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -152,6 +163,17 @@ fn transact_sends_valid_proof() {
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "transact")
             .expect("prove transact");
     transact_ix_data.private_tx_hash = private_tx;
+    transact_ix_data
+}
+
+#[test]
+fn transact_sends_valid_proof() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    let payer = env.rpc.payer.pubkey();
+    let transact_ix_data = build_valid_transact_ix(&env);
 
     // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
     // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
@@ -169,3 +191,43 @@ fn transact_sends_valid_proof() {
         .create_and_send_default_payer_transaction(&[ix], &[]);
     assert!(result.is_ok(), "transact failed: {result:?}");
 }
+
+/// A tampered output `view_tag` (changed after proving, so `hash_field(view_tag)`
+/// no longer matches the proof's committed output-owner chain) must be rejected:
+/// the program reconstructs the owner tags from the instruction's ciphertexts and
+/// the resulting public input no longer matches the proof.
+#[test]
+fn transact_rejects_tampered_output_view_tag() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    let payer = env.rpc.payer.pubkey();
+    let mut transact_ix_data = build_valid_transact_ix(&env);
+
+    // Flip a recipient ciphertext's view_tag. The proof committed to the original
+    // `hash_field(view_tag)`, so the program's reconstruction now disagrees.
+    let tampered = transact_ix_data
+        .output_ciphertexts
+        .get_mut(1)
+        .expect("second output ciphertext");
+    tampered.view_tag = [0xAAu8; 32];
+
+    let ix = Transact {
+        payer,
+        tree: env.tree.pubkey(),
+        cpi_signer: None,
+        withdrawal: None,
+        data: transact_ix_data,
+    }
+    .instruction();
+
+    let result = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[]);
+    assert!(
+        result.is_err(),
+        "tampered output view_tag must be rejected, got: {result:?}"
+    );
+}
+

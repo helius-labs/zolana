@@ -297,6 +297,7 @@ impl Transaction {
             },
             _ => OutputUtxo {
                 blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             },
         });
@@ -311,6 +312,7 @@ impl Transaction {
         } else {
             OutputUtxo {
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             }
         });

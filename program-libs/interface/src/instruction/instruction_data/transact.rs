@@ -68,6 +68,11 @@ pub struct TransactIxData {
     pub expiry_unix_ts: u64,
     pub relayer_fee: u16,
     pub private_tx_hash: [u8; 32],
+    /// Confidential variant: the shared P256 signing key's owner `pk_field`
+    /// (`owner_pk_field` of the P256 owner), exposed as a public input so the
+    /// circuit routes P256-owned inputs by equality. `None` on the eddsa rail
+    /// (folded as `0` into the public-input hash).
+    pub p256_signing_pk_field: Option<[u8; 32]>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
     /// this transaction; copied verbatim into the logged `GeneralEvent` so an
     /// indexer need not parse the per-output `data`.
@@ -133,6 +138,7 @@ pub struct TransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub relayer_fee: u16,
     pub private_tx_hash: &'a [u8; 32],
+    pub p256_signing_pk_field: Option<[u8; 32]>,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
     pub proof: TransactProof,
@@ -304,6 +310,7 @@ mod tests {
             expiry_unix_ts: 7,
             relayer_fee: 11,
             private_tx_hash: [9u8; 32],
+            p256_signing_pk_field: None,
             inputs: vec![InputUtxo {
                 nullifier_hash: [1u8; 32],
                 nullifier_tree_root_index: 2,

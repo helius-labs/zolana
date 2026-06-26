@@ -213,7 +213,7 @@ pub fn assemble(
         ..
     } = tx.external_data.clone();
 
-    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices) =
+    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_field) =
         match into_prover(tx, input_proofs)? {
             CircuitType::P256(prover) => {
                 let result = prover.build()?;
@@ -223,6 +223,7 @@ pub fn assemble(
                     result.nullifiers,
                     result.private_tx_hash,
                     result.input_root_indices,
+                    Some(result.p256_signing_pk_field),
                 )
             }
             CircuitType::Eddsa(prover) => {
@@ -233,6 +234,7 @@ pub fn assemble(
                     result.nullifiers,
                     result.private_tx_hash,
                     result.input_root_indices,
+                    None,
                 )
             }
         };
@@ -281,6 +283,7 @@ pub fn assemble(
         expiry_unix_ts,
         relayer_fee,
         private_tx_hash: private_tx,
+        p256_signing_pk_field,
         inputs,
         public_sol_amount,
         public_spl_amount,

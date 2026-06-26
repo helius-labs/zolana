@@ -202,6 +202,7 @@ fn transfer_round_trip_outputs_and_bundle() {
         vec![
             OutputUtxo {
                 blinding: derive_blinding(&seed, 0),
+                owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
                 ..Default::default()
             },
             OutputUtxo {
@@ -477,6 +478,7 @@ fn withdrawal_sets_external_data_and_change() {
         prover.outputs.first().unwrap(),
         &OutputUtxo {
             blinding: derive_blinding(&seed, 0),
+            owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
     );

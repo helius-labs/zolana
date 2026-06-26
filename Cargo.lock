@@ -2326,6 +2326,20 @@ dependencies = [
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "pinocchio 0.10.2",
+ "sha2 0.10.9",
+ "solana-bn254 3.2.1",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "groth16-solana"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a6d1ffb18dbf5cfc60b11bd7da88474c672870247c1e5b498619bcb6ba3d8f5"
 dependencies = [
@@ -2336,21 +2350,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "solana-bn254 2.2.2",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "groth16-solana"
-version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66#6f44fe18ece7e9f2d09141707f7822e9321c7b66"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "pinocchio 0.10.2",
- "sha2 0.10.9",
- "solana-bn254 3.2.1",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5027,7 +5026,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -5045,7 +5044,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cucumber",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "hex",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
@@ -9497,7 +9496,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bs58",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "sha2 0.10.9",
  "solana-hash 4.4.0",
  "solana-instruction 3.4.0",
@@ -9672,7 +9671,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "num-bigint 0.4.6",
  "num-traits",
  "rand 0.8.6",
@@ -9745,7 +9744,7 @@ dependencies = [
  "bs58",
  "cucumber",
  "futures",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "num-bigint 0.4.6",
  "num-traits",
  "p256",
@@ -9824,7 +9823,7 @@ version = "0.1.0"
 dependencies = [
  "borsh 1.6.1",
  "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
+ "groth16-solana 0.2.0",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-program-error 3.0.1",

@@ -46,8 +46,10 @@ pub struct OutputUtxo {
     /// the builder also writes to the slot's `OutputCiphertext`, so the proof's
     /// `output_owner_pk_hashes` entry is a real-looking Poseidon hash (not `0`)
     /// that matches the published tag and never flags the slot as padding.
-    /// `None` for real outputs (the tag derives from `owner_address`) and for the
-    /// fixed change slots.
+    /// `None` for real outputs (the tag derives from `owner_address`). Empty
+    /// change slots set it to the sender's `confidential_view_tag` so the proof
+    /// folds the sender's `owner_pk_field`, matching the program's bundle
+    /// reconstruction.
     pub owner_tag: Option<[u8; 32]>,
 }
 

@@ -191,6 +191,15 @@ wincode = { version = "0.5", features = ["derive"] }
 [patch.crates-io]
 light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 
+# groth16-solana's BSB22 `hash_to_field` bound `sol_sha256` via a bare `extern "C"`
+# symbol. Under the static-syscalls SBF ABI (platform-tools v1.54+) such a symbol
+# does not resolve and silently returns a zeroed digest, so the BSB22
+# commitment-derived public input vanishes and every committed (merge / P256)
+# on-chain proof verification fails. The local fork fixes the binding to use
+# pinocchio's `define_syscall!`-bound `sol_sha256` (as the alt_bn128 ops already do).
+[patch."https://github.com/Lightprotocol/groth16-solana"]
+groth16-solana = { path = "../groth16-solana" }
+
 [profile.dev]
 opt-level = 0
 debug = "line-tables-only"

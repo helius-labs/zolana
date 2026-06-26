@@ -122,7 +122,7 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		ownerPkHash = ownerKeyHash
 	} else {
 		ownerComp := elliptic.MarshalCompressed(curve, ownerX, ownerY)
-		ownerKeyHash, err = protocol.P256PkField(ownerComp)
+		ownerKeyHash, err = protocol.OwnerPkField(ownerComp)
 		if err != nil {
 			t.Fatal(err)
 		}
