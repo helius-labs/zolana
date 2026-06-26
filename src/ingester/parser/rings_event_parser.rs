@@ -10,7 +10,7 @@ use crate::ingester::{
 };
 use rings_event::{
     decode_event_payload, decode_output_data, tag, InstructionGroup as RingsInstructionGroup,
-    OutputData, ParsedInstruction as RingsInstruction,
+    ParsedInstruction as RingsInstruction,
 };
 use rings_interface::pda;
 use solana_pubkey::Pubkey;
@@ -53,12 +53,10 @@ pub fn parse_rings_events(
             .filter(|salt| salt.iter().any(|byte| *byte != 0))
             .map(|salt| salt.to_vec());
 
-        let proofless = event.outputs.iter().any(|output| {
-            matches!(
-                decode_output_data(&output.data),
-                Ok(OutputData::Proofless(_))
-            )
-        });
+        let proofless = event
+            .outputs
+            .iter()
+            .any(|output| decode_output_data(&output.data).is_ok());
 
         let outputs = event
             .outputs

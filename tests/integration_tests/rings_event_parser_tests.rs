@@ -58,17 +58,17 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
 const PROOFLESS_SHIELD_SIGNATURE: &str =
-    "5D3ihDaeiodPEmoUeUn5c76F1tSb3KBxh7DQWAt9YpqSvHiW5AQi4fxxMYd9vDRJdRpBqhqDPDctotakPcemuaxf";
+    "3eQe8mWgmvAp97qvskayjLKSY1RoKZxzpAHKPRhEf9PKNC4QajZ7Vc9xQLJTxUuRZruCsYhdmwbNKQ7UgSquEGq1";
 const SHIELDED_TRANSFER_SIGNATURE: &str =
-    "3bcvLZASTPahwdZoPtpiaTKk1FJMsw9PMfGJW1pYYchokmxZxNsK9FcoS6FAsaQaaMpwo4NzfFwsTDfvfQ12jFCj";
+    "2foK9oJdLPixqG2y15qrGi8Z1Sp68VZeWpL36aqRbdhsssvELo9opQXixs82U8M2H74KBEzy2in8DF7bRHFj9gJE";
 const UNSHIELD_SIGNATURE: &str =
-    "56hgwZKRuFHT272mfjAKCptT1FzYW6CerMXYX4pMnoVphPYzLc5NwWzS6x6QM4Eon7UUsGGRhKwRRFEAsfJUC3vq";
+    "4eyZUsNuqQdVgVfvHiMMbPRmFz22oZvVNth5ZvRrJHhkTNJikSeMit9GhYzi5LmRqhVDeeVm7CofxVbcdbVTJckL";
 const ENCRYPTED_TRANSFER_SIGNATURE: &str =
-    "46YCbfL6dJ72XSpCug1Bpt6Rmjh9qvY7LsQWKC12gFusHKazYKsCwxkAQKRGjddNRjeoABeMFDppe9QPsL3jh2cU";
-const PROOFLESS_SHIELD_SLOT: u64 = 126;
-const SHIELDED_TRANSFER_SLOT: u64 = 128;
-const UNSHIELD_SLOT: u64 = 130;
-const ENCRYPTED_TRANSFER_SLOT: u64 = 43;
+    "4o5j7i9Cy3FMFDBWoQZDL3WFRAuKADRH51jRLexte2GTSGAmQq5i34J9RmPqwXBAbWwLWGjQJuswadFjrbLALe2n";
+const PROOFLESS_SHIELD_SLOT: u64 = 17;
+const SHIELDED_TRANSFER_SLOT: u64 = 19;
+const UNSHIELD_SLOT: u64 = 21;
+const ENCRYPTED_TRANSFER_SLOT: u64 = 24;
 
 #[test]
 fn parses_dumped_proofless_shield_event_with_photon_parser() {
@@ -401,7 +401,7 @@ async fn discovers_rings_tree_account_metadata() {
         expected_sequence_number,
         expected_next_index,
     ) = {
-        let tree = TreeAccount::init(
+        let mut tree = TreeAccount::init(
             &mut data,
             TREE_ACCOUNT_DISCRIMINATOR,
             RingsTreeKind::State
@@ -413,9 +413,9 @@ async fn discovers_rings_tree_account_metadata() {
             address_tree_params(),
         )
         .unwrap();
-        let metadata = tree.nullifer_tree.get_metadata();
+        let metadata = *tree.nullifer_tree().get_metadata();
         (
-            tree.nullifer_tree.height,
+            metadata.height,
             u64::from(metadata.root_history_capacity),
             metadata.queue_batches.zkp_batch_size,
             metadata.sequence_number,

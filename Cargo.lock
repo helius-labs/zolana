@@ -2151,7 +2151,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66#6f44fe18ece7e9f2d09141707f7822e9321c7b66"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5#3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -3000,80 +3000,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-account-checks"
-version = "0.8.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "solana-account-view 2.0.0",
- "solana-address 2.6.1",
- "solana-program-error",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "light-batched-merkle-tree"
-version = "0.11.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "aligned-sized",
- "borsh 1.7.0",
- "bytemuck",
- "groth16-solana",
- "light-account-checks",
- "light-bloom-filter",
- "light-hasher",
- "light-merkle-tree-metadata",
- "light-zero-copy-vec",
- "solana-address 2.6.1",
- "solana-program-error",
- "solana-sysvar",
- "thiserror 2.0.18",
- "zerocopy",
-]
-
-[[package]]
-name = "light-bloom-filter"
-version = "0.6.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "bitvec",
- "num-bigint 0.4.6",
- "solana-nostd-keccak",
- "solana-program-error",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "light-hasher"
-version = "5.0.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "ark-bn254",
- "ark-ff",
- "light-poseidon",
- "num-bigint 0.4.6",
- "sha2",
- "sha3",
- "solana-program-error",
- "thiserror 2.0.18",
- "tinyvec",
-]
-
-[[package]]
-name = "light-merkle-tree-metadata"
-version = "0.11.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "borsh 1.7.0",
- "bytemuck",
- "solana-address 2.6.1",
- "solana-program-error",
- "solana-sysvar",
- "thiserror 2.0.18",
- "zerocopy",
-]
-
-[[package]]
 name = "light-poseidon"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3083,16 +3009,6 @@ dependencies = [
  "ark-ff",
  "num-bigint 0.4.6",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "light-zero-copy-vec"
-version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
-dependencies = [
- "solana-program-error",
- "wincode",
- "zerocopy",
 ]
 
 [[package]]
@@ -3990,7 +3906,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -9277,42 +9193,116 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 
 [[package]]
+name = "zolana-account-checks"
+version = "0.8.0"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+dependencies = [
+ "solana-account-view 2.0.0",
+ "solana-address 2.6.1",
+ "solana-program-error",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "zolana-batched-merkle-tree"
+version = "0.11.0"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+dependencies = [
+ "aligned-sized",
+ "borsh 1.7.0",
+ "bytemuck",
+ "groth16-solana",
+ "solana-address 2.6.1",
+ "solana-program-error",
+ "solana-sysvar",
+ "thiserror 2.0.18",
+ "wincode",
+ "zerocopy",
+ "zolana-account-checks",
+ "zolana-bloom-filter",
+ "zolana-hasher",
+ "zolana-merkle-tree-metadata",
+]
+
+[[package]]
+name = "zolana-bloom-filter"
+version = "0.6.0"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+dependencies = [
+ "bytemuck",
+ "num-bigint 0.4.6",
+ "solana-nostd-keccak",
+ "solana-program-error",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "zolana-event"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
 dependencies = [
  "borsh 1.7.0",
  "solana-pubkey 4.2.0",
  "wincode",
+]
+
+[[package]]
+name = "zolana-hasher"
+version = "5.0.0"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+dependencies = [
+ "ark-bn254",
+ "ark-ff",
+ "light-poseidon",
+ "num-bigint 0.4.6",
+ "sha2",
+ "sha3",
+ "solana-program-error",
+ "thiserror 2.0.18",
+ "tinyvec",
 ]
 
 [[package]]
 name = "zolana-interface"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
 dependencies = [
  "borsh 1.7.0",
  "bytemuck",
- "light-batched-merkle-tree",
- "light-hasher",
  "solana-address 2.6.1",
  "solana-program-error",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "wincode",
+ "zolana-batched-merkle-tree",
  "zolana-event",
+ "zolana-hasher",
  "zolana-tree",
+]
+
+[[package]]
+name = "zolana-merkle-tree-metadata"
+version = "0.11.0"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
+dependencies = [
+ "borsh 1.7.0",
+ "bytemuck",
+ "solana-address 2.6.1",
+ "solana-program-error",
+ "solana-sysvar",
+ "thiserror 2.0.18",
+ "zerocopy",
 ]
 
 [[package]]
 name = "zolana-tree"
 version = "0.1.0"
-source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#9992034cca3baeacdcc5d1a9e1cc161862051a82"
+source = "git+ssh://git@github.com/helius-labs/zolana.git?branch=main#8a4c1c6c3f0a08566b5c81a4dfe5cdc633aa44cd"
 dependencies = [
- "light-batched-merkle-tree",
- "light-hasher",
  "pinocchio 0.11.2",
  "wincode",
+ "zolana-batched-merkle-tree",
+ "zolana-hasher",
 ]
 
 [[package]]
