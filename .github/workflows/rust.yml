@@ -117,11 +117,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
-      - name: Cache transfer proving keys
+      - name: Cache proving keys
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v4
+          key: proving-keys-transfer-keys-v5
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -158,11 +158,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
-      - name: Cache transfer proving keys
+      - name: Cache proving keys
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v4
+          key: proving-keys-transfer-keys-v5
       - run: just test-programs
 
   test-localnet-photon:
@@ -202,11 +202,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
-      - name: Cache transfer proving keys
+      - name: Cache proving keys
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v4
+          key: proving-keys-transfer-keys-v5
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
       - name: Cache Squads smart account binary
@@ -255,8 +255,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # The spawned prover lazily fetches transfer proving keys from the
-      # transfer-keys-v4 release via `gh`. The release lives in this repo, so the
+      # The spawned prover lazily fetches Zolana-specific proving keys from the
+      # transfer-keys-v5 release via `gh`. The release lives in this repo, so the
       # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -270,11 +270,11 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      # Avoid re-downloading the ~75MB keys every run; the prover's offline
+      # Avoid re-downloading proving keys every run; the prover's offline
       # CHECKSUM path reuses them on a cache hit.
-      - name: Cache transfer proving keys
+      - name: Cache proving keys
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v4
+          key: proving-keys-transfer-keys-v5
       - run: just test-client-integration
