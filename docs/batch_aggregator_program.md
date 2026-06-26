@@ -28,13 +28,13 @@ sequenceDiagram
     Note over SPP: invalidate input UTXO <br> append UTXO hash to batch account <br> user pubkey public, amount private, asset public
 
     Note over Operator: 2. Execute batch (full or window closed)
-    Operator->>Agg: lock, execute_withdrawal
-    Agg->>SPP: CPI execute_batch_withdrawal <br> 1 ZKP for one or many withdrawal batches
-    SPP-->>Agg: SPL transfer to swap account
-    Operator->>Agg: swap
-    Agg->>DeFi: perform swap(s)
+    Operator->>Agg: lock
+    Operator->>Agg: swap (atomic: drain + swap)
+    Agg->>SPP: CPI execute_batch_withdrawal <br> drain batch to vault_in
+    SPP-->>Agg: SPL transfer to vault_in
+    Agg->>DeFi: swap asset_in -> asset_out (same tx)
     DeFi-->>Agg: swapped tokens
-    Note over Agg: write BatchState <br> swapped amounts + settlement hash chain
+    Note over Agg: write BatchState <br> amount_in, amount_out, withdrawal_chain
 
     Note over Operator: 3. Set up batch deposit accounts for settlement
     Operator->>Agg: open_settlement
@@ -72,7 +72,6 @@ sequenceDiagram
     - [deposit](#deposit)
   - Execute
     - [lock](#lock)
-    - [execute_withdrawal](#execute_withdrawal)
     - [swap](#swap)
   - Settle
     - [open_settlement](#open_settlement)
@@ -209,8 +208,8 @@ with the round's SPP batches by `open_batch`, closed with them by `close_batch`.
 
 Derivation seed: `[b"batch", pair, batch_count]`.
 
-Created by [`open_batch`](#open_batch); advanced by `lock` / `execute_withdrawal` / `swap` /
-`open_settlement` / `settle`; closed by [`close_batch`](#close_batch).
+Created by [`open_batch`](#open_batch); advanced by `lock` / `swap` / `open_settlement` /
+`settle`; closed by [`close_batch`](#close_batch).
 
 ```rust
 struct BatchState {
@@ -229,7 +228,7 @@ struct BatchState {
     fee_bps: u16,
     min_amount: u64,
     max_amount: u64,
-    /// Collecting | Locked | Withdrawn | Swapped | Settling | Settled.
+    /// Collecting | Locked | Swapped | Settling | Settled.
     state: u8,
     /// Processed withdrawal chain; the settlement proofs check each settlement output against the
     /// viewing key committed at deposit (the settlement chain lives in the SPP deposit batch).
@@ -277,16 +276,15 @@ struct BatchState {
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
 |---|-------------|-----|-------------|---------------|-------------------|----------------|
 | 10 | [lock](#lock) | 9 | Close the deposit window; CPIs SPP `lock_batch_withdrawal_account`. | — | BatchState (state), BatchWithdrawal (CPI) | Signer == `batch_state.operator` |
-| 11 | [execute_withdrawal](#execute_withdrawal) | 10 | Drain the withdrawal batch to `vault_in`; write the chain and `amount_in` into the `BatchState`. | — | BatchState (state, chain, amount_in), BatchWithdrawal (CPI), vault_in | Signer == `batch_state.operator` |
-| 12 | [swap](#swap) | 11 | Swap on public DeFi and write `amount_out` into the `BatchState`. | — | BatchState (amount_out, state), vault_in, vault_out | Signer == `batch_state.operator` |
+| 11 | [swap](#swap) | 10 | Atomically drain the withdrawal batch (CPIs SPP `execute_batch_withdrawal`) and swap `asset_in` → `asset_out` on public DeFi, so the amount is never exposed between drain and swap. Writes `withdrawal_chain`, `amount_in`, `amount_out` into the `BatchState`. | — | BatchState (state, chain, amount_in, amount_out), BatchWithdrawal (CPI), vault_in, vault_out | Signer == `batch_state.operator` |
 
 **Settle**
 
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
 |---|-------------|-----|-------------|---------------|-------------------|----------------|
-| 13 | [open_settlement](#open_settlement) | 12 | Verify the settlement-validity proof, take the fee, escrow `net` into the (already-created) deposit batch, and `set_batch_hash_chain` the proven chain. | — | BatchState (state), BatchDeposit (CPI fund+chain), vault_out, spl_interface, fee_recipient | Signer == `batch_state.operator` |
-| 14 | [settle](#settle) | 13 | Append a settlement chunk; CPIs SPP `execute_batch_deposit`. The final chunk leaves the deposit batch `Executed` and sets `BatchState.state = Settled`. | — | BatchState (state), BatchDeposit (CPI), SPP tree (CPI) | Signer == `batch_state.operator` |
-| 15 | [close_batch](#close_batch) | 14 | Close all the round's accounts at once — the `BatchState` and both SPP batches — returning rent to `rent_sponsor`. Only from `Settled`. | — | BatchState (close), BatchWithdrawal (CPI close), BatchDeposit (CPI close), rent_sponsor | Signer == `batch_state.operator` |
+| 12 | [open_settlement](#open_settlement) | 11 | Verify the settlement-validity proof, take the fee, escrow `net` into the (already-created) deposit batch, and `set_batch_hash_chain` the proven chain. | — | BatchState (state), BatchDeposit (CPI fund+chain), vault_out, spl_interface, fee_recipient | Signer == `batch_state.operator` |
+| 13 | [settle](#settle) | 12 | Append a settlement chunk; CPIs SPP `execute_batch_deposit`. The final chunk leaves the deposit batch `Executed` and sets `BatchState.state = Settled`. | — | BatchState (state), BatchDeposit (CPI), SPP tree (CPI) | Signer == `batch_state.operator` |
+| 14 | [close_batch](#close_batch) | 13 | Close all the round's accounts at once — the `BatchState` and both SPP batches — returning rent to `rent_sponsor`. Only from `Settled`. | — | BatchState (close), BatchWithdrawal (CPI close), BatchDeposit (CPI close), rent_sponsor | Signer == `batch_state.operator` |
 
 ---
 
@@ -539,59 +537,41 @@ Closes the deposit window: CPIs SPP `lock_batch_withdrawal_account` and sets
 
 ---
 
-### execute_withdrawal
-
-Processes the withdrawal batch to the program's `asset_in` token account (CPIing SPP
-`execute_batch_withdrawal`), writes the processed `withdrawal_chain` and `amount_in` into the
-[`BatchState`](#batchstate), and sets `state = Withdrawn`.
-
-**Accounts**
-
-1. `operator_authority` — must equal `batch_state.operator`; signer, writable (fee payer).
-2. `batch_state` — `state`, `withdrawal_chain`, and `amount_in` written; writable.
-3. `authority` — program PDA; SPP `owner`, signs the SPP CPI and receives the payout.
-4. `withdrawal` — drained by CPI; writable.
-5. `vault_in` — the program's `asset_in` token account (`authority`-owned) receiving the payout; writable.
-6. `asset_registry` — SPP `Asset registry` PDA for `asset_in`; supplies `asset_id` as the proof's asset public input; read.
-7. `spp_program` — SPP program (CPI target).
-
-**Instruction data**
-
-```rust
-struct ExecuteWithdrawalIxData {
-    /// See spec.md execute_batch_withdrawal.
-    proof: SppProof,
-    aggregate_in: u64,
-}
-```
-
-**Instruction data size.** `1 (tag) + 128 (proof) + 8 (aggregate_in) = 137 B`.
-
----
-
 ### swap
 
-Swaps the drained `asset_in` for `asset_out` on public DeFi (CPI to the AMM, signed by
-`authority`) and writes `amount_out` into the [`BatchState`](#batchstate). Sets `state = Swapped`.
+Drains the withdrawal batch and swaps its proceeds in one transaction. It CPIs SPP
+`execute_batch_withdrawal` (the `asset_in` payout lands in `vault_in`), then immediately CPIs the
+AMM to swap `asset_in` for `asset_out` into `vault_out`, both signed by `authority`. Drain and
+swap are atomic, so the drained amount is never exposed between them (a separate swap would let
+it be front-run). Writes `withdrawal_chain`, `amount_in`, and `amount_out` into the
+[`BatchState`](#batchstate) and sets `state = Swapped`.
 
 **Accounts**
 
 1. `operator_authority` — must equal `batch_state.operator`; signer, writable (fee payer).
-2. `batch_state` — `state` and `amount_out` written; writable.
-3. `authority` — program PDA; signs the DeFi swap.
-4. `vault_in`, `vault_out` — the program's token accounts; writable.
-5. `amm_program`, `amm_accounts` — the DeFi venue (CPI target and its accounts).
+2. `batch_state` — `state`, `withdrawal_chain`, `amount_in`, `amount_out` written; writable.
+3. `authority` — program PDA; SPP `owner`, signs the SPP CPI and the DeFi swap, receives the payout.
+4. `withdrawal` — drained by CPI; writable.
+5. `vault_in` — the program's `asset_in` token account (`authority`-owned); receives the payout, spent by the swap; writable.
+6. `vault_out` — the program's `asset_out` token account; receives the swap output; writable.
+7. `asset_registry` — SPP `Asset registry` PDA for `asset_in`; supplies `asset_id` as the proof's asset public input; read.
+8. `spp_program` — SPP program (CPI target).
+9. `amm_program`, `amm_accounts` — the DeFi venue (CPI target and its accounts).
 
 **Instruction data**
 
 ```rust
 struct SwapIxData {
+    /// SPP execute_batch_withdrawal proof; see spec.md.
+    proof: SppProof,
+    /// Aggregate asset_in drained (proof public input).
+    aggregate_in: u64,
     /// Minimum acceptable asset_out (slippage bound).
     min_out: u64,
 }
 ```
 
-**Instruction data size.** `1 (tag) + 8 (min_out) = 9 B`.
+**Instruction data size.** `1 (tag) + 128 (proof) + 8 (aggregate_in) + 8 (min_out) = 145 B`.
 
 ---
 
