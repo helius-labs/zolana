@@ -1157,10 +1157,15 @@ Usage by instruction:
 
 ### Batch Accounts
 
-A batch account appends `utxo_hash`es to a hash chain held in the account instead of
-appending them to the UTXO tree, so one batch proof settles many outputs. The chain seeds
-`BATCH_CHAIN_EMPTY` and grows `chain_{i+1} = Poseidon(chain_i, utxo_hash_i)` over canonical
-[`utxo_hash`](#utxo-hash) values. There are two account types with separate instruction sets:
+A batch account appends settlement leaves to a hash chain held in the account instead of
+appending UTXOs to the UTXO tree, so one batch proof settles many outputs. Each leaf commits
+the recipient `viewing_pk` alongside the UTXO,
+`leaf_i = Poseidon(pk_field(viewing_pk_i), utxo_hash_i)` over a canonical
+[`utxo_hash`](#utxo-hash); the chain seeds `BATCH_CHAIN_EMPTY` and grows
+`chain_{i+1} = Poseidon(chain_i, leaf_i)`. Committing `viewing_pk_i` already on the withdrawal
+insert lets [`execute_batch_deposit`](#execute_batch_deposit) verifiably encrypt each settlement
+output to the key in its leaf, so the operator cannot redirect proceeds. There are two account
+types with separate instruction sets:
 a **withdrawal** account ([`BatchWithdrawalAccount`](#batch-accounts)) is grown by
 [`transact`](#transact) inserts and drained by
 [`execute_batch_withdrawal`](#execute_batch_withdrawal); a **deposit** (settlement) account
@@ -1170,8 +1175,9 @@ a **withdrawal** account ([`BatchWithdrawalAccount`](#batch-accounts)) is grown 
 transaction while a batch holds hundreds of leaves.
 
 A `transact` insert spends its source UTXO normally — the input nullifier enters the
-nullifier queue — and routes the output into a withdrawal account's chain rather than the tree
-(see [`transact`](#transact) `batch_inserts`). Settlement consumes the chain; an inserted
+nullifier queue — and routes the output into a withdrawal account's chain rather than the tree,
+committing the settlement `viewing_pk` supplied in `batch_inserts` (see
+[`transact`](#transact) `batch_inserts`). Settlement consumes the chain; an inserted
 output is not a tree leaf (it is appended to `current_hash_chain` instead), so it has no
 separate nullifier and cannot be double-spent through the tree.
 
@@ -1242,11 +1248,10 @@ enum AccountState {
 }
 ```
 
-Seeds `[b"batch_withdrawal", owner, asset, id]` and `[b"batch_deposit", owner, asset, id]`,
-where `id` is an operator-chosen `u16` that disambiguates concurrent accounts for the same
-`(owner, asset)`. Concurrency: a single account serializes inserts under the Solana write
-lock, so an operator SHOULD shard load across several accounts (distinct `id`) rather than
-route every insert through one chain.
+Seeds `[b"batch_withdrawal", id]` and `[b"batch_deposit", id]`, where `id` is a 32-byte value
+chosen by the creator, unique per account (`owner` and `asset` live in the account data, not the
+seed). Concurrency: a single account serializes inserts under the Solana write lock, so an
+operator should shard load across several accounts (distinct `id`).
 
 **State transitions**
 
@@ -1272,6 +1277,7 @@ retroactively change an in-flight batch.
 | `asset` | public | settlement moves a concrete mint |
 | `owner` | public | operator is the settling signer |
 | `current_hash_chain`, `num_inserts` | public | account state; the aggregate volume is public, individual amounts are not |
+| committed `viewing_pk` | public | supplied in `batch_inserts` and committed into each chain leaf; the settlement proof re-witnesses it privately |
 
 ## Instructions
 
@@ -1385,18 +1391,19 @@ struct TransactIxData {
     /// recipient ciphertext under its `owner` pubkey (see [Sender](#sender)).
     output_ciphertexts: Vec<OutputCiphertext>,
     /// Routes outputs into batch account hash chains instead of the UTXO tree.
-    /// Each pair is `(output_index, batch_account_index)`: `output_index` into
-    /// `output_utxo_hashes`, `batch_account_index` into the trailing batch
-    /// accounts. Empty for an ordinary transact. See [Batch Accounts](#batch-accounts).
-    batch_inserts: Vec<(u8, u8)>,
+    /// Each entry is `(output_index, batch_account_index, viewing_pk)`: `output_index`
+    /// into `output_utxo_hashes`, `batch_account_index` into the trailing batch accounts,
+    /// and `viewing_pk` the recipient key committed into the leaf. Empty for an ordinary
+    /// transact. See [Batch Accounts](#batch-accounts).
+    batch_inserts: Vec<(u8, u8, P256Pubkey)>,
 }
 ```
 
 When `batch_inserts` is non-empty the proof additionally exposes, per routed output, the
 target account's `[min_amount, max_amount]` band, and the circuit constrains the routed
 output's amount into that band (the same band the batch proof re-checks at settlement). A
-routed output is appended to the account's `current_hash_chain` rather than to the
-UTXO tree, so it does not become a tree leaf.
+routed output is appended to the account's `current_hash_chain` as a leaf committing the
+entry's `viewing_pk`, rather than to the UTXO tree, so it does not become a tree leaf.
 
 Total transaction size by circuit shape for the EdDSA owner rail, computed by `cargo run -p xtask -- tx-size` (which also prints the P256 rail and the pre-optimization baseline). P256-owned transactions are 64 B larger (`proof_commitment` 32 B + `proof_commitment_pok` 32 B). Assumes confidential transfers with every `data` field empty (`count = 0`); each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
 
@@ -1419,7 +1426,7 @@ Total transaction size by circuit shape for the EdDSA owner rail, computed by `c
 3. `tree_account` is not paused.
 4. Proof verifies against public inputs.
 5. Append each `output_utxo_hashes[i]` (in order) to the UTXO sparse Merkle tree, except outputs named in `batch_inserts`.
-6. For each `(output_index, batch_account_index)` in `batch_inserts`: the target is a `BatchWithdrawalAccount`, `Open`, and not full (`num_inserts < batch_size`); its `owner` is a signer of the transaction (only the `owner` may add to a withdrawal batch); the proof exposed its snapshotted band; append `output_utxo_hashes[output_index]` to `current_hash_chain`, bump `num_inserts`, and auto-lock when full.
+6. For each `(output_index, batch_account_index, viewing_pk)` in `batch_inserts`: the target is a `BatchWithdrawalAccount`, `Open`, and not full (`num_inserts < batch_size`); its `owner` is a signer of the transaction (only the `owner` may add to a withdrawal batch); the proof exposed its snapshotted band; append the leaf `Poseidon(pk_field(viewing_pk), output_utxo_hashes[output_index])` to `current_hash_chain`, bump `num_inserts`, and auto-lock when full.
 7. Insert each input's `nullifier_hash` into the nullifier queue.
 8. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 9. If `public_sol_amount` is `Some`, transfer `public_sol_amount + relayer_fee` lamports of SOL between `payer` and the pool (shield: payer → pool; unshield: pool → recipient). The `relayer_fee` portion compensates the relayer.
@@ -1485,9 +1492,9 @@ GeneralEvent {
 `input_queue_seqs` and `first_output_leaf_index` are assigned when the nullifiers and output hashes are inserted; `input_tree` resolves a `tree_index` to its account (`255` = the output tree); `mint` comes from the SPL accounts; and `is_deposit` is the public-amount direction proven by the proof (`true` for a shield).
 
 A routed output (named in `batch_inserts`) is logged as an ordinary `OutputUtxo` keyed by its
-`owner` fetch tag, so an indexer reconstructs each batch account's chain from the events
-without parsing account data; it has no `first_output_leaf_index` entry because it is not
-a tree leaf.
+`owner` fetch tag, with the entry's committed `viewing_pk`, so an indexer recomputes each
+chain leaf and reconstructs the batch account's chain from the events without parsing account
+data; it has no `first_output_leaf_index` entry because it is not a tree leaf.
 
 ### `proofless_shield`
 
@@ -1834,7 +1841,7 @@ and deposit (`create` / `set_batch_hash_chain` / `execute` / `close`).
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | payer | x | x | becomes `owner`; funds rent |
-| 2 | batch_account | x |   | PDA seeds `[b"batch_withdrawal", owner, asset, id]` |
+| 2 | batch_account | x |   | PDA seeds `[b"batch_withdrawal", id]` |
 | 3 | system_program |   |   | account creation |
 
 **Instruction data**
@@ -1845,8 +1852,8 @@ struct CreateBatchWithdrawalAccountIxData {
     min_amount: u64,
     max_amount: u64,
     batch_size: u16,
-    /// Disambiguates concurrent accounts for one `(owner, asset)`; PDA seed.
-    id: u16,
+    /// 32-byte unique account identifier; PDA seed.
+    id: [u8; 32],
 }
 ```
 
@@ -1854,7 +1861,7 @@ struct CreateBatchWithdrawalAccountIxData {
 
 1. `min_amount <= max_amount`.
 2. `batch_size` is a supported batch shape.
-3. Derive the PDA from `[b"batch_withdrawal", payer, asset, id]` with a canonical bump; create
+3. Derive the PDA from `[b"batch_withdrawal", id]` with a canonical bump; create
    the account and initialize it (the `init` helper checks the account is empty, writes every
    field, and requires the account size to match exactly).
 
@@ -1913,9 +1920,10 @@ struct ExecuteBatchWithdrawalIxData {
    [`batch_account`](#batch-accounts) circuit: `HashChain == current_hash_chain`,
    `Asset == pk_field(asset)`, `MinAmount == min_amount`, `MaxAmount == max_amount`,
    `AggregateAmount == aggregate_amount`, and `Owner` the shared owner of the inserted
-   UTXOs. The circuit hashes N canonical [`utxo_hash`](#utxo-hash) leaves into the chain,
-   asserts owner/asset uniformity and the band over non-dummy leaves, and sums them to
-   `AggregateAmount`; dummy slots pad to N. `N == batch_size` must be a supported shape, kept
+   UTXOs. The circuit witnesses each leaf's UTXO and committed `viewing_pk`, hashes the N leaves
+   `Poseidon(pk_field(viewing_pk_i), utxo_hash_i)` (canonical [`utxo_hash`](#utxo-hash)) into
+   the chain, asserts owner/asset uniformity and the band over non-dummy leaves, and sums them
+   to `AggregateAmount`; dummy slots pad to N. `N == batch_size` must be a supported shape, kept
    in sync with the transfer shape registry locations.
 3. Transfer `aggregate_amount` of `asset` from the vault to `recipient` (SOL or SPL CPI).
 4. Set `state = Executed`. Emit a [`GeneralEvent`](#general-event) with the withdrawal as a
@@ -1955,7 +1963,7 @@ becomes `owner`; the account starts `Open` with `current_hash_chain = BATCH_CHAI
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | payer | x | x | becomes `owner`; funds rent |
-| 2 | batch_account | x |   | PDA seeds `[b"batch_deposit", owner, asset, id]` |
+| 2 | batch_account | x |   | PDA seeds `[b"batch_deposit", id]` |
 | 3 | depositor | x | x | escrowed-funds source and refund recipient |
 | 4 | vault | x |   | SOL/SPL interface for `asset` |
 | 5 | system_program |   |   | account creation |
@@ -1969,7 +1977,8 @@ struct CreateBatchDepositAccountIxData {
     max_amount: u64,
     batch_size: u16,
     deposited_amount: u64,
-    id: u16,
+    /// 32-byte unique account identifier; PDA seed.
+    id: [u8; 32],
 }
 ```
 
@@ -1977,7 +1986,7 @@ struct CreateBatchDepositAccountIxData {
 
 1. `min_amount <= max_amount`.
 2. `batch_size` is a supported batch shape.
-3. Derive the PDA from `[b"batch_deposit", payer, asset, id]` with a canonical bump; create
+3. Derive the PDA from `[b"batch_deposit", id]` with a canonical bump; create
    and initialize the account, recording `depositor` and `deposited_amount`.
 4. Transfer `deposited_amount` of `asset` from `depositor` to the vault (SOL or SPL CPI).
 
@@ -1986,8 +1995,9 @@ struct CreateBatchDepositAccountIxData {
 **Discriminator:** 21
 
 **Description.** `owner` writes the settlement `current_hash_chain` and `num_inserts` once and
-locks the account. The chain is produced by the operator over the settlement UTXOs and proven
-during [`execute_batch_deposit`](#execute_batch_deposit); this instruction only commits it.
+locks the account. The chain is produced by the operator over the settlement leaves (one per
+recipient) and proven during [`execute_batch_deposit`](#execute_batch_deposit); this instruction
+only commits it.
 
 **Accounts**
 
@@ -2023,8 +2033,16 @@ chunk `[start_index, start_index + len)` it settles: it appends that chunk's lea
 UTXO tree and sets their `nullified_batches` bits. Proving the full chain every call binds the
 chunk's leaves to their positions and the whole-chain `AggregateAmount` to the escrowed
 `deposited_amount`, so the settlement cannot mint more value than was escrowed. The proof cost
-is constant per call (the full chain) regardless of the chunk, and chunks may be settled in
-any order; the account finalizes (`Executed`) once all `num_inserts` bits are set.
+is constant per call (the full chain plus a fixed-size chunk) regardless of where the chunk
+falls, and chunks may be settled in any order; the account finalizes (`Executed`) once all
+`num_inserts` bits are set.
+
+Each chunk's outputs are verifiably encrypted to their committed recipient keys, reusing the
+[Merge proof](#merge-proof---merge-zk-proof) verifiable-encryption scheme: the circuit witnesses
+each leaf's `viewing_pk`, checks the leaf, and checks `output_ciphertexts[i]` is the encryption
+of output `i` to that `viewing_pk` using the shared `tx_viewing_pk`. `viewing_pk` is not a public
+input, so the proof cost is independent of the recipient count and the operator cannot append an
+output a recipient cannot decrypt.
 
 **Accounts**
 
@@ -2042,10 +2060,15 @@ struct ExecuteBatchDepositIxData {
     /// Position of this chunk's first leaf in the chain; the chunk covers
     /// `[start_index, start_index + output_utxo_hashes.len())`.
     start_index: u16,
-    /// This chunk's settlement UTXO hashes, the chain leaves the proof exposes at
-    /// `[start_index, ...)`; appended to the tree.
+    /// Shared ephemeral `tx_viewing_pk` for the chunk's verifiable encryption; the proof
+    /// ECDHs it to each output's committed `viewing_pk` (see
+    /// [Merge Proof](#merge-proof---merge-zk-proof)).
+    tx_viewing_pk: P256Pubkey,
+    /// This chunk's canonical settlement `utxo_hash`es (tree leaves), appended to the tree;
+    /// the proof exposes them at chain positions `[start_index, ...)`.
     output_utxo_hashes: Vec<[u8; 32]>,
-    /// Per-output ciphertexts, mirroring [`transact`](#transact) `output_ciphertexts`.
+    /// Per-output ciphertexts verifiably encrypted to each output's committed `viewing_pk`,
+    /// mirroring [`transact`](#transact) `output_ciphertexts`.
     output_ciphertexts: Vec<OutputCiphertext>,
 }
 ```
@@ -2056,9 +2079,13 @@ struct ExecuteBatchDepositIxData {
 2. `state == Locked`.
 3. The `nullified_batches` bits `[start_index, start_index + len)` are unset (no double-append).
 4. Verify `proof` against the [`batch_account`](#batch-accounts) circuit over the whole chain:
-   `HashChain == current_hash_chain`, owner/asset uniformity and the band over non-dummy
-   leaves, and `AggregateAmount == deposited_amount`. The proof exposes this chunk's
-   `output_utxo_hashes` as the chain leaves at `[start_index, ...)`.
+   `HashChain == current_hash_chain` with each chain leaf `Poseidon(pk_field(viewing_pk_i),
+   utxo_hash_i)` (each `viewing_pk_i` a private witness, not in instruction data), owner/asset
+   uniformity and the band over non-dummy leaves, and `AggregateAmount == deposited_amount`.
+   The proof exposes this chunk's `output_utxo_hashes` (the canonical tree leaves at
+   `[start_index, ...)`) and verifiably encrypts each to its witnessed `viewing_pk` using the
+   shared `tx_viewing_pk`; the in-proof `ciphertext_hash` covers `output_ciphertexts`
+   ([Merge scheme](#merge-proof---merge-zk-proof)).
 5. Append each `output_utxo_hashes[i]` to the UTXO tree; set the `nullified_batches` bits
    `[start_index, start_index + len)`. When all `num_inserts` bits are set, set
    `state = Executed`.
