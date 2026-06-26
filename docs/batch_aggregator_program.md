@@ -80,8 +80,10 @@ Types used in this document. Shared SPP types are defined in [spec.md](spec.md#g
 | Type | Encoding | Definition |
 | --- | --- | --- |
 | `Address` | `[u8; 32]` | Solana account address. |
-| `asset_id` | `u64` | Asset identifier in UTXOs; `1` is SOL, each SPL mint `≥ 2`. See [spec.md](spec.md#glossary). |
-| `SppProof` | `[u8; 192]` | Compressed Groth16 SPP proof with commitment; verified in SPP. |
+| `asset_id` | `u64` | Asset identifier in UTXOs; `1` is SOL, each SPL mint `≥ 2`. The mint→`asset_id` map is the SPP `Asset registry` PDA; it is passed into the batch proof instructions so `asset_id` is the proof's asset public input (cheaper than the mint pubkey). See [spec.md](spec.md#glossary). |
+| `SppProof` | `[u8; 128]` | Compressed vanilla Groth16 proof (A 32 + B 64 + C 32); the batch circuits add no BSB22 commitment, so there is no 64-byte commitment + PoK. Verified in SPP (batch withdrawal / deposit). |
+| `ZkProof` | `[u8; 128]` | Compressed vanilla Groth16 proof verified by the aggregator program itself (the settlement-validity proof). |
+| `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk P256Pubkey[33])`. See [spec.md](spec.md#shielded-address). |
 | `TransactIxData` | — | SPP `transact` instruction data. See [spec.md](spec.md#transact). |
 | `ExecuteBatchDepositIxData` | — | SPP `execute_batch_deposit` chunk. See [spec.md](spec.md#execute_batch_deposit). |
 
@@ -170,6 +172,11 @@ struct PairConfig {
     fee_bps: u16,
     /// SPP batch_size for the withdrawal and deposit batches.
     batch_size: u16,
+    /// Inclusive deposit-amount band (asset_in); snapshotted into the withdrawal batch at
+    /// create_pair and enforced by the SPP inserting and batch proofs. Bounds the privacy
+    /// set: every confidential deposit amount lies in this range.
+    min_amount: u64,
+    max_amount: u64,
     /// Deposits accepted until lock, or until created_at + window.
     window: i64,
     /// Round counter; advanced by the final settle chunk.
@@ -177,12 +184,13 @@ struct PairConfig {
     /// SPP batch accounts owned by `authority`, reused each round.
     withdrawal: Address,
     deposit: Address,
-    /// Current round's swap data, filled across execute_withdrawal -> swap ->
-    /// open_settlement and zeroed by the final settle chunk.
+    /// Current round's swap data, filled across execute_withdrawal -> swap and zeroed by
+    /// the final settle chunk. `withdrawal_chain` is read by the settle proof to bind each
+    /// settlement output's encryption to the viewing key committed there (see settle); the
+    /// settlement chain itself lives in the deposit batch (`current_hash_chain`), not here.
     withdrawal_chain: [u8; 32],
     amount_in: u64,
     amount_out: u64,
-    settlement_chain: [u8; 32],
     /// Collecting | Locked | Withdrawn | Swapped | Settling.
     state: u8,
 }
@@ -224,7 +232,7 @@ struct PairConfig {
 
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
 |---|-------------|-----|-------------|---------------|-------------------|----------------|
-| 11 | [open_settlement](#open_settlement) | 10 | Escrow `amount_out` into the pair's deposit batch and `set_batch_hash_chain` from the `PairConfig`. | OperatorConfig | PairConfig, BatchDeposit (CPI), vault_out | Operator `authority` signs |
+| 11 | [open_settlement](#open_settlement) | 10 | Verify the settlement-validity proof, take the fee, escrow `net` into the deposit batch, and `set_batch_hash_chain` the proven settlement chain on it. | OperatorConfig, PairConfig | BatchDeposit (CPI), PairConfig (state), vault_out, spl_interface, fee_recipient | Operator `authority` signs |
 | 12 | [settle](#settle) | 11 | Append a settlement chunk; CPIs SPP `execute_batch_deposit`. The final chunk resets the deposit batch and the `PairConfig` for the next round (not closed). | OperatorConfig | PairConfig, BatchDeposit (CPI), SPP tree (CPI) | Operator `authority` signs |
 
 ---
@@ -317,7 +325,10 @@ Creates a [`PairConfig`](#pairconfig) and the two SPP batch accounts it drives �
 [`BatchDepositAccount`](spec.md#batch-accounts) for `asset_out`, both owned by `authority`
 (CPIing SPP `create_batch_withdrawal_account` and `create_batch_deposit_account`). Records the
 two batch addresses in the config and sets `state = Collecting`. The deposit batch is created
-empty; `open_settlement` escrows into it each round.
+empty; `open_settlement` escrows into it each round. The `[min_amount, max_amount]` band is
+snapshotted into the withdrawal batch (it bounds `asset_in` deposit amounts); the deposit batch
+is created with a permissive band, since settlement amounts follow the swap and are bound by the
+`aggregate == net` check, not a per-output band.
 
 **Accounts**
 
@@ -339,6 +350,9 @@ struct CreatePairIxData {
     asset_out: asset_id,
     fee_bps: u16,
     batch_size: u16,
+    /// Inclusive deposit-amount band (asset_in); forwarded to both SPP batches.
+    min_amount: u64,
+    max_amount: u64,
     window: i64,
 }
 ```
@@ -370,7 +384,8 @@ A user joins a round: a confidential transfer that spends the depositor's `asset
 routes the output into the pair's withdrawal batch. CPIs SPP [`transact`](spec.md#transact)
 with `batch_inserts` set; `authority` co-signs the insert as the batch `owner`. The
 depositor's settlement pubkey is public (the operator pays the swapped proceeds back to it);
-the amount is private; the asset is public. Rejected once the deposit window has closed
+the amount is private but must lie in the pair's `[min_amount, max_amount]` band (the SPP
+inserting proof enforces it); the asset is public. Rejected once the deposit window has closed
 (`state != Collecting` or past `window`).
 
 **Accounts**
@@ -390,10 +405,29 @@ struct DepositIxData {
     /// SPP transact payload (proof, inputs, output hashes, ciphertexts, batch_inserts
     /// routing the output into the pair's withdrawal batch). See spec.md transact.
     transact: TransactIxData,
-    /// Public pubkey the swapped proceeds settle to.
-    settlement_pubkey: Address,
+    /// Recipient shielded address the swapped proceeds settle to. The settlement proof
+    /// verifiably encrypts the depositor's `asset_out` output to `viewing_pk`, so the
+    /// depositor recovers it without trusting the operator's encryption.
+    settlement_address: CompressedShieldedAddress,
 }
 ```
+
+**Viewing-key commitment.** The deposit commits the depositor's settlement `viewing_pk` into
+the withdrawal hash chain: the leaf folded for this deposit is `Poseidon(viewing_pk, utxo_hash)`
+rather than a bare `utxo_hash`, so the chain is `HashChain(prev, Poseidon(viewing_pk, utxo_hash))`.
+The settlement proof witnesses each `viewing_pk` privately and checks it against this leaf, so no
+per-depositor viewing key is a public input — the proof cost is independent of the batch size
+(see [`settle`](#settle)). `settlement_address` still travels in instruction data, public, so the
+operator can build the settlement ciphertexts (depositor pubkeys are a public aggregator
+property); the chain commitment is what binds the encryption to the depositor's key. This makes
+the aggregator's withdrawal-batch leaf serialization `Poseidon(viewing_pk, utxo_hash)`, which the
+SPP `batch_inserts` fold must support.
+
+**Instruction data size.** `1 (tag) + TransactIxData + 65 (settlement_address)`. `TransactIxData`
+is the SPP payload for the chosen shape (see the [transact size table](spec.md#transact)) plus
+`~6 B` for the single `batch_inserts` entry routing the output. The output is routed at a
+recipient position, so the shape needs a recipient slot (`M ≥ 3`); a 3-in 3-out deposit is
+`1 + 611 + 6 + 65 ≈ 683 B`.
 
 ---
 
@@ -411,6 +445,8 @@ sets `state = Locked`. Callable once the window has elapsed or at the operator's
 5. `withdrawal` — locked by CPI; writable.
 6. `spp_program` — SPP program (CPI target).
 
+**Instruction data size.** `1 B` (tag only; no fields).
+
 ---
 
 ### execute_withdrawal
@@ -427,7 +463,8 @@ Drains the withdrawal batch to the program's `asset_in` token account, CPIing SP
 4. `authority` — program PDA; SPP `owner`, signs the SPP CPI and receives the payout.
 5. `withdrawal` — drained by CPI; writable.
 6. `vault_in` — the program's `asset_in` token account (`authority`-owned) receiving the payout; writable.
-7. `spp_program` — SPP program (CPI target).
+7. `asset_registry` — SPP `Asset registry` PDA for `asset_in`; supplies `asset_id` as the proof's asset public input; read.
+8. `spp_program` — SPP program (CPI target).
 
 **Instruction data**
 
@@ -438,6 +475,8 @@ struct ExecuteWithdrawalIxData {
     aggregate_in: u64,
 }
 ```
+
+**Instruction data size.** `1 (tag) + 128 (proof) + 8 (aggregate_in) = 137 B`.
 
 ---
 
@@ -465,37 +504,70 @@ struct SwapIxData {
 }
 ```
 
+**Instruction data size.** `1 (tag) + 8 (min_out) = 9 B`.
+
 The program writes `amount_out` into the [`PairConfig`](#pairconfig) from the CPI result.
 
 ---
 
 ### open_settlement
 
-Escrows `amount_out` of `asset_out` into the pair's SPP
-[`BatchDepositAccount`](spec.md#batch-accounts) and commits its settlement hash chain (CPIing
-SPP `set_batch_hash_chain`). The deposit batch was created empty by `create_pair`; this funds
-and chains it for the round. The settlement chain is recorded into the
-[`PairConfig`](#pairconfig); the operator proves it distributes exactly `amount_out` to the
-round's depositors. Sets `state = Settling`.
+Funds the pair's SPP [`BatchDepositAccount`](spec.md#batch-accounts) from the swap proceeds and
+commits its settlement hash chain (CPIing SPP `set_batch_hash_chain`). The swap proceeds sit in
+`vault_out`, an `authority`-owned SPL token account holding `amount_out` of `asset_out`. The
+operator fee is taken here: `fee = amount_out · fee_bps / 10_000` moves from `vault_out` to the
+operator's `fee_recipient`, and the remaining `net = amount_out − fee` moves into the SPP SPL
+interface vault for `asset_out` (the escrow backing the deposit batch). There is no external
+depositor escrow, so the amount is known only after `swap` and is supplied here, not at
+`create_pair`. The deposit batch was created empty by `create_pair`; this funds and chains it
+for the round.
+
+The settlement chain arrives in instruction data with a **settlement-validity proof**, verified
+before it is committed. Its leaves are `Poseidon(viewing_pk, utxo_hash)`, mirroring the
+withdrawal chain. The proof shows:
+
+1. **Correct UTXOs** — the settlement chain consists of the right settlement outputs, one per
+   withdrawal depositor.
+2. **Correct amounts** — each UTXO's amount is that depositor's `asset_in` deposit re-priced by
+   `net / amount_in` (from the swap proceeds and the deposited UTXO).
+3. **View keys committed** — each leaf's `viewing_pk` equals the one the depositor committed in
+   `withdrawal_chain`, so the settlement chain commits the same view keys.
+
+So the operator cannot misallocate, omit, or redirect any depositor's proceeds. Only after the
+proof verifies does `set_batch_hash_chain` commit the chain to the deposit batch (it is not
+stored in the `PairConfig`); `settle` then appends the chain's UTXOs and encrypts each to the
+`viewing_pk` in its own settlement leaf. Sets `state = Settling`.
+
+Because the escrow is the swap output (an SPL transfer from `vault_out` at settlement) rather
+than a depositor transfer at create, the SPP deposit batch must accept funding at
+`set_batch_hash_chain` time from its `owner` (`authority`), not only at
+`create_batch_deposit_account` — an SPP-side requirement, see [Batch Accounts](spec.md#batch-accounts).
 
 **Accounts**
 
 1. `operator_authority` — must equal `operator.authority`; signer, writable (fee payer).
 2. `operator` — read.
-3. `pair_config` — `state` and settlement chain written; writable.
-4. `authority` — program PDA; SPP `owner`, escrow source, signs the SPP CPIs.
-5. `deposit` — the pair's SPP deposit batch; escrowed and chained by CPI; writable.
-6. `vault_out` — escrow source token account; writable.
-7. `spp_program` — SPP program (CPI target).
+3. `pair_config` — `withdrawal_chain`, `amount_in`, `amount_out` read as the proof's public inputs; `state` written; writable.
+4. `authority` — program PDA; SPP `owner`, owns `vault_out`, signs the SPP CPIs and the funding transfer.
+5. `deposit` — the pair's SPP deposit batch; funded and chained by CPI; writable.
+6. `vault_out` — `authority`-owned SPL token account holding the swap proceeds; the funding source; writable.
+7. `spl_interface` — SPP SPL interface vault for `asset_out`; the escrow destination; writable.
+8. `fee_recipient` — operator token account receiving `fee = amount_out · fee_bps / 10_000`; writable.
+9. `spp_program` — SPP program (CPI target).
 
 **Instruction data**
 
 ```rust
 struct OpenSettlementIxData {
+    /// Settlement-validity proof, verified by the aggregator before `set_batch_hash_chain`
+    /// commits the chain.
+    proof: ZkProof,
     settlement_chain: [u8; 32],
     num_inserts: u16,
 }
 ```
+
+**Instruction data size.** `1 (tag) + 128 (proof) + 32 (settlement_chain) + 2 (num_inserts) = 163 B`.
 
 ---
 
@@ -504,8 +576,19 @@ struct OpenSettlementIxData {
 Appends one chunk of the settlement chain to the SPP UTXO tree, CPIing SPP
 `execute_batch_deposit`. Repeated until the chain is fully appended. The final chunk wipes the
 SPP deposit batch and the pair's [`PairConfig`](#pairconfig) for the next round — both are
-reset (chains and amounts zeroed, `PairConfig.round` advanced), not closed — so no separate
-close instruction is needed. The deposit batch and `PairConfig` are closed only by `close_pair`.
+reset (chains and amounts zeroed, `PairConfig.round` advanced, `state` returned to
+`Collecting`), not closed — so no separate close instruction is needed. The deposit batch and
+`PairConfig` are closed only by `close_pair`.
+
+**Verifiable encryption.** The `execute_batch_deposit` proof verifiably encrypts each settlement
+output to its depositor's `viewing_pk`, reusing the SPP [Merge Proof verifiable encryption](spec.md#merge-proof---merge-zk-proof)
+scheme (DHKEM(P-256) + Poseidon KDF + AES-256-CTR, integrity from the in-proof `ciphertext_hash`,
+no GCM tag). The `viewing_pk` is the one committed in this output's settlement-chain leaf
+`Poseidon(viewing_pk, utxo_hash)` — which [`open_settlement`](#open_settlement) already proved
+equals the depositor's `withdrawal_chain` commitment. The proof witnesses it privately and binds
+the encryption to it, so it is never a public input and the proof cost does not grow with the
+depositor count. So a depositor recovers and spends their `asset_out` from the published
+ciphertext alone; the operator cannot hand back an output the depositor cannot decrypt.
 
 **Accounts**
 
@@ -514,8 +597,9 @@ close instruction is needed. The deposit batch and `PairConfig` are closed only 
 3. `pair_config` — appended round read, then reset on the final chunk; writable.
 4. `authority` — program PDA; SPP `owner`, signs the SPP CPI.
 5. `deposit` — the SPP deposit batch; appended to, then reset on the final chunk; writable.
-6. `spp_program` — SPP program (CPI target).
-7. `tree_account` — SPP UTXO tree; writable.
+6. `asset_registry` — SPP `Asset registry` PDA for `asset_out`; supplies `asset_id` as the proof's asset public input; read.
+7. `spp_program` — SPP program (CPI target).
+8. `tree_account` — SPP UTXO tree; writable.
 
 **Instruction data**
 
@@ -525,3 +609,13 @@ struct SettleIxData {
     execute: ExecuteBatchDepositIxData,
 }
 ```
+
+**Instruction data size.** `1 (tag) + ExecuteBatchDepositIxData` = `1 + 128 (proof) + 2
+(start_index) + 33 (shared tx_viewing_pk) + (1 + 32·c) (output_utxo_hashes) + (1 + c·82)
+(output_ciphertexts)` = `166 + 114·c` for a chunk of `c` settlement leaves. Vector counts use a
+1-byte `u8` prefix and the ciphertext a 2-byte `u16` length (spec.md encoding), so each
+`OutputCiphertext` is `32 (owner tag) + 2 (len) + 48 (ciphertext)` = 82 B: the spec.md
+confidential recipient plaintext is 48 B and verifiable encryption is AES-256-CTR with no tag,
+so the ciphertext is also 48 B. One ephemeral `tx_viewing_pk` is shared per chunk (ECDH to each
+recipient's `viewing_pk`). A 5-leaf chunk is `~736 B`; `c` is bounded by the per-transaction
+limit.
