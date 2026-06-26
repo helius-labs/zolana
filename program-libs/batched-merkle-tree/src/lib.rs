@@ -175,6 +175,7 @@ pub mod errors;
 pub mod initialize_address_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;
+pub mod merkle_tree_update;
 pub mod queue;
 pub mod queue_batch_metadata;
 pub(crate) mod rent;

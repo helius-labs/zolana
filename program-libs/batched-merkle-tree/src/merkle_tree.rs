@@ -3,10 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::verify::{
-    verify_batch_address_update, verify_batch_append_with_proofs, verify_batch_update,
-    CompressedProof,
-};
+use crate::verify::CompressedProof;
 use crate::zero_copy::{
     ZeroCopyError, BOUNDED_CAPACITY, BOUNDED_LENGTH, CYCLIC_CAPACITY, CYCLIC_CURRENT_INDEX,
     CYCLIC_LENGTH,
@@ -17,15 +14,10 @@ use zolana_account_checks::{
     discriminator::Discriminator,
     AccountView,
 };
-use zolana_hasher::{
-    hash_chain::create_hash_chain_from_array, hash_to_field_size::hash_to_bn254_field_size_be,
-    Hasher,
-};
+use zolana_hasher::{hash_to_field_size::hash_to_bn254_field_size_be, Hasher};
 use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError,
-    events::{batch::BatchEvent, MerkleTreeEvent},
-    merkle_tree::MerkleTreeMetadata,
-    QueueType, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2, ADDRESS_QUEUE_TYPE_V2,
+    errors::MerkleTreeMetadataError, events::batch::BatchAddressAppendEvent,
+    merkle_tree::MerkleTreeMetadata, QueueType, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2,
     STATE_MERKLE_TREE_TYPE_V2,
 };
 
@@ -36,30 +28,24 @@ use crate::{
     zero_copy::TreeAccountLayout, BorshDeserialize, BorshSerialize,
 };
 
-/// Public inputs:
-/// 1. old root (last root in root history)
-/// 2. new root (send to chain)
-/// 3. leaf hash chain (in hash_chain store)
 #[repr(C)]
 #[derive(Debug, PartialEq, Clone, Copy, BorshDeserialize, BorshSerialize)]
 pub struct InstructionDataBatchNullifyInputs {
     pub new_root: [u8; 32],
+    pub old_root: [u8; 32],
+    pub hash_chain_index: u16,
     pub compressed_proof: CompressedProof,
 }
 
-/// Public inputs:
-/// 1. old root (last root in root history)
-/// 2. new root (send to chain)
-/// 3. leaf hash chain (in hash_chain store)
-/// 4. next index (get from metadata)
 pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
 
-/// Public inputs:
-/// 1. old root (last root in root history)
-/// 2. new root (send to chain)
-/// 3. leaf hash chain (in hash_chain store)
-/// 4. start index (get from batch)
 pub type InstructionDataBatchAppendInputs = InstructionDataBatchNullifyInputs;
+
+#[derive(Debug, PartialEq)]
+pub struct AddressUpdateResult {
+    pub event: Option<BatchAddressAppendEvent>,
+    pub applied_count: u64,
+}
 
 /// Batched Merkle tree zero copy account.
 /// The account is used for batched state and address Merkle trees,
@@ -335,6 +321,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             hash_chain.header[BOUNDED_LENGTH] = 0;
             hash_chain.header[BOUNDED_CAPACITY] = ZKP as u64;
         }
+        for changelog in layout.changelog.iter_mut() {
+            changelog.header[BOUNDED_LENGTH] = 0;
+            changelog.header[BOUNDED_CAPACITY] = ZKP as u64;
+        }
         let next_index = layout.metadata.next_index;
 
         // Bloom-filter parameters upstream stores in the queue/batch metadata so
@@ -357,174 +347,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             pubkey: *pubkey,
             layout,
         })
-    }
-
-    /// Update the tree from the address queue account.
-    pub fn update_tree_from_address_queue(
-        &mut self,
-        instruction_data: InstructionDataAddressAppendInputs,
-    ) -> Result<MerkleTreeEvent, BatchedMerkleTreeError> {
-        if self.tree_type != TreeType::AddressV2 as u64 {
-            return Err(MerkleTreeMetadataError::InvalidTreeType.into());
-        }
-        self.check_tree_is_full(Some(self.queue_batches.zkp_batch_size))?;
-        Ok(MerkleTreeEvent::BatchAddressAppend(
-            self.update_input_queue::<ADDRESS_QUEUE_TYPE_V2>(instruction_data)?,
-        ))
-    }
-
-    /// Update the tree from the input/address queue account.
-    /// 1. Create public inputs hash.
-    /// 2. Verify update proof and update tree account.
-    ///    2.1. Verify proof.
-    ///    2.2. Increment sequence number.
-    ///    2.3. If address tree increment next index.
-    ///    2.4. Append new root to root history.
-    /// 3. Mark batch as inserted in the merkle tree.
-    ///    3.1. Checks that the batch is ready.
-    ///    3.2. Increment the number of inserted zkps.
-    ///    3.3. If all zkps are inserted, set the state to inserted.
-    /// 4. Zero out previous batch bloom filter if current batch is 50% inserted.
-    /// 5. Increment next full batch index if inserted.
-    /// 6. Return the batch nullify event.
-    #[inline(always)]
-    fn update_input_queue<const QUEUE_TYPE: u64>(
-        &mut self,
-        instruction_data: InstructionDataBatchNullifyInputs,
-    ) -> Result<BatchEvent, BatchedMerkleTreeError> {
-        let pending_batch_index = self.queue_batches.pending_batch_index as usize;
-        let first_ready_zkp_batch_index = self
-            .queue_batches
-            .batches
-            .get(pending_batch_index)
-            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-            .get_first_ready_zkp_batch()?;
-        let new_root = instruction_data.new_root;
-        let circuit_batch_size = self.queue_batches.zkp_batch_size;
-
-        // 1. Create public inputs hash.
-        let public_input_hash = {
-            let leaves_hash_chain = *self
-                .layout
-                .hash_chains
-                .get(pending_batch_index)
-                .and_then(|chain| chain.data.get(first_ready_zkp_batch_index as usize))
-                .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
-            let old_root = self
-                .get_latest_root()
-                .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
-
-            if QueueType::from(QUEUE_TYPE) == QueueType::InputStateV2 {
-                create_hash_chain_from_array([*old_root, new_root, leaves_hash_chain])?
-            } else if QueueType::from(QUEUE_TYPE) == QueueType::AddressV2 {
-                let mut next_index_bytes = [0u8; 32];
-                next_index_bytes[24..].copy_from_slice(self.next_index.to_be_bytes().as_slice());
-                create_hash_chain_from_array([
-                    *old_root,
-                    new_root,
-                    leaves_hash_chain,
-                    next_index_bytes,
-                ])?
-            } else {
-                return Err(MerkleTreeMetadataError::InvalidQueueType.into());
-            }
-        };
-
-        // 2. Verify update proof and update tree account.
-        let (old_next_index, new_next_index) = self.verify_update::<QUEUE_TYPE>(
-            circuit_batch_size,
-            instruction_data.compressed_proof,
-            public_input_hash,
-            new_root,
-        )?;
-
-        let root_index = self.latest_root_index() as u32;
-
-        // Update queue metadata.
-        {
-            let root_history_capacity = self.root_history_capacity;
-            let sequence_number = self.sequence_number;
-            // 3. Mark batch as inserted in the merkle tree.
-            let pending_batch_state = self
-                .queue_batches
-                .batches
-                .get_mut(pending_batch_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-                .mark_as_inserted_in_merkle_tree(
-                    sequence_number,
-                    root_index,
-                    root_history_capacity,
-                )?;
-            // 4. Increment next full batch index if inserted.
-            self.layout
-                .metadata
-                .queue_batches
-                .increment_pending_batch_index_if_inserted(pending_batch_state);
-            // 5. Zero out previous batch bloom filter
-            //     if current batch is 50% inserted.
-            // Needs to be executed post mark_as_inserted_in_merkle_tree.
-            self.zero_out_previous_batch_bloom_filter()?;
-        }
-
-        // 6. Return the batch event.
-        Ok(BatchEvent {
-            merkle_tree_pubkey: self.pubkey.to_bytes(),
-            batch_index: pending_batch_index as u64,
-            zkp_batch_size: circuit_batch_size,
-            zkp_batch_index: first_ready_zkp_batch_index,
-            new_root,
-            root_index,
-            sequence_number: self.sequence_number,
-            old_next_index,
-            new_next_index,
-            output_queue_pubkey: None,
-        })
-    }
-
-    /// Verify update proof and update the tree.
-    /// 1. Verify update proof.
-    /// 2. Increment next index (unless queue type is BatchedInput).
-    /// 3. Increment sequence number.
-    /// 4. Append new root to root history.
-    fn verify_update<const QUEUE_TYPE: u64>(
-        &mut self,
-        batch_size: u64,
-        proof: CompressedProof,
-        public_input_hash: [u8; 32],
-        new_root: [u8; 32],
-    ) -> Result<(u64, u64), BatchedMerkleTreeError> {
-        // 1. Verify update proof.
-        let (old_next_index, new_next_index) = if QUEUE_TYPE == QueueType::OutputStateV2 as u64 {
-            verify_batch_append_with_proofs(batch_size, public_input_hash, &proof)?;
-            let old_next_index = self.next_index;
-            // 2. Increment next index.
-            self.increment_merkle_tree_next_index(batch_size);
-            (old_next_index, self.next_index)
-        } else if QUEUE_TYPE == QueueType::InputStateV2 as u64 {
-            let old_next_index = self.nullifier_next_index;
-            verify_batch_update(batch_size, public_input_hash, &proof)?;
-            // 2. incrementing nullifier next index.
-            // This index is used by the indexer to remove elements from the database nullifier queue.
-            // Nullifier next index is not used onchain.
-            self.nullifier_next_index += batch_size;
-            (old_next_index, self.nullifier_next_index)
-        } else if QUEUE_TYPE == QueueType::AddressV2 as u64 {
-            let old_next_index = self.next_index;
-            verify_batch_address_update(batch_size, public_input_hash, &proof)?;
-            // 2. Increment next index.
-            self.increment_merkle_tree_next_index(batch_size);
-            (old_next_index, self.next_index)
-        } else {
-            return Err(MerkleTreeMetadataError::InvalidQueueType.into());
-        };
-        // 3. Increment sequence number.
-        self.sequence_number += 1;
-        // 4. Append new root to root history.
-        // root_history is a cyclic vec
-        // it will overwrite the oldest root
-        // once it is full.
-        self.append_root(new_root);
-        Ok((old_next_index, new_next_index))
     }
 
     pub fn insert_address_into_queue(
@@ -671,7 +493,9 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     ///   Initial state: 0 pending -> 1 previous pending even though it was never used
     ///   0 inserted -> 1 pending 0 -> 1 pending 50% - zero out 0 -> 1 inserted
     ///   0 pending -> 1 inserted
-    fn zero_out_previous_batch_bloom_filter(&mut self) -> Result<(), BatchedMerkleTreeError> {
+    pub(crate) fn zero_out_previous_batch_bloom_filter(
+        &mut self,
+    ) -> Result<(), BatchedMerkleTreeError> {
         let current_batch = self.queue_batches.pending_batch_index as usize;
         let batch_size = self.queue_batches.batch_size;
         let previous_pending_batch_index = if 0 == current_batch { 1 } else { 0 };
@@ -735,7 +559,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         self.layout.root_history.data.get(self.latest_root_index())
     }
 
-    fn append_root(&mut self, root: [u8; 32]) {
+    pub(crate) fn append_root(&mut self, root: [u8; 32]) {
         let capacity = self.layout.root_history.data.len();
         if capacity == 0 {
             return;
@@ -849,7 +673,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         &self.pubkey
     }
 
-    fn increment_merkle_tree_next_index(&mut self, count: u64) {
+    pub(crate) fn increment_merkle_tree_next_index(&mut self, count: u64) {
         self.next_index += count;
     }
 
@@ -901,38 +725,6 @@ pub fn get_merkle_tree_account_size<
     size_of::<TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP>>()
 }
 
-pub fn assert_batch_adress_event<
-    const RH: usize,
-    const NUM_ITERS: usize,
-    const BLOOM: usize,
-    const ZKP: usize,
->(
-    event: MerkleTreeEvent,
-    new_root: [u8; 32],
-    old_account: &BatchedMerkleTreeAccount<RH, NUM_ITERS, BLOOM, ZKP>,
-    mt_pubkey: Pubkey,
-) {
-    let batch_index = old_account.queue_batches.pending_batch_index;
-    let batch = old_account
-        .queue_batches
-        .batches
-        .get(batch_index as usize)
-        .unwrap();
-    let ref_event = MerkleTreeEvent::BatchAddressAppend(BatchEvent {
-        merkle_tree_pubkey: mt_pubkey.to_bytes(),
-        output_queue_pubkey: None,
-        batch_index,
-        zkp_batch_index: batch.get_num_inserted_zkps(),
-        new_root,
-        root_index: (old_account.get_root_index() + 1) % old_account.root_history_capacity,
-        sequence_number: old_account.sequence_number + 1,
-        zkp_batch_size: old_account.queue_batches.zkp_batch_size,
-        old_next_index: old_account.next_index,
-        new_next_index: old_account.next_index + batch.zkp_batch_size,
-    });
-    assert_eq!(event, ref_event);
-}
-
 #[cfg(feature = "test-only")]
 #[cfg(test)]
 mod test {
@@ -940,6 +732,7 @@ mod test {
 
     use super::*;
     use crate::merkle_tree::test_utils::get_merkle_tree_account_size_default;
+    use crate::zero_copy::ChangelogEntry;
 
     #[test]
     fn test_from_bytes_invalid_tree_type() {
@@ -976,6 +769,162 @@ mod test {
             account.unwrap_err(),
             crate::errors::BatchedMerkleTreeError::ZeroCopy(ZeroCopyError::Size)
         ));
+    }
+
+    #[test]
+    fn test_changelog_region_layout_and_size() {
+        assert_eq!(
+            core::mem::size_of::<crate::zero_copy::ChangelogEntry>(),
+            112
+        );
+        assert_eq!(
+            core::mem::size_of::<crate::zero_copy::ChangelogVec<5>>(),
+            16 + 5 * 112
+        );
+
+        const RH: usize = 10;
+        const NI: usize = 3;
+        const BLOOM: usize = 1000;
+        const ZKP: usize = 4;
+        let full = get_merkle_tree_account_size::<RH, NI, BLOOM, ZKP>();
+        let changelog_bytes = 2 * core::mem::size_of::<crate::zero_copy::ChangelogVec<ZKP>>();
+        assert_eq!(changelog_bytes, 2 * (16 + ZKP * 112));
+
+        let mut old_sized = vec![0u8; full - changelog_bytes];
+        let account = BatchedMerkleTreeAccount::<RH, NI, BLOOM, ZKP>::from_bytes::<
+            STATE_MERKLE_TREE_TYPE_V2,
+        >(&mut old_sized, &Pubkey::default());
+        assert!(matches!(
+            account.unwrap_err(),
+            crate::errors::BatchedMerkleTreeError::ZeroCopy(ZeroCopyError::Size)
+        ));
+    }
+
+    /// Re-submitting a proof for a zkp batch that has already been applied
+    /// (its StartIndex lies behind the live next index) is a no-op: the proof
+    /// is not re-verified (an invalid proof still returns Ok) and no changelog
+    /// entry is written.
+    #[test]
+    fn test_replay_after_apply_is_noop() {
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 4>()];
+        let pubkey = Pubkey::new_unique();
+        let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
+            &mut account_data,
+            &pubkey,
+            MerkleTreeMetadata::default(),
+            10,
+            4,
+            1,
+            40,
+            TreeType::AddressV2,
+            None,
+        )
+        .unwrap();
+
+        // Two zkp batches finalized, one already inserted -> num_inserted = 1.
+        {
+            let batch = account.queue_batches.batches.get_mut(0).unwrap();
+            batch.num_full_zkp_batches = 2;
+            batch.advance_state_to_full().unwrap();
+            batch.mark_as_inserted_in_merkle_tree(5, 0, 10).unwrap();
+        }
+        assert_eq!(
+            account
+                .queue_batches
+                .batches
+                .first()
+                .unwrap()
+                .get_num_inserted_zkps(),
+            1
+        );
+
+        // Replay zkp batch 0, which is behind the live next index, with an
+        // invalid proof. Verification must be skipped, so the call succeeds.
+        let result = account
+            .update_tree_from_address_queue(InstructionDataAddressAppendInputs {
+                new_root: [3u8; 32],
+                old_root: [2u8; 32],
+                hash_chain_index: 0,
+                compressed_proof: CompressedProof::default(),
+            })
+            .unwrap();
+
+        assert_eq!(result.applied_count, 0);
+        let entry = account
+            .layout
+            .changelog
+            .first()
+            .and_then(|chain| chain.data.first())
+            .unwrap();
+        assert_eq!(entry.occupied, 0);
+    }
+
+    /// Re-submitting a proof for a zkp batch that is already cached (an occupied
+    /// entry with the same StartIndex is present) is a no-op: the proof is not
+    /// re-verified and the existing entry is not overwritten.
+    #[test]
+    fn test_replay_while_cached_is_noop() {
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 4>()];
+        let pubkey = Pubkey::new_unique();
+        let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
+            &mut account_data,
+            &pubkey,
+            MerkleTreeMetadata::default(),
+            10,
+            4,
+            1,
+            40,
+            TreeType::AddressV2,
+            None,
+        )
+        .unwrap();
+
+        // Finalize a zkp batch so submit_idx 0 passes the readiness guard.
+        account
+            .queue_batches
+            .batches
+            .get_mut(0)
+            .unwrap()
+            .num_full_zkp_batches = 2;
+
+        // Cache an entry at zkp batch 0 whose StartIndex equals the live next
+        // index (1 for a freshly initialized address tree). Its old_root does
+        // not match the live root, so apply leaves it in place.
+        let cached = ChangelogEntry {
+            old_root: [9u8; 32],
+            new_root: [8u8; 32],
+            leaves_hash_chain: [7u8; 32],
+            expected_next_index: account.next_index,
+            occupied: 1,
+        };
+        *account
+            .layout
+            .changelog
+            .get_mut(0)
+            .and_then(|chain| chain.data.get_mut(0))
+            .unwrap() = cached;
+
+        // Re-submit zkp batch 0 with different roots and an invalid proof.
+        // The cached StartIndex matches, so submit is skipped (no verification)
+        // and the stored entry is preserved unchanged.
+        let result = account
+            .update_tree_from_address_queue(InstructionDataAddressAppendInputs {
+                new_root: [3u8; 32],
+                old_root: [2u8; 32],
+                hash_chain_index: 0,
+                compressed_proof: CompressedProof::default(),
+            })
+            .unwrap();
+
+        assert_eq!(result.applied_count, 0);
+        let entry = account
+            .layout
+            .changelog
+            .first()
+            .and_then(|chain| chain.data.first())
+            .copied()
+            .unwrap();
+        assert_eq!(entry, cached);
     }
 
     /// 1. No batch is ready -> nothing should happen.

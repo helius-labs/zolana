@@ -66,6 +66,23 @@ pub struct BoundedVec<const N: usize> {
     pub data: [[u8; 32]; N],
 }
 
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ChangelogEntry {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+    pub leaves_hash_chain: [u8; 32],
+    pub expected_next_index: u64,
+    pub occupied: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ChangelogVec<const N: usize> {
+    pub header: [u64; 2],
+    pub data: [ChangelogEntry; N],
+}
+
 /// Upstream `ZeroCopyCyclicVecU64` header word indices.
 pub(crate) const CYCLIC_CURRENT_INDEX: usize = 0;
 pub(crate) const CYCLIC_LENGTH: usize = 1;
@@ -107,6 +124,7 @@ pub struct TreeAccountLayout<
     pub root_history: CyclicVec<ROOT_HISTORY>,
     pub bloom_filters: [BloomFilter<NUM_ITERS, BLOOM_BYTES>; 2],
     pub hash_chains: [BoundedVec<ZKP_BATCHES>; 2],
+    pub changelog: [ChangelogVec<ZKP_BATCHES>; 2],
 }
 
 unsafe impl<C: ConfigCore, const RH: usize, const NI: usize, const BLOOM: usize, const ZKP: usize>
@@ -146,10 +164,22 @@ mod layout_smoke {
         layout.root_history.data[1] = [7u8; 32];
         layout.hash_chains[0].data[1] = [9u8; 32];
         layout.bloom_filters[0].insert(&[1u8; 32]).unwrap();
+        layout.changelog[1].data[1] = ChangelogEntry {
+            old_root: [3u8; 32],
+            new_root: [4u8; 32],
+            leaves_hash_chain: [5u8; 32],
+            expected_next_index: 6,
+            occupied: 1,
+        };
         let reloaded: &mut TreeAccountLayout<4, 3, 8, 2> =
             wincode::deserialize_mut(&mut bytes).unwrap();
         assert_eq!(reloaded.root_history.data[1], [7u8; 32]);
         assert_eq!(reloaded.hash_chains[0].data[1], [9u8; 32]);
         assert!(reloaded.bloom_filters[0].contains(&[1u8; 32]));
+        assert_eq!(reloaded.changelog[1].data[1].old_root, [3u8; 32]);
+        assert_eq!(reloaded.changelog[1].data[1].new_root, [4u8; 32]);
+        assert_eq!(reloaded.changelog[1].data[1].leaves_hash_chain, [5u8; 32]);
+        assert_eq!(reloaded.changelog[1].data[1].expected_next_index, 6);
+        assert_eq!(reloaded.changelog[1].data[1].occupied, 1);
     }
 }

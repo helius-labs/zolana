@@ -2,8 +2,6 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`verify_batch_append_with_proofs`] | Verify batch append (10 or 500 leaves) |
-//! | [`verify_batch_update`] | Verify batch state update (10 or 500) |
 //! | [`verify_batch_address_update`] | Verify batch address update (10 or 250) |
 //! | [`verify`] | Generic Groth16 proof verification |
 
@@ -139,48 +137,6 @@ pub fn verify<const N: usize>(
         ProofVerificationFailed
     })?;
     Ok(())
-}
-
-#[inline(never)]
-pub fn verify_batch_append_with_proofs(
-    batch_size: u64,
-    public_input_hash: [u8; 32],
-    compressed_proof: &CompressedProof,
-) -> Result<(), VerifierError> {
-    match batch_size {
-        10 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_append_32_10::VERIFYINGKEY,
-        ),
-        500 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_append_32_500::VERIFYINGKEY,
-        ),
-        _ => Err(InvalidPublicInputsLength),
-    }
-}
-
-#[inline(never)]
-pub fn verify_batch_update(
-    batch_size: u64,
-    public_input_hash: [u8; 32],
-    compressed_proof: &CompressedProof,
-) -> Result<(), VerifierError> {
-    match batch_size {
-        10 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_update_32_10::VERIFYINGKEY,
-        ),
-        500 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_update_32_500::VERIFYINGKEY,
-        ),
-        _ => Err(InvalidPublicInputsLength),
-    }
 }
 
 #[inline(never)]

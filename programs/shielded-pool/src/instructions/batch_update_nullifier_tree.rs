@@ -7,7 +7,9 @@ use zolana_interface::{
 };
 use zolana_tree::TreeAccount;
 
-use crate::instructions::protocol_config::loader::load_protocol_config;
+use crate::instructions::{
+    event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,
+};
 
 pub fn process_batch_update_nullifier_tree(
     accounts: &mut [AccountView],
@@ -29,12 +31,14 @@ pub fn process_batch_update_nullifier_tree(
     let mut tree = TreeAccount::from_account_view_mut(tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
         .map_err(ShieldedPoolError::from)?;
 
-    if tree
+    let result = tree
         .nullifer_tree()
         .update_tree_from_address_queue(instruction)
-        .is_err()
-    {
-        return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into());
+        .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+
+    // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
+    if let Some(event) = result.event {
+        emit_batch_address_append_event(&event)?;
     }
     Ok(())
 }

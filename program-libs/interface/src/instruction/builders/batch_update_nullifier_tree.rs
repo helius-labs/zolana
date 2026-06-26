@@ -10,6 +10,8 @@ pub struct BatchUpdateNullifierTree {
     pub authority: Pubkey,
     pub tree: Pubkey,
     pub new_root: [u8; 32],
+    pub old_root: [u8; 32],
+    pub hash_chain_index: u16,
     pub compressed_proof_a: [u8; 32],
     pub compressed_proof_b: [u8; 64],
     pub compressed_proof_c: [u8; 32],
@@ -19,6 +21,8 @@ impl BatchUpdateNullifierTree {
     pub fn instruction(&self) -> Instruction {
         let data = BatchUpdateNullifierTreeData {
             new_root: self.new_root,
+            old_root: self.old_root,
+            hash_chain_index: self.hash_chain_index,
             compressed_proof: CompressedProof {
                 a: self.compressed_proof_a,
                 b: self.compressed_proof_b,
