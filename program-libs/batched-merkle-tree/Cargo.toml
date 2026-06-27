@@ -17,6 +17,7 @@ ignored = [
 default = []
 test-only = []
 log = ["dep:solana-msg", "zolana-merkle-tree-metadata/log"]
+profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
 
 [dependencies]
 zolana-account-checks = { workspace = true }
@@ -34,12 +35,16 @@ zolana-merkle-tree-metadata = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 zerocopy = { workspace = true }
+light-program-profiler = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 zolana-hasher = { workspace = true, features = ["keccak"] }
+zolana-client = { workspace = true }
+zolana-indexed-array = { workspace = true }
+zolana-merkle-tree-metadata = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

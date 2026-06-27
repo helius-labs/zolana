@@ -44,8 +44,7 @@ use zolana_client::{
     SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
-use zolana_keypair::hash::owner_hash;
-use zolana_keypair::shielded::ShieldedKeypair;
+use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{AssetRegistry, Data, Utxo, SOL_MINT};
@@ -258,8 +257,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     {
         use zolana_client::prover::field::hash_chain;
         use zolana_hasher::{sha256::Sha256BE, Hasher};
-        use zolana_interface::instruction::instruction_data::transact::ExternalDataHash;
-        use zolana_interface::instruction::tag;
+        use zolana_interface::instruction::{instruction_data::transact::ExternalDataHash, tag};
         use zolana_keypair::hash::{hash_field, sha256};
         use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
 

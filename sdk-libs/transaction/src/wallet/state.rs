@@ -1,13 +1,11 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
 
-use crate::error::TransactionError;
-use crate::instructions::transact::OutputContext;
-use crate::utxo::Utxo;
-use crate::AssetRegistry;
+use crate::{
+    error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,
+};
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
 

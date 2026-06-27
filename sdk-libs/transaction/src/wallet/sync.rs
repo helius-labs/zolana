@@ -1,23 +1,26 @@
 use std::collections::{HashMap, HashSet};
 
 use zolana_event::OutputData;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey};
-
-use crate::error::TransactionError;
-use crate::instructions::transact::{OutputContext, ShieldedTransaction};
-use crate::serialization::anonymous::{AnonymousRecipient, AnonymousSenderBundle};
-use crate::serialization::confidential::{ConfidentialRecipient, ConfidentialSenderBundle};
-use crate::serialization::merge::Merge;
-use crate::serialization::plaintext::PlaintextTransfer;
-use crate::serialization::proofless::Proofless;
-use crate::serialization::split::Split;
-use crate::serialization::{DecodeCx, OwnerCx, UtxoSerialization};
-use crate::utxo::Utxo;
-use crate::AssetRegistry;
-use crate::EncryptedScheme;
+use zolana_keypair::{
+    viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
+};
 
 use super::state::{SyncReport, ViewingKeyEntry, Wallet, WalletUtxo};
+use crate::{
+    error::TransactionError,
+    instructions::transact::{OutputContext, ShieldedTransaction},
+    serialization::{
+        anonymous::{AnonymousRecipient, AnonymousSenderBundle},
+        confidential::{ConfidentialRecipient, ConfidentialSenderBundle},
+        merge::Merge,
+        plaintext::PlaintextTransfer,
+        proofless::Proofless,
+        split::Split,
+        DecodeCx, OwnerCx, UtxoSerialization,
+    },
+    utxo::Utxo,
+    AssetRegistry, EncryptedScheme,
+};
 
 pub(super) struct TxIndex {
     pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,

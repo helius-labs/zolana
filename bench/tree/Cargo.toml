@@ -10,13 +10,19 @@ crate-type = ["cdylib", "lib"]
 [features]
 default = []
 no-entrypoint = []
-profile-program = ["light-program-profiler/profile-program"]
+profile-program = [
+    "light-program-profiler/profile-program",
+    "zolana-batched-merkle-tree/profile-program",
+]
 bench = ["profile-program"]
 
 [dependencies]
 zolana-tree = { workspace = true }
+zolana-batched-merkle-tree = { workspace = true }
 light-program-profiler = { workspace = true, features = ["profile-program"] }
 pinocchio = { workspace = true }
+borsh = { workspace = true }
+solana-address = { workspace = true }
 
 [dev-dependencies]
 light-program-profiler = { workspace = true, features = ["mollusk"] }
@@ -24,6 +30,17 @@ mollusk-svm = "0.3.0"
 solana-account = "2.2"
 solana-instruction = "2.2"
 solana-pubkey = "2.2"
+zolana-client = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+zolana-merkle-tree-metadata = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+solana-address = { workspace = true }
+wincode = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+num-bigint = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+rand = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

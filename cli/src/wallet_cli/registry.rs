@@ -1,8 +1,3 @@
-use super::{
-    material::{load_sender_from_resolved_sync, WalletMaterial},
-    resolve::resolve_sync,
-};
-use crate::args::MergeServiceOptions;
 use anyhow::{bail, Result};
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -13,6 +8,12 @@ use zolana_user_registry_interface::{
     instruction::{register, set_merge_service, update_keys, RegisterData, UpdateKeysData},
     user_record_pda, UserRecord,
 };
+
+use super::{
+    material::{load_sender_from_resolved_sync, WalletMaterial},
+    resolve::resolve_sync,
+};
+use crate::args::MergeServiceOptions;
 
 pub(super) fn register_wallet_on_chain(
     rpc: &SolanaRpc,

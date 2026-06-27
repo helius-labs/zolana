@@ -4,6 +4,9 @@ mod transact_core;
 // The shared helper module is `#[path]`-included into several test binaries;
 // not every binary uses every re-export (e.g. only the photon e2e uses
 // `pack_proof`), so suppress unused-import noise here rather than per binary.
+use anyhow::{Context, Result};
+use num_bigint::BigUint;
+use solana_address::Address;
 #[allow(unused_imports)]
 pub use transact_core::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -11,12 +14,8 @@ pub use transact_core::{
     pack_proof, prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
     TransferProverInputsArgs,
 };
-
-use anyhow::{Context, Result};
-use num_bigint::BigUint;
-use solana_address::Address;
-use zolana_client::prover::field::{be, hash_chain, right_align_slice};
 use zolana_client::{
+    prover::field::{be, hash_chain, right_align_slice},
     TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
@@ -24,13 +23,14 @@ use zolana_interface::instruction::{
     instruction_data::transact::{ExternalDataHash, TransactIxData},
     tag,
 };
-use zolana_keypair::hash::hash_field;
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
-use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
-use zolana_transaction::instructions::transact::signed_transaction::{
-    signed_to_field, BN254_MODULUS_DEC,
+use zolana_keypair::{
+    hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
 };
-use zolana_transaction::{OutputUtxo, Utxo};
+use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
+use zolana_transaction::{
+    instructions::transact::signed_transaction::{signed_to_field, BN254_MODULUS_DEC},
+    OutputUtxo, Utxo,
+};
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
 /// (`owner_hash` / `owner_pk_field`) never reads the viewing key, so any valid

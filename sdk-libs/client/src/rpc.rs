@@ -14,14 +14,15 @@ use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
+use zolana_transaction::instructions::{transact::SignedTransaction, types::InputCommitment};
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 
-use zolana_transaction::instructions::transact::SignedTransaction;
-use zolana_transaction::instructions::types::InputCommitment;
+use crate::{
+    error::ClientError,
+    prover::{transact::witness::SpendProof, ProofCompressed},
+};
 
-use crate::{error::ClientError, prover::transact::witness::SpendProof, prover::ProofCompressed};
-
-pub const STATE_TREE_HEIGHT: usize = 26;
+pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
 /// Slot the indexer assembled a response at. Every indexer response carries one

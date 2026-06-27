@@ -20,3 +20,31 @@ total(10) = 595 + 9 * 1,425 ≈ 13,402
 
 `num_inserted` resets when a zkp batch fills, so the first insert of each zkp
 batch is again the cheap no-Poseidon case.
+
+## Address tree batch update x120
+
+Worst-case finalize transaction for the changelog-based address-append update
+(`update_tree_from_address_queue`). Foresters submit proofs for zkp-batch
+indices `1..=119` first; each caches a `ChangelogEntry` and applies nothing
+because index 0 is still missing. The measured transaction submits index 0: it
+verifies that one proof, caches it, then applies all 120 contiguous cached
+entries in a single cascade.
+
+The shape reports two functions:
+
+- `apply_cached_changelog_updates` (~36,429 CU): the 120-entry cascade, ~304 CU
+  per applied zkp batch. Each apply advances `next_index`, appends a root to the
+  root-history ring, marks the zkp batch inserted, and zeroes a slice of the
+  previous batch's bloom filter. The cascade re-verifies no proofs; the submit
+  path already did.
+- `bench_batch_address_update` net (~96,293 CU): the index-0 submit path,
+  dominated by the single Groth16 proof verification (alt_bn128 pairing).
+
+Total is ~132,722 CU, well under the 1.4M per-transaction limit, so a backlog of
+120 zkp batches applies in one transaction.
+
+The benchmarked tree uses `zkp_batch_size = 10` (`batch_size = 1200`,
+`ZKP = 120`) rather than the production address-tree `zkp_batch_size = 250`,
+because only the `batch_address-append_40_10` proving key is available locally.
+The bloom filter is sized to production (`NUM_ITERS = 10`, `BLOOM = 575384`) so
+the per-apply `zero_out_previous_batch_bloom_filter` cost is representative.

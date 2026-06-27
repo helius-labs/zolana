@@ -1,11 +1,10 @@
-use crate::verify::VerifierError;
 use thiserror::Error;
 use zolana_account_checks::error::AccountError;
 use zolana_bloom_filter::BloomFilterError;
 use zolana_hasher::HasherError;
 use zolana_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 
-use crate::zero_copy::ZeroCopyError;
+use crate::{verify::VerifierError, zero_copy::ZeroCopyError};
 
 #[derive(Debug, Error, PartialEq)]
 pub enum BatchedMerkleTreeError {
@@ -13,16 +12,8 @@ pub enum BatchedMerkleTreeError {
     BatchNotReady,
     #[error("Batch is already inserted")]
     BatchAlreadyInserted,
-    #[error("Batch insert failed")]
-    BatchInsertFailed,
-    #[error("Leaf index not in batch.")]
-    LeafIndexNotInBatch,
-    #[error("Invalid network fee.")]
-    InvalidNetworkFee,
     #[error("Batch size not divisible by ZKP batch size.")]
     BatchSizeNotDivisibleByZkpBatchSize,
-    #[error("Inclusion proof by index failed.")]
-    InclusionProofByIndexFailed,
     #[error("Hasher error: {0}")]
     Hasher(#[from] HasherError),
     #[error("Zero copy error {0}")]
@@ -47,6 +38,10 @@ pub enum BatchedMerkleTreeError {
     BloomFilterNotZeroed,
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
+    #[error("Cached tree update index is out of range.")]
+    CachedTreeUpdateIndexOutOfRange,
+    #[error("Hash chain for the requested zkp batch is not finalized.")]
+    HashChainNotReady,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -54,16 +49,14 @@ impl From<BatchedMerkleTreeError> for u32 {
         match e {
             BatchedMerkleTreeError::BatchNotReady => 14301,
             BatchedMerkleTreeError::BatchAlreadyInserted => 14302,
-            BatchedMerkleTreeError::BatchInsertFailed => 14303,
-            BatchedMerkleTreeError::LeafIndexNotInBatch => 14304,
-            BatchedMerkleTreeError::InvalidNetworkFee => 14305,
             BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize => 14306,
-            BatchedMerkleTreeError::InclusionProofByIndexFailed => 14307,
             BatchedMerkleTreeError::InvalidBatchIndex => 14308,
             BatchedMerkleTreeError::InvalidIndex => 14309,
             BatchedMerkleTreeError::TreeIsFull => 14310,
             BatchedMerkleTreeError::NonInclusionCheckFailed => 14311,
             BatchedMerkleTreeError::BloomFilterNotZeroed => 14312,
+            BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
+            BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),

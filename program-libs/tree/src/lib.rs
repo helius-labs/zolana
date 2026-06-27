@@ -3,26 +3,26 @@ pub mod smt;
 
 use core::mem::{size_of, MaybeUninit};
 
-pub use smt::{TreeError, UtxoTreeLayout};
-pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
-
 use pinocchio::{AccountView, Address};
+pub use smt::{TreeError, UtxoTreeLayout};
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_batched_merkle_tree::initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout;
-use zolana_batched_merkle_tree::merkle_tree::BatchedMerkleTreeAccount;
-use zolana_batched_merkle_tree::zero_copy::TreeAccountLayout as NullifierLayout;
-
-use zolana_batched_merkle_tree::constants::{
-    ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
-    DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
-    DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use zolana_batched_merkle_tree::{
+    constants::{
+        ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
+        DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
+        DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+    },
+    initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout,
+    merkle_tree::BatchedMerkleTreeAccount,
+    zero_copy::TreeAccountLayout as NullifierLayout,
 };
 
-const POOL_UTXO_HEIGHT: usize = 26;
+const POOL_UTXO_HEIGHT: usize = 32;
 
 const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
 const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;

@@ -322,7 +322,11 @@ impl InstructionDecoder for ZolanaInstructionDecoder {
                 "batch_update_nullifier_tree",
                 payload,
                 |data: BatchUpdateNullifierTreeData| {
-                    vec![field("new_root", short_hex(&data.new_root))]
+                    vec![
+                        field("new_root", short_hex(&data.new_root)),
+                        field("old_root", short_hex(&data.old_root)),
+                        field("zkp_batch_index", data.zkp_batch_index.to_string()),
+                    ]
                 },
                 &["authority", "protocol_config", "tree"],
             ),

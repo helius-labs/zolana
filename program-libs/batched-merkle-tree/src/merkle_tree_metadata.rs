@@ -7,13 +7,8 @@ use zolana_merkle_tree_metadata::{
 };
 
 use crate::{
-    constants::{
-        DEFAULT_BATCH_ROOT_HISTORY_LEN, DEFAULT_BATCH_STATE_TREE_HEIGHT, NUM_BATCHES,
-        TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE,
-    },
     initialize_address_tree::InitAddressTreeAccountsInstructionData,
-    queue_batch_metadata::QueueBatches,
-    BorshDeserialize, BorshSerialize,
+    queue_batch_metadata::QueueBatches, BorshDeserialize, BorshSerialize,
 };
 
 #[repr(C)]
@@ -42,30 +37,6 @@ pub struct BatchedMerkleTreeMetadata {
     pub hashed_pubkey: [u8; 32],
     pub nullifier_next_index: u64,
     pub placeholder_bytes: [u8; 128],
-}
-
-impl Default for BatchedMerkleTreeMetadata {
-    fn default() -> Self {
-        BatchedMerkleTreeMetadata {
-            metadata: MerkleTreeMetadata::default(),
-            next_index: 0,
-            sequence_number: 0,
-            tree_type: TreeType::StateV2 as u64,
-            height: DEFAULT_BATCH_STATE_TREE_HEIGHT,
-            root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-            capacity: 2u64.pow(DEFAULT_BATCH_STATE_TREE_HEIGHT),
-            queue_batches: QueueBatches {
-                currently_processing_batch_index: 0,
-                num_batches: NUM_BATCHES as u64,
-                batch_size: TEST_DEFAULT_BATCH_SIZE,
-                zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
-                ..Default::default()
-            },
-            hashed_pubkey: [0u8; 32],
-            nullifier_next_index: 0,
-            placeholder_bytes: [0u8; 128],
-        }
-    }
 }
 
 impl BatchedMerkleTreeMetadata {

@@ -2,12 +2,13 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::ProoflessOutput;
 
-use crate::data::{Data, DataRecord};
-use crate::error::TransactionError;
-use crate::utxo::Utxo;
-use crate::EncryptedScheme;
-
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use crate::{
+    data::{Data, DataRecord},
+    error::TransactionError,
+    utxo::Utxo,
+    EncryptedScheme,
+};
 
 pub struct ProoflessEncode {
     pub owner_hash: [u8; 32],

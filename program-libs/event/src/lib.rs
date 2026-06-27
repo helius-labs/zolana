@@ -2,10 +2,9 @@ pub mod output_utxo;
 pub mod proofless;
 pub mod tag;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_utxo::OutputUtxo;
 pub use proofless::{encode_output_data, encode_verifiably_encrypted, OutputData, ProoflessOutput};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and
@@ -55,6 +54,10 @@ pub enum EventKind {
     Deposit = 1,
     Transact = 2,
     Merge = 3,
+    /// Address/nullifier-tree batch append. Body is a
+    /// `zolana_merkle_tree_metadata::events::batch::BatchAddressAppendEvent`
+    /// (one cascade event per update), not a [`GeneralEvent`].
+    BatchAddressAppend = 4,
 }
 
 impl EventKind {
@@ -63,14 +66,22 @@ impl EventKind {
             1 => Some(Self::Deposit),
             2 => Some(Self::Transact),
             3 => Some(Self::Merge),
+            4 => Some(Self::BatchAddressAppend),
             _ => None,
         }
     }
 }
 
 pub fn encode_event_instruction(kind: EventKind, event: GeneralEvent) -> Vec<u8> {
+    encode_event_instruction_with(kind, &event)
+}
+
+/// Encode an `EMIT_EVENT` instruction for an event whose body is not a
+/// [`GeneralEvent`] (e.g. a batch append event). Layout mirrors
+/// [`encode_event_instruction`]: `[EMIT_EVENT, kind, borsh(payload)]`.
+pub fn encode_event_instruction_with<T: BorshSerialize>(kind: EventKind, payload: &T) -> Vec<u8> {
     let mut data = vec![tag::EMIT_EVENT, kind as u8];
-    event
+    payload
         .serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
     data

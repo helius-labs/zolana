@@ -7,14 +7,15 @@ use std::sync::Once;
 use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use zolana_client::prover::merge::MergeProver;
 use zolana_client::{
-    spawn_prover, Merge, MergeWitness, ProverClient, Rpc, SpendUtxo, MERGE_INPUTS,
+    prover::merge::MergeProver, spawn_prover, Merge, MergeWitness, ProverClient, Rpc, SpendUtxo,
+    MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
-use zolana_transaction::instructions::transact::signed_transaction::asset_field;
-use zolana_transaction::{Data, OutputUtxo, Utxo};
+use zolana_transaction::{
+    instructions::transact::signed_transaction::asset_field, Data, OutputUtxo, Utxo,
+};
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
 

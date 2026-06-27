@@ -2,10 +2,9 @@ use anyhow::{bail, Result};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::prover::transact::assemble;
 use zolana_client::{
-    create_transfer, CreateTransfer, InputCommitment, ProofCompressed, ProverClient, ProverInputs,
-    Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
+    create_transfer, prover::transact::assemble, CreateTransfer, InputCommitment, ProofCompressed,
+    ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;

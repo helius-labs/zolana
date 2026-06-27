@@ -7,23 +7,25 @@
 //! at an indexer without trial decryption.
 
 use hkdf::Hkdf;
-use p256::elliptic_curve::generic_array::GenericArray;
-use p256::elliptic_curve::hash2curve::FromOkm;
-use p256::{NonZeroScalar, PublicKey as P256PublicKey, Scalar, SecretKey};
-use rand::rngs::OsRng;
-use rand::RngCore;
+use p256::{
+    elliptic_curve::{generic_array::GenericArray, hash2curve::FromOkm},
+    NonZeroScalar, PublicKey as P256PublicKey, Scalar, SecretKey,
+};
+use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use crate::constants::{
-    BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
-    INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
-    INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING, P_CONST_SEC1,
-    SALT_LEN, VIEW_TAG_LEN,
+use crate::{
+    constants::{
+        BLINDING_LEN, INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET,
+        INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+        INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
+        INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
+    },
+    encryption,
+    error::KeypairError,
+    pubkey::P256Pubkey,
 };
-use crate::encryption;
-use crate::error::KeypairError;
-use crate::pubkey::P256Pubkey;
 
 pub type ViewTag = [u8; VIEW_TAG_LEN];
 pub type Salt = [u8; SALT_LEN];

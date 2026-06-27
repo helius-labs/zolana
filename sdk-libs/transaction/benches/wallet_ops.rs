@@ -6,11 +6,11 @@ use std::hint::black_box;
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::serialization::anonymous::{
-    AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode,
-};
-use zolana_transaction::serialization::split::{Split, SplitEncode};
 use zolana_transaction::{
+    serialization::{
+        anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
+        split::{Split, SplitEncode},
+    },
     AssetRegistry, Data, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
 };
 

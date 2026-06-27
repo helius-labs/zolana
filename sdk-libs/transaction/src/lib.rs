@@ -24,12 +24,11 @@ pub use instructions::transact::{
     EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, OutputUtxo,
     ShieldedTransaction,
 };
-pub use serialization::scheme::EncryptedScheme;
-pub use serialization::{DecodeCx, OwnerCx, UtxoSerialization};
+pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
-pub use wallet::asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT};
 pub use wallet::{
+    asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AssetBalance, SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;

@@ -2,13 +2,12 @@ use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
 use zolana_keypair::hash::{hash_field, sha256};
 
-use crate::error::TransactionError;
-use crate::{ExternalData, OutputUtxo};
-
-use super::types::private_tx_hash;
-
-use super::builder::Shape;
-use crate::instructions::types::{InputCommitment, SpendUtxo};
+use super::{builder::Shape, types::private_tx_hash};
+use crate::{
+    error::TransactionError,
+    instructions::types::{InputCommitment, SpendUtxo},
+    ExternalData, OutputUtxo,
+};
 
 pub const BN254_MODULUS_DEC: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";

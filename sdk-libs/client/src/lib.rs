@@ -18,16 +18,16 @@ pub use actions::{
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
-pub use prover::merge::MergeWitness;
-pub use prover::transact::{
-    assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof,
-};
 pub use prover::{
-    canonical_shape, resolve_shape, spawn_prover, Commitments, CompressedCommitments,
-    MergeProofResult, MergeProver, P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts,
-    Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferP256ProofResult, TransferP256Prover, TransferProofResult, TransferProver,
-    TransferSpendInput, UtxoInputs, SUPPORTED_SHAPES,
+    canonical_shape,
+    merge::MergeWitness,
+    resolve_shape, spawn_prover,
+    transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
+    BatchAddressAppendInputs, Commitments, CompressedCommitments, MergeProofResult, MergeProver,
+    P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts, Shape, TransferInput,
+    TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
+    TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput, UtxoInputs,
+    SUPPORTED_SHAPES,
 };
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
@@ -47,8 +47,8 @@ pub use wallet_authority::{
     P256Signature, WalletAuthority,
 };
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
-pub use zolana_transaction::instructions::merge::{Merge, PreparedMerge, MERGE_INPUTS};
-pub use zolana_transaction::instructions::transact::{
-    SignedTransaction, Transaction, WithdrawalTarget,
+pub use zolana_transaction::instructions::{
+    merge::{Merge, PreparedMerge, MERGE_INPUTS},
+    transact::{SignedTransaction, Transaction, WithdrawalTarget},
+    types::{InputCommitment, SpendUtxo},
 };
-pub use zolana_transaction::instructions::types::{InputCommitment, SpendUtxo};

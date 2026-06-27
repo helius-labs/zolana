@@ -2,12 +2,13 @@ use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::viewing_key::random_salt;
+use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
 use zolana_transaction::{
     data::{Data, DataRecord},
-    serialization::split::{Split, SplitBundlePlaintext, SplitEncode},
-    serialization::{DecodeCx, OwnerCx, UtxoSerialization},
+    serialization::{
+        split::{Split, SplitBundlePlaintext, SplitEncode},
+        DecodeCx, OwnerCx, UtxoSerialization,
+    },
     Address, AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
 };
 

@@ -7,9 +7,11 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     data::{Data, DataRecord},
-    serialization::anonymous::AnonymousTransferSenderPlaintext,
-    serialization::confidential::TransferRecipientPlaintext,
-    serialization::split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    serialization::{
+        anonymous::AnonymousTransferSenderPlaintext,
+        confidential::TransferRecipientPlaintext,
+        split::{SplitBundlePlaintext, SplitEncryptedUtxos},
+    },
     TransactionError, SPLIT,
 };
 

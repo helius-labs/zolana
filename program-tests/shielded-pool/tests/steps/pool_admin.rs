@@ -4,13 +4,13 @@ use cucumber::{then, when};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{instruction::CreateProtocolConfig, pda};
+use zolana_interface::{error::ShieldedPoolError, instruction::CreateProtocolConfig, pda};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 
-use crate::common::{assert_custom, assert_pool_error, tree_account_size};
-use crate::ShieldedPoolWorld;
-
-use zolana_interface::error::ShieldedPoolError;
+use crate::{
+    common::{assert_custom, assert_pool_error, tree_account_size},
+    ShieldedPoolWorld,
+};
 
 // === create protocol config ===
 

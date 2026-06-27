@@ -166,7 +166,7 @@ impl SolanaRpc {
         Ok(self.fetch_confirmed_transaction(signature)?.slot)
     }
 
-    fn fetch_confirmed_transaction(
+    pub fn fetch_confirmed_transaction(
         &self,
         signature: &Signature,
     ) -> Result<EncodedConfirmedTransactionWithStatusMeta, ClientError> {

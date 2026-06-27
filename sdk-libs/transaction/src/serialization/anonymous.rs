@@ -5,14 +5,13 @@ use zolana_keypair::{
     P256Pubkey, PublicKey, ViewingKey,
 };
 
+use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
 };
-
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferRecipientPlaintext {

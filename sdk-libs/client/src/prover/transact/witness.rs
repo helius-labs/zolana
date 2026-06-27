@@ -2,17 +2,20 @@ use zolana_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
 use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::builder::inputs_require_p256;
-use zolana_transaction::instructions::transact::SignedTransaction;
+use zolana_transaction::instructions::transact::{builder::inputs_require_p256, SignedTransaction};
 
-use crate::error::ClientError;
-use crate::prover::shape::Shape;
-use crate::prover::transact::eddsa::TransferProver;
-use crate::prover::transact::p256_and_eddsa::{
-    P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput,
+use crate::{
+    error::ClientError,
+    prover::{
+        shape::Shape,
+        transact::{
+            eddsa::TransferProver,
+            p256_and_eddsa::{P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput},
+        },
+        TransferInputs, TransferP256Inputs,
+    },
+    rpc::{MerkleProof, NonInclusionProof},
 };
-use crate::prover::{TransferInputs, TransferP256Inputs};
-use crate::rpc::{MerkleProof, NonInclusionProof};
 
 /// State-inclusion and nullifier-non-inclusion proofs for one real input UTXO.
 #[derive(Clone)]

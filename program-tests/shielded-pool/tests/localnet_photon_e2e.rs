@@ -2,16 +2,22 @@
 //!
 //! Run with `just test-localnet-e2e-photon`.
 
+#[path = "common/nullifier_test_forester.rs"]
+mod nullifier_test_forester;
 #[path = "common/transact.rs"]
 #[allow(dead_code)]
 mod transact_common;
 
 use std::{
+    collections::VecDeque,
+    fs,
+    path::Path,
     thread::sleep,
     time::{Duration, Instant},
 };
 
 use anyhow::anyhow;
+use nullifier_test_forester::{ForesterAuthority, NullifierTestForester};
 use serial_test::serial;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -20,27 +26,40 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::prover::field::{be, right_align_slice};
 use zolana_client::{
+    prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, Rpc, ShieldedTransaction, SolanaRpc,
+    NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
+    ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
     TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
 };
+use zolana_event::OutputData;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
-        CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,
+        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactSolWithdrawal,
+        TransactWithdrawal,
     },
     pda,
-    state::tree_account_size,
+    state::{
+        address_tree_params, tree_account_size, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+    },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::hash::owner_hash;
-use zolana_keypair::pubkey::PublicKey;
-use zolana_keypair::NullifierKey;
-use zolana_program_test::{create_tree_instructions, rpc_state_root, ZolanaProgramTest};
-use zolana_transaction::instructions::transact::private_tx_hash;
-use zolana_transaction::{Data, Utxo, SOL_MINT};
+use zolana_keypair::{
+    hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey, ViewingKey,
+};
+use zolana_program_test::{
+    create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
+};
+use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
+use zolana_transaction::{
+    instructions::transact::private_tx_hash,
+    serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
+    utxo::derive_blinding,
+    AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -50,26 +69,63 @@ use crate::transact_common::{
     set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
 };
 
-use zolana_client::{
-    ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-};
-use zolana_event::OutputData;
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_transaction::serialization::confidential::ConfidentialSenderBundle;
-use zolana_transaction::serialization::{DecodeCx, UtxoSerialization};
-use zolana_transaction::utxo::derive_blinding;
-use zolana_transaction::{AssetRegistry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW};
-
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
+const PHOTON_SNAPSHOT_FIXTURE_DIR_ENV: &str = "ZOLANA_PHOTON_SNAPSHOT_FIXTURE_DIR";
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
 const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
+const LOCALNET_NULLIFIER_ZKP_BATCH_SIZE: u64 = 10;
+const LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT: u64 = 20;
+const LOCALNET_NULLIFIERS_PER_QUEUE_TX: u64 = 2;
 
 type TestResult<T = ()> = anyhow::Result<T>;
+
+#[derive(Clone)]
+struct PhotonSnapshotFixtureTx {
+    signature: Signature,
+    slot: u64,
+    kind: &'static str,
+    order: u64,
+}
+
+#[derive(serde::Serialize)]
+struct PhotonSnapshotFixtureManifest {
+    version: u8,
+    tree: String,
+    seed_deposit_count: u64,
+    queue_tx_count: u64,
+    batch_update_count: u64,
+    nullifier_zkp_batch_size: u64,
+    nullifiers: Vec<String>,
+    transactions: Vec<PhotonSnapshotFixtureManifestTx>,
+}
+
+#[derive(serde::Serialize)]
+struct PhotonSnapshotFixtureManifestTx {
+    signature: String,
+    slot: u64,
+    kind: &'static str,
+    order: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpendRail {
+    P256,
+    Eddsa,
+}
+
+impl SpendRail {
+    fn label(self) -> &'static str {
+        match self {
+            SpendRail::P256 => "p256",
+            SpendRail::Eddsa => "eddsa",
+        }
+    }
+}
 
 #[test]
 #[serial]
@@ -561,6 +617,457 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     Ok(())
 }
 
+#[test]
+#[serial]
+fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> TestResult {
+    restart_localnet();
+    start_prover()?;
+
+    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
+    let indexer_url =
+        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
+    rpc.assert_executable(&program_id)?;
+
+    let payer = Keypair::new();
+    let authority = Keypair::new();
+    let forester_key = Keypair::new();
+    let merge_key = Keypair::new();
+    let tree_key = Keypair::new();
+    let zone_key = Keypair::new();
+    print_signature(
+        "airdrop forester-test payer",
+        &rpc.airdrop(&payer.pubkey(), 20_000_000_000)?,
+    );
+    print_signature(
+        "airdrop forester-test authority",
+        &rpc.airdrop(&authority.pubkey(), 1_000_000_000)?,
+    );
+    print_signature(
+        "airdrop forester-test forester",
+        &rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?,
+    );
+
+    let accounts = smart_account::standard_accounts();
+    for ix in accounts.create_ixs(
+        &payer.pubkey(),
+        StandardSigners {
+            protocol: authority.pubkey(),
+            forester: forester_key.pubkey(),
+            merge: merge_key.pubkey(),
+            tree: tree_key.pubkey(),
+            zone: zone_key.pubkey(),
+        },
+    ) {
+        send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
+    }
+    print_signature(
+        "airdrop forester-test protocol-vault",
+        &rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?,
+    );
+
+    let create_config = CreateProtocolConfig {
+        authority: accounts.protocol_vault,
+        protocol_authority: accounts.protocol_vault.to_bytes().into(),
+        tree_creation_authority: accounts.tree_vault.to_bytes().into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: accounts.forester_vault.to_bytes().into(),
+        zone_creation_authority: accounts.zone_vault.to_bytes().into(),
+        zone_creation_is_permissionless: false,
+        merge_authority: accounts.merge_vault.to_bytes().into(),
+    }
+    .instruction();
+    let create_config = execute_sync_ix(
+        &accounts.protocol_settings,
+        0,
+        &[authority.pubkey()],
+        &[create_config],
+    );
+    let create_config_sig = send_transaction(
+        &mut rpc,
+        &[create_config],
+        &payer.pubkey(),
+        &[&payer, &authority],
+    )?;
+    print_signature("create_protocol_config", &create_config_sig);
+
+    let tree = Keypair::new();
+    let mut create_tree = create_tree_instructions_with_nullifier_params(
+        &rpc,
+        &payer.pubkey(),
+        &accounts.tree_vault,
+        &tree.pubkey(),
+        tree_account_size() as u64,
+        localnet_nullifier_params(),
+    )?;
+    let alloc_tree = create_tree.remove(0);
+    let create_tree = execute_sync_ix(
+        &accounts.tree_settings,
+        0,
+        &[tree_key.pubkey()],
+        &create_tree,
+    );
+    let create_tree_sig = send_transaction(
+        &mut rpc,
+        &[alloc_tree, create_tree],
+        &payer.pubkey(),
+        &[&payer, &tree, &tree_key],
+    )?;
+    print_signature("create_tree_small_nullifier_batch", &create_tree_sig);
+    let tree_pubkey = tree.pubkey();
+    let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
+    let zero = [0u8; 32];
+    let sender = shielded_ed25519_from_solana(&payer)?;
+    let payer_public_key = sender.signing_pubkey();
+    let payer_nullifier_key = sender.nullifier_key.clone();
+    let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
+    let payer_owner_field = sender.owner_hash()?;
+    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+    let sender_address = sender.shielded_address()?;
+    let assets = AssetRegistry::default();
+
+    let queue_tx_count = LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * LOCALNET_NULLIFIER_ZKP_BATCH_SIZE
+        / LOCALNET_NULLIFIERS_PER_QUEUE_TX;
+    let mut queued_nullifiers =
+        Vec::with_capacity((queue_tx_count * LOCALNET_NULLIFIERS_PER_QUEUE_TX) as usize);
+    let mut fixture_transactions =
+        Vec::with_capacity((2 + queue_tx_count + LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT) as usize);
+    let mut spendable_notes = VecDeque::new();
+
+    for deposit_index in 0..2 {
+        let blinding = stress_blinding(deposit_index);
+        let utxo = Utxo {
+            owner: payer_public_key,
+            asset: SOL_MINT,
+            amount: AMOUNT,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
+        let shield_ix = Deposit {
+            tree: tree_pubkey,
+            depositor: payer.pubkey(),
+            spl: None,
+            view_tag: shield_data.view_tag,
+            owner: shield_data.owner,
+            blinding: shield_data.blinding,
+            public_amount: shield_data.public_amount,
+            program_data_hash: shield_data.program_data_hash,
+            program_data: shield_data.program_data,
+            cpi_signer: shield_data.cpi_signer,
+        }
+        .instruction();
+        let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
+        print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
+        let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
+        fixture_transactions.push(PhotonSnapshotFixtureTx {
+            signature: sig,
+            slot: raw_tx.slot,
+            kind: "deposit",
+            order: deposit_index,
+        });
+
+        let note = RealSpendNote::new(utxo, &payer_nullifier_key, &payer_nullifier_pk, &zero)?;
+        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, sig)?;
+        assert_eq!(indexed_deposit.output_slot.output_context.hash, note.hash);
+        spendable_notes.push_back(note);
+    }
+
+    for i in 0..queue_tx_count {
+        let roots = latest_tree_roots(&rpc, &tree_pubkey)?;
+        assert_eq!(
+            roots.nullifier_root_index, 0,
+            "nullifier root should remain unchanged until the forester batch"
+        );
+
+        let first_note = spendable_notes
+            .pop_front()
+            .ok_or_else(|| anyhow!("missing first spendable note for queue tx {i}"))?;
+        let second_note = spendable_notes
+            .pop_front()
+            .ok_or_else(|| anyhow!("missing second spendable note for queue tx {i}"))?;
+        queued_nullifiers.push(first_note.nullifier);
+        queued_nullifiers.push(second_note.nullifier);
+
+        let first_state_proof = wait_for_merkle_proof(&indexer, tree_address, first_note.hash)?;
+        let second_state_proof = wait_for_merkle_proof(&indexer, tree_address, second_note.hash)?;
+        let first_nullifier_proof =
+            wait_for_non_inclusion_proof(&indexer, tree_address, first_note.nullifier)?;
+        let second_nullifier_proof =
+            wait_for_non_inclusion_proof(&indexer, tree_address, second_note.nullifier)?;
+        assert_eq!(
+            first_state_proof.root, roots.utxo_root,
+            "Photon state root must match on-chain before queue tx {i}"
+        );
+        assert_eq!(
+            second_state_proof.root, roots.utxo_root,
+            "Photon state root must match on-chain before queue tx {i}"
+        );
+        assert_eq!(
+            first_nullifier_proof.root, roots.nullifier_root,
+            "Photon nullifier root must match on-chain before queue tx {i}"
+        );
+        assert_eq!(
+            second_nullifier_proof.root, roots.nullifier_root,
+            "Photon nullifier root must match on-chain before queue tx {i}"
+        );
+
+        let total_amount = first_note
+            .utxo
+            .amount
+            .checked_add(second_note.utxo.amount)
+            .ok_or_else(|| anyhow!("queue tx {i} amount overflow"))?;
+        if total_amount <= TRANSFER_AMOUNT {
+            return Err(anyhow!(
+                "queue tx {i} total amount {total_amount} cannot fund transfer amount {TRANSFER_AMOUNT}"
+            ));
+        }
+
+        let wait_tag = payer_public_key.confidential_view_tag()?;
+        let mut tx = ClientTransaction::new(
+            sender_address,
+            vec![
+                SpendUtxo::from_keypair(first_note.utxo.clone(), &sender),
+                SpendUtxo::from_keypair(second_note.utxo.clone(), &sender),
+            ],
+            payer_address,
+        );
+        tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
+        let signed = tx.sign(&sender, &assets)?;
+        let commitments = signed.input_commitments()?;
+        assert_eq!(commitments.len(), 2);
+        assert_eq!(commitments[0].nullifier, first_note.nullifier);
+        assert_eq!(commitments[1].nullifier, second_note.nullifier);
+
+        let assembled = zolana_client::assemble(
+            signed,
+            &[
+                SpendProof {
+                    state: first_state_proof,
+                    nullifier: first_nullifier_proof,
+                },
+                SpendProof {
+                    state: second_state_proof,
+                    nullifier: second_nullifier_proof,
+                },
+            ],
+        )?;
+        let proof = match &assembled.prover_inputs {
+            ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
+            ProverInputs::P256(_) => {
+                return Err(anyhow!(
+                    "expected EdDSA prover inputs for a non-relayed confidential queue tx"
+                ))
+            }
+        };
+        let ix_data = assembled.with_proof(pack_proof(&proof)?);
+
+        let tx_ix = Transact {
+            payer: payer.pubkey(),
+            tree: tree_pubkey,
+            cpi_signer: None,
+            withdrawal: None,
+            data: ix_data,
+        }
+        .instruction();
+        let sig = send_transaction(&mut rpc, &[tx_ix], &payer.pubkey(), &[&payer])?;
+        print_signature(&format!("queue_nullifiers_{i}"), &sig);
+        let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
+        fixture_transactions.push(PhotonSnapshotFixtureTx {
+            signature: sig,
+            slot: raw_tx.slot,
+            kind: "queue",
+            order: i,
+        });
+
+        let indexed = wait_for_indexed_transaction(&indexer, wait_tag, sig)?;
+        assert_eq!(
+            indexed.nullifiers,
+            vec![first_note.nullifier, second_note.nullifier]
+        );
+        assert_eq!(indexed.nullifiers.len(), 2);
+        assert_eq!(indexed.output_slots.len(), 3);
+        assert!(!indexed.proofless);
+        assert!(indexed.tx_viewing_pk.is_some());
+        assert!(indexed.salt.is_some());
+        assert!(
+            !indexed.output_slots[0].payload.is_empty(),
+            "sender bundle should carry encrypted change data"
+        );
+        assert!(
+            indexed.output_slots[1].payload.is_empty(),
+            "SOL change commitment is covered by the sender bundle"
+        );
+        assert!(
+            !indexed.output_slots[2].payload.is_empty(),
+            "recipient output should carry an encrypted UTXO payload"
+        );
+
+        let tx_viewing_pk = indexed
+            .tx_viewing_pk
+            .ok_or_else(|| anyhow!("indexed queue tx missing tx_viewing_pk"))?;
+        let salt = indexed
+            .salt
+            .ok_or_else(|| anyhow!("indexed queue tx missing salt"))?;
+        let first_nullifier = commitments
+            .first()
+            .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
+            .nullifier;
+        let sender_slot = indexed
+            .output_slots
+            .first()
+            .ok_or_else(|| anyhow!("indexed queue tx missing sender slot"))?;
+        let sender_blob = match sender_slot
+            .output_data()
+            .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
+        {
+            OutputData::Encrypted(blob)
+            | OutputData::VerifiablyEncrypted(blob)
+            | OutputData::Plaintext(blob) => blob,
+        };
+        let (_scheme, sender_ciphertext) = sender_blob
+            .split_first()
+            .ok_or_else(|| anyhow!("sender bundle missing scheme byte"))?;
+        let sender_plaintext = ConfidentialSenderBundle::decode(
+            sender_ciphertext,
+            &DecodeCx {
+                viewing_key: &sender.viewing_key,
+                tx_viewing_pk: Some(tx_viewing_pk),
+                salt: Some(salt),
+                slot_index: 0,
+                first_nullifier: Some(first_nullifier),
+            },
+        )?;
+
+        let change_note = Utxo {
+            owner: payer_public_key,
+            asset: SOL_MINT,
+            amount: total_amount - TRANSFER_AMOUNT,
+            blinding: derive_blinding(&sender_plaintext.blinding_seed, 1),
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let recipient_note = Utxo {
+            owner: payer_public_key,
+            asset: SOL_MINT,
+            amount: TRANSFER_AMOUNT,
+            blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let change_note = RealSpendNote::new(
+            change_note,
+            &payer_nullifier_key,
+            &payer_nullifier_pk,
+            &zero,
+        )?;
+        let recipient_note = RealSpendNote::new(
+            recipient_note,
+            &payer_nullifier_key,
+            &payer_nullifier_pk,
+            &zero,
+        )?;
+        assert_eq!(
+            change_note.hash, indexed.output_slots[1].output_context.hash,
+            "decrypted SOL change note should match output commitment"
+        );
+        assert_eq!(
+            recipient_note.hash, indexed.output_slots[2].output_context.hash,
+            "decrypted recipient note should match output commitment"
+        );
+        spendable_notes.push_back(change_note);
+        spendable_notes.push_back(recipient_note);
+    }
+
+    let before_forester = latest_tree_roots(&rpc, &tree_pubkey)?;
+    assert_eq!(
+        before_forester.nullifier_root_index, 0,
+        "queued nullifiers should not update the indexed tree root"
+    );
+
+    let mut forester = NullifierTestForester::default();
+    let mut previous_forester_roots = before_forester;
+    for batch_index in 0..LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT {
+        let forester_sig = forester.run(
+            &mut rpc,
+            ForesterAuthority {
+                signer: &forester_key,
+                settings: accounts.forester_settings,
+                account_index: 0,
+                vault: accounts.forester_vault,
+            },
+            tree_pubkey,
+            &queued_nullifiers,
+        )?;
+        print_signature(
+            &format!("batch_update_nullifier_tree_{batch_index}"),
+            &forester_sig,
+        );
+        let raw_tx = rpc.fetch_confirmed_transaction(&forester_sig)?;
+        fixture_transactions.push(PhotonSnapshotFixtureTx {
+            signature: forester_sig,
+            slot: raw_tx.slot,
+            kind: "batch_update",
+            order: batch_index,
+        });
+
+        let after_forester = latest_tree_roots(&rpc, &tree_pubkey)?;
+        assert_ne!(
+            after_forester.nullifier_root_index, previous_forester_roots.nullifier_root_index,
+            "forester batch {batch_index} should advance the nullifier root"
+        );
+
+        let fresh_nullifier = fe(9_000 + batch_index);
+        let fresh_proof = wait_for(
+            format!("Photon nullifier root after batch {batch_index}"),
+            || {
+                let response =
+                    indexer.get_non_inclusion_proofs(tree_address, vec![fresh_nullifier])?;
+                Ok(response.proofs.into_iter().next().filter(|proof| {
+                    proof.root == after_forester.nullifier_root
+                        && proof.root_index == after_forester.nullifier_root_index
+                }))
+            },
+        )?;
+        assert_eq!(fresh_proof.leaf, fresh_nullifier);
+        previous_forester_roots = after_forester;
+    }
+    assert_eq!(
+        u64::from(previous_forester_roots.nullifier_root_index),
+        LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
+        "all forester batches should advance the nullifier root"
+    );
+
+    for nullifier_index in [0, queued_nullifiers.len() / 2, queued_nullifiers.len() - 1] {
+        wait_for(
+            format!("forested nullifier {nullifier_index} rejected"),
+            || match indexer
+                .get_non_inclusion_proofs(tree_address, vec![queued_nullifiers[nullifier_index]])
+            {
+                Ok(response) if response.proofs.is_empty() => Ok(Some(())),
+                Ok(_) => Ok(None),
+                Err(_) => Ok(Some(())),
+            },
+        )?;
+    }
+    export_photon_snapshot_fixture(
+        &rpc,
+        tree_pubkey,
+        queue_tx_count,
+        &queued_nullifiers,
+        &fixture_transactions,
+    )?;
+
+    println!(
+        "localnet Photon nullifier forester test passed via rpc={rpc_url} indexer={indexer_url}"
+    );
+    Ok(())
+}
+
 struct IndexedSpendInputArgs<'a> {
     utxo: &'a Utxo,
     owner_field: &'a [u8; 32],
@@ -617,6 +1124,159 @@ fn on_chain_roots(
             .get_nullifier_tree_root(0)
             .map_err(|err| anyhow!("get nullifier root: {err:?}"))?,
     ))
+}
+
+struct LatestTreeRoots {
+    utxo_root: [u8; 32],
+    nullifier_root_index: u16,
+    nullifier_root: [u8; 32],
+}
+
+struct RealSpendNote {
+    utxo: Utxo,
+    hash: [u8; 32],
+    nullifier: [u8; 32],
+}
+
+impl RealSpendNote {
+    fn new(
+        utxo: Utxo,
+        nullifier_key: &NullifierKey,
+        nullifier_pk: &[u8; 32],
+        zero: &[u8; 32],
+    ) -> TestResult<Self> {
+        let hash = utxo.hash(nullifier_pk, zero, zero)?;
+        let nullifier = utxo.nullifier(&hash, nullifier_key)?;
+        Ok(Self {
+            utxo,
+            hash,
+            nullifier,
+        })
+    }
+}
+
+fn latest_tree_roots(rpc: &SolanaRpc, tree: &Pubkey) -> TestResult<LatestTreeRoots> {
+    let address = Address::new_from_array(tree.to_bytes());
+    let mut data = rpc
+        .get_account(address)?
+        .ok_or_else(|| anyhow!("tree account not found: {tree}"))?
+        .data;
+    let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+        .map_err(|err| anyhow!("load tree account: {err:?}"))?;
+    let utxo_root_index = account.utxo_tree().current_root_index();
+    let utxo_root = account
+        .get_utxo_tree_root(utxo_root_index)
+        .map_err(|err| anyhow!("get utxo root {utxo_root_index}: {err:?}"))?;
+    let (nullifier_root_index, nullifier_root) = {
+        let nullifier_tree = account.nullifer_tree();
+        let root_index = u16::try_from(nullifier_tree.get_root_index())
+            .map_err(|_| anyhow!("nullifier root index does not fit in u16"))?;
+        let root = nullifier_tree
+            .get_root()
+            .ok_or_else(|| anyhow!("nullifier tree has no current root"))?;
+        (root_index, root)
+    };
+    Ok(LatestTreeRoots {
+        utxo_root,
+        nullifier_root_index,
+        nullifier_root,
+    })
+}
+
+fn localnet_nullifier_params() -> zolana_tree::InitAddressTreeAccountsInstructionData {
+    let mut params = address_tree_params();
+    let zkp_batch_count =
+        ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+    params.input_queue_zkp_batch_size = LOCALNET_NULLIFIER_ZKP_BATCH_SIZE;
+    params.input_queue_batch_size = LOCALNET_NULLIFIER_ZKP_BATCH_SIZE * zkp_batch_count;
+    params
+}
+
+fn create_tree_instructions_with_nullifier_params(
+    rpc: &SolanaRpc,
+    payer: &Pubkey,
+    authority: &Pubkey,
+    tree: &Pubkey,
+    account_size: u64,
+    nullifier_params: zolana_tree::InitAddressTreeAccountsInstructionData,
+) -> TestResult<Vec<solana_instruction::Instruction>> {
+    let rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
+    Ok(vec![
+        system_create_account_ix(
+            payer,
+            tree,
+            rent,
+            account_size,
+            &pda::shielded_pool_program_id(),
+        ),
+        CreateTree {
+            authority: *authority,
+            tree: *tree,
+            owner: *authority,
+        }
+        .instruction_with_nullifier_params(nullifier_params),
+    ])
+}
+
+fn stress_blinding(index: u64) -> [u8; 31] {
+    let mut blinding = [0u8; 31];
+    blinding[0] = 0x51;
+    blinding[23..].copy_from_slice(&index.to_be_bytes());
+    blinding
+}
+
+fn export_photon_snapshot_fixture(
+    rpc: &SolanaRpc,
+    tree: Pubkey,
+    queue_tx_count: u64,
+    queued_nullifiers: &[[u8; 32]],
+    transactions: &[PhotonSnapshotFixtureTx],
+) -> TestResult {
+    let Ok(dir) = std::env::var(PHOTON_SNAPSHOT_FIXTURE_DIR_ENV) else {
+        return Ok(());
+    };
+
+    let dir = Path::new(&dir);
+    let tx_dir = dir.join("transactions");
+    if tx_dir.exists() {
+        fs::remove_dir_all(&tx_dir)?;
+    }
+    fs::create_dir_all(&tx_dir)?;
+
+    for tx in transactions {
+        let raw_tx = rpc.fetch_confirmed_transaction(&tx.signature)?;
+        let path = tx_dir.join(tx.signature.to_string());
+        fs::write(path, serde_json::to_string_pretty(&raw_tx)?)?;
+    }
+
+    let manifest = PhotonSnapshotFixtureManifest {
+        version: 1,
+        tree: tree.to_string(),
+        seed_deposit_count: 2,
+        queue_tx_count,
+        batch_update_count: LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
+        nullifier_zkp_batch_size: LOCALNET_NULLIFIER_ZKP_BATCH_SIZE,
+        nullifiers: queued_nullifiers.iter().map(hex::encode).collect(),
+        transactions: transactions
+            .iter()
+            .map(|tx| PhotonSnapshotFixtureManifestTx {
+                signature: tx.signature.to_string(),
+                slot: tx.slot,
+                kind: tx.kind,
+                order: tx.order,
+            })
+            .collect(),
+    };
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?,
+    )?;
+    println!(
+        "exported Photon snapshot fixture with {} txs to {}",
+        transactions.len(),
+        dir.display()
+    );
+    Ok(())
 }
 
 fn account_lamports(rpc: &SolanaRpc, pubkey: &Pubkey) -> TestResult<u64> {
@@ -690,9 +1350,10 @@ fn wait_for_non_inclusion_proof(
 }
 
 fn wait_for<T>(
-    label: &'static str,
+    label: impl AsRef<str>,
     mut poll: impl FnMut() -> Result<Option<T>, zolana_client::ClientError>,
 ) -> TestResult<T> {
+    let label = label.as_ref();
     let started = Instant::now();
     let mut last_error = None;
     while started.elapsed() < INDEXER_TIMEOUT {
@@ -734,6 +1395,13 @@ fn capture_fixture(rpc: &SolanaRpc, label: &str, signature: &Signature) {
     println!("captured fixture {label}: slot={slot} path={path}");
 }
 
+fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair> {
+    let seed: [u8; 32] = signer.to_bytes()[..32]
+        .try_into()
+        .expect("ed25519 seed is the first 32 bytes");
+    Ok(ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?)
+}
+
 /// Restart a fresh validator + Photon indexer so each test runs against clean
 /// chain state. The protocol config is a global singleton, so tests cannot share
 /// a validator; combined with `#[serial]` this gives every test an isolated
@@ -752,6 +1420,10 @@ fn restart_localnet() {
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
+    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
+    let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
+    let smart_account_account_dir = "/tmp/zolana-photon-smart-account-accounts";
+    smart_account::write_program_config_fixture(smart_account_account_dir);
 
     let status = std::process::Command::new(&cli)
         .current_dir(root)
@@ -769,6 +1441,11 @@ fn restart_localnet() {
             "--sbf-program",
             &program_id,
             &program_so,
+            "--sbf-program",
+            &smart_account_id,
+            &smart_account_so,
+            "--account-dir",
+            smart_account_account_dir,
         ])
         .status()
         .expect("run zolana test-validator");
@@ -786,6 +1463,16 @@ fn restart_localnet() {
 #[test]
 #[serial]
 fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
+    shield_encrypted_transfer_recovered_by_decryption_for(SpendRail::P256)
+}
+
+#[test]
+#[serial]
+fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
+    shield_encrypted_transfer_recovered_by_decryption_for(SpendRail::Eddsa)
+}
+
+fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRail) -> TestResult {
     restart_localnet();
     start_prover()?;
 
@@ -841,8 +1528,14 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let zero = [0u8; 32];
 
     let assets = AssetRegistry::default();
-    let sender = ShieldedKeypair::new()?;
-    let recipient = ShieldedKeypair::new()?;
+    let sender = match expected_rail {
+        SpendRail::P256 => ShieldedKeypair::new()?,
+        SpendRail::Eddsa => shielded_ed25519_from_solana(&payer)?,
+    };
+    let recipient = match expected_rail {
+        SpendRail::P256 => ShieldedKeypair::new()?,
+        SpendRail::Eddsa => shielded_ed25519_from_solana(&Keypair::new())?,
+    };
     let recipient_address = recipient.shielded_address()?;
     let recipient_view_tag = recipient.signing_pubkey().confidential_view_tag()?;
     let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
@@ -897,10 +1590,22 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     }
 
     let assembled = zolana_client::assemble(signed, &spend_proofs)?;
-    let proof = match &assembled.prover_inputs {
-        ProverInputs::P256(inputs) => ProverClient::local().prove_transfer_p256(inputs)?,
-        ProverInputs::Eddsa(_) => {
-            return Err(anyhow!("expected the P256 rail for a keypair input"))
+    let proof = match (&assembled.prover_inputs, expected_rail) {
+        (ProverInputs::P256(inputs), SpendRail::P256) => {
+            ProverClient::local().prove_transfer_p256(inputs)?
+        }
+        (ProverInputs::Eddsa(inputs), SpendRail::Eddsa) => {
+            ProverClient::local().prove_transfer(inputs)?
+        }
+        (ProverInputs::P256(_), SpendRail::Eddsa) => {
+            return Err(anyhow!(
+                "expected EdDSA prover inputs for an Ed25519 sender"
+            ))
+        }
+        (ProverInputs::Eddsa(_), SpendRail::P256) => {
+            return Err(anyhow!(
+                "expected P256 prover inputs for a default P256 sender"
+            ))
         }
     };
     let packed = pack_proof(&proof)?;
@@ -1035,7 +1740,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     wait_for_merkle_proof(&indexer, tree_address, recovered.output_context.hash)?;
 
     println!(
-        "encrypted shield-transfer recovered by decryption via rpc={rpc_url} indexer={indexer_url}"
+        "encrypted shield-transfer rail={} recovered by decryption via rpc={rpc_url} indexer={indexer_url}",
+        expected_rail.label()
     );
     Ok(())
 }

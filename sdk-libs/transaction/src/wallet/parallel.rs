@@ -3,12 +3,11 @@ use std::collections::HashSet;
 use rayon::prelude::*;
 use zolana_keypair::{viewing_key::ViewTag, KeypairError, P256Pubkey, ViewingKey};
 
-use crate::error::TransactionError;
-use crate::instructions::transact::ShieldedTransaction;
-use crate::AssetRegistry;
-
-use super::state::{SyncReport, ViewingKeyEntry, Wallet};
-use super::sync::{SyncCtx, TxIndex};
+use super::{
+    state::{SyncReport, ViewingKeyEntry, Wallet},
+    sync::{SyncCtx, TxIndex},
+};
+use crate::{error::TransactionError, instructions::transact::ShieldedTransaction, AssetRegistry};
 
 type StreamHits = Vec<(u64, Vec<(usize, usize)>)>;
 

@@ -4,12 +4,13 @@
 //! in-circuit from the nullifier secret, so there is no signing step.
 
 use p256::SecretKey;
-use zolana_keypair::viewing_key::random_blinding;
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
 
-use crate::error::TransactionError;
-use crate::instructions::types::{InputCommitment, SpendUtxo};
-use crate::OutputUtxo;
+use crate::{
+    error::TransactionError,
+    instructions::types::{InputCommitment, SpendUtxo},
+    OutputUtxo,
+};
 
 /// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
 /// front; padding fills the rest with dummies.

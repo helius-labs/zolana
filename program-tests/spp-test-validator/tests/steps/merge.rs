@@ -25,16 +25,17 @@ use zolana_interface::{
     pda,
 };
 use zolana_keypair::{random_blinding, SignatureType};
-use zolana_test_utils::test_validator_asserts::{
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+use zolana_test_utils::{
+    smart_account,
+    test_validator_asserts::{
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    },
 };
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merge_service, RegisterData},
     user_record_pda,
 };
-
-use zolana_test_utils::smart_account;
 
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},

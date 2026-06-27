@@ -324,7 +324,7 @@ func runCli() {
 					case *common.MerkleProofSystem:
 						_, err = s.VerifyingKey.WriteTo(&buf)
 					case *common.BatchProofSystem:
-						_, err = s.VerifyingKey.WriteTo(&buf)
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:

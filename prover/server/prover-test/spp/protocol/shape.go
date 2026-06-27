@@ -3,7 +3,7 @@ package protocol
 import "fmt"
 
 const (
-	StateTreeHeight     = 26
+	StateTreeHeight     = 32
 	NullifierTreeHeight = 40
 	CompressedProofSize = 192
 )

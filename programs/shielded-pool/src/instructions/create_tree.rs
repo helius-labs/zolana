@@ -11,8 +11,7 @@ use zolana_tree::TreeAccount;
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
 pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = CreateTreeData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    let (data, nullifier_params) = parse_create_tree_data(data)?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -44,8 +43,32 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
         STATE_HEIGHT as u8,
         data.owner,
         tree_pubkey,
-        address_tree_params(),
+        nullifier_params,
     )
     .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
     Ok(())
+}
+
+fn parse_create_tree_data(
+    mut data: &[u8],
+) -> Result<
+    (
+        CreateTreeData,
+        zolana_tree::InitAddressTreeAccountsInstructionData,
+    ),
+    ProgramError,
+> {
+    let create_tree = CreateTreeData::deserialize(&mut data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    let nullifier_params = if data.is_empty() {
+        address_tree_params()
+    } else {
+        let params = zolana_tree::InitAddressTreeAccountsInstructionData::deserialize(&mut data)
+            .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        if !data.is_empty() {
+            return Err(ShieldedPoolError::InvalidInstructionData.into());
+        }
+        params
+    };
+    Ok((create_tree, nullifier_params))
 }

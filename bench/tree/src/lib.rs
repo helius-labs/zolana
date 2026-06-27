@@ -1,5 +1,9 @@
+use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_batched_merkle_tree::merkle_tree::{
+    BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
+};
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 #[cfg(not(feature = "no-entrypoint"))]
@@ -11,11 +15,20 @@ const HEIGHT: u8 = 26;
 const DISCRIMINATOR: u8 = 7;
 const OWNER: [u8; 32] = [1u8; 32];
 
+const ADDRESS_RH: usize = 120;
+const ADDRESS_NUM_ITERS: usize = 10;
+const ADDRESS_BLOOM: usize = 575384;
+const ADDRESS_ZKP: usize = 120;
+
+type AddressTree<'a> =
+    BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_NUM_ITERS, ADDRESS_BLOOM, ADDRESS_ZKP>;
+
 const OP_INIT: u8 = 0;
 const OP_DESERIALIZE: u8 = 1;
 const OP_APPEND: u8 = 2;
 const OP_NULLIFIER_INSERT: u8 = 3;
 const OP_APPEND_BATCH: u8 = 4;
+const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
 
 pub fn process_instruction(
     _program_id: &Address,
@@ -60,6 +73,16 @@ pub fn process_instruction(
                 .map_err(|_| ProgramError::InvalidAccountData)?;
             bench_append_batch(&mut tree, &values)
         }
+        OP_BATCH_ADDRESS_UPDATE => {
+            let ix = InstructionDataAddressAppendInputs::try_from_slice(
+                data.get(1..).ok_or(ProgramError::InvalidInstructionData)?,
+            )
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+            let address = solana_address::Address::from(pubkey);
+            let mut tree = AddressTree::address_from_bytes(&mut store, &address)
+                .map_err(|_| ProgramError::InvalidAccountData)?;
+            bench_batch_address_update(&mut tree, ix)
+        }
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -91,6 +114,16 @@ fn bench_append(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResul
 #[profile]
 fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
     tree.utxo_tree().append_batch(values.iter());
+    Ok(())
+}
+
+#[profile]
+fn bench_batch_address_update(
+    tree: &mut AddressTree<'_>,
+    ix: InstructionDataAddressAppendInputs,
+) -> ProgramResult {
+    tree.update_tree_from_address_queue(ix)
+        .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
 

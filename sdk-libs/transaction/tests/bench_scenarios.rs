@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
-use zolana_transaction::serialization::split::{Split, SplitEncode};
 use zolana_transaction::{
+    serialization::split::{Split, SplitEncode},
     Address, AssetRegistry, Data, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
     SyncReport, Utxo, UtxoSerialization, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };

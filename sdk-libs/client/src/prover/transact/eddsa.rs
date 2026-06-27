@@ -1,6 +1,5 @@
 use num_bigint::BigUint;
-use zolana_transaction::instructions::transact::private_tx_hash;
-use zolana_transaction::{ExternalData, OutputUtxo};
+use zolana_transaction::{instructions::transact::private_tx_hash, ExternalData, OutputUtxo};
 
 use crate::{
     error::ClientError,

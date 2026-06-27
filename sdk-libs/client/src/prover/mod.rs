@@ -9,7 +9,8 @@ pub mod transact;
 
 pub use client::{spawn_prover, ProverClient, PROVE_PATH, SERVER_ADDRESS};
 pub use inputs::{
-    MergeInputs, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, UtxoInputs,
+    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs, UtxoInputs,
 };
 pub use merge::{MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};

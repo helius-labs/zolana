@@ -1,30 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publishes the transfer proving keys as assets on a GitHub release so the
-# prover server can download them at startup (see common.TransferKeysBaseURL).
+# Publishes Zolana-specific proving keys as assets on a GitHub release so the
+# prover server can download them at startup.
 #
-# The tag MUST match common.TransferKeysReleaseTag in
+# The tag MUST match common.ProvingKeysReleaseTag in
 # prover/server/prover/common/key_downloader.go.
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v6}"
+tag="${1:-transfer-keys-v7}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 
 key_assets=(
     "${keys_dir}/transfer_2_3.key"
     "${keys_dir}/transfer_p256_2_3.key"
+    "${keys_dir}/merge_8_1.key"
+    "${keys_dir}/batch_address-append_40_10.key"
+)
+
+optional_key_assets=(
     "${keys_dir}/transfer_confidential_2_3.key"
     "${keys_dir}/transfer_p256_confidential_2_3.key"
-    "${keys_dir}/merge_8_1.key"
 )
+
+for asset in "${optional_key_assets[@]}"; do
+    if [[ -f "$asset" ]]; then
+        key_assets+=("$asset")
+    fi
+done
 
 for asset in "${key_assets[@]}"; do
     if [[ ! -f "$asset" ]]; then
         echo "Missing asset: $asset" >&2
-        echo "Run scripts/generate_keys_transfer.sh and scripts/generate_keys_merge.sh first." >&2
+        echo "Generate the missing proving key before publishing." >&2
         exit 1
     fi
 done
@@ -48,8 +58,8 @@ else
     echo "Creating release $tag"
     gh release create "$tag" "${assets[@]}" \
         --repo "$repo" \
-        --title "Transfer proving keys ($tag)" \
-        --notes "Groth16 proving keys for the transfer (eddsa) and transfer_p256 circuits. Downloaded by the prover server at startup."
+        --title "Zolana proving keys ($tag)" \
+        --notes "Groth16 proving keys generated from Zolana circuits. Downloaded by the prover server at startup."
 fi
 
 echo "Done. Assets published to https://github.com/${repo}/releases/tag/${tag}"

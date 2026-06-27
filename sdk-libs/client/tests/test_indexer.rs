@@ -8,8 +8,7 @@ use zolana_client::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
 
 fn test_merkle_context() -> MerkleContext {

@@ -2,11 +2,10 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
+    instructions::transact::signed_transaction::asset_field,
     utxo::{zone_program_id_field, UTXO_DOMAIN},
     OutputUtxo,
 };
-
-use zolana_transaction::instructions::transact::signed_transaction::asset_field;
 
 use crate::{
     error::ClientError,
@@ -209,6 +208,26 @@ pub struct MergeInputs {
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub public_input_hash: BigUint,
+}
+
+/// Flat witness for the batch address-append circuit used by the nullifier tree
+/// forester. Mirrors prover/server/prover/nullifier_tree/params.go
+/// BatchAddressAppendParameters.
+#[derive(Debug, Clone)]
+pub struct BatchAddressAppendInputs {
+    pub public_input_hash: BigUint,
+    pub old_root: BigUint,
+    pub new_root: BigUint,
+    pub hashchain_hash: BigUint,
+    pub start_index: u64,
+    pub low_element_values: Vec<BigUint>,
+    pub low_element_indices: Vec<BigUint>,
+    pub low_element_next_values: Vec<BigUint>,
+    pub new_element_values: Vec<BigUint>,
+    pub low_element_proofs: Vec<Vec<BigUint>>,
+    pub new_element_proofs: Vec<Vec<BigUint>>,
+    pub tree_height: u32,
+    pub batch_size: u32,
 }
 
 /// Flat, pre-computed witness for the Solana-only spp_transaction circuit. This

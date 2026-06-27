@@ -21,15 +21,14 @@ const (
 	DefaultRetryDelay    = 5 * time.Second
 	DefaultMaxRetryDelay = 5 * time.Minute
 
-	// TransferKeysRepo and TransferKeysReleaseTag identify the GitHub release
-	// that hosts the transfer proving keys (transfer_<in>_<out>.key for the
-	// eddsa rail, transfer_p256_<in>_<out>.key for the P256 rail) and their
-	// CHECKSUM. They must match the
-	// repo/tag used by scripts/publish_keys_release.sh. The repo is private, so
-	// the keys are fetched with the `gh` CLI (which carries the caller's auth,
-	// or CI's same-repo GITHUB_TOKEN) rather than an unauthenticated URL.
-	TransferKeysRepo       = "helius-labs/zolana"
-	TransferKeysReleaseTag = "transfer-keys-v6"
+	// ProvingKeysRepo and ProvingKeysReleaseTag identify the GitHub release
+	// that hosts Zolana-specific proving keys and their CHECKSUM. They must
+	// match the repo/tag used by scripts/publish_keys_release.sh. The repo is
+	// private, so the keys are fetched with the `gh` CLI (which carries the
+	// caller's auth, or CI's same-repo GITHUB_TOKEN) rather than an
+	// unauthenticated URL.
+	ProvingKeysRepo       = "helius-labs/zolana"
+	ProvingKeysReleaseTag = "transfer-keys-v7"
 )
 
 type DownloadConfig struct {
@@ -412,13 +411,13 @@ func DownloadKey(keyPath string, config *DownloadConfig) error {
 	return nil
 }
 
-// EnsureTransferKeyFromRelease makes a transfer proving key available at
+// EnsureProvingKeyFromRelease makes a Zolana-specific proving key available at
 // keyPath, fetching it (and the release CHECKSUM) from the private GitHub
 // release via the `gh` CLI. `gh` carries the caller's auth locally and CI's
 // same-repo GITHUB_TOKEN, so this works without an unauthenticated URL. If the
 // file is already present and verifies against the local CHECKSUM, no download
 // happens. When autoDownload is false, a missing file is an error.
-func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
+func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 	filename := filepath.Base(keyPath)
 	dir := filepath.Dir(keyPath)
 
@@ -427,7 +426,7 @@ func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
 			if valid, verr := verifyChecksum(keyPath, localChecksum); verr == nil && valid {
 				logging.Logger().Info().
 					Str("file", filename).
-					Msg("Transfer key verified against local CHECKSUM, skipping download")
+					Msg("Proving key verified against local CHECKSUM, skipping download")
 				return nil
 			}
 		}
@@ -446,12 +445,12 @@ func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
 
 	logging.Logger().Info().
 		Str("file", filename).
-		Str("repo", TransferKeysRepo).
-		Str("tag", TransferKeysReleaseTag).
-		Msg("Downloading transfer key from GitHub release via gh")
+		Str("repo", ProvingKeysRepo).
+		Str("tag", ProvingKeysReleaseTag).
+		Msg("Downloading proving key from GitHub release via gh")
 
-	cmd := exec.Command("gh", "release", "download", TransferKeysReleaseTag,
-		"--repo", TransferKeysRepo,
+	cmd := exec.Command("gh", "release", "download", ProvingKeysReleaseTag,
+		"--repo", ProvingKeysRepo,
 		"--pattern", filename,
 		"--pattern", "CHECKSUM",
 		"--dir", dir,
@@ -476,8 +475,14 @@ func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
 
 	logging.Logger().Info().
 		Str("file", filename).
-		Msg("Transfer key downloaded and verified successfully")
+		Msg("Proving key downloaded and verified successfully")
 	return nil
+}
+
+// EnsureTransferKeyFromRelease is kept for call sites and tests that still use
+// the old transfer-specific name.
+func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
+	return EnsureProvingKeyFromRelease(keyPath, autoDownload)
 }
 
 func EnsureKeysExist(keys []string, config *DownloadConfig) error {

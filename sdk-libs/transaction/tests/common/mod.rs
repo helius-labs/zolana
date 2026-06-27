@@ -4,11 +4,11 @@ use zolana_event::OutputData;
 use zolana_keypair::{
     constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,
 };
-use zolana_transaction::serialization::anonymous::{
-    AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
-    AnonymousTransferSenderPlaintext,
-};
 use zolana_transaction::{
+    serialization::anonymous::{
+        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
+        AnonymousTransferSenderPlaintext,
+    },
     Address, AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx,
     ShieldedTransaction, Utxo, UtxoSerialization, SOL_MINT,
 };

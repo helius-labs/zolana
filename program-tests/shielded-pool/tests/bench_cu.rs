@@ -1,7 +1,9 @@
 #![cfg(not(feature = "localnet"))]
 
-use light_program_profiler::mollusk::{register_profiling_syscalls, take_profiling_entries};
-use light_program_profiler::report::{CuBenchmark, ReadmeConfig};
+use light_program_profiler::{
+    mollusk::{register_profiling_syscalls, take_profiling_entries},
+    report::{CuBenchmark, ReadmeConfig},
+};
 use mollusk_solana_account::Account as MolluskAccount;
 use mollusk_solana_instruction::{
     AccountMeta as MolluskAccountMeta, Instruction as MolluskInstruction,
@@ -23,9 +25,12 @@ use zolana_interface::{
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::ShieldedKeypair;
-use zolana_keypair::{hash::hash_field, hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN,
+    hash::{hash_field, owner_hash},
+    pubkey::PublicKey,
+    NullifierKey, ShieldedKeypair,
+};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, Wallet, SOL_MINT};

@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use cucumber::World;
 use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
-    serialization::anonymous::{
-        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
+    serialization::{
+        anonymous::{AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext},
+        plaintext::TransferPlaintextUtxos,
+        split::SplitBundlePlaintext,
     },
-    serialization::plaintext::TransferPlaintextUtxos,
-    serialization::split::SplitBundlePlaintext,
     utxo::Utxo,
     wallet::Wallet,
     ShieldedTransaction,

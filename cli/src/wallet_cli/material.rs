@@ -15,11 +15,13 @@ use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
     EncryptedTransfer, P256Signature, SolanaRpc, WalletAuthority,
 };
-use zolana_keypair::shielded::ShieldedAddress;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext;
-use zolana_transaction::serialization::confidential::TransferSenderPlaintext;
+use zolana_keypair::{
+    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
+    ViewingKey,
+};
+use zolana_transaction::serialization::{
+    anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+};
 
 use super::{
     registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
