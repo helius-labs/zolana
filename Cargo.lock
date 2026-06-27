@@ -8706,12 +8706,25 @@ dependencies = [
 name = "tree-bench"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh 1.6.1",
+ "bytemuck",
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
+ "num-bigint 0.4.6",
  "pinocchio 0.11.2",
+ "rand 0.8.6",
  "solana-account 2.2.1",
+ "solana-address 2.6.1",
  "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
+ "wincode",
+ "zolana-batched-merkle-tree",
+ "zolana-client",
+ "zolana-hasher",
+ "zolana-merkle-tree",
+ "zolana-merkle-tree-metadata",
  "zolana-tree",
 ]
 
@@ -9678,6 +9691,7 @@ dependencies = [
  "borsh 1.6.1",
  "bytemuck",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "num-bigint 0.4.6",
  "num-traits",
  "rand 0.8.6",

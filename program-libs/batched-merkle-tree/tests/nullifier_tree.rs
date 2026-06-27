@@ -368,16 +368,13 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
             let result = account
                 .update_tree_from_address_queue(prep.instruction)
                 .unwrap();
-            match result {
-                Some(event) => {
-                    assert_eq!(event.first_zkp_batch_index as usize, applied);
-                    applied += event.num_update as usize;
-                    assert_eq!(
-                        event.new_root,
-                        *expected_new_roots.get(applied - 1).unwrap()
-                    );
-                }
-                None => {}
+            if let Some(event) = result {
+                assert_eq!(event.first_zkp_batch_index as usize, applied);
+                applied += event.num_update as usize;
+                assert_eq!(
+                    event.new_root,
+                    *expected_new_roots.get(applied - 1).unwrap()
+                );
             }
         }
 

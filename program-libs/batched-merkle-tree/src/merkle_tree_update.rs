@@ -161,6 +161,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     ///    root, and mark the zkp batch inserted.
     /// 4. Clear the applied changelog slot.
     /// 5. Record the new root in the cascade event.
+    #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
     fn apply_cached_changelog_updates(
         &mut self,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
