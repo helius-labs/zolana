@@ -369,7 +369,7 @@ build-spp-keys:
     prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
 
 publish-spp-keys-release:
-    prover/server/scripts/publish_keys_release.sh transfer-keys-v6 "$(pwd)/{{spp-keys-dir}}"
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v7 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     #!/usr/bin/env bash

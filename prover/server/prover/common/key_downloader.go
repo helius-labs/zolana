@@ -28,7 +28,7 @@ const (
 	// caller's auth, or CI's same-repo GITHUB_TOKEN) rather than an
 	// unauthenticated URL.
 	ProvingKeysRepo       = "helius-labs/zolana"
-	ProvingKeysReleaseTag = "transfer-keys-v6"
+	ProvingKeysReleaseTag = "transfer-keys-v7"
 )
 
 type DownloadConfig struct {

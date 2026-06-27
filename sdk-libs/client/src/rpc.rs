@@ -21,7 +21,7 @@ use zolana_transaction::instructions::types::InputCommitment;
 
 use crate::{error::ClientError, prover::transact::witness::SpendProof, prover::ProofCompressed};
 
-pub const STATE_TREE_HEIGHT: usize = 26;
+pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
 /// Slot the indexer assembled a response at. Every indexer response carries one

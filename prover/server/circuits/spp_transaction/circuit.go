@@ -367,7 +367,7 @@ const (
 	// UtxoDomain is the domain tag folded into every UTXO commitment.
 	UtxoDomain = 1
 	// StateTreeHeight is the SPP state (UTXO) merkle tree height.
-	StateTreeHeight = 26
+	StateTreeHeight = 32
 	// NullifierTreeHeight is the SPP nullifier tree height.
 	NullifierTreeHeight = 40
 )

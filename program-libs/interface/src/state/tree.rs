@@ -1,6 +1,6 @@
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
-pub const STATE_HEIGHT: usize = 26;
+pub const STATE_HEIGHT: usize = 32;
 
 // Production batched-address-tree parameters. The bloom filter size and hash
 // count are now compile-time const generics of the tree layout.

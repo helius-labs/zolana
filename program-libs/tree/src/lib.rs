@@ -22,7 +22,7 @@ use zolana_batched_merkle_tree::constants::{
     DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
 };
 
-const POOL_UTXO_HEIGHT: usize = 26;
+const POOL_UTXO_HEIGHT: usize = 32;
 
 const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
 const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;
