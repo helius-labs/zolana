@@ -12,24 +12,17 @@ cd "$(dirname "$0")/.."
 tag="${1:-transfer-keys-v7}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
+split_threshold_bytes=$((1900 * 1024 * 1024))
 
 key_assets=(
     "${keys_dir}/transfer_2_3.key"
     "${keys_dir}/transfer_p256_2_3.key"
-    "${keys_dir}/merge_8_1.key"
-    "${keys_dir}/batch_address-append_40_10.key"
-)
-
-optional_key_assets=(
     "${keys_dir}/transfer_confidential_2_3.key"
     "${keys_dir}/transfer_p256_confidential_2_3.key"
+    "${keys_dir}/merge_8_1.key"
+    "${keys_dir}/batch_address-append_40_10.key"
+    "${keys_dir}/batch_address-append_40_250.key"
 )
-
-for asset in "${optional_key_assets[@]}"; do
-    if [[ -f "$asset" ]]; then
-        key_assets+=("$asset")
-    fi
-done
 
 for asset in "${key_assets[@]}"; do
     if [[ ! -f "$asset" ]]; then
@@ -49,7 +42,24 @@ for asset in "${key_assets[@]}"; do
     shasum -a 256 "$asset" | awk -v name="$(basename "$asset")" '{print $1 "  " name}' >> "$checksum_file"
 done
 
-assets=("${key_assets[@]}" "$checksum_file")
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+assets=()
+for asset in "${key_assets[@]}"; do
+    size="$(/usr/bin/wc -c < "$asset" | tr -d '[:space:]')"
+    if (( size > split_threshold_bytes )); then
+        name="$(basename "$asset")"
+        echo "Splitting large asset ${name} (${size} bytes)"
+        /usr/bin/split -d -a 3 -b "$split_threshold_bytes" "$asset" "${tmp_dir}/${name}.part-"
+        while IFS= read -r part; do
+            assets+=("$part")
+        done < <(/usr/bin/find "$tmp_dir" -type f -name "${name}.part-*" | /usr/bin/sort)
+    else
+        assets+=("$asset")
+    fi
+done
+assets+=("$checksum_file")
 
 if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     echo "Release $tag exists; uploading/overwriting assets"
