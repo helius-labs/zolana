@@ -47,8 +47,8 @@ pub enum BatchedMerkleTreeError {
     BloomFilterNotZeroed,
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
-    #[error("Changelog hash chain index is out of range.")]
-    ChangelogIndexOutOfRange,
+    #[error("Cached tree update index is out of range.")]
+    CachedTreeUpdateIndexOutOfRange,
     #[error("Hash chain for the requested zkp batch is not finalized.")]
     HashChainNotReady,
 }
@@ -68,7 +68,7 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::TreeIsFull => 14310,
             BatchedMerkleTreeError::NonInclusionCheckFailed => 14311,
             BatchedMerkleTreeError::BloomFilterNotZeroed => 14312,
-            BatchedMerkleTreeError::ChangelogIndexOutOfRange => 14313,
+            BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),

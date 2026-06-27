@@ -32,7 +32,7 @@ use crate::{
 pub struct InstructionDataBatchNullifyInputs {
     pub new_root: [u8; 32],
     pub old_root: [u8; 32],
-    pub hash_chain_index: u16,
+    pub zkp_batch_index: u16,
     pub compressed_proof: CompressedProof,
 }
 
@@ -314,9 +314,9 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             hash_chain.header[BOUNDED_LENGTH] = 0;
             hash_chain.header[BOUNDED_CAPACITY] = ZKP as u64;
         }
-        for changelog in layout.changelog.iter_mut() {
-            changelog.header[BOUNDED_LENGTH] = 0;
-            changelog.header[BOUNDED_CAPACITY] = ZKP as u64;
+        for update_vec in layout.cached_tree_updates.iter_mut() {
+            update_vec.header[BOUNDED_LENGTH] = 0;
+            update_vec.header[BOUNDED_CAPACITY] = ZKP as u64;
         }
         let next_index = layout.metadata.next_index;
 
@@ -725,7 +725,7 @@ mod test {
 
     use super::*;
     use crate::merkle_tree::test_utils::get_merkle_tree_account_size_default;
-    use crate::zero_copy::ChangelogEntry;
+    use crate::zero_copy::CachedTreeUpdate;
 
     #[test]
     fn test_from_bytes_invalid_tree_type() {
@@ -765,14 +765,14 @@ mod test {
     }
 
     #[test]
-    fn test_changelog_region_layout_and_size() {
+    fn test_cached_tree_update_region_layout_and_size() {
+        let update_size = core::mem::size_of::<crate::zero_copy::CachedTreeUpdate>();
+        assert_eq!(update_size, 65);
+        // The vec has a [u64; 2] header, so its size is the header plus the
+        // updates rounded up to the 8-byte header alignment.
         assert_eq!(
-            core::mem::size_of::<crate::zero_copy::ChangelogEntry>(),
-            112
-        );
-        assert_eq!(
-            core::mem::size_of::<crate::zero_copy::ChangelogVec<5>>(),
-            16 + 5 * 112
+            core::mem::size_of::<crate::zero_copy::CachedTreeUpdateVec<5>>(),
+            (16 + 5 * update_size).next_multiple_of(8)
         );
 
         const RH: usize = 10;
@@ -780,10 +780,14 @@ mod test {
         const BLOOM: usize = 1000;
         const ZKP: usize = 4;
         let full = get_merkle_tree_account_size::<RH, NI, BLOOM, ZKP>();
-        let changelog_bytes = 2 * core::mem::size_of::<crate::zero_copy::ChangelogVec<ZKP>>();
-        assert_eq!(changelog_bytes, 2 * (16 + ZKP * 112));
+        let cached_tree_update_bytes =
+            2 * core::mem::size_of::<crate::zero_copy::CachedTreeUpdateVec<ZKP>>();
+        assert_eq!(
+            cached_tree_update_bytes,
+            2 * (16 + ZKP * update_size).next_multiple_of(8)
+        );
 
-        let mut old_sized = vec![0u8; full - changelog_bytes];
+        let mut old_sized = vec![0u8; full - cached_tree_update_bytes];
         let account = BatchedMerkleTreeAccount::<RH, NI, BLOOM, ZKP>::from_bytes::<
             STATE_MERKLE_TREE_TYPE_V2,
         >(&mut old_sized, &Pubkey::default());
@@ -794,9 +798,9 @@ mod test {
     }
 
     /// Re-submitting a proof for a zkp batch that has already been applied
-    /// (its StartIndex lies behind the live next index) is a no-op: the proof
-    /// is not re-verified (an invalid proof still returns Ok) and no changelog
-    /// entry is written.
+    /// (its StartIndex lies behind the account next index) is a no-op: the proof
+    /// is not re-verified (an invalid proof still returns Ok) and no cached
+    /// update is written.
     #[test]
     fn test_replay_after_apply_is_noop() {
         let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 4>()];
@@ -837,24 +841,24 @@ mod test {
             .update_tree_from_address_queue(InstructionDataAddressAppendInputs {
                 new_root: [3u8; 32],
                 old_root: [2u8; 32],
-                hash_chain_index: 0,
+                zkp_batch_index: 0,
                 compressed_proof: CompressedProof::default(),
             })
             .unwrap();
 
         assert!(result.is_none());
-        let entry = account
+        let cached_update = account
             .layout
-            .changelog
+            .cached_tree_updates
             .first()
             .and_then(|chain| chain.data.first())
             .unwrap();
-        assert_eq!(entry.occupied, 0);
+        assert_eq!(cached_update.occupied, 0);
     }
 
     /// Re-submitting a proof for a zkp batch that is already cached (an occupied
-    /// entry with the same StartIndex is present) is a no-op: the proof is not
-    /// re-verified and the existing entry is not overwritten.
+    /// slot with the same StartIndex is present) is a no-op: the proof is not
+    /// re-verified and the existing update is not overwritten.
     #[test]
     fn test_replay_while_cached_is_noop() {
         let mut account_data = vec![0u8; get_merkle_tree_account_size::<10, 3, 1000, 4>()];
@@ -872,7 +876,7 @@ mod test {
         )
         .unwrap();
 
-        // Finalize a zkp batch so submit_idx 0 passes the readiness guard.
+        // Finalize a zkp batch so zkp_batch_index 0 passes the readiness guard.
         account
             .queue_batches
             .batches
@@ -880,44 +884,42 @@ mod test {
             .unwrap()
             .num_full_zkp_batches = 2;
 
-        // Cache an entry at zkp batch 0 whose StartIndex equals the live next
-        // index (1 for a freshly initialized address tree). Its old_root does
-        // not match the live root, so apply leaves it in place.
-        let cached = ChangelogEntry {
+        // Cache an update at zkp batch 0 of a freshly initialized address tree.
+        // Re-submitting the same slot is rejected as already cached, so submit
+        // returns false and apply never runs; the update stays in place.
+        let cached = CachedTreeUpdate {
             old_root: [9u8; 32],
             new_root: [8u8; 32],
-            leaves_hash_chain: [7u8; 32],
-            expected_next_index: account.next_index,
             occupied: 1,
         };
         *account
             .layout
-            .changelog
+            .cached_tree_updates
             .get_mut(0)
             .and_then(|chain| chain.data.get_mut(0))
             .unwrap() = cached;
 
         // Re-submit zkp batch 0 with different roots and an invalid proof.
         // The cached StartIndex matches, so submit is skipped (no verification)
-        // and the stored entry is preserved unchanged.
+        // and the stored update is preserved unchanged.
         let result = account
             .update_tree_from_address_queue(InstructionDataAddressAppendInputs {
                 new_root: [3u8; 32],
                 old_root: [2u8; 32],
-                hash_chain_index: 0,
+                zkp_batch_index: 0,
                 compressed_proof: CompressedProof::default(),
             })
             .unwrap();
 
         assert!(result.is_none());
-        let entry = account
+        let cached_update = account
             .layout
-            .changelog
+            .cached_tree_updates
             .first()
             .and_then(|chain| chain.data.first())
             .copied()
             .unwrap();
-        assert_eq!(entry, cached);
+        assert_eq!(cached_update, cached);
     }
 
     /// 1. No batch is ready -> nothing should happen.

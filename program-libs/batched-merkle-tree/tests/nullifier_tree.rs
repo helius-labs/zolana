@@ -126,7 +126,7 @@ impl NullifierForester {
         let instruction_data = InstructionDataAddressAppendInputs {
             new_root,
             old_root,
-            hash_chain_index: zkp_index as u16,
+            zkp_batch_index: zkp_index as u16,
             compressed_proof: CompressedProof {
                 a: compressed.a,
                 b: compressed.b,
@@ -187,7 +187,7 @@ impl NullifierForester {
             let instruction = InstructionDataAddressAppendInputs {
                 new_root,
                 old_root,
-                hash_chain_index: zkp_index as u16,
+                zkp_batch_index: zkp_index as u16,
                 compressed_proof: CompressedProof {
                     a: compressed.a,
                     b: compressed.b,
@@ -598,7 +598,7 @@ fn nullifier_tree_submit_index_errors() {
     let dummy = InstructionDataAddressAppendInputs {
         new_root: [0u8; 32],
         old_root: [0u8; 32],
-        hash_chain_index: 0,
+        zkp_batch_index: 0,
         compressed_proof: CompressedProof {
             a: [0u8; 32],
             b: [0u8; 64],
@@ -607,17 +607,17 @@ fn nullifier_tree_submit_index_errors() {
     };
 
     let mut out_of_range = dummy;
-    out_of_range.hash_chain_index = ZKP as u16;
+    out_of_range.zkp_batch_index = ZKP as u16;
     let mut account = load_nullifier_tree(&mut account_data, &pubkey);
     assert_eq!(
         account
             .update_tree_from_address_queue(out_of_range)
             .unwrap_err(),
-        BatchedMerkleTreeError::ChangelogIndexOutOfRange
+        BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange
     );
 
     let mut not_ready = dummy;
-    not_ready.hash_chain_index = 1;
+    not_ready.zkp_batch_index = 1;
     let mut account = load_nullifier_tree(&mut account_data, &pubkey);
     assert_eq!(
         account

@@ -16,7 +16,7 @@ use zolana_batched_merkle_tree::{
         get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
     },
     verify::CompressedProof,
-    zero_copy::{ChangelogEntry, TreeAccountLayout},
+    zero_copy::{CachedTreeUpdate, TreeAccountLayout},
 };
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
@@ -192,7 +192,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         "reference root must match the live tree before building updates"
     );
 
-    let mut entries: Vec<ChangelogEntry> = Vec::with_capacity(num_batches);
+    let mut cached_updates: Vec<CachedTreeUpdate> = Vec::with_capacity(num_batches);
     let mut index0_ix: Option<InstructionDataAddressAppendInputs> = None;
     for i in 0..num_batches {
         let next_index = base_next_index + (i * zkp) as u64;
@@ -217,7 +217,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             index0_ix = Some(InstructionDataAddressAppendInputs {
                 new_root,
                 old_root,
-                hash_chain_index: 0,
+                zkp_batch_index: 0,
                 compressed_proof: CompressedProof {
                     a: compressed.a,
                     b: compressed.b,
@@ -228,11 +228,9 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         } else {
             append_reference_batch(&mut reference, batch_values)
         };
-        entries.push(ChangelogEntry {
+        cached_updates.push(CachedTreeUpdate {
             old_root,
             new_root,
-            leaves_hash_chain,
-            expected_next_index: next_index,
             occupied: 1,
         });
     }
@@ -244,10 +242,10 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             ADDRESS_BLOOM,
             ADDRESS_ZKP,
         > = wincode::deserialize_mut(&mut account_data).unwrap();
-        let changelog = layout.changelog.get_mut(0).unwrap();
+        let update_vec = layout.cached_tree_updates.get_mut(0).unwrap();
         for i in 1..num_batches {
-            let entry = *entries.get(i).unwrap();
-            *changelog.data.get_mut(i).unwrap() = entry;
+            let cached_update = *cached_updates.get(i).unwrap();
+            *update_vec.data.get_mut(i).unwrap() = cached_update;
         }
     }
 
@@ -358,7 +356,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached changelog entries in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
+            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),
