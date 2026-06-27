@@ -20,9 +20,8 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
-use zolana_interface::{
-    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
-    pda,
+use zolana_interface::instruction::{
+    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
 };
 use zolana_keypair::{random_blinding, SignatureType};
 use zolana_test_utils::{
@@ -33,7 +32,7 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
-    instruction::{register, set_merge_service, RegisterData},
+    instruction::{register, set_merge_authority, RegisterData},
     user_record_pda,
 };
 
@@ -53,7 +52,7 @@ impl LifecycleWorld {
     /// Register `name` on the user-registry under a fresh Solana keypair and opt the
     /// record into the merge service. Returns the registering Solana keypair so the
     /// merge step can derive the `user_record` PDA the program reads. `enable_merge`
-    /// gates the `set_merge_service` opt-in so the disabled path can be exercised.
+    /// gates the `set_merge_authority` opt-in so the disabled path can be exercised.
     pub(crate) fn register_merge_owner(
         &mut self,
         name: &str,
@@ -92,18 +91,29 @@ impl LifecycleWorld {
         let register_ix = register(user_record, owner.pubkey(), register_data);
         send_transaction(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
 
-        if enable_merge {
-            let enable_ix = set_merge_service(user_record, owner.pubkey(), true);
-            send_transaction(&mut self.rpc, &[enable_ix], &owner.pubkey(), &[&owner])?;
-        }
+        // Authorize the merge: the program checks the merge signer (the merge
+        // service smart-account vault that signs `merge_transact`) against the
+        // record's `merge_authority`. Opting in sets it to that vault; the disabled
+        // path leaves it `None`, which the program rejects with `MergeAuthorityUnset`.
+        let authority = if enable_merge {
+            Some(self.merge_vault.to_bytes())
+        } else {
+            None
+        };
+        let set_authority_ix = set_merge_authority(user_record, owner.pubkey(), authority);
+        send_transaction(
+            &mut self.rpc,
+            &[set_authority_ix],
+            &owner.pubkey(),
+            &[&owner],
+        )?;
         Ok(owner)
     }
 
     /// Build, prove, and submit a merge of `count` of `name`'s spendable `asset`
     /// UTXOs into one consolidated output, run by the configured merge authority for
-    /// the registered, merge-service-enabled owner `owner_solana`. Returns the
-    /// transaction send result so the caller can assert success or the
-    /// `MergeServiceDisabled` failure.
+    /// the registered owner `owner_solana`. Returns the transaction send result so
+    /// the caller can assert success or the `MergeAuthorityUnset` failure.
     pub(crate) fn merge(
         &mut self,
         name: &str,
@@ -217,7 +227,6 @@ impl LifecycleWorld {
 
         let merge_ix = MergeTransact {
             tree: self.tree,
-            protocol_config: pda::protocol_config(),
             payer: self.merge_vault,
             user_record: user_record_pda(&owner_solana.pubkey()).0,
             data,
@@ -316,8 +325,8 @@ impl LifecycleWorld {
         Ok(())
     }
 
-    /// Attempt a merge expecting it to fail with `MergeServiceDisabled`; the owner is
-    /// registered but never opted into the merge service.
+    /// Attempt a merge expecting it to fail with `MergeAuthorityUnset`; the owner is
+    /// registered but never set a merge authority.
     pub(crate) fn merge_expect_disabled(
         &mut self,
         name: &str,
@@ -330,16 +339,16 @@ impl LifecycleWorld {
                 "merge unexpectedly succeeded for a disabled service"
             )),
             Err(error) => {
-                assert_rpc_custom_error(&error, MERGE_SERVICE_DISABLED);
+                assert_rpc_custom_error(&error, MERGE_AUTHORITY_UNSET);
                 Ok(())
             }
         }
     }
 }
 
-/// Custom program error code for an owner that has not enabled the merge service
-/// (`ShieldedPoolError::MergeServiceDisabled`).
-const MERGE_SERVICE_DISABLED: u32 = 7017;
+/// Custom program error code for an owner that has not set a merge authority
+/// (`ShieldedPoolError::MergeAuthorityUnset`).
+const MERGE_AUTHORITY_UNSET: u32 = 7017;
 
 /// Assert a transaction failed with the given custom program error, by code (e.g.
 /// `7017`) or its hex form (e.g. `0x1b69`), as the validator surfaces it.
@@ -391,7 +400,7 @@ fn merge_service_cannot_consolidate(world: &mut LifecycleWorld, count: i64, name
     let owner = merge_owner(world, &name);
     world
         .merge_expect_disabled(&name, &owner, SOL_MINT, count as usize)
-        .expect("merge rejected with MergeServiceDisabled");
+        .expect("merge rejected with MergeAuthorityUnset");
 }
 
 #[then(expr = "{word} holds one consolidated SOL UTXO")]

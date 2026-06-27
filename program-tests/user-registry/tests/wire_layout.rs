@@ -5,16 +5,20 @@ use zolana_user_registry_interface::{
     SyncDelegateEntry, UserRecord,
 };
 
-fn sample(sync_delegate: Option<[u8; 32]>, entries: Vec<SyncDelegateEntry>) -> UserRecord {
+fn sample(
+    sync_delegate: Option<[u8; 32]>,
+    entries: Vec<SyncDelegateEntry>,
+    merge_authority: Option<[u8; 32]>,
+) -> UserRecord {
     UserRecord {
-        owner: [7u8; 32],
+        owner: [7u8; 32].into(),
         bump: 251,
         owner_p256: Some([2u8; 33]),
         nullifier_pubkey: [9u8; 32],
         viewing_pubkey: [3u8; 33],
         sync_delegate,
         entries,
-        merge_service: false,
+        merge_authority: merge_authority.map(Into::into),
     }
 }
 
@@ -28,6 +32,7 @@ fn record_byte_layout_is_locked() {
             viewing_pubkey: [4u8; 33],
             created_at: 42,
         }],
+        Some([8u8; 32]),
     );
     let body = to_vec(&record).unwrap();
 
@@ -45,7 +50,8 @@ fn record_byte_layout_is_locked() {
     expected.extend_from_slice(&[2u8; 33]);
     expected.extend_from_slice(&[4u8; 33]);
     expected.extend_from_slice(&42i64.to_le_bytes());
-    expected.push(0);
+    expected.push(1);
+    expected.extend_from_slice(&[8u8; 32]);
     assert_eq!(body, expected);
 
     assert_eq!(
@@ -56,7 +62,7 @@ fn record_byte_layout_is_locked() {
 
 #[test]
 fn from_account_data_round_trips_with_trailing_padding() {
-    let record = sample(None, Vec::new());
+    let record = sample(None, Vec::new(), None);
     let body = to_vec(&record).unwrap();
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend_from_slice(&body);
@@ -70,7 +76,7 @@ fn from_account_data_round_trips_with_trailing_padding() {
 #[test]
 fn from_account_data_rejects_bad_discriminator() {
     assert!(UserRecord::try_from_account_data(&[]).is_err());
-    let record = sample(None, Vec::new());
+    let record = sample(None, Vec::new(), None);
     let mut account_data = vec![0u8];
     account_data.extend_from_slice(&to_vec(&record).unwrap());
     assert!(UserRecord::try_from_account_data(&account_data).is_err());
@@ -109,9 +115,9 @@ fn sender_viewing_pubkey_active_delegate_and_after_revoke() {
             created_at: 2,
         },
     ];
-    let active = sample(Some([5u8; 32]), entries.clone());
+    let active = sample(Some([5u8; 32]), entries.clone(), None);
     assert_eq!(active.sender_viewing_pubkey(), [11u8; 33]);
 
-    let revoked = sample(None, entries);
+    let revoked = sample(None, entries, None);
     assert_eq!(revoked.sender_viewing_pubkey(), [3u8; 33]);
 }

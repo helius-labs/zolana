@@ -2,7 +2,6 @@
 
 use cucumber::{then, when};
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{error::ShieldedPoolError, instruction::CreateProtocolConfig, pda};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
@@ -30,7 +29,7 @@ fn assert_config_no_merge(world: &mut ShieldedPoolWorld) {
     let config = world.protocol_config.expect("config created");
     let authority = world.authority().pubkey();
     let rpc = world.rpc_ref();
-    litesvm_assert_protocol_config(rpc, &config, &authority, &authority.to_bytes());
+    litesvm_assert_protocol_config(rpc, &config, &authority);
 }
 
 #[then(expr = "creating the protocol config again is rejected as invalid")]
@@ -68,45 +67,6 @@ fn create_config_prefunded(world: &mut ShieldedPoolWorld) {
     world.protocol_config = Some(created);
 }
 
-#[when(expr = "the authority creates the protocol config with one merge authority")]
-fn create_config_with_merge(world: &mut ShieldedPoolWorld) {
-    let authority = Keypair::new();
-    let merge_a = Pubkey::new_unique().to_bytes();
-    let config = world
-        .rpc()
-        .create_protocol_config_with_merge_authority(&authority, merge_a)
-        .expect("create_protocol_config");
-    world.authority = Some(authority);
-    world.protocol_config = Some(config);
-    world.merge_authority = Some(merge_a);
-}
-
-#[then(expr = "the protocol config records that merge authority")]
-fn assert_config_one_merge(world: &mut ShieldedPoolWorld) {
-    let config = world.protocol_config.expect("config created");
-    let merge = world.merge_authority.expect("merge authority created");
-    let authority = world.authority().pubkey();
-    let rpc = world.rpc_ref();
-    litesvm_assert_protocol_config(rpc, &config, &authority, &merge);
-}
-
-#[when(expr = "the authority rotates to a new authority with a new merge authority")]
-fn update_config_with_merge(world: &mut ShieldedPoolWorld) {
-    let next = Keypair::new();
-    let merge_b = Pubkey::new_unique().to_bytes();
-    world
-        .rpc()
-        .airdrop(&next.pubkey(), 1_000_000_000)
-        .expect("fund");
-    let authority = world.authority().insecure_clone();
-    world
-        .rpc()
-        .update_protocol_config_with_merge_authority(&authority, &next, merge_b)
-        .expect("update_protocol_config");
-    world.authority = Some(next);
-    world.merge_authority = Some(merge_b);
-}
-
 #[when(expr = "a signer creates a protocol config naming a different authority")]
 fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
     let signer = Keypair::new();
@@ -123,7 +83,6 @@ fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
         forester_authority: named.into(),
         zone_creation_authority: named.into(),
         zone_creation_is_permissionless: false,
-        merge_authority: named.into(),
     }
     .instruction();
     let err = world

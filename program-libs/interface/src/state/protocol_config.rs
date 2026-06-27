@@ -12,7 +12,6 @@ pub struct ProtocolConfig {
     pub tree_creation_authority: Address,
     pub forester_authority: Address,
     pub zone_creation_authority: Address,
-    pub merge_authority: Address,
     pub tree_creation_is_permissionless: u8,
     pub zone_creation_is_permissionless: u8,
 }
@@ -50,12 +49,6 @@ impl ProtocolConfig {
             .ok_or(InterfaceError::Unauthorized)
     }
 
-    pub fn check_merge_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
-        address_eq(&self.merge_authority, authority)
-            .then_some(())
-            .ok_or(InterfaceError::Unauthorized)
-    }
-
     pub fn allows_permissionless_tree_creation(&self) -> bool {
         self.tree_creation_is_permissionless != 0
     }
@@ -65,5 +58,5 @@ impl ProtocolConfig {
     }
 }
 
-const _: () = assert!(ProtocolConfig::SIZE == 163);
+const _: () = assert!(ProtocolConfig::SIZE == 131);
 const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 1);

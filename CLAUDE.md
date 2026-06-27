@@ -100,6 +100,31 @@ Program tests that load real SBF binaries need the local builds:
 just build-programs
 ```
 
+### Per-clone port isolation (`ZOLANA_PORT_OFFSET`)
+
+Localnet/prover-backed tests bind fixed ports (RPC 8899, photon 8784, prover
+3001), so two clones running them at once contend. To isolate a clone, set a
+single offset in a local `.env` (gitignored, auto-loaded by `just` via `set
+dotenv-load`); the justfile shifts every service port by it and derives the
+matching URLs:
+
+```bash
+cp .env.example .env        # then set e.g. ZOLANA_PORT_OFFSET=100
+```
+
+Offset 100 -> RPC 8999, photon 8884, prover 3101. Use 0 / 100 / 200 / ... per
+clone (stay below ~900). The justfile exports `ZOLANA_PROVER_URL`, and the
+tests read `ZOLANA_LOCALNET_URL` / `ZOLANA_INDEXER_URL` / `ZOLANA_PROVER_URL`,
+so the offset flows into every `just test-*` recipe. Individual
+`ZOLANA_LOCALNET_RPC_PORT` / `ZOLANA_LOCALNET_PHOTON_PORT` /
+`ZOLANA_LOCALNET_PROVER_PORT` (and the URL vars) still override the derived
+value when set explicitly.
+
+`ZOLANA_PROVER_URL` is the single source of truth for the prover: the client
+connects there and `spawn_prover()` starts the spawned server on that URL's
+port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
+-- export the vars yourself (`set -a; source .env; set +a`) or use `direnv`.
+
 ## Code Style
 
 - Keep protocol math in one canonical implementation and reuse it from tests.

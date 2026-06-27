@@ -64,7 +64,6 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         forester_authority: authority_bytes.into(),
         zone_creation_authority: authority_bytes.into(),
         zone_creation_is_permissionless: false,
-        merge_authority: authority_bytes.into(),
     }
     .instruction();
     let create_config_tx = send_indexed(

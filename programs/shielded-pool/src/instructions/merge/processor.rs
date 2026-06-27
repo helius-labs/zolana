@@ -1,4 +1,5 @@
 use pinocchio::{
+    address::address_eq,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -19,9 +20,7 @@ use super::{
     event::{build_merge_event, MergeTreeWrite},
     verify::{pk_field, MergeProof, MergeProofInputs},
 };
-use crate::instructions::{
-    event::emit_general_event, protocol_config::loader::load_protocol_config,
-};
+use crate::instructions::event::emit_general_event;
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -39,16 +38,19 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let merge_accounts = MergeTransactAccounts::validate_and_parse(&crate::ID, accounts)?;
 
-    // Single merge authority: only the configured service may run this for an
-    // opted-in user.
-    {
-        let config = load_protocol_config(merge_accounts.protocol_config)?;
-        config
-            .check_merge_authority(merge_accounts.payer.address())
-            .map_err(ShieldedPoolError::from)?;
+    let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
+
+    // Per-user merge authorization: the record must opt in (Some) and the
+    // configured authority must be the payer signer running this merge.
+    match pk_fields.merge_authority {
+        None => return Err(ShieldedPoolError::MergeAuthorityUnset.into()),
+        Some(authority) => {
+            if !address_eq(&authority, merge_accounts.payer.address()) {
+                return Err(ShieldedPoolError::UnauthorizedCaller.into());
+            }
+        }
     }
 
-    let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
     let signing_pk_field = pk_fields.signing_pk_field;
     let viewing_pk_field = pk_field(&pk_fields.viewing)?;
     // Owner-indexing view tag for the merged output: the owner signing pubkey (the

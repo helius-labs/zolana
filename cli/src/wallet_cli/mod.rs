@@ -26,7 +26,7 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
         WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
         WalletCommand::Sync(opts) => sync::run_sync(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
-        WalletCommand::MergeService(opts) => registry::run_merge_service(opts),
+        WalletCommand::MergeAuthority(opts) => registry::run_merge_authority(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),
         WalletCommand::Transfer(opts) => transaction::run_transfer(opts),
         WalletCommand::Withdraw(opts) => withdraw::run_withdraw(opts),

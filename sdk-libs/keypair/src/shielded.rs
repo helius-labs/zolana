@@ -175,13 +175,8 @@ impl ShieldedKeypair {
             .get_recipient_shared_view_tag(counterparty, i)
     }
 
-    pub fn get_merge_view_tag(
-        &self,
-        merge_authority_pubkey: &[u8],
-        merge_count: u64,
-    ) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key
-            .get_merge_view_tag(merge_authority_pubkey, merge_count)
+    pub fn get_merge_view_tag(&self, merge_count: u64) -> Result<[u8; 32], KeypairError> {
+        self.viewing_key.get_merge_view_tag(merge_count)
     }
 
     pub fn recipient_bootstrap_view_tag(&self) -> [u8; 32] {

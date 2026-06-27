@@ -16,13 +16,13 @@ fn entry_serializes_delegate_before_keys() {
 
 #[test]
 fn space_for_empty_entries() {
-    assert_eq!(UserRecord::space_for(0), 171);
+    assert_eq!(UserRecord::space_for(0), 203);
 }
 
 #[test]
 fn space_for_covers_max_serialized_size() {
     let record = UserRecord {
-        owner: [7u8; 32],
+        owner: [7u8; 32].into(),
         bump: 254,
         owner_p256: Some([2u8; 33]),
         nullifier_pubkey: [9u8; 32],
@@ -37,7 +37,7 @@ fn space_for_covers_max_serialized_size() {
             };
             3
         ],
-        merge_service: true,
+        merge_authority: Some([6u8; 32].into()),
     };
     let body = to_vec(&record).unwrap();
     assert_eq!(
@@ -49,7 +49,7 @@ fn space_for_covers_max_serialized_size() {
 #[test]
 fn sender_viewing_pubkey_uses_active_sync_delegate_entry() {
     let record = UserRecord {
-        owner: [0u8; 32],
+        owner: [0u8; 32].into(),
         bump: 255,
         owner_p256: None,
         nullifier_pubkey: [1u8; 32],
@@ -61,7 +61,7 @@ fn sender_viewing_pubkey_uses_active_sync_delegate_entry() {
             viewing_pubkey: [4u8; 33],
             created_at: 0,
         }],
-        merge_service: false,
+        merge_authority: None,
     };
     assert_eq!(record.sender_viewing_pubkey(), [4u8; 33]);
 }
@@ -69,7 +69,7 @@ fn sender_viewing_pubkey_uses_active_sync_delegate_entry() {
 #[test]
 fn sender_viewing_pubkey_falls_back_after_revoke() {
     let record = UserRecord {
-        owner: [0u8; 32],
+        owner: [0u8; 32].into(),
         bump: 255,
         owner_p256: None,
         nullifier_pubkey: [1u8; 32],
@@ -81,7 +81,7 @@ fn sender_viewing_pubkey_falls_back_after_revoke() {
             viewing_pubkey: [4u8; 33],
             created_at: 0,
         }],
-        merge_service: false,
+        merge_authority: None,
     };
     assert_eq!(record.sender_viewing_pubkey(), [2u8; 33]);
 }

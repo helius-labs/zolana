@@ -137,7 +137,6 @@ impl LifecycleWorld {
             forester_authority: accounts.forester_vault.to_bytes().into(),
             zone_creation_authority: accounts.zone_vault.to_bytes().into(),
             zone_creation_is_permissionless: false,
-            merge_authority: accounts.merge_vault.to_bytes().into(),
         }
         .instruction();
         let create_config_sync = execute_sync_ix(

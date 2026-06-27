@@ -14,13 +14,6 @@ Feature: Shielded pool admin
     And the authority creates the protocol config on the pre-funded address
     Then the protocol config has the authority
 
-  Scenario: Protocol config persists the merge authority across rotation
-    Given a booted shielded pool
-    When the authority creates the protocol config with one merge authority
-    Then the protocol config records that merge authority
-    When the authority rotates to a new authority with a new merge authority
-    Then the protocol config records that merge authority
-
   Scenario: Creating the protocol config rejects a mismatched authority
     Given a booted shielded pool
     When a signer creates a protocol config naming a different authority

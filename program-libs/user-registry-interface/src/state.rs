@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use solana_pubkey::Pubkey as Address;
 
 pub const P256_PUBKEY_LEN: usize = 33;
 pub const NULLIFIER_PUBKEY_LEN: usize = 32;
@@ -18,16 +19,17 @@ impl SyncDelegateEntry {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct UserRecord {
-    pub owner: [u8; 32],
+    pub owner: Address,
     pub bump: u8,
     pub owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
     pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
     pub sync_delegate: Option<[u8; 32]>,
     pub entries: Vec<SyncDelegateEntry>,
-    /// Per-user opt-in: when true a whitelisted merge service may run
-    /// `merge_transact` for this owner (see shielded-pool spec).
-    pub merge_service: bool,
+    /// Per-user merge authority: `None` disables merging for this owner;
+    /// `Some(addr)` is the address that must sign `merge_transact` for this
+    /// owner (see shielded-pool spec).
+    pub merge_authority: Option<Address>,
 }
 
 impl UserRecord {
@@ -44,7 +46,7 @@ impl UserRecord {
             + (1 + 32)
             + 4
             + num_entries * SyncDelegateEntry::SERIALIZED_LEN
-            + 1
+            + (1 + 32) // merge_authority Option<Address>
     }
 
     pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {

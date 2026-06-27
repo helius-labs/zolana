@@ -52,7 +52,7 @@ fn parse_user_record_account(
     account: &solana_account::Account,
 ) -> Result<UserRecord, ClientError> {
     let record = decode_user_record_account(account)?;
-    if record.owner != owner.to_bytes() {
+    if record.owner.to_bytes() != owner.to_bytes() {
         return Err(ClientError::Rpc(format!(
             "user registry record {record_pda} stores a different owner than {owner}"
         )));
@@ -163,14 +163,14 @@ mod tests {
 
     fn user_record(owner: Pubkey, bump: u8) -> UserRecord {
         UserRecord {
-            owner: owner.to_bytes(),
+            owner: owner.to_bytes().into(),
             bump,
             owner_p256: Some([2u8; 33]),
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
             sync_delegate: None,
             entries: Vec::new(),
-            merge_service: false,
+            merge_authority: None,
         }
     }
 
@@ -186,14 +186,14 @@ mod tests {
 
     fn registered_record(owner: Pubkey, bump: u8, keypair: &ShieldedKeypair) -> UserRecord {
         UserRecord {
-            owner: owner.to_bytes(),
+            owner: owner.to_bytes().into(),
             bump,
             owner_p256: Some(*keypair.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_service: false,
+            merge_authority: None,
         }
     }
 
@@ -290,14 +290,14 @@ mod tests {
         let owner = owner_keypair.pubkey();
         let (pda, bump) = user_record_pda(&owner);
         let record = UserRecord {
-            owner: owner.to_bytes(),
+            owner: owner.to_bytes().into(),
             bump,
             owner_p256: None,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_service: false,
+            merge_authority: None,
         };
         let rpc = MockRpc {
             account: Some((
@@ -370,7 +370,7 @@ mod tests {
         };
         account.data.extend_from_slice(
             &to_vec(&UserRecord {
-                owner: [1u8; 32],
+                owner: [1u8; 32].into(),
                 bump: 255,
                 owner_p256: None,
                 nullifier_pubkey: [2u8; 32],
@@ -382,7 +382,7 @@ mod tests {
                     viewing_pubkey: [6u8; 33],
                     created_at: 1,
                 }],
-                merge_service: false,
+                merge_authority: None,
             })
             .expect("serialize user record"),
         );

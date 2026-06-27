@@ -20,6 +20,32 @@ pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
 
+/// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
+/// the fallback when a custom [`server_address`] has no parseable port.
+const DEFAULT_PROVER_PORT: u16 = 3001;
+
+/// Address the local prover client connects to and that [`spawn_prover`] starts
+/// the server on. Defaults to [`SERVER_ADDRESS`]; set `ZOLANA_PROVER_URL` per
+/// local clone to avoid port contention between concurrent checkouts.
+pub fn server_address() -> String {
+    match env::var("ZOLANA_PROVER_URL") {
+        Ok(url) if !url.trim().is_empty() => url.trim().to_string(),
+        _ => SERVER_ADDRESS.to_string(),
+    }
+}
+
+/// Extract the TCP port from a prover address so [`spawn_prover`] starts the
+/// server on the same port the client will connect to. Falls back to
+/// [`DEFAULT_PROVER_PORT`] when the address carries no parseable port.
+fn prover_port(server_address: &str) -> u16 {
+    server_address
+        .rsplit(':')
+        .next()
+        .map(|s| s.trim_end_matches('/'))
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PROVER_PORT)
+}
+
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
@@ -57,7 +83,7 @@ impl Default for ProverClient {
 
 impl ProverClient {
     pub fn local() -> Self {
-        Self::new(SERVER_ADDRESS.to_string())
+        Self::new(server_address())
     }
 
     pub fn new(server_address: String) -> Self {
@@ -177,9 +203,10 @@ pub fn spawn_prover() -> Result<(), ClientError> {
         )
     })?;
 
+    let port = prover_port(&server_address());
     let spawn_result = Command::new("sh")
         .arg("-c")
-        .arg(format!("{cli} start-prover"))
+        .arg(format!("{cli} start-prover --prover-port {port}"))
         .spawn();
 
     let result = match spawn_result {
@@ -211,9 +238,10 @@ pub fn spawn_prover() -> Result<(), ClientError> {
 fn health_check(retries: usize, timeout_secs: u64) -> bool {
     let client = build_http_client();
     let timeout = Duration::from_secs(timeout_secs);
+    let address = server_address();
     for attempt in 0..retries {
         let ok = client
-            .get(format!("{}{}", SERVER_ADDRESS, HEALTH_CHECK))
+            .get(format!("{}{}", address, HEALTH_CHECK))
             .timeout(timeout)
             .send()
             .is_ok();
@@ -278,4 +306,23 @@ fn find_in_path(binary: &str) -> Option<String> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prover_port_parses_url() {
+        assert_eq!(prover_port("http://127.0.0.1:3001"), 3001);
+        assert_eq!(prover_port("http://127.0.0.1:3101"), 3101);
+        // Trailing slash is tolerated.
+        assert_eq!(prover_port("http://127.0.0.1:8080/"), 8080);
+        // No port -> default, so a malformed override never starts the server
+        // on a port the client cannot derive.
+        assert_eq!(prover_port("http://localhost"), DEFAULT_PROVER_PORT);
+        assert_eq!(prover_port("garbage"), DEFAULT_PROVER_PORT);
+        // The default const and SERVER_ADDRESS stay in agreement.
+        assert_eq!(prover_port(SERVER_ADDRESS), DEFAULT_PROVER_PORT);
+    }
 }

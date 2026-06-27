@@ -43,14 +43,14 @@ pub fn process_register(
     )?;
 
     let state = UserRecord {
-        owner: *owner_address.as_array(),
+        owner: (*owner_address.as_array()).into(),
         bump,
         owner_p256: data.owner_p256,
         nullifier_pubkey: data.nullifier_pubkey,
         viewing_pubkey: data.viewing_pubkey,
         sync_delegate: None,
         entries: Vec::new(),
-        merge_service: false,
+        merge_authority: None,
     };
     write_record(record, &state)
 }

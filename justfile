@@ -5,12 +5,25 @@ export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
-localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", "8899")
-localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:8899")
-localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", "8784")
-localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:8784")
+# Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
+# (auto-loaded above) to shift every service port by a fixed amount so concurrent
+# checkouts never contend. Each individual port/URL var can still be overridden
+# explicitly. See .env.example.
+port-offset := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
+localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", shell('echo $((8899 + ${1:-0}))', port-offset))
+localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", shell('echo $((8784 + ${1:-0}))', port-offset))
+localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", shell('echo $((3001 + ${1:-0}))', port-offset))
+localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
+localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
+localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
 photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
 spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
+
+# Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
+# the per-clone prover address without each recipe wiring it explicitly. The
+# client both connects here and starts the spawned server on this URL's port, so
+# this single var is the source of truth for the prover.
+export ZOLANA_PROVER_URL := localnet-prover-url
 
 mod forester 'forester'
 mod prover 'prover/server'

@@ -173,7 +173,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         forester_authority: authority_bytes.into(),
         zone_creation_authority: authority_bytes.into(),
         zone_creation_is_permissionless: false,
-        merge_authority: authority_bytes.into(),
     }
     .instruction();
     let create_config_sig = send_transaction(
@@ -1499,7 +1498,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         forester_authority: authority_bytes.into(),
         zone_creation_authority: authority_bytes.into(),
         zone_creation_is_permissionless: false,
-        merge_authority: authority_bytes.into(),
     }
     .instruction();
     send_transaction(

@@ -28,11 +28,7 @@ pub trait ViewingKeyTrait {
 
     fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError>;
 
-    fn get_merge_view_tag(
-        &self,
-        merge_authority_pubkey: &[u8],
-        merge_count: u64,
-    ) -> Result<ViewTag, KeypairError>;
+    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError>;
 
     fn get_send_shared_view_tag(
         &self,
@@ -116,12 +112,8 @@ impl ViewingKeyTrait for ViewingKey {
         self.get_recipient_request_view_tag(request_count)
     }
 
-    fn get_merge_view_tag(
-        &self,
-        merge_authority_pubkey: &[u8],
-        merge_count: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.get_merge_view_tag(merge_authority_pubkey, merge_count)
+    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
+        self.get_merge_view_tag(merge_count)
     }
 
     fn get_send_shared_view_tag(
@@ -218,13 +210,8 @@ impl ViewingKeyTrait for ShieldedKeypair {
             .get_recipient_request_view_tag(request_count)
     }
 
-    fn get_merge_view_tag(
-        &self,
-        merge_authority_pubkey: &[u8],
-        merge_count: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_merge_view_tag(merge_authority_pubkey, merge_count)
+    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
+        self.viewing_key.get_merge_view_tag(merge_count)
     }
 
     fn get_send_shared_view_tag(
