@@ -374,6 +374,53 @@ only (empty `committed_wires`). Committing a **public** input (e.g.
 `Bsb22UnsupportedMultiCommitment`. The Solana rail must therefore stay vanilla
 (no explicit `Commit`), not force a public-wire commitment.
 
+## Releasing Photon
+
+The Photon indexer binary is built from the `photon-privacy` repo (branch
+`fix/zolana-refactor-api`, which already contains its `main`) and published as
+`photon-zolana-<sha>` release assets on `helius-labs/zolana`. There is no
+publish workflow; releases are cut manually with `gh`. Two assets per release:
+`photon-zolana-linux-x86_64.tar.gz` (CI) and `photon-zolana-macos-aarch64.tar.gz`
+(local dev), each `tar -czf` of the single `photon` binary.
+
+Photon must be built against the zolana commit whose program id AND on-chain
+event/instruction layout (e.g. `BatchUpdateNullifierTreeData`) it parses. Pin its
+`rings-event`/`rings-interface`/`rings-tree` deps (package names `zolana-*`) to
+that commit. Two ways to point them at local zolana while building:
+- `[patch."ssh://git@github.com/helius-labs/zolana.git"]` to local paths -- works
+  for the macOS build (the patched crates resolve `workspace = true` deps via the
+  intact on-disk zolana workspace), but NOT inside Docker (the whole workspace
+  would need copying in).
+- HTTPS git dep + a `gh` token -- used for the Docker/Linux build below.
+
+Build steps:
+- macOS-aarch64 (native): `cargo build --release --bin photon`.
+- linux-x86_64 (on an arm64 mac, via QEMU): `docker buildx build
+  --platform linux/amd64 --secret id=gh_token,env=GH_TOKEN -f Dockerfile.linux
+  --target export --output type=local,dest=out .`, where `Dockerfile.linux` does
+  `git config --global url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf
+  "https://github.com/"` + `CARGO_NET_GIT_FETCH_WITH_CLI=true` before
+  `cargo build --release --bin photon`, then exports the binary from a `scratch`
+  stage. The base image must be `rust:<v>` with `<v> >=` photon-indexer's
+  `rust-version` (currently 1.95); the committed `Dockerfile` (rust:1.91) is
+  stale. The emulated x86_64 build takes ~30-60 min. Do not pipe the build
+  through `tail` -- it masks docker's non-zero exit.
+
+Publish + wire up:
+```bash
+gh release create photon-zolana-<sha> --repo helius-labs/zolana --target <zolana-sha> \
+    photon-zolana-linux-x86_64.tar.gz photon-zolana-macos-aarch64.tar.gz
+```
+Then update BOTH, with matching tag + checksums (they are independent and must
+agree, else CI silently keeps the old binary):
+- `tools/install-photon.sh`: `release_tag` + the linux and macos `default_sha256`.
+- `.github/workflows/rust.yml` `test-localnet-photon` env: `PHOTON_ZOLANA_RELEASE_TAG`
+  + `PHOTON_ZOLANA_SHA256` (the linux checksum, since CI runs x86_64).
+
+`install-photon.sh` fetches with `gh` (private repo; CI uses its `GITHUB_TOKEN`).
+Verify locally with `./tools/install-photon.sh` (downloads the macOS asset and
+checks the new checksum).
+
 ## Git Hygiene
 
 The worktree may contain user changes. Do not revert unrelated edits. Keep PRs
