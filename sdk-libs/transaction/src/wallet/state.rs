@@ -26,6 +26,7 @@ pub enum PrivateTransactionKind {
     PrivateTransfer,
     PublicWithdrawal,
     Split,
+    Merge,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

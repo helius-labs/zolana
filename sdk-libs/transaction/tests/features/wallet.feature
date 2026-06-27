@@ -13,6 +13,10 @@ Feature: First time wallet sync
     And the wallet tx count is 1 and request count is 0
     And the wallet knows sender "bob" with next index 1
     And the wallet knows recipient "carol" with next index 0
+    And the wallet has 3 private transactions
+    And an inbound private transfer of 40 sol from "bob" is recorded
+    And an outbound private transfer of 25 sol to "carol" is recorded
+    And an inbound private transfer of 10 sol from "bob" is recorded
 
   Scenario: A fresh wallet restores split outputs and payment request transfers
     Given a shielded keypair "alice"
@@ -26,3 +30,7 @@ Feature: First time wallet sync
     And the unspent sol balance is 45
     And the wallet tx count is 1 and request count is 1
     And the wallet knows sender "carol" with next index 0
+    And the wallet has 3 private transactions
+    And an inbound private transfer of 40 sol from "bob" is recorded
+    And a split of 40 sol is recorded
+    And an inbound private transfer of 5 sol from "carol" is recorded

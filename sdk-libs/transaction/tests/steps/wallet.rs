@@ -6,7 +6,7 @@ use zolana_transaction::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         OwnerCx, UtxoSerialization,
     },
-    wallet::{AssetBalance, Wallet},
+    wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
     AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, SOL_ASSET_ID,
     SOL_MINT,
 };
@@ -356,4 +356,62 @@ fn knows_recipient(world: &mut TransactionWorld, name: String, index: u64) {
         .last()
         .expect("no viewing key entry");
     assert_eq!(entry.known_recipients.get(&pubkey), Some(&index));
+}
+
+#[then(expr = "the wallet has {int} private transactions")]
+fn private_tx_count(world: &mut TransactionWorld, count: usize) {
+    let wallet = world.wallet.as_ref().expect("wallet not synced");
+    assert_eq!(wallet.private_transactions().len(), count);
+}
+
+#[then(expr = "an inbound private transfer of {int} sol from {string} is recorded")]
+fn inbound_from(world: &mut TransactionWorld, amount: u64, sender: String) {
+    let wallet = world.wallet.as_ref().expect("wallet not synced");
+    let sender_pk = world.kp(&sender).viewing_pubkey();
+    let found = wallet.private_transactions().iter().any(|tx| {
+        tx.kind == PrivateTransactionKind::PrivateTransfer
+            && tx.direction == PrivateTransactionDirection::Inbound
+            && tx.amount == amount
+            && tx.asset == SOL_MINT
+            && tx.counterparty_viewing_pubkey == Some(sender_pk)
+    });
+    assert!(
+        found,
+        "missing inbound transfer of {amount} sol from {sender:?}; history={:?}",
+        wallet.private_transactions()
+    );
+}
+
+#[then(expr = "an outbound private transfer of {int} sol to {string} is recorded")]
+fn outbound_to(world: &mut TransactionWorld, amount: u64, recipient: String) {
+    let wallet = world.wallet.as_ref().expect("wallet not synced");
+    let recipient_pk = world.kp(&recipient).viewing_pubkey();
+    let found = wallet.private_transactions().iter().any(|tx| {
+        tx.kind == PrivateTransactionKind::PrivateTransfer
+            && tx.direction == PrivateTransactionDirection::Outbound
+            && tx.amount == amount
+            && tx.asset == SOL_MINT
+            && tx.counterparty_viewing_pubkey == Some(recipient_pk)
+    });
+    assert!(
+        found,
+        "missing outbound transfer of {amount} sol to {recipient:?}; history={:?}",
+        wallet.private_transactions()
+    );
+}
+
+#[then(expr = "a split of {int} sol is recorded")]
+fn split_recorded(world: &mut TransactionWorld, amount: u64) {
+    let wallet = world.wallet.as_ref().expect("wallet not synced");
+    let found = wallet.private_transactions().iter().any(|tx| {
+        tx.kind == PrivateTransactionKind::Split
+            && tx.direction == PrivateTransactionDirection::SelfTransfer
+            && tx.amount == amount
+            && tx.asset == SOL_MINT
+    });
+    assert!(
+        found,
+        "missing split of {amount} sol; history={:?}",
+        wallet.private_transactions()
+    );
 }

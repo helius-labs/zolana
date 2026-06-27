@@ -100,7 +100,6 @@ impl Wallet {
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
             processed_outbound: HashSet::new(),
-            record_history: true,
             report,
         };
 

@@ -98,7 +98,6 @@ pub(super) struct SyncCtx<'a> {
     pub(super) transactions: &'a mut Vec<PrivateTransaction>,
     pub(super) processed_slots: HashSet<(usize, usize)>,
     pub(super) processed_outbound: HashSet<usize>,
-    pub(super) record_history: bool,
     pub(super) report: SyncReport,
 }
 
@@ -152,9 +151,6 @@ impl SyncCtx<'_> {
     }
 
     fn record(&mut self, tx: PrivateTransaction) {
-        if !self.record_history {
-            return;
-        }
         if !self.transactions.contains(&tx) {
             self.transactions.push(tx);
         }
@@ -264,6 +260,23 @@ impl SyncCtx<'_> {
         }
     }
 
+    fn confidential_recipient_count(tx: &ShieldedTransaction) -> usize {
+        tx.output_slots
+            .iter()
+            .filter_map(|slot| slot.output_data())
+            .filter(|output_data| {
+                let blob = match output_data {
+                    OutputData::Encrypted(blob)
+                    | OutputData::VerifiablyEncrypted(blob)
+                    | OutputData::Plaintext(blob) => blob,
+                };
+                blob.first()
+                    .and_then(|b| EncryptedScheme::from_byte(*b).ok())
+                    == Some(EncryptedScheme::ConfidentialRecipient)
+            })
+            .count()
+    }
+
     fn record_split(&mut self, tx: &ShieldedTransaction, spent: HashMap<Address, u64>) {
         let mut rows = spent.into_iter().collect::<Vec<_>>();
         rows.sort_by_key(|(asset, _)| *asset);
@@ -285,6 +298,27 @@ impl SyncCtx<'_> {
                 counterparty_viewing_pubkey: None,
             });
         }
+    }
+
+    fn record_merge(
+        &mut self,
+        tx: &ShieldedTransaction,
+        output_context: &OutputContext,
+        utxo: &Utxo,
+    ) {
+        self.record(PrivateTransaction {
+            id: PrivateTransactionId {
+                signature: tx.tx_signature.to_string(),
+                slot: tx.slot,
+                index: output_context.leaf_index,
+            },
+            kind: PrivateTransactionKind::Merge,
+            direction: PrivateTransactionDirection::SelfTransfer,
+            status: PrivateTransactionStatus::Confirmed,
+            asset: utxo.asset,
+            amount: utxo.amount,
+            counterparty_viewing_pubkey: None,
+        });
     }
 
     /// Verify each 1:1 recipient utxo against the slot's committed leaf and store it.
@@ -379,10 +413,8 @@ impl SyncCtx<'_> {
                             &zone_data_hash,
                         )? {
                             self.processed_slots.insert(site);
-                            if self.record_history {
-                                if let Some(utxo) = utxos.first() {
-                                    self.record_deposit(tx, &output_context, utxo);
-                                }
+                            if let Some(utxo) = utxos.first() {
+                                self.record_deposit(tx, &output_context, utxo);
                             }
                         }
                     }
@@ -433,10 +465,8 @@ impl SyncCtx<'_> {
                         )? {
                             self.processed_slots.insert(site);
                             outcome.sender = Some(sender);
-                            if self.record_history {
-                                if let Some(utxo) = utxos.first() {
-                                    self.record_received(tx, site.1, Some(sender), utxo);
-                                }
+                            if let Some(utxo) = utxos.first() {
+                                self.record_received(tx, site.1, Some(sender), utxo);
                             }
                         }
                     }
@@ -457,10 +487,8 @@ impl SyncCtx<'_> {
                             &[0u8; 32],
                         )? {
                             self.processed_slots.insert(site);
-                            if self.record_history {
-                                if let Some(utxo) = utxos.first() {
-                                    self.record_received(tx, site.1, None, utxo);
-                                }
+                            if let Some(utxo) = utxos.first() {
+                                self.record_received(tx, site.1, None, utxo);
                             }
                         }
                     }
@@ -481,7 +509,7 @@ impl SyncCtx<'_> {
                         }
                         self.processed_slots.insert(site);
                         outcome.recipients = pks.clone();
-                        if self.record_history && self.processed_outbound.insert(site.0) {
+                        if self.processed_outbound.insert(site.0) {
                             let spent = self.spent_amounts(&tx.nullifiers);
                             let kind = if real_recipient_count == 0 {
                                 PrivateTransactionKind::PublicWithdrawal
@@ -500,7 +528,7 @@ impl SyncCtx<'_> {
                             return Ok(outcome);
                         };
                         let pks = plaintext.recipient_viewing_pks.clone();
-                        let real_recipient_count = pks.len();
+                        let real_recipient_count = Self::confidential_recipient_count(tx);
                         let Ok(change) = ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx)
                         else {
                             self.report.undecryptable_candidates += 1;
@@ -511,7 +539,7 @@ impl SyncCtx<'_> {
                         }
                         self.processed_slots.insert(site);
                         outcome.recipients = pks.clone();
-                        if self.record_history && self.processed_outbound.insert(site.0) {
+                        if self.processed_outbound.insert(site.0) {
                             let spent = self.spent_amounts(&tx.nullifiers);
                             let kind = if real_recipient_count == 0 {
                                 PrivateTransactionKind::PublicWithdrawal
@@ -537,7 +565,7 @@ impl SyncCtx<'_> {
                             self.store_in_tx(utxo.clone(), tx)?;
                         }
                         self.processed_slots.insert(site);
-                        if self.record_history && self.processed_outbound.insert(site.0) {
+                        if self.processed_outbound.insert(site.0) {
                             let spent = self.spent_amounts(&tx.nullifiers);
                             self.record_split(tx, spent);
                         }
@@ -567,12 +595,15 @@ impl SyncCtx<'_> {
                             return Ok(outcome);
                         };
                         if self.store_recipient_utxos(
-                            utxos,
+                            utxos.clone(),
                             &output_context,
                             &[0u8; 32],
                             &[0u8; 32],
                         )? {
                             self.processed_slots.insert(site);
+                            if let Some(utxo) = utxos.first() {
+                                self.record_merge(tx, &output_context, utxo);
+                            }
                         }
                     }
                     _ => {
@@ -628,7 +659,6 @@ impl Wallet {
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
             processed_outbound: HashSet::new(),
-            record_history: true,
             report,
         };
 
