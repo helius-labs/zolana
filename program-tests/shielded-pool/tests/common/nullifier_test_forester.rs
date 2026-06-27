@@ -7,7 +7,6 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::private_transaction::field::BN254_MODULUS_DEC;
 use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
@@ -15,6 +14,7 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_test_utils::smart_account;
+use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
 type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
@@ -81,6 +81,8 @@ impl NullifierTestForester {
         let compressed = ProofCompressed::try_from(proof)?;
         let batch_update = BatchUpdateNullifierTreeData {
             new_root,
+            old_root: plan.current_root,
+            hash_chain_index: plan.hash_chain_index,
             compressed_proof: zolana_interface::instruction::CompressedProof {
                 a: compressed.a,
                 b: compressed.b,
@@ -93,6 +95,8 @@ impl NullifierTestForester {
                 authority,
                 tree: pool_tree,
                 new_root: batch_update.new_root,
+                old_root: batch_update.old_root,
+                hash_chain_index: batch_update.hash_chain_index,
                 compressed_proof_a: batch_update.compressed_proof.a,
                 compressed_proof_b: batch_update.compressed_proof.b,
                 compressed_proof_c: batch_update.compressed_proof.c,
@@ -188,6 +192,7 @@ struct ForesterPlan {
     start_index: u64,
     tree_height: u32,
     zkp_batch_size: usize,
+    hash_chain_index: u16,
 }
 
 impl ForesterPlan {
@@ -210,6 +215,8 @@ impl ForesterPlan {
             .get_first_ready_zkp_batch()
             .map_err(|err| anyhow!("no ready nullifier zkp batch: {err:?}"))?
             as usize;
+        let hash_chain_index = u16::try_from(zkp_batch_index)
+            .map_err(|_| anyhow!("zkp batch index {zkp_batch_index} exceeds u16"))?;
         let leaves_hash_chain = nullifier_tree
             .get_hash_chain(pending_batch_index, zkp_batch_index)
             .ok_or_else(|| {
@@ -225,6 +232,7 @@ impl ForesterPlan {
             start_index: metadata.next_index,
             tree_height: metadata.height,
             zkp_batch_size: metadata.queue_batches.zkp_batch_size as usize,
+            hash_chain_index,
         })
     }
 }

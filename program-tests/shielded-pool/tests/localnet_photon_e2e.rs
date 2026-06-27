@@ -52,7 +52,7 @@ use zolana_program_test::{
 };
 use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::instructions::transact::private_tx_hash;
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -831,8 +831,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             ));
         }
 
-        let wait_tag = stress_test_tag(i, 0);
-        let sender_tag = sender.get_sender_view_tag(i + 1)?;
+        let wait_tag = payer_public_key.confidential_view_tag()?;
         let mut tx = ClientTransaction::new(
             sender_address,
             vec![
@@ -841,8 +840,8 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             ],
             payer_address,
         );
-        tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT, wait_tag)?;
-        let signed = tx.sign(Pubkey::default(), &sender, &assets, sender_tag)?;
+        tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
+        let signed = tx.sign(&sender, &assets)?;
         let commitments = signed.input_commitments()?;
         assert_eq!(commitments.len(), 2);
         assert_eq!(commitments[0].nullifier, first_note.nullifier);
@@ -918,23 +917,35 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let salt = indexed
             .salt
             .ok_or_else(|| anyhow!("indexed queue tx missing salt"))?;
-        let slots = indexed
+        let first_nullifier = commitments
+            .first()
+            .ok_or_else(|| anyhow!("queue tx missing input commitment"))?
+            .nullifier;
+        let sender_slot = indexed
             .output_slots
-            .iter()
-            .map(|slot| OutputCiphertext {
-                view_tag: slot.view_tag,
-                data: slot.payload.clone(),
-            })
-            .collect::<Vec<_>>();
-        let blob = TransferEncryptedUtxos::from_output_ciphertexts(
-            tx_viewing_pk,
-            salt,
-            &slots,
-            SENDER_SLOT_COUNT,
+            .first()
+            .ok_or_else(|| anyhow!("indexed queue tx missing sender slot"))?;
+        let sender_blob = match sender_slot
+            .output_data()
+            .ok_or_else(|| anyhow!("sender slot is not decodable output data"))?
+        {
+            OutputData::Encrypted(blob)
+            | OutputData::VerifiablyEncrypted(blob)
+            | OutputData::Plaintext(blob) => blob,
+        };
+        let (_scheme, sender_ciphertext) = sender_blob
+            .split_first()
+            .ok_or_else(|| anyhow!("sender bundle missing scheme byte"))?;
+        let sender_plaintext = ConfidentialSenderBundle::decode(
+            sender_ciphertext,
+            &DecodeCx {
+                viewing_key: &sender.viewing_key,
+                tx_viewing_pk: Some(tx_viewing_pk),
+                salt: Some(salt),
+                slot_index: 0,
+                first_nullifier: Some(first_nullifier),
+            },
         )?;
-        let (sender_plaintext, _) = sender
-            .viewing_key
-            .decrypt_transfer(&commitments[0].nullifier, &blob)?;
 
         let change_note = Utxo {
             owner: payer_public_key,
@@ -1209,14 +1220,6 @@ fn create_tree_instructions_with_nullifier_params(
         }
         .instruction_with_nullifier_params(nullifier_params),
     ])
-}
-
-fn stress_test_tag(index: u64, output_index: u8) -> [u8; 32] {
-    let mut tag = [0u8; 32];
-    tag[0] = 0x9a;
-    tag[1] = output_index;
-    tag[24..].copy_from_slice(&index.to_be_bytes());
-    tag
 }
 
 fn stress_blinding(index: u64) -> [u8; 31] {
