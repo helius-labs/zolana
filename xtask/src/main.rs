@@ -7,6 +7,8 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+mod init_protocol;
+
 fn main() {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
@@ -34,6 +36,12 @@ fn main() {
             println!("wrote {out_dir}/{filename}");
         }
         Some("program-ids") => print_program_ids(),
+        Some("init-protocol") => {
+            if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
+                eprintln!("init-protocol failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
         Some("tx-size") => tx_size(args.collect()),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
@@ -263,6 +271,7 @@ fn print_help() {
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
     println!("  bsb22-vk                 Export one binary verifying key as Rust source");
     println!("  program-ids              Print local validator program ids as shell assignments");
+    println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
 }
 

@@ -20,7 +20,7 @@ pub const UTXO_DOMAIN: u16 = 1;
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("8nhL4dQgcddkc8cNV5piaZ1zKGowap1XrS8EDKi4rywq");
+    pubkey_array!("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
 
 /// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
@@ -49,20 +49,20 @@ pub const SPL_ASSET_VAULT_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
 pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
-    156, 38, 12, 194, 254, 142, 150, 51, 213, 49, 20, 162, 117, 210, 37, 253, 125, 142, 232, 230,
-    4, 70, 84, 211, 121, 225, 145, 223, 38, 139, 193, 58,
+    88, 254, 248, 74, 86, 156, 76, 98, 4, 160, 29, 78, 152, 238, 8, 247, 252, 20, 54, 18, 242, 184,
+    160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
 ];
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
-pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 255;
+pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 254;
 
 /// Canonical native-SOL custody PDA:
 /// `find_program_address(&[b"sol_interface", &[0]], SHIELDED_POOL_PROGRAM_ID)`.
 /// Hardcoded so builders and the SBF program avoid the runtime derivation; the
 /// `pda::sol_interface_const_matches_derivation` test pins it.
 pub const SOL_INTERFACE: [u8; 32] = [
-    80, 117, 177, 137, 17, 234, 160, 230, 56, 200, 169, 120, 142, 232, 95, 53, 133, 251, 22, 119,
-    74, 190, 106, 84, 69, 214, 163, 215, 107, 64, 243, 108,
+    153, 202, 212, 28, 214, 25, 170, 103, 127, 203, 31, 129, 56, 221, 77, 131, 217, 62, 194, 23,
+    222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
 ];
 
 /// [`SOL_INTERFACE`] as a `Pubkey`.
