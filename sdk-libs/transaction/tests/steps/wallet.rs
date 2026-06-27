@@ -1,9 +1,11 @@
 use cucumber::{given, then, when};
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::viewing_key::random_salt;
+use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
 use zolana_transaction::{
-    serialization::split::{Split, SplitBundlePlaintext, SplitEncode},
-    serialization::{OwnerCx, UtxoSerialization},
+    serialization::{
+        anonymous::AnonymousTransferSenderPlaintext,
+        split::{Split, SplitBundlePlaintext, SplitEncode},
+        OwnerCx, UtxoSerialization,
+    },
     wallet::{AssetBalance, Wallet},
     AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, SOL_ASSET_ID,
     SOL_MINT,
@@ -11,8 +13,6 @@ use zolana_transaction::{
 
 use super::transfer::{build_anonymous_transfer, RecipientSpec};
 use crate::TransactionWorld;
-
-use zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext;
 
 enum TagKind {
     Bootstrap,

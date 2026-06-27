@@ -278,8 +278,9 @@ mod tests {
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
     use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-    use zolana_transaction::serialization::Proofless;
-    use zolana_transaction::{Address, OwnerCx, UtxoSerialization, SOL_MINT};
+    use zolana_transaction::{
+        serialization::Proofless, Address, OwnerCx, UtxoSerialization, SOL_MINT,
+    };
 
     use super::*;
     use crate::rpc::{

@@ -3,19 +3,21 @@ use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::shielded::ShieldedAddress;
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::{
-    SignedTransaction, Transaction, WithdrawalTarget,
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
+use zolana_transaction::{
+    instructions::{
+        transact::{SignedTransaction, Transaction, WithdrawalTarget},
+        types::SpendUtxo,
+    },
+    Address, AssetRegistry, Wallet, SOL_MINT,
 };
-use zolana_transaction::instructions::types::SpendUtxo;
-use zolana_transaction::{Address, AssetRegistry, Wallet, SOL_MINT};
 
-use crate::error::ClientError;
-use crate::rpc::Rpc;
-use crate::user_registry::try_resolve_registered_address;
-use crate::wallet_authority::{ApprovalRequest, ConfidentialRecipientSlot, WalletAuthority};
+use crate::{
+    error::ClientError,
+    rpc::Rpc,
+    user_registry::try_resolve_registered_address,
+    wallet_authority::{ApprovalRequest, ConfidentialRecipientSlot, WalletAuthority},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {

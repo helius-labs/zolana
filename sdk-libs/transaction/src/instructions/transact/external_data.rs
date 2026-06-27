@@ -1,7 +1,7 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::deposit::CpiSignerData;
-use zolana_interface::instruction::instruction_data::transact::{
-    ExternalDataHash, OutputCiphertext,
+use zolana_interface::instruction::instruction_data::{
+    deposit::CpiSignerData,
+    transact::{ExternalDataHash, OutputCiphertext},
 };
 
 use crate::error::TransactionError;

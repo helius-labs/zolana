@@ -5,14 +5,13 @@ use zolana_keypair::{
     P256Pubkey, PublicKey, ViewingKey,
 };
 
+use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SPLIT,
 };
-
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
 
 pub struct SplitEncode {
     pub tx: ViewingKey,

@@ -12,18 +12,23 @@ use zolana_keypair::{
     merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::instructions::merge::PreparedMerge;
-use zolana_transaction::instructions::transact::private_tx_hash;
-use zolana_transaction::instructions::transact::signed_transaction::asset_field;
-use zolana_transaction::instructions::types::SpendUtxo;
-use zolana_transaction::{EncryptedScheme, OutputUtxo};
+use zolana_transaction::{
+    instructions::{
+        merge::PreparedMerge,
+        transact::{private_tx_hash, signed_transaction::asset_field},
+        types::SpendUtxo,
+    },
+    EncryptedScheme, OutputUtxo,
+};
 
 use crate::{
     error::ClientError,
     prover::{
         field::{be, hash_chain},
-        transact::p256_and_eddsa::{assemble_inputs, assemble_outputs, TransferSpendInput},
-        transact::witness::SpendProof,
+        transact::{
+            p256_and_eddsa::{assemble_inputs, assemble_outputs, TransferSpendInput},
+            witness::SpendProof,
+        },
         MergeInputs,
     },
 };

@@ -39,7 +39,6 @@ use wincode::{
     config::{ConfigCore, ZeroCopy},
     ReadResult, SchemaRead, TypeMeta,
 };
-
 use zolana_bloom_filter::BloomFilter;
 
 use crate::merkle_tree_metadata::BatchedMerkleTreeMetadata;

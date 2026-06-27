@@ -1,7 +1,8 @@
+use std::{fs, path::Path};
+
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use std::{fs, path::Path};
 
 // ---------------------------------------------------------------------------
 // Constants

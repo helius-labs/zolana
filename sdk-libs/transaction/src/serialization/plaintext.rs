@@ -2,14 +2,13 @@ use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 
+use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
 };
-
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferPlaintextSplChange {

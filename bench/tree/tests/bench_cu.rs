@@ -1,8 +1,10 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use borsh::BorshSerialize;
-use light_program_profiler::mollusk::{register_profiling_syscalls, take_profiling_entries};
-use light_program_profiler::report::{CuBenchmark, ReadmeConfig};
+use light_program_profiler::{
+    mollusk::{register_profiling_syscalls, take_profiling_entries},
+    report::{CuBenchmark, ReadmeConfig},
+};
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, Rng, SeedableRng};

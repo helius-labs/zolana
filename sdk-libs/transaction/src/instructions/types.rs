@@ -1,11 +1,10 @@
 use solana_address::Address;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_keypair::shielded::ShieldedKeypair;
-use zolana_keypair::viewing_key::random_blinding;
-use zolana_keypair::{NullifierKey, PublicKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN, shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey,
+    PublicKey,
+};
 
-use crate::data::Data;
-use crate::utxo::Utxo;
+use crate::{data::Data, utxo::Utxo};
 
 #[derive(Clone)]
 pub struct SpendUtxo {

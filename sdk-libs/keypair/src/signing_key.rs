@@ -1,14 +1,20 @@
-use ed25519_dalek::Signer as Ed25519Signer;
-use ed25519_dalek::SigningKey as DalekSigningKey;
-use ed25519_dalek::Verifier as Ed25519Verifier;
-use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
-use p256::ecdsa::{Signature as EcdsaSig, SigningKey as EcdsaSigningKey, VerifyingKey};
-use p256::SecretKey;
+use ed25519_dalek::{
+    Signer as Ed25519Signer, SigningKey as DalekSigningKey, Verifier as Ed25519Verifier,
+};
+use p256::{
+    ecdsa::{
+        signature::hazmat::{PrehashSigner, PrehashVerifier},
+        Signature as EcdsaSig, SigningKey as EcdsaSigningKey, VerifyingKey,
+    },
+    SecretKey,
+};
 use rand::rngs::OsRng;
 use zeroize::Zeroizing;
 
-use crate::error::KeypairError;
-use crate::pubkey::{P256Pubkey, PublicKey};
+use crate::{
+    error::KeypairError,
+    pubkey::{P256Pubkey, PublicKey},
+};
 
 enum SigningKeyInner {
     P256(SecretKey),

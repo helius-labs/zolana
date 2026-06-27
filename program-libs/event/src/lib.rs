@@ -2,10 +2,9 @@ pub mod output_utxo;
 pub mod proofless;
 pub mod tag;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_utxo::OutputUtxo;
 pub use proofless::{encode_output_data, encode_verifiably_encrypted, OutputData, ProoflessOutput};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
 /// instructions (spec: General Event). It records the queue sequence numbers and

@@ -1,13 +1,13 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputData;
-use zolana_keypair::hash::poseidon;
-use zolana_keypair::{P256Pubkey, ShieldedAddress};
-
-use crate::error::TransactionError;
-use crate::utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo};
+use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
+use crate::{
+    error::TransactionError,
+    utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
+};
 
 /// A spent input UTXO and the owner `nullifier_pk` its hash commits to.
 #[derive(Clone, Debug, PartialEq, Eq)]

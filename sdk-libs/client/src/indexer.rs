@@ -404,8 +404,7 @@ mod tests {
         time::Duration,
     };
 
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
-    use p256::SecretKey;
+    use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
     use serde_json::{json, Value};
 
     use super::*;

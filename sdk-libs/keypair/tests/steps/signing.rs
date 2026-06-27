@@ -1,6 +1,5 @@
 use cucumber::{then, when};
-use zolana_keypair::hash::sha256;
-use zolana_keypair::{SignatureType, SigningKey};
+use zolana_keypair::{hash::sha256, SignatureType, SigningKey};
 
 use crate::KeypairWorld;
 

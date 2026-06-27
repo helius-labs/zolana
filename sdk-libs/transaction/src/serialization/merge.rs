@@ -3,9 +3,8 @@ use zolana_keypair::{
     P256Pubkey, ViewingKey,
 };
 
-use crate::{data::Data, error::TransactionError, utxo::Utxo, EncryptedScheme};
-
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use crate::{data::Data, error::TransactionError, utxo::Utxo, EncryptedScheme};
 
 const MERGE_PLAINTEXT_LEN: usize = 8 + 32 + BLINDING_LEN;
 
