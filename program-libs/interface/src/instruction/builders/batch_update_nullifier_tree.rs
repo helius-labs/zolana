@@ -36,6 +36,7 @@ impl BatchUpdateNullifierTree {
                 AccountMeta::new_readonly(self.authority, true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
                 AccountMeta::new(self.tree, false),
+                AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             ],
             data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
         }
