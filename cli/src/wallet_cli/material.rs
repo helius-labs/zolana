@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, P256Signature, SolanaRpc, WalletAuthority,
+    EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
@@ -70,7 +70,7 @@ impl WalletMaterial {
     }
 }
 
-impl WalletAuthority for WalletMaterial {
+impl SyncWalletAuthority for WalletMaterial {
     fn shielded_address(
         &self,
         owner_pubkey: Pubkey,
@@ -88,7 +88,7 @@ impl WalletAuthority for WalletMaterial {
         recipients: &[ConfidentialRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, ClientError> {
         self.check_owner_pubkey(owner_pubkey)?;
-        WalletAuthority::encrypt_confidential_transfer(
+        SyncWalletAuthority::encrypt_confidential_transfer(
             &self.keypair,
             owner_pubkey,
             first_nullifier,
@@ -107,7 +107,7 @@ impl WalletAuthority for WalletMaterial {
         recipients: &[AnonymousRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, ClientError> {
         self.check_owner_pubkey(owner_pubkey)?;
-        WalletAuthority::encrypt_anonymous_transfer(
+        SyncWalletAuthority::encrypt_anonymous_transfer(
             &self.keypair,
             owner_pubkey,
             first_nullifier,
@@ -130,7 +130,7 @@ impl WalletAuthority for WalletMaterial {
         message_hash: &[u8; 32],
     ) -> std::result::Result<P256Signature, ClientError> {
         self.check_owner_pubkey(owner_pubkey)?;
-        WalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
     }
 
     fn spend_nullifier_key(

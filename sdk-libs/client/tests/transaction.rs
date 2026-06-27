@@ -20,10 +20,10 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    sign_transaction_async, AnonymousRecipientSlot, ApprovalRequest, AsyncWalletAuthority,
-    CircuitType, ClientError, ConfidentialRecipientSlot, MerkleContext, MerkleProof,
-    NonInclusionProof, P256Signature, PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo,
-    Transaction, TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
+    sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
+    ConfidentialRecipientSlot, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
+    PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo, SyncWalletAuthority, Transaction,
+    TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
@@ -71,12 +71,12 @@ struct AsyncTestAuthority {
 }
 
 #[async_trait::async_trait(?Send)]
-impl AsyncWalletAuthority for AsyncTestAuthority {
+impl WalletAuthority for AsyncTestAuthority {
     async fn shielded_address(
         &self,
         owner_pubkey: Pubkey,
     ) -> Result<zolana_keypair::shielded::ShieldedAddress, ClientError> {
-        WalletAuthority::shielded_address(&self.keypair, owner_pubkey)
+        SyncWalletAuthority::shielded_address(&self.keypair, owner_pubkey)
     }
 
     async fn encrypt_confidential_transfer(
@@ -87,7 +87,7 @@ impl AsyncWalletAuthority for AsyncTestAuthority {
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
-        WalletAuthority::encrypt_confidential_transfer(
+        SyncWalletAuthority::encrypt_confidential_transfer(
             &self.keypair,
             owner_pubkey,
             first_nullifier,
@@ -105,7 +105,7 @@ impl AsyncWalletAuthority for AsyncTestAuthority {
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
-        WalletAuthority::encrypt_anonymous_transfer(
+        SyncWalletAuthority::encrypt_anonymous_transfer(
             &self.keypair,
             owner_pubkey,
             first_nullifier,
@@ -128,11 +128,11 @@ impl AsyncWalletAuthority for AsyncTestAuthority {
         message_hash: &[u8; 32],
     ) -> Result<P256Signature, ClientError> {
         self.p256_signatures.fetch_add(1, Ordering::SeqCst);
-        WalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
     }
 
     async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        WalletAuthority::spend_nullifier_key(&self.keypair, owner_pubkey)
+        SyncWalletAuthority::spend_nullifier_key(&self.keypair, owner_pubkey)
     }
 }
 
@@ -695,7 +695,7 @@ fn async_authority_signs_p256_and_invokes_approval() {
     tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
 
-    let signed = futures::executor::block_on(sign_transaction_async(
+    let signed = futures::executor::block_on(sign_transaction(
         tx,
         Pubkey::default(),
         &authority,

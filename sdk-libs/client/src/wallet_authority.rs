@@ -65,45 +65,10 @@ pub struct EncryptedTransfer {
     pub slots: Vec<OutputCiphertext>,
 }
 
-/// Synchronous authority for tests and local direct-key wallets.
-pub trait WalletAuthority {
-    fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
-
-    fn encrypt_confidential_transfer(
-        &self,
-        owner_pubkey: Pubkey,
-        first_nullifier: &[u8; 32],
-        sender_tag: ViewTag,
-        sender: &TransferSenderPlaintext,
-        recipients: &[ConfidentialRecipientSlot],
-    ) -> Result<EncryptedTransfer, ClientError>;
-
-    fn encrypt_anonymous_transfer(
-        &self,
-        owner_pubkey: Pubkey,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, ClientError>;
-
-    fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
-        Ok(())
-    }
-
-    fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError>;
-
-    fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
-}
-
-/// Async authority for production wallet hosts where approval, key access, or
-/// signing may cross a process, device, or remote custody boundary.
+/// Authority for production wallet hosts where approval, key access, or signing
+/// may cross a process, device, or remote custody boundary.
 #[async_trait(?Send)]
-pub trait AsyncWalletAuthority {
+pub trait WalletAuthority {
     async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
 
     async fn encrypt_confidential_transfer(
@@ -137,13 +102,48 @@ pub trait AsyncWalletAuthority {
     async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
 }
 
+/// Blocking authority for tests, CLI flows, and local direct-key wallets.
+pub trait SyncWalletAuthority {
+    fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
+
+    fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
+        Ok(())
+    }
+
+    fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError>;
+
+    fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+}
+
 #[async_trait(?Send)]
-impl<T> AsyncWalletAuthority for T
+impl<T> WalletAuthority for T
 where
-    T: WalletAuthority + ?Sized,
+    T: SyncWalletAuthority + ?Sized,
 {
     async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
-        WalletAuthority::shielded_address(self, owner_pubkey)
+        SyncWalletAuthority::shielded_address(self, owner_pubkey)
     }
 
     async fn encrypt_confidential_transfer(
@@ -154,7 +154,7 @@ where
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError> {
-        WalletAuthority::encrypt_confidential_transfer(
+        SyncWalletAuthority::encrypt_confidential_transfer(
             self,
             owner_pubkey,
             first_nullifier,
@@ -172,7 +172,7 @@ where
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError> {
-        WalletAuthority::encrypt_anonymous_transfer(
+        SyncWalletAuthority::encrypt_anonymous_transfer(
             self,
             owner_pubkey,
             first_nullifier,
@@ -183,7 +183,7 @@ where
     }
 
     async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
-        WalletAuthority::request_user_approval(self, request)
+        SyncWalletAuthority::request_user_approval(self, request)
     }
 
     async fn sign_p256(
@@ -191,11 +191,11 @@ where
         owner_pubkey: Pubkey,
         message_hash: &[u8; 32],
     ) -> Result<P256Signature, ClientError> {
-        WalletAuthority::sign_p256(self, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(self, owner_pubkey, message_hash)
     }
 
     async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        WalletAuthority::spend_nullifier_key(self, owner_pubkey)
+        SyncWalletAuthority::spend_nullifier_key(self, owner_pubkey)
     }
 }
 
@@ -206,7 +206,7 @@ fn recipient_slot_index(i: usize) -> Result<u32, ClientError> {
     })
 }
 
-impl WalletAuthority for ShieldedKeypair {
+impl SyncWalletAuthority for ShieldedKeypair {
     fn shielded_address(&self, _owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
         Ok(self.shielded_address()?)
     }

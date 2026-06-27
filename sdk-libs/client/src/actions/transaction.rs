@@ -17,7 +17,7 @@ use crate::{
     rpc::Rpc,
     user_registry::try_resolve_registered_address,
     wallet_authority::{
-        ApprovalRequest, AsyncWalletAuthority, ConfidentialRecipientSlot, WalletAuthority,
+        ApprovalRequest, ConfidentialRecipientSlot, SyncWalletAuthority, WalletAuthority,
     },
 };
 
@@ -94,18 +94,12 @@ pub struct CreateWithdrawal<'a, A: ?Sized> {
     pub assets: &'a AssetRegistry,
 }
 
-pub fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
-    request: CreateTransfer<'_, R, A>,
-) -> Result<CreatedTransfer, ClientError> {
-    futures::executor::block_on(create_transfer_async(request))
-}
-
-pub async fn create_transfer_async<R: Rpc, A: AsyncWalletAuthority + ?Sized>(
+pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     request: CreateTransfer<'_, R, A>,
 ) -> Result<CreatedTransfer, ClientError> {
     let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
     else {
-        let withdrawal = create_withdrawal_async(CreateWithdrawal {
+        let withdrawal = create_withdrawal(CreateWithdrawal {
             wallet: request.wallet,
             authority: request.authority,
             owner_pubkey: request.owner_pubkey,
@@ -125,7 +119,7 @@ pub async fn create_transfer_async<R: Rpc, A: AsyncWalletAuthority + ?Sized>(
             },
         });
     };
-    let inputs = select_inputs_async(
+    let inputs = select_inputs(
         request.wallet,
         request.authority,
         request.owner_pubkey,
@@ -141,7 +135,7 @@ pub async fn create_transfer_async<R: Rpc, A: AsyncWalletAuthority + ?Sized>(
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.send(&recipient.address, request.asset, request.amount)?;
     let prepared = tx.prepare(request.assets)?;
-    let signed = sign_prepared_async(
+    let signed = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
@@ -160,16 +154,18 @@ pub async fn create_transfer_async<R: Rpc, A: AsyncWalletAuthority + ?Sized>(
     })
 }
 
-pub fn create_withdrawal<A: WalletAuthority + ?Sized>(
-    request: CreateWithdrawal<'_, A>,
-) -> Result<CreatedWithdrawal, ClientError> {
-    futures::executor::block_on(create_withdrawal_async(request))
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`create_transfer`] directly.
+pub fn create_transfer_sync<R: Rpc, A: SyncWalletAuthority + ?Sized>(
+    request: CreateTransfer<'_, R, A>,
+) -> Result<CreatedTransfer, ClientError> {
+    futures::executor::block_on(create_transfer(request))
 }
 
-pub async fn create_withdrawal_async<A: AsyncWalletAuthority + ?Sized>(
+pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
     request: CreateWithdrawal<'_, A>,
 ) -> Result<CreatedWithdrawal, ClientError> {
-    let inputs = select_inputs_async(
+    let inputs = select_inputs(
         request.wallet,
         request.authority,
         request.owner_pubkey,
@@ -186,7 +182,7 @@ pub async fn create_withdrawal_async<A: AsyncWalletAuthority + ?Sized>(
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
     let prepared = tx.prepare(request.assets)?;
-    let signed = sign_prepared_async(
+    let signed = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
@@ -202,10 +198,17 @@ pub async fn create_withdrawal_async<A: AsyncWalletAuthority + ?Sized>(
     })
 }
 
-/// Sign a prepared transaction through an async wallet authority (encrypt,
-/// approve, P256-sign). Used by hosts that cannot call the synchronous
-/// [`WalletAuthority`] trait directly.
-pub async fn sign_transaction_async<A: AsyncWalletAuthority + ?Sized>(
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`create_withdrawal`] directly.
+pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
+    request: CreateWithdrawal<'_, A>,
+) -> Result<CreatedWithdrawal, ClientError> {
+    futures::executor::block_on(create_withdrawal(request))
+}
+
+/// Sign a prepared transaction through a wallet authority (encrypt, approve,
+/// P256-sign).
+pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
     tx: Transaction,
     owner_pubkey: Pubkey,
     authority: &A,
@@ -213,7 +216,7 @@ pub async fn sign_transaction_async<A: AsyncWalletAuthority + ?Sized>(
 ) -> Result<SignedTransaction, ClientError> {
     let address = authority.shielded_address(owner_pubkey).await?;
     let prepared = tx.prepare(assets)?;
-    sign_prepared_async(
+    sign_prepared(
         prepared,
         &address,
         owner_pubkey,
@@ -224,13 +227,15 @@ pub async fn sign_transaction_async<A: AsyncWalletAuthority + ?Sized>(
     .await
 }
 
-pub fn sign_transaction<A: WalletAuthority + ?Sized>(
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`sign_transaction`] directly.
+pub fn sign_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     tx: Transaction,
     owner_pubkey: Pubkey,
     authority: &A,
     assets: &AssetRegistry,
 ) -> Result<SignedTransaction, ClientError> {
-    futures::executor::block_on(sign_transaction_async(tx, owner_pubkey, authority, assets))
+    futures::executor::block_on(sign_transaction(tx, owner_pubkey, authority, assets))
 }
 
 fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
@@ -245,7 +250,7 @@ fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientS
         .collect()
 }
 
-async fn sign_prepared_async<A: AsyncWalletAuthority + ?Sized>(
+async fn sign_prepared<A: WalletAuthority + ?Sized>(
     prepared: PreparedTransaction,
     address: &ShieldedAddress,
     owner_pubkey: Pubkey,
@@ -317,7 +322,7 @@ fn withdrawal_target(
     ))
 }
 
-async fn select_inputs_async<A: AsyncWalletAuthority + ?Sized>(
+async fn select_inputs<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
     owner_pubkey: Pubkey,
@@ -446,7 +451,7 @@ mod tests {
         };
         let wallet = wallet_with_sol(sender.clone(), 10);
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -473,7 +478,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let rpc = MockRpc { account: None };
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -505,7 +510,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -539,7 +544,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_withdrawal(CreateWithdrawal {
+        let result = create_withdrawal_sync(CreateWithdrawal {
             wallet: &wallet,
             authority: &sender,
             owner_pubkey: Pubkey::default(),
