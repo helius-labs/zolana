@@ -103,26 +103,6 @@ impl QueueBatches {
         Ok(())
     }
 
-    pub fn new_output_queue(
-        batch_size: u64,
-        zkp_batch_size: u64,
-    ) -> Result<Self, BatchedMerkleTreeError> {
-        Self::check_batch_size_divisible_by_zkp_batch_size(batch_size, zkp_batch_size)?;
-        Ok(QueueBatches {
-            num_batches: NUM_BATCHES as u64,
-            zkp_batch_size,
-            bloom_filter_capacity: 0,
-            batch_size,
-            currently_processing_batch_index: 0,
-            pending_batch_index: 0,
-            next_index: 0,
-            batches: [
-                Batch::new(batch_size, zkp_batch_size, 0),
-                Batch::new(batch_size, zkp_batch_size, batch_size),
-            ],
-        })
-    }
-
     pub fn new_input_queue(
         batch_size: u64,
         zkp_batch_size: u64,
@@ -250,16 +230,14 @@ fn test_validate_batch_sizes() {
 fn test_batch_size_validation() {
     // Test invalid batch size
     assert!(QueueBatches::new_input_queue(10, 3, 0).is_err());
-    assert!(QueueBatches::new_output_queue(10, 3).is_err());
 
     // Test valid batch size
     assert!(QueueBatches::new_input_queue(9, 3, 0).is_ok());
-    assert!(QueueBatches::new_output_queue(9, 3).is_ok());
 }
 
 #[test]
 fn test_init() {
-    let mut metadata = QueueBatches::new_output_queue(10, 2).unwrap();
+    let mut metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
     assert!(metadata.init(12, 5).is_err());
     assert!(metadata.init(10, 2).is_ok());
     assert_eq!(metadata.batch_size, 10);
@@ -268,13 +246,13 @@ fn test_init() {
 
 #[test]
 fn test_get_num_zkp_batches() {
-    let metadata = QueueBatches::new_output_queue(10, 2).unwrap();
+    let metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
     assert_eq!(metadata.get_num_zkp_batches(), 5);
 }
 
 #[test]
 fn test_get_current_batch() {
-    let mut metadata = QueueBatches::new_output_queue(10, 2).unwrap();
+    let mut metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
         BatchState::Fill
@@ -301,7 +279,7 @@ fn test_get_current_batch() {
 
 #[test]
 fn test_get_current_batch_index_and_batch() {
-    let mut metadata = QueueBatches::new_output_queue(10, 2).unwrap();
+    let mut metadata = QueueBatches::new_input_queue(10, 2, 0).unwrap();
     {
         let previous_batch_index = metadata.get_previous_batch_index();
         assert_eq!(previous_batch_index, 1);

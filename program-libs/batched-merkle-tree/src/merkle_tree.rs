@@ -3,28 +3,29 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::verify::CompressedProof;
-use crate::zero_copy::{
-    ZeroCopyError, BOUNDED_CAPACITY, BOUNDED_LENGTH, CYCLIC_CAPACITY, CYCLIC_CURRENT_INDEX,
-    CYCLIC_LENGTH,
-};
 use solana_address::Address as Pubkey;
 use zolana_account_checks::{
-    checks::{check_account_info, check_discriminator},
-    discriminator::Discriminator,
-    AccountView,
+    checks::check_account_info, discriminator::Discriminator, AccountView,
 };
-use zolana_hasher::{hash_to_field_size::hash_to_bn254_field_size_be, Hasher};
+use zolana_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
 use zolana_merkle_tree_metadata::{
-    errors::MerkleTreeMetadataError, merkle_tree::MerkleTreeMetadata, QueueType, TreeType,
-    ADDRESS_MERKLE_TREE_TYPE_V2, STATE_MERKLE_TREE_TYPE_V2,
+    errors::MerkleTreeMetadataError, merkle_tree::MerkleTreeMetadata, TreeType,
+    ADDRESS_MERKLE_TREE_TYPE_V2,
 };
 
 use super::batch::Batch;
 use crate::{
-    batch::BatchState, constants::ADDRESS_TREE_INIT_ROOT_40, errors::BatchedMerkleTreeError,
-    merkle_tree_metadata::BatchedMerkleTreeMetadata, queue::insert_into_current_queue_batch,
-    zero_copy::TreeAccountLayout, BorshDeserialize, BorshSerialize,
+    batch::BatchState,
+    constants::ADDRESS_TREE_INIT_ROOT_40,
+    errors::BatchedMerkleTreeError,
+    merkle_tree_metadata::BatchedMerkleTreeMetadata,
+    queue::insert_into_current_queue_batch,
+    verify::CompressedProof,
+    zero_copy::{
+        TreeAccountLayout, ZeroCopyError, BOUNDED_CAPACITY, BOUNDED_LENGTH, CYCLIC_CAPACITY,
+        CYCLIC_CURRENT_INDEX, CYCLIC_LENGTH,
+    },
+    BorshDeserialize, BorshSerialize,
 };
 
 #[repr(C)]
@@ -100,33 +101,6 @@ impl<const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usi
 impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
     BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>
 {
-    /// Deserialize a batched state Merkle tree from account info.
-    /// Should be used in solana programs.
-    /// Checks that:
-    /// 1. the account owner is `program_id`,
-    /// 2. discriminator,
-    /// 3. tree type is batched state tree type.
-    pub fn state_from_account_info(
-        program_id: &[u8; 32],
-        account_info: &mut AccountView,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
-    {
-        Self::from_account_info::<STATE_MERKLE_TREE_TYPE_V2>(program_id, account_info)
-    }
-
-    /// Deserialize a state BatchedMerkleTreeAccount from bytes.
-    /// Checks the discriminator and tree type. Available on both host and
-    /// Solana SBF targets; callers that also need program-owner enforcement
-    /// should use `state_from_account_info`.
-    pub fn state_from_bytes(
-        account_data: &'a mut [u8],
-        pubkey: &Pubkey,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
-    {
-        check_discriminator::<Self>(account_data)?;
-        Self::from_bytes::<STATE_MERKLE_TREE_TYPE_V2>(account_data, pubkey)
-    }
-
     /// Deserialize a batched address Merkle tree from account info.
     /// Should be used in solana programs.
     /// Checks that:
@@ -197,8 +171,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         // Init root for indexed (`AddressV2`) trees. `None` uses the default
         // address sentinel root (`ADDRESS_TREE_INIT_ROOT_40`). Pass `Some` to
         // seed an indexed tree with a different sentinel, e.g. the BN254 `p-1`
-        // nullifier-tree root (`NULLIFIER_TREE_INIT_ROOT_40`). Ignored for
-        // `StateV2` trees.
+        // nullifier-tree root (`NULLIFIER_TREE_INIT_ROOT_40`).
         address_init_root: Option<[u8; 32]>,
     ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
     {
@@ -270,14 +243,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         // Initialize root history array with initial root.
         // Batch zkp updates require an input Merkle root.
         // The initial root is written at index 0 and the write head advanced to 1.
-        let init_root = if tree_type == TreeType::StateV2 {
-            // Root for binary Merkle tree with all zero leaves.
-            Some(
-                *zolana_hasher::Poseidon::zero_bytes()
-                    .get(height as usize)
-                    .ok_or(MerkleTreeMetadataError::InvalidHeight)?,
-            )
-        } else if tree_type == TreeType::AddressV2 {
+        let init_root = if tree_type == TreeType::AddressV2 {
             // Sanity check since init value is hardcoded.
             #[cfg(not(test))]
             if height != 40 {
@@ -365,14 +331,11 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             let [hc0, hc1] = hash_chains;
             let mut hash_chain_stores = [hc0.view(), hc1.view()];
             insert_into_current_queue_batch(
-                QueueType::InputStateV2 as u64,
                 &mut metadata.queue_batches,
-                &mut [],
-                Some(bloom_filters),
+                bloom_filters,
                 &mut hash_chain_stores,
                 address,
-                Some(address),
-                None,
+                address,
                 current_slot,
             )?;
         }
@@ -681,10 +644,10 @@ pub mod test_utils {
 
     pub fn get_merkle_tree_account_size_default() -> usize {
         get_merkle_tree_account_size::<
-            { crate::constants::STATE_TREE_DEFAULT_RH },
-            { crate::constants::STATE_TREE_DEFAULT_NUM_ITERS },
-            { crate::constants::STATE_TREE_DEFAULT_BLOOM },
-            { crate::constants::STATE_TREE_DEFAULT_ZKP },
+            { crate::constants::ADDRESS_TREE_DEFAULT_RH },
+            { crate::constants::ADDRESS_TREE_DEFAULT_NUM_ITERS },
+            { crate::constants::ADDRESS_TREE_DEFAULT_BLOOM },
+            { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
         >()
     }
 }
@@ -724,8 +687,9 @@ mod test {
     use rand::{Rng, SeedableRng};
 
     use super::*;
-    use crate::merkle_tree::test_utils::get_merkle_tree_account_size_default;
-    use crate::zero_copy::CachedTreeUpdate;
+    use crate::{
+        merkle_tree::test_utils::get_merkle_tree_account_size_default, zero_copy::CachedTreeUpdate,
+    };
 
     #[test]
     fn test_from_bytes_invalid_tree_type() {
@@ -744,7 +708,7 @@ mod test {
     fn test_from_bytes_invalid_account_size() {
         let mut account_data = vec![0u8; 200];
         let account = BatchedMerkleTreeAccount::<200, 3, 20000, 5>::from_bytes::<
-            STATE_MERKLE_TREE_TYPE_V2,
+            ADDRESS_MERKLE_TREE_TYPE_V2,
         >(&mut account_data, &Pubkey::default());
         assert!(matches!(
             account.unwrap_err(),
@@ -756,7 +720,7 @@ mod test {
     fn test_init_invalid_account_size() {
         let mut account_data = vec![0u8; 200];
         let account = BatchedMerkleTreeAccount::<200, 3, 20000, 5>::from_bytes::<
-            STATE_MERKLE_TREE_TYPE_V2,
+            ADDRESS_MERKLE_TREE_TYPE_V2,
         >(&mut account_data, &Pubkey::default());
         assert!(matches!(
             account.unwrap_err(),
@@ -789,7 +753,7 @@ mod test {
 
         let mut old_sized = vec![0u8; full - cached_tree_update_bytes];
         let account = BatchedMerkleTreeAccount::<RH, NI, BLOOM, ZKP>::from_bytes::<
-            STATE_MERKLE_TREE_TYPE_V2,
+            ADDRESS_MERKLE_TREE_TYPE_V2,
         >(&mut old_sized, &Pubkey::default());
         assert!(matches!(
             account.unwrap_err(),
