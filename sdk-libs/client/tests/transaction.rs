@@ -73,7 +73,7 @@ fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover") {
+    match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover").circuit {
         CircuitType::P256(prover) => prover,
         CircuitType::Eddsa(_) => panic!("expected P256 rail"),
     }
@@ -278,6 +278,8 @@ fn transfer_round_trip_outputs_and_bundle() {
             asset_id: SOL_ASSET_ID,
             amount: 60,
             blinding: derive_blinding(&seed, 2),
+            program_id: None,
+            zone_program_id: None,
             data: Data::default(),
         }]
     );
@@ -572,7 +574,7 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(signed, &input_merkle_proofs).unwrap(),
+        zolana_client::into_prover(signed, &input_merkle_proofs).unwrap().circuit,
         CircuitType::Eddsa(_)
     ));
 }

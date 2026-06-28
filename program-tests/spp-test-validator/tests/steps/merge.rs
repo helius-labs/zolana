@@ -189,6 +189,7 @@ impl LifecycleWorld {
             zone_data_hash: None,
             program_data_hash: None,
             owner_tag: None,
+            program_owner: None,
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

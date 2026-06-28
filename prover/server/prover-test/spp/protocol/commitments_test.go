@@ -70,9 +70,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs []*big.Int, externalDataHash *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, externalDataHash)
+	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash)
 	return mustHash(t, value, err)
 }
 
@@ -248,16 +248,19 @@ func TestHashChainEmptyAndSingle(t *testing.T) {
 func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	inputs := []*big.Int{fe(11), fe(12)}
 	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(41), fe(42)}
 	externalDataHash := fe(31)
 
 	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
 	// external_data_hash (tested in the prover's external_data tests).
-	got := mustPrivateTxHash(t, inputs, outputs, externalDataHash)
+	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash)
 	inputChain := mustHashChain(t, inputs)
 	outputChain := mustHashChain(t, outputs)
-	want := mustPoseidon(t, 4, []*big.Int{
+	addressChain := mustHashChain(t, addresses)
+	want := mustPoseidon(t, 5, []*big.Int{
 		inputChain,
 		outputChain,
+		addressChain,
 		externalDataHash,
 	})
 	if got.Cmp(want) != 0 {

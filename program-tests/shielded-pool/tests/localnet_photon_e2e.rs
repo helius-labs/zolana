@@ -55,7 +55,7 @@ use zolana_program_test::{
 };
 use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::{
-    instructions::transact::private_tx_hash,
+    instructions::transact::{no_address_hashes, private_tx_hash},
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
     AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
@@ -354,6 +354,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_private_tx = private_tx_hash(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
+        &no_address_hashes(2),
         &transfer_external_hash,
     )?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
@@ -519,6 +520,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_private_tx = private_tx_hash(
         &[recipient_hash, zero],
         &[zero, zero, zero],
+        &no_address_hashes(2),
         &withdraw_external_hash,
     )?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);

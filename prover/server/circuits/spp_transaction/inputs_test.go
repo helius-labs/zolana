@@ -308,6 +308,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		t,
 		[]*big.Int{big.NewInt(0)},
 		OutputHashes,
+		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash

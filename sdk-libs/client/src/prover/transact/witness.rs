@@ -1,3 +1,4 @@
+use solana_address::Address;
 use zolana_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
@@ -29,10 +30,23 @@ pub enum CircuitType {
     Eddsa(TransferProver),
 }
 
+/// A built circuit plus the per-real-input program-owned flags (in real-input
+/// order), so the caller can select `PROGRAM_OWNED_SIGNER` for program-owned slots
+/// without re-deriving ownership.
+pub struct BuiltCircuit {
+    pub circuit: CircuitType,
+    pub real_program_owned: Vec<bool>,
+}
+
 /// Sentinel `eddsa_signer_index` marking a P256-owned input; the program uses it
 /// to select the P256 verifying key and skip the eddsa signer check. Mirrors
 /// `P256_OWNED_SIGNER` in the shielded-pool program.
 const P256_OWNED_SIGNER: u8 = 255;
+
+/// Sentinel `eddsa_signer_index` marking a program-owned value input; the program
+/// authorizes it with the invoking program's `cpi_signer` and skips the per-input
+/// user signer check. Mirrors `PROGRAM_OWNED_SIGNER` in the shielded-pool program.
+const PROGRAM_OWNED_SIGNER: u8 = 254;
 
 /// Default output-tree slot every input is placed at (`tree_index` 0).
 const DEFAULT_TREE_INDEX: u8 = 0;
@@ -106,7 +120,7 @@ fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
 pub fn into_prover(
     tx: SignedTransaction,
     input_merkle_proofs: &[SpendProof],
-) -> Result<CircuitType, ClientError> {
+) -> Result<BuiltCircuit, ClientError> {
     let requires_p256 = inputs_require_p256(&tx.inputs)?;
     let p256_owner = if requires_p256 {
         Some(p256_owner(&tx)?)
@@ -124,6 +138,7 @@ pub fn into_prover(
     } = tx;
 
     let mut spends = Vec::with_capacity(inputs.len());
+    let mut real_program_owned = Vec::new();
     let mut real_index = 0;
     for spend in inputs {
         let utxo = spend.utxo;
@@ -142,39 +157,61 @@ pub fn into_prover(
             real_index += 1;
             Some(proof)
         };
+        // The transaction crate has no program-owner concept, so transactions
+        // assembled from a `SignedTransaction` are never program-owned here.
+        // Program-owned inputs reach the prover via the direct `TransferSpendInput`
+        // APIs; the per-real-input flag is threaded so the signer index is correct
+        // wherever it is set.
+        let program_owner: Option<Address> = None;
+        if proof.is_some() {
+            real_program_owned.push(program_owner.is_some());
+        }
         spends.push(TransferSpendInput {
             utxo,
             nullifier_key,
             program_data_hash,
             zone_data_hash,
             proof,
+            program_owner,
         });
     }
 
     let shape = client_shape(shape);
     let public_amounts = client_public_amounts(public_amounts);
+    // The CPI program bound to the public `program_id`: the cpi_signer carries it
+    // for a program-driven transact, otherwise the proof leaves program_id 0.
+    let program_id = external_data
+        .cpi_signer
+        .as_ref()
+        .map(|cpi| Address::new_from_array(cpi.program_id));
 
-    if requires_p256 {
+    let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-        Ok(CircuitType::P256(TransferP256Prover {
+        CircuitType::P256(TransferP256Prover {
             inputs: spends,
             outputs,
             external_data,
             public_amounts,
             payer_pubkey_hash,
             p256_owner,
+            program_id,
             shape: Some(shape),
-        }))
+        })
     } else {
-        Ok(CircuitType::Eddsa(TransferProver {
+        CircuitType::Eddsa(TransferProver {
             inputs: spends,
             outputs,
             external_data,
             public_amounts,
             payer_pubkey_hash,
+            program_id,
             shape: Some(shape),
-        }))
-    }
+        })
+    };
+    Ok(BuiltCircuit {
+        circuit,
+        real_program_owned,
+    })
 }
 
 /// Assemble the prover witness and the `Transact` instruction data in a single
@@ -218,6 +255,24 @@ pub fn assemble(
         ..
     } = tx.external_data.clone();
 
+    let BuiltCircuit {
+        circuit,
+        real_program_owned,
+    } = into_prover(tx, input_proofs)?;
+
+    // A program-owned input is authorized by the invoking program's cpi_signer, so
+    // its slot carries the PROGRAM_OWNED_SIGNER sentinel instead of a P256/eddsa
+    // signer index. `real_program_owned` is in the same real-input order as
+    // `real_signer_indices`.
+    for (signer, &program_owned) in real_signer_indices
+        .iter_mut()
+        .zip(real_program_owned.iter())
+    {
+        if program_owned {
+            *signer = PROGRAM_OWNED_SIGNER;
+        }
+    }
+
     let (
         prover_inputs,
         public_input_hash,
@@ -225,7 +280,7 @@ pub fn assemble(
         private_tx,
         root_indices,
         p256_signing_pk_field,
-    ) = match into_prover(tx, input_proofs)? {
+    ) = match circuit {
         CircuitType::P256(prover) => {
             let result = prover.build()?;
             (

@@ -184,7 +184,7 @@ func buildCircuitAssignmentExact(
 	}
 
 	externalDataHash := spptest.Fe(300)
-	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, externalDataHash)
+	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, noAddressHashes(shape.NInputs), externalDataHash)
 	p256MessageDigest := spptest.MustP256MessageDigest(t, privateTxHash)
 	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256MessageDigest)
 	p256MessageHashField := spptest.MustP256FieldFromLimbs(t, p256MessageLow, p256MessageHigh)
@@ -265,6 +265,13 @@ func buildCircuitAssignmentExact(
 
 func defaultStateLeafIndex(i int) uint64 {
 	return uint64(17 + i)
+}
+
+// noAddressHashes is the address category for a transaction that creates no
+// addresses. The circuit hashes one address slot per input (0 when the slot is
+// not an address), so the chain is over nInputs zeros, not an empty list.
+func noAddressHashes(nInputs int) []*big.Int {
+	return spptest.RepeatBigInt(spptest.Fe(0), nInputs)
 }
 
 func fillStateProofElements(pathElements []frontend.Variable, proofElements []*big.Int) {
@@ -473,6 +480,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *Circuit) {
 		t,
 		inputHashes,
 		OutputHashes,
+		noAddressHashes(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash

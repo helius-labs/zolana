@@ -210,6 +210,7 @@ fn assemble_prover(
             asset: [0u8; 32],
         },
         payer_pubkey_hash: [0u8; 32],
+        program_id: None,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
@@ -265,6 +266,7 @@ fn build_real_inputs(
             nullifier_key,
             program_data_hash: None,
             zone_data_hash: None,
+            program_owner: None,
             proof: Some(proof),
         })
         .collect()
@@ -282,6 +284,8 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
         zone_data_hash: None,
         program_data_hash: None,
         owner_tag: None,
+        program_owner: None,
+        data: Data::default(),
     }
 }
 
@@ -310,6 +314,7 @@ fn dummy_input() -> TransferSpendInput {
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         program_data_hash: None,
         zone_data_hash: None,
+        program_owner: None,
         proof: None,
     }
 }

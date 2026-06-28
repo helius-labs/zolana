@@ -67,10 +67,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	viewSk := big.NewInt(7)
 	viewX, viewY := curve.ScalarBaseMult(leftPad32(viewSk))
 	userViewingUncompressed := elliptic.Marshal(curve, viewX, viewY)
-	viewKeyHash, err := protocol.P256PkField(elliptic.MarshalCompressed(curve, viewX, viewY))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	txViewingSk := big.NewInt(123456789)
 
@@ -155,7 +151,12 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, externalDataHash)
+	// Merge creates no addresses: the address category is all zeros, one per input.
+	addressHashes := make([]*big.Int, merge.MergeInputs)
+	for i := range addressHashes {
+		addressHashes[i] = big.NewInt(0)
+	}
+	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, addressHashes, externalDataHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,9 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		pubNfRoots[i] = nfRoot
 	}
 
-	// Policy-zone public input hash: the default 11 elements plus zone_program_id.
+	// Policy-zone public input hash: like the default merge but with the owner
+	// signing/viewing pk_field omitted (no registry binds them in a policy zone)
+	// and zone_program_id appended.
 	publicInputHash := hashChain(t, []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
@@ -184,8 +187,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		hashChain(t, pubNfRoots),
 		privateTxHash,
 		externalDataHash,
-		ownerKeyHash,
-		viewKeyHash,
 		pkLo, pkHi,
 		ctHash,
 		zoneProgramID,

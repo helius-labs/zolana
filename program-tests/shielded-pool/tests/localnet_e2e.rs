@@ -32,7 +32,10 @@ use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
-use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::{no_address_hashes, private_tx_hash},
+    Data, Utxo, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -249,6 +252,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_private_tx = private_tx_hash(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
+        &no_address_hashes(2),
         &transfer_external_hash,
     )?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
@@ -396,6 +400,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let withdraw_private_tx = private_tx_hash(
         &[recipient_hash, zero],
         &[zero, zero, zero],
+        &no_address_hashes(2),
         &withdraw_external_hash,
     )?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);

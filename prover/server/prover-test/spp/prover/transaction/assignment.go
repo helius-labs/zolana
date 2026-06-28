@@ -88,7 +88,13 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, external.hash)
+	// This builder constructs only real spends and padding dummies, never address
+	// slots, so the address category is all zeros (one per input).
+	addressHashes := make([]*big.Int, shape.NInputs)
+	for i := range addressHashes {
+		addressHashes[i] = big.NewInt(0)
+	}
+	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, addressHashes, external.hash)
 	if err != nil {
 		return proofAssignment{}, err
 	}

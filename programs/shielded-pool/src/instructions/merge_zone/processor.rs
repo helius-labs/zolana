@@ -18,7 +18,10 @@ use zolana_interface::{
 use super::account::MergeZoneAccounts;
 use crate::instructions::{
     hash::solana_pk_hash,
-    merge::{processor::process_merge_core, verify::MergeProofInputs},
+    merge::{
+        processor::process_merge_core,
+        verify::{MergeOwnerBinding, MergeProofInputs},
+    },
     shared::check_not_expired,
 };
 
@@ -52,23 +55,21 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     // The zone merge proof binds `zone_program_id` from the signing `zone_config`
-    // and is verified against the `merge_zone_8_1` key. The owner-identity public
-    // inputs (`signing_pk_field`, `viewing_pk_field`) are not sourced from a
-    // registry here -- `merge_zone` has no `user_record` account -- so they remain
-    // zero until the merge_zone instruction supplies them.
+    // and is verified against the `merge_zone_8_1` key. A policy zone has no
+    // `user_record` registry, so the `Zone` binding omits owner identity entirely
+    // (see `MergeProof::public_input_hash`); the binding also selects the
+    // `merge_zone_8_1` verifying key.
     let zone_program_id = solana_pk_hash(merge_accounts.zone_program_id.as_array())?;
     let derived = MergeProofInputs {
         utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         external_data_hash,
-        signing_pk_field: [0u8; 32],
-        viewing_pk_field: [0u8; 32],
-        zone_program_id,
+        owner_binding: MergeOwnerBinding::Zone { zone_program_id },
     };
 
     // The merged output is indexed by the single-use `merge_view_tag`, which is
     // also inserted into the nullifier queue for replay protection.
-    process_merge_core::<true>(
+    process_merge_core(
         merge_accounts.tree,
         merge,
         derived,

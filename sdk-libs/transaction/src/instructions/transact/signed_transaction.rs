@@ -2,7 +2,10 @@ use num_bigint::{BigInt, BigUint, Sign};
 use solana_address::Address;
 use zolana_keypair::hash::{hash_field, sha256};
 
-use super::{builder::Shape, types::private_tx_hash};
+use super::{
+    builder::Shape,
+    types::{no_address_hashes, private_tx_hash},
+};
 use crate::{
     error::TransactionError,
     instructions::types::{InputCommitment, SpendUtxo},
@@ -101,7 +104,12 @@ impl SignedTransaction {
         }
 
         let external_data_hash = self.external_data.hash()?;
-        let private_tx = private_tx_hash(&input_hashes, &output_hashes, &external_data_hash)?;
+        let private_tx = private_tx_hash(
+            &input_hashes,
+            &output_hashes,
+            &no_address_hashes(self.shape.n_inputs),
+            &external_data_hash,
+        )?;
         Ok(sha256(&private_tx))
     }
 }

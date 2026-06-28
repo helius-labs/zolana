@@ -12,50 +12,16 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-// The zone variant binds each non-dummy UTXO's program_id to the public
-// ProgramID when set: a transaction whose inputs and outputs all carry the same
-// program_id as the public input solves.
-func TestZoneCircuitBindsMatchingProgramID(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	programID := spptest.Fe(0x1234)
-
-	assignment := buildZoneAssignment(t, shape, programID, programID, programID)
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// A UTXO whose non-zero program_id differs from the public ProgramID violates
-// the if-set binding and the proof fails.
-func TestZoneCircuitRejectsMismatchedProgramID(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	programID := spptest.Fe(0x1234)
-	otherID := spptest.Fe(0x5678)
-
-	// Output 0 carries a different program_id than the public ProgramID.
-	assignment := buildZoneAssignment(t, shape, programID, programID, otherID)
-	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
-	if err != nil {
-		t.Fatalf("new zone circuit: %v", err)
-	}
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// program_data_hash may be non-zero only when its governing program_id is set:
-// the circuit forces a non-zero program_data_hash to name a non-zero program_id
-// (which bindIfSet then pins to the public ProgramID), so only the owning program
-// can create a UTXO carrying data under its id. An output with program_data_hash
-// != 0 and program_id == 0 must fail.
-func TestZoneCircuitRejectsProgramDataHashWithoutProgramID(t *testing.T) {
+// The standalone program_id field is vestigial: program identity lives in the
+// owner, so every real UTXO must pin program_id to 0. A non-zero program_id field
+// is rejected. (Program data on a program-owned UTXO is covered in
+// program_owned_test.go.)
+func TestZoneCircuitRejectsNonZeroProgramIDField(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
-	outputs[0].DataHash = spptest.Fe(0x99) // program_data_hash set, program_id stays 0
+	outputs[0].ProgramID = spptest.Fe(0x1234)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
 	refreshZonePublicInputHash(t, assignment)
 
@@ -66,31 +32,23 @@ func TestZoneCircuitRejectsProgramDataHashWithoutProgramID(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// With the governing program_id set and bound to the public ProgramID, a non-zero
-// program_data_hash on every UTXO is allowed.
-func TestZoneCircuitAllowsProgramDataHashWithProgramID(t *testing.T) {
+// A user-owned output cannot carry program data: program data lives only on
+// program-owned UTXOs (owner == program_id). A user output with program_data_hash
+// set must fail.
+func TestZoneCircuitRejectsProgramDataOnUserOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	programID := spptest.Fe(0x1234)
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
-	for i := range inputs {
-		inputs[i].ProgramID = new(big.Int).Set(programID)
-		inputs[i].DataHash = spptest.Fe(int64(0x70 + i))
-	}
-	for i := range outputs {
-		outputs[i].ProgramID = new(big.Int).Set(programID)
-		outputs[i].DataHash = spptest.Fe(int64(0x80 + i))
-	}
+	outputs[0].DataHash = spptest.Fe(0x99)
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
-	assignment.ProgramID = programID
 	refreshZonePublicInputHash(t, assignment)
 
 	circuit, err := NewTransferP256ZoneCircuit(Shape(shape))
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 // zone_data_hash binds to its zone_program_id the same way: a non-zero
@@ -163,25 +121,6 @@ func TestZoneCircuitRejectsMismatchedZoneProgramID(t *testing.T) {
 		t.Fatalf("new zone circuit: %v", err)
 	}
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-// buildZoneAssignment builds a balanced assignment whose input UTXOs carry
-// inputProgramID and whose output UTXOs carry outputProgramID, and pins the
-// public ProgramID to publicProgramID. The public-input hash is recomputed to
-// match. ZoneProgramID stays 0 (program-only binding).
-func buildZoneAssignment(t testing.TB, shape protocol.Shape, publicProgramID, inputProgramID, outputProgramID *big.Int) *Circuit {
-	t.Helper()
-	inputs, outputs := defaultBalancedUtxos(t, shape)
-	for i := range inputs {
-		inputs[i].ProgramID = new(big.Int).Set(inputProgramID)
-	}
-	for i := range outputs {
-		outputs[i].ProgramID = new(big.Int).Set(outputProgramID)
-	}
-	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs, big.NewInt(0), big.NewInt(0), spptest.Fe(0))
-	assignment.ProgramID = publicProgramID
-	refreshZonePublicInputHash(t, assignment)
-	return assignment
 }
 
 func refreshZonePublicInputHash(t testing.TB, assignment *Circuit) {

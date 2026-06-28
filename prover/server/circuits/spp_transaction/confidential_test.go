@@ -168,6 +168,7 @@ func TestConfidentialDummyOutputUnconstrained(t *testing.T) {
 		t,
 		[]*big.Int{inputHash},
 		[]*big.Int{realOutputHash, big.NewInt(0)},
+		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash

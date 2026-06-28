@@ -165,7 +165,8 @@ impl ZoneLifecycleWorld {
         }
 
         let inputs = self.take_zone_inputs(from, send_asset)?;
-        let sent = self.send_zone_transfer(from, to, &inputs, send_asset, amount, withdrawal, rail)?;
+        let sent =
+            self.send_zone_transfer(from, to, &inputs, send_asset, amount, withdrawal, rail)?;
         self.last_rail = Some(rail);
 
         let SentZoneTransfer {
@@ -192,7 +193,8 @@ impl ZoneLifecycleWorld {
         // bundle (decoded independently of `Wallet::sync`), then mark consumed inputs
         // spent, so `assert_utxos` is a real cross-check of the synced wallet.
         let seed = decode_sender_seed(&self.actor(from).keypair.viewing_key, &indexed)?;
-        let discovered = self.track_outputs(from, to, &inputs, send_asset, amount, seed, &indexed)?;
+        let discovered =
+            self.track_outputs(from, to, &inputs, send_asset, amount, seed, &indexed)?;
         self.indexed.push(indexed);
 
         // Discovery via `Wallet::sync`: the confidential builder tagged the recipient
@@ -324,9 +326,8 @@ impl ZoneLifecycleWorld {
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
         let data = self.prove_and_assemble(&signed, zone, rail)?;
 
-        let withdrawal_meta = withdrawal.map(|recipient| {
-            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })
-        });
+        let withdrawal_meta = withdrawal
+            .map(|recipient| TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }));
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = ZoneTransact {
@@ -380,6 +381,7 @@ impl ZoneLifecycleWorld {
                     external_data: signed.external_data.clone(),
                     public_amounts: client_public_amounts(signed.public_amounts),
                     payer_pubkey_hash: signed.payer_pubkey_hash,
+                    program_id: None,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
@@ -404,6 +406,7 @@ impl ZoneLifecycleWorld {
                     public_amounts: client_public_amounts(signed.public_amounts),
                     payer_pubkey_hash: signed.payer_pubkey_hash,
                     p256_owner,
+                    program_id: None,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
@@ -442,6 +445,7 @@ impl ZoneLifecycleWorld {
                 sig_r: [0u8; 32],
                 sig_s: [0u8; 32],
             },
+            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
         };
@@ -500,8 +504,7 @@ impl ZoneLifecycleWorld {
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
                 let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
-                let nf =
-                    wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
+                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
                 Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -512,6 +515,7 @@ impl ZoneLifecycleWorld {
                 nullifier_key: spend.nullifier_key.clone(),
                 program_data_hash: None,
                 zone_data_hash: None,
+                program_owner: None,
                 proof,
             });
         }
@@ -523,6 +527,9 @@ impl ZoneLifecycleWorld {
     /// `assert_utxos` cross-checks the synced wallet. Mirrors the default-zone
     /// `transact` flow; a withdrawal has no recipient slot and reduces the SOL change
     /// by the public amount.
+    // All eight inputs are the independent facts a single tracked transfer needs;
+    // bundling them into a struct here would only obscure the one call site.
+    #[allow(clippy::too_many_arguments)]
     fn track_outputs(
         &mut self,
         from: &str,
@@ -579,7 +586,11 @@ impl ZoneLifecycleWorld {
                 .filter(|u| u.asset == change_asset)
                 .map(|u| u.amount)
                 .sum();
-            let sent = if change_asset == send_asset { amount } else { 0 };
+            let sent = if change_asset == send_asset {
+                amount
+            } else {
+                0
+            };
             let change = input_sum
                 .checked_sub(sent)
                 .ok_or_else(|| anyhow!("{from} change underflow: sent {sent} of {change_asset}"))?;
@@ -661,6 +672,7 @@ impl ZoneLifecycleWorld {
             external_data: signed.external_data.clone(),
             public_amounts: client_public_amounts(signed.public_amounts),
             payer_pubkey_hash: signed.payer_pubkey_hash,
+            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
         };

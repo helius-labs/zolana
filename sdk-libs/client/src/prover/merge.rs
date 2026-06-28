@@ -15,7 +15,7 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::{
         merge::PreparedMerge,
-        transact::{private_tx_hash, signed_transaction::asset_field},
+        transact::{no_address_hashes, private_tx_hash, signed_transaction::asset_field},
         types::SpendUtxo,
     },
     EncryptedScheme, OutputUtxo,
@@ -145,6 +145,7 @@ impl MergeProver {
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
+            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
         )?;
 
@@ -350,6 +351,7 @@ impl TryFrom<MergeWitness> for MergeProver {
                 program_data_hash: None,
                 zone_data_hash: None,
                 proof,
+                program_owner: None,
             });
         }
 

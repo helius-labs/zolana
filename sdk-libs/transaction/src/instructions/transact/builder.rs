@@ -459,6 +459,7 @@ impl Transaction {
             .iter()
             .map(|spend| spend.utxo.asset)
             .chain(self.recipients.iter().map(|recipient| recipient.asset))
+            .chain(self.custom_outputs.iter().map(|output| output.asset))
             .chain(self.withdrawal.iter().map(|withdrawal| withdrawal.asset));
         for asset in assets {
             if asset != SOL_MINT {
@@ -497,8 +498,21 @@ impl Transaction {
             .sum()
     }
 
+    fn custom_output_sum(&self, asset: &Address) -> i128 {
+        self.custom_outputs
+            .iter()
+            .filter(|output| &output.asset == asset)
+            .map(|output| i128::from(output.amount))
+            .sum()
+    }
+
     fn change(&self, asset: &Address, public: i128) -> Result<u64, TransactionError> {
-        let leftover = self.input_sum(asset) + public - self.recipient_sum(asset);
+        let leftover = self
+            .input_sum(asset)
+            .checked_add(public)
+            .and_then(|v| v.checked_sub(self.recipient_sum(asset)))
+            .and_then(|v| v.checked_sub(self.custom_output_sum(asset)))
+            .ok_or(TransactionError::SelectedBalanceOverflow)?;
         if leftover < 0 {
             return Err(TransactionError::InsufficientBalance {
                 requested: (-leftover) as u64,

@@ -194,8 +194,9 @@ func (c *Circuit) Define(api frontend.API) error {
 		})
 	}
 	inputHashes := make([]frontend.Variable, c.Shape.NInputs)
+	addressHashes := make([]frontend.Variable, c.Shape.NInputs)
 	for i := 0; i < c.Shape.NInputs; i++ {
-		inputHashes[i] = constrainInput(api, c.Inputs[i], nullifierPks[i], env)
+		inputHashes[i], addressHashes[i] = constrainInput(api, c.Inputs[i], nullifierPks[i], env)
 	}
 	c.assertDistinctNullifiers(api)
 	// Outputs
@@ -225,6 +226,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		api,
 		inputHashes,
 		OutputHashes,
+		addressHashes,
 		c.ExternalDataHash,
 	)
 	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)

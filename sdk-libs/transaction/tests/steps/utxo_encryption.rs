@@ -180,8 +180,8 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
     assert_eq!(recovered_recipient, recipient_utxo);
 }
 
-#[then(expr = "a zone-owned recipient utxo with data for {string} is rejected")]
-fn zone_owned_with_data_rejected(world: &mut TransactionWorld, name: String) {
+#[then(expr = "a zone-owned recipient utxo with data for {string} round-trips")]
+fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let zone_program_id = Some(Address::new_from_array([9u8; 32]));
@@ -194,11 +194,12 @@ fn zone_owned_with_data_rejected(world: &mut TransactionWorld, name: String) {
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
+    // The plaintext carries the zone program id and data, so reconstructing the
+    // recipient utxo yields the same zone-owned leaf the proof committed to.
     let pt = utxo.to_recipient_plaintext(&registry).unwrap();
     assert_eq!(
-        pt.into_utxo(kp.signing_pubkey(), &registry, zone_program_id)
-            .unwrap_err(),
-        TransactionError::UnsupportedOutputData
+        pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(),
+        utxo
     );
 }
 
@@ -210,33 +211,33 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
+        program_id: None,
+        zone_program_id: None,
         data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
     };
     assert_eq!(
-        pt.into_utxo(kp.signing_pubkey(), &registry, None)
-            .unwrap_err(),
-        TransactionError::UnsupportedOutputData
+        pt.into_utxo(kp.signing_pubkey(), &registry).unwrap_err(),
+        TransactionError::MissingZoneProgramId
     );
 }
 
-#[then(expr = "a zone program id without zone data is not set for {string}")]
-fn zone_id_without_data_not_set(world: &mut TransactionWorld, name: String) {
+#[then(expr = "a zone program id in the plaintext is carried onto the utxo for {string}")]
+fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
+    let zone_program_id = Some(Address::new_from_array([9u8; 32]));
+    // The plaintext binds the zone program id directly; reconstruction copies it
+    // onto the utxo verbatim (no data-dependent resolution step).
     let pt = TransferRecipientPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
+        program_id: None,
+        zone_program_id,
         data: Data::default(),
     };
-    let utxo = pt
-        .into_utxo(
-            kp.signing_pubkey(),
-            &registry,
-            Some(Address::new_from_array([9u8; 32])),
-        )
-        .unwrap();
-    assert_eq!(utxo.zone_program_id, None);
+    let utxo = pt.into_utxo(kp.signing_pubkey(), &registry).unwrap();
+    assert_eq!(utxo.zone_program_id, zone_program_id);
 }
 
 #[then(expr = "sender data on a zero-amount output is rejected for {string}")]

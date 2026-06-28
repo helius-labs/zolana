@@ -20,7 +20,7 @@ use zolana_tree::{TreeAccount, TreeError};
 use super::{
     account::{load_user_record, MergeTransactAccounts},
     event::{build_merge_event, MergeTreeWrite},
-    verify::{pk_field, MergeProof, MergeProofInputs},
+    verify::{pk_field, MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
 use crate::instructions::{
     event::emit_general_event, protocol_config::loader::load_protocol_config,
@@ -72,20 +72,22 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         external_data_hash,
-        signing_pk_field,
-        viewing_pk_field,
-        zone_program_id: [0u8; 32],
+        owner_binding: MergeOwnerBinding::Registry {
+            signing_pk_field,
+            viewing_pk_field,
+        },
     };
 
-    process_merge_core::<false>(merge_accounts.tree, &ix, derived, output_view_tag, clock.slot, None)
+    process_merge_core(merge_accounts.tree, &ix, derived, output_view_tag, clock.slot, None)
 }
 
 /// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
 /// inputs (and, for `merge_zone`, insert the single-use `merge_view_tag`), append
 /// the output, verify the proof, and emit the event. `derived` already carries
-/// the resolved `external_data_hash` and owner-identity public inputs.
+/// the resolved `external_data_hash` and the variant-specific owner binding,
+/// which selects both the public-input shape and the verifying key.
 #[inline(never)]
-pub(crate) fn process_merge_core<const IS_ZONE: bool>(
+pub(crate) fn process_merge_core(
     tree_account: &mut AccountView,
     ix: &MergeTransactIxDataRef<'_>,
     mut derived: MergeProofInputs,
@@ -102,7 +104,7 @@ pub(crate) fn process_merge_core<const IS_ZONE: bool>(
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag);
-    MergeProof::new(ix, derived).verify::<IS_ZONE>()?;
+    MergeProof::new(ix, derived).verify()?;
     emit_general_event(EventKind::Merge, event)
 }
 

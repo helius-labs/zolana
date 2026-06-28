@@ -188,10 +188,17 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 
 	outputHash := constrainOutput(api, s.output, userOwnerHash, s.zone, s.zoneProgramID)
 
+	// Merge never creates addresses, so the address category is all zeros (one per
+	// input). private_tx_hash keeps the same shape as the transfer circuit.
+	addressHashes := make([]frontend.Variable, len(inputHashes))
+	for i := range addressHashes {
+		addressHashes[i] = frontend.Variable(0)
+	}
 	privateTxHash := transaction.PrivateTxHashCircuit(
 		api,
 		inputHashes,
 		[]frontend.Variable{outputHash},
+		addressHashes,
 		s.externalDataHash,
 	)
 	api.AssertIsEqual(privateTxHash, s.privateTxHash)
@@ -209,10 +216,11 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 		return nil, err
 	}
 
-	// pkField (the hashed owner signing pubkey) is a public input so the owner
-	// identity is committed in the public transcript; together with the owner's
-	// own nullifier_pk it lets the owner recompute user_owner_hash without the
-	// owner being carried in the ciphertext.
+	// For the default merge, pkField (the hashed owner signing pubkey) and
+	// viewingPkField are public inputs so the owner identity is committed in the
+	// public transcript; together with the owner's own nullifier_pk that lets the
+	// owner recompute user_owner_hash without the owner being carried in the
+	// ciphertext. The policy-zone variant omits both (see mergePublicInputHash).
 	return mergePublicInputHash(api, s, outputHash, pkField, viewingPkField, ctHash, pkLo, pkHi), nil
 }
 
@@ -224,14 +232,16 @@ func mergePublicInputHash(api frontend.API, s mergeSignals, outputHash, userSign
 		gadget.HashChain(api, inputNullifierTreeRoots(s.inputs)),
 		s.privateTxHash,
 		s.externalDataHash,
-		userSigningPkHash,
-		userViewingPkHash,
-		txViewingPkLo,
-		txViewingPkHi,
-		ctHash,
 	}
-	// The policy-zone variant commits the zone identity so SPP can bind it from
-	// the CPI-calling zone_config; the default variant has no zone.
+	// The default merge binds the owner identity from the user registry, so it
+	// commits the owner's signing and viewing pk_field. A policy zone has no
+	// registry to bind these against (SPP would have nothing to check them
+	// against), so the merge_zone variant omits both owner-identity fields and
+	// commits the zone identity instead.
+	if !s.zone {
+		fields = append(fields, userSigningPkHash, userViewingPkHash)
+	}
+	fields = append(fields, txViewingPkLo, txViewingPkHi, ctHash)
 	if s.zone {
 		fields = append(fields, s.zoneProgramID)
 	}

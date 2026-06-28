@@ -45,4 +45,24 @@ for entry in "${rails[@]}"; do
     done
 done
 
+# The zone-authority rail (transfer_zone_authority) re-owns N inputs into N
+# outputs (freeze / thaw / permanent-delegate), so only the square shapes the
+# on-chain verifier supports are generated.
+authority_shapes=(
+    "1 1"
+    "2 2"
+    "3 3"
+    "4 4"
+)
+for shape in "${authority_shapes[@]}"; do
+    read -r n_inputs n_outputs <<<"$shape"
+    output="${keys_dir}/transfer_zone_authority_${n_inputs}_${n_outputs}.key"
+    echo "Generating transfer-zone-authority ${n_inputs}x${n_outputs} -> ${output}"
+    ./light-prover setup-transfer \
+        --circuit "transfer-zone-authority" \
+        --n-inputs "$n_inputs" \
+        --n-outputs "$n_outputs" \
+        --output "$output"
+done
+
 echo "Done. Transfer proving keys written to ${keys_dir}"

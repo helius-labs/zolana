@@ -1,0 +1,64 @@
+[package]
+name = "cpi-test-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+# Only the explicit `cpi_lifecycle` test target builds; tests/{actor,localnet,world}.rs
+# are its modules, not standalone integration-test binaries.
+autotests = false
+
+# Test-only fixture: a minimal program whose only job is to forward a `transact`
+# instruction to SPP via CPI, signing with its CPI-signer PDA. It lets integration
+# tests exercise a program-governed transact (a PDA can only sign via a CPI from
+# its owning program).
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"] }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+
+[[test]]
+name = "cpi_lifecycle"
+path = "tests/cpi_lifecycle.rs"
+harness = false
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

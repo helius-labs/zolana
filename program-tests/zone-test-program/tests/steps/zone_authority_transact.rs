@@ -34,7 +34,7 @@ use zolana_interface::instruction::{
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
-use zolana_keypair::{random_blinding, random_salt, ViewingKey};
+use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
 use zolana_test_utils::test_validator_asserts::{
     assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
@@ -212,6 +212,7 @@ impl ZoneLifecycleWorld {
             nullifier_key: keypair.nullifier_key.clone(),
             program_data_hash: None,
             zone_data_hash: None,
+            program_owner: None,
             proof: Some(SpendProof {
                 state,
                 nullifier: non_inclusion,
@@ -234,6 +235,8 @@ impl ZoneLifecycleWorld {
             zone_data_hash: None,
             program_data_hash: None,
             owner_tag: None,
+            program_owner: None,
+            data: Data::default(),
         };
         let output_hash = output.hash()?;
 
@@ -297,7 +300,8 @@ impl ZoneLifecycleWorld {
                 spl: [0u8; 32],
                 asset: [0u8; 32],
             },
-            payer_pubkey_hash: [0u8; 32],
+            payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
+            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
         }
@@ -406,8 +410,12 @@ impl ZoneLifecycleWorld {
         self.sync(name)?;
 
         // Rejected on-chain before any state change; re-own back to the same actor.
+        // Zero the proof (the zone-authority rail is vanilla eddsa) so verification
+        // deterministically fails with `TransactProofVerificationFailed` -- flipping a
+        // single byte can instead yield `InvalidTransactProofEncoding` depending on
+        // the random proof bytes.
         let mut ix_data = self.build_zone_authority_transfer(name, name, asset)?;
-        ix_data.proof = corrupt_proof(ix_data.proof);
+        ix_data.proof = TransactProof::zeroed_eddsa();
 
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {
@@ -432,33 +440,6 @@ impl ZoneLifecycleWorld {
             Err(error) => {
                 assert_rpc_custom_error(&error, TRANSACT_PROOF_VERIFICATION_FAILED);
                 Ok(())
-            }
-        }
-    }
-}
-
-/// Flip the `a` G1 point of a `TransactProof` to a non-verifying value, preserving
-/// the rail (commitment present or not) so the proof still decodes on-chain.
-fn corrupt_proof(proof: TransactProof) -> TransactProof {
-    match proof {
-        TransactProof::Eddsa { mut a, b, c } => {
-            a[0] ^= 0xff;
-            TransactProof::Eddsa { a, b, c }
-        }
-        TransactProof::P256 {
-            mut a,
-            b,
-            c,
-            commitment,
-            commitment_pok,
-        } => {
-            a[0] ^= 0xff;
-            TransactProof::P256 {
-                a,
-                b,
-                c,
-                commitment,
-                commitment_pok,
             }
         }
     }
