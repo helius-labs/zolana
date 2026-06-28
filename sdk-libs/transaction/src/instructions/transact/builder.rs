@@ -156,6 +156,10 @@ pub struct Transaction {
     owner: ShieldedAddress,
     inputs: Vec<SpendUtxo>,
     recipients: Vec<Recipient>,
+    /// Fully specified recipient outputs that bind zone/program data. Unlike
+    /// [`Recipient`] (which carries only address/asset/amount), these are minted
+    /// verbatim, so the caller controls `data` and the zone/program ids.
+    custom_outputs: Vec<OutputUtxo>,
     withdrawal: Option<Withdrawal>,
     payer_pubkey_hash: [u8; 32],
     blinding_seed: [u8; BLINDING_LEN],
@@ -169,6 +173,7 @@ impl Transaction {
             owner,
             inputs,
             recipients: Vec::new(),
+            custom_outputs: Vec::new(),
             withdrawal: None,
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
@@ -177,6 +182,17 @@ impl Transaction {
             // so callers that want a relayer deadline set it explicitly.
             expiry_unix_ts: u64::MAX,
         }
+    }
+
+    /// Push a fully specified custom recipient output. It counts toward the proof
+    /// shape like a [`Self::send`] recipient and is encoded into its own
+    /// ciphertext slot. The output must name its recipient via `owner_address`.
+    pub fn add_output(&mut self, output: OutputUtxo) -> Result<&mut Self, TransactionError> {
+        if output.owner_address.is_none() {
+            return Err(TransactionError::MissingOutput);
+        }
+        self.custom_outputs.push(output);
+        Ok(self)
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
@@ -345,9 +361,32 @@ impl Transaction {
                     asset_id,
                     amount: recipient.amount,
                     blinding,
+                    program_id: None,
+                    zone_program_id: None,
                     data: Data::default(),
                 },
             });
+        }
+
+        for output in &self.custom_outputs {
+            let address = output
+                .owner_address
+                .ok_or(TransactionError::MissingOutput)?;
+            let asset_id = self.asset_id(assets, &output.asset)?;
+            recipient_viewing_pks.push(address.viewing_pubkey);
+            recipients.push(PreparedRecipient {
+                view_tag: address.signing_pubkey.confidential_view_tag()?,
+                recipient_pubkey: address.viewing_pubkey,
+                plaintext: TransferRecipientPlaintext {
+                    asset_id,
+                    amount: output.amount,
+                    blinding: output.blinding,
+                    program_id: output.program_id,
+                    zone_program_id: output.zone_program_id,
+                    data: output.data.clone(),
+                },
+            });
+            outputs.push(output.clone());
         }
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;

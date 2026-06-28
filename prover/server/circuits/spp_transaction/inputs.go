@@ -52,10 +52,14 @@ func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Vari
 	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
 }
 
-// constrainInput verifies one spent input: domain, state-tree inclusion, owner
-// binding, nullifier derivation, and nullifier-tree non-inclusion. Every check
-// is gated on the slot being real; a dummy slot skips all of them. It returns
-// the input's UTXO hash (0 for a dummy) for the transaction-hash chain.
+// constrainInput verifies one input slot. A real spend (IsDummy == 0) runs
+// domain, state-tree inclusion, owner binding, nullifier derivation, and
+// nullifier-tree non-inclusion. A dummy slot (IsDummy == 1) is one of two kinds,
+// selected by whether it carries a program_data_hash seed: a padding dummy is
+// inert (owner 0, nullifier unpinned), while an address dummy skips inclusion and
+// owner binding but binds owner == program_id, pins every non-seed field, and
+// constrains its nullifier as the new program-owned address. It returns the
+// input's UTXO hash (0 for any dummy) for the transaction-hash chain.
 func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) frontend.Variable {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
@@ -94,9 +98,10 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	assertZeroWhen(api, isAddress, in.Utxo.ProgramID)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
-	assertEqualWhen(api, isAddress, in.Utxo.Domain, UtxoDomain)
 
-	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain)
+	// Domain is pinned for real spends and address slots alike (a padding dummy
+	// leaves it free); spendOrAddress covers both.
+	assertEqualWhen(api, spendOrAddress, in.Utxo.Domain, UtxoDomain)
 	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.programID, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
