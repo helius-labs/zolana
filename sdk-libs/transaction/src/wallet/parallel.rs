@@ -97,7 +97,9 @@ impl Wallet {
             nullifier_pk: self.keypair.nullifier_key.pubkey()?,
             keypair: &self.keypair,
             utxos: &mut self.utxos,
+            transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
+            processed_outbound: HashSet::new(),
             report,
         };
 
@@ -213,6 +215,9 @@ impl Wallet {
                 utxo.spent = true;
             }
         }
+        self.transactions.sort_by(|a, b| {
+            (a.id.slot, &a.id.signature, a.id.index).cmp(&(b.id.slot, &b.id.signature, b.id.index))
+        });
         self.last_synced = synced_at;
         Ok(report)
     }

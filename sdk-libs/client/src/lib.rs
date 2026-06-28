@@ -46,9 +46,14 @@ pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
     P256Signature, WalletAuthority,
 };
+pub use wallet_sync::{get_private_token_balances, get_private_transactions};
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
 pub use zolana_transaction::instructions::{
     merge::{Merge, PreparedMerge, MERGE_INPUTS},
     transact::{SignedTransaction, Transaction, WithdrawalTarget},
     types::{InputCommitment, SpendUtxo},
+};
+pub use zolana_transaction::{
+    AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus,
 };

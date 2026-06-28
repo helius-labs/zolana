@@ -5,5 +5,7 @@ mod state;
 mod sync;
 
 pub use state::{
-    AssetBalance, SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
+    WalletUtxo, DEFAULT_TAG_WINDOW,
 };
