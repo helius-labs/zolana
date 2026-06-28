@@ -35,6 +35,21 @@ fn main() {
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
             println!("wrote {out_dir}/{filename}");
         }
+        Some("vk-json") => {
+            let vk_json = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("usage: vk-json <vk_json> <out_dir> <filename>"));
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("vk-json missing <out_dir>"));
+            let filename = args
+                .next()
+                .unwrap_or_else(|| usage_and_exit("vk-json missing <filename>"));
+            groth16_solana::vk_parser::generate_vk_file(&vk_json, &out_dir, &filename)
+                .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            add_vanilla_commitment_fields(Path::new(&out_dir).join(&filename));
+            println!("wrote {out_dir}/{filename}");
+        }
         Some("program-ids") => print_program_ids(),
         Some("init-protocol") => {
             if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
@@ -196,6 +211,26 @@ fn create_verifying_keys(options: CreateVerifyingKeysOptions) {
         .expect("failed to write verifying key manifest");
 }
 
+fn add_vanilla_commitment_fields(path: PathBuf) {
+    let mut rust = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read generated vk {}: {error}", path.display()));
+    if rust.contains("vk_commitment_g2") {
+        return;
+    }
+    let replacement = ",\n    vk_commitment_g2: None,\n    vk_commitment_g_sigma_neg_g2: None,\n};";
+    if !rust.ends_with("\n};\n") {
+        panic!(
+            "generated vk has unexpected ending, cannot add commitment fields: {}",
+            path.display()
+        );
+    }
+    rust.truncate(rust.len() - "\n};\n".len());
+    rust.push_str(replacement);
+    rust.push('\n');
+    fs::write(&path, rust)
+        .unwrap_or_else(|error| panic!("failed to write generated vk {}: {error}", path.display()));
+}
+
 fn read_proving_keys(keys_dir: &Path) -> Vec<PathBuf> {
     let mut keys = fs::read_dir(keys_dir)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", keys_dir.display()))
@@ -270,6 +305,7 @@ fn print_help() {
     println!("Commands:");
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
     println!("  bsb22-vk                 Export one binary verifying key as Rust source");
+    println!("  vk-json                  Export one JSON verifying key as Rust source");
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");

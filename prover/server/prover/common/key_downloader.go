@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -449,15 +450,21 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 		Str("tag", ProvingKeysReleaseTag).
 		Msg("Downloading proving key from GitHub release via gh")
 
-	cmd := exec.Command("gh", "release", "download", ProvingKeysReleaseTag,
-		"--repo", ProvingKeysRepo,
-		"--pattern", filename,
-		"--pattern", "CHECKSUM",
-		"--dir", dir,
-		"--clobber",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("gh release download failed for %s: %w: %s", filename, err, strings.TrimSpace(string(out)))
+	if err := downloadReleaseAsset("CHECKSUM", dir); err != nil {
+		return fmt.Errorf("failed to download release CHECKSUM: %w", err)
+	}
+
+	if err := downloadReleaseAsset(filename, dir); err != nil {
+		logging.Logger().Info().
+			Err(err).
+			Str("file", filename).
+			Msg("Exact release asset unavailable; trying split asset parts")
+		if partsErr := downloadReleaseAsset(filename+".part-*", dir); partsErr != nil {
+			return fmt.Errorf("failed to download release asset %s or split parts: exact: %w; parts: %w", filename, err, partsErr)
+		}
+		if err := assembleReleaseAssetParts(dir, filename, keyPath); err != nil {
+			return err
+		}
 	}
 
 	expectedChecksum, ok := readLocalChecksum(dir, filename)
@@ -476,6 +483,64 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 	logging.Logger().Info().
 		Str("file", filename).
 		Msg("Proving key downloaded and verified successfully")
+	return nil
+}
+
+func downloadReleaseAsset(pattern string, dir string) error {
+	cmd := exec.Command("gh", "release", "download", ProvingKeysReleaseTag,
+		"--repo", ProvingKeysRepo,
+		"--pattern", pattern,
+		"--dir", dir,
+		"--clobber",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh release download failed for pattern %s: %w: %s", pattern, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func assembleReleaseAssetParts(dir string, filename string, outputPath string) error {
+	partPattern := filepath.Join(dir, filename+".part-*")
+	parts, err := filepath.Glob(partPattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob split assets %s: %w", partPattern, err)
+	}
+	if len(parts) == 0 {
+		return fmt.Errorf("no split release asset parts matched %s", partPattern)
+	}
+	sort.Strings(parts)
+
+	tempPath := outputPath + ".download"
+	out, err := os.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to create assembled key %s: %w", tempPath, err)
+	}
+	defer out.Close()
+
+	for _, part := range parts {
+		in, err := os.Open(part)
+		if err != nil {
+			os.Remove(tempPath)
+			return fmt.Errorf("failed to open split asset %s: %w", part, err)
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			in.Close()
+			os.Remove(tempPath)
+			return fmt.Errorf("failed to append split asset %s: %w", part, err)
+		}
+		if err := in.Close(); err != nil {
+			os.Remove(tempPath)
+			return fmt.Errorf("failed to close split asset %s: %w", part, err)
+		}
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to close assembled key %s: %w", tempPath, err)
+	}
+	if err := os.Rename(tempPath, outputPath); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to move assembled key to %s: %w", outputPath, err)
+	}
 	return nil
 }
 

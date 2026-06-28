@@ -355,7 +355,7 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 }
 
 func usesProvingKeysRelease(circuitType CircuitType, treeHeight uint32, batchSize uint32) bool {
-	return circuitType == BatchAddressAppendCircuitType && treeHeight == 40 && batchSize == 10
+	return circuitType == BatchAddressAppendCircuitType && treeHeight == 40 && (batchSize == 10 || batchSize == 250)
 }
 
 // transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
