@@ -88,6 +88,9 @@ pub enum TransactionError {
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 
+    #[error("merge input {index} has a different zone program id")]
+    MergeInputZoneMismatch { index: usize },
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 

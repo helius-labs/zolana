@@ -15,7 +15,18 @@ impl Shape {
     }
 }
 
-pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
+pub const SUPPORTED_SHAPES: [Shape; 10] = [
+    Shape::new(1, 1),
+    Shape::new(1, 2),
+    Shape::new(2, 2),
+    Shape::new(2, 3),
+    Shape::new(3, 3),
+    Shape::new(4, 3),
+    Shape::new(4, 4),
+    Shape::new(5, 3),
+    Shape::new(5, 4),
+    Shape::new(1, 8),
+];
 
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, ClientError> {
     SUPPORTED_SHAPES

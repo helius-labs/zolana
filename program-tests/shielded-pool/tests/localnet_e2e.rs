@@ -128,6 +128,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -143,11 +144,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         owner: shield_data.owner,
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
-        program_data_hash: shield_data.program_data_hash,
-        program_data: shield_data.program_data,
-        cpi_signer: shield_data.cpi_signer,
+        program: shield_data.program,
     }
-    .instruction();
+    .instruction()?;
     let shield_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -318,6 +317,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

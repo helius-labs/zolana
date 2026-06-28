@@ -6,9 +6,12 @@ use pinocchio::{
 use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
-    instruction::instruction_data::merge_transact::{
-        MergeExternalDataHash, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-        MERGE_INPUT_COUNT,
+    instruction::{
+        instruction_data::merge_transact::{
+            MergeExternalDataHash, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
+            MERGE_INPUT_COUNT,
+        },
+        tag::MERGE_TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
@@ -19,7 +22,7 @@ use super::{
     event::{build_merge_event, MergeTreeWrite},
     verify::{pk_field, MergeProof, MergeProofInputs},
 };
-use crate::instructions::event::emit_general_event;
+use crate::instructions::{event::emit_general_event, shared::check_not_expired};
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -31,9 +34,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     }
 
     let clock = Clock::get()?;
-    if clock.unix_timestamp < 0 || (clock.unix_timestamp as u64) > ix.expiry_unix_ts {
-        return Err(ShieldedPoolError::ExpiredTransaction.into());
-    }
+    check_not_expired(ix.expiry_unix_ts, &clock)?;
 
     let merge_accounts = MergeTransactAccounts::validate_and_parse(&crate::ID, accounts)?;
 
@@ -54,6 +55,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let output_view_tag = pk_fields.signing_view_tag;
 
     let external_data_hash = MergeExternalDataHash {
+        spp_instruction_discriminator: MERGE_TRANSACT,
         expiry_unix_ts: ix.expiry_unix_ts,
         output_utxo_hash: ix.output_utxo_hash,
         encrypted_utxo: ix.encrypted_utxo,
@@ -61,27 +63,41 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    let mut derived = MergeProofInputs {
+    let derived = MergeProofInputs {
         utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
         external_data_hash,
         signing_pk_field,
         viewing_pk_field,
+        zone_program_id: [0u8; 32],
     };
 
+    process_merge_core::<false>(merge_accounts.tree, &ix, derived, output_view_tag, clock.slot, None)
+}
+
+/// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
+/// inputs (and, for `merge_zone`, insert the single-use `merge_view_tag`), append
+/// the output, verify the proof, and emit the event. `derived` already carries
+/// the resolved `external_data_hash` and owner-identity public inputs.
+#[inline(never)]
+pub(crate) fn process_merge_core<const IS_ZONE: bool>(
+    tree_account: &mut AccountView,
+    ix: &MergeTransactIxDataRef<'_>,
+    mut derived: MergeProofInputs,
+    output_view_tag: [u8; 32],
+    current_slot: u64,
+    single_use_tag: Option<[u8; 32]>,
+) -> ProgramResult {
     let tree_write = {
-        let output_tree = merge_accounts.tree.address().to_bytes();
-        let mut tree = TreeAccount::from_account_view_mut(
-            merge_accounts.tree,
-            &crate::ID,
-            TREE_ACCOUNT_DISCRIMINATOR,
-        )
-        .map_err(tree_error)?;
-        apply_tree(&mut tree, &ix, clock.slot, output_tree, &mut derived)?
+        let output_tree = tree_account.address().to_bytes();
+        let mut tree =
+            TreeAccount::from_account_view_mut(tree_account, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+                .map_err(tree_error)?;
+        apply_tree(&mut tree, ix, current_slot, output_tree, &mut derived, single_use_tag)?
     };
 
-    let event = build_merge_event(&ix, tree_write, output_view_tag);
-    MergeProof::new(&ix, derived).verify()?;
+    let event = build_merge_event(ix, tree_write, output_view_tag);
+    MergeProof::new(ix, derived).verify::<IS_ZONE>()?;
     emit_general_event(EventKind::Merge, event)
 }
 
@@ -92,6 +108,7 @@ fn apply_tree(
     current_slot: u64,
     output_tree: [u8; 32],
     derived: &mut MergeProofInputs,
+    single_use_tag: Option<[u8; 32]>,
 ) -> Result<MergeTreeWrite, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
@@ -115,6 +132,14 @@ fn apply_tree(
             input_queue_seq: nullifier_seq_base + i as u64,
             nullifier: *nullifier,
         });
+    }
+
+    // `merge_zone` indexes the output by a single-use `merge_view_tag`; insert it
+    // into the nullifier queue so a duplicate tag is rejected (replay protection).
+    if let Some(tag) = single_use_tag {
+        tree.nullifer_tree()
+            .insert_address_into_queue(&tag, &current_slot)
+            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
     }
 
     let output_leaf_index = tree.utxo_tree().next_index();

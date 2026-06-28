@@ -211,6 +211,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -226,11 +227,9 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         owner: shield_data.owner,
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
-        program_data_hash: shield_data.program_data_hash,
-        program_data: shield_data.program_data,
-        cpi_signer: shield_data.cpi_signer,
+        program: shield_data.program,
     }
-    .instruction();
+    .instruction()?;
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
     capture_fixture(&rpc, "proofless_shield", &shield_sig);
@@ -424,6 +423,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -742,6 +742,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: AMOUNT,
             blinding,
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -754,11 +755,9 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program_data_hash: shield_data.program_data_hash,
-            program_data: shield_data.program_data,
-            cpi_signer: shield_data.cpi_signer,
+            program: shield_data.program,
         }
-        .instruction();
+        .instruction()?;
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
         let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
@@ -946,6 +945,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: total_amount - TRANSFER_AMOUNT,
             blinding: derive_blinding(&sender_plaintext.blinding_seed, 1),
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -954,6 +954,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: TRANSFER_AMOUNT,
             blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1084,6 +1085,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
             args.utxo.amount,
             &args.utxo.blinding,
             &[0u8; 32],
+            &args.utxo.program_id,
             &[0u8; 32],
             &args.utxo.zone_program_id,
         )?,
@@ -1548,6 +1550,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             asset: SOL_MINT,
             amount: half,
             blinding,
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1561,11 +1564,9 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program_data_hash: shield_data.program_data_hash,
-            program_data: shield_data.program_data,
-            cpi_signer: shield_data.cpi_signer,
+            program: shield_data.program,
         }
-        .instruction();
+        .instruction()?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
@@ -1687,6 +1688,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

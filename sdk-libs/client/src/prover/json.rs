@@ -24,6 +24,8 @@ pub(crate) struct UtxoParamsJson {
     pub blinding: String,
     #[serde(rename = "dataHash")]
     pub data_hash: String,
+    #[serde(rename = "programId")]
+    pub program_id: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
     #[serde(rename = "zoneProgramId")]
@@ -108,14 +110,12 @@ pub(crate) struct TransferP256InputsJson {
     pub public_spl_amount: String,
     #[serde(rename = "publicSplAssetPubkey")]
     pub public_spl_asset_pubkey: String,
-    #[serde(rename = "programIdHashchain")]
-    pub program_id_hashchain: String,
+    #[serde(rename = "programId")]
+    pub program_id: String,
+    #[serde(rename = "zoneProgramId")]
+    pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
-    #[serde(rename = "dataHash")]
-    pub data_hash: String,
-    #[serde(rename = "zoneDataHash")]
-    pub zone_data_hash: String,
     #[serde(rename = "p256SigningPkField")]
     pub p256_signing_pk_field: String,
     #[serde(rename = "publicInputHash")]
@@ -144,14 +144,12 @@ pub(crate) struct TransferInputsJson {
     pub public_spl_amount: String,
     #[serde(rename = "publicSplAssetPubkey")]
     pub public_spl_asset_pubkey: String,
-    #[serde(rename = "programIdHashchain")]
-    pub program_id_hashchain: String,
+    #[serde(rename = "programId")]
+    pub program_id: String,
+    #[serde(rename = "zoneProgramId")]
+    pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
-    #[serde(rename = "dataHash")]
-    pub data_hash: String,
-    #[serde(rename = "zoneDataHash")]
-    pub zone_data_hash: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -164,6 +162,7 @@ fn utxo_to_json(utxo: &UtxoInputs) -> UtxoParamsJson {
         amount: big_uint_to_string(&utxo.amount),
         blinding: big_uint_to_string(&utxo.blinding),
         data_hash: big_uint_to_string(&utxo.data_hash),
+        program_id: big_uint_to_string(&utxo.program_id),
         zone_data_hash: big_uint_to_string(&utxo.zone_data_hash),
         zone_program_id: big_uint_to_string(&utxo.zone_program_id),
     }
@@ -205,10 +204,11 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
     }
 }
 
-/// Serialize the P256 transfer witness to the prover server's JSON request body.
-pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
+/// Serialize a P256 transfer witness under the given circuit type. The confidential
+/// and zone variants share the witness shape and differ only by the circuit type.
+fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) -> String {
     let json = TransferP256InputsJson {
-        circuit_type: "transfer-p256-confidential".to_string(),
+        circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
@@ -224,14 +224,23 @@ pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
         public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
         public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
         public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
-        program_id_hashchain: big_uint_to_string(&inputs.program_id_hashchain),
+        program_id: big_uint_to_string(&inputs.program_id),
+        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
-        data_hash: big_uint_to_string(&inputs.data_hash),
-        zone_data_hash: big_uint_to_string(&inputs.zone_data_hash),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
+/// Serialize the P256 confidential transfer witness.
+pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
+    transfer_p256_inputs_json(inputs, "transfer-p256-confidential")
+}
+
+/// Serialize the P256 anonymous policy-zone transfer witness.
+pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
+    transfer_p256_inputs_json(inputs, "transfer-p256-zone")
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -265,12 +274,18 @@ pub(crate) struct MergeParametersJson {
     pub private_tx_hash: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
+    /// Top-level zone program pk_field; `0x0` for the default merge,
+    /// the zone's pk_field for merge-zone (the circuit's top-level public input).
+    #[serde(rename = "zoneProgramId")]
+    pub zone_program_id: String,
 }
 
-/// Serialize the merge witness to the prover server's JSON request body.
-pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
+/// Serialize a merge witness under the given circuit type. The default merge and
+/// merge-zone share the witness shape and differ only by the circuit type and the
+/// `zoneProgramId` value (`0` for default merge).
+fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
     let json = MergeParametersJson {
-        circuit_type: "merge".to_string(),
+        circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         output: output_to_json(&inputs.output),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
@@ -287,8 +302,20 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
+/// Serialize the default merge witness to the prover server's JSON request body.
+pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
+    merge_params_json(inputs, "merge")
+}
+
+/// Serialize the policy-zone merge witness; the prover server routes `"merge-zone"`
+/// to the merge-zone circuit and reads the top-level `zoneProgramId`.
+pub(crate) fn to_json_merge_zone(inputs: &MergeInputs) -> String {
+    merge_params_json(inputs, "merge-zone")
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -355,10 +382,12 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
 
-/// Serialize the Solana-only transfer witness to the prover server's JSON request body.
-pub(crate) fn to_json(inputs: &TransferInputs) -> String {
+/// Serialize a Solana-only transfer witness to the prover server's JSON request
+/// body under the given `circuit_type`. The eddsa transfer and zone-authority
+/// variants share the witness shape and differ only by the circuit type.
+fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
     let json = TransferInputsJson {
-        circuit_type: "transfer-confidential".to_string(),
+        circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
@@ -368,13 +397,30 @@ pub(crate) fn to_json(inputs: &TransferInputs) -> String {
         public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
         public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
         public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
-        program_id_hashchain: big_uint_to_string(&inputs.program_id_hashchain),
+        program_id: big_uint_to_string(&inputs.program_id),
+        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
-        data_hash: big_uint_to_string(&inputs.data_hash),
-        zone_data_hash: big_uint_to_string(&inputs.zone_data_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+}
+
+/// Serialize the Solana-only confidential transfer witness to the prover server's
+/// JSON request body.
+pub(crate) fn to_json(inputs: &TransferInputs) -> String {
+    transfer_inputs_json(inputs, "transfer-confidential")
+}
+
+/// Serialize the zone-authority witness to the prover server's JSON request body.
+/// Shares the Solana-only witness shape with [`to_json`]; only the circuit type and
+/// the embedded `public_input_hash` differ.
+pub(crate) fn to_json_zone_authority(inputs: &TransferInputs) -> String {
+    transfer_inputs_json(inputs, "transfer-zone-authority")
+}
+
+/// Serialize the eddsa anonymous policy-zone transfer witness.
+pub(crate) fn to_json_zone(inputs: &TransferInputs) -> String {
+    transfer_inputs_json(inputs, "transfer-zone")
 }
 
 #[cfg(test)]
@@ -390,6 +436,7 @@ mod merge_tests {
             amount: BigUint::from(5u8),
             blinding: BigUint::from(7u8),
             data_hash: BigUint::ZERO,
+            program_id: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         }
@@ -434,6 +481,7 @@ mod merge_tests {
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             public_input_hash: BigUint::from(8u8),
+            zone_program_id: BigUint::ZERO,
         };
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
@@ -471,6 +519,72 @@ mod merge_tests {
         assert!(!in0["ownerPkHash"].is_null());
         assert!(!in0["nullifierSecret"].is_null());
         assert_eq!(value["output"]["hash"], "0xabc");
+    }
+
+    // Guards the zone-authority request against the Go server: it must carry the
+    // "transfer-zone-authority" circuit type and the Solana-only transfer key set
+    // (no P256 fields).
+    #[test]
+    fn to_json_zone_authority_shape() {
+        let input = TransferInput {
+            utxo: sample_utxo(),
+            is_dummy: BigUint::ZERO,
+            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+            state_path_index: BigUint::ZERO,
+            nullifier_low_value: BigUint::ZERO,
+            nullifier_next_value: BigUint::ZERO,
+            nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
+            nullifier_low_path_index: BigUint::ZERO,
+            utxo_tree_root: BigUint::from(11u8),
+            nullifier_tree_root: BigUint::from(13u8),
+            nullifier: BigUint::from(99u8),
+            owner_pk_hash: BigUint::from(7u8),
+            nullifier_secret: BigUint::from(4u8),
+        };
+        let inputs = TransferInputs {
+            inputs: vec![input],
+            outputs: vec![TransferOutput {
+                utxo: sample_utxo(),
+                is_dummy: BigUint::ZERO,
+                hash: BigUint::from(0xABCu32),
+                owner_pk_hash: BigUint::ZERO,
+                nullifier_pk: BigUint::ZERO,
+            }],
+            external_data_hash: BigUint::from(6u8),
+            private_tx_hash: BigUint::from(7u8),
+            public_sol_amount: BigUint::ZERO,
+            public_spl_amount: BigUint::ZERO,
+            public_spl_asset_pubkey: BigUint::ZERO,
+            program_id: BigUint::ZERO,
+            zone_program_id: BigUint::from(0x55u8),
+            payer_pubkey_hash: BigUint::from(8u8),
+            public_input_hash: BigUint::from(9u8),
+        };
+
+        let value: serde_json::Value =
+            serde_json::from_str(&to_json_zone_authority(&inputs)).unwrap();
+        assert_eq!(value["circuitType"], "transfer-zone-authority");
+        for key in [
+            "nInputs",
+            "nOutputs",
+            "inputs",
+            "outputs",
+            "externalDataHash",
+            "privateTxHash",
+            "publicSolAmount",
+            "publicSplAmount",
+            "publicSplAssetPubkey",
+            "programId",
+            "zoneProgramId",
+            "payerPubkeyHash",
+            "publicInputHash",
+        ] {
+            assert!(!value[key].is_null(), "missing top-level key {key}");
+        }
+        // Solana-only rail: no P256 fields on the request.
+        assert!(value.get("p256PubX").is_none());
+        assert_eq!(value["zoneProgramId"], "0x55");
+        assert_eq!(value["nInputs"], 1);
     }
 
     #[test]

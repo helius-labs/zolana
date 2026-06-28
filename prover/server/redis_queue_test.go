@@ -495,8 +495,8 @@ func TestQueueNameForCircuitType(t *testing.T) {
 		expectedQueue string
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
-		{common.TransferCircuitType, ""},     // Not queued
-		{common.TransferP256CircuitType, ""}, // Not queued
+		{common.TransferConfidentialCircuitType, ""},     // Not queued
+		{common.TransferP256ConfidentialCircuitType, ""}, // Not queued
 	}
 
 	for _, test := range tests {
@@ -952,8 +952,8 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	}
 
 	nonBatchTests := []common.CircuitType{
-		common.TransferCircuitType,
-		common.TransferP256CircuitType,
+		common.TransferConfidentialCircuitType,
+		common.TransferP256ConfidentialCircuitType,
 	}
 
 	for _, circuitType := range nonBatchTests {

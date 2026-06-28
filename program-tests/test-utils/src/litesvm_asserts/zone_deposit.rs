@@ -38,7 +38,8 @@ pub fn litesvm_assert_zone_deposit(
         "UTXO is owned by the zone program"
     );
     assert_eq!(
-        event.output.policy_data_hash, data.policy_data_hash,
+        event.output.zone_data_hash,
+        Some(data.zone_data_hash),
         "UTXO carries the zone policy hash"
     );
 

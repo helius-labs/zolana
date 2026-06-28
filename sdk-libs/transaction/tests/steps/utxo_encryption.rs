@@ -35,6 +35,7 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
         asset,
         amount,
         blinding: [seed; BLINDING_LEN],
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     }
@@ -83,6 +84,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -188,6 +190,7 @@ fn zone_owned_with_data_rejected(world: &mut TransactionWorld, name: String) {
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
+        program_id: None,
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };

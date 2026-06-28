@@ -25,22 +25,22 @@ const MergePlaintextLen = 8 + 32 + 31
 // field limbs of the compressed tx_viewing_pk, all folded into the public input
 // hash. tx_viewing_pk is derived (not witnessed) as tx_viewing_sk · G_P256, so
 // keypair consistency holds by construction.
-func (c *Circuit) constrainEncryption(api frontend.API, g *aes.AESGadget) (ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) {
+func constrainEncryption(api frontend.API, g *aes.AESGadget, txViewingSk frontend.Variable, userViewingPubkey [65]frontend.Variable, output Output) (ctHash, txViewingPkLo, txViewingPkHi frontend.Variable) {
 	var skBytes [32]frontend.Variable
-	copy(skBytes[:], ve.FieldToBytesBE(api, c.TxViewingSk, 32))
+	copy(skBytes[:], ve.FieldToBytesBE(api, txViewingSk, 32))
 
 	// Keypair consistency: tx_viewing_pk == tx_viewing_sk · G_P256.
 	txViewingPkComp := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, skBytes))
 
 	// ECDH against the owner's viewing key under the ephemeral tx_viewing_sk.
-	p256.PointOnCurve(api, c.UserViewingPubkey)
-	dh := p256.ECDH(api, skBytes, c.UserViewingPubkey)
-	rpkComp := p256.CompressPubkey(api, c.UserViewingPubkey)
+	p256.PointOnCurve(api, userViewingPubkey)
+	dh := p256.ECDH(api, skBytes, userViewingPubkey)
+	rpkComp := p256.CompressPubkey(api, userViewingPubkey)
 	sharedSecret := ve.DeriveSharedSecret(api, dh, txViewingPkComp, rpkComp)
 
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeInfoBytes(), len(mergeInfo))
 
-	plaintext := mergePlaintextBytes(api, c.Output.Utxo.Amount, c.Output.Utxo.Asset, c.Output.Utxo.Blinding)
+	plaintext := mergePlaintextBytes(api, output.Utxo.Amount, output.Utxo.Asset, output.Utxo.Blinding)
 	ciphertext := aes.CTREncrypt(api, g, key, nonce, plaintext[:])
 	ctHash = gadget.PoseidonHash(api, ve.PackBytesBE(api, ciphertext, 16))
 

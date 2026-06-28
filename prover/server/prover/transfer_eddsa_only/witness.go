@@ -17,6 +17,7 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
+		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}
@@ -29,11 +30,12 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 // hashing.
 func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 	circuit := &txcircuit.Circuit{
-		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
-		RequiresP256: false,
-		Confidential: p.Confidential,
-		Inputs:       make([]txcircuit.Input, p.NInputs),
-		Outputs:      make([]txcircuit.Output, p.NOutputs),
+		Shape:         txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
+		RequiresP256:  false,
+		Confidential:  p.Variant == ConfidentialVariant,
+		ZoneAuthority: p.Variant == ZoneAuthorityVariant,
+		Inputs:        make([]txcircuit.Input, p.NInputs),
+		Outputs:       make([]txcircuit.Output, p.NOutputs),
 
 		// Solana-only rail has no P256 owner, so the shared signing field is 0.
 		P256SigningPkField: big.NewInt(0),
@@ -52,10 +54,9 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		PublicSolAmount:      p.PublicSolAmount,
 		PublicSplAmount:      p.PublicSplAmount,
 		PublicSplAssetPubkey: p.PublicSplAssetPubkey,
-		ProgramIDHashchain:   p.ProgramIDHashchain,
+		ProgramID:            p.ProgramID,
+		ZoneProgramID:        p.ZoneProgramID,
 		PayerPubkeyHash:      p.PayerPubkeyHash,
-		DataHash:             p.DataHash,
-		ZoneDataHash:         p.ZoneDataHash,
 		PublicInputHash:      p.PublicInputHash,
 	}
 

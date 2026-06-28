@@ -24,11 +24,9 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
-            cpi_signer: data.cpi_signer,
+            program: data.program.clone(),
         }
-        .instruction();
+        .instruction()?;
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -53,11 +51,9 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
-            cpi_signer: data.cpi_signer,
+            program: data.program.clone(),
         }
-        .instruction();
+        .instruction()?;
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -75,11 +71,9 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
-            cpi_signer: data.cpi_signer,
+            program: data.program.clone(),
         }
-        .instruction();
+        .instruction()?;
         ix.program_id = self.program_id;
         ix.accounts = accounts;
         self.send_deposit_ix(ix, depositor)

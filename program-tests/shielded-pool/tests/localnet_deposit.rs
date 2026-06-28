@@ -110,11 +110,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         owner: direct_data.owner,
         blinding: direct_data.blinding,
         public_amount: direct_data.public_amount,
-        program_data_hash: direct_data.program_data_hash,
-        program_data: direct_data.program_data,
-        cpi_signer: direct_data.cpi_signer,
+        program: direct_data.program,
     }
-    .instruction();
+    .instruction()?;
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -140,7 +138,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         ZONE_TEST_PROGRAM_ID,
         zone_auth_bump,
     )?;
-    zone_data.policy_data_hash = Some([5u8; 32]);
+    zone_data.zone.data_hash = [5u8; 32];
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
     let zone_ix = ZoneDeposit {
         tree: tree.pubkey(),
@@ -150,11 +148,8 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         owner: zone_data.owner,
         blinding: zone_data.blinding,
         public_amount: zone_data.public_amount,
-        cpi_signer: zone_data.cpi_signer,
-        policy_data_hash: zone_data.policy_data_hash,
-        zone_data: zone_data.zone_data,
-        program_data_hash: zone_data.program_data_hash,
-        program_data: zone_data.program_data,
+        zone: zone_data.zone,
+        program: zone_data.program,
     }
     .instruction()?;
     let zone_tx = send_indexed(

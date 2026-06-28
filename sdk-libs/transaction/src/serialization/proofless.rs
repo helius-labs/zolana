@@ -13,7 +13,7 @@ use crate::{
 pub struct ProoflessEncode {
     pub owner_hash: [u8; 32],
     pub program_data_hash: Option<[u8; 32]>,
-    pub policy_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
 }
 
 pub struct Proofless;
@@ -45,6 +45,7 @@ impl UtxoSerialization for Proofless {
             asset: Address::new_from_array(output.asset),
             amount: output.amount,
             blinding: output.blinding,
+            program_id: output.program_id.map(Address::new_from_array),
             zone_program_id: output.zone_program_id.map(Address::new_from_array),
             data: Data::new(records),
         }])
@@ -63,8 +64,9 @@ impl UtxoSerialization for Proofless {
             amount: utxo.amount,
             program_data_hash: cx.program_data_hash,
             program_data: utxo.data.program_data().map(<[u8]>::to_vec),
+            program_id: utxo.program_id.map(|address| address.to_bytes()),
             zone_program_id: utxo.zone_program_id.map(|address| address.to_bytes()),
-            policy_data_hash: cx.policy_data_hash,
+            zone_data_hash: cx.zone_data_hash,
             zone_data: utxo.data.zone_data().map(<[u8]>::to_vec),
         })
     }

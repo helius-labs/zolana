@@ -14,6 +14,7 @@ type UtxoParamsJSON struct {
 	Amount        string `json:"amount"`
 	Blinding      string `json:"blinding"`
 	DataHash      string `json:"dataHash"`
+	ProgramID     string `json:"programId"`
 	ZoneDataHash  string `json:"zoneDataHash"`
 	ZoneProgramID string `json:"zoneProgramId"`
 }
@@ -59,10 +60,9 @@ type TransferParametersJSON struct {
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ProgramIDHashchain   string             `json:"programIdHashchain"`
+	ProgramID            string             `json:"programId"`
+	ZoneProgramID        string             `json:"zoneProgramId"`
 	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
-	DataHash             string             `json:"dataHash"`
-	ZoneDataHash         string             `json:"zoneDataHash"`
 	P256SigningPkField   string             `json:"p256SigningPkField"`
 	PublicInputHash      string             `json:"publicInputHash"`
 }
@@ -79,11 +79,17 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 	return p.UpdateWithJSON(params)
 }
 
-func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
-	circuitType := common.TransferP256CircuitType
-	if p.Confidential {
-		circuitType = common.TransferP256ConfidentialCircuitType
+// p256CircuitType maps the confidential flag to the P256-rail circuit type
+// string. The two forms are confidential (non-zone) and zone (anonymous).
+func p256CircuitType(confidential bool) common.CircuitType {
+	if confidential {
+		return common.TransferP256ConfidentialCircuitType
 	}
+	return common.TransferP256ZoneCircuitType
+}
+
+func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
+	circuitType := p256CircuitType(p.Confidential)
 	paramsJson := TransferParametersJSON{
 		CircuitType:          circuitType,
 		NInputs:              p.NInputs,
@@ -99,10 +105,9 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ProgramIDHashchain:   feHex(p.ProgramIDHashchain),
+		ProgramID:            feHex(p.ProgramID),
+		ZoneProgramID:        feHex(p.ZoneProgramID),
 		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
-		DataHash:             feHex(p.DataHash),
-		ZoneDataHash:         feHex(p.ZoneDataHash),
 		P256SigningPkField:   feHex(p.P256SigningPkField),
 		PublicInputHash:      feHex(p.PublicInputHash),
 	}
@@ -182,16 +187,13 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublicSplAssetPubkey, err = feFromHex(params.PublicSplAssetPubkey); err != nil {
 		return err
 	}
-	if p.ProgramIDHashchain, err = feFromHex(params.ProgramIDHashchain); err != nil {
+	if p.ProgramID, err = feFromHex(params.ProgramID); err != nil {
+		return err
+	}
+	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
 		return err
 	}
 	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
-		return err
-	}
-	if p.DataHash, err = feFromHex(params.DataHash); err != nil {
-		return err
-	}
-	if p.ZoneDataHash, err = feFromHex(params.ZoneDataHash); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {
@@ -277,6 +279,7 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:        feHex(u.Amount),
 		Blinding:      feHex(u.Blinding),
 		DataHash:      feHex(u.DataHash),
+		ProgramID:     feHex(u.ProgramID),
 		ZoneDataHash:  feHex(u.ZoneDataHash),
 		ZoneProgramID: feHex(u.ZoneProgramID),
 	}
@@ -301,6 +304,9 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 		return out, err
 	}
 	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
+		return out, err
+	}
+	if out.ProgramID, err = feFromHex(u.ProgramID); err != nil {
 		return out, err
 	}
 	if out.ZoneDataHash, err = feFromHex(u.ZoneDataHash); err != nil {

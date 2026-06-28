@@ -16,8 +16,8 @@ const (
 	MergeNOutputs uint32 = 1
 )
 
-// SetupMerge runs trusted setup for the merge circuit and returns a proof system
-// (reusing common.TransferProofSystem as the generic Groth16 holder).
+// SetupMerge runs trusted setup for the default merge circuit and returns a proof
+// system (reusing common.TransferProofSystem as the generic Groth16 holder).
 func SetupMerge() (*common.TransferProofSystem, error) {
 	fmt.Println("Setting up merge: nInputs", MergeNInputs, "nOutputs", MergeNOutputs)
 	ccs, err := R1CSMerge()
@@ -28,12 +28,26 @@ func SetupMerge() (*common.TransferProofSystem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeSystem(pk, vk, ccs), nil
+	return mergeSystem(common.MergeCircuitType, pk, vk, ccs), nil
 }
 
-func mergeSystem(pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) *common.TransferProofSystem {
+// SetupMergeZone runs trusted setup for the policy-zone merge circuit (merge_zone).
+func SetupMergeZone() (*common.TransferProofSystem, error) {
+	fmt.Println("Setting up merge-zone: nInputs", MergeNInputs, "nOutputs", MergeNOutputs)
+	ccs, err := R1CSMergeZone()
+	if err != nil {
+		return nil, err
+	}
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		return nil, err
+	}
+	return mergeSystem(common.MergeZoneCircuitType, pk, vk, ccs), nil
+}
+
+func mergeSystem(circuitType common.CircuitType, pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) *common.TransferProofSystem {
 	return &common.TransferProofSystem{
-		CircuitType:      common.MergeCircuitType,
+		CircuitType:      circuitType,
 		NInputs:          MergeNInputs,
 		NOutputs:         MergeNOutputs,
 		RequiresP256:     true,

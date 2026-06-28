@@ -82,12 +82,12 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		{
 			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
 			Amount: big.NewInt(60), Blinding: big.NewInt(1000),
-			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+			DataHash: big.NewInt(0), ProgramID: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
 		},
 		{
 			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
 			Amount: big.NewInt(40), Blinding: big.NewInt(1001),
-			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+			DataHash: big.NewInt(0), ProgramID: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
 		},
 	}
 
@@ -121,7 +121,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
 		PublicAmountMode:         publicAmountTransfer,
 		EncryptedUtxos:           "00",
-		ProgramIDHashchain:       proofFieldInput(big.NewInt(0)),
+		ProgramID:                proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
 		StateEntries:             stateEntries,
@@ -150,7 +150,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 		PublicAmountMode:         publicAmountShield,
 		PublicSolAmount:          &deposit,
 		EncryptedUtxos:           "00",
-		ProgramIDHashchain:       proofFieldInput(big.NewInt(0)),
+		ProgramID:                proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
 		Outputs: []ProofUtxoRequest{

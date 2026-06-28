@@ -3,7 +3,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     merge_utils::{ciphertext_hash, pack33, pk_field_compressed},
-    verifying_keys::merge_8_1,
+    verifying_keys::{merge_8_1, merge_zone_8_1},
 };
 
 use crate::instructions::verifier;
@@ -20,6 +20,9 @@ pub struct MergeProofInputs {
     pub signing_pk_field: [u8; 32],
     /// `pk_field(viewing_pubkey)` from the registry record.
     pub viewing_pk_field: [u8; 32],
+    /// `pk_field(zone_program_id)` from the calling `zone_config`. Zero (and not
+    /// part of the public-input hash) for the default-zone `merge_transact`.
+    pub zone_program_id: [u8; 32],
 }
 
 pub struct MergeProof<'a> {
@@ -33,8 +36,8 @@ impl<'a> MergeProof<'a> {
     }
 
     #[inline(never)]
-    pub fn verify(&self) -> ProgramResult {
-        let public_input_hash = self.public_input_hash()?;
+    pub fn verify<const IS_ZONE: bool>(&self) -> ProgramResult {
+        let public_input_hash = self.public_input_hash::<IS_ZONE>()?;
         // The merge proof is always BSB22-committed, so its wire format stays a
         // fixed 192-byte blob: a(0..32) || b(32..96) || c(96..128) ||
         // commitment(128..160) || commitment_pok(160..192).
@@ -49,18 +52,21 @@ impl<'a> MergeProof<'a> {
                 verifier::chunk::<32>(proof, 160, encoding_err)?,
             )),
         };
-        verifier::verify_groth16(
-            proof,
-            public_input_hash,
-            &merge_8_1::VERIFYINGKEY,
-            encoding_err,
-            PROOF_ERR,
-        )
+        // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
+        // its own verifying key; the default-zone merge uses `merge_8_1`.
+        let vk = if IS_ZONE {
+            &merge_zone_8_1::VERIFYINGKEY
+        } else {
+            &merge_8_1::VERIFYINGKEY
+        };
+        verifier::verify_groth16(proof, public_input_hash, vk, encoding_err, PROOF_ERR)
     }
 
-    /// The 11-element Poseidon hash chain the circuit folds into its single public
-    /// input (`prover/server/circuits/spp_merge/circuit.go` `publicInputHash`).
-    pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
+    /// The Poseidon hash chain the circuit folds into its single public input
+    /// (`prover/server/circuits/spp_merge/circuit.go` `mergePublicInputHash`).
+    /// The default merge folds 11 elements; the policy-zone merge appends
+    /// `zone_program_id` as a 12th.
+    pub fn public_input_hash<const IS_ZONE: bool>(&self) -> Result<[u8; 32], ProgramError> {
         let tx_viewing_pk = self
             .ix
             .tx_viewing_pk()
@@ -85,7 +91,14 @@ impl<'a> MergeProof<'a> {
             tx_viewing_pk_hi,
             ct_hash,
         ];
-        hash_chain(&chain)
+        if IS_ZONE {
+            let mut zone_chain = [[0u8; 32]; 12];
+            zone_chain[..11].copy_from_slice(&chain);
+            zone_chain[11] = self.derived.zone_program_id;
+            hash_chain(&zone_chain)
+        } else {
+            hash_chain(&chain)
+        }
     }
 }
 

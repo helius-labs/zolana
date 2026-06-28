@@ -20,6 +20,7 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 		Amount:        utxo.Amount,
 		Blinding:      utxo.Blinding,
 		DataHash:      utxo.DataHash,
+		ProgramID:     utxo.ProgramID,
 		ZoneDataHash:  utxo.ZoneDataHash,
 		ZoneProgramID: utxo.ZoneProgramID,
 	}
@@ -36,6 +37,7 @@ func dummyUtxo(blinding *big.Int) protocol.Utxo {
 		Amount:        big.NewInt(0),
 		Blinding:      blinding,
 		DataHash:      big.NewInt(0),
+		ProgramID:     big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
 		ZoneProgramID: big.NewInt(0),
 	}

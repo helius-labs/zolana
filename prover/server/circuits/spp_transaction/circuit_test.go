@@ -53,9 +53,9 @@ func TestCircuitProvesForSupportedShapes(t *testing.T) {
 }
 
 // MustNewCircuit builds the P256-capable circuit and panics on error -- a test
-// convenience over the error-returning NewTransferP256Circuit.
+// convenience over the error-returning NewTransferP256ZoneCircuit.
 func MustNewCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferP256Circuit(shape)
+	circuit, err := NewTransferP256ZoneCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -64,7 +64,7 @@ func MustNewCircuit(shape Shape) *Circuit {
 
 // MustNewSolanaCircuit builds the Solana-only circuit and panics on error.
 func MustNewSolanaCircuit(shape Shape) *Circuit {
-	circuit, err := NewTransferCircuit(shape)
+	circuit, err := NewTransferZoneCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -205,11 +205,10 @@ func buildCircuitAssignmentExact(
 		PublicSolAmount:      protocol.SignedToField(publicSolAmount),
 		PublicSplAmount:      protocol.SignedToField(publicSplAmount),
 		PublicSplAssetPubkey: publicSplAssetPubkey,
-		ProgramIDHashchain:   spptest.Fe(0),
+		ProgramID:            spptest.Fe(0),
+		ZoneProgramID:        spptest.Fe(0),
 		PayerPubkeyHash:      payerPubkeyHash,
 		InputOwnerPkHashes:   inputOwnerPkHashes,
-		DataHash:             spptest.Fe(0),
-		ZoneDataHash:         spptest.Fe(0),
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	publicInputHash := spptest.MustHash(t, publicInputHashValue, err)
@@ -257,10 +256,9 @@ func buildCircuitAssignmentExact(
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
+		ProgramID:            publicInputs.ProgramID,
+		ZoneProgramID:        publicInputs.ZoneProgramID,
 		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		DataHash:             publicInputs.DataHash,
-		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
 	}
 }
@@ -279,6 +277,14 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 }
 
 func refreshPublicInputHash(t testing.TB, assignment *Circuit) {
+	refreshPublicInputHashVariant(t, assignment, false, false)
+}
+
+// refreshPublicInputHashVariant recomputes assignment.PublicInputHash for the
+// selected variant. confidential appends the output owner tag chain and the
+// shared P256 signing pk_field; zoneAuthority omits the input owner pk_field
+// chain (PublicInputHash gates both on these flags).
+func refreshPublicInputHashVariant(t testing.TB, assignment *Circuit, confidential, zoneAuthority bool) {
 	t.Helper()
 	publicInputs := protocol.PublicInputs{
 		Nullifiers:         spptest.ToBigInts(assignment.InputNullifiers()),
@@ -295,11 +301,16 @@ func refreshPublicInputHash(t testing.TB, assignment *Circuit) {
 		PublicSolAmount:      spptest.AsBigInt(assignment.PublicSolAmount),
 		PublicSplAmount:      spptest.AsBigInt(assignment.PublicSplAmount),
 		PublicSplAssetPubkey: spptest.AsBigInt(assignment.PublicSplAssetPubkey),
-		ProgramIDHashchain:   spptest.AsBigInt(assignment.ProgramIDHashchain),
+		ProgramID:            spptest.AsBigInt(assignment.ProgramID),
+		ZoneProgramID:        spptest.AsBigInt(assignment.ZoneProgramID),
 		PayerPubkeyHash:      spptest.AsBigInt(assignment.PayerPubkeyHash),
 		InputOwnerPkHashes:   spptest.ToBigInts(assignment.InputOwnerPkHashes()),
-		DataHash:             spptest.AsBigInt(assignment.DataHash),
-		ZoneDataHash:         spptest.AsBigInt(assignment.ZoneDataHash),
+		Confidential:         confidential,
+		ZoneAuthority:        zoneAuthority,
+	}
+	if confidential {
+		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.OutputOwnerPkHashes())
+		publicInputs.P256SigningPkField = spptest.AsBigInt(assignment.P256SigningPkField)
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)
@@ -349,6 +360,7 @@ func sampleUtxo(base int) protocol.Utxo {
 		Blinding: spptest.Fe(int64(base + 5)),
 		// Default transact requires bare UTXOs (no program/policy/zone data).
 		DataHash:      spptest.Fe(0),
+		ProgramID:     spptest.Fe(0),
 		ZoneDataHash:  spptest.Fe(0),
 		ZoneProgramID: spptest.Fe(0),
 	}
@@ -523,6 +535,7 @@ func fieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
+		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}
@@ -536,6 +549,7 @@ func circuitFieldsToUtxo(fields UtxoCircuitFields) protocol.Utxo {
 		Amount:        spptest.AsBigInt(fields.Amount),
 		Blinding:      spptest.AsBigInt(fields.Blinding),
 		DataHash:      spptest.AsBigInt(fields.DataHash),
+		ProgramID:     spptest.AsBigInt(fields.ProgramID),
 		ZoneDataHash:  spptest.AsBigInt(fields.ZoneDataHash),
 		ZoneProgramID: spptest.AsBigInt(fields.ZoneProgramID),
 	}

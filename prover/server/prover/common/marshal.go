@@ -329,15 +329,25 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// so it is read from the canonical file name (transfer_confidential_*.key /
 		// transfer_p256_confidential_*.key).
 		ps.Confidential = strings.Contains(strings.ToLower(path), "confidential")
+		// Zone keys are named transfer_zone_*.key / transfer_p256_zone_*.key and
+		// are anonymous-only (no confidential zone variant). The two forms per rail
+		// are confidential (non-zone) and zone (anonymous).
+		zone := strings.Contains(strings.ToLower(path), "zone")
+		// Zone-authority keys are named transfer_zone_authority_*.key (Solana-only,
+		// anonymous). Detect it before the plain "zone" case: the name contains both
+		// "transfer" (matched this branch) and "zone".
+		zoneAuthority := strings.Contains(strings.ToLower(path), "zone_authority")
 		switch {
-		case ps.RequiresP256 && ps.Confidential:
-			ps.CircuitType = TransferP256ConfidentialCircuitType
+		case zoneAuthority:
+			ps.CircuitType = TransferZoneAuthorityCircuitType
+		case ps.RequiresP256 && zone:
+			ps.CircuitType = TransferP256ZoneCircuitType
+		case zone:
+			ps.CircuitType = TransferZoneCircuitType
 		case ps.RequiresP256:
-			ps.CircuitType = TransferP256CircuitType
-		case ps.Confidential:
-			ps.CircuitType = TransferConfidentialCircuitType
+			ps.CircuitType = TransferP256ConfidentialCircuitType
 		default:
-			ps.CircuitType = TransferCircuitType
+			ps.CircuitType = TransferConfidentialCircuitType
 		}
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "merge") {
@@ -354,7 +364,13 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		ps.CircuitType = MergeCircuitType
+		// merge_zone_8_1.key is the policy-zone variant; the default merge file is
+		// merge_8_1.key.
+		if strings.Contains(strings.ToLower(path), "zone") {
+			ps.CircuitType = MergeZoneCircuitType
+		} else {
+			ps.CircuitType = MergeCircuitType
+		}
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "address-append") {
 		ps := new(BatchProofSystem)

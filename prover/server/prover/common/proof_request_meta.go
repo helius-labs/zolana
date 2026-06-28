@@ -59,11 +59,13 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 
 	// Transfer and merge circuits are keyed by their fixed shape instead of a
 	// tree height, so they are exempt from the tree-height requirement below.
-	isTransfer := CircuitType(circuitType) == TransferP256CircuitType ||
-		CircuitType(circuitType) == TransferCircuitType ||
-		CircuitType(circuitType) == TransferP256ConfidentialCircuitType ||
+	isTransfer := CircuitType(circuitType) == TransferP256ConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferConfidentialCircuitType ||
-		CircuitType(circuitType) == MergeCircuitType
+		CircuitType(circuitType) == TransferP256ZoneCircuitType ||
+		CircuitType(circuitType) == TransferZoneCircuitType ||
+		CircuitType(circuitType) == TransferZoneAuthorityCircuitType ||
+		CircuitType(circuitType) == MergeCircuitType ||
+		CircuitType(circuitType) == MergeZoneCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.

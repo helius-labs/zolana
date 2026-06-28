@@ -425,6 +425,8 @@ fn tx_size(args: Vec<String>) {
             public_sol_amount: None,
             public_spl_amount: public_spl,
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             output_utxo_hashes: vec![[0u8; 32]; m],

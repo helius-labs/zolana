@@ -328,6 +328,7 @@ impl LifecycleWorld {
             asset,
             amount,
             blinding,
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };

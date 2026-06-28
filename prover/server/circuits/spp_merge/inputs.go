@@ -13,7 +13,14 @@ import (
 // nullifier secret, and nullifier-tree non-inclusion. Every check is gated on
 // the slot being real; a dummy slot skips them. It returns the input's UTXO
 // hash (0 for a dummy) for the private-transaction-hash chain.
-func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecret, outputAsset frontend.Variable) frontend.Variable {
+//
+// program_data_hash and program_id are pinned to zero in both variants (UTXOs
+// with program data are not mergeable). The default variant additionally pins the
+// zone fields to zero; the zone variant (merge_zone) instead binds
+// zone_program_id to the public zoneProgramID with no zero exemption -- every
+// real input must already belong to the CPI-calling zone -- and leaves zone_data
+// free for the zone program's own logic.
+func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecret, outputAsset frontend.Variable, zone bool, zoneProgramID frontend.Variable) frontend.Variable {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
@@ -28,10 +35,15 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 	// keep every tree UTXO u64-bounded.
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Utxo.Amount})
 
-	// Input cleanliness: merge_transact only consolidates bare UTXOs.
+	// Input cleanliness / zone binding.
 	assertZeroWhen(api, notDummy, in.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneDataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneProgramID)
+	assertZeroWhen(api, notDummy, in.Utxo.ProgramID)
+	if zone {
+		assertEqualWhen(api, notDummy, in.Utxo.ZoneProgramID, zoneProgramID)
+	} else {
+		assertZeroWhen(api, notDummy, in.Utxo.ZoneDataHash)
+		assertZeroWhen(api, notDummy, in.Utxo.ZoneProgramID)
+	}
 
 	// Ownership and asset uniformity: every real input shares user_owner_hash and
 	// the output's asset.

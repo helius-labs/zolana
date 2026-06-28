@@ -267,11 +267,10 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        program: data.program.clone(),
     }
-    .instruction();
+    .instruction()
+    .expect("instruction");
 
     let accounts = deposit_sol_accounts(&pt, &ix, program_id);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -328,11 +327,10 @@ fn bench_deposit_spl(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        program: data.program.clone(),
     }
-    .instruction();
+    .instruction()
+    .expect("instruction");
 
     let accounts = deposit_spl_accounts(&pt, &ix, program_id, token_program_account);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -458,6 +456,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -626,6 +625,7 @@ fn bench_withdrawal_spl(
         asset: solana_address::Address::new_from_array(mint.to_bytes()),
         amount: AMOUNT,
         blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

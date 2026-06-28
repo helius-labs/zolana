@@ -47,6 +47,7 @@ impl Deposit {
             request.asset,
             request.amount,
             &[0u8; 32],
+            None,
             &[0u8; 32],
             None,
             &owner_utxo_hash,
@@ -58,9 +59,7 @@ impl Deposit {
                 owner,
                 blinding,
                 public_amount: Some(request.amount),
-                program_data_hash: None,
-                program_data: None,
-                cpi_signer: None,
+                program: None,
             },
             utxo_hash,
             asset: request.asset,
@@ -128,11 +127,10 @@ fn deposit_instruction(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        program: data.program.clone(),
     }
     .instruction()
+    .expect("deposit instruction is infallible without a program signer")
 }
 
 fn spl_accounts(
@@ -192,9 +190,7 @@ mod tests {
             owner: [2u8; 32],
             blinding: [3u8; 31],
             public_amount: Some(1_000),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            program: None,
         };
 
         deposit(&rpc, &payer, tree, &depositor, None, &data).expect("action");
@@ -208,11 +204,10 @@ mod tests {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
-            cpi_signer: data.cpi_signer,
+            program: data.program.clone(),
         }
-        .instruction();
+        .instruction()
+        .expect("instruction");
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));

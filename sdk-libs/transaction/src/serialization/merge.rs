@@ -88,6 +88,7 @@ impl UtxoSerialization for Merge {
             asset,
             amount: plaintext.amount,
             blinding: plaintext.blinding,
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         }])

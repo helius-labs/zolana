@@ -89,6 +89,12 @@ pub struct TransactIxData {
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
     pub cpi_signer: Option<CpiSignerData>,
+    /// Optional transaction-level program- and zone-specific external data
+    /// digests folded into `external_data_hash`; `None` (`[0; 32]`) for a
+    /// default-zone `transact`. Distinct from the per-UTXO `program_data_hash` /
+    /// `zone_data_hash` in the UTXO body.
+    pub program_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     /// All `M` output UTXO commitments in tree-append order (SPL change, SOL
     /// change, then recipients / dummies). Appended to the UTXO tree and folded
     /// into the proof's output hash chain. Dummy outputs carry real-looking
@@ -147,6 +153,8 @@ pub struct TransactIxDataRef<'a> {
     pub public_sol_amount: Option<i64>,
     pub public_spl_amount: Option<i64>,
     pub cpi_signer: Option<CpiSignerData>,
+    pub program_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub output_utxo_hashes: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<OutputCiphertextRef<'a>, FixIntLen<u8>>")]
@@ -223,6 +231,8 @@ pub struct ExternalDataHash<'a, O: OutputCiphertextBytes> {
     pub user_spl_token_account: &'a [u8; 32],
     pub spl_token_interface: &'a [u8; 32],
     pub cpi_signer: Option<CpiSignerData>,
+    pub program_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     pub output_utxo_hashes: &'a [[u8; 32]],
     pub output_ciphertexts: &'a [O],
 }
@@ -245,6 +255,8 @@ impl<O: OutputCiphertextBytes> ExternalDataHash<'_, O> {
             }
             None => preimage.extend_from_slice(&[0u8; 33]),
         }
+        preimage.extend_from_slice(&self.program_data_hash.unwrap_or([0u8; 32]));
+        preimage.extend_from_slice(&self.zone_data_hash.unwrap_or([0u8; 32]));
         // Length-prefix both vectors (and each `data`) so the preimage is
         // unambiguous: no bytes can shift across a vector or `data` boundary and
         // yield the same hash for distinct instructions.
@@ -321,6 +333,8 @@ mod tests {
             public_sol_amount: Some(-5),
             public_spl_amount: None,
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: [4u8; 33],
             salt: [6u8; 16],
             output_utxo_hashes: vec![[8u8; 32]],
@@ -366,6 +380,8 @@ mod tests {
             user_spl_token_account: &[0u8; 32],
             spl_token_interface: &[0u8; 32],
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             output_utxo_hashes,
             output_ciphertexts,
         }

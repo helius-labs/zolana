@@ -16,19 +16,38 @@ pub(crate) struct ProoflessOutputCtx {
     pub amount: u64,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
+    /// Zone program id read from the loaded `ZoneConfig` (zone deposits only).
+    pub zone_program_id: Option<[u8; 32]>,
 }
 
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
+    // The program side carries its own id; the zone's id is the one read from the
+    // `ZoneConfig` account (passed via ctx). Each contributes its data hash and
+    // preimage to the proofless output the recipient re-derives from.
+    let (program_id, program_data_hash, program_data) = match d.program {
+        Some(program) => (
+            Some(program.cpi_signer.program_id),
+            Some(program.data_hash),
+            Some(program.data),
+        ),
+        None => (None, None, None),
+    };
+    let (zone_data_hash, zone_data) = match d.zone {
+        Some(zone) => (Some(zone.data_hash), Some(zone.data)),
+        None => (None, None),
+    };
+    let zone_program_id = ctx.zone_program_id;
     let output_data = encode_output_data(ProoflessOutput {
         owner: d.owner,
         blinding: d.blinding,
         asset: ctx.asset,
         amount: ctx.amount,
-        program_data_hash: d.program_data_hash,
-        program_data: d.program_data,
-        zone_program_id: d.cpi_signer.map(|cpi| cpi.program_id),
-        policy_data_hash: d.policy_data_hash,
-        zone_data: d.zone_data,
+        program_data_hash,
+        program_data,
+        program_id,
+        zone_program_id,
+        zone_data_hash,
+        zone_data,
     });
     let event = GeneralEvent {
         inputs: Vec::new(),

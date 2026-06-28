@@ -61,6 +61,7 @@ pub(crate) fn build_anonymous_transfer(
             asset: registry.resolve(sender_plaintext.spl_asset_id).unwrap(),
             amount: sender_plaintext.spl_amount,
             blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 0),
+            program_id: None,
             zone_program_id: None,
             data: sender_plaintext.spl_data.clone(),
         });
@@ -70,6 +71,7 @@ pub(crate) fn build_anonymous_transfer(
         asset: zolana_transaction::SOL_MINT,
         amount: sender_plaintext.sol_amount,
         blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 1),
+        program_id: None,
         zone_program_id: None,
         data: sender_plaintext.sol_data.clone(),
     });
@@ -120,6 +122,7 @@ pub(crate) fn build_anonymous_transfer(
             asset: spec.asset,
             amount: spec.amount,
             blinding: spec.blinding,
+            program_id: None,
             zone_program_id: None,
             data: spec.data.clone(),
         };

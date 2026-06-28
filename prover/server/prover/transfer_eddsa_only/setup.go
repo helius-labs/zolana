@@ -12,22 +12,21 @@ import (
 // circuit. Returns a TransferProofSystem for proof generation and verification.
 func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
 	switch circuit {
-	case common.TransferCircuitType:
-		return SetupTransfer(nInputs, nOutputs, false)
 	case common.TransferConfidentialCircuitType:
-		return SetupTransfer(nInputs, nOutputs, true)
+		return SetupTransfer(nInputs, nOutputs, ConfidentialVariant)
+	case common.TransferZoneCircuitType:
+		return SetupTransfer(nInputs, nOutputs, ZoneVariant)
+	case common.TransferZoneAuthorityCircuitType:
+		return SetupTransfer(nInputs, nOutputs, ZoneAuthorityVariant)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
 	}
 }
 
-func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.TransferProofSystem, error) {
-	circuitType := common.TransferCircuitType
-	if confidential {
-		circuitType = common.TransferConfidentialCircuitType
-	}
+func SetupTransfer(nInputs uint32, nOutputs uint32, variant Variant) (*common.TransferProofSystem, error) {
+	circuitType := variant.CircuitType()
 	fmt.Println("Setting up", circuitType, "(eddsa/solana-only): nInputs", nInputs, "nOutputs", nOutputs)
-	ccs, err := R1CSTransfer(nInputs, nOutputs, confidential)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, variant)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +39,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     false,
-		Confidential:     confidential,
+		Confidential:     variant == ConfidentialVariant,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,
@@ -49,7 +48,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.
 
 func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath string) (*common.TransferProofSystem, error) {
 	fmt.Println("Compiling circuit")
-	ccs, err := R1CSTransfer(nInputs, nOutputs, false)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, ConfidentialVariant)
 	if err != nil {
 		fmt.Println("Error compiling circuit")
 		return nil, err
@@ -67,7 +66,7 @@ func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath 
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferCircuitType,
+		CircuitType:      common.TransferConfidentialCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     false,
@@ -94,7 +93,7 @@ func ImportTransferSetupWithR1CS(nInputs uint32, nOutputs uint32, pkPath string,
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferCircuitType,
+		CircuitType:      common.TransferConfidentialCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     false,

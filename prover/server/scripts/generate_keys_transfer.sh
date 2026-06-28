@@ -9,16 +9,26 @@ mkdir -p "$keys_dir"
 go build -o light-prover .
 
 shapes=(
+    "1 1"
+    "1 2"
+    "2 2"
     "2 3"
+    "3 3"
+    "4 3"
+    "4 4"
+    "5 3"
+    "5 4"
+    "1 8"
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
-# mirrors the verifying-key module name: transfer (eddsa) / transfer_p256 (p256).
+# mirrors the verifying-key module name. Two forms per rail: confidential
+# (non-zone) and zone (anonymous).
 rails=(
-    "transfer transfer"
-    "transfer-p256 transfer_p256"
     "transfer-confidential transfer_confidential"
     "transfer-p256-confidential transfer_p256_confidential"
+    "transfer-zone transfer_zone"
+    "transfer-p256-zone transfer_p256_zone"
 )
 
 for entry in "${rails[@]}"; do

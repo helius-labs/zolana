@@ -325,6 +325,34 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Fifty mixed transactions"
 
+# BDD zone lifecycle scenarios over a fresh validator + Photon per scenario
+# (program-tests/zone-test-program). Mirrors test-spp-validator but loads the
+# policy-zone fixture program (zone_test_program.so) and CPIs into SPP via its
+# `zone_auth` PDA, so the recipe also exports ZONE_TEST_PROGRAM_ID and
+# USER_REGISTRY_PROGRAM_ID. build-programs builds zone_test_program.so; the merge
+# flow reads the user-registry record so that program must be co-loaded, and the
+# zone deposits use the Squads smart account binary (ensure-smart-account). The
+# prover server persists; each cucumber scenario restarts the validator + Photon
+# via the `zolana` CLI.
+test-zone-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export ZONE_TEST_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p zone-test-program --test zone_lifecycle --release
+
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail

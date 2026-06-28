@@ -3,7 +3,7 @@ use solana_address::Address;
 use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
     instructions::transact::signed_transaction::asset_field,
-    utxo::{zone_program_id_field, UTXO_DOMAIN},
+    utxo::{program_id_field, UTXO_DOMAIN},
     OutputUtxo,
 };
 
@@ -23,17 +23,20 @@ pub struct UtxoInputs {
     pub amount: BigUint,
     pub blinding: BigUint,
     pub data_hash: BigUint,
+    pub program_id: BigUint,
     pub zone_data_hash: BigUint,
     pub zone_program_id: BigUint,
 }
 
 impl UtxoInputs {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner_field: &[u8; 32],
         asset: &Address,
         amount: u64,
         blinding: &[u8; 31],
         program_data_hash: &[u8; 32],
+        program_id: &Option<Address>,
         zone_data_hash: &[u8; 32],
         zone_program_id: &Option<Address>,
     ) -> Result<Self, ClientError> {
@@ -44,8 +47,9 @@ impl UtxoInputs {
             amount: be(&right_align(&amount.to_be_bytes())),
             blinding: be(&right_align(blinding)),
             data_hash: be(program_data_hash),
+            program_id: be(&program_id_field(program_id)?),
             zone_data_hash: be(zone_data_hash),
-            zone_program_id: be(&zone_program_id_field(zone_program_id)?),
+            zone_program_id: be(&program_id_field(zone_program_id)?),
         })
     }
 
@@ -57,8 +61,9 @@ impl UtxoInputs {
             amount: be(&right_align(&output.amount.to_be_bytes())),
             blinding: be(&right_align(&output.blinding)),
             data_hash: be(&output.program_data_hash.unwrap_or_default()),
+            program_id: be(&program_id_field(&output.program_id)?),
             zone_data_hash: be(&output.zone_data_hash.unwrap_or_default()),
-            zone_program_id: be(&zone_program_id_field(&output.zone_program_id)?),
+            zone_program_id: be(&program_id_field(&output.zone_program_id)?),
         })
     }
 
@@ -70,6 +75,7 @@ impl UtxoInputs {
             amount: BigUint::ZERO,
             blinding,
             data_hash: BigUint::ZERO,
+            program_id: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         }
@@ -145,8 +151,19 @@ fn dummy_utxo_hash(blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
     let zero = [0u8; 32];
     let owner_utxo_hash =
         poseidon(&[&zero, blinding_32]).map_err(|e| ClientError::Hasher(e.to_string()))?;
-    poseidon(&[&zero, &zero, &zero, &zero, &zero, &zero, &owner_utxo_hash])
-        .map_err(|e| ClientError::Hasher(e.to_string()))
+    // program_hash and zone_hash over all-zero (data_hash, program_id) and
+    // (zone_data_hash, zone_program_id) pairs.
+    let program_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
+    let zone_hash = poseidon(&[&zero, &zero]).map_err(|e| ClientError::Hasher(e.to_string()))?;
+    poseidon(&[
+        &zero,
+        &zero,
+        &zero,
+        &program_hash,
+        &zone_hash,
+        &owner_utxo_hash,
+    ])
+    .map_err(|e| ClientError::Hasher(e.to_string()))
 }
 
 fn dummy_nullifier(utxo_hash: &[u8; 32], blinding_32: &[u8; 32]) -> Result<[u8; 32], ClientError> {
@@ -173,10 +190,9 @@ pub struct TransferP256Inputs {
     pub public_sol_amount: BigUint,
     pub public_spl_amount: BigUint,
     pub public_spl_asset_pubkey: BigUint,
-    pub program_id_hashchain: BigUint,
+    pub program_id: BigUint,
+    pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
-    pub data_hash: BigUint,
-    pub zone_data_hash: BigUint,
     /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
     /// circuit routes ownership by equality. 0 on the eddsa rail (no P256 owner).
     pub p256_signing_pk_field: BigUint,
@@ -208,6 +224,9 @@ pub struct MergeInputs {
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub public_input_hash: BigUint,
+    /// Policy-zone merge only: the zone program's `pk_field`, the merge-zone
+    /// circuit's top-level public input. `0` for the default merge.
+    pub zone_program_id: BigUint,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree
@@ -242,9 +261,8 @@ pub struct TransferInputs {
     pub public_sol_amount: BigUint,
     pub public_spl_amount: BigUint,
     pub public_spl_asset_pubkey: BigUint,
-    pub program_id_hashchain: BigUint,
+    pub program_id: BigUint,
+    pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
-    pub data_hash: BigUint,
-    pub zone_data_hash: BigUint,
     pub public_input_hash: BigUint,
 }
