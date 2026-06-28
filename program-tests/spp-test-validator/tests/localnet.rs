@@ -25,7 +25,16 @@ pub(crate) const RECIPIENT_POSITION_BASE: u8 = 2;
 /// Pack a Groth16 proof (always BSB22-committed) into the 192-byte layout the
 /// `merge_transact` program path reads.
 pub(crate) fn pack_proof(proof: &Proof) -> Result<[u8; 192]> {
-    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof_bytes())
+    let compressed = ProofCompressed::try_from(*proof)?;
+    let mut out = [0u8; 192];
+    out[0..32].copy_from_slice(&compressed.a);
+    out[32..96].copy_from_slice(&compressed.b);
+    out[96..128].copy_from_slice(&compressed.c);
+    if let Some(commitment) = compressed.commitment {
+        out[128..160].copy_from_slice(&commitment.commitment);
+        out[160..192].copy_from_slice(&commitment.commitment_pok);
+    }
+    Ok(out)
 }
 
 /// Build the `transact` proof enum: the eddsa rail omits the BSB22 commitment, the
