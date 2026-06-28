@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
 use zolana_transaction::Address;
 
 use super::{
@@ -22,7 +22,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let tree = network.tree;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let withdrawal = create_withdrawal(CreateWithdrawal {
+    let withdrawal = create_withdrawal_sync(CreateWithdrawal {
         wallet: &ctx.wallet,
         authority: &ctx.material,
         owner_pubkey: ctx.material.owner_pubkey(),

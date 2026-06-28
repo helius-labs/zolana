@@ -11,7 +11,8 @@ pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_deposit, create_transfer, create_withdrawal, CreateDeposit, CreateTransfer,
+    create_deposit, create_transfer, create_transfer_sync, create_withdrawal,
+    create_withdrawal_sync, sign_transaction, sign_transaction_sync, CreateDeposit, CreateTransfer,
     CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress,
     TransferRecipient,
 };
@@ -44,7 +45,7 @@ pub use user_registry::{
 };
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    P256Signature, WalletAuthority,
+    P256Signature, SyncWalletAuthority, WalletAuthority,
 };
 pub use wallet_sync::{get_private_token_balances, get_private_transactions};
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};

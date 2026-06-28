@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
@@ -64,7 +65,45 @@ pub struct EncryptedTransfer {
     pub slots: Vec<OutputCiphertext>,
 }
 
+/// Authority for production wallet hosts where approval, key access, or signing
+/// may cross a process, device, or remote custody boundary.
+#[async_trait(?Send)]
 pub trait WalletAuthority {
+    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
+
+    async fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    async fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError>;
+
+    async fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
+        Ok(())
+    }
+
+    async fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError>;
+
+    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
+}
+
+/// Blocking authority for tests, CLI flows, and local direct-key wallets.
+pub trait SyncWalletAuthority {
     fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError>;
 
     fn encrypt_confidential_transfer(
@@ -98,6 +137,68 @@ pub trait WalletAuthority {
     fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError>;
 }
 
+#[async_trait(?Send)]
+impl<T> WalletAuthority for T
+where
+    T: SyncWalletAuthority + ?Sized,
+{
+    async fn shielded_address(&self, owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
+        SyncWalletAuthority::shielded_address(self, owner_pubkey)
+    }
+
+    async fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: ViewTag,
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError> {
+        SyncWalletAuthority::encrypt_confidential_transfer(
+            self,
+            owner_pubkey,
+            first_nullifier,
+            sender_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, ClientError> {
+        SyncWalletAuthority::encrypt_anonymous_transfer(
+            self,
+            owner_pubkey,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
+        SyncWalletAuthority::request_user_approval(self, request)
+    }
+
+    async fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError> {
+        SyncWalletAuthority::sign_p256(self, owner_pubkey, message_hash)
+    }
+
+    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
+        SyncWalletAuthority::spend_nullifier_key(self, owner_pubkey)
+    }
+}
+
 fn recipient_slot_index(i: usize) -> Result<u32, ClientError> {
     u32::try_from(i + 1).map_err(|_| ClientError::TooManyOutputs {
         got: i + 1,
@@ -105,7 +206,7 @@ fn recipient_slot_index(i: usize) -> Result<u32, ClientError> {
     })
 }
 
-impl WalletAuthority for ShieldedKeypair {
+impl SyncWalletAuthority for ShieldedKeypair {
     fn shielded_address(&self, _owner_pubkey: Pubkey) -> Result<ShieldedAddress, ClientError> {
         Ok(self.shielded_address()?)
     }

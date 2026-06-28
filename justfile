@@ -57,6 +57,8 @@ test-user-registry-litesvm: build-programs
 test-sdk-libs:
     cargo test -p zolana-keypair
     cargo test -p zolana-transaction
+    cargo test -p zolana-client --lib actions::transaction
+    cargo test -p zolana-client --test transaction
 
 # All zolana-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server

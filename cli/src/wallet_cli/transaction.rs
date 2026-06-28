@@ -3,8 +3,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer, prover::transact::assemble, CreateTransfer, InputCommitment, ProofCompressed,
-    ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
+    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
+    ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
+    ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
@@ -28,7 +29,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let recipient_owner = parse_pubkey(&opts.to)?;
     let tree = network.tree;
 
-    let transfer = create_transfer(CreateTransfer {
+    let transfer = create_transfer_sync(CreateTransfer {
         rpc: &rpc,
         wallet: &ctx.wallet,
         authority: &ctx.material,

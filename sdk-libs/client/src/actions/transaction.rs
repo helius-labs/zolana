@@ -6,7 +6,7 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{SignedTransaction, Transaction, WithdrawalTarget},
+        transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
         types::SpendUtxo,
     },
     Address, AssetRegistry, Wallet, SOL_MINT,
@@ -16,7 +16,9 @@ use crate::{
     error::ClientError,
     rpc::Rpc,
     user_registry::try_resolve_registered_address,
-    wallet_authority::{ApprovalRequest, ConfidentialRecipientSlot, WalletAuthority},
+    wallet_authority::{
+        ApprovalRequest, ConfidentialRecipientSlot, SyncWalletAuthority, WalletAuthority,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,7 +71,7 @@ pub struct CreatedWithdrawal {
     pub withdrawal: TransactWithdrawal,
 }
 
-pub struct CreateTransfer<'a, R: Rpc, A: WalletAuthority> {
+pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
     pub rpc: &'a R,
     pub wallet: &'a Wallet,
     pub authority: &'a A,
@@ -81,7 +83,7 @@ pub struct CreateTransfer<'a, R: Rpc, A: WalletAuthority> {
     pub assets: &'a AssetRegistry,
 }
 
-pub struct CreateWithdrawal<'a, A: WalletAuthority> {
+pub struct CreateWithdrawal<'a, A: ?Sized> {
     pub wallet: &'a Wallet,
     pub authority: &'a A,
     pub owner_pubkey: Pubkey,
@@ -92,7 +94,7 @@ pub struct CreateWithdrawal<'a, A: WalletAuthority> {
     pub assets: &'a AssetRegistry,
 }
 
-pub fn create_transfer<R: Rpc, A: WalletAuthority>(
+pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     request: CreateTransfer<'_, R, A>,
 ) -> Result<CreatedTransfer, ClientError> {
     let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
@@ -106,7 +108,8 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
             asset: request.asset,
             amount: request.amount,
             assets: request.assets,
-        })?;
+        })
+        .await?;
         return Ok(CreatedTransfer {
             signed: withdrawal.signed,
             wait_tag: withdrawal.wait_tag,
@@ -122,51 +125,28 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
         request.owner_pubkey,
         request.asset,
         request.amount,
-    )?;
-    let address = request.authority.shielded_address(request.owner_pubkey)?;
+    )
+    .await?;
+    let address = request
+        .authority
+        .shielded_address(request.owner_pubkey)
+        .await?;
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.send(&recipient.address, request.asset, request.amount)?;
     let prepared = tx.prepare(request.assets)?;
-    let recipient_slots: Vec<ConfidentialRecipientSlot> = prepared
-        .recipients
-        .iter()
-        .map(|r| ConfidentialRecipientSlot {
-            view_tag: r.view_tag,
-            recipient_pubkey: r.recipient_pubkey,
-            plaintext: r.plaintext.clone(),
-        })
-        .collect();
-    let encrypted = request.authority.encrypt_confidential_transfer(
+    let signed = sign_prepared(
+        prepared,
+        &address,
         request.owner_pubkey,
-        &prepared.first_nullifier,
-        wait_tag,
-        &prepared.sender_plaintext,
-        &recipient_slots,
-    )?;
-    request.authority.request_user_approval(ApprovalRequest {
-        owner_pubkey: request.owner_pubkey,
-        summary: format!(
+        request.authority,
+        request.assets,
+        format!(
             "private transfer of {} to {}",
             request.amount, request.recipient_owner
         ),
-    })?;
-    let mut signed = prepared.finalize(
-        encrypted.tx_viewing_pk,
-        encrypted.salt,
-        encrypted.slots,
-        request.assets,
-    )?;
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = signed.message_hash()?;
-        let sig = request
-            .authority
-            .sign_p256(request.owner_pubkey, &message_hash)?;
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        signed.p256_owner = Some(bytes);
-    }
+    )
+    .await?;
     Ok(CreatedTransfer {
         signed,
         wait_tag,
@@ -174,7 +154,15 @@ pub fn create_transfer<R: Rpc, A: WalletAuthority>(
     })
 }
 
-pub fn create_withdrawal<A: WalletAuthority>(
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`create_transfer`] directly.
+pub fn create_transfer_sync<R: Rpc, A: SyncWalletAuthority + ?Sized>(
+    request: CreateTransfer<'_, R, A>,
+) -> Result<CreatedTransfer, ClientError> {
+    futures::executor::block_on(create_transfer(request))
+}
+
+pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
     request: CreateWithdrawal<'_, A>,
 ) -> Result<CreatedWithdrawal, ClientError> {
     let inputs = select_inputs(
@@ -183,54 +171,124 @@ pub fn create_withdrawal<A: WalletAuthority>(
         request.owner_pubkey,
         request.asset,
         request.amount,
-    )?;
+    )
+    .await?;
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
-    let address = request.authority.shielded_address(request.owner_pubkey)?;
+    let address = request
+        .authority
+        .shielded_address(request.owner_pubkey)
+        .await?;
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
     let prepared = tx.prepare(request.assets)?;
-    let recipient_slots: Vec<ConfidentialRecipientSlot> = prepared
-        .recipients
-        .iter()
-        .map(|r| ConfidentialRecipientSlot {
-            view_tag: r.view_tag,
-            recipient_pubkey: r.recipient_pubkey,
-            plaintext: r.plaintext.clone(),
-        })
-        .collect();
-    let encrypted = request.authority.encrypt_confidential_transfer(
+    let signed = sign_prepared(
+        prepared,
+        &address,
         request.owner_pubkey,
-        &prepared.first_nullifier,
-        wait_tag,
-        &prepared.sender_plaintext,
-        &recipient_slots,
-    )?;
-    request.authority.request_user_approval(ApprovalRequest {
-        owner_pubkey: request.owner_pubkey,
-        summary: format!("withdraw {} to {}", request.amount, request.recipient),
-    })?;
-    let mut signed = prepared.finalize(
-        encrypted.tx_viewing_pk,
-        encrypted.salt,
-        encrypted.slots,
+        request.authority,
         request.assets,
-    )?;
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = signed.message_hash()?;
-        let sig = request
-            .authority
-            .sign_p256(request.owner_pubkey, &message_hash)?;
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        signed.p256_owner = Some(bytes);
-    }
+        format!("withdraw {} to {}", request.amount, request.recipient),
+    )
+    .await?;
     Ok(CreatedWithdrawal {
         signed,
         wait_tag,
         withdrawal,
     })
+}
+
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`create_withdrawal`] directly.
+pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
+    request: CreateWithdrawal<'_, A>,
+) -> Result<CreatedWithdrawal, ClientError> {
+    futures::executor::block_on(create_withdrawal(request))
+}
+
+/// Sign a prepared transaction through a wallet authority (encrypt, approve,
+/// P256-sign).
+pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
+    tx: Transaction,
+    owner_pubkey: Pubkey,
+    authority: &A,
+    assets: &AssetRegistry,
+) -> Result<SignedTransaction, ClientError> {
+    let address = authority.shielded_address(owner_pubkey).await?;
+    let prepared = tx.prepare(assets)?;
+    sign_prepared(
+        prepared,
+        &address,
+        owner_pubkey,
+        authority,
+        assets,
+        "private transaction".to_string(),
+    )
+    .await
+}
+
+/// Blocking adapter for CLI and unit-test flows. Async hosts should call
+/// [`sign_transaction`] directly.
+pub fn sign_transaction_sync<A: SyncWalletAuthority + ?Sized>(
+    tx: Transaction,
+    owner_pubkey: Pubkey,
+    authority: &A,
+    assets: &AssetRegistry,
+) -> Result<SignedTransaction, ClientError> {
+    futures::executor::block_on(sign_transaction(tx, owner_pubkey, authority, assets))
+}
+
+fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
+    prepared
+        .recipients
+        .iter()
+        .map(|recipient| ConfidentialRecipientSlot {
+            view_tag: recipient.view_tag,
+            recipient_pubkey: recipient.recipient_pubkey,
+            plaintext: recipient.plaintext.clone(),
+        })
+        .collect()
+}
+
+async fn sign_prepared<A: WalletAuthority + ?Sized>(
+    prepared: PreparedTransaction,
+    address: &ShieldedAddress,
+    owner_pubkey: Pubkey,
+    authority: &A,
+    assets: &AssetRegistry,
+    approval_summary: String,
+) -> Result<SignedTransaction, ClientError> {
+    let sender_tag = address.signing_pubkey.confidential_view_tag()?;
+    let encrypted = authority
+        .encrypt_confidential_transfer(
+            owner_pubkey,
+            &prepared.first_nullifier,
+            sender_tag,
+            &prepared.sender_plaintext,
+            &recipient_slots(&prepared),
+        )
+        .await?;
+    authority
+        .request_user_approval(ApprovalRequest {
+            owner_pubkey,
+            summary: approval_summary,
+        })
+        .await?;
+    let mut signed = prepared.finalize(
+        encrypted.tx_viewing_pk,
+        encrypted.salt,
+        encrypted.slots,
+        assets,
+    )?;
+    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
+        let message_hash = signed.message_hash()?;
+        let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&sig.sig_r);
+        bytes[32..].copy_from_slice(&sig.sig_s);
+        signed.p256_owner = Some(bytes);
+    }
+    Ok(signed)
 }
 
 fn withdrawal_target(
@@ -264,14 +322,14 @@ fn withdrawal_target(
     ))
 }
 
-fn select_inputs(
+async fn select_inputs<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
-    authority: &impl WalletAuthority,
+    authority: &A,
     owner_pubkey: Pubkey,
     asset: Address,
     amount: u64,
 ) -> Result<Vec<SpendUtxo>, ClientError> {
-    let nullifier_key = authority.spend_nullifier_key(owner_pubkey)?;
+    let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
     let mut selected = Vec::new();
     let mut total = 0u64;
     for entry in &wallet.utxos {
@@ -393,7 +451,7 @@ mod tests {
         };
         let wallet = wallet_with_sol(sender.clone(), 10);
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -420,7 +478,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let rpc = MockRpc { account: None };
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -452,7 +510,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_transfer(CreateTransfer {
+        let result = create_transfer_sync(CreateTransfer {
             rpc: &rpc,
             wallet: &wallet,
             authority: &sender,
@@ -486,7 +544,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
-        let result = create_withdrawal(CreateWithdrawal {
+        let result = create_withdrawal_sync(CreateWithdrawal {
             wallet: &wallet,
             authority: &sender,
             owner_pubkey: Pubkey::default(),

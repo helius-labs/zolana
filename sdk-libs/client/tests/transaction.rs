@@ -5,6 +5,8 @@
 #[path = "test_indexer.rs"]
 mod test_indexer;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use borsh::BorshDeserialize;
 use p256::{
     ecdsa::{
@@ -15,11 +17,14 @@ use p256::{
 };
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
-    CircuitType, MerkleContext, MerkleProof, NonInclusionProof, PublicAmounts, Rpc,
-    SignedTransaction, SpendProof, SpendUtxo, Transaction, TransferP256Prover, WithdrawalTarget,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
+    ConfidentialRecipientSlot, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
+    PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo, SyncWalletAuthority, Transaction,
+    TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
@@ -57,6 +62,78 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
 
 fn registry() -> AssetRegistry {
     AssetRegistry::new([]).expect("registry")
+}
+
+struct AsyncTestAuthority {
+    keypair: ShieldedKeypair,
+    approvals: AtomicUsize,
+    p256_signatures: AtomicUsize,
+}
+
+#[async_trait::async_trait(?Send)]
+impl WalletAuthority for AsyncTestAuthority {
+    async fn shielded_address(
+        &self,
+        owner_pubkey: Pubkey,
+    ) -> Result<zolana_keypair::shielded::ShieldedAddress, ClientError> {
+        SyncWalletAuthority::shielded_address(&self.keypair, owner_pubkey)
+    }
+
+    async fn encrypt_confidential_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_tag: [u8; 32],
+        sender: &TransferSenderPlaintext,
+        recipients: &[ConfidentialRecipientSlot],
+    ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
+        SyncWalletAuthority::encrypt_confidential_transfer(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            sender_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn encrypt_anonymous_transfer(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: [u8; 32],
+        sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
+        SyncWalletAuthority::encrypt_anonymous_transfer(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
+        assert_eq!(request.owner_pubkey, Pubkey::default());
+        assert!(request.summary.contains("private transaction"));
+        self.approvals.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn sign_p256(
+        &self,
+        owner_pubkey: Pubkey,
+        message_hash: &[u8; 32],
+    ) -> Result<P256Signature, ClientError> {
+        self.p256_signatures.fetch_add(1, Ordering::SeqCst);
+        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+    }
+
+    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
+        SyncWalletAuthority::spend_nullifier_key(&self.keypair, owner_pubkey)
+    }
 }
 
 fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, TransactionError> {
@@ -598,6 +675,50 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
     verifying_key
         .verify_prehash(&message_hash, &signature)
         .expect("signature verifies against built private tx hash");
+}
+
+#[test]
+fn async_authority_signs_p256_and_invokes_approval() {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let authority = AsyncTestAuthority {
+        keypair: sender.clone(),
+        approvals: AtomicUsize::new(0),
+        p256_signatures: AtomicUsize::new(0),
+    };
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        vec![p256_input(&sender, 100, &mut rng)],
+        Address::default(),
+    );
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+        .unwrap();
+
+    let signed = futures::executor::block_on(sign_transaction(
+        tx,
+        Pubkey::default(),
+        &authority,
+        &registry(),
+    ))
+    .unwrap();
+
+    assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
+    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);
+    let prover = prover_of(signed);
+    let owner = prover.p256_owner.clone();
+    let built = prover.build().unwrap();
+    let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
+    let public_key = owner.pubkey.to_p256().unwrap();
+    let point = public_key.to_encoded_point(false);
+    let verifying_key = EcdsaVerifyingKey::from_encoded_point(&point).unwrap();
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes[..32].copy_from_slice(&owner.sig_r);
+    sig_bytes[32..].copy_from_slice(&owner.sig_s);
+    let signature = EcdsaSignature::from_slice(&sig_bytes).unwrap();
+    verifying_key
+        .verify_prehash(&message_hash, &signature)
+        .expect("async authority signature verifies");
 }
 
 #[test]
