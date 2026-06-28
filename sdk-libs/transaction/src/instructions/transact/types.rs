@@ -1,10 +1,14 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputData;
-use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
+use zolana_keypair::{
+    hash::{poseidon, sha256_be},
+    P256Pubkey, ShieldedAddress,
+};
 
 use super::external_data::ExternalData;
 use crate::{
+    data::{Data, DataRecord},
     error::TransactionError,
     utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
 };
@@ -52,9 +56,58 @@ pub struct OutputUtxo {
     /// folds the sender's `owner_pk_field`, matching the program's bundle
     /// reconstruction.
     pub owner_tag: Option<[u8; 32]>,
+    /// The cleartext zone/program data bytes whose digests populate
+    /// `zone_data_hash` / `program_data_hash`. Carried so the recipient can
+    /// reconstruct the same `Utxo` (and its leaf hash) the proof committed to;
+    /// the on-chain hash semantics use only the digests, not these bytes.
+    pub data: Data,
 }
 
 impl OutputUtxo {
+    /// Bind zone data to this output: set `zone_program_id`, store the cleartext
+    /// `zone_data`, and set `zone_data_hash` to its `Sha256BE` field-element
+    /// digest (the protocol's byte-preimage-to-field hash). The recipient
+    /// recovers identical bytes and recomputes the same `zone_hash`.
+    pub fn with_zone_data(
+        mut self,
+        zone_program_id: Address,
+        zone_data: Vec<u8>,
+        zone_data_hash: [u8; 32],
+    ) -> Self {
+        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_program_id = Some(zone_program_id);
+        self.set_data_record(DataRecord::ZoneData(zone_data));
+        self
+    }
+
+    /// Bind program data to this output, mirroring [`Self::with_zone_data`] for
+    /// the `program_id` / `program_data` / `program_data_hash` triple.
+    pub fn with_program_data(
+        mut self,
+        program_id: Address,
+        program_data: Vec<u8>,
+        data_hash: [u8; 32],
+    ) -> Self {
+        self.program_data_hash = Some(data_hash);
+        self.program_id = Some(program_id);
+        self.set_data_record(DataRecord::ProgramData(program_data));
+        self
+    }
+
+    /// Replace any existing record of the same kind, then re-order to the
+    /// canonical `[ZoneData, ProgramData]` sequence `Data::validate` requires.
+    fn set_data_record(&mut self, record: DataRecord) {
+        let is_zone = matches!(record, DataRecord::ZoneData(_));
+        self.data
+            .records
+            .retain(|existing| matches!(existing, DataRecord::ZoneData(_)) != is_zone);
+        self.data.records.push(record);
+        self.data.records.sort_by_key(|record| match record {
+            DataRecord::ZoneData(_) => 0u8,
+            DataRecord::ProgramData(_) => 1u8,
+        });
+    }
+
     /// `owner_hash = Poseidon(signing_pubkey.hash(), nullifier_pubkey)` derived
     /// from the recipient address; `0` (permanently unspendable) for a dummy slot.
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {

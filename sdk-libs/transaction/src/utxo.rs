@@ -156,6 +156,8 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
+            program_id: self.program_id,
+            zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
     }
@@ -168,6 +170,8 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
+            program_id: self.program_id,
+            zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
     }
