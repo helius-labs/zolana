@@ -1,6 +1,31 @@
-use bytemuck::from_bytes_mut;
-use pinocchio::{account::RefMut, error::ProgramError, AccountView};
+use bytemuck::{from_bytes, from_bytes_mut};
+use pinocchio::{
+    account::{Ref, RefMut},
+    error::ProgramError,
+    AccountView,
+};
 use zolana_interface::{error::ShieldedPoolError, state::ZoneConfig};
+
+/// Load a zone config read-only: owned by SPP, correct size and discriminator.
+/// The create-time `zone_auth` derivation already bound the account to its
+/// program, so callers add only an `is_signer` check -- never re-deriving.
+#[inline(always)]
+pub fn load_zone_config(account: &AccountView) -> Result<Ref<'_, ZoneConfig>, ProgramError> {
+    if !account.owned_by(&crate::ID) {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let data = account
+        .try_borrow()
+        .map_err(|_| ShieldedPoolError::InvalidZoneConfig)?;
+    if data.len() != ZoneConfig::SIZE {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    let config = Ref::map(data, |d| from_bytes::<ZoneConfig>(d));
+    if !config.has_discriminator() {
+        return Err(ShieldedPoolError::InvalidZoneConfig.into());
+    }
+    Ok(config)
+}
 
 #[inline(always)]
 pub fn load_zone_config_mut<'a>(

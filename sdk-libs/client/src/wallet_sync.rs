@@ -437,8 +437,9 @@ mod tests {
             amount,
             program_data_hash: None,
             program_data: None,
+            program_id: None,
             zone_program_id: None,
-            policy_data_hash: None,
+            zone_data_hash: None,
             zone_data: None,
         }
     }
@@ -469,7 +470,7 @@ mod tests {
             zone_program_id: None,
         };
         let program_data_hash = output.program_data_hash.unwrap_or([0u8; 32]);
-        let zone_data_hash = output.policy_data_hash.unwrap_or([0u8; 32]);
+        let zone_data_hash = output.zone_data_hash.unwrap_or([0u8; 32]);
         let utxo = Proofless::into_utxos(output.clone(), &owner_cx)
             .expect("proofless into utxos")
             .into_iter()

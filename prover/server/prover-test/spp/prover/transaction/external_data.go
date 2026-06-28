@@ -23,13 +23,17 @@ type externalDataPreimage struct {
 }
 
 type externalValues struct {
-	hash               *big.Int
-	publicSolAmount    *big.Int
-	publicSplAmount    *big.Int
-	publicSplAsset     *big.Int
-	programIDHashchain *big.Int
-	dataHash           *big.Int
-	zoneDataHash       *big.Int
+	hash            *big.Int
+	publicSolAmount *big.Int
+	publicSplAmount *big.Int
+	publicSplAsset  *big.Int
+	// programID and zoneProgramID are the single per-tx program identifiers
+	// (public inputs). Zero on default transact. dataHash / zoneDataHash are the
+	// tx-level program/zone data hashes folded into external_data_hash.
+	programID     *big.Int
+	zoneProgramID *big.Int
+	dataHash      *big.Int
+	zoneDataHash  *big.Int
 }
 
 func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
@@ -71,9 +75,9 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 	if err != nil {
 		return externalValues{}, err
 	}
-	programIDHashchain, err := parse.OptionalField(tx.ProgramIDHashchain)
+	programID, err := parse.OptionalField(tx.ProgramID)
 	if err != nil {
-		return externalValues{}, fmt.Errorf("program_id_hashchain: %w", err)
+		return externalValues{}, fmt.Errorf("program_id: %w", err)
 	}
 	dataHash, err := parse.OptionalField(tx.DataHash)
 	if err != nil {
@@ -83,18 +87,18 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 	if err != nil {
 		return externalValues{}, fmt.Errorf("zone_data_hash: %w", err)
 	}
-	// Default transact carries no program/zone authorization: the circuit pins
-	// these to zero and SPP reconstructs them as zero on-chain, so a non-zero
-	// value could never prove or verify. Reject early with a clear error
-	// instead of failing inside the constraint solver.
-	if programIDHashchain.Sign() != 0 {
-		return externalValues{}, fmt.Errorf("program_id_hashchain must be zero: default transact carries no zone authorization")
+	// This harness builds only bare default-zone transfers: every UTXO's
+	// program/zone fields are zero, so the tx-level program/zone values must be
+	// zero too. Reject early with a clear error instead of failing inside the
+	// constraint solver.
+	if programID.Sign() != 0 {
+		return externalValues{}, fmt.Errorf("program_id must be zero: this harness builds only bare default-zone transfers")
 	}
 	if dataHash.Sign() != 0 {
-		return externalValues{}, fmt.Errorf("data_hash must be zero: default transact carries no zone authorization")
+		return externalValues{}, fmt.Errorf("data_hash must be zero: this harness builds only bare default-zone transfers")
 	}
 	if zoneDataHash.Sign() != 0 {
-		return externalValues{}, fmt.Errorf("zone_data_hash must be zero: default transact carries no zone authorization")
+		return externalValues{}, fmt.Errorf("zone_data_hash must be zero: this harness builds only bare default-zone transfers")
 	}
 	return externalValues{
 		hash: externalDataFieldHash(externalDataPreimage{
@@ -109,12 +113,13 @@ func buildExternalData(tx ProofTransactionRequest) (externalValues, error) {
 			SplTokenInterface:        splTokenInterface,
 			EncryptedUtxos:           encryptedUtxos,
 		}),
-		publicSolAmount:    publicAmounts.sol,
-		publicSplAmount:    publicAmounts.spl,
-		publicSplAsset:     publicAmounts.asset,
-		programIDHashchain: programIDHashchain,
-		dataHash:           dataHash,
-		zoneDataHash:       zoneDataHash,
+		publicSolAmount: publicAmounts.sol,
+		publicSplAmount: publicAmounts.spl,
+		publicSplAsset:  publicAmounts.asset,
+		programID:       programID,
+		zoneProgramID:   big.NewInt(0),
+		dataHash:        dataHash,
+		zoneDataHash:    zoneDataHash,
 	}, nil
 }
 

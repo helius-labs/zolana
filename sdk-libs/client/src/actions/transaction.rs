@@ -340,6 +340,7 @@ mod tests {
             asset,
             amount,
             blinding: [7u8; 31],
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };

@@ -9,6 +9,10 @@ use super::discriminator::ZONE_CONFIG;
 pub struct ZoneConfig {
     pub discriminator: u8,
     pub authority: Address,
+    /// Zone program this config belongs to. Set once at `create_zone_config`
+    /// (where the `zone_auth` PDA derivation is checked) and thereafter only read
+    /// — e.g. as the UTXO's `zone_program_id` — never re-derived.
+    pub program_id: Address,
     /// 0/1 -- bool isn't `Pod`.
     pub zone_authority_transact_is_enabled: u8,
     pub bump: u8,
@@ -30,5 +34,5 @@ impl ZoneConfig {
         address_eq(&self.authority, authority)
     }
 }
-const _: () = assert!(ZoneConfig::SIZE == 35);
+const _: () = assert!(ZoneConfig::SIZE == 67);
 const _: () = assert!(core::mem::align_of::<ZoneConfig>() == 1);

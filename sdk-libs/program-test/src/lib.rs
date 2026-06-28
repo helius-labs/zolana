@@ -68,6 +68,8 @@ pub enum ProgramTestError {
     Event(String),
     #[error("rpc: {0}")]
     Rpc(String),
+    #[error("pubkey: {0}")]
+    Pubkey(#[from] solana_pubkey::PubkeyError),
 }
 
 impl From<ClientError> for ProgramTestError {

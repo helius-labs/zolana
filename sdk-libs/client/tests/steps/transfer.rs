@@ -79,6 +79,7 @@ impl TransferWorld {
                     asset: asset_addr(input.asset),
                     amount: input.amount,
                     blinding: random_blinding(&mut rng),
+                    program_id: None,
                     zone_program_id: None,
                     data: Data::default(),
                 };
@@ -355,6 +356,8 @@ fn assert_outputs(
             user_spl_token,
             spl_token_interface,
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
             output_utxo_hashes: external_data.output_utxo_hashes.clone(),

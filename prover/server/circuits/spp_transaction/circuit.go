@@ -18,10 +18,9 @@ type Circuit struct {
 	// P256 ECDSA gadget (most of the constraints) for P256 owners. False:
 	// Solana-only, no gadget (~7x smaller), every real input must be
 	// Solana-owned.
-	RequiresP256 bool `gnark:"-"`
-	// Confidential selects the owner-tag variant: bind each output owner_hash to a
-	// public pk_field tag and expose P256 input owners. False leaves owners free.
-	Confidential bool `gnark:"-"`
+	RequiresP256  bool `gnark:"-"`
+	Confidential  bool `gnark:"-"`
+	ZoneAuthority bool `gnark:"-"`
 
 	Inputs  []Input
 	Outputs []Output
@@ -42,10 +41,9 @@ type Circuit struct {
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
-	ProgramIDHashchain   frontend.Variable
+	ProgramID            frontend.Variable
+	ZoneProgramID        frontend.Variable
 	PayerPubkeyHash      frontend.Variable
-	DataHash             frontend.Variable // TODO: remove
-	ZoneDataHash         frontend.Variable // TODO: remove
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -80,28 +78,29 @@ type Output struct {
 	NullifierPk frontend.Variable
 }
 
-// Transfer circuit with p256 ecdsa signature verification.
-// Input utxos must be owned by the signing p256 ecdsa key
-// or an eddsa key that is checked by the verifying Solana program.
-func NewTransferP256Circuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, true, false)
-}
-
-// Transfer circuit without p256 ecdsa signature verification.
-// Input utxos must be owned by an eddsa key that is checked
-// by the verifying Solana program.
-func NewTransferCircuit(shape Shape) (*Circuit, error) {
-	return newCircuit(shape, false, false)
-}
-
-// Confidential variants additionally bind every output owner to a public pk_field
-// tag and expose P256 input owners via p256_signing_pk_field.
 func NewTransferP256ConfidentialCircuit(shape Shape) (*Circuit, error) {
 	return newCircuit(shape, true, true)
 }
 
 func NewTransferConfidentialCircuit(shape Shape) (*Circuit, error) {
 	return newCircuit(shape, false, true)
+}
+
+func NewTransferP256ZoneCircuit(shape Shape) (*Circuit, error) {
+	return newCircuit(shape, true, false)
+}
+
+func NewTransferZoneCircuit(shape Shape) (*Circuit, error) {
+	return newCircuit(shape, false, false)
+}
+
+func NewTransferZoneAuthorityCircuit(shape Shape) (*Circuit, error) {
+	c, err := newCircuit(shape, false, false)
+	if err != nil {
+		return nil, err
+	}
+	c.ZoneAuthority = true
+	return c, nil
 }
 
 func newCircuit(shape Shape, requiresP256, confidential bool) (*Circuit, error) {
@@ -143,10 +142,16 @@ func (c *Circuit) Define(api frontend.API) error {
 		return err
 	}
 
+	zone := !c.Confidential
+
 	// Ownership
 	env := spendEnv{
 		requiresP256:       c.RequiresP256,
 		confidential:       c.Confidential,
+		zone:               zone,
+		zoneAuthority:      c.ZoneAuthority,
+		programID:          c.ProgramID,
+		zoneProgramID:      c.ZoneProgramID,
 		p256SigningPkField: c.P256SigningPkField,
 	}
 	if c.RequiresP256 {
@@ -196,7 +201,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	// Outputs
 	OutputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
-		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential)
+		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential, zone, c.ZoneAuthority, c.ProgramID, c.ZoneProgramID)
 	}
 
 	// Sumcheck
@@ -209,12 +214,12 @@ func (c *Circuit) Define(api frontend.API) error {
 		c.PublicSplAssetPubkey,
 	)
 
-	// Default transact has no program/zone authorization: these tx-level fields
-	// must be zero (SPP reconstructs them as zero on-chain). Zone flows set them
-	// via zone_transact.
-	api.AssertIsEqual(c.ProgramIDHashchain, 0)
-	api.AssertIsEqual(c.DataHash, 0)
-	api.AssertIsEqual(c.ZoneDataHash, 0)
+	if !zone {
+		api.AssertIsEqual(c.ZoneProgramID, 0)
+	}
+	if c.ZoneAuthority {
+		api.AssertIsDifferent(c.ZoneProgramID, 0)
+	}
 
 	privateTxHash := PrivateTxHashCircuit(
 		api,
@@ -240,11 +245,12 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
-		c.ProgramIDHashchain,
+		c.ProgramID,
+		c.ZoneProgramID,
 		c.PayerPubkeyHash,
-		c.DataHash,
-		c.ZoneDataHash,
-		gadget.HashChain(api, c.InputOwnerPkHashes()),
+	}
+	if !c.ZoneAuthority {
+		fields = append(fields, gadget.HashChain(api, c.InputOwnerPkHashes()))
 	}
 	if c.Confidential {
 		fields = append(fields,

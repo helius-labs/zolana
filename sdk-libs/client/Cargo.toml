@@ -64,6 +64,21 @@ path = "tests/merge/main.rs"
 harness = false
 
 [[test]]
+name = "zone_authority_proving"
+path = "tests/zone_authority/main.rs"
+harness = false
+
+[[test]]
+name = "merge_zone_proving"
+path = "tests/merge_zone/main.rs"
+harness = false
+
+[[test]]
+name = "zone_transfer_proving"
+path = "tests/zone_transfer/main.rs"
+harness = false
+
+[[test]]
 name = "transaction"
 
 [[test]]

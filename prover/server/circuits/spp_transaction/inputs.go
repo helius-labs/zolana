@@ -20,6 +20,36 @@ type spendEnv struct {
 	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
 	confidential       bool
 	p256SigningPkField frontend.Variable
+	zone               bool
+	zoneAuthority      bool
+	programID          frontend.Variable
+	zoneProgramID      frontend.Variable
+}
+
+func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCircuitFields, zone, strictZone bool, programID, zoneProgramID frontend.Variable) {
+	bindIfSet(api, notDummy, u.ProgramID, programID)
+	requireIdWhenDataSet(api, notDummy, u.DataHash, u.ProgramID)
+	if zone {
+		if strictZone {
+			assertEqualWhen(api, notDummy, u.ZoneProgramID, zoneProgramID)
+		} else {
+			bindIfSet(api, notDummy, u.ZoneProgramID, zoneProgramID)
+		}
+		requireIdWhenDataSet(api, notDummy, u.ZoneDataHash, u.ZoneProgramID)
+	} else {
+		assertZeroWhen(api, notDummy, u.ZoneDataHash)
+		assertZeroWhen(api, notDummy, u.ZoneProgramID)
+	}
+}
+
+func bindIfSet(api frontend.API, notDummy, field, public frontend.Variable) {
+	isSet := api.Sub(1, api.IsZero(field))
+	assertEqualWhen(api, api.Mul(notDummy, isSet), field, public)
+}
+
+func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Variable) {
+	dataIsSet := api.Sub(1, api.IsZero(dataHash))
+	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
 }
 
 // constrainInput verifies one spent input: domain, state-tree inclusion, owner
@@ -30,19 +60,44 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
-	// A dummy slot must be inert: zero amount. Its public transcript columns
-	// (nullifier, roots, owner entry) are deliberately unpinned so a dummy can
+	// A dummy slot splits in two by whether it carries a program_data_hash (the
+	// address seed). A padding dummy (seed == 0) is inert. An address dummy (seed
+	// != 0) does not spend a prior commitment, but its nullifier is the new
+	// program-owned address: derived, constrained, and inserted into the nullifier
+	// tree, which enforces global uniqueness.
+	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
+	isAddress := api.Mul(in.IsDummy, dataIsSet)
+	isPadding := api.Sub(in.IsDummy, isAddress)
+	spendOrAddress := api.Sub(1, isPadding)
+
+	// A dummy slot must be inert: zero amount. A padding dummy's public transcript
+	// columns (nullifier, roots, owner entry) are deliberately unpinned so it can
 	// mimic a real slot and hide the transaction's real arity; the on-chain
-	// reconstruction decides what values it accepts there.
+	// reconstruction decides what values it accepts there. A padding owner is 0:
+	// permanently unspendable, never a real spend.
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
+	assertZeroWhen(api, isPadding, in.Utxo.Owner)
+
+	// An address is owned by the authenticated invoking program: SPP sets the
+	// public program_id from the CPI caller, so only that program can mint an
+	// address in its own namespace. program_id must be set (a direct user call
+	// leaves it 0 and cannot form an address).
+	assertEqualWhen(api, isAddress, in.Utxo.Owner, env.programID)
+	assertZeroWhen(api, isAddress, api.IsZero(env.programID))
+
+	// The address must be a deterministic function of (program_id, seed) so one
+	// pair yields exactly one address. Pin every field that is not the program id
+	// (carried in Owner) or the seed (carried in DataHash).
+	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
+	assertZeroWhen(api, isAddress, in.NullifierSecret)
+	assertZeroWhen(api, isAddress, in.Utxo.Asset)
+	assertZeroWhen(api, isAddress, in.Utxo.ProgramID)
+	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
+	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
+	assertEqualWhen(api, isAddress, in.Utxo.Domain, UtxoDomain)
+
 	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain)
-	// Default transact handles only bare UTXOs: program/policy data and zone
-	// program id must be zero. Program-owned UTXOs (zone_program_id != 0) are
-	// spent via zone_transact with the zone PDA as signer (spec: Program
-	// ownership); the default path must not spend them without that authorization.
-	assertZeroWhen(api, notDummy, in.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneDataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneProgramID)
+	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.programID, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
@@ -87,13 +142,14 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 
 	// Nullifier: Poseidon over the UTXO hash, blinding, and the input's own
 	// secret — a canonical field element, inserted into the nullifier tree
-	// untruncated.
+	// untruncated. Constrained for real spends and address slots; a padding dummy
+	// leaves it unpinned.
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
+	assertEqualWhen(api, spendOrAddress, nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -111,15 +167,17 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
 }
 
-// assertDistinctNullifiers rejects spending the same input twice in one
-// transaction: every pair of real inputs must carry distinct nullifiers. Dummy
-// inputs are excluded from the check.
+// assertDistinctNullifiers rejects two slots that insert the same nullifier in
+// one transaction. The check is unconditional over every input: real spends and
+// address slots carry pinned nullifiers that must differ (no double-spend, no
+// duplicate address), and a padding dummy's nullifier is inserted on-chain too,
+// so a collision would self-revert there -- failing here instead is fail-fast.
+// Distinct random values stay indistinguishable from real nullifiers, so arity
+// hiding is preserved.
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 	for i := range c.Inputs {
 		for j := i + 1; j < len(c.Inputs); j++ {
-			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
-			sameNullifier := api.IsZero(api.Sub(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier))
-			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
+			api.AssertIsDifferent(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier)
 		}
 	}
 }

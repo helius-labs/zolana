@@ -2,7 +2,7 @@
 
 use borsh::BorshDeserialize;
 use pinocchio::{
-    cpi::{invoke_signed, Seed, Signer},
+    cpi::{invoke_signed, invoke_signed_with_bounds, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
@@ -36,11 +36,11 @@ const SPL_FORWARDED_ACCOUNTS: usize = 8;
 
 const CREATE_ZONE_PAYER: usize = 0;
 const CREATE_ZONE_PROTOCOL_CONFIG: usize = 1;
+// The config account IS the zone's `zone_auth` PDA; it signs its own creation.
 const CREATE_ZONE_CONFIG: usize = 2;
-const CREATE_ZONE_AUTH: usize = 3;
-const CREATE_ZONE_SYSTEM: usize = 4;
-const CREATE_ZONE_SHIELDED_POOL_PROGRAM: usize = 5;
-const CREATE_ZONE_ACCOUNTS: usize = 6;
+const CREATE_ZONE_SYSTEM: usize = 3;
+const CREATE_ZONE_SHIELDED_POOL_PROGRAM: usize = 4;
+const CREATE_ZONE_ACCOUNTS: usize = 5;
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
@@ -58,8 +58,47 @@ pub fn process_instruction(
     match *ix_tag {
         tag::CREATE_ZONE_CONFIG => process_create_zone_config(program_id, accounts, data),
         tag::ZONE_DEPOSIT => process_zone_deposit(program_id, accounts, data),
+        tag::ZONE_TRANSACT | tag::ZONE_AUTHORITY_TRANSACT | tag::ZONE_MERGE_TRANSACT => {
+            forward_to_spp(program_id, accounts, data)
+        }
         _ => Err(ProgramError::InvalidInstructionData),
     }
+}
+
+/// Forward a zone instruction (`zone_transact`, `merge_zone`) to SPP verbatim,
+/// signing the zone's `zone_auth` PDA. The zone builders lay out identical
+/// accounts for `.instruction()` (received here) and `.cpi_instruction()` (sent
+/// to SPP); only the target program id and the `zone_config`/`zone_auth` signer
+/// flag differ. We rebuild the SPP instruction from the received account views,
+/// flip the `zone_auth` account to a signer, and forward the data (tag included,
+/// as SPP's dispatcher strips it) unchanged.
+fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -> ProgramResult {
+    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
+    // The last account is the SPP program account (loadable for the emit_event
+    // self-CPI), matching the builders' account layout.
+    let spp = accounts.last().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    check_shielded_pool(spp.address())?;
+    if !accounts.iter().any(|a| a.address() == &zone_auth) {
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    let metas: Vec<InstructionAccount> = accounts
+        .iter()
+        .map(|a| {
+            let is_signer = a.is_signer() || a.address() == &zone_auth;
+            InstructionAccount::new(a.address(), a.is_writable(), is_signer)
+        })
+        .collect();
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data,
+    };
+    let bump = [bump];
+    let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
+    let signer = Signer::from(&seeds);
+    invoke_signed_with_bounds::<16, _>(&instruction, accounts, core::slice::from_ref(&signer))
 }
 
 fn process_create_zone_config(
@@ -71,7 +110,7 @@ fn process_create_zone_config(
         .get(..CREATE_ZONE_ACCOUNTS)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
-    if accounts[CREATE_ZONE_AUTH].address() != &zone_auth {
+    if accounts[CREATE_ZONE_CONFIG].address() != &zone_auth {
         return Err(ProgramError::InvalidSeeds);
     }
     check_shielded_pool(accounts[CREATE_ZONE_SHIELDED_POOL_PROGRAM].address())?;
@@ -81,13 +120,12 @@ fn process_create_zone_config(
     let ix = CreateZoneConfig {
         payer: pubkey(accounts[CREATE_ZONE_PAYER].address()),
         program_id: data.program_id,
-        zone_auth_bump: data.zone_auth_bump,
         authority: data.authority,
         zone_authority_transact_is_enabled: data.zone_authority_transact_is_enabled,
-        zone_config_bump: data.zone_config_bump,
     }
     .instruction()
     .map_err(|_| ProgramError::InvalidSeeds)?;
+    // The config account is the zone's `zone_auth` PDA: sign its own creation.
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
@@ -97,7 +135,6 @@ fn process_create_zone_config(
             &accounts[CREATE_ZONE_PAYER],
             &accounts[CREATE_ZONE_PROTOCOL_CONFIG],
             &accounts[CREATE_ZONE_CONFIG],
-            &accounts[CREATE_ZONE_AUTH],
             &accounts[CREATE_ZONE_SYSTEM],
         ],
         &signer,
@@ -142,11 +179,10 @@ fn process_zone_proofless_sol(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        cpi_signer: data.cpi_signer,
-        policy_data_hash: data.policy_data_hash,
+        zone_program_id: pubkey(program_id),
+        zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data,
+        program: data.program,
     }
     .cpi_instruction()
     .map_err(|_| ProgramError::InvalidSeeds)?;
@@ -195,11 +231,10 @@ fn process_zone_proofless_spl(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        cpi_signer: data.cpi_signer,
-        policy_data_hash: data.policy_data_hash,
+        zone_program_id: pubkey(program_id),
+        zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data,
+        program: data.program,
     }
     .cpi_instruction()
     .map_err(|_| ProgramError::InvalidSeeds)?;

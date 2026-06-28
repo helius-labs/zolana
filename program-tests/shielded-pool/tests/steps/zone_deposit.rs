@@ -2,6 +2,7 @@
 
 use cucumber::when;
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{instruction::ZoneDeposit, pda};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
@@ -17,6 +18,13 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .load_zone_test_program()
         .expect("zone_test_program.so must be built");
+    // The deposit loads the zone's `ZoneConfig` account, so it must be registered
+    // first. The protocol-config authority is the zone-creation authority.
+    let zone_authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
+        .expect("create zone config");
 
     let tree = world.tree().pubkey();
     let depositor = Keypair::new();
@@ -32,7 +40,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone deposit data");
-    data.policy_data_hash = Some([5u8; 32]);
+    data.zone_data_hash = [5u8; 32];
 
     let root_before = world.rpc().state_root(&tree).expect("root");
     let event = world
@@ -62,6 +70,11 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .load_zone_test_program()
         .expect("zone_test_program.so must be built");
+    let zone_authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
+        .expect("create zone config");
 
     let tree = world.tree().pubkey();
     let mint = world.mint();
@@ -76,7 +89,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone SPL deposit data");
-    data.policy_data_hash = Some([9u8; 32]);
+    data.zone_data_hash = [9u8; 32];
 
     let vault_before = world.rpc().token_balance(&vault).expect("vault balance");
     let user_token_before = world
@@ -135,15 +148,16 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        cpi_signer: data.cpi_signer,
-        policy_data_hash: data.policy_data_hash,
-        zone_data: data.zone_data,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data,
+        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        zone_data_hash: data.zone_data_hash,
+        zone_data: data.zone_data.clone(),
+        program: data.program.clone(),
     }
     .cpi_instruction()
     .expect("zone auth PDA");
-    ix.accounts[2].pubkey = depositor.pubkey();
+    if let Some(meta) = ix.accounts.get_mut(2) {
+        meta.pubkey = depositor.pubkey();
+    }
     let err = world
         .rpc()
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])

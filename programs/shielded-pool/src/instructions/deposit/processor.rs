@@ -3,9 +3,9 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{instruction_data::deposit::CpiSignerData, DepositIxData, ZoneDepositIxData},
+    instruction::{CpiData, DepositIxData, ZoneDepositIxData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    UTXO_DOMAIN, ZONE_AUTH_PDA_SEED,
+    UTXO_DOMAIN,
 };
 use zolana_tree::TreeAccount;
 
@@ -16,8 +16,15 @@ use super::{
 use crate::instructions::{
     hash::{field_from_u64, solana_pk_hash},
     settlement::{settle_sol, settle_spl, Settlement},
-    shared::CPI_SIGNER_SEED,
 };
+
+/// Zone data committed into the UTXO's `zone_hash`. Unlike the program side, the
+/// zone carries no `cpi_signer`: its `program_id` is read from the `ZoneConfig`
+/// account (the signing `zone_auth` PDA), not from instruction data.
+pub(crate) struct ZoneData {
+    pub data_hash: [u8; 32],
+    pub data: Vec<u8>,
+}
 
 /// Parsed instruction request shared across this instruction's submodules.
 pub(crate) struct DepositParams {
@@ -25,12 +32,13 @@ pub(crate) struct DepositParams {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    pub cpi_signer: Option<CpiSignerData>,
-    pub cpi_signer_seed: &'static [u8],
-    pub program_data_hash: Option<[u8; 32]>,
-    pub program_data: Option<Vec<u8>>,
-    pub policy_data_hash: Option<[u8; 32]>,
-    pub zone_data: Option<Vec<u8>>,
+    /// Program governing `program_data` (`program_hash`). The plain `deposit`
+    /// sets this from its `cpi_signer`; `zone_deposit` from its program signer.
+    /// `None` hashes over a zero id.
+    pub program: Option<CpiData>,
+    /// Authorizing zone (`zone_hash`). Only `zone_deposit` populates it; the
+    /// zone's `program_id` comes from the loaded `ZoneConfig`, not from here.
+    pub zone: Option<ZoneData>,
 }
 
 #[profile]
@@ -44,30 +52,23 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if data.cpi_signer.is_some() {
-        let cpi_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !cpi_signer.is_signer() {
+    // The program governing `program_data` (when present) signs as account 2; its
+    // `auth` PDA derivation is checked in `validate_and_parse`.
+    if data.program.is_some() {
+        let program_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !program_signer.is_signer() {
             return Err(ProgramError::MissingRequiredSignature);
         }
     }
-    if (data.program_data_hash.is_some() || data.program_data.is_some())
-        && data.cpi_signer.is_none()
-    {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
-    process_deposit_internal(
+    process_deposit_internal::<false>(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: data.cpi_signer,
-            cpi_signer_seed: CPI_SIGNER_SEED,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data,
-            policy_data_hash: None,
-            zone_data: None,
+            program: data.program,
+            zone: None,
         },
     )
 }
@@ -82,49 +83,70 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    let zone_auth = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !zone_auth.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
+    // Account 2 is the `ZoneConfig` (the zone's `zone_auth` PDA); its signature,
+    // owner/discriminator, and `program_id` are checked in `validate_and_parse`.
+    // The program governing `program_data` (when present) signs as account 3,
+    // after the zone config.
+    if data.program.is_some() {
+        let program_signer = accounts.get(3).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if !program_signer.is_signer() {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
     }
-    process_deposit_internal(
+    process_deposit_internal::<true>(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: Some(data.cpi_signer),
-            cpi_signer_seed: ZONE_AUTH_PDA_SEED,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data,
-            policy_data_hash: data.policy_data_hash,
-            zone_data: data.zone_data,
+            program: data.program,
+            zone: Some(ZoneData {
+                data_hash: data.zone_data_hash,
+                data: data.zone_data,
+            }),
         },
     )
 }
 
-fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> ProgramResult {
+fn process_deposit_internal<const HAS_ZONE: bool>(
+    accounts: &mut [AccountView],
+    d: DepositParams,
+) -> ProgramResult {
     // A deposit must shield a positive amount; reject a missing or zero amount.
     let amount = match d.public_amount {
         Some(amount) if amount > 0 => amount,
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
 
-    // SOL vs SPL is inferred from the settlement accounts the caller passes.
-    let parsed =
-        DepositAccounts::validate_and_parse(&crate::ID, accounts, d.cpi_signer, d.cpi_signer_seed)?;
+    // SOL vs SPL is inferred from the settlement accounts the caller passes. The
+    // zone's `program_id` is read from the loaded `ZoneConfig` (returned here),
+    // never derived; the program's auth PDA is still derivation-checked.
+    let (parsed, zone_program_id) = DepositAccounts::validate_and_parse::<HAS_ZONE>(
+        &crate::ID,
+        accounts,
+        d.program.as_ref().map(|cpi| cpi.cpi_signer),
+    )?;
     let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
     let asset_field = solana_pk_hash(&asset)?;
 
+    // Two-part commitment (spec: UTXO Hash): pair each `data_hash` with its
+    // governing program/zone id (pk_field-encoded) into `program_hash` /
+    // `zone_hash`. The program id comes from `program.cpi_signer`; the zone id
+    // from the loaded `ZoneConfig`. An absent side hashes over a zero id.
     let zero = [0u8; 32];
-    let program_data_hash = d.program_data_hash.unwrap_or(zero);
-    let policy_data_hash = d.policy_data_hash.unwrap_or(zero);
-    let zone_program_id = match d.cpi_signer {
-        Some(cpi) => solana_pk_hash(&cpi.program_id)?,
-        None => zero,
+    let (program_data_hash, program_id_field) = match &d.program {
+        Some(program) => (program.data_hash, solana_pk_hash(&program.cpi_signer.program_id)?),
+        None => (zero, zero),
     };
+    let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
+        (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
+        _ => (zero, zero),
+    };
+    let program_hash = hash_with_program_id(&program_data_hash, &program_id_field)?;
+    let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
     // Nest the recipient `owner` with the right-aligned `blinding` into the
     // owner commitment, matching the SDK's `owner_utxo_hash`.
     let mut blinding = [0u8; 32];
@@ -135,9 +157,8 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
         asset_field.as_slice(),
         field_from_u64(amount).as_slice(),
-        program_data_hash.as_slice(),
-        policy_data_hash.as_slice(),
-        zone_program_id.as_slice(),
+        program_hash.as_slice(),
+        zone_hash.as_slice(),
         owner_utxo_hash.as_slice(),
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -168,6 +189,18 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
             amount,
             first_output_leaf_index,
             output_tree,
+            zone_program_id,
         },
     )
+}
+
+/// Pair a `data_hash` with its governing program/zone id (pk_field-encoded) into
+/// the `program_hash` / `zone_hash` sub-commitment. An absent side passes a zero
+/// `data_hash` over a zero id.
+fn hash_with_program_id(
+    data_hash: &[u8; 32],
+    program_id_field: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
+    Poseidon::hashv(&[data_hash.as_slice(), program_id_field.as_slice()])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }

@@ -26,6 +26,7 @@ type Utxo struct {
 	Amount          frontend.Variable
 	Blinding        frontend.Variable
 	ProgramDataHash frontend.Variable
+	ProgramID       frontend.Variable
 	ZoneDataHash    frontend.Variable
 	ZoneProgramID   frontend.Variable
 }
@@ -39,6 +40,7 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.ProgramDataHash,
+		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	})

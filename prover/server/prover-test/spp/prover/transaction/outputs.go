@@ -10,10 +10,10 @@ import (
 )
 
 type outputWitnesses struct {
-	outputs          []txcircuit.Output
-	hashes           []*big.Int
-	privateTxHashes  []*big.Int
-	responses        []ProofUtxoResponse
+	outputs         []txcircuit.Output
+	hashes          []*big.Int
+	privateTxHashes []*big.Int
+	responses       []ProofUtxoResponse
 }
 
 type parsedUtxo struct {
@@ -123,12 +123,14 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		return parsedUtxo{}, fmt.Errorf("zone_program_id must be zero: default transact handles only bare UTXOs")
 	}
 	utxo := protocol.Utxo{
-		Domain:        domain,
-		Owner:         own.owner,
-		Asset:         asset,
-		Amount:        amount,
-		Blinding:      blinding,
-		DataHash:      dataHash,
+		Domain:   domain,
+		Owner:    own.owner,
+		Asset:    asset,
+		Amount:   amount,
+		Blinding: blinding,
+		DataHash: dataHash,
+		// Default transact handles only bare UTXOs (program/zone fields zero above).
+		ProgramID:     big.NewInt(0),
 		ZoneDataHash:  zoneDataHash,
 		ZoneProgramID: zoneProgramID,
 	}

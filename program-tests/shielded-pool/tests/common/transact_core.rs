@@ -77,10 +77,9 @@ pub fn public_input_hash(
         *public_sol_amount,
         zero, // public_spl_amount
         zero, // public_spl_asset_pubkey
-        zero, // program_id_hashchain
+        zero, // program_id
+        zero, // zone_program_id
         *payer_pubkey_hash,
-        zero, // data_hash
-        zero, // zone_data_hash
         hash_chain(input_owner_pk_hashes).expect("input owner chain"),
         hash_chain(output_owner_pk_hashes).expect("output owner chain"),
         *p256_signing_pk_field,
@@ -190,6 +189,8 @@ pub fn new_transact_ix_data(
         public_sol_amount,
         public_spl_amount: None,
         cpi_signer: None,
+        program_data_hash: None,
+        zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         output_utxo_hashes,
@@ -212,6 +213,8 @@ pub fn external_data_hash(
         user_spl_token_account: &zero,
         spl_token_interface: &zero,
         cpi_signer: transact_ix_data.cpi_signer,
+        program_data_hash: None,
+        zone_data_hash: None,
         output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
         output_ciphertexts: &transact_ix_data.output_ciphertexts,
     }
@@ -274,10 +277,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_sol_amount: be(&args.public_sol_amount),
         public_spl_amount: be(&zero),
         public_spl_asset_pubkey: be(&zero),
-        program_id_hashchain: be(&zero),
+        program_id: be(&zero),
+        zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
-        data_hash: be(&zero),
-        zone_data_hash: be(&zero),
         public_input_hash: be(&args.public_input_hash),
     }
 }

@@ -35,6 +35,9 @@ pub struct Utxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
+    /// Program governing `program_data` (pairs with `program_data_hash` in the
+    /// commitment's `program_hash`).
+    pub program_id: Option<Address>,
     pub zone_program_id: Option<Address>,
     pub data: Data,
 }
@@ -62,7 +65,13 @@ pub(crate) fn resolve_zone_program_id(
 pub fn zone_program_id_field(
     zone_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
-    match zone_program_id {
+    program_id_field(zone_program_id)
+}
+
+/// `pk_field` of an optional program identifier; `0` (not `pk_field(0)`) when
+/// absent. Used for both `program_id` and `zone_program_id`.
+pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
+    match program_id {
         Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
         None => Ok([0u8; 32]),
     }
@@ -78,10 +87,12 @@ pub fn owner_utxo_hash(
 }
 
 /// Full UTXO commitment used as the state-tree leaf.
+#[allow(clippy::too_many_arguments)]
 pub fn utxo_hash(
     asset: Address,
     amount: u64,
     program_data_hash: &[u8; 32],
+    program_id: Option<Address>,
     zone_data_hash: &[u8; 32],
     zone_program_id: Option<Address>,
     owner_utxo_hash: &[u8; 32],
@@ -90,14 +101,16 @@ pub fn utxo_hash(
     let asset =
         zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
-    let zone_program_id = zone_program_id_field(&zone_program_id)?;
+    // program_data_hash pairs with its governing program_id, zone_data_hash with
+    // zone_program_id (spec: UTXO Hash).
+    let program_hash = poseidon(&[program_data_hash, &program_id_field(&program_id)?])?;
+    let zone_hash = poseidon(&[zone_data_hash, &program_id_field(&zone_program_id)?])?;
     poseidon(&[
         &domain,
         &asset,
         &amount,
-        program_data_hash,
-        zone_data_hash,
-        &zone_program_id,
+        &program_hash,
+        &zone_hash,
         owner_utxo_hash,
     ])
 }
@@ -120,6 +133,7 @@ impl Utxo {
             self.asset,
             self.amount,
             program_data_hash,
+            self.program_id,
             zone_data_hash,
             self.zone_program_id,
             &self.owner_utxo_hash(nullifier_pk)?,

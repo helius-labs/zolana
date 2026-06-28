@@ -70,33 +70,7 @@ func makeConfidential(t testing.TB, assignment *Circuit, p256SigningPkField *big
 }
 
 func refreshConfidentialPublicInputHash(t testing.TB, assignment *Circuit) {
-	t.Helper()
-	publicInputs := protocol.PublicInputs{
-		Nullifiers:         spptest.ToBigInts(assignment.InputNullifiers()),
-		OutputUtxoHashes:   spptest.ToBigInts(assignment.OutputHashes()),
-		UtxoTreeRoots:      spptest.ToBigInts(assignment.InputUtxoRoots()),
-		NullifierTreeRoots: spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
-		PrivateTxHash:      spptest.AsBigInt(assignment.PrivateTxHash),
-		P256MessageHash: spptest.MustP256FieldFromLimbs(
-			t,
-			spptest.AsBigInt(assignment.P256MessageHashLow),
-			spptest.AsBigInt(assignment.P256MessageHashHigh),
-		),
-		ExternalDataHash:     spptest.AsBigInt(assignment.ExternalDataHash),
-		PublicSolAmount:      spptest.AsBigInt(assignment.PublicSolAmount),
-		PublicSplAmount:      spptest.AsBigInt(assignment.PublicSplAmount),
-		PublicSplAssetPubkey: spptest.AsBigInt(assignment.PublicSplAssetPubkey),
-		ProgramIDHashchain:   spptest.AsBigInt(assignment.ProgramIDHashchain),
-		PayerPubkeyHash:      spptest.AsBigInt(assignment.PayerPubkeyHash),
-		InputOwnerPkHashes:   spptest.ToBigInts(assignment.InputOwnerPkHashes()),
-		DataHash:             spptest.AsBigInt(assignment.DataHash),
-		ZoneDataHash:         spptest.AsBigInt(assignment.ZoneDataHash),
-		Confidential:         true,
-		OutputOwnerPkHashes:  spptest.ToBigInts(assignment.OutputOwnerPkHashes()),
-		P256SigningPkField:   spptest.AsBigInt(assignment.P256SigningPkField),
-	}
-	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
-	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)
+	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
 // emptyOutputUtxo is an unspendable empty UTXO (owner = amount = 0) used as a
@@ -109,6 +83,7 @@ func emptyOutputUtxo(asset *big.Int) protocol.Utxo {
 		Amount:        spptest.Fe(0),
 		Blinding:      spptest.Fe(777),
 		DataHash:      spptest.Fe(0),
+		ProgramID:     spptest.Fe(0),
 		ZoneDataHash:  spptest.Fe(0),
 		ZoneProgramID: spptest.Fe(0),
 	}

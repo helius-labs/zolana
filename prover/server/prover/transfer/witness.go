@@ -17,6 +17,7 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
+		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}
@@ -49,10 +50,9 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		PublicSolAmount:      p.PublicSolAmount,
 		PublicSplAmount:      p.PublicSplAmount,
 		PublicSplAssetPubkey: p.PublicSplAssetPubkey,
-		ProgramIDHashchain:   p.ProgramIDHashchain,
+		ProgramID:            p.ProgramID,
+		ZoneProgramID:        p.ZoneProgramID,
 		PayerPubkeyHash:      p.PayerPubkeyHash,
-		DataHash:             p.DataHash,
-		ZoneDataHash:         p.ZoneDataHash,
 		PublicInputHash:      p.PublicInputHash,
 	}
 

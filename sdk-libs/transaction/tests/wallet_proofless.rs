@@ -13,6 +13,7 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
         SOL_MINT,
         amount,
         &[0u8; 32],
+        None,
         &[0u8; 32],
         None,
         &owner_utxo_hash,
@@ -26,8 +27,9 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
         amount,
         program_data_hash: None,
         program_data: None,
+        program_id: None,
         zone_program_id: None,
-        policy_data_hash: None,
+        zone_data_hash: None,
         zone_data: None,
     };
 

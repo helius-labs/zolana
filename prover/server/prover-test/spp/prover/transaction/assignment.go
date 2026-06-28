@@ -139,10 +139,9 @@ func buildProofAssignment(
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
+		ProgramID:            publicInputs.ProgramID,
+		ZoneProgramID:        publicInputs.ZoneProgramID,
 		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		DataHash:             publicInputs.DataHash,
-		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
 	}
 	transcript := assignmentTranscript{
@@ -246,10 +245,9 @@ func buildPublicInputs(
 		PublicSolAmount:      external.publicSolAmount,
 		PublicSplAmount:      external.publicSplAmount,
 		PublicSplAssetPubkey: external.publicSplAsset,
-		ProgramIDHashchain:   external.programIDHashchain,
+		ProgramID:            external.programID,
+		ZoneProgramID:        external.zoneProgramID,
 		PayerPubkeyHash:      new(big.Int).Set(payerHash),
 		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
-		DataHash:             external.dataHash,
-		ZoneDataHash:         external.zoneDataHash,
 	}
 }

@@ -392,7 +392,7 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
     let Ok(data) = DepositIxData::deserialize(payload) else {
         return &[];
     };
-    let has_cpi_signer = data.cpi_signer.is_some();
+    let has_cpi_signer = data.program.is_some();
     // SPL settlement carries one account more than SOL; cpi_signer (known from
     // the data) shifts both by one. This mirrors the program's own inference.
     let is_spl = account_count == 7 + usize::from(has_cpi_signer);
@@ -504,12 +504,18 @@ fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
         field("owner", short_hex(&data.owner)),
         field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
-        field("program_data_hash", option_hash(data.program_data_hash)),
+        field(
+            "program_data_hash",
+            option_hash(data.program.as_ref().map(|p| p.data_hash)),
+        ),
         field(
             "program_data_len",
-            data.program_data.as_ref().map_or(0, Vec::len),
+            data.program.as_ref().map_or(0, |p| p.data.len()),
         ),
-        field("cpi_signer", cpi_signer(data.cpi_signer)),
+        field(
+            "cpi_signer",
+            cpi_signer(data.program.as_ref().map(|p| p.cpi_signer)),
+        ),
     ]
 }
 
@@ -519,13 +525,17 @@ fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
         field("owner", short_hex(&data.owner)),
         field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
-        field("cpi_signer", cpi_signer(Some(data.cpi_signer))),
-        field("policy_data_hash", option_hash(data.policy_data_hash)),
-        field("zone_data_len", data.zone_data.as_ref().map_or(0, Vec::len)),
-        field("program_data_hash", option_hash(data.program_data_hash)),
+        // The zone program id is no longer in instruction data; it lives in the
+        // signing `ZoneConfig` account.
+        field("zone_data_hash", option_hash(Some(data.zone_data_hash))),
+        field("zone_data_len", data.zone_data.len()),
+        field(
+            "program_data_hash",
+            option_hash(data.program.as_ref().map(|p| p.data_hash)),
+        ),
         field(
             "program_data_len",
-            data.program_data.as_ref().map_or(0, Vec::len),
+            data.program.as_ref().map_or(0, |p| p.data.len()),
         ),
     ]
 }
@@ -545,7 +555,7 @@ fn proofless_view_fields(event: &GeneralEvent, data: &ProoflessOutput) -> Vec<De
         field("owner", short_hex(&data.owner)),
         field("blinding", short_hex(&data.blinding)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
-        field("policy_data_hash", option_hash(data.policy_data_hash)),
+        field("zone_data_hash", option_hash(data.zone_data_hash)),
         field("program_data_hash", option_hash(data.program_data_hash)),
         field(
             "program_data_len",
@@ -648,8 +658,6 @@ fn create_zone_config_fields(data: CreateZoneConfigData) -> Vec<DecodedField> {
     vec![
         field("program_id", pubkey(data.program_id.as_array())),
         field("authority", pubkey(data.authority.as_array())),
-        field("zone_auth_bump", data.zone_auth_bump),
-        field("zone_config_bump", data.zone_config_bump),
         field(
             "zone_authority_transact_is_enabled",
             data.zone_authority_transact_is_enabled,
@@ -709,7 +717,10 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{instruction::CpiSignerData, SHIELDED_POOL_PROGRAM_ID};
+    use zolana_interface::{
+        instruction::{CpiData, CpiSignerData},
+        SHIELDED_POOL_PROGRAM_ID,
+    };
 
     use super::*;
 
@@ -725,11 +736,13 @@ mod tests {
                 owner: [2; 32],
                 blinding: [3; 31],
                 public_amount: Some(42),
-                program_data_hash: None,
-                program_data: None,
-                cpi_signer: Some(CpiSignerData {
-                    program_id: [4; 32],
-                    bump: 255,
+                program: Some(CpiData {
+                    cpi_signer: CpiSignerData {
+                        program_id: [4; 32],
+                        bump: 255,
+                    },
+                    data_hash: [0u8; 32],
+                    data: Vec::new(),
                 }),
             }
             .serialize()

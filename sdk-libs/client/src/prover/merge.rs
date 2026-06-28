@@ -26,7 +26,7 @@ use crate::{
     prover::{
         field::{be, hash_chain},
         transact::{
-            p256_and_eddsa::{assemble_inputs, assemble_outputs, TransferSpendInput},
+            p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::SpendProof,
         },
         MergeInputs,
@@ -101,7 +101,7 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let assembled_inputs = assemble_inputs(&self.inputs, true, None)?;
+        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
 
         let utxo_tree_root_indices: Vec<u16> = assembled_inputs
             .root_indices
@@ -134,6 +134,7 @@ impl MergeProver {
         // proof; merge_transact recomputes it identically from the instruction.
         let encrypted_utxo = merge_encrypted_utxo(&tx_viewing_pk, &ciphertext);
         let external_data_hash = MergeExternalDataHash {
+            spp_instruction_discriminator: zolana_interface::instruction::tag::MERGE_TRANSACT,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
             encrypted_utxo: &encrypted_utxo,
@@ -206,6 +207,8 @@ impl MergeProver {
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_input_hash: be(&public_input),
+            // Default merge is non-zone; the merge-zone builder sets this.
+            zone_program_id: BigUint::ZERO,
         };
 
         Ok(MergeProofResult {
@@ -239,7 +242,7 @@ pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Ve
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE
 /// bytes) || blinding (31 BE bytes), all read from the merged output.
-fn merge_plaintext(output: &OutputUtxo) -> Result<Vec<u8>, ClientError> {
+pub(crate) fn merge_plaintext(output: &OutputUtxo) -> Result<Vec<u8>, ClientError> {
     let mut pt = Vec::with_capacity(8 + 32 + 31);
     pt.extend_from_slice(&output.amount.to_be_bytes());
     pt.extend_from_slice(&asset_field(&output.asset)?);
@@ -247,7 +250,7 @@ fn merge_plaintext(output: &OutputUtxo) -> Result<Vec<u8>, ClientError> {
     Ok(pt)
 }
 
-fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
+pub(crate) fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
     let point = pk.to_p256()?.to_encoded_point(false);
     let bytes = point.as_bytes();
     let mut out = [0u8; 65];
@@ -260,7 +263,7 @@ fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
     Ok(out)
 }
 
-fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
+pub(crate) fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
     let bytes = uncompressed(pk)?;
     let mut x = [0u8; 32];
     let mut y = [0u8; 32];
@@ -272,7 +275,7 @@ fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
 /// The P256 generator coordinates, used as the discarded dummy `P256Pub` on the
 /// Solana rail: the circuit always asserts the point is on the curve even though
 /// the rail select discards its pk_field, so it must be a valid point.
-fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
+pub(crate) fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
     let mut one = [0u8; 32];
     one[31] = 1;
     let sk = SecretKey::from_slice(&one).map_err(|e| ClientError::P256Signature(e.to_string()))?;
@@ -290,7 +293,7 @@ fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
     Ok((x, y))
 }
 
-fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
+pub(crate) fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out[1..].copy_from_slice(bytes);
     out

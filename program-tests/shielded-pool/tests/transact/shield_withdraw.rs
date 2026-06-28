@@ -95,6 +95,7 @@ fn shield_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -296,6 +297,7 @@ fn shield_transfer_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -493,6 +495,7 @@ fn shield_transfer_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

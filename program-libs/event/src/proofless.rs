@@ -8,8 +8,9 @@ pub struct ProoflessOutput {
     pub amount: u64,
     pub program_data_hash: Option<[u8; 32]>,
     pub program_data: Option<Vec<u8>>,
+    pub program_id: Option<[u8; 32]>,
     pub zone_program_id: Option<[u8; 32]>,
-    pub policy_data_hash: Option<[u8; 32]>,
+    pub zone_data_hash: Option<[u8; 32]>,
     pub zone_data: Option<Vec<u8>>,
 }
 

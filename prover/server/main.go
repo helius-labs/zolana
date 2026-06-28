@@ -92,7 +92,7 @@ func runCli() {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer\" / \"transfer-p256\" / \"transfer-confidential\" / \"transfer-p256-confidential\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-p256-confidential\" / \"transfer-zone\" / \"transfer-p256-zone\" / \"transfer-zone-authority\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -106,9 +106,12 @@ func runCli() {
 					var ps *common.TransferProofSystem
 					var err error
 					switch circuit {
-					case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
+					case common.TransferP256ConfidentialCircuitType,
+						common.TransferP256ZoneCircuitType:
 						ps, err = transfer.SetupTransferCircuit(circuit, nInputs, nOutputs)
-					case common.TransferCircuitType, common.TransferConfidentialCircuitType:
+					case common.TransferConfidentialCircuitType,
+						common.TransferZoneCircuitType,
+						common.TransferZoneAuthorityCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)
@@ -145,10 +148,20 @@ func runCli() {
 				Name: "setup-merge",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-zone\")", Required: false},
 				},
 				Action: func(context *cli.Context) error {
 					path := context.String("output")
-					ps, err := mergeprover.SetupMerge()
+					var ps *common.TransferProofSystem
+					var err error
+					switch context.String("circuit") {
+					case "", "merge":
+						ps, err = mergeprover.SetupMerge()
+					case "merge-zone":
+						ps, err = mergeprover.SetupMergeZone()
+					default:
+						return fmt.Errorf("unknown merge circuit %q", context.String("circuit"))
+					}
 					if err != nil {
 						return err
 					}

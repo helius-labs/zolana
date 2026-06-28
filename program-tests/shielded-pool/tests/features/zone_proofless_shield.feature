@@ -17,4 +17,4 @@ Feature: Zone proofless deposit
 
   Scenario: A zone proofless deposit with the wrong signer is rejected
     When a zone proofless deposit is sent straight to the pool with the wrong signer
-    Then the operation is rejected as invalid settlement accounts
+    Then the operation is rejected as an invalid zone config

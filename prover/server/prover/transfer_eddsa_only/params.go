@@ -13,6 +13,7 @@ type UtxoParams struct {
 	Amount        *big.Int
 	Blinding      *big.Int
 	DataHash      *big.Int
+	ProgramID     *big.Int
 	ZoneDataHash  *big.Int
 	ZoneProgramID *big.Int
 }
@@ -65,13 +66,14 @@ type TransferParameters struct {
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramIDHashchain   *big.Int
+	ProgramID            *big.Int
+	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
-	DataHash             *big.Int
-	ZoneDataHash         *big.Int
 
-	// Confidential selects the confidential variant (binds output owner tags).
-	Confidential bool
+	// Variant selects the Solana-only instantiation: confidential (non-zone, binds
+	// output owner tags), anonymous zone, or zone-authority (anonymous, input
+	// owners private, no signature).
+	Variant Variant
 
 	PublicInputHash *big.Int
 }

@@ -181,6 +181,8 @@ jobs:
             recipe: test-spp-validator-merge
           - name: spp randomized
             recipe: test-spp-validator-randomized
+          - name: zone lifecycle
+            recipe: test-zone-validator
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

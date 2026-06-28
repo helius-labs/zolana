@@ -579,6 +579,8 @@ impl PreparedTransaction {
             user_spl_token,
             spl_token_interface,
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: *tx_viewing_pk.as_bytes(),
             salt,
             output_utxo_hashes,
@@ -633,6 +635,7 @@ fn dummy_ciphertext_len(
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

@@ -15,7 +15,8 @@ use crate::instructions::{
         read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
         SettlementAccountsSpl,
     },
-    shared::verify_cpi_signer,
+    shared::{verify_cpi_signer, CPI_SIGNER_SEED},
+    zone_config::loader::load_zone_config,
 };
 
 const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
@@ -33,24 +34,36 @@ pub struct DepositAccounts<'a> {
 }
 
 impl<'a> DepositAccounts<'a> {
-    pub fn validate_and_parse(
+    pub fn validate_and_parse<const HAS_ZONE: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
-        cpi_signer: Option<CpiSignerData>,
-        cpi_signer_seed: &[u8],
-    ) -> Result<Self, ProgramError> {
+        program_cpi_signer: Option<CpiSignerData>,
+    ) -> Result<(Self, Option<[u8; 32]>), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
 
         let tree = iter.next_mut("tree")?;
         let depositor = iter.next_account("depositor")?;
 
-        if let Some(signer) = cpi_signer {
-            let account = iter.next_account("cpi_signer")?;
+        // `zone_deposit` passes the `ZoneConfig` account (the zone's `zone_auth`
+        // PDA) first. It must sign and is validated by owner/discriminator -- the
+        // create-time derivation already bound it to its program -- and its stored
+        // `program_id` becomes the UTXO's `zone_program_id`. The program governing
+        // `program_data` (seed `auth`) follows; the plain `deposit` has no zone, so
+        // its program signer is the first cpi account.
+        let zone_program_id = if HAS_ZONE {
+            let account = iter.next_signer("zone_config")?;
+            let config = load_zone_config(account)?;
+            Some(config.program_id.to_bytes())
+        } else {
+            None
+        };
+        if let Some(signer) = program_cpi_signer {
+            let account = iter.next_account("program_cpi_signer")?;
             verify_cpi_signer(
                 account.address(),
                 &signer.program_id,
                 signer.bump,
-                cpi_signer_seed,
+                CPI_SIGNER_SEED,
                 ShieldedPoolError::InvalidSettlementAccounts,
             )?;
         }
@@ -114,11 +127,14 @@ impl<'a> DepositAccounts<'a> {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
 
-        Ok(Self {
-            tree,
-            settlement,
-            asset,
-        })
+        Ok((
+            Self {
+                tree,
+                settlement,
+                asset,
+            },
+            zone_program_id,
+        ))
     }
 }
 

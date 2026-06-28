@@ -24,10 +24,12 @@ pub use prover::{
     resolve_shape, spawn_prover,
     transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
     BatchAddressAppendInputs, Commitments, CompressedCommitments, MergeProofResult, MergeProver,
-    P256Owner, Proof, ProofCompressed, ProverClient, PublicAmounts, Shape, TransferInput,
-    TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
-    TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput, UtxoInputs,
-    SUPPORTED_SHAPES,
+    MergeZoneProofResult, MergeZoneProver, MergeZoneWitness, P256Owner, Proof, ProofCompressed,
+    ProverClient, PublicAmounts, Shape, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
+    TransferProver, TransferSpendInput, UtxoInputs, ZoneAuthorityProofResult, ZoneAuthorityProver,
+    ZoneAuthorityWitness, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
+    ZoneTransferProofResult, ZoneTransferProver, SUPPORTED_SHAPES,
 };
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
@@ -49,6 +51,8 @@ pub use wallet_authority::{
 pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
 pub use zolana_transaction::instructions::{
     merge::{Merge, PreparedMerge, MERGE_INPUTS},
+    merge_zone::{MergeZone, PreparedMergeZone},
     transact::{SignedTransaction, Transaction, WithdrawalTarget},
     types::{InputCommitment, SpendUtxo},
+    zone_authority::PreparedZoneAuthority,
 };

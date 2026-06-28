@@ -163,6 +163,7 @@ impl LifecycleWorld {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
+                program_id: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -183,6 +184,7 @@ impl LifecycleWorld {
             asset,
             amount: total,
             blinding: output_blinding,
+            program_id: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,

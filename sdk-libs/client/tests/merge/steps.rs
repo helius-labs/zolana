@@ -64,6 +64,7 @@ impl MergeWorld {
                 asset,
                 amount,
                 blinding: random_blinding(),
+                program_id: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -133,6 +134,7 @@ impl MergeWorld {
             asset,
             amount,
             blinding,
+            program_id: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,

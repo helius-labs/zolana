@@ -2,6 +2,8 @@ package merge
 
 import (
 	"math/big"
+
+	"zolana/prover/prover/common"
 )
 
 // UtxoParams mirrors transaction.UtxoCircuitFields as already-computed field
@@ -47,8 +49,19 @@ type OutputParams struct {
 // hashes, nullifiers, tree roots/proofs, the private-tx hash, the encryption,
 // and the public-input hash) and sends them here.
 type MergeParameters struct {
+	// CircuitType selects the rail: MergeCircuitType (default) or
+	// MergeZoneCircuitType (policy zone). It chooses which circuit the witness is
+	// assigned onto.
+	CircuitType common.CircuitType
+
 	Inputs []InputParams
 	Output OutputParams
+
+	// ZoneProgramID is the policy-zone merge circuit's top-level public
+	// ZoneProgramID input (the zone program's pk_field). Every real input and the
+	// output UTXO must carry this same value in their per-UTXO ZoneProgramID. It is
+	// unused (and zero) on the default merge rail.
+	ZoneProgramID *big.Int
 
 	// Shared owner identity: P256 signing pubkey coordinates and the nullifier
 	// secret/commitment. OwnerPkHash is the owner's pk_field: 0 means P256-owned

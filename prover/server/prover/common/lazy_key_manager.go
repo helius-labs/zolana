@@ -377,18 +377,25 @@ var transferSupportedShapes = [][2]uint32{
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
 	var prefix string
 	switch circuitType {
-	case TransferP256CircuitType:
-		prefix = "transfer_p256"
-	case TransferCircuitType:
-		prefix = "transfer"
 	case TransferP256ConfidentialCircuitType:
 		prefix = "transfer_p256_confidential"
 	case TransferConfidentialCircuitType:
 		prefix = "transfer_confidential"
+	case TransferP256ZoneCircuitType:
+		prefix = "transfer_p256_zone"
+	case TransferZoneCircuitType:
+		prefix = "transfer_zone"
+	case TransferZoneAuthorityCircuitType:
+		prefix = "transfer_zone_authority"
 	case MergeCircuitType:
 		// Merge has the single fixed 8-in/1-out shape (see prover/merge).
 		if nInputs == 8 && nOutputs == 1 {
 			return m.keyPath("merge_8_1.key")
+		}
+		return ""
+	case MergeZoneCircuitType:
+		if nInputs == 8 && nOutputs == 1 {
+			return m.keyPath("merge_zone_8_1.key")
 		}
 		return ""
 	default:

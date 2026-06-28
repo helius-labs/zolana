@@ -5031,6 +5031,7 @@ dependencies = [
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "pinocchio 0.11.2",
  "pinocchio-system",
+ "tinyvec",
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
@@ -10011,11 +10012,33 @@ dependencies = [
 name = "zone-test-program"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "borsh 1.6.1",
+ "bytemuck",
+ "cucumber",
+ "futures",
+ "light-instruction-decoder",
+ "p256",
  "pinocchio 0.11.2",
+ "rand 0.8.6",
+ "solana-account 3.4.0",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
  "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
  "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-event",
  "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-user-registry-interface",
 ]
 
 [[package]]

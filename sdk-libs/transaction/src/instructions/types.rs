@@ -30,6 +30,7 @@ impl SpendUtxo {
             asset: Address::default(),
             amount: 0,
             blinding: random_blinding(),
+            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };

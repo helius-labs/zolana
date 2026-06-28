@@ -51,11 +51,12 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
             blinding: data.blinding,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
+            program_id: data.program.as_ref().map(|p| p.cpi_signer.program_id),
+            program_data_hash: data.program.as_ref().map(|p| p.data_hash),
+            program_data: data.program.as_ref().map(|p| p.data.clone()),
             zone_program_id: Some(expected_zone_program_id),
-            policy_data_hash: data.policy_data_hash,
-            zone_data: data.zone_data.clone(),
+            zone_data_hash: Some(data.zone_data_hash),
+            zone_data: Some(data.zone_data.clone()),
         },
     };
     assert_eq!(*event, expected, "zone deposit event");

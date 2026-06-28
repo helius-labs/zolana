@@ -1111,13 +1111,13 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
+	case common.TransferP256ConfidentialCircuitType, common.TransferP256ZoneCircuitType:
 		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
 		// runs well over the 10s floor on slower CI hardware.
 		return 60
-	case common.TransferCircuitType, common.TransferConfidentialCircuitType:
+	case common.TransferConfidentialCircuitType, common.TransferZoneCircuitType, common.TransferZoneAuthorityCircuitType:
 		return 30
-	case common.MergeCircuitType:
+	case common.MergeCircuitType, common.MergeZoneCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
 	default:
@@ -1134,12 +1134,17 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
-	case common.TransferP256CircuitType, common.TransferP256ConfidentialCircuitType:
+	case common.TransferP256ConfidentialCircuitType,
+		common.TransferP256ZoneCircuitType:
 		return handler.transferProof(buf)
-	case common.TransferCircuitType, common.TransferConfidentialCircuitType:
+	case common.TransferConfidentialCircuitType,
+		common.TransferZoneCircuitType,
+		common.TransferZoneAuthorityCircuitType:
 		return handler.transferEddsaProof(buf)
 	case common.MergeCircuitType:
 		return handler.mergeProof(buf)
+	case common.MergeZoneCircuitType:
+		return handler.mergeZoneProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1156,6 +1161,27 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("merge: %w", err))
+	}
+
+	proof, err := mergeprover.ProveMerge(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) mergeZoneProof(buf []byte) (*common.Proof, *Error) {
+	var params mergeprover.MergeParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetTransferSystem(common.MergeZoneCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("merge-zone: %w", err))
 	}
 
 	proof, err := mergeprover.ProveMerge(ps, &params)
@@ -1199,7 +1225,7 @@ func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
 		return nil, malformedBodyError(err)
 	}
 
-	circuitType := common.TransferP256CircuitType
+	circuitType := common.TransferP256ZoneCircuitType
 	if params.Confidential {
 		circuitType = common.TransferP256ConfidentialCircuitType
 	}
@@ -1224,10 +1250,7 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 		return nil, malformedBodyError(err)
 	}
 
-	circuitType := common.TransferCircuitType
-	if params.Confidential {
-		circuitType = common.TransferConfidentialCircuitType
-	}
+	circuitType := params.Variant.CircuitType()
 	ps, err := handler.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))

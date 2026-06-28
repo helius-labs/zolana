@@ -49,6 +49,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         asset: SOL_MINT,
         amount,
         blinding: blinding(rng),
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -244,6 +245,8 @@ fn transfer_round_trip_outputs_and_bundle() {
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
@@ -521,6 +524,8 @@ fn withdrawal_sets_external_data_and_change() {
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
             cpi_signer: None,
+            program_data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
@@ -546,6 +551,7 @@ fn rail_follows_input_owner_type() {
         asset: SOL_MINT,
         amount: 10,
         blinding: blinding(&mut rng),
+        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
