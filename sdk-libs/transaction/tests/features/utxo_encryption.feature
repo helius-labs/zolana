@@ -9,17 +9,17 @@ Feature: UTXO encryption round-trips
     Given a shielded keypair "owner"
     Then a split by "owner" round-trips through utxos
 
-  Scenario: A zone-owned recipient UTXO with data is rejected
+  Scenario: A zone-owned recipient UTXO with data round-trips
     Given a shielded keypair "owner"
-    Then a zone-owned recipient utxo with data for "owner" is rejected
+    Then a zone-owned recipient utxo with data for "owner" round-trips
 
   Scenario: Zone data without a zone program id is rejected
     Given a shielded keypair "owner"
     Then zone data without a zone program id is rejected for "owner"
 
-  Scenario: A zone program id without zone data is not set
+  Scenario: A zone program id in the plaintext is carried onto the utxo
     Given a shielded keypair "owner"
-    Then a zone program id without zone data is not set for "owner"
+    Then a zone program id in the plaintext is carried onto the utxo for "owner"
 
   Scenario: Sender data on a zero-amount output is rejected
     Given a shielded keypair "owner"

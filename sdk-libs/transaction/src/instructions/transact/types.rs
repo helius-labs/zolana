@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputData;
 use zolana_keypair::{
-    hash::{poseidon, sha256_be},
+    hash::poseidon,
     P256Pubkey, ShieldedAddress,
 };
 
@@ -10,7 +10,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
+    utxo::{owner_utxo_hash, program_id_field, utxo_hash, Blinding, Utxo},
 };
 
 /// A spent input UTXO and the owner `nullifier_pk` its hash commits to.
@@ -56,6 +56,15 @@ pub struct OutputUtxo {
     /// folds the sender's `owner_pk_field`, matching the program's bundle
     /// reconstruction.
     pub owner_tag: Option<[u8; 32]>,
+    /// `Some(program_id)` marks a program-owned value output: its owner is the
+    /// invoking program rather than a user keypair, so the owner field for hashing
+    /// is `program_id`'s `pk_field` (not `owner_hash`), the standalone `program_id`
+    /// field is pinned to 0, and it may carry program data. The confidential
+    /// owner-tag binding is skipped (the circuit's program-owned output path);
+    /// `owner_address` / `owner_tag` are ignored when set. Mirrors the
+    /// program-owned output path of `constrainOutput` in the spp_transaction
+    /// circuit.
+    pub program_owner: Option<Address>,
     /// The cleartext zone/program data bytes whose digests populate
     /// `zone_data_hash` / `program_data_hash`. Carried so the recipient can
     /// reconstruct the same `Utxo` (and its leaf hash) the proof committed to;
@@ -108,12 +117,27 @@ impl OutputUtxo {
         });
     }
 
+    /// The owner field folded into `owner_utxo_hash`. For a program-owned output
+    /// it is the program's `pk_field`; otherwise
     /// `owner_hash = Poseidon(signing_pubkey.hash(), nullifier_pubkey)` derived
-    /// from the recipient address; `0` (permanently unspendable) for a dummy slot.
+    /// from the recipient address, or `0` (permanently unspendable) for a dummy slot.
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {
+        if let Some(program_id) = self.program_owner {
+            return program_id_field(&Some(program_id));
+        }
         match &self.owner_address {
             Some(address) => Ok(address.owner_hash()?),
             None => Ok([0u8; 32]),
+        }
+    }
+
+    /// The `program_id` field committed in the leaf. A program-owned output pins it
+    /// to `None` (the owner already carries the program identity).
+    pub fn commitment_program_id(&self) -> Option<Address> {
+        if self.program_owner.is_some() {
+            None
+        } else {
+            self.program_id
         }
     }
 
@@ -122,7 +146,7 @@ impl OutputUtxo {
             self.asset,
             self.amount,
             &self.program_data_hash.unwrap_or_default(),
-            self.program_id,
+            self.commitment_program_id(),
             &self.zone_data_hash.unwrap_or_default(),
             self.zone_program_id,
             &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,
@@ -131,9 +155,9 @@ impl OutputUtxo {
 
     /// A dummy slot has no owner address: its `owner_hash` is `0`, so it holds no
     /// value and contributes `0` to the private-tx hash chain (it still gets a
-    /// distinct `utxo_hash`).
+    /// distinct `utxo_hash`). A program-owned output is never a dummy.
     pub fn is_dummy(&self) -> bool {
-        self.owner_address.is_none()
+        self.program_owner.is_none() && self.owner_address.is_none()
     }
 }
 
@@ -147,7 +171,7 @@ pub struct EncryptedTransaction {
 }
 
 impl EncryptedTransaction {
-    /// `private_tx_hash = Poseidon(HashChain(inputs), HashChain(outputs), external_data_hash)`.
+    /// `private_tx_hash = Poseidon(HashChain(inputs), HashChain(outputs), HashChain(addresses), external_data_hash)`.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         let input_hashes = self
             .inputs
@@ -159,22 +183,41 @@ impl EncryptedTransaction {
             .iter()
             .map(OutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        private_tx_hash(&input_hashes, &output_hashes, &self.external_data.hash()?)
+        private_tx_hash(
+            &input_hashes,
+            &output_hashes,
+            &no_address_hashes(input_hashes.len()),
+            &self.external_data.hash()?,
+        )
     }
 }
 
+/// `private_tx_hash = Poseidon(HashChain(inputs), HashChain(outputs), HashChain(addresses), external_data_hash)`.
+/// `address_hashes` is the address category: the `utxo_hash` of each address slot
+/// the transaction creates, `0` for every other input. It has the same length as
+/// `input_hashes` (one entry per input slot).
 pub fn private_tx_hash(
     input_hashes: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
+    address_hashes: &[[u8; 32]],
     external_data_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
     let input_chain = hash_chain(input_hashes)?;
     let output_chain = hash_chain(output_hashes)?;
+    let address_chain = hash_chain(address_hashes)?;
     Ok(poseidon(&[
         &input_chain,
         &output_chain,
+        &address_chain,
         external_data_hash,
     ])?)
+}
+
+/// The address category for a transaction that creates no addresses: one zero per
+/// input slot, matching the circuit's per-input address chain. Pass an empty slice
+/// only for an empty input set -- the chain folds one entry per input.
+pub fn no_address_hashes(n_inputs: usize) -> Vec<[u8; 32]> {
+    vec![[0u8; 32]; n_inputs]
 }
 
 /// Hashes left-to-right: `h = items[0]; h = Poseidon(h, items[i])`. Empty returns zero.

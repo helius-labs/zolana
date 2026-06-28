@@ -61,7 +61,7 @@ impl UtxoInputs {
             amount: be(&right_align(&output.amount.to_be_bytes())),
             blinding: be(&right_align(&output.blinding)),
             data_hash: be(&output.program_data_hash.unwrap_or_default()),
-            program_id: be(&program_id_field(&output.program_id)?),
+            program_id: be(&program_id_field(&output.commitment_program_id())?),
             zone_data_hash: be(&output.zone_data_hash.unwrap_or_default()),
             zone_program_id: be(&program_id_field(&output.zone_program_id)?),
         })

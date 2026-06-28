@@ -50,12 +50,22 @@ func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, programID, seed
 func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, confidential bool) {
 	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
+	addressHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
-		if spptest.AsBigInt(assignment.Inputs[i].IsDummy).Sign() != 0 {
+		in := assignment.Inputs[i]
+		isDummy := spptest.AsBigInt(in.IsDummy).Sign() != 0
+		isAddress := isDummy && spptest.AsBigInt(in.Utxo.DataHash).Sign() != 0
+		utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+		if isDummy {
 			inputHashes[i] = big.NewInt(0)
-			continue
+		} else {
+			inputHashes[i] = utxoHash
 		}
-		inputHashes[i] = spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo))
+		if isAddress {
+			addressHashes[i] = utxoHash
+		} else {
+			addressHashes[i] = big.NewInt(0)
+		}
 	}
 	outputHashes := make([]*big.Int, len(assignment.Outputs))
 	for i := range assignment.Outputs {
@@ -69,6 +79,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, 
 		t,
 		inputHashes,
 		outputHashes,
+		addressHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash

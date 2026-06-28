@@ -233,7 +233,12 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, externalDataHash)
+	// Merge creates no addresses: the address category is all zeros, one per input.
+	addressHashes := make([]*big.Int, merge.MergeInputs)
+	for i := range addressHashes {
+		addressHashes[i] = big.NewInt(0)
+	}
+	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, addressHashes, externalDataHash)
 	if err != nil {
 		t.Fatal(err)
 	}

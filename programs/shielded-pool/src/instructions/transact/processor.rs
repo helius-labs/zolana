@@ -20,7 +20,7 @@ use zolana_tree::{TreeAccount, TreeError};
 use super::{
     account::TransactAccounts,
     event::{build_transact_event, owner_view_tag, sender_slot_count, TreeWrite},
-    verify::P256_OWNED_SIGNER,
+    verify::{P256_OWNED_SIGNER, PROGRAM_OWNED_SIGNER},
 };
 use crate::instructions::{
     event::emit_general_event,
@@ -57,8 +57,18 @@ pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool
     ix: &TransactIxDataRef<'_>,
 ) -> Result<TransactProofInputs, ProgramError> {
     let mut proof_inputs = TransactProofInputs::default();
+    // Bind the invoking program into the proof as `pk_field(cpi_signer.program_id)`,
+    // mirroring `deposit`. The cpi-signer PDA was derivation-checked while parsing
+    // the accounts, so a non-zero `program_id` here can only come from a program
+    // that authorized this transaction; an absent `cpi_signer` folds a zero id.
+    // Set before the signer checks so program-owned inputs can adopt it as their
+    // owner pk_hash.
+    proof_inputs.program_id = match &ix.cpi_signer {
+        Some(signer) => solana_pk_hash(&signer.program_id)?,
+        None => [0u8; 32],
+    };
     if !IS_AUTHORITY {
-        check_input_signers(accounts, ix, &mut proof_inputs)?;
+        check_input_signers::<IS_ZONE>(accounts, ix, &mut proof_inputs)?;
     }
     proof_inputs.p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
     if !IS_ZONE {
@@ -116,15 +126,6 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     proof_inputs.spl_mint = transact_accounts.spl_mint;
-
-    // Bind the invoking program into the proof as `pk_field(cpi_signer.program_id)`,
-    // mirroring `deposit`. The cpi-signer PDA was derivation-checked while parsing
-    // the accounts, so a non-zero `program_id` here can only come from a program
-    // that authorized this transaction; an absent `cpi_signer` folds a zero id.
-    proof_inputs.program_id = match &ix.cpi_signer {
-        Some(signer) => solana_pk_hash(&signer.program_id)?,
-        None => [0u8; 32],
-    };
 
     let event = build_transact_event(ix, &proof_inputs, tree_write);
     TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
@@ -208,18 +209,35 @@ fn tree_error(e: TreeError) -> ProgramError {
 
 // Record each input owner's `pk_field` (`Poseidon(low, high)`) in `proof_inputs`.
 // Ed25519 inputs must have their owner account as a signer and use its
-// `solana_pk_hash`; P256-owned inputs route by the shared P256 signing key's
-// `pk_field` (`ix.p256_signing_pk_field`, zero when absent).
+// `solana_pk_hash` (every variant). P256-owned inputs differ by variant: the
+// confidential rail folds the shared P256 signing key's `pk_field`
+// (`ix.p256_signing_pk_field`) so the circuit routes ownership by equality,
+// while the anonymous policy-zone rail (`IS_ZONE`) keeps P256 owners private and
+// folds the `0` sentinel -- the circuit proves P256 ownership internally from the
+// signature, so the public input carries no owner identity (matching
+// `OwnerMode::Zone` in the prover).
 #[profile]
-fn check_input_signers(
+fn check_input_signers<const IS_ZONE: bool>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<(), ProgramError> {
     let p256_signing_pk_field = ix.p256_signing_pk_field.unwrap_or([0u8; 32]);
     for (i, input) in ix.inputs.iter().enumerate() {
-        let pk_hash = if input.eddsa_signer_index == P256_OWNED_SIGNER {
-            p256_signing_pk_field
+        let pk_hash = if input.eddsa_signer_index == PROGRAM_OWNED_SIGNER {
+            // Program-owned input: authorized by the invoking program's cpi_signer,
+            // not a per-input user signer. Its owner is the public `program_id`
+            // derived from the authenticated cpi_signer, which must be present.
+            if proof_inputs.program_id == [0u8; 32] {
+                return Err(ShieldedPoolError::UnauthorizedCaller.into());
+            }
+            proof_inputs.program_id
+        } else if input.eddsa_signer_index == P256_OWNED_SIGNER {
+            if IS_ZONE {
+                [0u8; 32]
+            } else {
+                p256_signing_pk_field
+            }
         } else {
             let account = accounts
                 .get(usize::from(input.eddsa_signer_index))

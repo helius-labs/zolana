@@ -34,6 +34,11 @@ pub const MAX_OUTPUTS: usize = 8;
 
 pub const P256_OWNED_SIGNER: u8 = 255;
 
+/// Sentinel `eddsa_signer_index` for a program-owned value input. Such an input
+/// is authorized by the invoking program's `cpi_signer` (its program id is the
+/// input's owner pk_hash), not by a per-input user signature.
+pub const PROGRAM_OWNED_SIGNER: u8 = 254;
+
 #[derive(Default, Debug)]
 pub struct TransactProofInputs {
     pub utxo_roots: [[u8; 32]; MAX_INPUTS],

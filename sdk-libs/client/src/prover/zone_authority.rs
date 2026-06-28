@@ -6,11 +6,13 @@
 //! element set differs (input owner pk_fields stay private, no confidential
 //! appendix).
 
-use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::{transact::private_tx_hash, zone_authority::PreparedZoneAuthority},
+    instructions::{
+        transact::{no_address_hashes, private_tx_hash},
+        zone_authority::PreparedZoneAuthority,
+    },
     utxo::program_id_field,
     ExternalData, OutputUtxo,
 };
@@ -44,6 +46,8 @@ pub struct ZoneAuthorityProver {
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
+    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
+    pub program_id: Option<Address>,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -72,13 +76,14 @@ impl ZoneAuthorityProver {
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
+            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
         )?;
 
         // Bind the zone program: program_id is 0 (no ZK program), zone_program_id is
         // the zone's pk_field. The UTXOs themselves carry zone_program_id; the circuit
         // binds each non-dummy UTXO's zone field to this public input.
-        let program_id = [0u8; 32];
+        let program_id = program_id_field(&self.program_id)?;
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
         // Zone-authority public-input layout: the 13 base elements, with input owner
@@ -109,7 +114,7 @@ impl ZoneAuthorityProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: BigUint::ZERO,
+            program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),
@@ -170,6 +175,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
                 program_data_hash: spend.program_data_hash,
                 zone_data_hash: spend.zone_data_hash,
                 proof,
+                program_owner: None,
             });
         }
 
@@ -183,6 +189,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
                 asset: public_amounts.asset,
             },
             payer_pubkey_hash,
+            program_id: None,
             zone_program_id,
             shape: Some(Shape::new(shape.n_inputs, shape.n_outputs)),
         })

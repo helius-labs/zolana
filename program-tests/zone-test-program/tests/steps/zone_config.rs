@@ -102,7 +102,8 @@ impl ZoneLifecycleWorld {
             zone_authority_transact_is_enabled: enabled,
         }
         .instruction();
-        send_transaction(&mut self.rpc, &[ix], &authority.pubkey(), &[&authority])?;
+        let payer = self.payer.insecure_clone();
+        send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &authority])?;
         Ok(())
     }
 
@@ -122,11 +123,12 @@ impl ZoneLifecycleWorld {
             new_authority: Address::new_from_array(next.pubkey().to_bytes()),
         }
         .instruction();
+        let payer = self.payer.insecure_clone();
         send_transaction(
             &mut self.rpc,
             &[ix],
-            &authority.pubkey(),
-            &[&authority, &next],
+            &payer.pubkey(),
+            &[&payer, &authority, &next],
         )?;
         self.previous_zone_authority = Some(authority);
         self.zone_authority = Some(next);
@@ -148,7 +150,8 @@ impl ZoneLifecycleWorld {
             zone_authority_transact_is_enabled: true,
         }
         .instruction();
-        match send_transaction(&mut self.rpc, &[ix], &stale.pubkey(), &[&stale]) {
+        let payer = self.payer.insecure_clone();
+        match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &stale]) {
             Ok(_) => Err(anyhow!("stale owner update unexpectedly succeeded")),
             Err(error) => {
                 assert_rpc_custom_error(&error, UNAUTHORIZED_CALLER);

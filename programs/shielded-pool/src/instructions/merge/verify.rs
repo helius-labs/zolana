@@ -10,19 +10,32 @@ use crate::instructions::verifier;
 
 const PROOF_ERR: ShieldedPoolError = ShieldedPoolError::TransactProofVerificationFailed;
 
-/// Derived public inputs the program resolves from the tree and the registry,
-/// folded into the merge public-input hash alongside the instruction fields.
+/// The owner-binding tail of the merge public-input hash, which differs by
+/// variant. Modeling it as an enum keeps the two shapes mutually exclusive: the
+/// default merge cannot carry a zone id, and the policy-zone merge cannot carry
+/// owner-identity fields. The variant also selects the verifying key.
+pub enum MergeOwnerBinding {
+    /// Default merge (`merge_transact`): owner identity bound from the user
+    /// registry record -- `pk_field(owner_p256)` and `pk_field(viewing_pubkey)`.
+    /// Verified against `merge_8_1`.
+    Registry {
+        signing_pk_field: [u8; 32],
+        viewing_pk_field: [u8; 32],
+    },
+    /// Policy-zone merge (`merge_zone`): `pk_field(zone_program_id)` from the
+    /// calling `zone_config`. Owner identity is omitted -- a policy zone has no
+    /// registry to bind it against. Verified against `merge_zone_8_1`.
+    Zone { zone_program_id: [u8; 32] },
+}
+
+/// Derived public inputs the program resolves from the tree (and, for the default
+/// merge, the registry), folded into the merge public-input hash alongside the
+/// instruction fields.
 pub struct MergeProofInputs {
     pub utxo_roots: [[u8; 32]; MERGE_INPUT_COUNT],
     pub nullifier_tree_roots: [[u8; 32]; MERGE_INPUT_COUNT],
     pub external_data_hash: [u8; 32],
-    /// `pk_field(owner_p256)` from the registry record.
-    pub signing_pk_field: [u8; 32],
-    /// `pk_field(viewing_pubkey)` from the registry record.
-    pub viewing_pk_field: [u8; 32],
-    /// `pk_field(zone_program_id)` from the calling `zone_config`. Zero (and not
-    /// part of the public-input hash) for the default-zone `merge_transact`.
-    pub zone_program_id: [u8; 32],
+    pub owner_binding: MergeOwnerBinding,
 }
 
 pub struct MergeProof<'a> {
@@ -36,8 +49,8 @@ impl<'a> MergeProof<'a> {
     }
 
     #[inline(never)]
-    pub fn verify<const IS_ZONE: bool>(&self) -> ProgramResult {
-        let public_input_hash = self.public_input_hash::<IS_ZONE>()?;
+    pub fn verify(&self) -> ProgramResult {
+        let public_input_hash = self.public_input_hash()?;
         // The merge proof is always BSB22-committed, so its wire format stays a
         // fixed 192-byte blob: a(0..32) || b(32..96) || c(96..128) ||
         // commitment(128..160) || commitment_pok(160..192).
@@ -54,19 +67,22 @@ impl<'a> MergeProof<'a> {
         };
         // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
         // its own verifying key; the default-zone merge uses `merge_8_1`.
-        let vk = if IS_ZONE {
-            &merge_zone_8_1::VERIFYINGKEY
-        } else {
-            &merge_8_1::VERIFYINGKEY
+        let vk = match self.derived.owner_binding {
+            MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
+            MergeOwnerBinding::Zone { .. } => &merge_zone_8_1::VERIFYINGKEY,
         };
         verifier::verify_groth16(proof, public_input_hash, vk, encoding_err, PROOF_ERR)
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
     /// (`prover/server/circuits/spp_merge/circuit.go` `mergePublicInputHash`).
-    /// The default merge folds 11 elements; the policy-zone merge appends
-    /// `zone_program_id` as a 12th.
-    pub fn public_input_hash<const IS_ZONE: bool>(&self) -> Result<[u8; 32], ProgramError> {
+    ///
+    /// Both variants share the same 9 leading elements; the default merge then
+    /// folds the owner's signing and viewing `pk_field` (bound from the user
+    /// registry) for 11 total, while the policy-zone merge omits owner identity
+    /// (no registry to bind it against) and appends `zone_program_id` as the
+    /// final element for 10 total.
+    pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let tx_viewing_pk = self
             .ix
             .tx_viewing_pk()
@@ -78,26 +94,39 @@ impl<'a> MergeProof<'a> {
         let (tx_viewing_pk_lo, tx_viewing_pk_hi) = pack33(tx_viewing_pk);
         let ct_hash = ciphertext_hash(ciphertext).map_err(|_| PROOF_ERR)?;
 
-        let chain = [
-            hash_chain(&self.ix.nullifiers)?,
-            *self.ix.output_utxo_hash,
-            hash_chain(&self.derived.utxo_roots)?,
-            hash_chain(&self.derived.nullifier_tree_roots)?,
-            *self.ix.private_tx_hash,
-            self.derived.external_data_hash,
-            self.derived.signing_pk_field,
-            self.derived.viewing_pk_field,
-            tx_viewing_pk_lo,
-            tx_viewing_pk_hi,
-            ct_hash,
-        ];
-        if IS_ZONE {
-            let mut zone_chain = [[0u8; 32]; 12];
-            zone_chain[..11].copy_from_slice(&chain);
-            zone_chain[11] = self.derived.zone_program_id;
-            hash_chain(&zone_chain)
-        } else {
-            hash_chain(&chain)
+        let nullifiers = hash_chain(&self.ix.nullifiers)?;
+        let utxo_roots = hash_chain(&self.derived.utxo_roots)?;
+        let nullifier_tree_roots = hash_chain(&self.derived.nullifier_tree_roots)?;
+
+        match &self.derived.owner_binding {
+            MergeOwnerBinding::Zone { zone_program_id } => hash_chain(&[
+                nullifiers,
+                *self.ix.output_utxo_hash,
+                utxo_roots,
+                nullifier_tree_roots,
+                *self.ix.private_tx_hash,
+                self.derived.external_data_hash,
+                tx_viewing_pk_lo,
+                tx_viewing_pk_hi,
+                ct_hash,
+                *zone_program_id,
+            ]),
+            MergeOwnerBinding::Registry {
+                signing_pk_field,
+                viewing_pk_field,
+            } => hash_chain(&[
+                nullifiers,
+                *self.ix.output_utxo_hash,
+                utxo_roots,
+                nullifier_tree_roots,
+                *self.ix.private_tx_hash,
+                self.derived.external_data_hash,
+                *signing_pk_field,
+                *viewing_pk_field,
+                tx_viewing_pk_lo,
+                tx_viewing_pk_hi,
+                ct_hash,
+            ]),
         }
     }
 }

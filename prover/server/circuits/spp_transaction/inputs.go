@@ -26,9 +26,11 @@ type spendEnv struct {
 	zoneProgramID      frontend.Variable
 }
 
-func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCircuitFields, zone, strictZone bool, programID, zoneProgramID frontend.Variable) {
-	bindIfSet(api, notDummy, u.ProgramID, programID)
-	requireIdWhenDataSet(api, notDummy, u.DataHash, u.ProgramID)
+// constrainProgramZone binds a UTXO's zone fields. The program_id/program_data
+// binding moved to the callers: program identity is the owner, so the standalone
+// program_id field is pinned to 0 and program data is allowed only on
+// program-owned UTXOs (see constrainInput / constrainOutput).
+func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCircuitFields, zone, strictZone bool, zoneProgramID frontend.Variable) {
 	if zone {
 		if strictZone {
 			assertEqualWhen(api, notDummy, u.ZoneProgramID, zoneProgramID)
@@ -59,8 +61,9 @@ func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Vari
 // inert (owner 0, nullifier unpinned), while an address dummy skips inclusion and
 // owner binding but binds owner == program_id, pins every non-seed field, and
 // constrains its nullifier as the new program-owned address. It returns the
-// input's UTXO hash (0 for any dummy) for the transaction-hash chain.
-func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) frontend.Variable {
+// input's UTXO hash (0 for any dummy) for the input transaction-hash chain, plus
+// the address-chain contribution (the UTXO hash for an address slot, 0 otherwise).
+func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) (frontend.Variable, frontend.Variable) {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
@@ -73,6 +76,15 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	isAddress := api.Mul(in.IsDummy, dataIsSet)
 	isPadding := api.Sub(in.IsDummy, isAddress)
 	spendOrAddress := api.Sub(1, isPadding)
+
+	// A real input is program-owned when its owner equals the public program_id
+	// (the authenticated CPI caller); the cpi_signer authorizes it out of circuit,
+	// so it takes no user signature. A real input with any other owner is
+	// user-owned and takes the signature path.
+	programSet := api.Sub(1, api.IsZero(env.programID))
+	ownerIsProgram := api.IsZero(api.Sub(in.Utxo.Owner, env.programID))
+	isProgramOwned := api.Mul(notDummy, api.Mul(ownerIsProgram, programSet))
+	userOwnedReal := api.Sub(notDummy, isProgramOwned)
 
 	// A dummy slot must be inert: zero amount. A padding dummy's public transcript
 	// columns (nullifier, roots, owner entry) are deliberately unpinned so it can
@@ -95,14 +107,25 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
 	assertZeroWhen(api, isAddress, in.NullifierSecret)
 	assertZeroWhen(api, isAddress, in.Utxo.Asset)
-	assertZeroWhen(api, isAddress, in.Utxo.ProgramID)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
+
+	// Program-owned spend: no user nullifier secret, and the public owner tag
+	// equals the program. Authorization is the cpi_signer, checked by SPP.
+	assertZeroWhen(api, isProgramOwned, in.NullifierSecret)
+	assertEqualWhen(api, isProgramOwned, in.OwnerPkHash, env.programID)
+
+	// Program data lives only on program-owned UTXOs and on the address seed; a
+	// user-owned spend carries none. Program identity is the owner, so the
+	// standalone program_id field is unused -- pin it to 0 on every real and
+	// address slot.
+	assertZeroWhen(api, userOwnedReal, in.Utxo.DataHash)
+	assertZeroWhen(api, spendOrAddress, in.Utxo.ProgramID)
 
 	// Domain is pinned for real spends and address slots alike (a padding dummy
 	// leaves it free); spendOrAddress covers both.
 	assertEqualWhen(api, spendOrAddress, in.Utxo.Domain, UtxoDomain)
-	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.programID, env.zoneProgramID)
+	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
@@ -131,19 +154,20 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	}
 	if !env.requiresP256 {
 		// Solana-only variant: the P256 gadget (incl. the signature check) is
-		// absent, so every real input MUST be Solana-owned. Otherwise the owner key
-		// is the P256 path and p256SigValid is forced 1, which would let a UTXO
+		// absent, so every user-owned input MUST be Solana-owned. Otherwise the owner
+		// key is the P256 path and p256SigValid is forced 1, which would let a UTXO
 		// crafted for that owner be spent here with no signature.
-		assertZeroWhen(api, notDummy, isP256)
+		assertZeroWhen(api, userOwnedReal, isP256)
 	}
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
 	})
-	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
-	// A real P256-owned input requires the valid shared signature; Solana
-	// ownership is verified by SPP out of circuit.
-	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
+	// Owner binding and the signature check apply to user-owned spends only. A
+	// program-owned spend (owner == program_id) is authorized by the cpi_signer, so
+	// it binds no owner hash and needs no signature.
+	assertEqualWhen(api, userOwnedReal, ownerHash, in.Utxo.Owner)
+	assertZeroWhen(api, api.Mul(userOwnedReal, isP256), api.Sub(1, env.p256SigValid))
 
 	// Nullifier: Poseidon over the UTXO hash, blinding, and the input's own
 	// secret — a canonical field element, inserted into the nullifier tree
@@ -169,7 +193,9 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
 	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 
-	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
+	return inputHash, addressHash
 }
 
 // assertDistinctNullifiers rejects two slots that insert the same nullifier in

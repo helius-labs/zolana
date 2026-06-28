@@ -33,9 +33,13 @@ func HashChain(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
+// PrivateTxHash mirrors PrivateTxHashGadget. addressUtxoHashes is the address
+// category (the UTXO hash of every address slot, 0 for real spends and padding);
+// it has the same length as inputUtxoHashes.
 func PrivateTxHash(
 	inputUtxoHashes []*big.Int,
 	outputUtxoHashes []*big.Int,
+	addressUtxoHashes []*big.Int,
 	externalDataHash *big.Int,
 ) (*big.Int, error) {
 	inputChain, err := HashChain(inputUtxoHashes)
@@ -46,10 +50,15 @@ func PrivateTxHash(
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
+	addressChain, err := HashChain(addressUtxoHashes)
+	if err != nil {
+		return nil, fmt.Errorf("spp: private tx hash address chain: %w", err)
+	}
 
 	h, err := poseidon.Hash([]*big.Int{
 		inputChain,
 		outputChain,
+		addressChain,
 		externalDataHash,
 	})
 	if err != nil {

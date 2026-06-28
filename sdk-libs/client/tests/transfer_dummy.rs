@@ -124,6 +124,7 @@ fn real_input() -> TransferSpendInput {
         nullifier_key,
         program_data_hash: None,
         zone_data_hash: None,
+        program_owner: None,
         proof: Some(proof),
     }
 }
@@ -147,6 +148,7 @@ fn dummy_input() -> TransferSpendInput {
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         program_data_hash: None,
         zone_data_hash: None,
+        program_owner: None,
         proof: None,
     }
 }
@@ -199,6 +201,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
             asset: [0u8; 32],
         },
         payer_pubkey_hash: [0u8; 32],
+        program_id: None,
         shape: Some(Shape::new(n_in, n_out)),
     };
     let result = prover
@@ -259,6 +262,7 @@ fn dummy_transfer_2_3_proof_verifies() {
             asset: [0u8; 32],
         },
         payer_pubkey_hash: [0u8; 32],
+        program_id: None,
         shape: Some(Shape::new(2, 3)),
     };
 

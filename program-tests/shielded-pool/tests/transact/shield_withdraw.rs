@@ -31,7 +31,10 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::{no_address_hashes, private_tx_hash},
+    Data, Utxo, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -207,7 +210,12 @@ fn shield_then_withdraw_sol() {
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
-    let private_tx = private_tx_hash(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
+    let private_tx = private_tx_hash(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &no_address_hashes(2),
+        &external_data_hash,
+    )
         .expect("private tx hash");
     let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
@@ -424,6 +432,7 @@ fn shield_transfer_then_withdraw_sol() {
     let transfer_private_tx = private_tx_hash(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
+        &no_address_hashes(2),
         &transfer_external_hash,
     )
     .expect("transfer private tx hash");
@@ -588,6 +597,7 @@ fn shield_transfer_then_withdraw_sol() {
     let withdraw_private_tx = private_tx_hash(
         &[recipient_hash, zero],
         &[zero, zero, zero],
+        &no_address_hashes(2),
         &withdraw_external_hash,
     )
     .expect("withdraw private tx hash");

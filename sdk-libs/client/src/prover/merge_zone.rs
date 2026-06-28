@@ -1,9 +1,10 @@
 //! High-level builder for the 8-in/1-out policy-zone merge proof
 //! (`merge_zone`). It is a faithful clone of the default merge
-//! ([`crate::prover::merge`]); the only functional delta is that the merged
-//! output and every input are bound to a shared `zone_program_id`, which is
-//! appended as the final (12th) element of the merge public-input hash and which
-//! SPP binds from the CPI-calling `zone_config`.
+//! ([`crate::prover::merge`]) with two deltas: the merged output and every input
+//! are bound to a shared `zone_program_id`, which is appended as the final
+//! element of the merge public-input hash (SPP binds it from the CPI-calling
+//! `zone_config`); and the owner signing/viewing `pk_field` are omitted from the
+//! public inputs (a policy zone has no registry to bind owner identity against).
 
 use num_bigint::BigUint;
 use p256::SecretKey;
@@ -17,7 +18,11 @@ use zolana_keypair::{
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::{merge_zone::PreparedMergeZone, transact::private_tx_hash, types::SpendUtxo},
+    instructions::{
+        merge_zone::PreparedMergeZone,
+        transact::{no_address_hashes, private_tx_hash},
+        types::SpendUtxo,
+    },
     utxo::program_id_field,
     OutputUtxo,
 };
@@ -60,7 +65,7 @@ pub struct MergeZoneProver {
     pub tx_viewing_sk: SecretKey,
     /// Zone program every input and the output are owned by. Its `pk_field`
     /// (`program_id_field(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
-    /// 12th public-input element and the value SPP binds from `zone_config`.
+    /// final public-input element and the value SPP binds from `zone_config`.
     pub zone_program_id: Address,
 }
 
@@ -166,17 +171,18 @@ impl MergeZoneProver {
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
+            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
         )?;
 
-        // Owner identity public inputs (pk_field of the signing and viewing keys).
+        // Owner signing pk_field, used to feed the ed25519 owner rail's
+        // `owner_pk_hash` witness below (not a public input on the zone rail).
         let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
-        let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
 
-        // The policy-zone delta: the merge public-input hash gains the zone's
-        // pk_field as its final (12th) element, after the ciphertext hash. Equals
-        // the on-chain `solana_pk_hash(zone)` the program derives from the calling
-        // `zone_config`.
+        // The policy-zone merge omits the owner-identity public inputs (no registry
+        // binds them) and instead commits the zone's pk_field as the final element,
+        // after the ciphertext hash. `zone_program_id_field` equals the on-chain
+        // `solana_pk_hash(zone)` the program derives from the calling `zone_config`.
         let zone_program_id_field = program_id_field(&Some(self.zone_program_id))?;
         let public_input = hash_chain(&[
             hash_chain(&assembled_inputs.nullifiers)?,
@@ -185,8 +191,6 @@ impl MergeZoneProver {
             hash_chain(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
-            user_signing_pk_hash,
-            user_viewing_pk_hash,
             tx_pk_lo,
             tx_pk_hi,
             ct_hash,
@@ -233,7 +237,7 @@ impl MergeZoneProver {
             private_tx_hash: be(&private_tx),
             public_input_hash: be(&public_input),
             // Top-level public input the merge-zone witness/circuit binds; equals the
-            // 12th hash element and every per-UTXO zone_program_id.
+            // final hash element and every per-UTXO zone_program_id.
             zone_program_id: be(&zone_program_id_field),
         };
 
@@ -307,6 +311,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
                 program_data_hash: None,
                 zone_data_hash: None,
                 proof,
+                program_owner: None,
             });
         }
 
