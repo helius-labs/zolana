@@ -53,6 +53,7 @@
     - [merge_transact](#merge_transact)
     - [merge_zone](#merge_zone)
 - [Zone Program Interface](#zone-program-interface)
+  - [Enterprise Audit Envelope](#enterprise-audit-envelope)
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
   - [Indexer](#indexer)
@@ -304,7 +305,9 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 # Nullifier Key
 
-Symmetric key to derive nullifiers.
+Symmetric spend key to derive nullifiers. It is derived from the signing secret,
+not from the [viewing key](#viewingkey): viewing and auditor keys are read-only
+capabilities and do not by themselves compute spend nullifiers.
 
 `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="TSPP/nullifier", L=31)`
 
@@ -1180,7 +1183,7 @@ Usage by instruction:
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
 | proofless_shield | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`proofless_shield`](#proofless_shield). |
-| zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
+| zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies the SPP zone proof, updates trees, and binds zone UTXOs to `zone_config.program_id`. SPP does not parse or decrypt auditor payloads; enterprise zones enforce auditor encryption in their policy proof and bind the audit payload through `zone_data_hash`. |
 | zone_proofless_shield | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`proofless_shield`](#proofless_shield). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
@@ -1718,6 +1721,67 @@ A zone program is free to implement the following instructions, a subset or supe
 
 UTXOs can include a `zone_data` field interpreted by the zone program, hashed into the `zone_data_hash` slot of [UTXO Hash](#utxo-hash). The zone program defines the schema and the hashing scheme.
 
+## Enterprise Audit Envelope
+
+An enterprise zone that offers [Zone RPC](#zone-rpc) MUST publish an auditor-encrypted audit envelope for every audited `zone_transact`, `zone_authority_transact`, and `merge_zone` it exposes. SPP treats `zone_data_hash` and output ciphertext bytes as opaque external data; the zone program is responsible for verifying its own policy proof before CPI and for binding the audit envelope digest into that policy proof and `zone_data_hash`.
+
+The audit envelope is encrypted to the zone auditor key configured by the zone program, not by the SPP `zone_config`. The ciphertext must be publicly indexable by Photon, either in a zone-program audit event or in the zone instruction data. The SPP `GeneralEvent` alone is not sufficient because it does not carry zone-program policy payloads.
+
+The envelope plaintext is versioned. Version 1 is:
+
+```rust
+struct ZoneAuditEnvelopeV1 {
+    zone_program_id: Address,
+    private_tx_hash: [u8; 32],
+    external_data_hash: [u8; 32],
+    outputs: Vec<ZoneAuditOutputV1>,
+    inputs: Vec<ZoneAuditInputV1>,
+}
+
+struct ZoneAuditOutputV1 {
+    output_index: u16,
+    utxo_hash: [u8; 32],
+    owner_signing_pk: PublicKey,
+    owner_nullifier_pk: [u8; 32],
+    asset: Address,
+    amount: u64,
+    blinding: [u8; 31],
+    data_hash: [u8; 32],
+    zone_data_hash: [u8; 32],
+}
+
+struct ZoneAuditInputV1 {
+    input_index: u16,
+    spent_utxo_hash: [u8; 32],
+    nullifier: [u8; 32],
+}
+```
+
+For each output record, the zone proof must bind the encrypted plaintext to the SPP output witness:
+
+```
+owner_hash       = Poseidon(pk_field(owner_signing_pk), owner_nullifier_pk)
+owner_utxo_hash  = Poseidon(owner_hash, blinding)
+zone_hash        = Poseidon(zone_data_hash, pk_field(zone_program_id))
+utxo_hash        = Poseidon(domain, asset, amount, data_hash, zone_hash, owner_utxo_hash)
+```
+
+For each input record, the zone proof must bind `spent_utxo_hash` to the corresponding private input UTXO hash and `nullifier` to the public SPP input nullifier at `input_index`. This mapping gives the auditor spent-state visibility without exposing or deriving `nullifier_secret`.
+
+The transaction-level `TransactIxData.zone_data_hash` SHOULD commit to the audit ciphertext and the zone policy proof public inputs. This is distinct from the per-output `ZoneAuditOutputV1.zone_data_hash`, which is the UTXO body field used to recompute that output's `utxo_hash`. Example transaction-level commitment:
+
+```
+audit_ciphertext_hash := Sha256BE("TSPP/zone-audit-ciphertext/v1" ||
+                                  auditor_tx_viewing_pk ||
+                                  audit_ciphertext)
+
+zone_data_hash := Sha256BE("TSPP/zone-data/v1" ||
+                            policy_public_inputs_hash ||
+                            audit_ciphertext_hash)
+```
+
+The exact zone proof circuit and ciphertext format are zone-defined, but the decrypted `ZoneAuditEnvelopeV1` schema above is the indexer/RPC contract. A zone that does not publish and prove this envelope is still a valid policy zone, but it is not a decryptable enterprise zone for Zone RPC.
+
 # ZK Program Interface
 
 A ZK program is a third-party Solana program that runs a custom ZK circuit over user-owned UTXOs that hold `utxo_data` and CPIs SPP to settle the state transition. Circuit logic is program-defined; the protocol requires only that the proof commits to the SPP transaction via `private_tx_hash`. Authorization is the UTXO owner's signature over `private_tx_hash`; non-zone programs use no PDA signer (zone programs keep their `zone_config` signer).
@@ -1941,13 +2005,15 @@ struct SubmitTransactionResponse {
 
 ## Zone RPC
 
-A Zone RPC holds the zone's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
+A Zone RPC holds the zone's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints for enterprise zones that publish a proven [audit envelope](#enterprise-audit-envelope). Lookup is by `signing_pk` recovered from decrypted `ZoneAuditOutputV1.owner_signing_pk`.
 
 **Authentication.** Every request includes `signing_pk` and a `signature` by that key over the serialized request body. `bound_slot` pins the signature to a slot; the RPC rejects requests where `current_slot > bound_slot + 150`.
 
 ### `get_decrypted_utxos_by_owner`
 
 Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags). Filters spent UTXOs unless `include_spent`.
+
+**Spent.** The RPC does not derive `nullifier_secret`. It marks an output spent by joining decrypted audit inputs where `ZoneAuditInputV1.spent_utxo_hash == ZoneAuditOutputV1.utxo_hash`, and confirming the input `nullifier` was observed in the nullifier tree. A zone without proven audit input records cannot provide server-side spent filtering.
 
 ```rust
 struct GetDecryptedUtxosByOwnerRequest {
@@ -1976,7 +2042,7 @@ struct DecryptedUtxoEntry {
 
 ### `get_decrypted_transactions_by_owner`
 
-Decrypted analogue of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags).
+Decrypted analogue of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags). A transaction matches when the requested owner appears in decrypted audit outputs or when decrypted audit inputs spend a previously audited output owned by the requested owner.
 
 ```rust
 struct GetDecryptedTransactionsByOwnerRequest {
@@ -1996,6 +2062,8 @@ struct GetDecryptedTransactionsByOwnerResponse {
 struct DecryptedTransaction {
     slot: u64,
     tx_signature: Signature,
+    /// Input UTXO hashes owned by `signing_pk` and spent by this transaction.
+    input_utxo_hashes: Vec<[u8; 32]>,
     output_utxos: Vec<Utxo>,
     nullifiers: Vec<[u8; 32]>,
 }
