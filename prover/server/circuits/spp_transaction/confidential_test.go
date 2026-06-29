@@ -83,7 +83,6 @@ func emptyOutputUtxo(asset *big.Int) protocol.Utxo {
 		Amount:        spptest.Fe(0),
 		Blinding:      spptest.Fe(777),
 		DataHash:      spptest.Fe(0),
-		ProgramID:     spptest.Fe(0),
 		ZoneDataHash:  spptest.Fe(0),
 		ZoneProgramID: spptest.Fe(0),
 	}

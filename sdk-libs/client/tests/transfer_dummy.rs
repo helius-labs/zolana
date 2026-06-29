@@ -94,7 +94,6 @@ fn real_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -139,7 +138,6 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

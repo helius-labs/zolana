@@ -79,6 +79,14 @@ fn rejected_invalid_settlement(world: &mut ShieldedPoolWorld) {
     );
 }
 
+#[then(expr = "the operation is rejected because program cpi-signer is disabled")]
+fn rejected_program_cpi_signer_disabled(world: &mut ShieldedPoolWorld) {
+    assert_pool_error(
+        world.last_error(),
+        ShieldedPoolError::ProgramCpiSignerDisabled,
+    );
+}
+
 #[then(expr = "the operation is rejected as invalid instruction data")]
 fn rejected_invalid_instruction_data(world: &mut ShieldedPoolWorld) {
     assert_pool_error(

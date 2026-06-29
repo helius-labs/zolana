@@ -49,7 +49,6 @@ impl TransferPlaintextSender {
                     asset: assets.resolve(spl.asset_id)?,
                     amount: spl.amount,
                     blinding: derive_blinding(blinding_seed, 0),
-                    program_id: None,
                     zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
                     data: self.spl_data,
                 },
@@ -63,7 +62,6 @@ impl TransferPlaintextSender {
                     asset: SOL_MINT,
                     amount: sol_amount,
                     blinding: derive_blinding(blinding_seed, 1),
-                    program_id: None,
                     zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
                     data: self.sol_data,
                 },
@@ -95,7 +93,6 @@ impl TransferPlaintextRecipient {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding,
-            program_id: None,
             zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
             data: self.data,
         };

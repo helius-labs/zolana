@@ -106,7 +106,6 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

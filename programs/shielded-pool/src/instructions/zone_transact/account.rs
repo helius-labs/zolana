@@ -4,7 +4,9 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
 };
 
-use crate::instructions::{transact::account::TransactAccounts, zone_config::loader::load_zone_config};
+use crate::instructions::{
+    transact::account::TransactAccounts, zone_config::loader::load_zone_config,
+};
 
 pub struct ZoneTransactAccounts;
 

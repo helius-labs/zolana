@@ -14,7 +14,6 @@ type UtxoParamsJSON struct {
 	Amount        string `json:"amount"`
 	Blinding      string `json:"blinding"`
 	DataHash      string `json:"dataHash"`
-	ProgramID     string `json:"programId"`
 	ZoneDataHash  string `json:"zoneDataHash"`
 	ZoneProgramID string `json:"zoneProgramId"`
 }
@@ -235,7 +234,6 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:        feHex(u.Amount),
 		Blinding:      feHex(u.Blinding),
 		DataHash:      feHex(u.DataHash),
-		ProgramID:     feHex(u.ProgramID),
 		ZoneDataHash:  feHex(u.ZoneDataHash),
 		ZoneProgramID: feHex(u.ZoneProgramID),
 	}
@@ -260,9 +258,6 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 		return out, err
 	}
 	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
-		return out, err
-	}
-	if out.ProgramID, err = feFromHex(u.ProgramID); err != nil {
 		return out, err
 	}
 	if out.ZoneDataHash, err = feFromHex(u.ZoneDataHash); err != nil {

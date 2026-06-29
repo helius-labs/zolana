@@ -50,7 +50,6 @@ impl AnonymousTransferRecipientPlaintext {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: None,
             zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
             data: self.data,
         })
@@ -103,7 +102,6 @@ impl AnonymousTransferSenderPlaintext {
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
                 blinding: derive_blinding(&self.blinding_seed, 0),
-                program_id: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
                 data: self.spl_data,
             });
@@ -114,7 +112,6 @@ impl AnonymousTransferSenderPlaintext {
                 asset: SOL_MINT,
                 amount: self.sol_amount,
                 blinding: derive_blinding(&self.blinding_seed, 1),
-                program_id: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
                 data: self.sol_data,
             });

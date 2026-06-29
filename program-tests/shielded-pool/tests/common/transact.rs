@@ -191,7 +191,6 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
             args.utxo.amount,
             &args.utxo.blinding,
             &[0u8; 32],
-            &args.utxo.program_id,
             &[0u8; 32],
             &args.utxo.zone_program_id,
         )?,

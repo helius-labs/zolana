@@ -43,7 +43,7 @@ pub fn process_zone_authority_transact_ix(
 
     process_transact_core::<true, true>(
         &ix,
-        proof_inputs,
+        &mut proof_inputs,
         transact_accounts,
         clock.slot,
         ZONE_AUTHORITY_TRANSACT,

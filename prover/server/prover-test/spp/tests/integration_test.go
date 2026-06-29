@@ -119,7 +119,6 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 		Amount:        big.NewInt(5),
 		Blinding:      big.NewInt(23),
 		DataHash:      big.NewInt(0),
-		ProgramID:     big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
 		ZoneProgramID: big.NewInt(0),
 	}

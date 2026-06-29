@@ -22,7 +22,6 @@ fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
         asset: SOL_MINT,
         amount: 100,
         blinding: unique31(counter, 0xBB),
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     }
@@ -48,7 +47,6 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         asset: SOL_MINT,
         amount: 50,
         blinding: blinding_seed,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     }];
@@ -215,7 +213,6 @@ fn decrypt(c: &mut Criterion) {
             asset: SOL_MINT,
             amount: 100,
             blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         })

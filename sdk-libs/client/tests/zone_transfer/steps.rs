@@ -299,7 +299,6 @@ fn build_real_inputs(
             asset: SOL_MINT,
             amount: *amount,
             blinding: random_blinding(),
-            program_id: None,
             zone_program_id: Some(zone),
             data: Data::default(),
         };
@@ -346,7 +345,6 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
         asset: SOL_MINT,
         amount,
         blinding: random_blinding(),
-        program_id: None,
         zone_program_id: Some(zone_program()),
         zone_data_hash: None,
         program_data_hash: None,
@@ -372,7 +370,6 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

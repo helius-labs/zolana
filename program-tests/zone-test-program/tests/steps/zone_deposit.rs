@@ -90,7 +90,6 @@ impl ZoneLifecycleWorld {
             asset: SOL_MINT,
             amount,
             blinding: data.blinding,
-            program_id: None,
             zone_program_id: Some(zone),
             data: Data::default(),
         };

@@ -4,12 +4,9 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
 };
 
-use crate::instructions::{
-    settlement::{
-        validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
-        SettlementAccountsSol, SettlementAccountsSpl,
-    },
-    shared::{verify_cpi_signer, CPI_SIGNER_SEED},
+use crate::instructions::settlement::{
+    validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
+    SettlementAccountsSol, SettlementAccountsSpl,
 };
 
 pub struct TransactAccounts<'a> {
@@ -42,15 +39,8 @@ impl<'a> TransactAccounts<'a> {
         payer: &'a AccountView,
         tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
-        if let Some(signer) = ix.cpi_signer.as_ref() {
-            let account: &AccountView = iter.next_signer("cpi_signer")?;
-            verify_cpi_signer(
-                account.address(),
-                &signer.program_id,
-                signer.bump,
-                CPI_SIGNER_SEED,
-                ShieldedPoolError::UnauthorizedCaller,
-            )?;
+        if ix.cpi_signer.is_some() {
+            return Err(ShieldedPoolError::ProgramCpiSignerDisabled.into());
         }
 
         let mut spl_mint = None;

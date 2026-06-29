@@ -98,7 +98,6 @@ fn shield_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -216,7 +215,7 @@ fn shield_then_withdraw_sol() {
         &no_address_hashes(2),
         &external_data_hash,
     )
-        .expect("private tx hash");
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -305,7 +304,6 @@ fn shield_transfer_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -504,7 +502,6 @@ fn shield_transfer_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

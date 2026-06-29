@@ -338,37 +338,6 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
 
-# BDD program-governed transact scenarios over a fresh validator + Photon per
-# scenario (program-tests/cpi-test-program). Mirrors test-zone-validator but loads
-# the CPI-forwarding fixture program (cpi_test_program.so), which signs its
-# CPI-signer PDA when forwarding a transact to SPP. build-programs builds
-# cpi_test_program.so (and re-runs the build-sbf for it explicitly here for clarity);
-# the transact flow reads the user-registry record so that program must be co-loaded,
-# and the deposit/protocol-config setup uses the Squads smart account binary
-# (ensure-smart-account). The prover server persists; each cucumber scenario restarts
-# the validator + Photon via the `zolana` CLI. The CPI fixture program id is a fixed
-# constant the harness derives directly, so it needs no env export.
-test-cpi-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build-sbf --tools-version {{sbf-tools-version}} \
-      --sbf-out-dir target/deploy \
-      --manifest-path program-tests/cpi-test-program/Cargo.toml
-    eval "$(cargo run -q -p xtask -- program-ids)"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
-    export SHIELDED_POOL_PROGRAM_ID
-    export USER_REGISTRY_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p cpi-test-program --test cpi_lifecycle --release
-
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -428,7 +397,7 @@ build-spp-keys:
     prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
 
 publish-spp-keys-release:
-    prover/server/scripts/publish_keys_release.sh transfer-keys-v7 "$(pwd)/{{spp-keys-dir}}"
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v8 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     #!/usr/bin/env bash

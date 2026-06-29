@@ -8,19 +8,11 @@ pub struct ProoflessOutput {
     pub amount: u64,
     pub program_data_hash: Option<[u8; 32]>,
     pub program_data: Option<Vec<u8>>,
-    pub program_id: Option<[u8; 32]>,
     pub zone_program_id: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub zone_data: Option<Vec<u8>>,
 }
 
-/// Outer tag on each output's `data`. The bytes are always `[scheme_byte] ++
-/// body`; the tag only says how `body` is protected:
-/// - `Encrypted`: AEAD-style ciphertext (GCM / CTR), authenticated by tag or by
-///   the recomputed output commitment.
-/// - `VerifiablyEncrypted`: Poseidon-KDF + CTR ciphertext whose integrity comes
-///   from the proof (the merge rail), not an inline tag.
-/// - `Plaintext`: not encrypted (proofless, plaintext transfer).
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum OutputData {
     Plaintext(Vec<u8>),
@@ -35,7 +27,7 @@ impl OutputData {
 }
 
 pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
-    let mut blob = vec![0u8]; // proofless scheme byte
+    let mut blob = vec![0u8];
     data.serialize(&mut blob)
         .expect("shielded-pool output data serialization is infallible");
     borsh::to_vec(&OutputData::Plaintext(blob))

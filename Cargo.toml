@@ -19,7 +19,6 @@ members = [
     "programs/shielded-pool",
     "programs/user-registry",
     "program-tests/zone-test-program",
-    "program-tests/cpi-test-program",
     "bench/bloom-filter",
     "bench/tree",
     "cli",

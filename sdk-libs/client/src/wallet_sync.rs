@@ -437,7 +437,6 @@ mod tests {
             amount,
             program_data_hash: None,
             program_data: None,
-            program_id: None,
             zone_program_id: None,
             zone_data_hash: None,
             zone_data: None,

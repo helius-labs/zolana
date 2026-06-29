@@ -26,7 +26,6 @@ type Utxo struct {
 	Amount          frontend.Variable
 	Blinding        frontend.Variable
 	ProgramDataHash frontend.Variable
-	ProgramID       frontend.Variable
 	ZoneDataHash    frontend.Variable
 	ZoneProgramID   frontend.Variable
 }
@@ -40,7 +39,6 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.ProgramDataHash,
-		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	})
@@ -55,12 +53,9 @@ type PublicInputs struct {
 // PrivateTxHashCircuit proves the witnessed inputs and outputs fold, with the
 // external data hash, into the public PrivateTxHash.
 type PrivateTxHashCircuit struct {
-	Public  PublicInputs
-	Inputs  [NumInputs]Utxo
-	Outputs [NumOutputs]Utxo
-	// AddressHashes is the address category of private_tx_hash: the UTXO hash of
-	// each address slot the transaction creates (0 for a real spend), folded so the
-	// zone proof's private_tx_hash matches the SPP proof's.
+	Public           PublicInputs
+	Inputs           [NumInputs]Utxo
+	Outputs          [NumOutputs]Utxo
 	AddressHashes    [NumInputs]frontend.Variable
 	ExternalDataHash frontend.Variable
 }

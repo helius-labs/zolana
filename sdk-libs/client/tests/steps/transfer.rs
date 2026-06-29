@@ -79,7 +79,6 @@ impl TransferWorld {
                     asset: asset_addr(input.asset),
                     amount: input.amount,
                     blinding: random_blinding(&mut rng),
-                    program_id: None,
                     zone_program_id: None,
                     data: Data::default(),
                 };
@@ -142,7 +141,10 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover").circuit {
+        match zolana_client::into_prover(signed, &input_merkle_proofs)
+            .expect("into prover")
+            .circuit
+        {
             CircuitType::P256(prover) => {
                 assert_outputs(
                     &prover.outputs,
@@ -407,7 +409,6 @@ fn assert_outputs(
             },
             amount: send.amount,
             blinding: derive_blinding(&seed, 2 + i as u8),
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         })

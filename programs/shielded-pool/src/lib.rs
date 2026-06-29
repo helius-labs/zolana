@@ -18,11 +18,11 @@ use crate::instructions::{
     },
     transact::process_transact_ix,
     zone_authority_transact::process_zone_authority_transact_ix,
-    zone_transact::process_zone_transact_ix,
     zone_config::{
         create::process_create_zone_config, update::process_update_zone_config,
         update_owner::process_update_zone_config_owner,
     },
+    zone_transact::process_zone_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]

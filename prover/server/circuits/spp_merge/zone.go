@@ -6,13 +6,6 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction"
 )
 
-// ZoneCircuit is the policy-zone merge proof (merge_zone): the CPI analog of the
-// default merge for UTXOs owned by a policy zone. It runs the identical merge
-// logic, but every real input and the merged output must carry zone_program_id ==
-// ZoneProgramID (no zero exemption), so the proof consolidates only UTXOs already
-// owned by the CPI-calling zone and preserves that ownership on the output.
-// zone_data is left free for the zone program's own logic. ZoneProgramID is a
-// public input so SPP binds it from the calling zone_config.
 type ZoneCircuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -34,8 +27,6 @@ type ZoneCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-// NewMergeZoneCircuit builds the policy-zone merge circuit for the fixed
-// 8-in / 1-out shape.
 func NewMergeZoneCircuit() *ZoneCircuit {
 	c := &ZoneCircuit{
 		NumInputs: MergeInputs,

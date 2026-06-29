@@ -393,7 +393,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &no_address_hashes(2),
         &external_data_hash,
     )
-        .expect("private tx hash");
+    .expect("private tx hash");
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -464,7 +464,6 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -546,7 +545,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &no_address_hashes(2),
         &external_data_hash,
     )
-        .expect("private tx hash");
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -638,7 +637,6 @@ fn bench_withdrawal_spl(
         asset: solana_address::Address::new_from_array(mint.to_bytes()),
         amount: AMOUNT,
         blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -723,7 +721,7 @@ fn bench_withdrawal_spl(
         &no_address_hashes(2),
         &external_data_hash,
     )
-        .expect("private tx hash");
+    .expect("private tx hash");
     let public_spl_field = public_sol_field(transact_ix_data.public_spl_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 

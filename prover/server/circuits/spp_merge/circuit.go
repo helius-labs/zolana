@@ -47,11 +47,6 @@ type Output struct {
 	Hash frontend.Variable
 }
 
-// Circuit is the default-zone merge proof (merge_transact). The merged output is
-// always real (no dummy output slot). Ownership is uniform: every real input and
-// the output share user_owner_hash, recomputed in-circuit from the witnessed P256
-// signing point and the shared nullifier pubkey. Every UTXO's program and zone
-// fields are pinned to zero.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -80,8 +75,6 @@ type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-// NewMergeCircuit builds the default-zone merge circuit for the fixed 8-in / 1-out
-// shape.
 func NewMergeCircuit() *Circuit {
 	c := &Circuit{
 		NumInputs: MergeInputs,
@@ -94,9 +87,6 @@ func NewMergeCircuit() *Circuit {
 	return c
 }
 
-// Define runs the default-zone merge proof; see defineMerge for the steps. The
-// default variant pins every program/zone field to zero and does not commit a
-// zone_program_id.
 func (c *Circuit) Define(api frontend.API) error {
 	if err := validateLayout(c.NumInputs, c.Inputs); err != nil {
 		return err
@@ -122,9 +112,6 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-// mergeSignals carries every signal the shared merge proof body needs, so the
-// default-zone and policy-zone circuits run identical logic apart from the zone
-// binding selected by zone / zoneProgramID.
 type mergeSignals struct {
 	inputs              []Input
 	output              Output
@@ -136,24 +123,10 @@ type mergeSignals struct {
 	userViewingPubkey   [65]frontend.Variable
 	externalDataHash    frontend.Variable
 	privateTxHash       frontend.Variable
-	// zone selects the policy-zone variant (merge_zone): every real input and the
-	// output must carry zone_program_id == zoneProgramID, and zoneProgramID is
-	// appended to the public transcript. The default variant pins the zone fields
-	// to zero and leaves zoneProgramID out of the hash.
-	zone          bool
-	zoneProgramID frontend.Variable
+	zone                bool
+	zoneProgramID       frontend.Variable
 }
 
-// defineMerge runs the merge proof:
-//
-//  1. recompute user_owner_hash from the P256 point; pin the nullifier secret
-//  2. inputs: inclusion, ownership/asset uniformity, program/zone binding,
-//     nullifier derivation and non-inclusion, cleanliness (inputs.go)
-//  3. value conservation: sum(inputs) == output
-//  4. output: cleanliness, program/zone binding, owner binding, output hash (outputs.go)
-//  5. private_tx_hash
-//  6. verifiable encryption of the merged output (encryption.go)
-//  7. recompute the public input hash
 func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 	// Owner hash binding: user_owner_hash = OwnerHash(pk_field(signing_pk),
 	// user_nullifier_pk). The pk_field is recomputed from the witnessed P256
@@ -188,8 +161,6 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 
 	outputHash := constrainOutput(api, s.output, userOwnerHash, s.zone, s.zoneProgramID)
 
-	// Merge never creates addresses, so the address category is all zeros (one per
-	// input). private_tx_hash keeps the same shape as the transfer circuit.
 	addressHashes := make([]frontend.Variable, len(inputHashes))
 	for i := range addressHashes {
 		addressHashes[i] = frontend.Variable(0)
@@ -216,11 +187,6 @@ func defineMerge(api frontend.API, s mergeSignals) (frontend.Variable, error) {
 		return nil, err
 	}
 
-	// For the default merge, pkField (the hashed owner signing pubkey) and
-	// viewingPkField are public inputs so the owner identity is committed in the
-	// public transcript; together with the owner's own nullifier_pk that lets the
-	// owner recompute user_owner_hash without the owner being carried in the
-	// ciphertext. The policy-zone variant omits both (see mergePublicInputHash).
 	return mergePublicInputHash(api, s, outputHash, pkField, viewingPkField, ctHash, pkLo, pkHi), nil
 }
 
@@ -233,11 +199,6 @@ func mergePublicInputHash(api frontend.API, s mergeSignals, outputHash, userSign
 		s.privateTxHash,
 		s.externalDataHash,
 	}
-	// The default merge binds the owner identity from the user registry, so it
-	// commits the owner's signing and viewing pk_field. A policy zone has no
-	// registry to bind these against (SPP would have nothing to check them
-	// against), so the merge_zone variant omits both owner-identity fields and
-	// commits the zone identity instead.
 	if !s.zone {
 		fields = append(fields, userSigningPkHash, userViewingPkHash)
 	}

@@ -14,10 +14,6 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// TestMergeZoneCircuitProves checks a valid policy-zone merge witness: every real
-// input and the output carry the same non-zero zone_program_id, zone_data is free
-// (distinct per UTXO), and the public input hash commits zone_program_id as a 12th
-// element.
 func TestMergeZoneCircuitProves(t *testing.T) {
 	assignment := buildZoneWitness(t, big.NewInt(0x5A0E))
 	if err := test.IsSolved(merge.NewMergeZoneCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
@@ -25,24 +21,15 @@ func TestMergeZoneCircuitProves(t *testing.T) {
 	}
 }
 
-// TestMergeZoneCircuitRejectsDefaultZoneInput keeps the public ZoneProgramID but
-// zeroes one input's zone_program_id (a default-zone UTXO). The strict zone
-// binding has no zero exemption, so the solve must fail -- a zone merge cannot
-// consolidate a UTXO that does not belong to the calling zone.
 func TestMergeZoneCircuitRejectsDefaultZoneInput(t *testing.T) {
 	zoneProgramID := big.NewInt(0x5A0E)
 	a := buildZoneWitness(t, zoneProgramID)
 	a.Inputs[0].Utxo.ZoneProgramID = big.NewInt(0)
-	// Re-derive that input's utxo hash so only the zone binding fails, not inclusion.
-	// The state proof no longer matches, which is itself a failure; either way the
-	// witness must be rejected.
 	if err := test.IsSolved(merge.NewMergeZoneCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected zone-binding failure for default-zone input, got solved")
 	}
 }
 
-// buildZoneWitness assembles a solved 2-real-input policy-zone merge witness with
-// the given zone_program_id on every real input and the output.
 func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	t.Helper()
 	curve := elliptic.P256()
@@ -74,7 +61,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
-	// zone_data is free per UTXO; use distinct non-zero values to prove it is not pinned.
 	zoneData := []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)}
 
 	inUtxos := make([]protocol.Utxo, numReal)
@@ -88,7 +74,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			Amount:        amounts[i],
 			Blinding:      blindings[i],
 			DataHash:      big.NewInt(0),
-			ProgramID:     big.NewInt(0),
 			ZoneDataHash:  zoneData[i],
 			ZoneProgramID: zoneProgramID,
 		}
@@ -132,7 +117,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		Amount:        outAmount,
 		Blinding:      big.NewInt(0x3333),
 		DataHash:      big.NewInt(0),
-		ProgramID:     big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0xD2),
 		ZoneProgramID: zoneProgramID,
 	}
@@ -151,7 +135,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	// Merge creates no addresses: the address category is all zeros, one per input.
 	addressHashes := make([]*big.Int, merge.MergeInputs)
 	for i := range addressHashes {
 		addressHashes[i] = big.NewInt(0)
@@ -177,9 +160,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 		pubNfRoots[i] = nfRoot
 	}
 
-	// Policy-zone public input hash: like the default merge but with the owner
-	// signing/viewing pk_field omitted (no registry binds them in a policy zone)
-	// and zone_program_id appended.
 	publicInputHash := hashChain(t, []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
@@ -232,7 +212,6 @@ func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
 				Amount:        big.NewInt(0),
 				Blinding:      big.NewInt(0),
 				DataHash:      big.NewInt(0),
-				ProgramID:     big.NewInt(0),
 				ZoneDataHash:  big.NewInt(0),
 				ZoneProgramID: big.NewInt(0),
 			})

@@ -151,6 +151,7 @@ impl LifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                program_owner: None,
             });
         }
 
@@ -163,7 +164,6 @@ impl LifecycleWorld {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
-                program_id: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -173,6 +173,7 @@ impl LifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                program_owner: None,
             });
         }
 
@@ -184,12 +185,12 @@ impl LifecycleWorld {
             asset,
             amount: total,
             blinding: output_blinding,
-            program_id: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
             owner_tag: None,
             program_owner: None,
+            data: Data::default(),
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

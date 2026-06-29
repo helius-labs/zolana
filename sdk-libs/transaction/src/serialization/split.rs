@@ -66,7 +66,6 @@ impl SplitBundlePlaintext {
                 asset,
                 amount: self.asset_amount,
                 blinding: derive_blinding(&self.blinding_seed, i),
-                program_id: None,
                 zone_program_id,
                 data: self.data.clone(),
             })

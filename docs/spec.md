@@ -474,8 +474,6 @@ struct Utxo {
     /// Arbitrary program data; only on a program-owned UTXO (`owner` is the
     /// program). The governing program is the `owner`.
     program_data: Option<Vec<u8>>,
-    /// Unused; program identity is the `owner`. Pinned to 0.
-    program_id: Option<Address>,
     /// Arbitrary zone data.
     zone_data: Option<Vec<u8>>,
     /// The zone program that authorizes spends of this UTXO.
@@ -487,16 +485,15 @@ struct Utxo {
 
 ```
 utxo_hash = Poseidon(domain, asset, amount,
-                     program_hash, zone_hash, owner_utxo_hash)
+                     program_data_hash, zone_hash, owner_utxo_hash)
 
-program_hash    = Poseidon(program_data_hash, pk_field(program_id))
 zone_hash       = Poseidon(zone_data_hash, pk_field(zone_program_id))
 owner_utxo_hash = Poseidon(owner, blinding)
 ```
 
-The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `program_id` and `zone_program_id` use `pk_field` (see [Shielded Address](#shielded-address)). An absent `program_id` / `zone_program_id` is `0` (not `pk_field(0)`), so a UTXO with neither set keeps `program_hash` / `zone_hash` over a `0` program field.
+The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `zone_program_id` uses `pk_field` (see [Shielded Address](#shielded-address)). An absent `zone_program_id` is `0` (not `pk_field(0)`), so a UTXO without one keeps `zone_hash` over a `0` program field. `program_data_hash` enters `utxo_hash` directly and is `0` when absent.
 
-A UTXO is **program-owned** when its `owner` is a program's `pk_field` (the authenticated CPI caller's `program_id`) rather than a user `owner_hash`; otherwise it is user-owned. Program data lives only on program-owned UTXOs -- the data binds to its program through `owner` in `owner_utxo_hash`, so a blob cannot be reused under a different program -- and a user-owned UTXO carries none. The standalone `program_id` field is unused (`0`); program identity is the owner. `zone_hash` pairs `zone_data_hash` with the authorizing zone program, and a non-zero `zone_data_hash` requires a non-zero `zone_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `proofless_shield` deposit instead sends `owner` and `blinding` in the clear and the program recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
+A UTXO is **program-owned** when its `owner` is a program's `pk_field` (the authenticated CPI caller's `program_id`) rather than a user `owner_hash`; otherwise it is user-owned. Program data lives only on program-owned UTXOs -- the data binds to its program through `owner` in `owner_utxo_hash`, so a blob cannot be reused under a different program -- and a user-owned UTXO carries none. Program identity is the owner; there is no standalone per-UTXO program id. `zone_hash` pairs `zone_data_hash` with the authorizing zone program, and a non-zero `zone_data_hash` requires a non-zero `zone_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `proofless_shield` deposit instead sends `owner` and `blinding` in the clear and the program recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
 
 ## Nullifier
 
@@ -885,7 +882,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | --- | --- |
 | owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
-| `blinding`, `asset`, `amount`, `program_data_hash`, `program_id`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
+| `blinding`, `asset`, `amount`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
 | `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519). The proof checks it against the public `private_tx_hash_digest`; the SHA-256 that produces that digest is computed outside the circuit (see [UTXO Ownership Check](#utxo-ownership-check)). |
 
@@ -894,7 +891,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | Input | Description |
 | --- | --- |
 | `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components. The confidential variant additionally witnesses the owner's signing and nullifier pubkeys to recompute `owner_hash` and expose the signing pubkey as the public tag. |
-| `asset`, `amount`, `blinding`, `program_data_hash`, `program_id`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
+| `asset`, `amount`, `blinding`, `program_data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
 
@@ -953,7 +950,7 @@ Each circuit is instantiated twice: 1. P256 & Ed25519 (Solana) 2. Ed25519 (Solan
 
 Each is instantiated again on an owner-tag axis: a confidential variant that exposes each output owner's signing pubkey (the ciphertext `owner` tag) and recomputes the output `owner_hash` from it, and an anonymous variant that leaves `owner` unconstrained so a policy zone can place a view tag there. Instruction data selects the variant; the default zone always uses the confidential variant.
 
-A third axis selects a zone-capable instantiation at compile time. The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `program_id` and `zone_program_id` when those are set: a UTXO whose `program_id` is non-zero must equal the public `program_id`, while a bare UTXO with `program_id = 0` is exempt. The `program_id` binding applies in both variants; only the `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
+A third axis selects a zone-capable instantiation at compile time. The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant; program-ownership binding (`owner == program_id`) applies in both variants. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
 
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
@@ -1037,9 +1034,9 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | Nullifier secret binding | The recomputed `nullifier_pk` (see [Nullifier Key](#nullifier-key)) must equal `user_nullifier_pk`. Together with the Owner hash binding, this pins `nullifier_secret` per UTXO. |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
-| Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0` and `program_id = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_zone`. |
+| Input cleanliness — `program_data_hash` | For each non-dummy input UTXO: `program_data_hash = 0`. UTXOs with program data are not mergeable; the zk program that set `program_data` consumes them through its own `transact`-style flow. Applies to both `merge_transact` and `merge_zone`. |
 | Input cleanliness — zone fields | For `merge_transact` (default-zone merge service): each non-dummy input UTXO additionally has `zone_program_id = 0` and `zone_data_hash = 0`. For [`merge_zone`](#merge_zone) (policy-CPI merge): the non-dummy inputs share a `zone_program_id` that matches the CPI caller; `zone_data` is constrained by the zone program's own logic, not by SPP. |
-| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`, `program_id = 0`. For `merge_transact`: `zone_program_id = 0` and `zone_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `zone_data` is the value the zone program sets (constrained by its own proof). |
+| Output well-formed | The output UTXO hash matches the public `output_utxo_hash`; output `owner = user_owner_hash`, `program_data_hash = 0`. For `merge_transact`: `zone_program_id = 0` and `zone_data_hash = 0`. For `merge_zone`: `zone_program_id` matches the CPI caller and `zone_data` is the value the zone program sets (constrained by its own proof). |
 | Private transaction hash | `private_tx_hash` as defined in [SPP Proof](#spp-proof---solana-privacy-zk-proof). It covers every input, the output, and the external-data hash, so the proof cannot be replayed with different state. |
 | Plaintext binding | `Poseidon(plaintext) == output_utxo_hash`. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G_P256`. |
@@ -1424,7 +1421,7 @@ the instruction data. It is not derived; the recipient reads it back from the
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
 3. `program_data_hash` and `program_data` are `Some` only if `cpi_signer` is `Some`. When `program_data_hash`/`program_data` are set, validate `cpi_signer`: `cpi_signer` account is a signer and its pda derivation matches seed `["auth"]` with the supplied `program_id` and `bump`.
-4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `program_id` and `zone_program_id` from `cpi_signer` or `0`, `zone_data_hash` is `0`.
+4. Compute `owner_utxo_hash = Poseidon(owner_hash, blinding)`, then the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` from instruction data or `0`, `zone_program_id` from `cpi_signer` or `0`, `zone_data_hash` is `0`.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1453,7 +1450,6 @@ GeneralEvent {
             amount,
             program_data_hash,
             program_data,
-            program_id,
             zone_program_id,
             zone_data_hash,
             zone_data,
@@ -1470,7 +1466,7 @@ GeneralEvent {
 }
 ```
 
-`program_data_hash`, `program_data`, `program_id`, and `zone_program_id` are set
+`program_data_hash`, `program_data`, and `zone_program_id` are set
 for program-owned deposits (`cpi_signer` present), else `None`/`0`. `zone_data_hash`
 and `zone_data` are set only by [`zone_proofless_shield`](#zone_proofless_shield).
 As in [`merge_zone`](#merge_zone), `program_data` is constrained by the invoking
@@ -1542,8 +1538,6 @@ struct ProoflessOutput {
     /// Set for program-owned deposits (`cpi_signer` present).
     program_data_hash: Option<[u8; 32]>,
     program_data: Option<Vec<u8>>,
-    /// Program that governs `program_data`; see [UTXO Hash](#utxo-hash).
-    program_id: Option<Address>,
     zone_program_id: Option<Address>,
     /// Set only by [`zone_proofless_shield`](#zone_proofless_shield).
     zone_data_hash: Option<[u8; 32]>,
@@ -1603,10 +1597,10 @@ struct ZoneProoflessShieldIxData {
 1. `tree_account` is not paused.
 2. Exactly one of `public_sol_amount` / `public_spl_amount` is `Some`.
 3. The `zone_config` account must sign; SPP loads it by owner + discriminator (see [Zone Accounts](#zone-accounts)).
-4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `zone_data_hash` from instruction data or `0`, `zone_program_id` from `zone_config.program_id`, `program_id` from the program tier or `0`, `owner_utxo_hash` from instruction data.
+4. Compute the [UTXO hash](#utxo-hash): `asset` and `amount` from the deposit (`asset` is the mint pubkey, SOL: `Address::default()`), `program_data_hash` and `zone_data_hash` from instruction data or `0`, `zone_program_id` from `zone_config.program_id`, `owner_utxo_hash` from instruction data.
 5. Append the hash to the UTXO tree.
 6. Transfer the deposit: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
-7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `OutputData::Proofless` payload carrying `program_id`, `zone_program_id`, `zone_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
+7. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, as in [`proofless_shield`](#proofless_shield) but with the output's `OutputData::Proofless` payload carrying `zone_program_id`, `zone_data_hash`, `program_data_hash`, `program_data`, and `zone_data`.
 
 ### `merge_transact`
 
@@ -1699,7 +1693,7 @@ cleanliness and output-well-formed rules.
 
 1. The `zone_config` account (account #2) must sign; SPP loads it by owner + discriminator and reads its `program_id`.
 2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale; `tree_account` is not paused (`merge_transact` checks 1–3). Authorization is the zone program's responsibility; SPP does not check `protocol_config.merge_authorities` here.
-3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = `zone_config.program_id`; output preserves it; `program_data_hash = 0` and `program_id = 0` on every non-dummy input and on the output).
+3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = `zone_config.program_id`; output preserves it; `program_data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 5. Insert each input nullifier into the nullifier queue.
 6. Insert `merge_view_tag` into the nullifier queue, single-use (rejects on duplicate).
