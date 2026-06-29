@@ -49,7 +49,11 @@ impl TransferRecipientPlaintext {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
+            // The plaintext carries the program Address (`self.program_id`), not the
+            // derived `address` field element. For a program-owned reuse the caller
+            // must derive `address` via `utxo::address(tree_pubkey, program_data_hash)`
+            // once the address tree is known and set it before hashing.
+            address: None,
             zone_program_id: self.zone_program_id,
             data: self.data,
         })
@@ -102,7 +106,7 @@ impl TransferSenderPlaintext {
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
                 blinding: derive_blinding(&self.blinding_seed, 0),
-                program_id: None,
+                address: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
                 data: self.spl_data,
             });
@@ -113,7 +117,7 @@ impl TransferSenderPlaintext {
                 asset: SOL_MINT,
                 amount: self.sol_amount,
                 blinding: derive_blinding(&self.blinding_seed, 1),
-                program_id: None,
+                address: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
                 data: self.sol_data,
             });
@@ -164,7 +168,10 @@ impl UtxoSerialization for ConfidentialRecipient {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
             blinding: first.blinding,
-            program_id: first.program_id,
+            // `Utxo` carries the derived `address` field element, not the program
+            // Address; program-owned plaintexts are built by the builder's
+            // program-owned output path, not via this reverse helper.
+            program_id: None,
             zone_program_id: first.zone_program_id,
             data: first.data.clone(),
         })

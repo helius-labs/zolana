@@ -45,7 +45,6 @@ impl ZoneLifecycleWorld {
             public_amount: Some(amount),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
         })
     }
 
@@ -74,7 +73,6 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
         }
         .instruction()
         .map_err(|e| anyhow!("zone deposit ix: {e}"))?;
@@ -90,7 +88,7 @@ impl ZoneLifecycleWorld {
             asset: SOL_MINT,
             amount,
             blinding: data.blinding,
-            program_id: None,
+            address: None,
             zone_program_id: Some(zone),
             data: Data::default(),
         };
@@ -144,7 +142,6 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
         }
         .instruction()
         .map_err(|e| anyhow!("zone SPL deposit ix: {e}"))?;
@@ -229,7 +226,6 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
         }
         .cpi_instruction()
         .map_err(|e| anyhow!("zone deposit cpi ix: {e}"))?;

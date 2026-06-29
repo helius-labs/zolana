@@ -14,19 +14,38 @@ import (
 
 // An address slot is a dummy input whose program_data_hash (the seed) is set. It
 // does not spend a prior commitment; its nullifier is a program-owned address
-// derived as Poseidon(utxoHash, 0, 0) with owner = program_id and every non-seed
-// field pinned, so the address is f(program_id, seed) exactly.
+// derived as Poseidon(AddressDomain, program_id, address_tree_pubkey, seed) with
+// owner = program_id and every non-seed field pinned. The derived address is
+// committed into program_hash = Poseidon(address, seed), so the slot's utxo_hash
+// binds it.
 
-func addressNullifier(t testing.TB, fields UtxoCircuitFields) *big.Int {
+// defaultAddressTreePubkey is the sha256_be(address_tree_pubkey) field element the
+// address tests feed AddressGadget. A single field element (sha256_be is computed
+// off-circuit), non-zero so a zero regression is observable.
+func defaultAddressTreePubkey() *big.Int { return big.NewInt(0x1111) }
+
+// deriveAddress mirrors the circuit AddressGadget: Poseidon(AddressDomain,
+// program_id, address_tree_pubkey, seed).
+func deriveAddress(t testing.TB, programID, treePubkey, seed *big.Int) *big.Int {
 	t.Helper()
-	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(fields))
-	return spptest.MustNullifier(t, utxoHash, big.NewInt(0), big.NewInt(0))
+	return spptest.MustPoseidon(t, 5, []*big.Int{
+		spptest.Fe(protocol.AddressDomain),
+		programID,
+		treePubkey,
+		seed,
+	})
 }
 
 // makeAddressSlot rewrites input idx into a valid address slot owned by
-// programID with the given seed. Callers must finalize the assignment afterwards.
+// programID with the given seed, deriving the address from programID and the
+// assignment's address-tree pubkey field. Callers must finalize the assignment
+// afterwards.
 func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, programID, seed *big.Int) {
 	t.Helper()
+	treePubkey := defaultAddressTreePubkey()
+	assignment.AddressTreePubkeyField = treePubkey
+	address := deriveAddress(t, programID, treePubkey, seed)
+
 	in := &assignment.Inputs[idx]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Domain = spptest.Fe(protocol.UtxoDomain)
@@ -35,11 +54,11 @@ func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, programID, seed
 	in.Utxo.Amount = spptest.Fe(0)
 	in.Utxo.Blinding = spptest.Fe(0)
 	in.Utxo.DataHash = seed
-	in.Utxo.ProgramID = spptest.Fe(0)
+	in.Utxo.Address = address
 	in.Utxo.ZoneDataHash = spptest.Fe(0)
 	in.Utxo.ZoneProgramID = spptest.Fe(0)
 	in.NullifierSecret = spptest.Fe(0)
-	in.Nullifier = addressNullifier(t, in.Utxo)
+	in.Nullifier = address
 	assignment.ProgramID = programID
 }
 
@@ -162,9 +181,10 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 }
 
 // TestAddressSlotRejectsWrongOwner pins owner == program_id: an address owned by
-// anything other than the public program_id (with a nullifier recomputed to match
-// so only the owner binding fails) is rejected. This is the program-exclusivity
-// constraint.
+// anything other than the public program_id is rejected. The address (and thus
+// the nullifier) is derived from (program_id, tree_pubkey, seed), and program_id
+// stays the slot's, so changing only the slot owner leaves the nullifier valid
+// and isolates the owner binding. Program-exclusivity.
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -172,7 +192,6 @@ func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assignment, _, _ := buildZoneAddressAssignment(t)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x77)
-	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -189,14 +208,14 @@ func TestAddressSlotRejectsZeroProgramID(t *testing.T) {
 
 	assignment.ProgramID = spptest.Fe(0)
 	assignment.Inputs[0].Utxo.Owner = spptest.Fe(0)
-	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 // TestAddressSlotRejectsWrongNullifier pins the address derivation: the public
-// nullifier must equal Poseidon(utxoHash, 0, 0).
+// nullifier must equal the derived address Poseidon(AddressDomain, program_id,
+// address_tree_pubkey, seed).
 func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -209,9 +228,58 @@ func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
-// TestAddressSlotRejectsUnpinnedField pins the PDA-determinism constraints: a
-// non-zero value in any non-seed field (with the nullifier recomputed to match,
-// so only the pin fails) breaks the f(program_id, seed) guarantee and is rejected.
+// TestAddressSlotRejectsWrongTreePubkey pins the address to the address-tree
+// pubkey: a slot whose nullifier was derived under a different tree pubkey does
+// not match the address the circuit re-derives from the witnessed field.
+func TestAddressSlotRejectsWrongTreePubkey(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment, programID, seed := buildZoneAddressAssignment(t)
+
+	// Re-derive the nullifier under a different tree pubkey but leave the witnessed
+	// field as the slot's; the circuit derives from the witnessed field and rejects.
+	assignment.Inputs[0].Nullifier = deriveAddress(t, programID, big.NewInt(0x9999), seed)
+	finalizeAddressAssignment(t, assignment, true, false)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// TestAddressSlotRejectsZeroTreePubkey pins a non-zero tree pubkey for a real
+// address: zeroing the witnessed field re-derives a different address than the
+// slot's nullifier (derived under the real tree pubkey).
+func TestAddressSlotRejectsZeroTreePubkey(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment, _, _ := buildZoneAddressAssignment(t)
+
+	assignment.AddressTreePubkeyField = spptest.Fe(0)
+	finalizeAddressAssignment(t, assignment, true, false)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// TestAddressSlotRejectsWrongProgramId pins the address to the owning program: a
+// slot whose nullifier was derived under a different program_id is rejected. The
+// slot owner still equals the public program_id, so owner binding passes and this
+// isolates the program-id component of the address derivation.
+func TestAddressSlotRejectsWrongProgramId(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCircuit(Shape(shape))
+	assignment, _, seed := buildZoneAddressAssignment(t)
+
+	assignment.Inputs[0].Nullifier = deriveAddress(t, big.NewInt(0x7777), defaultAddressTreePubkey(), seed)
+	finalizeAddressAssignment(t, assignment, true, false)
+
+	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+// TestAddressSlotRejectsUnpinnedField pins the determinism constraints: a
+// non-zero value in any non-seed field breaks the f(tpk, seed) guarantee and is
+// rejected. The address/nullifier is independent of these fields, so it stays
+// valid and isolates the pin.
 func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 	cases := []struct {
 		name string
@@ -219,7 +287,6 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 	}{
 		{"blinding", func(in *Input) { in.Utxo.Blinding = spptest.Fe(5) }},
 		{"asset", func(in *Input) { in.Utxo.Asset = spptest.Fe(5) }},
-		{"program_id_field", func(in *Input) { in.Utxo.ProgramID = spptest.Fe(5) }},
 		{"zone_data_hash", func(in *Input) { in.Utxo.ZoneDataHash = spptest.Fe(5) }},
 		{"zone_program_id", func(in *Input) { in.Utxo.ZoneProgramID = spptest.Fe(5) }},
 		{"domain", func(in *Input) { in.Utxo.Domain = spptest.Fe(2) }},
@@ -233,7 +300,6 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 			assignment, _, _ := buildZoneAddressAssignment(t)
 
 			tc.set(&assignment.Inputs[0])
-			assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
 			finalizeAddressAssignment(t, assignment, true, false)
 
 			assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -241,19 +307,16 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 	}
 }
 
-// TestAddressSlotRejectsNonZeroSecret pins nullifier_secret == 0: the address must
-// not depend on a spender secret (recompute the nullifier with the non-zero secret
-// so only the pin fails).
+// TestAddressSlotRejectsNonZeroSecret pins nullifier_secret == 0: the address
+// must not depend on a spender secret. The nullifier stays the derived address,
+// isolating the pin.
 func TestAddressSlotRejectsNonZeroSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCircuit(Shape(shape))
 	assignment, _, _ := buildZoneAddressAssignment(t)
 
-	in := &assignment.Inputs[0]
-	in.NullifierSecret = spptest.Fe(5)
-	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
-	in.Nullifier = spptest.MustNullifier(t, utxoHash, big.NewInt(0), big.NewInt(5))
+	assignment.Inputs[0].NullifierSecret = spptest.Fe(5)
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))

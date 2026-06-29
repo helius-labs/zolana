@@ -79,7 +79,7 @@ impl TransferWorld {
                     asset: asset_addr(input.asset),
                     amount: input.amount,
                     blinding: random_blinding(&mut rng),
-                    program_id: None,
+                    address: None,
                     zone_program_id: None,
                     data: Data::default(),
                 };

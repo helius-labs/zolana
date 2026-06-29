@@ -37,15 +37,13 @@ impl UtxoSerialization for Proofless {
         if let Some(zone_data) = output.zone_data {
             records.push(DataRecord::ZoneData(zone_data));
         }
-        if let Some(program_data) = output.program_data {
-            records.push(DataRecord::ProgramData(program_data));
-        }
         Ok(vec![Utxo {
             owner: cx.owner,
             asset: Address::new_from_array(output.asset),
             amount: output.amount,
             blinding: output.blinding,
-            program_id: output.program_id.map(Address::new_from_array),
+            // Proofless cannot create a persistent address (contract section 10).
+            address: None,
             zone_program_id: output.zone_program_id.map(Address::new_from_array),
             data: Data::new(records),
         }])
@@ -62,9 +60,6 @@ impl UtxoSerialization for Proofless {
             blinding: utxo.blinding,
             asset: utxo.asset.to_bytes(),
             amount: utxo.amount,
-            program_data_hash: cx.program_data_hash,
-            program_data: utxo.data.program_data().map(<[u8]>::to_vec),
-            program_id: utxo.program_id.map(|address| address.to_bytes()),
             zone_program_id: utxo.zone_program_id.map(|address| address.to_bytes()),
             zone_data_hash: cx.zone_data_hash,
             zone_data: utxo.data.zone_data().map(<[u8]>::to_vec),

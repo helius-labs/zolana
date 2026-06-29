@@ -17,6 +17,7 @@ var publicInputNames = [...]string{
 	"public_spl_amount",
 	"public_spl_asset_pubkey",
 	"program_id",
+	"address_tree_pubkey",
 	"zone_program_id",
 	"payer_pubkey_hash",
 	"input_owner_pk_hashes",
@@ -41,9 +42,13 @@ type PublicInputs struct {
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
 	ProgramID            *big.Int
-	ZoneProgramID        *big.Int
-	PayerPubkeyHash      *big.Int
-	InputOwnerPkHashes   []*big.Int
+	// AddressTreePubkeyField is sha256_be(address_tree_pubkey), a single field
+	// element placed right after program_id. 0 when the transaction has no
+	// program-owned UTXOs. Address per-program namespacing reuses ProgramID.
+	AddressTreePubkeyField *big.Int
+	ZoneProgramID          *big.Int
+	PayerPubkeyHash        *big.Int
+	InputOwnerPkHashes     []*big.Int
 
 	// Confidential appends the output owner tag chain and the shared P256 signing
 	// key's pk_field to the preimage (see spec circuit-variants).
@@ -86,6 +91,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
 		inputs.ProgramID,
+		inputs.AddressTreePubkeyField,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
 	}

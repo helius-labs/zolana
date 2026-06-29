@@ -292,9 +292,16 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 	// notDummy and so are ignored.
 	in := &assignment.Inputs[0]
 	in.IsDummy = spptest.Fe(1)
-	in.Utxo.Amount = spptest.Fe(0)
-	// A padding dummy (no program_data_hash) is owner 0: permanently unspendable.
+	// A padding dummy is the canonical empty UTXO: every field zero except
+	// blinding. (Owner 0 makes it permanently unspendable.)
+	in.Utxo.Domain = spptest.Fe(0)
 	in.Utxo.Owner = spptest.Fe(0)
+	in.Utxo.Asset = spptest.Fe(0)
+	in.Utxo.Amount = spptest.Fe(0)
+	in.Utxo.DataHash = spptest.Fe(0)
+	in.Utxo.Address = spptest.Fe(0)
+	in.Utxo.ZoneDataHash = spptest.Fe(0)
+	in.Utxo.ZoneProgramID = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
 	in.NullifierTreeRoot = spptest.Fe(0)
 	in.Nullifier = spptest.Fe(0)

@@ -374,8 +374,18 @@ impl Transaction {
                 .ok_or(TransactionError::MissingOutput)?;
             let asset_id = self.asset_id(assets, &output.asset)?;
             recipient_viewing_pks.push(address.viewing_pubkey);
+            // A program-owned output is discovered by its persistent address: the
+            // ciphertext (hence the indexed event) is tagged with the address, not the
+            // recipient's view tag. User-owned outputs keep the view-tag path.
+            let view_tag = if output.program_owner.is_some() {
+                output
+                    .ciphertext_owner_tag()
+                    .ok_or(TransactionError::MissingProgramAddress)?
+            } else {
+                address.signing_pubkey.confidential_view_tag()?
+            };
             recipients.push(PreparedRecipient {
-                view_tag: address.signing_pubkey.confidential_view_tag()?,
+                view_tag,
                 recipient_pubkey: address.viewing_pubkey,
                 plaintext: TransferRecipientPlaintext {
                     asset_id,
@@ -688,7 +698,7 @@ fn dummy_ciphertext_len(
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };

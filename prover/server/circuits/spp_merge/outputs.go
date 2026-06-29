@@ -21,7 +21,7 @@ func constrainOutput(api frontend.API, out Output, userOwnerHash frontend.Variab
 
 	// Output cleanliness / zone binding.
 	api.AssertIsEqual(out.Utxo.DataHash, 0)
-	api.AssertIsEqual(out.Utxo.ProgramID, 0)
+	api.AssertIsEqual(out.Utxo.Address, 0)
 	if zone {
 		api.AssertIsEqual(out.Utxo.ZoneProgramID, zoneProgramID)
 	} else {

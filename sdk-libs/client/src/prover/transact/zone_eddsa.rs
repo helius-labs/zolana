@@ -14,7 +14,7 @@
 //! `p256_signing_pk_field`.
 
 use solana_address::Address;
-use zolana_keypair::hash::hash_field;
+use zolana_keypair::hash::{hash_field, split_be_128};
 use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     utxo::program_id_field,
@@ -79,6 +79,7 @@ impl ZoneTransferProver {
         // binds each non-dummy UTXO's zone field to this public input.
         let program_id = program_id_field(&self.program_id)?;
         let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let (atp_low, atp_high) = split_be_128(&assembled_inputs.address_tree_pubkey_sha256be);
 
         // Zone eddsa-rail public-input layout: the 14-element base chain
         // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 13
@@ -98,6 +99,7 @@ impl ZoneTransferProver {
             self.public_amounts.spl,
             self.public_amounts.asset,
             program_id,
+            hash_field(&assembled_inputs.address_tree_pubkey_sha256be)?,
             zone_program_id,
             self.payer_pubkey_hash,
             hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
@@ -114,6 +116,8 @@ impl ZoneTransferProver {
             program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            address_tree_pubkey_low: be(&atp_low),
+            address_tree_pubkey_high: be(&atp_high),
             public_input_hash: be(&public_input),
         };
 

@@ -98,6 +98,7 @@ pub fn public_input_hash_spl(
         *public_spl_amount,
         hash_field(mint).expect("public spl asset pubkey"),
         zero, // program_id
+        hash_field(&zero).expect("address tree pubkey field"),
         zero, // zone_program_id
         *payer_pubkey_hash,
         hash_chain(input_owner_pk_hashes).expect("input owner chain"),
@@ -127,6 +128,8 @@ pub fn build_transfer_prover_inputs_spl(
         program_id: be(&zero),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
+        address_tree_pubkey_low: be(&zero),
+        address_tree_pubkey_high: be(&zero),
         public_input_hash: be(&args.public_input_hash),
     }
 }
@@ -191,7 +194,7 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
             args.utxo.amount,
             &args.utxo.blinding,
             &[0u8; 32],
-            &args.utxo.program_id,
+            &args.utxo.address.unwrap_or_default(),
             &[0u8; 32],
             &args.utxo.zone_program_id,
         )?,

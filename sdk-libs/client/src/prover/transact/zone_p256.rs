@@ -111,11 +111,13 @@ impl ZoneTransferP256Prover {
             self.public_amounts.spl,
             self.public_amounts.asset,
             program_id,
+            hash_field(&assembled_inputs.address_tree_pubkey_sha256be)?,
             zone_program_id,
             self.payer_pubkey_hash,
             hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
         ])?;
 
+        let (atp_low, atp_high) = split_be_128(&assembled_inputs.address_tree_pubkey_sha256be);
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
@@ -133,6 +135,8 @@ impl ZoneTransferP256Prover {
             program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            address_tree_pubkey_low: be(&atp_low),
+            address_tree_pubkey_high: be(&atp_high),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };

@@ -24,7 +24,6 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program.clone(),
         }
         .instruction()?;
         self.send_deposit_ix(ix, depositor)
@@ -51,7 +50,6 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program.clone(),
         }
         .instruction()?;
         self.send_deposit_ix(ix, depositor)
@@ -71,7 +69,6 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program.clone(),
         }
         .instruction()?;
         ix.program_id = self.program_id;

@@ -1,9 +1,8 @@
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_keypair::hash::split_be_128;
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::program_id_field,
-    ExternalData, OutputUtxo,
+    instructions::transact::private_tx_hash, utxo::program_id_field, ExternalData, OutputUtxo,
 };
 
 use crate::{
@@ -52,7 +51,7 @@ impl TransferProver {
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
+            &assembled_inputs.address_hashes,
             &external_data_hash,
         )?;
         let p256_message_hash = [0u8; 32];
@@ -67,6 +66,7 @@ impl TransferProver {
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
             program_id: &program_id,
+            address_tree_pubkey_sha256be: &assembled_inputs.address_tree_pubkey_sha256be,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
@@ -75,6 +75,7 @@ impl TransferProver {
         }
         .hash()?;
 
+        let (atp_low, atp_high) = split_be_128(&assembled_inputs.address_tree_pubkey_sha256be);
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
@@ -86,6 +87,8 @@ impl TransferProver {
             program_id: be(&program_id),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            address_tree_pubkey_low: be(&atp_low),
+            address_tree_pubkey_high: be(&atp_high),
             public_input_hash: be(&public_input),
         };
 

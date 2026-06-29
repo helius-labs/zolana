@@ -59,7 +59,6 @@ impl Deposit {
                 owner,
                 blinding,
                 public_amount: Some(request.amount),
-                program: None,
             },
             utxo_hash,
             asset: request.asset,
@@ -127,10 +126,9 @@ fn deposit_instruction(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program: data.program.clone(),
     }
     .instruction()
-    .expect("deposit instruction is infallible without a program signer")
+    .expect("deposit instruction is infallible")
 }
 
 fn spl_accounts(
@@ -190,7 +188,6 @@ mod tests {
             owner: [2u8; 32],
             blinding: [3u8; 31],
             public_amount: Some(1_000),
-            program: None,
         };
 
         deposit(&rpc, &payer, tree, &depositor, None, &data).expect("action");
@@ -204,7 +201,6 @@ mod tests {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program.clone(),
         }
         .instruction()
         .expect("instruction");

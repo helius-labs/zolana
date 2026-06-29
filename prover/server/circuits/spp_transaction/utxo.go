@@ -8,13 +8,16 @@ import (
 )
 
 type UtxoCircuitFields struct {
-	Domain        frontend.Variable
-	Owner         frontend.Variable
-	Asset         frontend.Variable
-	Amount        frontend.Variable
-	Blinding      frontend.Variable
-	DataHash      frontend.Variable
-	ProgramID     frontend.Variable
+	Domain   frontend.Variable
+	Owner    frontend.Variable
+	Asset    frontend.Variable
+	Amount   frontend.Variable
+	Blinding frontend.Variable
+	DataHash frontend.Variable
+	// Address is the program-owned address committed into program_hash. It is the
+	// derived address on an address slot and the witnessed (state-tree-proven)
+	// address on a program-owned reuse spend; pinned 0 on user-owned UTXOs.
+	Address       frontend.Variable
 	ZoneDataHash  frontend.Variable
 	ZoneProgramID frontend.Variable
 }
@@ -24,7 +27,7 @@ type UtxoCircuitFields struct {
 // input (step 4.1) and output (step 5.1) utxo hashes.
 func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	ownerUtxoHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.Owner, u.Blinding})
-	programHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.DataHash, u.ProgramID})
+	programHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.Address, u.DataHash})
 	zoneHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.ZoneDataHash, u.ZoneProgramID})
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
 		u.Domain,

@@ -1,14 +1,15 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+/// Wallet-discovery payload for a proofless deposit output. A proofless deposit
+/// carries no program data and cannot create an address, so the program-data
+/// fields are absent; only the zone side (read from the `ZoneConfig` account)
+/// contributes a data commitment.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessOutput {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub asset: [u8; 32],
     pub amount: u64,
-    pub program_data_hash: Option<[u8; 32]>,
-    pub program_data: Option<Vec<u8>>,
-    pub program_id: Option<[u8; 32]>,
     pub zone_program_id: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub zone_data: Option<Vec<u8>>,

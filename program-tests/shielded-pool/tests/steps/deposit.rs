@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{tag, CpiData, CpiSignerData, DepositIxData},
+    instruction::{tag, DepositIxData},
     pda,
 };
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
@@ -144,36 +144,6 @@ fn indexer_unchanged(world: &mut ShieldedPoolWorld) {
         .expect("indexer count recorded");
     assert_eq!(world.rpc().indexer().utxos().len(), before);
 }
-
-// === program-owned / cpi-signer shapes ===
-
-#[when(expr = "a program-owned proofless deposit is sent with the wrong signer")]
-fn program_owned_wrong_signer(world: &mut ShieldedPoolWorld) {
-    let tree = world.tree().pubkey();
-    let depositor = world.depositor().insecure_clone();
-
-    // Valid program + canonical auth bump so the instruction builds; the wrong
-    // signer account at index 2 is what the on-chain derivation check rejects.
-    let program_id = [9u8; 32];
-    let (_, bump) = pda::cpi_signer(&Pubkey::new_from_array(program_id));
-    let mut data = ZolanaProgramTest::sol_shield_data(1_000_000, [3u8; 32], [3u8; 31]);
-    data.program = Some(CpiData {
-        cpi_signer: CpiSignerData {
-            program_id,
-            bump,
-        },
-        data_hash: [0u8; 32],
-        data: Vec::new(),
-    });
-    let mut accounts = sol_accounts(world.rpc(), &tree, &depositor.pubkey());
-    accounts.insert(2, AccountMeta::new_readonly(depositor.pubkey(), true));
-    let err = world
-        .rpc()
-        .deposit_with_accounts(accounts, &depositor, &data)
-        .unwrap_err();
-    world.last_error = Some(err);
-}
-
 
 // === account shape violations ===
 

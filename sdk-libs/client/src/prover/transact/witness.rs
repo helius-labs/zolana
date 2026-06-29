@@ -173,6 +173,9 @@ pub fn into_prover(
             zone_data_hash,
             proof,
             program_owner,
+            // A `SignedTransaction` carries no address-creation slots; those reach
+            // the prover via the direct `TransferSpendInput` APIs.
+            address_slot: false,
         });
     }
 

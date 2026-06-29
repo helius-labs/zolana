@@ -389,13 +389,12 @@ fn decoded_instruction(
 }
 
 fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'static str] {
-    let Ok(data) = DepositIxData::deserialize(payload) else {
+    let Ok(_data) = DepositIxData::deserialize(payload) else {
         return &[];
     };
-    let has_cpi_signer = data.program.is_some();
-    // SPL settlement carries one account more than SOL; cpi_signer (known from
-    // the data) shifts both by one. This mirrors the program's own inference.
-    let is_spl = account_count == 7 + usize::from(has_cpi_signer);
+    // SPL settlement carries one account more than SOL. This mirrors the
+    // program's own inference.
+    let is_spl = account_count == 7;
     if is_spl {
         &[
             "tree",
@@ -404,16 +403,6 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
             "vault",
             "asset_registry",
             "token_program",
-            "self_program",
-        ]
-    } else if has_cpi_signer || account_count == 7 {
-        &[
-            "tree",
-            "depositor",
-            "cpi_signer",
-            "system_program",
-            "sol_interface",
-            "sol_source",
             "self_program",
         ]
     } else {
@@ -504,18 +493,6 @@ fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
         field("owner", short_hex(&data.owner)),
         field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
-        field(
-            "program_data_hash",
-            option_hash(data.program.as_ref().map(|p| p.data_hash)),
-        ),
-        field(
-            "program_data_len",
-            data.program.as_ref().map_or(0, |p| p.data.len()),
-        ),
-        field(
-            "cpi_signer",
-            cpi_signer(data.program.as_ref().map(|p| p.cpi_signer)),
-        ),
     ]
 }
 
@@ -529,14 +506,6 @@ fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
         // signing `ZoneConfig` account.
         field("zone_data_hash", option_hash(Some(data.zone_data_hash))),
         field("zone_data_len", data.zone_data.len()),
-        field(
-            "program_data_hash",
-            option_hash(data.program.as_ref().map(|p| p.data_hash)),
-        ),
-        field(
-            "program_data_len",
-            data.program.as_ref().map_or(0, |p| p.data.len()),
-        ),
     ]
 }
 
@@ -556,11 +525,6 @@ fn proofless_view_fields(event: &GeneralEvent, data: &ProoflessOutput) -> Vec<De
         field("blinding", short_hex(&data.blinding)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
         field("zone_data_hash", option_hash(data.zone_data_hash)),
-        field("program_data_hash", option_hash(data.program_data_hash)),
-        field(
-            "program_data_len",
-            data.program_data.as_ref().map_or(0, Vec::len),
-        ),
         field("zone_data_len", data.zone_data.as_ref().map_or(0, Vec::len)),
     ]
 }
@@ -697,12 +661,6 @@ fn option_i64(value: Option<i64>) -> String {
         .unwrap_or_else(|| "None".to_string())
 }
 
-fn cpi_signer(value: Option<zolana_interface::instruction::CpiSignerData>) -> String {
-    value
-        .map(|signer| format!("{} bump={}", pubkey(&signer.program_id), signer.bump))
-        .unwrap_or_else(|| "None".to_string())
-}
-
 fn short_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(10);
     for byte in bytes.iter().take(4) {
@@ -717,10 +675,7 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{
-        instruction::{CpiData, CpiSignerData},
-        SHIELDED_POOL_PROGRAM_ID,
-    };
+    use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
     use super::*;
 
@@ -736,14 +691,6 @@ mod tests {
                 owner: [2; 32],
                 blinding: [3; 31],
                 public_amount: Some(42),
-                program: Some(CpiData {
-                    cpi_signer: CpiSignerData {
-                        program_id: [4; 32],
-                        bump: 255,
-                    },
-                    data_hash: [0u8; 32],
-                    data: Vec::new(),
-                }),
             }
             .serialize()
             .expect("serialize"),
@@ -752,7 +699,7 @@ mod tests {
         let decoded = decoder.decode(&data, &[]).expect("decode");
 
         assert_eq!(decoded.name, "deposit");
-        assert_eq!(decoded.account_names[2], "cpi_signer");
+        assert_eq!(decoded.account_names[1], "depositor");
         assert!(decoded
             .fields
             .iter()

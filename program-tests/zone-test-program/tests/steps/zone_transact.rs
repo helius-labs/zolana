@@ -516,6 +516,7 @@ impl ZoneLifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 program_owner: None,
+                address_slot: false,
                 proof,
             });
         }

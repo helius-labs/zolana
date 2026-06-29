@@ -110,7 +110,6 @@ impl ZolanaProgramTest {
             public_amount: Some(lamports),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
         }
     }
 
@@ -129,7 +128,6 @@ impl ZolanaProgramTest {
             public_amount: Some(lamports),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
         })
     }
 
@@ -148,7 +146,6 @@ impl ZolanaProgramTest {
             public_amount: Some(amount),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
         })
     }
 
@@ -169,7 +166,6 @@ impl ZolanaProgramTest {
             zone_program_id: Self::zone_test_program_id(),
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
         }
         .instruction()
         .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
@@ -201,7 +197,6 @@ impl ZolanaProgramTest {
             zone_program_id: Self::zone_test_program_id(),
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
         }
         .instruction()
         .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;

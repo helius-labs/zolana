@@ -2,7 +2,16 @@ use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
 pub use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN,
+    hash::{sha256_be, split_be_128},
+    NullifierKey, PublicKey,
+};
+
+/// Domain separator for the persistent-address derivation Poseidon preimage.
+/// Distinct from [`UTXO_DOMAIN`] (the per-UTXO `Domain` field); used ONLY inside
+/// [`address`].
+pub const ADDRESS_DOMAIN: u8 = 2;
 
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::TransferRecipientPlaintext,
@@ -35,9 +44,10 @@ pub struct Utxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
-    /// Program governing `program_data` (pairs with `program_data_hash` in the
-    /// commitment's `program_hash`).
-    pub program_id: Option<Address>,
+    /// Persistent address field element (derived via [`address`]) that pairs with
+    /// `program_data_hash` in the commitment's `program_hash`. `None` (folded as
+    /// `0`) for user-owned UTXOs. NOT a Solana `Address`; a BN254 field element.
+    pub address: Option<[u8; 32]>,
     pub zone_program_id: Option<Address>,
     pub data: Data,
 }
@@ -77,6 +87,20 @@ pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], Transa
     }
 }
 
+/// Derive a persistent address field element bound to the address tree and the
+/// program data: `Poseidon(ADDRESS_DOMAIN, tpk_low, tpk_high, program_data_hash)`
+/// where `(tpk_low, tpk_high) = split_be_128(sha256_be(tree_pubkey))`. The address
+/// tree is the nullifier tree, so `tree_pubkey` is that account's address.
+pub fn address(
+    tree_pubkey: &Address,
+    program_data_hash: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    let domain = right_align(&[ADDRESS_DOMAIN]);
+    let tpk = sha256_be(tree_pubkey.as_array());
+    let (tpk_low, tpk_high) = split_be_128(&tpk);
+    poseidon(&[&domain, &tpk_low, &tpk_high, program_data_hash])
+}
+
 /// Owner commitment carried by transaction outputs and proofless deposits.
 pub fn owner_utxo_hash(
     owner_hash: &[u8; 32],
@@ -92,7 +116,7 @@ pub fn utxo_hash(
     asset: Address,
     amount: u64,
     program_data_hash: &[u8; 32],
-    program_id: Option<Address>,
+    address: Option<[u8; 32]>,
     zone_data_hash: &[u8; 32],
     zone_program_id: Option<Address>,
     owner_utxo_hash: &[u8; 32],
@@ -101,9 +125,9 @@ pub fn utxo_hash(
     let asset =
         zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
-    // program_data_hash pairs with its governing program_id, zone_data_hash with
-    // zone_program_id (spec: UTXO Hash).
-    let program_hash = poseidon(&[program_data_hash, &program_id_field(&program_id)?])?;
+    // address (field element) pairs with program_data_hash in program_hash, ordered
+    // address FIRST; zone_data_hash pairs with zone_program_id (spec: UTXO Hash).
+    let program_hash = poseidon(&[&address.unwrap_or_default(), program_data_hash])?;
     let zone_hash = poseidon(&[zone_data_hash, &program_id_field(&zone_program_id)?])?;
     poseidon(&[
         &domain,
@@ -133,7 +157,7 @@ impl Utxo {
             self.asset,
             self.amount,
             program_data_hash,
-            self.program_id,
+            self.address,
             zone_data_hash,
             self.zone_program_id,
             &self.owner_utxo_hash(nullifier_pk)?,
@@ -156,7 +180,10 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
+            // `Utxo` carries the derived `address` field element, not the program
+            // Address; the plaintext's program Address is populated by the builder's
+            // program-owned output path, not via this user-utxo helper.
+            program_id: None,
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
@@ -170,7 +197,10 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
+            // `Utxo` carries the derived `address` field element, not the program
+            // Address; the plaintext's program Address is populated by the builder's
+            // program-owned output path, not via this user-utxo helper.
+            program_id: None,
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })

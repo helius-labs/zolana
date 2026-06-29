@@ -20,7 +20,7 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 		Amount:        utxo.Amount,
 		Blinding:      utxo.Blinding,
 		DataHash:      utxo.DataHash,
-		ProgramID:     utxo.ProgramID,
+		Address:       utxo.ProgramID,
 		ZoneDataHash:  utxo.ZoneDataHash,
 		ZoneProgramID: utxo.ZoneProgramID,
 	}

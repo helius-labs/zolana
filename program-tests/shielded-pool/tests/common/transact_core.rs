@@ -78,6 +78,7 @@ pub fn public_input_hash(
         zero, // public_spl_amount
         zero, // public_spl_asset_pubkey
         zero, // program_id
+        hash_field(&zero).expect("address tree pubkey field"),
         zero, // zone_program_id
         *payer_pubkey_hash,
         hash_chain(input_owner_pk_hashes).expect("input owner chain"),
@@ -280,6 +281,8 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         program_id: be(&zero),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
+        address_tree_pubkey_low: be(&zero),
+        address_tree_pubkey_high: be(&zero),
         public_input_hash: be(&args.public_input_hash),
     }
 }

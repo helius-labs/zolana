@@ -125,6 +125,17 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
+    // The address tree IS the nullifier tree, so the bound pubkey is the loaded
+    // `tree` account. Only program-owned txs (non-zero `program_id`) can create or
+    // reuse addresses; user-only txs fold a zero pubkey so the address-tree field
+    // is `Poseidon(0, 0)` on both the program and prover side.
+    proof_inputs.address_tree_pubkey = if proof_inputs.program_id != [0u8; 32] {
+        Sha256BE::hash(&transact_accounts.tree.address().to_bytes())
+            .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?
+    } else {
+        [0u8; 32]
+    };
+
     proof_inputs.spl_mint = transact_accounts.spl_mint;
 
     let event = build_transact_event(ix, &proof_inputs, tree_write);

@@ -147,6 +147,8 @@ impl LifecycleWorld {
                 nullifier_key: keypair.nullifier_key.clone(),
                 program_data_hash: None,
                 zone_data_hash: None,
+                program_owner: None,
+                address_slot: false,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -163,7 +165,7 @@ impl LifecycleWorld {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
-                program_id: None,
+                address: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -172,6 +174,8 @@ impl LifecycleWorld {
                 nullifier_key: keypair.nullifier_key.clone(),
                 program_data_hash: None,
                 zone_data_hash: None,
+                program_owner: None,
+                address_slot: false,
                 proof: None,
             });
         }
@@ -185,11 +189,13 @@ impl LifecycleWorld {
             amount: total,
             blinding: output_blinding,
             program_id: None,
+            address: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
             owner_tag: None,
             program_owner: None,
+            data: Data::default(),
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

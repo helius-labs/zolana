@@ -145,10 +145,12 @@ func buildProofAssignment(
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramID:            publicInputs.ProgramID,
-		ZoneProgramID:        publicInputs.ZoneProgramID,
-		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		PublicInputHash:      publicInputHash,
+		ProgramID:             publicInputs.ProgramID,
+		ZoneProgramID:         publicInputs.ZoneProgramID,
+		PayerPubkeyHash:       publicInputs.PayerPubkeyHash,
+		AddressTreePubkeyLow:  big.NewInt(0),
+		AddressTreePubkeyHigh: big.NewInt(0),
+		PublicInputHash:       publicInputHash,
 	}
 	transcript := assignmentTranscript{
 		inputHashes:              inputs.hashes,
@@ -250,10 +252,22 @@ func buildPublicInputs(
 		ExternalDataHash:     external.hash,
 		PublicSolAmount:      external.publicSolAmount,
 		PublicSplAmount:      external.publicSplAmount,
-		PublicSplAssetPubkey: external.publicSplAsset,
-		ProgramID:            external.programID,
-		ZoneProgramID:        external.zoneProgramID,
-		PayerPubkeyHash:      new(big.Int).Set(payerHash),
-		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
+		PublicSplAssetPubkey:   external.publicSplAsset,
+		ProgramID:              external.programID,
+		AddressTreePubkeyField: zeroAddressTreePubkeyField(),
+		ZoneProgramID:          external.zoneProgramID,
+		PayerPubkeyHash:        new(big.Int).Set(payerHash),
+		InputOwnerPkHashes:     inputs.inputOwnerPkHashes,
 	}
+}
+
+// zeroAddressTreePubkeyField is the folded address-tree-pubkey public field for a
+// transaction with no program-owned UTXOs: Poseidon(0, 0). The prover witness
+// path here does not yet construct program-owned addresses.
+func zeroAddressTreePubkeyField() *big.Int {
+	value, err := protocol.P256MessageHashField(big.NewInt(0), big.NewInt(0))
+	if err != nil {
+		panic(fmt.Sprintf("spp: zero address-tree pubkey field: %v", err))
+	}
+	return value
 }

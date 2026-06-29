@@ -106,7 +106,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -303,6 +303,10 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             signed_to_field(ix_data.public_spl_amount.unwrap_or(0) as i128),
             zero, // public_spl_asset_pubkey (no mint)
             zero, // program_id
+            // address_tree_pubkey folded immediately after program_id; no
+            // program-owned or address-creation slot here, so the limbs are 0 and
+            // the folded field is hash_field(0) = Poseidon(0, 0).
+            hash_field(&zero).unwrap(),
             zero, // zone_program_id
             payer_pubkey_hash,
             hash_chain(&input_owner).unwrap(),

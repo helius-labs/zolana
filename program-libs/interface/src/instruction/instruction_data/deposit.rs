@@ -1,23 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
-/// A program that governs `data` for a deposited UTXO (its `auth` PDA signs)
-/// bundled with the data committed into `program_hash`. `cpi_signer`'s pubkey
-/// drives the UTXO's `program_id`. (The zone side carries no `cpi_signer`: its
-/// id comes from the `ZoneConfig` account.)
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CpiData {
-    pub cpi_signer: CpiSignerData,
-    pub data_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub data: Vec<u8>,
-}
-
 /// Public deposit without a proof (spec: `deposit`, tag 1).
 ///
 /// The program commits the settled amount/asset into the UTXO hash and emits a
 /// [`crate::event::GeneralEvent`] carrying a proofless output for wallet
-/// discovery.
+/// discovery. A proofless deposit carries no program data and cannot create an
+/// address: its `program_hash` preimage is all zero.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct DepositIxData {
     /// Indexing tag for the single output slot; chosen per the spec's View
@@ -32,10 +21,6 @@ pub struct DepositIxData {
     /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
     /// settlement accounts the caller passes; deposits are deposit-only.
     pub public_amount: Option<u64>,
-    /// Invoking program (general program owner, seed `auth`) and its program
-    /// data; `None` for a plain user deposit. Policy-zone deposits use
-    /// [`ZoneDepositIxData`].
-    pub program: Option<CpiData>,
 }
 
 impl DepositIxData {
@@ -67,9 +52,6 @@ pub struct ZoneDepositIxData {
     pub zone_data_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub zone_data: Vec<u8>,
-    /// Program governing `program_data` (seed `auth`) and its data; `None` if the
-    /// zone deposit carries no application program data.
-    pub program: Option<CpiData>,
 }
 
 impl ZoneDepositIxData {

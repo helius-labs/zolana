@@ -229,7 +229,7 @@ impl CpiLifecycleWorld {
             asset,
             amount,
             blinding,
-            program_id,
+            address: program_id.map(|a| a.to_bytes()),
             zone_program_id: None,
             data: Data::default(),
         };

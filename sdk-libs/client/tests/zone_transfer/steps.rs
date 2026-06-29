@@ -299,7 +299,7 @@ fn build_real_inputs(
             asset: SOL_MINT,
             amount: *amount,
             blinding: random_blinding(),
-            program_id: None,
+            address: None,
             zone_program_id: Some(zone),
             data: Data::default(),
         };
@@ -333,6 +333,7 @@ fn build_real_inputs(
             zone_data_hash: None,
             program_owner: None,
             proof: Some(proof),
+            address_slot: false,
         })
         .collect()
 }
@@ -347,6 +348,7 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
         amount,
         blinding: random_blinding(),
         program_id: None,
+        address: None,
         zone_program_id: Some(zone_program()),
         zone_data_hash: None,
         program_data_hash: None,
@@ -372,7 +374,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -383,6 +385,7 @@ fn dummy_input() -> TransferSpendInput {
         zone_data_hash: None,
         program_owner: None,
         proof: None,
+        address_slot: false,
     }
 }
 

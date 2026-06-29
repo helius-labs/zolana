@@ -13,7 +13,7 @@ type UtxoParams struct {
 	Amount        *big.Int
 	Blinding      *big.Int
 	DataHash      *big.Int
-	ProgramID     *big.Int
+	Address       *big.Int
 	ZoneDataHash  *big.Int
 	ZoneProgramID *big.Int
 }
@@ -69,6 +69,10 @@ type TransferParameters struct {
 	ProgramID            *big.Int
 	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
+	// AddressTreePubkeyLow/High are the 128-bit limbs of Sha256BE(address tree
+	// pubkey) the address derivation folds; both 0 when no program-owned UTXOs.
+	AddressTreePubkeyLow  *big.Int
+	AddressTreePubkeyHigh *big.Int
 
 	// Variant selects the Solana-only instantiation: confidential (non-zone, binds
 	// output owner tags), anonymous zone, or zone-authority (anonymous, input

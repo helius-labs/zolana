@@ -94,7 +94,7 @@ fn real_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -126,6 +126,7 @@ fn real_input() -> TransferSpendInput {
         zone_data_hash: None,
         program_owner: None,
         proof: Some(proof),
+        address_slot: false,
     }
 }
 
@@ -139,7 +140,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -150,6 +151,7 @@ fn dummy_input() -> TransferSpendInput {
         zone_data_hash: None,
         program_owner: None,
         proof: None,
+        address_slot: false,
     }
 }
 

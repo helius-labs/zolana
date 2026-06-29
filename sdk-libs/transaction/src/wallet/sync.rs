@@ -218,7 +218,8 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let program_data_hash = plaintext.program_data_hash.unwrap_or([0u8; 32]);
+                        // Proofless deposits carry no program data (contract section 10).
+                        let program_data_hash = [0u8; 32];
                         let zone_data_hash = plaintext.zone_data_hash.unwrap_or([0u8; 32]);
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;

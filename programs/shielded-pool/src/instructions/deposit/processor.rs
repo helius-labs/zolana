@@ -3,7 +3,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{CpiData, DepositIxData, ZoneDepositIxData},
+    instruction::{DepositIxData, ZoneDepositIxData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     UTXO_DOMAIN,
 };
@@ -32,10 +32,6 @@ pub(crate) struct DepositParams {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    /// Program governing `program_data` (`program_hash`). The plain `deposit`
-    /// sets this from its `cpi_signer`; `zone_deposit` from its program signer.
-    /// `None` hashes over a zero id.
-    pub program: Option<CpiData>,
     /// Authorizing zone (`zone_hash`). Only `zone_deposit` populates it; the
     /// zone's `program_id` comes from the loaded `ZoneConfig`, not from here.
     pub zone: Option<ZoneData>,
@@ -52,14 +48,6 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    // The program governing `program_data` (when present) signs as account 2; its
-    // `auth` PDA derivation is checked in `validate_and_parse`.
-    if data.program.is_some() {
-        let program_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !program_signer.is_signer() {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
-    }
     process_deposit_internal::<false>(
         accounts,
         DepositParams {
@@ -67,7 +55,6 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program,
             zone: None,
         },
     )
@@ -85,14 +72,6 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
     }
     // Account 2 is the `ZoneConfig` (the zone's `zone_auth` PDA); its signature,
     // owner/discriminator, and `program_id` are checked in `validate_and_parse`.
-    // The program governing `program_data` (when present) signs as account 3,
-    // after the zone config.
-    if data.program.is_some() {
-        let program_signer = accounts.get(3).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !program_signer.is_signer() {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
-    }
     process_deposit_internal::<true>(
         accounts,
         DepositParams {
@@ -100,7 +79,6 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program,
             zone: Some(ZoneData {
                 data_hash: data.zone_data_hash,
                 data: data.zone_data,
@@ -121,31 +99,25 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
 
     // SOL vs SPL is inferred from the settlement accounts the caller passes. The
     // zone's `program_id` is read from the loaded `ZoneConfig` (returned here),
-    // never derived; the program's auth PDA is still derivation-checked.
-    let (parsed, zone_program_id) = DepositAccounts::validate_and_parse::<HAS_ZONE>(
-        &crate::ID,
-        accounts,
-        d.program.as_ref().map(|cpi| cpi.cpi_signer),
-    )?;
+    // never derived. Proofless deposits carry no program signer.
+    let (parsed, zone_program_id) =
+        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts, None)?;
     let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
     let asset_field = solana_pk_hash(&asset)?;
 
-    // Two-part commitment (spec: UTXO Hash): pair each `data_hash` with its
-    // governing program/zone id (pk_field-encoded) into `program_hash` /
-    // `zone_hash`. The program id comes from `program.cpi_signer`; the zone id
-    // from the loaded `ZoneConfig`. An absent side hashes over a zero id.
+    // A proofless deposit carries no program data and cannot create an address:
+    // its `program_hash` preimage is all zero (`Poseidon(address=0,
+    // program_data_hash=0)`). The zone side keeps its two-part commitment: pair
+    // the `zone_data_hash` with the `ZoneConfig`-read id (pk_field-encoded) into
+    // `zone_hash`. An absent zone hashes over zeros.
     let zero = [0u8; 32];
-    let (program_data_hash, program_id_field) = match &d.program {
-        Some(program) => (program.data_hash, solana_pk_hash(&program.cpi_signer.program_id)?),
-        None => (zero, zero),
-    };
+    let program_hash = hash_with_program_id(&zero, &zero)?;
     let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
         (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
         _ => (zero, zero),
     };
-    let program_hash = hash_with_program_id(&program_data_hash, &program_id_field)?;
     let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
     // Nest the recipient `owner` with the right-aligned `blinding` into the
     // owner commitment, matching the SDK's `owner_utxo_hash`.
@@ -194,13 +166,13 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     )
 }
 
-/// Pair a `data_hash` with its governing program/zone id (pk_field-encoded) into
-/// the `program_hash` / `zone_hash` sub-commitment. An absent side passes a zero
-/// `data_hash` over a zero id.
+/// Fold a two-field sub-commitment: `program_hash = Poseidon(address,
+/// program_data_hash)` (both zero for proofless) and `zone_hash =
+/// Poseidon(zone_data_hash, zone_id_field)`. An absent side passes zeros.
 fn hash_with_program_id(
-    data_hash: &[u8; 32],
-    program_id_field: &[u8; 32],
+    first: &[u8; 32],
+    second: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
-    Poseidon::hashv(&[data_hash.as_slice(), program_id_field.as_slice()])
+    Poseidon::hashv(&[first.as_slice(), second.as_slice()])
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }

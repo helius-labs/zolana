@@ -29,6 +29,10 @@ func SolAsset() *big.Int {
 
 const UtxoDomain = 1
 
+// AddressDomain separates the address-derivation Poseidon preimage from the
+// per-UTXO Domain tag. Mirrors the circuit AddressDomain.
+const AddressDomain = 2
+
 type Utxo struct {
 	Domain        *big.Int
 	Owner         *big.Int
@@ -59,7 +63,7 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	programHash, err := poseidon.Hash([]*big.Int{u.DataHash, u.ProgramID})
+	programHash, err := poseidon.Hash([]*big.Int{u.ProgramID, u.DataHash})
 	if err != nil {
 		return nil, fmt.Errorf("spp: program hash: %w", err)
 	}

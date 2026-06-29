@@ -52,6 +52,9 @@ pub enum ClientError {
     )]
     EddsaInputNotSolanaOwned { index: usize },
 
+    #[error("input {index} is an address-creation slot but has no program owner")]
+    AddressSlotNotProgramOwned { index: usize },
+
     #[error("the P256 rail requires an owner signature but none was supplied")]
     MissingP256Signature,
 

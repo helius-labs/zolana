@@ -151,7 +151,6 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
         zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data.clone(),
-        program: data.program.clone(),
     }
     .cpi_instruction()
     .expect("zone auth PDA");

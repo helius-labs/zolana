@@ -352,6 +352,7 @@ impl TryFrom<MergeWitness> for MergeProver {
                 zone_data_hash: None,
                 proof,
                 program_owner: None,
+                address_slot: false,
             });
         }
 

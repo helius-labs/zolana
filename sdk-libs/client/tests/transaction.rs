@@ -49,7 +49,7 @@ fn p256_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Spe
         asset: SOL_MINT,
         amount,
         blinding: blinding(rng),
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -553,7 +553,7 @@ fn rail_follows_input_owner_type() {
         asset: SOL_MINT,
         amount: 10,
         blinding: blinding(&mut rng),
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     };

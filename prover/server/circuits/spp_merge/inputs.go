@@ -37,7 +37,7 @@ func constrainInput(api frontend.API, in Input, userOwnerHash, userNullifierSecr
 
 	// Input cleanliness / zone binding.
 	assertZeroWhen(api, notDummy, in.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ProgramID)
+	assertZeroWhen(api, notDummy, in.Utxo.Address)
 	if zone {
 		assertEqualWhen(api, notDummy, in.Utxo.ZoneProgramID, zoneProgramID)
 	} else {

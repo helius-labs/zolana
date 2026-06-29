@@ -45,12 +45,24 @@ type Circuit struct {
 	ZoneProgramID        frontend.Variable
 	PayerPubkeyHash      frontend.Variable
 
+	// AddressTreePubkeyField is sha256_be(address_tree_pubkey) as a single field
+	// element (top byte zeroed, so < the BN254 modulus), computed off-circuit. It
+	// domain-separates addresses per tree, is a private witness fed into
+	// AddressGadget, and is bound through the public input hash right after
+	// ProgramID. The address's per-program namespacing reuses the ProgramID input.
+	AddressTreePubkeyField frontend.Variable
+
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
 type Input struct {
 	Utxo              UtxoCircuitFields
 	IsDummy           frontend.Variable
+	IsAddress         frontend.Variable
+	// AddressSeed is the address-derivation seed (the spec program_data_hash seed),
+	// used only on an address slot. It is its own witness rather than Utxo.DataHash
+	// because the slot's UTXO fields are pinned to 0.
+	AddressSeed       frontend.Variable
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
 
@@ -146,13 +158,14 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	// Ownership
 	env := spendEnv{
-		requiresP256:       c.RequiresP256,
-		confidential:       c.Confidential,
-		zone:               zone,
-		zoneAuthority:      c.ZoneAuthority,
-		programID:          c.ProgramID,
-		zoneProgramID:      c.ZoneProgramID,
-		p256SigningPkField: c.P256SigningPkField,
+		requiresP256:           c.RequiresP256,
+		confidential:           c.Confidential,
+		zone:                   zone,
+		zoneAuthority:          c.ZoneAuthority,
+		programID:              c.ProgramID,
+		zoneProgramID:          c.ZoneProgramID,
+		p256SigningPkField:     c.P256SigningPkField,
+		addressTreePubkeyField: c.AddressTreePubkeyField,
 	}
 	if c.RequiresP256 {
 		ownerKeyHash, err := OwnerPkFieldFromPubkeyCircuit(api, c.P256Pub)
@@ -248,6 +261,7 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
 		c.ProgramID,
+		c.AddressTreePubkeyField,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
 	}
@@ -374,6 +388,10 @@ func (s Shape) Validate() error {
 const (
 	// UtxoDomain is the domain tag folded into every UTXO commitment.
 	UtxoDomain = 1
+	// AddressDomain separates the address-derivation Poseidon preimage from the
+	// per-UTXO Domain tag. It is used ONLY inside AddressGadget; address slots
+	// still pin their UTXO Domain to UtxoDomain.
+	AddressDomain = 2
 	// StateTreeHeight is the SPP state (UTXO) merkle tree height.
 	StateTreeHeight = 32
 	// NullifierTreeHeight is the SPP nullifier tree height.

@@ -24,8 +24,8 @@ pub(crate) struct UtxoParamsJson {
     pub blinding: String,
     #[serde(rename = "dataHash")]
     pub data_hash: String,
-    #[serde(rename = "programId")]
-    pub program_id: String,
+    #[serde(rename = "address")]
+    pub address: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
     #[serde(rename = "zoneProgramId")]
@@ -116,6 +116,10 @@ pub(crate) struct TransferP256InputsJson {
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "addressTreePubkeyLow")]
+    pub address_tree_pubkey_low: String,
+    #[serde(rename = "addressTreePubkeyHigh")]
+    pub address_tree_pubkey_high: String,
     #[serde(rename = "p256SigningPkField")]
     pub p256_signing_pk_field: String,
     #[serde(rename = "publicInputHash")]
@@ -150,6 +154,10 @@ pub(crate) struct TransferInputsJson {
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "addressTreePubkeyLow")]
+    pub address_tree_pubkey_low: String,
+    #[serde(rename = "addressTreePubkeyHigh")]
+    pub address_tree_pubkey_high: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -162,7 +170,7 @@ fn utxo_to_json(utxo: &UtxoInputs) -> UtxoParamsJson {
         amount: big_uint_to_string(&utxo.amount),
         blinding: big_uint_to_string(&utxo.blinding),
         data_hash: big_uint_to_string(&utxo.data_hash),
-        program_id: big_uint_to_string(&utxo.program_id),
+        address: big_uint_to_string(&utxo.address),
         zone_data_hash: big_uint_to_string(&utxo.zone_data_hash),
         zone_program_id: big_uint_to_string(&utxo.zone_program_id),
     }
@@ -227,6 +235,8 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
         program_id: big_uint_to_string(&inputs.program_id),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        address_tree_pubkey_low: big_uint_to_string(&inputs.address_tree_pubkey_low),
+        address_tree_pubkey_high: big_uint_to_string(&inputs.address_tree_pubkey_high),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
@@ -400,6 +410,8 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         program_id: big_uint_to_string(&inputs.program_id),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        address_tree_pubkey_low: big_uint_to_string(&inputs.address_tree_pubkey_low),
+        address_tree_pubkey_high: big_uint_to_string(&inputs.address_tree_pubkey_high),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -436,7 +448,7 @@ mod merge_tests {
             amount: BigUint::from(5u8),
             blinding: BigUint::from(7u8),
             data_hash: BigUint::ZERO,
-            program_id: BigUint::ZERO,
+            address: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         }
@@ -558,6 +570,8 @@ mod merge_tests {
             program_id: BigUint::ZERO,
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
+            address_tree_pubkey_low: BigUint::ZERO,
+            address_tree_pubkey_high: BigUint::ZERO,
             public_input_hash: BigUint::from(9u8),
         };
 

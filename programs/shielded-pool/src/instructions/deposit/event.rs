@@ -21,17 +21,9 @@ pub(crate) struct ProoflessOutputCtx {
 }
 
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
-    // The program side carries its own id; the zone's id is the one read from the
-    // `ZoneConfig` account (passed via ctx). Each contributes its data hash and
-    // preimage to the proofless output the recipient re-derives from.
-    let (program_id, program_data_hash, program_data) = match d.program {
-        Some(program) => (
-            Some(program.cpi_signer.program_id),
-            Some(program.data_hash),
-            Some(program.data),
-        ),
-        None => (None, None, None),
-    };
+    // A proofless deposit carries no program data; only the zone side (id read
+    // from the `ZoneConfig` account, passed via ctx) contributes a data hash and
+    // preimage the recipient re-derives from.
     let (zone_data_hash, zone_data) = match d.zone {
         Some(zone) => (Some(zone.data_hash), Some(zone.data)),
         None => (None, None),
@@ -42,9 +34,6 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
         blinding: d.blinding,
         asset: ctx.asset,
         amount: ctx.amount,
-        program_data_hash,
-        program_data,
-        program_id,
         zone_program_id,
         zone_data_hash,
         zone_data,

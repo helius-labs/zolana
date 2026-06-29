@@ -46,6 +46,9 @@ pub enum TransactionError {
     #[error("zone data present without zone program id")]
     MissingZoneProgramId,
 
+    #[error("program-owned output has no persistent address; call OutputUtxo::with_address")]
+    MissingProgramAddress,
+
     #[error("program/zone data on this output cannot be processed yet")]
     UnsupportedOutputData,
 

@@ -14,7 +14,7 @@ type UtxoParamsJSON struct {
 	Amount        string `json:"amount"`
 	Blinding      string `json:"blinding"`
 	DataHash      string `json:"dataHash"`
-	ProgramID     string `json:"programId"`
+	Address       string `json:"address"`
 	ZoneDataHash  string `json:"zoneDataHash"`
 	ZoneProgramID string `json:"zoneProgramId"`
 }
@@ -60,10 +60,12 @@ type TransferParametersJSON struct {
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ProgramID            string             `json:"programId"`
-	ZoneProgramID        string             `json:"zoneProgramId"`
-	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
-	P256SigningPkField   string             `json:"p256SigningPkField"`
+	ProgramID             string            `json:"programId"`
+	ZoneProgramID         string            `json:"zoneProgramId"`
+	PayerPubkeyHash       string            `json:"payerPubkeyHash"`
+	AddressTreePubkeyLow  string            `json:"addressTreePubkeyLow"`
+	AddressTreePubkeyHigh string            `json:"addressTreePubkeyHigh"`
+	P256SigningPkField    string            `json:"p256SigningPkField"`
 	PublicInputHash      string             `json:"publicInputHash"`
 }
 
@@ -105,11 +107,13 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ProgramID:            feHex(p.ProgramID),
-		ZoneProgramID:        feHex(p.ZoneProgramID),
-		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
-		P256SigningPkField:   feHex(p.P256SigningPkField),
-		PublicInputHash:      feHex(p.PublicInputHash),
+		ProgramID:             feHex(p.ProgramID),
+		ZoneProgramID:         feHex(p.ZoneProgramID),
+		PayerPubkeyHash:       feHex(p.PayerPubkeyHash),
+		AddressTreePubkeyLow:  feHex(p.AddressTreePubkeyLow),
+		AddressTreePubkeyHigh: feHex(p.AddressTreePubkeyHigh),
+		P256SigningPkField:    feHex(p.P256SigningPkField),
+		PublicInputHash:       feHex(p.PublicInputHash),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -196,6 +200,12 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
 		return err
 	}
+	if p.AddressTreePubkeyLow, err = feFromHex(params.AddressTreePubkeyLow); err != nil {
+		return err
+	}
+	if p.AddressTreePubkeyHigh, err = feFromHex(params.AddressTreePubkeyHigh); err != nil {
+		return err
+	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {
 		return err
 	}
@@ -279,7 +289,7 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:        feHex(u.Amount),
 		Blinding:      feHex(u.Blinding),
 		DataHash:      feHex(u.DataHash),
-		ProgramID:     feHex(u.ProgramID),
+		Address:       feHex(u.Address),
 		ZoneDataHash:  feHex(u.ZoneDataHash),
 		ZoneProgramID: feHex(u.ZoneProgramID),
 	}
@@ -306,7 +316,7 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
 		return out, err
 	}
-	if out.ProgramID, err = feFromHex(u.ProgramID); err != nil {
+	if out.Address, err = feFromHex(u.Address); err != nil {
 		return out, err
 	}
 	if out.ZoneDataHash, err = feFromHex(u.ZoneDataHash); err != nil {

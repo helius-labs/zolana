@@ -49,6 +49,10 @@ pub struct TransactProofInputs {
     pub external_data_hash: [u8; 32],
     pub spl_mint: Option<[u8; 32]>,
     pub program_id: [u8; 32],
+    /// `sha256_be(address_tree_pubkey)` when the tx has program-owned UTXOs, else
+    /// `[0; 32]`. Folded as `hash_field(..) == Poseidon(tpk_low, tpk_high)` to
+    /// match the circuit's two address-tree-pubkey limbs.
+    pub address_tree_pubkey: [u8; 32],
     pub zone_program_id: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
 }
@@ -172,11 +176,12 @@ impl<'a> TransactProof<'a> {
         };
 
         // Mirrors the Go circuit `publicInputHash` (spp_transaction/circuit.go): a
-        // 13-element base, then `input_owner_pk_hashes` for every variant except the
+        // 14-element base (the address-tree-pubkey field folds right after
+        // `program_id`), then `input_owner_pk_hashes` for every variant except the
         // zone-authority one (owners stay private and do not sign), then the
         // confidential appendix (`output_owner_pk_hashes`, `p256_signing_pk_field`)
         // only for the confidential (non-zone) variant.
-        let mut fields: ArrayVec<[[u8; 32]; 16]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; 18]> = ArrayVec::new();
         fields.extend_from_slice(&[
             self.nullifier_chain()?,
             self.output_chain()?,
@@ -189,6 +194,7 @@ impl<'a> TransactProof<'a> {
             amount_field(self.ix.public_spl_amount),
             public_spl_asset_pubkey,
             self.derived.program_id,
+            hash_field(&self.derived.address_tree_pubkey)?,
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
         ]);

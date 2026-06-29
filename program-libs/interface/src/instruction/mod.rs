@@ -5,7 +5,7 @@ use borsh::BorshSerialize;
 #[cfg(feature = "solana")]
 pub use builders::*;
 pub use instruction_data::{
-    BatchUpdateNullifierTreeData, CompressedProof, CpiData, CpiSignerData, CreateProtocolConfigData,
+    BatchUpdateNullifierTreeData, CompressedProof, CpiSignerData, CreateProtocolConfigData,
     CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
     MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef,
     OutputCiphertext, OutputCiphertextRef, OutputUtxo, PauseTreeData, TransactIxData,

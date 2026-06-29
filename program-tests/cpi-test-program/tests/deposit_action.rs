@@ -108,7 +108,6 @@ impl Deposit<'_> {
             owner,
             blinding,
             public_amount: Some(self.amount),
-            program: None,
         };
         let ix = DepositInstruction {
             tree: self.tree,
@@ -118,7 +117,6 @@ impl Deposit<'_> {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program.clone(),
         }
         .instruction()
         .expect("instruction");
@@ -133,7 +131,7 @@ impl Deposit<'_> {
             asset,
             amount: self.amount,
             blinding,
-            program_id: None,
+            address: None,
             zone_program_id: None,
             data: Data::default(),
         };

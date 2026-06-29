@@ -18,10 +18,6 @@ Feature: Proofless SOL shield
     And the depositor shields zero SPL tokens
     Then the indexer UTXO count is unchanged
 
-  Scenario: A program-owned proofless deposit with the wrong signer is rejected
-    When a program-owned proofless deposit is sent with the wrong signer
-    Then the operation is rejected as invalid settlement accounts
-
   Scenario: Account shape violations are rejected
     When the depositor shields with the program account missing
     Then the operation fails with not enough account keys

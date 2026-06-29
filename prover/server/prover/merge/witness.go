@@ -19,9 +19,9 @@ func utxoFields(u UtxoParams) transaction.UtxoCircuitFields {
 		Amount:   u.Amount,
 		Blinding: u.Blinding,
 		DataHash: u.DataHash,
-		// Merge UTXOs are always program-clean (program_id == 0); the merge circuit
-		// enforces it and the params carry no program_id.
-		ProgramID:     big.NewInt(0),
+		// Merge UTXOs are always program-clean (address == 0); the merge circuit
+		// enforces it and the params carry no address.
+		Address:       big.NewInt(0),
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}

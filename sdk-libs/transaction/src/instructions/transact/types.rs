@@ -1,10 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::OutputData;
-use zolana_keypair::{
-    hash::poseidon,
-    P256Pubkey, ShieldedAddress,
-};
+use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
 use crate::{
@@ -42,7 +39,15 @@ pub struct OutputUtxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
+    /// Program Address governing `program_data`, carried into the recipient
+    /// plaintext so the receiver can reconstruct the leaf. NOT folded directly
+    /// into the commitment; the commitment uses the derived [`Self::address`].
     pub program_id: Option<Address>,
+    /// Derived persistent address field element (see [`crate::utxo::address`])
+    /// folded into `program_hash`. Filled by the builder at assemble time once the
+    /// address tree pubkey is known (the tree-pubkey seam); `None` (folded as `0`)
+    /// for user outputs.
+    pub address: Option<[u8; 32]>,
     pub zone_program_id: Option<Address>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub program_data_hash: Option<[u8; 32]>,
@@ -58,12 +63,12 @@ pub struct OutputUtxo {
     pub owner_tag: Option<[u8; 32]>,
     /// `Some(program_id)` marks a program-owned value output: its owner is the
     /// invoking program rather than a user keypair, so the owner field for hashing
-    /// is `program_id`'s `pk_field` (not `owner_hash`), the standalone `program_id`
-    /// field is pinned to 0, and it may carry program data. The confidential
-    /// owner-tag binding is skipped (the circuit's program-owned output path);
-    /// `owner_address` / `owner_tag` are ignored when set. Mirrors the
-    /// program-owned output path of `constrainOutput` in the spp_transaction
-    /// circuit.
+    /// is `program_id`'s `pk_field` (not `owner_hash`), and it may carry program
+    /// data. The leaf's persistent `address` (set via [`Self::create_address`]) is
+    /// the discovery tag; the confidential ciphertext owner tag is set to that
+    /// `address` (contract section 9), so `owner_address` / `owner_tag` are ignored
+    /// when set. Mirrors the program-owned output path of `constrainOutput` in the
+    /// spp_transaction circuit.
     pub program_owner: Option<Address>,
     /// The cleartext zone/program data bytes whose digests populate
     /// `zone_data_hash` / `program_data_hash`. Carried so the recipient can
@@ -91,6 +96,14 @@ impl OutputUtxo {
 
     /// Bind program data to this output, mirroring [`Self::with_zone_data`] for
     /// the `program_id` / `program_data` / `program_data_hash` triple.
+    ///
+    /// Sets the program `program_id` (carried into the plaintext) and
+    /// `program_data_hash`. It does NOT set the persistent [`Self::address`]: that
+    /// is the derived field element `address(tree_pubkey, program_data_hash)` and
+    /// the address-tree pubkey is unknown here. Callers that produce a
+    /// program-owned output (i.e. that also set `program_owner`) MUST call
+    /// [`Self::create_address`] at assemble time, once the tree is known, to fill it.
+    /// User outputs leave `address = None` (pinned `0`).
     pub fn with_program_data(
         mut self,
         program_id: Address,
@@ -101,6 +114,18 @@ impl OutputUtxo {
         self.program_id = Some(program_id);
         self.set_data_record(DataRecord::ProgramData(program_data));
         self
+    }
+
+    pub fn create_address(
+        mut self,
+        tree_pubkey: &Address,
+        seed: [u8; 32],
+    ) -> Result<Self, TransactionError> {
+        self.address = Some(crate::utxo::address(
+            tree_pubkey, // TODO: harcode address tree.
+            &seed,
+        )?);
+        Ok(self)
     }
 
     /// Replace any existing record of the same kind, then re-order to the
@@ -131,14 +156,22 @@ impl OutputUtxo {
         }
     }
 
-    /// The `program_id` field committed in the leaf. A program-owned output pins it
-    /// to `None` (the owner already carries the program identity).
-    pub fn commitment_program_id(&self) -> Option<Address> {
+    /// The persistent address field element committed in the leaf's `program_hash`.
+    /// User outputs pin it to `None` (folded as `0`); a program-owned output carries
+    /// the derived `address` (set via [`Self::create_address`]).
+    pub fn commitment_address(&self) -> Option<[u8; 32]> {
+        self.address
+    }
+
+    /// The confidential ciphertext owner tag for this output. For a program-owned
+    /// output it is the persistent `address` (the discovery tag the circuit binds
+    /// to `program_hash`, per contract section 9); otherwise the recipient/dummy
+    /// `owner_tag` if set. `None` lets the builder derive it from `owner_address`.
+    pub fn ciphertext_owner_tag(&self) -> Option<[u8; 32]> {
         if self.program_owner.is_some() {
-            None
-        } else {
-            self.program_id
+            return self.address;
         }
+        self.owner_tag
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
@@ -146,7 +179,7 @@ impl OutputUtxo {
             self.asset,
             self.amount,
             &self.program_data_hash.unwrap_or_default(),
-            self.commitment_program_id(),
+            self.commitment_address(),
             &self.zone_data_hash.unwrap_or_default(),
             self.zone_program_id,
             &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,

@@ -40,7 +40,7 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.ProgramDataHash,
-		ProgramID:     u.ProgramID,
+		Address:       u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	})

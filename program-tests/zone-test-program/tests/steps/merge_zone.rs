@@ -95,6 +95,7 @@ impl ZoneLifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 program_owner: None,
+                address_slot: false,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -111,7 +112,7 @@ impl ZoneLifecycleWorld {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
-                program_id: None,
+                address: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -121,6 +122,7 @@ impl ZoneLifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 program_owner: None,
+                address_slot: false,
                 proof: None,
             });
         }
@@ -135,6 +137,7 @@ impl ZoneLifecycleWorld {
             amount: total,
             blinding: output_blinding,
             program_id: None,
+            address: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,
@@ -293,6 +296,7 @@ impl ZoneLifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 program_owner: None,
+                address_slot: false,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -307,7 +311,7 @@ impl ZoneLifecycleWorld {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
-                program_id: None,
+                address: None,
                 zone_program_id: None,
                 data: Data::default(),
             };
@@ -317,6 +321,7 @@ impl ZoneLifecycleWorld {
                 program_data_hash: None,
                 zone_data_hash: None,
                 program_owner: None,
+                address_slot: false,
                 proof: None,
             });
         }
@@ -327,6 +332,7 @@ impl ZoneLifecycleWorld {
             amount: total,
             blinding: random_blinding(),
             program_id: None,
+            address: None,
             zone_program_id: None,
             zone_data_hash: None,
             program_data_hash: None,

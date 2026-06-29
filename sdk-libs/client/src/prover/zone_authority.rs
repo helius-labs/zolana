@@ -7,7 +7,7 @@
 //! appendix).
 
 use solana_address::Address;
-use zolana_keypair::hash::hash_field;
+use zolana_keypair::hash::{hash_field, split_be_128};
 use zolana_transaction::{
     instructions::{
         transact::{no_address_hashes, private_tx_hash},
@@ -102,10 +102,12 @@ impl ZoneAuthorityProver {
             self.public_amounts.spl,
             self.public_amounts.asset,
             program_id,
+            hash_field(&assembled_inputs.address_tree_pubkey_sha256be)?,
             zone_program_id,
             self.payer_pubkey_hash,
         ])?;
 
+        let (atp_low, atp_high) = split_be_128(&assembled_inputs.address_tree_pubkey_sha256be);
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
@@ -117,6 +119,8 @@ impl ZoneAuthorityProver {
             program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            address_tree_pubkey_low: be(&atp_low),
+            address_tree_pubkey_high: be(&atp_high),
             public_input_hash: be(&public_input),
         };
 
@@ -176,6 +180,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
                 zone_data_hash: spend.zone_data_hash,
                 proof,
                 program_owner: None,
+                address_slot: false,
             });
         }
 

@@ -3,12 +3,12 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use solana_address::Address;
 use zolana_keypair::{
     constants::BLINDING_LEN,
-    hash::{hash_field, owner_hash, sha256, split_be_128},
+    hash::{hash_field, owner_hash, sha256, sha256_be, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::{owner_utxo_hash, program_id_field, utxo_hash},
+    instructions::transact::private_tx_hash,
+    utxo::{address as derive_address, owner_utxo_hash, program_id_field, utxo_hash},
     ExternalData, OutputUtxo, Utxo,
 };
 
@@ -39,6 +39,14 @@ pub struct TransferSpendInput {
     /// `pk_field`. Matches the program-owned spend path in the spp_transaction
     /// circuit (`constrainInput`).
     pub program_owner: Option<Address>,
+    /// `true` marks an address-creation (CREATE) slot: a dummy input (`is_dummy`)
+    /// with `program_data_hash != 0` that creates a program address rather than
+    /// spending a real UTXO. Its circuit `Nullifier` is the derived `address`, its
+    /// owner is `program_owner`, and it contributes its `utxo_hash` to the
+    /// `private_tx_hash` address chain. It skips state inclusion but reuses the
+    /// shared non-inclusion `proof` to prove the address absent. A real program-
+    /// owned spend (REUSE) leaves this `false` and supplies `utxo.address`.
+    pub address_slot: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,7 +118,7 @@ impl TransferP256Prover {
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
-            &no_address_hashes(assembled_inputs.input_hashes.len()),
+            &assembled_inputs.address_hashes,
             &external_data_hash,
         )?;
         let p256_message_hash = sha256(&private_tx);
@@ -127,6 +135,7 @@ impl TransferP256Prover {
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
             program_id: &program_id,
+            address_tree_pubkey_sha256be: &assembled_inputs.address_tree_pubkey_sha256be,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
@@ -135,6 +144,7 @@ impl TransferP256Prover {
         }
         .hash()?;
 
+        let (atp_low, atp_high) = split_be_128(&assembled_inputs.address_tree_pubkey_sha256be);
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
@@ -152,6 +162,8 @@ impl TransferP256Prover {
             program_id: be(&program_id),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            address_tree_pubkey_low: be(&atp_low),
+            address_tree_pubkey_high: be(&atp_high),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };
@@ -210,6 +222,14 @@ pub(crate) struct AssembledInputs {
     pub utxo_roots: Vec<[u8; 32]>,
     pub nullifier_tree_roots: Vec<[u8; 32]>,
     pub input_owner_pk_hashes: Vec<[u8; 32]>,
+    /// Per-slot address-chain entry for `private_tx_hash`: the `utxo_hash` of an
+    /// address-creation slot, `0` for every other slot. Length `n_inputs`.
+    pub address_hashes: Vec<[u8; 32]>,
+    /// `sha256_be(address_tree_pubkey)` when the transaction has any program-owned
+    /// or address-creation slot, else `[0; 32]`. Folded into the public-input hash
+    /// (and mirrored by SPP). The address tree is the nullifier tree, so the value
+    /// comes from a real slot's non-inclusion `merkle_context.tree`.
+    pub address_tree_pubkey_sha256be: [u8; 32],
     /// Per-slot `(utxo_tree_root_index, nullifier_tree_root_index)`, length
     /// `n_inputs`. Real slots take the index from their `SpendProof`; padded
     /// dummy slots mirror the first real input so the on-chain root lookup
@@ -267,7 +287,13 @@ pub(crate) fn assemble_inputs(
     let mut utxo_roots = Vec::with_capacity(spends.len());
     let mut nullifier_tree_roots = Vec::with_capacity(spends.len());
     let mut input_owner_pk_hashes = Vec::with_capacity(spends.len());
+    let mut address_hashes = Vec::with_capacity(spends.len());
     let mut root_indices = Vec::with_capacity(spends.len());
+    // `sha256_be(address_tree_pubkey)`; set from the first real slot's
+    // non-inclusion tree (the nullifier tree IS the address tree). Stays `[0; 32]`
+    // when the transaction has no program-owned or address-creation slot, matching
+    // SPP, which passes `0` in that case.
+    let mut address_tree_pubkey_sha256be = [0u8; 32];
 
     for (index, spend) in spends.iter().enumerate() {
         let Some(proof) = &spend.proof else {
@@ -283,29 +309,103 @@ pub(crate) fn assemble_inputs(
             utxo_roots.push(utxo_root);
             nullifier_tree_roots.push(nf_root);
             input_owner_pk_hashes.push(owner);
+            address_hashes.push([0u8; 32]);
             root_indices.push((ur_index, nr_index));
             continue;
         };
 
         let program_data_hash = spend.program_data_hash.unwrap_or([0u8; 32]);
         let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
+        let nf = &proof.nullifier;
+        check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
 
-        // A program-owned value input: the owner is the invoking program, so the
-        // owner field is `program_id`'s pk_field (not `owner_hash(pubkey,
-        // nullifier_pk)`), the standalone `program_id` field is pinned to 0, the
-        // nullifier secret is 0, and `owner_pk_hash == owner_field`. Mirrors the
-        // program-owned spend path of `constrainInput` in the spp_transaction
-        // circuit.
-        let (owner_field, utxo_hash, nullifier, owner_pk_hash, nullifier_secret) =
+        // CREATE (address slot): a dummy input that creates a program address. Its
+        // owner is the invoking program, its `address` is derived from the address
+        // (= nullifier) tree pubkey and `program_data_hash`, its circuit
+        // `Nullifier` IS that derived address (not a UTXO nullifier), and it
+        // contributes its `utxo_hash` to the `private_tx_hash` address chain. State
+        // inclusion is skipped (`is_dummy`); the shared non-inclusion `proof` proves
+        // the address absent. Mirrors the address-slot path of `constrainInput`.
+        if spend.address_slot {
+            let program_id = spend
+                .program_owner
+                .ok_or(ClientError::AddressSlotNotProgramOwned { index })?;
+            let tree_pubkey = nf.merkle_context.tree;
+            address_tree_pubkey_sha256be = sha256_be(tree_pubkey.as_array());
+            let address = derive_address(&tree_pubkey, &program_data_hash)?;
+            let owner_field = program_id_field(&Some(program_id))?;
+            let owner_utxo_hash = owner_utxo_hash(&owner_field, &spend.utxo.blinding)?;
+            // amount and the non-seed fields are pinned 0; only `address`,
+            // `program_data_hash`, and the owner identify the slot.
+            let utxo_hash = utxo_hash(
+                spend.utxo.asset,
+                spend.utxo.amount,
+                &program_data_hash,
+                Some(address),
+                &zone_data_hash,
+                spend.utxo.zone_program_id,
+                &owner_utxo_hash,
+            )?;
+            let utxo_inputs = UtxoInputs::new(
+                &owner_field,
+                &spend.utxo.asset,
+                spend.utxo.amount,
+                &spend.utxo.blinding,
+                &program_data_hash,
+                &address,
+                &zone_data_hash,
+                &spend.utxo.zone_program_id,
+            )?;
+            // The slot spends no real UTXO, so it has no state inclusion; the circuit
+            // skips it (`is_dummy`). For the on-chain root lookup, mirror the first
+            // real input's state root/index when present (like a padding dummy),
+            // falling back to the nullifier root when this slot precedes any spend.
+            let state_root = utxo_roots.first().copied().unwrap_or(nf.root);
+            let ur_index = root_indices.first().map(|&(ur, _)| ur).unwrap_or(nf.root_index);
+            inputs.push(TransferInput {
+                utxo: utxo_inputs,
+                is_dummy: BigUint::from(1u8),
+                state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                state_path_index: BigUint::ZERO,
+                nullifier_low_value: be(&nf.low_element),
+                nullifier_next_value: be(&nf.high_element),
+                nullifier_low_path_elements: nf.path.iter().map(be).collect(),
+                nullifier_low_path_index: BigUint::from(nf.low_element_index),
+                utxo_tree_root: be(&state_root),
+                nullifier_tree_root: be(&nf.root),
+                // The CREATE slot's nullifier IS the derived address.
+                nullifier: be(&address),
+                owner_pk_hash: be(&owner_field),
+                nullifier_secret: BigUint::ZERO,
+            });
+            input_hashes.push([0u8; 32]);
+            nullifiers.push(address);
+            utxo_roots.push(state_root);
+            nullifier_tree_roots.push(nf.root);
+            input_owner_pk_hashes.push(owner_field);
+            // The created address contributes its utxo_hash to the address chain.
+            address_hashes.push(utxo_hash);
+            root_indices.push((ur_index, nf.root_index));
+            continue;
+        }
+
+        // A program-owned value input (REUSE): the owner is the invoking program,
+        // so the owner field is `program_id`'s pk_field (not `owner_hash(pubkey,
+        // nullifier_pk)`), the `address` is reused from the spent UTXO as a free
+        // witness (no re-derivation), the nullifier secret is 0, and
+        // `owner_pk_hash == owner_field`. Mirrors the program-owned spend path of
+        // `constrainInput` in the spp_transaction circuit.
+        let (owner_field, utxo_hash, nullifier, owner_pk_hash, nullifier_secret, address) =
             if let Some(program_id) = spend.program_owner {
+                address_tree_pubkey_sha256be = sha256_be(nf.merkle_context.tree.as_array());
                 let owner_field = program_id_field(&Some(program_id))?;
                 let owner_utxo_hash = owner_utxo_hash(&owner_field, &spend.utxo.blinding)?;
-                // program_id is pinned to 0; zone fields come from the spend's UTXO.
+                let address = spend.utxo.address.unwrap_or_default();
                 let utxo_hash = utxo_hash(
                     spend.utxo.asset,
                     spend.utxo.amount,
                     &program_data_hash,
-                    None,
+                    Some(address),
                     &zone_data_hash,
                     spend.utxo.zone_program_id,
                     &owner_utxo_hash,
@@ -313,7 +413,14 @@ pub(crate) fn assemble_inputs(
                 // nullifier_secret == 0: Poseidon(utxo_hash, blinding, 0).
                 let zero_nullifier_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
                 let nullifier = zero_nullifier_key.nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                (owner_field, utxo_hash, nullifier, owner_field, [0u8; 32])
+                (
+                    owner_field,
+                    utxo_hash,
+                    nullifier,
+                    owner_field,
+                    [0u8; 32],
+                    address,
+                )
             } else {
                 let nullifier_pubkey = spend.nullifier_key.pubkey()?;
                 let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
@@ -341,7 +448,15 @@ pub(crate) fn assemble_inputs(
                 };
 
                 let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
-                (owner_field, utxo_hash, nullifier, owner_pk_hash, nullifier_secret)
+                // User-owned inputs carry no address (folded as 0).
+                (
+                    owner_field,
+                    utxo_hash,
+                    nullifier,
+                    owner_pk_hash,
+                    nullifier_secret,
+                    [0u8; 32],
+                )
             };
 
         let utxo_inputs = UtxoInputs::new(
@@ -350,20 +465,12 @@ pub(crate) fn assemble_inputs(
             spend.utxo.amount,
             &spend.utxo.blinding,
             &program_data_hash,
-            // Program-owned inputs pin the standalone program_id field to 0; the
-            // owner already carries the program identity.
-            if spend.program_owner.is_some() {
-                &None
-            } else {
-                &spend.utxo.program_id
-            },
+            &address,
             &zone_data_hash,
             &spend.utxo.zone_program_id,
         )?;
         let state = &proof.state;
-        let nf = &proof.nullifier;
         check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;
-        check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
 
         inputs.push(TransferInput {
             utxo: utxo_inputs,
@@ -385,6 +492,8 @@ pub(crate) fn assemble_inputs(
         utxo_roots.push(state.root);
         nullifier_tree_roots.push(nf.root);
         input_owner_pk_hashes.push(owner_pk_hash);
+        // A real spend (user or program-owned reuse) creates no address.
+        address_hashes.push([0u8; 32]);
         root_indices.push((state.root_index, nf.root_index));
     }
 
@@ -395,6 +504,8 @@ pub(crate) fn assemble_inputs(
         utxo_roots,
         nullifier_tree_roots,
         input_owner_pk_hashes,
+        address_hashes,
+        address_tree_pubkey_sha256be,
         root_indices,
     })
 }
@@ -471,6 +582,11 @@ pub(crate) struct PublicInputs<'a> {
     pub public_amounts: &'a PublicAmounts,
     /// Single per-tx program identifiers (pk_field-encoded); 0 on default transact.
     pub program_id: &'a [u8; 32],
+    /// `sha256_be(address_tree_pubkey)`; folded as `hash_field(..) ==
+    /// Poseidon(tpk_low, tpk_high)` immediately after `program_id`. `[0; 32]` (so
+    /// the folded field is `Poseidon(0, 0)`) when the tx has no program-owned UTXOs,
+    /// matching SPP's `0` in that case.
+    pub address_tree_pubkey_sha256be: &'a [u8; 32],
     pub zone_program_id: &'a [u8; 32],
     pub payer_pubkey_hash: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
@@ -495,6 +611,8 @@ impl PublicInputs<'_> {
             self.public_amounts.spl,
             self.public_amounts.asset,
             *self.program_id,
+            // address_tree_pubkey folded immediately after program_id.
+            hash_field(self.address_tree_pubkey_sha256be)?,
             *self.zone_program_id,
             *self.payer_pubkey_hash,
             hash_chain(self.input_owner_pk_hashes)?,

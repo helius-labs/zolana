@@ -5,7 +5,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     data::Data,
-    utxo::{utxo_hash, Utxo, UTXO_DOMAIN},
+    utxo::{address as derive_address, utxo_hash, Utxo, UTXO_DOMAIN},
     Address,
 };
 
@@ -23,7 +23,7 @@ fn bare_utxo(world: &TransactionWorld, name: &str) -> Utxo {
         asset: Address::default(),
         amount: 1000,
         blinding: [3u8; BLINDING_LEN],
-        program_id: None,
+        address: None,
         zone_program_id: None,
         data: Data::default(),
     }
@@ -58,15 +58,17 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
         .nullifier_key
         .pubkey()
         .expect("nullifier public key");
-    // A data hash is governed by its program identifier, so set both: program_data
-    // with its program_id, zone_data with its zone_program_id.
-    let program_id = Address::new_from_array([6u8; 32]);
+    // The program_hash folds the derived persistent `address` (field element) with
+    // its program_data_hash, address FIRST. The zone side still folds zone_data with
+    // the pk_field of its governing zone_program_id.
     let zone_program_id = Address::new_from_array([7u8; 32]);
-    let mut utxo = bare_utxo(world, &name);
-    utxo.program_id = Some(program_id);
-    utxo.zone_program_id = Some(zone_program_id);
     let program_data_hash = [4u8; 32];
     let zone_data_hash = [5u8; 32];
+    let tree_pubkey = Address::new_from_array([6u8; 32]);
+    let address = derive_address(&tree_pubkey, &program_data_hash).expect("derived address");
+    let mut utxo = bare_utxo(world, &name);
+    utxo.address = Some(address);
+    utxo.zone_program_id = Some(zone_program_id);
     let actual = utxo
         .hash(&npk, &program_data_hash, &zone_data_hash)
         .expect("UTXO hash");
@@ -74,11 +76,9 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     let owner = owner_hash(&utxo.owner, &npk).expect("owner hash");
     let owner_utxo_hash = poseidon(&[&owner, &fe(utxo.blinding)]).expect("owner UTXO hash");
     let asset = hash_field(utxo.asset.as_array()).expect("asset field");
-    // Each data hash pairs with the pk_field of its governing program into a sub-hash.
-    let program_id_field = hash_field(program_id.as_array()).expect("program id field");
     let zone_program_id_field =
         hash_field(zone_program_id.as_array()).expect("zone program id field");
-    let program_hash = poseidon(&[&program_data_hash, &program_id_field]).expect("program hash");
+    let program_hash = poseidon(&[&address, &program_data_hash]).expect("program hash");
     let zone_hash = poseidon(&[&zone_data_hash, &zone_program_id_field]).expect("zone hash");
     let expected = poseidon(&[
         &fe(UTXO_DOMAIN.to_be_bytes()),
@@ -94,7 +94,7 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
         utxo.asset,
         utxo.amount,
         &program_data_hash,
-        utxo.program_id,
+        utxo.address,
         &zone_data_hash,
         utxo.zone_program_id,
         &owner_utxo_hash,

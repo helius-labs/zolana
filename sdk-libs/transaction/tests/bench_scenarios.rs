@@ -266,7 +266,7 @@ impl Scenario {
                     asset: SOL_MINT,
                     amount: asset_amount,
                     blinding: zolana_transaction::derive_blinding(&blinding_seed, i),
-                    program_id: None,
+                    address: None,
                     zone_program_id: None,
                     data: Data::default(),
                 })
