@@ -29,10 +29,10 @@ func outputSelectors(api frontend.API, out Output, programID frontend.Variable) 
 	}
 }
 
-// constrainOutput verifies one created output and returns its UTXO hash (0 for a
-// dummy) for the transaction-hash chain (step 5). It classifies the slot, applies
-// the per-kind constraints (each gated by a selector, so inert where it does not
-// apply), and in the confidential variant binds the public owner tag.
+// 1. selector(dummy, program owned, user owned)
+// 2. if dummy utxo fields all zero but blinding
+// 3. if program owned (evn.programId == owner, must have an address, address must be a nullifier that is an address or an existing address of an input utxo, if confidential then input tag == address)
+// 4. utxo hash well formed
 func constrainOutput(api frontend.API, out Output, confidential, zone, zoneAuthority bool, programID, zoneProgramID frontend.Variable) frontend.Variable {
 	k := outputSelectors(api, out, programID)
 	constrainDummyOutput(api, k, out)
