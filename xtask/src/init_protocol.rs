@@ -459,8 +459,8 @@ fn send_protocol_config(
     protocol_signer: &Keypair,
     roles: &[RoleAddrs; 5],
 ) -> Result<()> {
-    // The merge authority is now a per-user value set via the user-registry
-    // `set_merge_authority` instruction, not a protocol-config field, so the
+    // Merging is now a per-user opt-in set via the user-registry
+    // `set_merging_enabled` instruction, not a protocol-config field, so the
     // `merge` role no longer feeds the protocol config here.
     let [protocol, tree, zone, _merge, forester] = roles;
     let create_config_ix = CreateProtocolConfig {

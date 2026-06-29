@@ -377,7 +377,7 @@ mod tests {
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_authority: None,
+            merging_enabled: false,
         };
         let rpc = MockRpc {
             account: Some((

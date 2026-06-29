@@ -1,15 +1,15 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::instruction::SetMergeAuthorityData;
+use zolana_user_registry_interface::instruction::SetMergingEnabledData;
 
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Sets the per-user merge authority. Only the record owner may sign;
-/// the sync delegate cannot change the merge authority.
-pub fn process_set_merge_authority(
+/// Enables or disables merging for this record. Only the record owner may sign;
+/// the sync delegate cannot change the merging opt-in.
+pub fn process_set_merging_enabled(
     program_id: &Address,
     accounts: &mut [AccountView],
-    data: SetMergeAuthorityData,
+    data: SetMergingEnabledData,
 ) -> ProgramResult {
     let (record, tail) = accounts
         .split_first_mut()
@@ -27,6 +27,6 @@ pub fn process_set_merge_authority(
         return Err(fail(UserRegistryError::UnauthorizedSigner));
     }
 
-    state.merge_authority = data.authority.map(Into::into);
+    state.merging_enabled = data.enabled;
     write_record(record, &state)
 }

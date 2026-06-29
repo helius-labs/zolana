@@ -170,7 +170,7 @@ mod tests {
             viewing_pubkey: [4u8; 33],
             sync_delegate: None,
             entries: Vec::new(),
-            merge_authority: None,
+            merging_enabled: false,
         }
     }
 
@@ -193,7 +193,7 @@ mod tests {
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_authority: None,
+            merging_enabled: false,
         }
     }
 
@@ -297,7 +297,7 @@ mod tests {
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_authority: None,
+            merging_enabled: false,
         };
         let rpc = MockRpc {
             account: Some((
@@ -382,7 +382,7 @@ mod tests {
                     viewing_pubkey: [6u8; 33],
                     created_at: 1,
                 }],
-                merge_authority: None,
+                merging_enabled: false,
             })
             .expect("serialize user record"),
         );

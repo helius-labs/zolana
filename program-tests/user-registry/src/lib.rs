@@ -69,13 +69,9 @@ pub fn build_revoke_sync_delegate_ix(owner: &Pubkey, signer: &Pubkey) -> Instruc
     user_registry_instruction::revoke_sync_delegate(user_record, *signer)
 }
 
-pub fn build_set_merge_authority_ix(
-    owner: &Pubkey,
-    signer: &Pubkey,
-    authority: Option<[u8; 32]>,
-) -> Instruction {
+pub fn build_set_merging_enabled_ix(owner: &Pubkey, signer: &Pubkey, enabled: bool) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
-    user_registry_instruction::set_merge_authority(user_record, *signer, authority)
+    user_registry_instruction::set_merging_enabled(user_record, *signer, enabled)
 }
 
 pub fn build_update_keys_ix(

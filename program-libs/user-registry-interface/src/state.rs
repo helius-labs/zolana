@@ -26,10 +26,10 @@ pub struct UserRecord {
     pub viewing_pubkey: [u8; P256_PUBKEY_LEN],
     pub sync_delegate: Option<[u8; 32]>,
     pub entries: Vec<SyncDelegateEntry>,
-    /// Per-user merge authority: `None` disables merging for this owner;
-    /// `Some(addr)` is the address that must sign `merge_transact` for this
-    /// owner (see shielded-pool spec).
-    pub merge_authority: Option<Address>,
+    /// Per-user merge opt-in: when `false` `merge_transact` is rejected for this
+    /// owner; when `true` any caller may run `merge_transact` for this owner
+    /// (see shielded-pool spec).
+    pub merging_enabled: bool,
 }
 
 impl UserRecord {
@@ -46,7 +46,7 @@ impl UserRecord {
             + (1 + 32)
             + 4
             + num_entries * SyncDelegateEntry::SERIALIZED_LEN
-            + (1 + 32) // merge_authority Option<Address>
+            + 1 // merging_enabled bool
     }
 
     pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {

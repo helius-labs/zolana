@@ -117,11 +117,8 @@ pub(crate) enum WalletCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
-    #[command(
-        name = "merge-authority",
-        about = "Set or clear the merge authority for this wallet"
-    )]
-    MergeAuthority(MergeAuthorityOptions),
+    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
+    Merge(MergeOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -471,27 +468,27 @@ pub(crate) struct BalanceOptions {
 
 #[derive(Args, Debug, Clone)]
 #[command(group(
-    clap::ArgGroup::new("merge_authority_target")
+    clap::ArgGroup::new("merge_toggle")
         .required(true)
-        .args(["authority", "clear"])
+        .args(["enable", "disable"])
 ))]
-pub(crate) struct MergeAuthorityOptions {
+pub(crate) struct MergeOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
     #[arg(
         long,
-        value_name = "PUBKEY",
-        help = "Set the merge authority to this pubkey"
+        action = ArgAction::SetTrue,
+        help = "Enable merging for this wallet"
     )]
-    pub(crate) authority: Option<String>,
+    pub(crate) enable: bool,
 
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Clear the merge authority for this wallet"
+        help = "Disable merging for this wallet"
     )]
-    pub(crate) clear: bool,
+    pub(crate) disable: bool,
 }
 
 impl TestValidatorOptions {
@@ -818,19 +815,18 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_merge_authority_options() {
-        let WalletCommand::MergeAuthority(opts) = parse_wallet(&[
-            "merge-authority",
+    fn parses_wallet_merge_options() {
+        let WalletCommand::Merge(opts) = parse_wallet(&[
+            "merge",
             "--keypair",
             "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
             "http://127.0.0.1:8785",
-            "--authority",
-            "Authority1111111111111111111111111111111111",
+            "--enable",
         ]) else {
-            panic!("expected wallet merge-authority command");
+            panic!("expected wallet merge command");
         };
 
         assert_eq!(
@@ -842,23 +838,17 @@ mod tests {
             opts.sync.indexer_url.as_deref(),
             Some("http://127.0.0.1:8785")
         );
-        assert_eq!(
-            opts.authority.as_deref(),
-            Some("Authority1111111111111111111111111111111111")
-        );
-        assert!(!opts.clear);
+        assert!(opts.enable);
+        assert!(!opts.disable);
 
-        let WalletCommand::MergeAuthority(opts) = parse_wallet(&[
-            "merge-authority",
-            "--keypair",
-            "/tmp/alice.pid.json",
-            "--clear",
-        ]) else {
-            panic!("expected wallet merge-authority command");
+        let WalletCommand::Merge(opts) =
+            parse_wallet(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"])
+        else {
+            panic!("expected wallet merge command");
         };
 
-        assert_eq!(opts.authority, None);
-        assert!(opts.clear);
+        assert!(!opts.enable);
+        assert!(opts.disable);
     }
 
     #[test]

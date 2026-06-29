@@ -1,5 +1,4 @@
 use pinocchio::{
-    address::address_eq,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -40,15 +39,10 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
-    // Per-user merge authorization: the record must opt in (Some) and the
-    // configured authority must be the payer signer running this merge.
-    match pk_fields.merge_authority {
-        None => return Err(ShieldedPoolError::MergeAuthorityUnset.into()),
-        Some(authority) => {
-            if !address_eq(&authority, merge_accounts.payer.address()) {
-                return Err(ShieldedPoolError::UnauthorizedCaller.into());
-            }
-        }
+    // Per-user merge opt-in: the owner must have enabled merging. Any caller may
+    // then run the merge.
+    if !pk_fields.merging_enabled {
+        return Err(ShieldedPoolError::MergeDisabled.into());
     }
 
     let signing_pk_field = pk_fields.signing_pk_field;

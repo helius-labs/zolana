@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_user_registry_interface::instruction::{
-    discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeAuthorityData,
+    discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergingEnabledData,
     SetSyncDelegateData, UpdateKeysData,
 };
 
@@ -10,7 +10,7 @@ use crate::{
     instructions::{
         register::process_register, revoke_sync_delegate::process_revoke_sync_delegate,
         rotate_sync_delegate_key::process_rotate_sync_delegate_key,
-        set_merge_authority::process_set_merge_authority,
+        set_merging_enabled::process_set_merging_enabled,
         set_sync_delegate::process_set_sync_delegate, update_keys::process_update_keys,
     },
 };
@@ -46,10 +46,10 @@ pub fn process_instruction(
             }
             process_revoke_sync_delegate(program_id, accounts)
         }
-        discriminator::SET_MERGE_AUTHORITY => {
-            let data = SetMergeAuthorityData::try_from_slice(payload)
+        discriminator::SET_MERGING_ENABLED => {
+            let data = SetMergingEnabledData::try_from_slice(payload)
                 .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
-            process_set_merge_authority(program_id, accounts, data)
+            process_set_merging_enabled(program_id, accounts, data)
         }
         discriminator::UPDATE_KEYS => {
             let data = UpdateKeysData::try_from_slice(payload)

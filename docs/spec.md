@@ -76,7 +76,7 @@
       - [`set_delegate`](#set_delegate)
       - [`rotate_sync_delegate_key`](#rotate_sync_delegate_key)
       - [`revoke_sync_delegate`](#revoke_sync_delegate)
-      - [`set_merge_authority`](#set_merge_authority)
+      - [`set_merging_enabled`](#set_merging_enabled)
   - [Sync Delegate](#sync-delegate)
 - [User Flows](#user-flows)
   - [First Time Sync Wallet](#first-time-sync-wallet)
@@ -94,7 +94,7 @@ For wallet sync at Solana RPC speed, the owner pubkey prefixes every encrypted U
 
 For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
 
-Two opt-in services improve user experience. A merge authority consolidates fragmented balances without per-merge wallet signatures. A sync delegate watches owner tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
+Two opt-in services improve user experience. A merge service consolidates fragmented balances without per-merge wallet signatures, once the owner enables merging on their registry record. A sync delegate watches owner tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
 
 The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the zone program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / zone RPC / merge service / registry interfaces, and user flows.
 
@@ -155,7 +155,7 @@ Operations performed by the owner of a policy zone's config.
 
 ### Merge Service
 
-Operations performed by a merge service: the Solana account a user sets as the `merge_authority` on their [registry record](#registry). See [Merge Service](#merge-service-1) for the operator's responsibilities.
+Operations performed by a merge service for a user who has enabled merging (`merging_enabled = true`) on their [registry record](#registry). See [Merge Service](#merge-service-1) for the operator's responsibilities.
 
 | # | Name | Description |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ UTXOs are inherently concurrent. Every transaction to a user will fragment the u
 
 1. The balance of a keypair can be used concurrently when it is split up between a number of utxos.
 2. To keep the balance spendable in one transaction we split it in up to X utxos.
-3. Optionally, fragmented balances can be reconsolidated without user interaction by a trust minimized [merge service](#merge_transact) the user has authorized on their registry record.
+3. Optionally, fragmented balances can be reconsolidated without user interaction by a trust minimized [merge service](#merge_transact) once the user has enabled merging on their registry record.
 
 
 ## Default Zone
@@ -408,7 +408,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
     - Indexed by: the owner.
     - Counter: a single per-user `merge_count` (`wallet.merge_count`), advanced on every `merge_zone`.
     - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_zone`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || u64_be(merge_count), L=31)`. The secret `merge_view_tag_secret` already scopes the tag stream per user, so no per-service domain separator is needed; each user authorizes their own merge authority on the registry record.
+    - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || u64_be(merge_count), L=31)`. The secret `merge_view_tag_secret` already scopes the tag stream per user, so no per-service domain separator is needed; each user enables merging on their registry record.
 
 ### View Tag Selection
 
@@ -958,7 +958,7 @@ Each is instantiated again on an owner-tag axis: a confidential variant that exp
 
 # Merge Proof - Merge ZK Proof
 
-ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. The proof references no merge authority; the SPP program checks the transaction signer against the user's registry `merge_authority` (see [`merge_transact`](#merge_transact)).
+ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. The proof references no authority; the SPP program only checks that the user's registry record has `merging_enabled == true` (see [`merge_transact`](#merge_transact)).
 
 **Requirement.** The circuit must NOT take any wallet secret as a witness input.
 
@@ -1168,7 +1168,7 @@ Usage by instruction:
 | create_zone_config | Tag 9; creates the `spp_zone_config` PDA for a given `zone_program_id`. Requires `zone_auth` for that program as signer, and the payer must equal `protocol_config.zone_creation_authority` unless `zone_creation_is_permissionless`. See [Zone Accounts](#zone-accounts). |
 | update_zone_config_owner | Tag 10; rotates `spp_zone_config.authority`. Signer must equal current `authority`. |
 | update_zone_config | Tag 11; toggles `spp_zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
-| merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Authorized by the user's registry `merge_authority` signer, which binds the merge to the owner's registered signing / viewing keys. Input and output UTXOs are default-zone; extension slots are zero. |
+| merge_transact | Tag 12; consolidates N input UTXOs (same owner, same asset) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-zone; extension slots are zero. |
 | merge_zone | Tag 13; CPI from a zone program; consolidates N input UTXOs (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `program_data_hash = 0` on inputs and output. |
 | emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
 | zone_proofless_shield | Tag 15; policy-zone analog of `proofless_shield`; public deposit creating a zone-owned UTXO, authorized by the zone program's `zone_auth` signer. See [`zone_proofless_shield`](#zone_proofless_shield). |
@@ -1577,15 +1577,15 @@ struct ZoneProoflessShieldIxData {
 
 **Discriminator:** 12
 
-**Description.** Consolidates `N` input UTXOs of a single owner and a single asset into one output UTXO of the same owner, asset, and total amount. Authorized by the transaction signer (`payer`), which SPP checks against the user's registry `merge_authority`; the merge proof itself references no authority. SPP nullifies the inputs and appends the output to the UTXO tree. The output ciphertext is in the instruction data; the indexer picks it up.
+**Description.** Consolidates `N` input UTXOs of a single owner and a single asset into one output UTXO of the same owner, asset, and total amount. Permitted whenever the owner's registry record has `merging_enabled == true`; any account may run the merge (there is no per-user authority and no signer check beyond paying fees). SPP nullifies the inputs and appends the output to the UTXO tree. The output ciphertext is in the instruction data; the indexer picks it up.
 
 **Accounts**
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | nullifier queue + nullifier tree + UTXO tree |
-| 2 | payer |   | x | merge service; must equal the user's registry `merge_authority`; fee payer |
-| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `payer` against its `merge_authority` and binds the proof's signing / viewing `pk_field`s to it |
+| 2 | payer |   | x | fee payer; any account may run the merge |
+| 3 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's signing / viewing `pk_field`s to it |
 
 **Instruction data**
 
@@ -1624,7 +1624,7 @@ struct MergeTransactIxData {
 1. `current_unix_ts <= expiry_unix_ts`.
 2. Each `utxo_tree_root_index[i]` references a non-stale UTXO-tree root, and each `nullifier_tree_root_index[i]` references a non-stale nullifier-tree root.
 3. `tree_account` is not paused.
-4. `payer` equals the user's registry `merge_authority` (the record's `merge_authority` is `Some` and matches the signer).
+4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
@@ -1639,7 +1639,7 @@ table) `≈ 927 B`.
 
 **Discriminator:** 13
 
-**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching the CPI caller) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `zone_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_auth` signer); SPP does **not** check a registry `merge_authority` for `merge_zone`.
+**Description.** Policy-zone analog of [`merge_transact`](#merge_transact), invoked via CPI from a zone program. The relationship to `merge_transact` parallels how [`zone_authority_transact`](#zone_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `zone_program_id` (matching the CPI caller) into one output UTXO that preserves `zone_program_id`. The zone program runs its own authorization, including any rules over `zone_data`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the zone program (the `zone_auth` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_zone`.
 
 **Accounts**
 
@@ -1662,7 +1662,7 @@ cleanliness and output-well-formed rules.
 **Checks**
 
 1. CPI caller is the program named in account #2.
-2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale; `tree_account` is not paused (`merge_transact` checks 1–3). Authorization is the zone program's responsibility; SPP does not check a registry `merge_authority` here.
+2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale; `tree_account` is not paused (`merge_transact` checks 1–3). Authorization is the zone program's responsibility; SPP does not check the registry `merging_enabled` flag here.
 3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = account #2; output preserves it; `program_data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 5. Insert each input nullifier into the nullifier queue.
@@ -1997,24 +1997,24 @@ struct SubscribeToDecryptedTransactionsByOwnerRequest {
 
 A merge service consolidates a user's fragmented UTXOs into fewer larger ones by submitting [`merge_transact`](#merge_transact) instructions on the user's behalf. The user does not sign merge service transactions.
 
-**Identity.** A merge service is a Solana account (Ed25519). It signs its own `merge_transact` transactions, so the Solana runtime verifies the signature and SPP reads the signer directly.
+**Identity.** A merge service is a Solana account (Ed25519). It signs its own `merge_transact` transactions as the fee payer, so the Solana runtime verifies the signature; SPP does not check the signer against any registered authority.
 
-**Authorization.** A merge service is authorized per user, by the owner setting it as the `merge_authority` on their [registry record](#registry). `merge_transact` requires the signer to equal the record's `merge_authority` and binds the merge to the owner's registered `owner_p256` / `viewing_pk`. In a policy zone, [`merge_zone`](#merge_zone) uses the [`merge_view_tag`](#merge-view-tag) stream instead.
+**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the owner's registered `owner_p256` / `viewing_pk` through the proof. In a policy zone, [`merge_zone`](#merge_zone) uses the [`merge_view_tag`](#merge-view-tag) stream instead.
 
-**Scope.** The merge service consolidates UTXOs in both default and policy zones if the zone program exposes a merge instruction. In policy zones the zone program authorizes the merge (see [`merge_zone`](#merge_zone)); the registry `merge_authority` applies only to default-zone `merge_transact`.
+**Scope.** The merge service consolidates UTXOs in both default and policy zones if the zone program exposes a merge instruction. In policy zones the zone program authorizes the merge (see [`merge_zone`](#merge_zone)); the registry `merging_enabled` flag applies only to default-zone `merge_transact`.
 UTXOs with `program_data` set (non-zero `program_data_hash`) cannot be merged since they are subject to program logic.
 
-**Lifecycle.** The owner sets a merge authority on their [registry record](#registry); to stop, the owner clears it (sets `None`).
+**Lifecycle.** The owner enables merging on their [registry record](#registry) (`merging_enabled = true`); to stop, the owner disables it (`merging_enabled = false`).
 
 1. The user (or its [sync delegate](#sync-delegate)) hands the service decrypted UTXOs and the merge proof inputs (see Merging UTXOs below). The merged output is indexed by the owner pubkey, so no view tag is pre-derived for `merge_transact`.
-2. The service builds and submits [`merge_transact`](#merge_transact), signing as the owner's registry `merge_authority`.
-3. To stop, the owner clears the `merge_authority` (sets `None`) or stops sharing inputs.
+2. The service builds and submits [`merge_transact`](#merge_transact), paying fees as any caller may.
+3. To stop, the owner disables merging (set `merging_enabled = false`) via [`set_merging_enabled`](#set_merging_enabled) or stops sharing inputs.
 
 **Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore a wallet or [sync delegate](#sync-delegate) must trigger the merge service and supply the merge proof inputs.
 
 **Sync.** After each `merge_transact`, the merged ciphertext is indexed by the owner pubkey (the public `pk_field(user_signing_pk)`). The wallet finds it by scanning that tag (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
-**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. It cannot encrypt incorrectly because `merge_transact` binds the output to the owner's registered `viewing_pk` (see Checks). A merge only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that user, and the service cannot decrypt those UTXOs or build the merge proof without the user's viewing and nullifier secrets, which only the user (or its sync delegate) provides. The owner also authorizes the service explicitly by setting it as their registry `merge_authority`, and a service the user never feeds cannot act on that user's UTXOs.
+**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. It cannot encrypt incorrectly because `merge_transact` binds the output to the owner's registered `viewing_pk` (see Checks). A merge is value-preserving: it only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that same user, bound to the owner's registered signing / viewing keys by the proof. Even though any caller may submit `merge_transact` once the owner has enabled merging, a caller cannot decrypt the user's UTXOs or build the merge proof without the user's viewing and nullifier secrets, which only the user (or its sync delegate) provides. A caller the user never feeds therefore cannot act on that user's UTXOs, so safety does not depend on an explicit per-service authorization.
 
 ## Registry
 
@@ -2033,10 +2033,11 @@ struct Record {
     /// Static. The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)),
     /// published to senders while no delegate is set.
     viewing_pk: P256Pubkey,
-    /// `None` disables merging; `Some(addr)` must sign [`merge_transact`](#merge_transact)
-    /// for this owner. SPP binds the merge to `owner_p256` and `viewing_pk`, so the
-    /// merged output is encrypted to the owner's registered key.
-    merge_authority: Option<Address>,
+    /// Opt-in for [`merge_transact`](#merge_transact); default `false`. When `true`,
+    /// any caller may run the merge for this owner. SPP binds the merge to
+    /// `owner_p256` and `viewing_pk`, so the merged output is encrypted to the
+    /// owner's registered key.
+    merging_enabled: bool,
     /// Solana pubkey of the current sync delegate, or none.
     delegate: Option<Address>,
     /// Append-only list of delegate entries.
@@ -2141,15 +2142,15 @@ Authorized signer: `owner` or current delegate.
 struct RevokeSyncDelegateRequest {}
 ```
 
-#### `set_merge_authority`
+#### `set_merging_enabled`
 
-Sets or clears the record's `merge_authority`. `Some(addr)` authorizes `addr` to sign [`merge_transact`](#merge_transact) for this owner; `None` disables merging.
+Sets the record's `merging_enabled` flag. `true` enables [`merge_transact`](#merge_transact) for this owner (any caller may then run it); `false` disables merging. Only the record `owner` may call it.
 
 Authorized signer: `owner`.
 
 ```rust
-struct SetMergeAuthorityRequest {
-    merge_authority: Option<Address>,
+struct SetMergingEnabledRequest {
+    merging_enabled: bool,
 }
 ```
 
@@ -2251,7 +2252,7 @@ Figures below are **per viewing key**. With `E` keys (the wallet's own key plus 
 
 ## Merge Flow
 
-The merge service consolidates the owner's fragmented UTXOs. The service is the Solana account the owner sets as the `merge_authority` on their [registry record](#registry), which also pins the keys the merge is bound to. The diagram below shows the per-batch flow.
+The merge service consolidates the owner's fragmented UTXOs. The owner first enables merging on their [registry record](#registry), which pins the keys the merge is bound to; any caller may then run the merge. The diagram below shows the per-batch flow.
 
 ```mermaid
 sequenceDiagram
@@ -2262,7 +2263,7 @@ sequenceDiagram
     participant Indexer as Photon Indexer
 
     Note over Merge,Wallet: Out-of-band (one-time)
-    Merge-->>Wallet: publish merge_authority Solana account<br/>(website / link / QR); owner sets it on their registry record
+    Wallet->>SPP: set_merging_enabled(true)<br/>owner enables merging on their registry record
 
     Note over Wallet,Merge: Per-batch handover
     Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)
@@ -2270,10 +2271,10 @@ sequenceDiagram
 
     Note over Merge: Build witness + proof
     Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier = Poseidon(utxo_hash, blinding, nullifier_secret) per input<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)
-    Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)<br/>signed by merge_authority
+    Merge->>SPP: merge_transact(proof, output_utxo_hash, encrypted_utxo, ...)<br/>pays fees as any caller may
 
     Note over SPP: Verify and apply
-    SPP->>SPP: check expiry + root indices fresh + tree not paused<br/>check signer == user_record.merge_authority + bind signing/viewing pk_field<br/>verify merge proof against public inputs
+    SPP->>SPP: check expiry + root indices fresh + tree not paused<br/>check user_record.merging_enabled == true + bind signing/viewing pk_field<br/>verify merge proof against public inputs
     SPP->>Trees: append output_utxo_hash to UTXO tree
     SPP->>Trees: insert N input nullifiers
     SPP-->>Indexer: index merged ciphertext in shielded_utxos under the owner pubkey
@@ -2284,7 +2285,7 @@ sequenceDiagram
     Wallet->>Wallet: decrypt → mark N inputs spent, add merged output
 ```
 
-To stop a service, the user stops handing it inputs; no Solana transaction is required. The owner can also clear the registry `merge_authority` (set `None`) via [`set_merge_authority`](#set_merge_authority), after which its `merge_transact` transactions are rejected.
+To stop a service, the user stops handing it inputs; no Solana transaction is required. The owner can also disable merging (set `merging_enabled = false`) via [`set_merging_enabled`](#set_merging_enabled), after which `merge_transact` transactions for this owner are rejected.
 
 ## Transfer User Flows
 
