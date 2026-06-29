@@ -23,7 +23,6 @@ cpi = ["no-entrypoint"]
 test-sbf = []
 
 [dependencies]
-borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
