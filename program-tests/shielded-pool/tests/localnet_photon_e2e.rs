@@ -211,7 +211,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -424,7 +423,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -744,7 +742,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: AMOUNT,
             blinding,
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -947,7 +944,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: total_amount - TRANSFER_AMOUNT,
             blinding: derive_blinding(&sender_plaintext.blinding_seed, 1),
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -956,7 +952,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             asset: SOL_MINT,
             amount: TRANSFER_AMOUNT,
             blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1087,7 +1082,6 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
             args.utxo.amount,
             &args.utxo.blinding,
             &[0u8; 32],
-            &args.utxo.program_id,
             &[0u8; 32],
             &args.utxo.zone_program_id,
         )?,
@@ -1552,7 +1546,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             asset: SOL_MINT,
             amount: half,
             blinding,
-            program_id: None,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1690,7 +1683,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: derive_blinding(&sender_plaintext.blinding_seed, 2),
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

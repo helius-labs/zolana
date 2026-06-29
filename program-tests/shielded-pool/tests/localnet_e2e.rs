@@ -131,7 +131,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -321,7 +320,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
