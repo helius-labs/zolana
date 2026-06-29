@@ -48,7 +48,6 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         forester_authority: data.forester_authority,
         zone_creation_authority: data.zone_creation_authority,
         zone_creation_is_permissionless: data.zone_creation_is_permissionless,
-        merge_authority: data.merge_authority,
     }
     .init(protocol_config)
 }
@@ -60,7 +59,6 @@ struct ProtocolConfigInitParams {
     forester_authority: Address,
     zone_creation_authority: Address,
     zone_creation_is_permissionless: u8,
-    merge_authority: Address,
 }
 
 impl ProtocolConfigInitParams {
@@ -76,7 +74,6 @@ impl ProtocolConfigInitParams {
         config.forester_authority = self.forester_authority;
         config.zone_creation_authority = self.zone_creation_authority;
         config.zone_creation_is_permissionless = self.zone_creation_is_permissionless;
-        config.merge_authority = self.merge_authority;
         Ok(())
     }
 }

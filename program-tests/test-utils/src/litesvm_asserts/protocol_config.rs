@@ -5,14 +5,12 @@ use zolana_interface::state::ProtocolConfig;
 use zolana_program_test::ZolanaProgramTest;
 
 /// Verify the protocol config account at `config`: canonical length, every role
-/// authority equals `authority`, the merge authority equals `merge_authority`,
-/// and both permissionless flags are off.
+/// authority equals `authority`, and both permissionless flags are off.
 #[track_caller]
 pub fn litesvm_assert_protocol_config(
     program_test: &ZolanaProgramTest,
     config: &Pubkey,
     authority: &Pubkey,
-    merge_authority: &[u8; 32],
 ) {
     let data = program_test
         .account_data(config)
@@ -42,11 +40,6 @@ pub fn litesvm_assert_protocol_config(
         cfg.zone_creation_authority.to_bytes(),
         authority.to_bytes(),
         "zone creation authority"
-    );
-    assert_eq!(
-        cfg.merge_authority.to_bytes(),
-        *merge_authority,
-        "merge authority"
     );
     assert_eq!(
         cfg.tree_creation_is_permissionless, 0,

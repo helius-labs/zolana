@@ -4,7 +4,10 @@ use anyhow::{Context, Result};
 
 use crate::{
     args::StartProverOptions,
-    config::{DEFAULT_LOG_DIR, PROVER_READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
+    config::{
+        DEFAULT_LOG_DIR, DEFAULT_METRICS_PORT, DEFAULT_PROVER_PORT, PROVER_READINESS_STABLE_CHECKS,
+        READINESS_TIMEOUT,
+    },
     http::wait_for_http_get_with_child,
     process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
 };
@@ -18,7 +21,16 @@ pub(crate) fn start_prover_service(
     redis_url: Option<&str>,
     log_dir: &str,
 ) -> Result<()> {
+    // The prover's Prometheus metrics server defaults to the fixed port 9998, so
+    // two clones running prover-backed tests concurrently would collide there and
+    // panic even though their `--prover-address` ports are offset apart. Track the
+    // prover port's offset so the metrics port moves in lockstep (the canonical
+    // 3001 -> 9998 mapping is preserved at offset 0).
+    let offset = prover_port.saturating_sub(DEFAULT_PROVER_PORT);
+    let metrics_port = DEFAULT_METRICS_PORT.saturating_add(offset);
+
     stop_port(prover_port);
+    stop_port(metrics_port);
 
     let prover = find_binary(
         &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
@@ -35,6 +47,8 @@ pub(crate) fn start_prover_service(
         path_string_with_trailing_separator(&keys_dir)?,
         "--prover-address".to_string(),
         format!("0.0.0.0:{prover_port}"),
+        "--metrics-address".to_string(),
+        format!("0.0.0.0:{metrics_port}"),
         "--auto-download".to_string(),
         "true".to_string(),
     ];

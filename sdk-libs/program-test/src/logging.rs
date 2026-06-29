@@ -586,7 +586,6 @@ fn create_protocol_config_fields(data: CreateProtocolConfigData) -> Vec<DecodedF
         data.forester_authority.to_bytes(),
         data.zone_creation_authority.to_bytes(),
         data.zone_creation_is_permissionless != 0,
-        data.merge_authority.to_bytes(),
     )
 }
 
@@ -603,9 +602,6 @@ fn update_protocol_config_fields(data: UpdateProtocolConfigData) -> Vec<DecodedF
         }
         UpdateProtocolConfigData::ZoneCreationAuthority(a) => {
             field("zone_creation_authority", pubkey(&a.to_bytes()))
-        }
-        UpdateProtocolConfigData::MergeAuthority(a) => {
-            field("merge_authority", pubkey(&a.to_bytes()))
         }
         UpdateProtocolConfigData::TreeCreationPermissionless(b) => {
             field("tree_creation_is_permissionless", b)
@@ -625,7 +621,6 @@ fn protocol_config_fields(
     forester_authority: [u8; 32],
     zone_creation_authority: [u8; 32],
     zone_creation_is_permissionless: bool,
-    merge_authority: [u8; 32],
 ) -> Vec<DecodedField> {
     vec![
         field("protocol_authority", pubkey(&protocol_authority)),
@@ -640,7 +635,6 @@ fn protocol_config_fields(
             "zone_creation_is_permissionless",
             zone_creation_is_permissionless,
         ),
-        field("merge_authority", pubkey(&merge_authority)),
     ]
 }
 

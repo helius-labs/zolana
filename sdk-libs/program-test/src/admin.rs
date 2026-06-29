@@ -16,17 +16,7 @@ impl ZolanaProgramTest {
         &mut self,
         authority: &Keypair,
     ) -> Result<Pubkey, ProgramTestError> {
-        let merge_authority = authority.pubkey().to_bytes();
-        self.create_protocol_config_with_merge_authority(authority, merge_authority)
-    }
-
-    pub fn create_protocol_config_with_merge_authority(
-        &mut self,
-        authority: &Keypair,
-        merge_authority: [u8; 32],
-    ) -> Result<Pubkey, ProgramTestError> {
-        let data =
-            create_protocol_config_data(authority.pubkey().to_bytes(), merge_authority, false);
+        let data = create_protocol_config_data(authority.pubkey().to_bytes(), false);
         self.create_protocol_config_with_data(authority, data)
     }
 
@@ -34,9 +24,7 @@ impl ZolanaProgramTest {
         &mut self,
         authority: &Keypair,
     ) -> Result<Pubkey, ProgramTestError> {
-        let merge_authority = authority.pubkey().to_bytes();
-        let data =
-            create_protocol_config_data(authority.pubkey().to_bytes(), merge_authority, true);
+        let data = create_protocol_config_data(authority.pubkey().to_bytes(), true);
         self.create_protocol_config_with_data(authority, data)
     }
 
@@ -55,7 +43,6 @@ impl ZolanaProgramTest {
             forester_authority: data.forester_authority,
             zone_creation_authority: data.zone_creation_authority,
             zone_creation_is_permissionless: data.zone_creation_is_permissionless != 0,
-            merge_authority: data.merge_authority,
         }
         .instruction();
         self.send(&[ix], &[authority])?;
@@ -66,16 +53,6 @@ impl ZolanaProgramTest {
         &mut self,
         authority: &Keypair,
         new_authority: &Keypair,
-    ) -> Result<(), ProgramTestError> {
-        let merge_authority = new_authority.pubkey().to_bytes();
-        self.update_protocol_config_with_merge_authority(authority, new_authority, merge_authority)
-    }
-
-    pub fn update_protocol_config_with_merge_authority(
-        &mut self,
-        authority: &Keypair,
-        new_authority: &Keypair,
-        merge_authority: [u8; 32],
     ) -> Result<(), ProgramTestError> {
         let payer = authority.pubkey();
         let next = new_authority.pubkey().to_bytes();
@@ -92,9 +69,6 @@ impl ZolanaProgramTest {
             update(UpdateProtocolConfigData::TreeCreationAuthority(next.into())),
             update(UpdateProtocolConfigData::ForesterAuthority(next.into())),
             update(UpdateProtocolConfigData::ZoneCreationAuthority(next.into())),
-            update(UpdateProtocolConfigData::MergeAuthority(
-                merge_authority.into(),
-            )),
             update(UpdateProtocolConfigData::ProtocolAuthority(next.into())),
         ];
         let mut signers = vec![authority];
@@ -136,7 +110,6 @@ impl ZolanaProgramTest {
 
 fn create_protocol_config_data(
     authority: [u8; 32],
-    merge_authority: [u8; 32],
     permissionless: bool,
 ) -> CreateProtocolConfigData {
     CreateProtocolConfigData {
@@ -146,6 +119,5 @@ fn create_protocol_config_data(
         forester_authority: authority.into(),
         zone_creation_authority: authority.into(),
         zone_creation_is_permissionless: u8::from(permissionless),
-        merge_authority: merge_authority.into(),
     }
 }

@@ -25,7 +25,6 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
         UpdateProtocolConfigData::TreeCreationAuthority(a) => current.tree_creation_authority = a,
         UpdateProtocolConfigData::ForesterAuthority(a) => current.forester_authority = a,
         UpdateProtocolConfigData::ZoneCreationAuthority(a) => current.zone_creation_authority = a,
-        UpdateProtocolConfigData::MergeAuthority(a) => current.merge_authority = a,
         UpdateProtocolConfigData::TreeCreationPermissionless(b) => {
             current.tree_creation_is_permissionless = u8::from(b)
         }

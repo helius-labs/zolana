@@ -8,12 +8,10 @@ use crate::{
 
 /// Builder for the `merge_transact` instruction. The account layout mirrors the
 /// program loader (`MergeTransactAccounts::validate_and_parse`):
-/// `tree` (writable), `protocol_config` (read-only), `payer` (signer, writable),
-/// `user_record` (read-only), and the program account last for the `emit_event`
-/// self-CPI.
+/// `tree` (writable), `payer` (signer, writable), `user_record` (read-only), and
+/// the program account last for the `emit_event` self-CPI.
 pub struct MergeTransact {
     pub tree: Pubkey,
-    pub protocol_config: Pubkey,
     pub payer: Pubkey,
     pub user_record: Pubkey,
     pub data: MergeTransactIxData,
@@ -31,7 +29,6 @@ impl MergeTransact {
 
         let accounts = vec![
             AccountMeta::new(self.tree, false),
-            AccountMeta::new_readonly(self.protocol_config, false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.user_record, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),

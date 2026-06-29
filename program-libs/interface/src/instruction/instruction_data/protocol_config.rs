@@ -11,7 +11,6 @@ pub struct CreateProtocolConfigData {
     pub forester_authority: Address,
     pub zone_creation_authority: Address,
     pub zone_creation_is_permissionless: u8,
-    pub merge_authority: Address,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -20,7 +19,6 @@ pub enum UpdateProtocolConfigData {
     TreeCreationAuthority(Address),
     ForesterAuthority(Address),
     ZoneCreationAuthority(Address),
-    MergeAuthority(Address),
     TreeCreationPermissionless(bool),
     ZoneCreationPermissionless(bool),
 }

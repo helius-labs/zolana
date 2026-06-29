@@ -7,7 +7,7 @@ pub mod discriminator {
     pub const SET_SYNC_DELEGATE: u8 = 1;
     pub const ROTATE_SYNC_DELEGATE_KEY: u8 = 2;
     pub const REVOKE_SYNC_DELEGATE: u8 = 3;
-    pub const SET_MERGE_SERVICE: u8 = 4;
+    pub const SET_MERGING_ENABLED: u8 = 4;
     pub const UPDATE_KEYS: u8 = 5;
 }
 
@@ -39,7 +39,7 @@ pub struct RotateSyncDelegateKeyData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct SetMergeServiceData {
+pub struct SetMergingEnabledData {
     pub enabled: bool,
 }
 
@@ -53,7 +53,7 @@ mod builders {
     use solana_pubkey::Pubkey;
 
     use super::{
-        discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergeServiceData,
+        discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergingEnabledData,
         SetSyncDelegateData, UpdateKeysData,
     };
     use crate::user_registry_program_id;
@@ -128,8 +128,8 @@ mod builders {
     }
 
     /// Accounts: `[user_record (writable), owner (signer)]`. Only the owner may
-    /// toggle the merge-service opt-in.
-    pub fn set_merge_service(user_record: Pubkey, owner: Pubkey, enabled: bool) -> Instruction {
+    /// enable or disable merging.
+    pub fn set_merging_enabled(user_record: Pubkey, owner: Pubkey, enabled: bool) -> Instruction {
         Instruction {
             program_id: user_registry_program_id(),
             accounts: vec![
@@ -137,8 +137,8 @@ mod builders {
                 AccountMeta::new_readonly(owner, true),
             ],
             data: encode_instruction(
-                discriminator::SET_MERGE_SERVICE,
-                &SetMergeServiceData { enabled },
+                discriminator::SET_MERGING_ENABLED,
+                &SetMergingEnabledData { enabled },
             ),
         }
     }

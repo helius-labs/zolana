@@ -11,4 +11,7 @@ solana = ["dep:solana-instruction"]
 [dependencies]
 borsh = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
-solana-pubkey = { workspace = true }
+# `borsh` activates solana-address/borsh so `Pubkey` (an alias of Address) derives
+# Borsh for `UserRecord`; required because the isolated SBF build does not get it
+# via workspace feature unification.
+solana-pubkey = { workspace = true, features = ["borsh"] }

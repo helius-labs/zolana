@@ -28,6 +28,7 @@ use transact_common::start_prover;
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
 const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
+const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
@@ -263,6 +264,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =
         std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+    let prover_url =
+        std::env::var(PROVER_URL_ENV).unwrap_or_else(|_| DEFAULT_PROVER_URL.to_owned());
 
     let root = temp_wallet_dir()?;
     let alice = root.join("alice.pid.json");
@@ -465,7 +468,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--indexer-url",
             &indexer_url,
             "--prover-url",
-            DEFAULT_PROVER_URL,
+            &prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -489,7 +492,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--indexer-url",
             &indexer_url,
             "--prover-url",
-            DEFAULT_PROVER_URL,
+            &prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -516,7 +519,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--indexer-url",
             &indexer_url,
             "--prover-url",
-            DEFAULT_PROVER_URL,
+            &prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -564,7 +567,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--indexer-url",
             &indexer_url,
             "--prover-url",
-            DEFAULT_PROVER_URL,
+            &prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -614,7 +617,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--indexer-url",
             &indexer_url,
             "--prover-url",
-            DEFAULT_PROVER_URL,
+            &prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],

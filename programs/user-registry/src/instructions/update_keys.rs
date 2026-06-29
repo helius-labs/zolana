@@ -22,8 +22,8 @@ pub fn process_update_keys(
     }
 
     let mut state = read_record(record, program_id)?;
-    check_record_pda_with_bump(record, &state.owner, state.bump, program_id)?;
-    if &state.owner != owner.address().as_array() {
+    check_record_pda_with_bump(record, state.owner.as_array(), state.bump, program_id)?;
+    if state.owner.as_array() != owner.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
     }
 

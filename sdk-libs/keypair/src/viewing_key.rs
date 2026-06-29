@@ -169,22 +169,13 @@ impl ViewingKey {
         )
     }
 
-    /// Merge view tag for the merged output at `merge_count`, namespaced by the
-    /// merge service's `merge_authority_pubkey`; derived by the owner and its
-    /// sync delegate, indexed by the owner.
-    pub fn get_merge_view_tag(
-        &self,
-        merge_authority_pubkey: &[u8],
-        merge_count: u64,
-    ) -> Result<ViewTag, KeypairError> {
+    /// Merge view tag for the merged output at `merge_count`; derived by the
+    /// owner and its sync delegate, indexed by the owner.
+    pub fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
         let secret = self.merge_view_tag_secret()?;
         expand_view_tag(
             &secret,
-            &[
-                INFO_MERGE_VIEW_TAG_PREFIX,
-                merge_authority_pubkey,
-                &merge_count.to_be_bytes(),
-            ],
+            &[INFO_MERGE_VIEW_TAG_PREFIX, &merge_count.to_be_bytes()],
         )
     }
 

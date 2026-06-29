@@ -5,7 +5,7 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_keypair::SignatureType;
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{
-    instruction::{register, set_merge_service, update_keys, RegisterData, UpdateKeysData},
+    instruction::{register, set_merging_enabled, update_keys, RegisterData, UpdateKeysData},
     user_record_pda, UserRecord,
 };
 
@@ -13,7 +13,7 @@ use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
     resolve::resolve_sync,
 };
-use crate::args::MergeServiceOptions;
+use crate::args::MergeOptions;
 
 pub(super) fn register_wallet_on_chain(
     rpc: &SolanaRpc,
@@ -47,32 +47,28 @@ pub(super) fn register_wallet_on_chain(
     Ok(Some(signature))
 }
 
-pub(super) fn run_merge_service(opts: MergeServiceOptions) -> Result<()> {
+pub(super) fn run_merge(opts: MergeOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;
     let owner = material.funding.pubkey();
-    let signature = set_merge_service_enabled(&rpc, &material, opts.enabled)?;
-    println!(
-        "ok merge-service owner={} enabled={} signature={}",
-        owner, opts.enabled, signature
-    );
-    Ok(())
-}
 
-fn set_merge_service_enabled(
-    rpc: &SolanaRpc,
-    material: &WalletMaterial,
-    enabled: bool,
-) -> Result<Signature> {
-    let owner = material.funding.pubkey();
+    let enabled = match (opts.enable, opts.disable) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => bail!("provide exactly one of --enable or --disable"),
+    };
+
     let (user_record, _bump) = user_record_pda(&owner);
-    let ix = set_merge_service(user_record, owner, enabled);
-    Ok(rpc.create_and_send_transaction(
+    let ix = set_merging_enabled(user_record, owner, enabled);
+    let signature = rpc.create_and_send_transaction(
         &[ix],
         Address::new_from_array(owner.to_bytes()),
         &[&material.funding],
-    )?)
+    )?;
+
+    println!("ok merge owner={owner} enabled={enabled} signature={signature}");
+    Ok(())
 }
 
 fn register_data(material: &WalletMaterial) -> Result<RegisterData> {
@@ -102,7 +98,7 @@ fn validate_registered_wallet(
     material: &WalletMaterial,
 ) -> Result<bool> {
     let expected = register_data(material)?;
-    if record.owner != owner.to_bytes() {
+    if record.owner.to_bytes() != owner.to_bytes() {
         bail!("user registry record stores a different owner than {owner}");
     }
     Ok(record.owner_p256 == expected.owner_p256

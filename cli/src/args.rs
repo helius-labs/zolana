@@ -117,11 +117,8 @@ pub(crate) enum WalletCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
-    #[command(
-        name = "merge-service",
-        about = "Enable or disable merge-service opt-in for this wallet"
-    )]
-    MergeService(MergeServiceOptions),
+    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
+    Merge(MergeOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -470,16 +467,28 @@ pub(crate) struct BalanceOptions {
 }
 
 #[derive(Args, Debug, Clone)]
-pub(crate) struct MergeServiceOptions {
+#[command(group(
+    clap::ArgGroup::new("merge_toggle")
+        .required(true)
+        .args(["enable", "disable"])
+))]
+pub(crate) struct MergeOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
     #[arg(
         long,
-        action = ArgAction::Set,
-        help = "Whether this wallet opts into merge-service consolidation"
+        action = ArgAction::SetTrue,
+        help = "Enable merging for this wallet"
     )]
-    pub(crate) enabled: bool,
+    pub(crate) enable: bool,
+
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Disable merging for this wallet"
+    )]
+    pub(crate) disable: bool,
 }
 
 impl TestValidatorOptions {
@@ -806,19 +815,18 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_merge_service_options() {
-        let WalletCommand::MergeService(opts) = parse_wallet(&[
-            "merge-service",
+    fn parses_wallet_merge_options() {
+        let WalletCommand::Merge(opts) = parse_wallet(&[
+            "merge",
             "--keypair",
             "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
             "http://127.0.0.1:8785",
-            "--enabled",
-            "true",
+            "--enable",
         ]) else {
-            panic!("expected wallet merge-service command");
+            panic!("expected wallet merge command");
         };
 
         assert_eq!(
@@ -830,7 +838,17 @@ mod tests {
             opts.sync.indexer_url.as_deref(),
             Some("http://127.0.0.1:8785")
         );
-        assert!(opts.enabled);
+        assert!(opts.enable);
+        assert!(!opts.disable);
+
+        let WalletCommand::Merge(opts) =
+            parse_wallet(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"])
+        else {
+            panic!("expected wallet merge command");
+        };
+
+        assert!(!opts.enable);
+        assert!(opts.disable);
     }
 
     #[test]

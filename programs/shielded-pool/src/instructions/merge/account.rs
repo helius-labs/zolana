@@ -6,11 +6,9 @@ use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID
 use crate::instructions::hash::solana_pk_hash;
 
 /// Validated accounts for `merge_transact`, in loader order: `tree` (writable),
-/// `protocol_config` (read-only), `payer` (signer), `user_record` (read-only).
+/// `payer` (signer, pays fees), `user_record` (read-only).
 pub struct MergeTransactAccounts<'a> {
     pub tree: &'a mut AccountView,
-    pub protocol_config: &'a AccountView,
-    pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
 }
 
@@ -21,15 +19,9 @@ impl<'a> MergeTransactAccounts<'a> {
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let tree = iter.next_mut("tree")?;
-        let protocol_config = iter.next_account("protocol_config")?;
-        let payer = iter.next_signer("payer")?;
+        let _payer = iter.next_signer("payer")?;
         let user_record = iter.next_account("user_record")?;
-        Ok(Self {
-            tree,
-            protocol_config,
-            payer,
-            user_record,
-        })
+        Ok(Self { tree, user_record })
     }
 }
 
@@ -45,12 +37,15 @@ pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub signing_view_tag: [u8; 32],
     pub viewing: [u8; 33],
+    pub merging_enabled: bool,
 }
 
-/// Load and validate the `user_record`: owned by the registry program, valid
-/// `UserRecord` discriminator/body, and merge service opted in. The owner identity
-/// is rail-selected by `eddsa_owner`: a Solana owner derives `signing_pk_field`
-/// from the registry account `owner` (ed25519), a P256 owner from `owner_p256`.
+/// Load and validate the `user_record`: owned by the registry program with a
+/// valid `UserRecord` discriminator/body. Returns the per-user `merging_enabled`
+/// opt-in alongside the rail-selected owner identity; the processor rejects the
+/// merge when it is `false`. The owner identity is rail-selected by `eddsa_owner`:
+/// a Solana owner derives `signing_pk_field` from the registry account `owner`
+/// (ed25519), a P256 owner from `owner_p256`.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -65,13 +60,11 @@ pub fn load_user_record(
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
     let record = UserRecord::try_from_account_data(&data)
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
-    if !record.merge_service {
-        return Err(ShieldedPoolError::MergeServiceDisabled.into());
-    }
+    let merging_enabled = record.merging_enabled;
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
-        signing_view_tag.copy_from_slice(&record.owner);
-        solana_pk_hash(&record.owner)?
+        signing_view_tag.copy_from_slice(record.owner.as_array());
+        solana_pk_hash(record.owner.as_array())?
     } else {
         let owner_p256 = record
             .owner_p256
@@ -83,5 +76,6 @@ pub fn load_user_record(
         signing_pk_field,
         signing_view_tag,
         viewing: record.viewing_pubkey,
+        merging_enabled,
     })
 }

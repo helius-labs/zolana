@@ -43,15 +43,12 @@ fn tags_advance(world: &mut KeypairWorld, name: String) {
     assert_eq!(vk.get_recipient_request_view_tag(0).unwrap()[0], 0);
 }
 
-#[then(expr = "merge view tags for {string} are namespaced by authority and counter")]
-fn merge_tags_namespaced(world: &mut KeypairWorld, name: String) {
+#[then(expr = "merge view tags for {string} advance with their counter")]
+fn merge_tags_advance(world: &mut KeypairWorld, name: String) {
     let vk = world.vk(&name);
-    let auth_a = [1u8; 33];
-    let auth_b = [2u8; 33];
-    let base = vk.get_merge_view_tag(&auth_a, 0).unwrap();
-    assert_eq!(base, vk.get_merge_view_tag(&auth_a, 0).unwrap());
-    assert_ne!(base, vk.get_merge_view_tag(&auth_a, 1).unwrap());
-    assert_ne!(base, vk.get_merge_view_tag(&auth_b, 0).unwrap());
+    let base = vk.get_merge_view_tag(0).unwrap();
+    assert_eq!(base, vk.get_merge_view_tag(0).unwrap());
+    assert_ne!(base, vk.get_merge_view_tag(1).unwrap());
     assert_eq!(base[0], 0);
 }
 

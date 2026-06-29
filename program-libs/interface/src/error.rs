@@ -51,8 +51,8 @@ pub enum ShieldedPoolError {
     StaleNullifierRoot = 7015,
     #[error("account address does not match its canonical PDA derivation")]
     InvalidPda = 7016,
-    #[error("user record has not opted in to the merge service")]
-    MergeServiceDisabled = 7017,
+    #[error("merging is not enabled for this user")]
+    MergeDisabled = 7017,
     #[error("user record account is invalid")]
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
@@ -113,7 +113,7 @@ mod tests {
             (InvalidZoneConfig as u32, 7014),
             (StaleNullifierRoot as u32, 7015),
             (InvalidPda as u32, 7016),
-            (MergeServiceDisabled as u32, 7017),
+            (MergeDisabled as u32, 7017),
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
             (InvalidMergeOutputScheme as u32, 7020),

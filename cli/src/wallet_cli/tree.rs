@@ -42,7 +42,6 @@ pub(super) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
             forester_authority: authority_address,
             zone_creation_authority: authority_address,
             zone_creation_is_permissionless: false,
-            merge_authority: authority_address,
         }
         .instruction();
         let signature =

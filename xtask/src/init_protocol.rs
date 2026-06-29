@@ -459,7 +459,10 @@ fn send_protocol_config(
     protocol_signer: &Keypair,
     roles: &[RoleAddrs; 5],
 ) -> Result<()> {
-    let [protocol, tree, zone, merge, forester] = roles;
+    // Merging is now a per-user opt-in set via the user-registry
+    // `set_merging_enabled` instruction, not a protocol-config field, so the
+    // `merge` role no longer feeds the protocol config here.
+    let [protocol, tree, zone, _merge, forester] = roles;
     let create_config_ix = CreateProtocolConfig {
         authority: protocol.vault,
         protocol_authority: protocol.vault.to_bytes().into(),
@@ -468,7 +471,6 @@ fn send_protocol_config(
         forester_authority: forester.vault.to_bytes().into(),
         zone_creation_authority: zone.vault.to_bytes().into(),
         zone_creation_is_permissionless: false,
-        merge_authority: merge.vault.to_bytes().into(),
     }
     .instruction();
     let sync = execute_sync_ix(

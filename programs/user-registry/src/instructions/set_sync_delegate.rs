@@ -33,7 +33,7 @@ pub fn process_set_sync_delegate(
 
     let mut state = read_record(record, program_id)?;
     check_record_pda_with_bump(record, owner.address().as_array(), state.bump, program_id)?;
-    if &state.owner != owner.address().as_array() {
+    if state.owner.as_array() != owner.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
     }
 

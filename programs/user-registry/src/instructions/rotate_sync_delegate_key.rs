@@ -32,7 +32,7 @@ pub fn process_rotate_sync_delegate_key(
     check_system_program(system_program)?;
 
     let mut state = read_record(record, program_id)?;
-    check_record_pda_with_bump(record, &state.owner, state.bump, program_id)?;
+    check_record_pda_with_bump(record, state.owner.as_array(), state.bump, program_id)?;
     if state.sync_delegate.as_ref() != Some(sync_delegate.address().as_array()) {
         return Err(fail(UserRegistryError::InvalidSyncDelegate));
     }

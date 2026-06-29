@@ -428,14 +428,14 @@ mod tests {
         let owner = Pubkey::new_unique();
         let (record_pda, bump) = user_record_pda(&owner);
         let record = UserRecord {
-            owner: owner.to_bytes(),
+            owner: owner.to_bytes().into(),
             bump,
             owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             sync_delegate: None,
             entries: Vec::new(),
-            merge_service: false,
+            merging_enabled: false,
         };
         let rpc = MockRpc {
             account: Some((
