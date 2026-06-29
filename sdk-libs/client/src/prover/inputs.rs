@@ -13,8 +13,6 @@ use crate::{
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
-/// UTXO commitment fields, pre-computed by the caller. Mirrors the circuit's
-/// UtxoCircuitFields (prover/server/circuits/spp_transaction/utxo.go).
 #[derive(Debug, Clone)]
 pub struct UtxoInputs {
     pub domain: BigUint,
@@ -23,7 +21,6 @@ pub struct UtxoInputs {
     pub amount: BigUint,
     pub blinding: BigUint,
     pub data_hash: BigUint,
-    pub program_id: BigUint,
     pub zone_data_hash: BigUint,
     pub zone_program_id: BigUint,
 }
@@ -36,7 +33,6 @@ impl UtxoInputs {
         amount: u64,
         blinding: &[u8; 31],
         program_data_hash: &[u8; 32],
-        program_id: &Option<Address>,
         zone_data_hash: &[u8; 32],
         zone_program_id: &Option<Address>,
     ) -> Result<Self, ClientError> {
@@ -47,7 +43,6 @@ impl UtxoInputs {
             amount: be(&right_align(&amount.to_be_bytes())),
             blinding: be(&right_align(blinding)),
             data_hash: be(program_data_hash),
-            program_id: be(&program_id_field(program_id)?),
             zone_data_hash: be(zone_data_hash),
             zone_program_id: be(&program_id_field(zone_program_id)?),
         })
@@ -61,7 +56,6 @@ impl UtxoInputs {
             amount: be(&right_align(&output.amount.to_be_bytes())),
             blinding: be(&right_align(&output.blinding)),
             data_hash: be(&output.program_data_hash.unwrap_or_default()),
-            program_id: be(&program_id_field(&output.commitment_program_id())?),
             zone_data_hash: be(&output.zone_data_hash.unwrap_or_default()),
             zone_program_id: be(&program_id_field(&output.zone_program_id)?),
         })
@@ -75,7 +69,6 @@ impl UtxoInputs {
             amount: BigUint::ZERO,
             blinding,
             data_hash: BigUint::ZERO,
-            program_id: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         }

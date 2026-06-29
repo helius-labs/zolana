@@ -24,8 +24,6 @@ pub(crate) struct UtxoParamsJson {
     pub blinding: String,
     #[serde(rename = "dataHash")]
     pub data_hash: String,
-    #[serde(rename = "programId")]
-    pub program_id: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
     #[serde(rename = "zoneProgramId")]
@@ -162,7 +160,6 @@ fn utxo_to_json(utxo: &UtxoInputs) -> UtxoParamsJson {
         amount: big_uint_to_string(&utxo.amount),
         blinding: big_uint_to_string(&utxo.blinding),
         data_hash: big_uint_to_string(&utxo.data_hash),
-        program_id: big_uint_to_string(&utxo.program_id),
         zone_data_hash: big_uint_to_string(&utxo.zone_data_hash),
         zone_program_id: big_uint_to_string(&utxo.zone_program_id),
     }
@@ -436,7 +433,6 @@ mod merge_tests {
             amount: BigUint::from(5u8),
             blinding: BigUint::from(7u8),
             data_hash: BigUint::ZERO,
-            program_id: BigUint::ZERO,
             zone_data_hash: BigUint::ZERO,
             zone_program_id: BigUint::ZERO,
         }

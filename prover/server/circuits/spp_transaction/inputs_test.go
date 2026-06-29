@@ -293,7 +293,6 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 	in := &assignment.Inputs[0]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Amount = spptest.Fe(0)
-	// A padding dummy (no program_data_hash) is owner 0: permanently unspendable.
 	in.Utxo.Owner = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
 	in.NullifierTreeRoot = spptest.Fe(0)

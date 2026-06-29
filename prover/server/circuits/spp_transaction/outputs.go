@@ -12,9 +12,6 @@ func constrainOutput(api frontend.API, out Output, confidential, zone, zoneAutho
 	api.AssertIsBoolean(out.IsDummy)
 	notDummy := api.Sub(1, out.IsDummy)
 
-	// A program-owned output (owner == program_id) carries program data and is
-	// public to the program, so it skips the confidential owner-tag binding. A
-	// user-owned output carries no program data.
 	programSet := api.Sub(1, api.IsZero(programID))
 	ownerIsProgram := api.IsZero(api.Sub(out.Utxo.Owner, programID))
 	isProgramOwned := api.Mul(notDummy, api.Mul(ownerIsProgram, programSet))
@@ -22,10 +19,7 @@ func constrainOutput(api frontend.API, out Output, confidential, zone, zoneAutho
 
 	assertZeroWhen(api, out.IsDummy, out.Utxo.Amount)
 	assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain)
-	// Program data only on program-owned outputs; program identity is the owner,
-	// so the standalone program_id field is pinned to 0 on every real output.
 	assertZeroWhen(api, userOwnedReal, out.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, out.Utxo.ProgramID)
 	constrainProgramZone(api, notDummy, out.Utxo, zone, zoneAuthority, zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)

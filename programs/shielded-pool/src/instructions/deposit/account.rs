@@ -15,7 +15,6 @@ use crate::instructions::{
         read_token_account, validate_sol_interface, Settlement, SettlementAccountsSol,
         SettlementAccountsSpl,
     },
-    shared::{verify_cpi_signer, CPI_SIGNER_SEED},
     zone_config::loader::load_zone_config,
 };
 
@@ -57,15 +56,8 @@ impl<'a> DepositAccounts<'a> {
         } else {
             None
         };
-        if let Some(signer) = program_cpi_signer {
-            let account = iter.next_account("program_cpi_signer")?;
-            verify_cpi_signer(
-                account.address(),
-                &signer.program_id,
-                signer.bump,
-                CPI_SIGNER_SEED,
-                ShieldedPoolError::InvalidSettlementAccounts,
-            )?;
+        if program_cpi_signer.is_some() {
+            return Err(ShieldedPoolError::ProgramCpiSignerDisabled.into());
         }
 
         // SOL settlement is 3 accounts, SPL is 4; with the trailing program

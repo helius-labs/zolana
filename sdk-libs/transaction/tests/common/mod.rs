@@ -102,7 +102,6 @@ pub fn build_transfer(
         asset: SOL_MINT,
         amount: spec.amount,
         blinding: spec.blinding,
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

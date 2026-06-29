@@ -9,9 +9,6 @@ import (
 
 // PrivateTxHashGadget mirrors protocol.PrivateTxHash. expiry_unix_ts is bound
 // through external_data_hash, not as a separate input (spec: SPP Proof).
-// AddressUtxoHashes is the address category: the UTXO hash of every address slot
-// (0 for real spends and padding), so the signed transaction commits to which
-// program-owned addresses it creates.
 type PrivateTxHashGadget struct {
 	InputUtxoHashes   []frontend.Variable
 	OutputUtxoHashes  []frontend.Variable

@@ -18,9 +18,6 @@ pub struct TransferRecipientPlaintext {
     pub asset_id: u64,
     pub amount: u64,
     pub blinding: [u8; BLINDING_LEN],
-    /// Carried so a zone/program-owned custom output reconstructs the same
-    /// `Utxo` the proof committed to; `None` for a plain transfer.
-    pub program_id: Option<Address>,
     pub zone_program_id: Option<Address>,
     pub data: Data,
 }
@@ -37,10 +34,11 @@ impl TransferRecipientPlaintext {
         Ok(parsed)
     }
 
-    pub fn into_utxo(self, owner: PublicKey, assets: &AssetRegistry) -> Result<Utxo, TransactionError> {
-        // The plaintext carries the program/zone ids directly, so a zone-owned
-        // custom output reconstructs the leaf the proof committed to. A bare
-        // transfer leaves all of these `None`/empty.
+    pub fn into_utxo(
+        self,
+        owner: PublicKey,
+        assets: &AssetRegistry,
+    ) -> Result<Utxo, TransactionError> {
         if self.data.zone_data().is_some() && self.zone_program_id.is_none() {
             return Err(TransactionError::MissingZoneProgramId);
         }
@@ -49,7 +47,6 @@ impl TransferRecipientPlaintext {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
             zone_program_id: self.zone_program_id,
             data: self.data,
         })
@@ -102,7 +99,6 @@ impl TransferSenderPlaintext {
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
                 blinding: derive_blinding(&self.blinding_seed, 0),
-                program_id: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
                 data: self.spl_data,
             });
@@ -113,7 +109,6 @@ impl TransferSenderPlaintext {
                 asset: SOL_MINT,
                 amount: self.sol_amount,
                 blinding: derive_blinding(&self.blinding_seed, 1),
-                program_id: None,
                 zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
                 data: self.sol_data,
             });
@@ -164,7 +159,6 @@ impl UtxoSerialization for ConfidentialRecipient {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
             blinding: first.blinding,
-            program_id: first.program_id,
             zone_program_id: first.zone_program_id,
             data: first.data.clone(),
         })

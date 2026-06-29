@@ -47,7 +47,6 @@ impl Deposit {
             request.asset,
             request.amount,
             &[0u8; 32],
-            None,
             &[0u8; 32],
             None,
             &owner_utxo_hash,

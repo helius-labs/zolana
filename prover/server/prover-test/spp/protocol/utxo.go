@@ -36,7 +36,6 @@ type Utxo struct {
 	Amount        *big.Int
 	Blinding      *big.Int
 	DataHash      *big.Int
-	ProgramID     *big.Int
 	ZoneDataHash  *big.Int
 	ZoneProgramID *big.Int
 }
@@ -59,10 +58,6 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	programHash, err := poseidon.Hash([]*big.Int{u.DataHash, u.ProgramID})
-	if err != nil {
-		return nil, fmt.Errorf("spp: program hash: %w", err)
-	}
 	zoneHash, err := poseidon.Hash([]*big.Int{u.ZoneDataHash, u.ZoneProgramID})
 	if err != nil {
 		return nil, fmt.Errorf("spp: zone hash: %w", err)
@@ -71,7 +66,7 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 		u.Domain,
 		u.Asset,
 		u.Amount,
-		programHash,
+		u.DataHash,
 		zoneHash,
 		ownerUtxoHash,
 	})

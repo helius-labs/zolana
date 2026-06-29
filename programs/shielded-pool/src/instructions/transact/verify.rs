@@ -15,14 +15,14 @@ use zolana_interface::{
         transfer_p256_confidential_1_8, transfer_p256_confidential_2_2,
         transfer_p256_confidential_2_3, transfer_p256_confidential_3_3,
         transfer_p256_confidential_4_3, transfer_p256_confidential_4_4,
-        transfer_p256_confidential_5_3, transfer_p256_confidential_5_4,
-        transfer_p256_zone_1_1, transfer_p256_zone_1_2, transfer_p256_zone_1_8,
-        transfer_p256_zone_2_2, transfer_p256_zone_2_3, transfer_p256_zone_3_3,
-        transfer_p256_zone_4_3, transfer_p256_zone_4_4, transfer_p256_zone_5_3,
-        transfer_p256_zone_5_4, transfer_zone_1_1, transfer_zone_1_2, transfer_zone_1_8,
-        transfer_zone_2_2, transfer_zone_2_3, transfer_zone_3_3, transfer_zone_4_3,
-        transfer_zone_4_4, transfer_zone_5_3, transfer_zone_5_4, transfer_zone_authority_1_1,
-        transfer_zone_authority_2_2, transfer_zone_authority_3_3, transfer_zone_authority_4_4,
+        transfer_p256_confidential_5_3, transfer_p256_confidential_5_4, transfer_p256_zone_1_1,
+        transfer_p256_zone_1_2, transfer_p256_zone_1_8, transfer_p256_zone_2_2,
+        transfer_p256_zone_2_3, transfer_p256_zone_3_3, transfer_p256_zone_4_3,
+        transfer_p256_zone_4_4, transfer_p256_zone_5_3, transfer_p256_zone_5_4, transfer_zone_1_1,
+        transfer_zone_1_2, transfer_zone_1_8, transfer_zone_2_2, transfer_zone_2_3,
+        transfer_zone_3_3, transfer_zone_4_3, transfer_zone_4_4, transfer_zone_5_3,
+        transfer_zone_5_4, transfer_zone_authority_1_1, transfer_zone_authority_2_2,
+        transfer_zone_authority_3_3, transfer_zone_authority_4_4,
     },
 };
 
@@ -55,11 +55,15 @@ pub struct TransactProofInputs {
 
 pub struct TransactProof<'a> {
     ix: &'a TransactIxDataRef<'a>,
-    derived: TransactProofInputs,
+    // Borrowed, not owned: `TransactProofInputs` is ~1 KB of fixed arrays. Holding
+    // it by value would copy it onto the caller's stack frame (on top of the
+    // owner's copy) and overflow the SBF 4 KB frame limit, so the verifier reads it
+    // through a reference instead.
+    derived: &'a TransactProofInputs,
 }
 
 impl<'a> TransactProof<'a> {
-    pub fn new(ix: &'a TransactIxDataRef<'a>, derived: TransactProofInputs) -> Self {
+    pub fn new(ix: &'a TransactIxDataRef<'a>, derived: &'a TransactProofInputs) -> Self {
         Self { ix, derived }
     }
 
@@ -141,6 +145,7 @@ impl<'a> TransactProof<'a> {
             .any(|input| input.eddsa_signer_index == P256_OWNED_SIGNER)
     }
 
+    #[inline(never)]
     fn public_input_hash<const IS_ZONE: bool, const IS_AUTHORITY: bool>(
         &self,
     ) -> Result<[u8; 32], ProgramError> {

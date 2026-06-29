@@ -1,8 +1,6 @@
 package merge
 
 import (
-	"math/big"
-
 	mergecircuit "zolana/prover/circuits/spp_merge"
 	transaction "zolana/prover/circuits/spp_transaction"
 	"zolana/prover/prover/common"
@@ -13,15 +11,12 @@ import (
 
 func utxoFields(u UtxoParams) transaction.UtxoCircuitFields {
 	return transaction.UtxoCircuitFields{
-		Domain:   u.Domain,
-		Owner:    u.Owner,
-		Asset:    u.Asset,
-		Amount:   u.Amount,
-		Blinding: u.Blinding,
-		DataHash: u.DataHash,
-		// Merge UTXOs are always program-clean (program_id == 0); the merge circuit
-		// enforces it and the params carry no program_id.
-		ProgramID:     big.NewInt(0),
+		Domain:        u.Domain,
+		Owner:         u.Owner,
+		Asset:         u.Asset,
+		Amount:        u.Amount,
+		Blinding:      u.Blinding,
+		DataHash:      u.DataHash,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}

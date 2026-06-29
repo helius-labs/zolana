@@ -35,9 +35,6 @@ pub struct Utxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
-    /// Program governing `program_data` (pairs with `program_data_hash` in the
-    /// commitment's `program_hash`).
-    pub program_id: Option<Address>,
     pub zone_program_id: Option<Address>,
     pub data: Data,
 }
@@ -68,8 +65,6 @@ pub fn zone_program_id_field(
     program_id_field(zone_program_id)
 }
 
-/// `pk_field` of an optional program identifier; `0` (not `pk_field(0)`) when
-/// absent. Used for both `program_id` and `zone_program_id`.
 pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
     match program_id {
         Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
@@ -77,7 +72,6 @@ pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], Transa
     }
 }
 
-/// Owner commitment carried by transaction outputs and proofless deposits.
 pub fn owner_utxo_hash(
     owner_hash: &[u8; 32],
     blinding: &Blinding,
@@ -86,13 +80,10 @@ pub fn owner_utxo_hash(
     poseidon(&[owner_hash, &blinding])
 }
 
-/// Full UTXO commitment used as the state-tree leaf.
-#[allow(clippy::too_many_arguments)]
 pub fn utxo_hash(
     asset: Address,
     amount: u64,
     program_data_hash: &[u8; 32],
-    program_id: Option<Address>,
     zone_data_hash: &[u8; 32],
     zone_program_id: Option<Address>,
     owner_utxo_hash: &[u8; 32],
@@ -101,28 +92,23 @@ pub fn utxo_hash(
     let asset =
         zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
-    // program_data_hash pairs with its governing program_id, zone_data_hash with
-    // zone_program_id (spec: UTXO Hash).
-    let program_hash = poseidon(&[program_data_hash, &program_id_field(&program_id)?])?;
     let zone_hash = poseidon(&[zone_data_hash, &program_id_field(&zone_program_id)?])?;
     poseidon(&[
         &domain,
         &asset,
         &amount,
-        &program_hash,
+        program_data_hash,
         &zone_hash,
         owner_utxo_hash,
     ])
 }
 
 impl Utxo {
-    /// Owner commitment derived from this wallet's keys.
     pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
         owner_utxo_hash(&owner_hash, &self.blinding)
     }
 
-    /// State-tree leaf commitment for this UTXO.
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
@@ -133,7 +119,6 @@ impl Utxo {
             self.asset,
             self.amount,
             program_data_hash,
-            self.program_id,
             zone_data_hash,
             self.zone_program_id,
             &self.owner_utxo_hash(nullifier_pk)?,
@@ -156,7 +141,6 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
@@ -170,7 +154,6 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
-            program_id: self.program_id,
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })

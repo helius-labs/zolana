@@ -63,8 +63,11 @@ pub fn assert_zone_transact<R: Rpc, I: Rpc>(
     let indexed = wait_for_indexed_transaction(indexer, fetch_view_tag, signature);
     assert_eq!(indexed.tx_signature, signature, "indexed signature");
 
-    let expected_nullifiers: Vec<[u8; 32]> =
-        data.inputs.iter().map(|input| input.nullifier_hash).collect();
+    let expected_nullifiers: Vec<[u8; 32]> = data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
     assert_eq!(
         indexed.nullifiers, expected_nullifiers,
         "indexed nullifiers must match the instruction inputs"

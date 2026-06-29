@@ -11,17 +11,10 @@ import (
 // user_owner_hash, and its commitment matches the public output_utxo_hash. The
 // merged output is always real, so no dummy gating applies. Returns its UTXO
 // hash for the private-transaction-hash chain.
-//
-// program_data_hash and program_id are pinned to zero in both variants. The
-// default variant pins the zone fields to zero; the zone variant (merge_zone)
-// preserves the zone by binding zone_program_id to the public zoneProgramID and
-// leaves zone_data free (set by the zone program, constrained by its own proof).
 func constrainOutput(api frontend.API, out Output, userOwnerHash frontend.Variable, zone bool, zoneProgramID frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(out.Utxo.Domain, UtxoDomain)
 
-	// Output cleanliness / zone binding.
 	api.AssertIsEqual(out.Utxo.DataHash, 0)
-	api.AssertIsEqual(out.Utxo.ProgramID, 0)
 	if zone {
 		api.AssertIsEqual(out.Utxo.ZoneProgramID, zoneProgramID)
 	} else {

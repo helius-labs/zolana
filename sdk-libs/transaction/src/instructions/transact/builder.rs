@@ -361,7 +361,6 @@ impl Transaction {
                     asset_id,
                     amount: recipient.amount,
                     blinding,
-                    program_id: None,
                     zone_program_id: None,
                     data: Data::default(),
                 },
@@ -381,7 +380,6 @@ impl Transaction {
                     asset_id,
                     amount: output.amount,
                     blinding: output.blinding,
-                    program_id: output.program_id,
                     zone_program_id: output.zone_program_id,
                     data: output.data.clone(),
                 },
@@ -688,7 +686,6 @@ fn dummy_ciphertext_len(
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };

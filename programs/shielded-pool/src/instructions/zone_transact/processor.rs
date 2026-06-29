@@ -4,7 +4,9 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_interface::instruction::{instruction_data::transact::TransactIxDataRef, tag::ZONE_TRANSACT};
+use zolana_interface::instruction::{
+    instruction_data::transact::TransactIxDataRef, tag::ZONE_TRANSACT,
+};
 
 use super::account::ZoneTransactAccounts;
 use crate::instructions::{
@@ -33,7 +35,7 @@ pub fn process_zone_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
 
     process_transact_core::<true, false>(
         &ix,
-        proof_inputs,
+        &mut proof_inputs,
         transact_accounts,
         clock.slot,
         ZONE_TRANSACT,

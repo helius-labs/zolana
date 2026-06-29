@@ -73,7 +73,14 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         },
     };
 
-    process_merge_core(merge_accounts.tree, &ix, derived, output_view_tag, clock.slot, None)
+    process_merge_core(
+        merge_accounts.tree,
+        &ix,
+        derived,
+        output_view_tag,
+        clock.slot,
+        None,
+    )
 }
 
 /// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
@@ -92,10 +99,20 @@ pub(crate) fn process_merge_core(
 ) -> ProgramResult {
     let tree_write = {
         let output_tree = tree_account.address().to_bytes();
-        let mut tree =
-            TreeAccount::from_account_view_mut(tree_account, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(tree_error)?;
-        apply_tree(&mut tree, ix, current_slot, output_tree, &mut derived, single_use_tag)?
+        let mut tree = TreeAccount::from_account_view_mut(
+            tree_account,
+            &crate::ID,
+            TREE_ACCOUNT_DISCRIMINATOR,
+        )
+        .map_err(tree_error)?;
+        apply_tree(
+            &mut tree,
+            ix,
+            current_slot,
+            output_tree,
+            &mut derived,
+            single_use_tag,
+        )?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag);

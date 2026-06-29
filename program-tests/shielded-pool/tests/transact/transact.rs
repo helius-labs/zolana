@@ -130,7 +130,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         &no_address_hashes(2),
         &external_data_hash,
     )
-        .expect("private tx hash");
+    .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");

@@ -305,7 +305,6 @@ pub(crate) fn assemble_inputs(
                     spend.utxo.asset,
                     spend.utxo.amount,
                     &program_data_hash,
-                    None,
                     &zone_data_hash,
                     spend.utxo.zone_program_id,
                     &owner_utxo_hash,
@@ -341,7 +340,13 @@ pub(crate) fn assemble_inputs(
                 };
 
                 let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
-                (owner_field, utxo_hash, nullifier, owner_pk_hash, nullifier_secret)
+                (
+                    owner_field,
+                    utxo_hash,
+                    nullifier,
+                    owner_pk_hash,
+                    nullifier_secret,
+                )
             };
 
         let utxo_inputs = UtxoInputs::new(
@@ -350,13 +355,6 @@ pub(crate) fn assemble_inputs(
             spend.utxo.amount,
             &spend.utxo.blinding,
             &program_data_hash,
-            // Program-owned inputs pin the standalone program_id field to 0; the
-            // owner already carries the program identity.
-            if spend.program_owner.is_some() {
-                &None
-            } else {
-                &spend.utxo.program_id
-            },
             &zone_data_hash,
             &spend.utxo.zone_program_id,
         )?;

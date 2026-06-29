@@ -166,7 +166,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			Amount:        amounts[i],
 			Blinding:      blindings[i],
 			DataHash:      big.NewInt(0),
-			ProgramID:     big.NewInt(0),
 			ZoneDataHash:  big.NewInt(0),
 			ZoneProgramID: big.NewInt(0),
 		}
@@ -213,7 +212,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 		Amount:        outAmount,
 		Blinding:      outBlinding,
 		DataHash:      big.NewInt(0),
-		ProgramID:     big.NewInt(0),
 		ZoneDataHash:  big.NewInt(0),
 		ZoneProgramID: big.NewInt(0),
 	}
@@ -233,7 +231,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	// Merge creates no addresses: the address category is all zeros, one per input.
 	addressHashes := make([]*big.Int, merge.MergeInputs)
 	for i := range addressHashes {
 		addressHashes[i] = big.NewInt(0)
@@ -316,7 +313,6 @@ func buildWitness(t *testing.T, eddsa bool) *merge.Circuit {
 				Amount:        big.NewInt(0),
 				Blinding:      big.NewInt(0),
 				DataHash:      big.NewInt(0),
-				ProgramID:     big.NewInt(0),
 				ZoneDataHash:  big.NewInt(0),
 				ZoneProgramID: big.NewInt(0),
 			})
@@ -490,7 +486,6 @@ func utxoFields(u protocol.Utxo) transaction.UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
-		ProgramID:     u.ProgramID,
 		ZoneDataHash:  u.ZoneDataHash,
 		ZoneProgramID: u.ZoneProgramID,
 	}

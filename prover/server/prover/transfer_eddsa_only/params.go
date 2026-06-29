@@ -13,7 +13,6 @@ type UtxoParams struct {
 	Amount        *big.Int
 	Blinding      *big.Int
 	DataHash      *big.Int
-	ProgramID     *big.Int
 	ZoneDataHash  *big.Int
 	ZoneProgramID *big.Int
 }

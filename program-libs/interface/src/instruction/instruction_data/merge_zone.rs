@@ -74,7 +74,10 @@ mod tests {
         assert_eq!(view.merge_view_tag, &owned.merge_view_tag);
         assert_eq!(view.merge.proof, &owned.merge.proof);
         assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
-        assert_eq!(view.merge.encrypted_utxo, owned.merge.encrypted_utxo.as_slice());
+        assert_eq!(
+            view.merge.encrypted_utxo,
+            owned.merge.encrypted_utxo.as_slice()
+        );
     }
 
     #[test]

@@ -19,6 +19,3 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
     --manifest-path program-tests/zone-test-program/Cargo.toml
-cargo build-sbf --tools-version "$sbf_tools_version" \
-    --sbf-out-dir target/deploy \
-    --manifest-path program-tests/cpi-test-program/Cargo.toml

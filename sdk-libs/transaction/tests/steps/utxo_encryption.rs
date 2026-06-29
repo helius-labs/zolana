@@ -35,7 +35,6 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
         asset,
         amount,
         blinding: [seed; BLINDING_LEN],
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     }
@@ -84,7 +83,6 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        program_id: None,
         zone_program_id: None,
         data: Data::default(),
     };
@@ -190,17 +188,11 @@ fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) 
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        program_id: None,
         zone_program_id,
         data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
-    // The plaintext carries the zone program id and data, so reconstructing the
-    // recipient utxo yields the same zone-owned leaf the proof committed to.
     let pt = utxo.to_recipient_plaintext(&registry).unwrap();
-    assert_eq!(
-        pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(),
-        utxo
-    );
+    assert_eq!(pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(), utxo);
 }
 
 #[then(expr = "zone data without a zone program id is rejected for {string}")]
@@ -211,7 +203,6 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        program_id: None,
         zone_program_id: None,
         data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
     };
@@ -226,13 +217,10 @@ fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let zone_program_id = Some(Address::new_from_array([9u8; 32]));
-    // The plaintext binds the zone program id directly; reconstruction copies it
-    // onto the utxo verbatim (no data-dependent resolution step).
     let pt = TransferRecipientPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
-        program_id: None,
         zone_program_id,
         data: Data::default(),
     };

@@ -40,10 +40,16 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let proof_inputs = prepare_proof_inputs::<false, false>(accounts, &ix)?;
+    let mut proof_inputs = prepare_proof_inputs::<false, false>(accounts, &ix)?;
     let transact_accounts = TransactAccounts::validate_and_parse(accounts, &ix)?;
 
-    process_transact_core::<false, false>(&ix, proof_inputs, transact_accounts, clock.slot, TRANSACT)
+    process_transact_core::<false, false>(
+        &ix,
+        &mut proof_inputs,
+        transact_accounts,
+        clock.slot,
+        TRANSACT,
+    )
 }
 
 /// Derive the proof inputs that come from the raw account slice and instruction
@@ -52,6 +58,13 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
 /// output-owner public inputs the confidential variant binds. The zone-authority
 /// variant (`IS_AUTHORITY`) requires no per-owner spend signature (the zone
 /// authorizes via its `zone_config`), so it skips the input-signer checks.
+// `TransactProofInputs` is a large (~1 KB) fixed-array struct; build it once with
+// `default()` and fill fields in place. Struct-update syntax
+// (`..Default::default()`) would materialize a second copy on the stack and push
+// this frame over the SBF limit, so the `field_reassign_with_default` lint is
+// suppressed for the whole function.
+#[inline(never)]
+#[allow(clippy::field_reassign_with_default)]
 pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool>(
     accounts: &[AccountView],
     ix: &TransactIxDataRef<'_>,
@@ -82,9 +95,10 @@ pub(crate) fn prepare_proof_inputs<const IS_ZONE: bool, const IS_AUTHORITY: bool
 /// proof, settle the public amount, and emit the event. `proof_inputs` already
 /// carries the input/output owner state and, for the zone variant, `is_zone` +
 /// `zone_program_id`.
+#[inline(never)]
 pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: bool>(
     ix: &TransactIxDataRef<'_>,
-    mut proof_inputs: TransactProofInputs,
+    proof_inputs: &mut TransactProofInputs,
     transact_accounts: TransactAccounts<'_>,
     current_slot: u64,
     discriminator: u8,
@@ -99,7 +113,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         )
         .map_err(tree_error)?;
 
-        apply_tree(&mut tree, ix, current_slot, output_tree, &mut proof_inputs)?
+        apply_tree(&mut tree, ix, current_slot, output_tree, proof_inputs)?
     };
 
     let (user_sol_account, user_spl_token_account, spl_token_interface) =
@@ -127,7 +141,7 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
 
     proof_inputs.spl_mint = transact_accounts.spl_mint;
 
-    let event = build_transact_event(ix, &proof_inputs, tree_write);
+    let event = build_transact_event(ix, proof_inputs, tree_write);
     TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
 
     match transact_accounts.settlement.as_ref() {
