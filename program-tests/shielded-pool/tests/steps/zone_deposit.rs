@@ -148,6 +148,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data.clone(),
         utxo_data: data.utxo_data.clone(),
+        memo: None,
     }
     .cpi_instruction();
     if let Some(meta) = ix.accounts.get_mut(2) {

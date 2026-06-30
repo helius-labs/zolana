@@ -25,6 +25,8 @@ pub struct Deposit {
     /// Application data committed into the deposited UTXO's `data_hash`,
     /// authorized by the payer; `None` for a plain user deposit.
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    pub memo: Option<Vec<u8>>,
 }
 
 impl Deposit {
@@ -35,6 +37,7 @@ impl Deposit {
             blinding: self.blinding,
             public_amount: self.public_amount,
             utxo_data: self.utxo_data.clone(),
+            memo: self.memo.clone(),
         };
 
         let mut data = vec![tag::DEPOSIT];

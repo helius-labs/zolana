@@ -38,6 +38,7 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         asset,
         amount: opts.amount,
         spl_token_account,
+        memo: None,
     })?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
     wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;

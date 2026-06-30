@@ -32,6 +32,8 @@ pub struct CreateDeposit<'a> {
     pub asset: Address,
     pub amount: u64,
     pub spl_token_account: Option<Pubkey>,
+    /// Optional free-form memo emitted in the clear with the deposit.
+    pub memo: Option<Vec<u8>>,
 }
 
 impl Deposit {
@@ -59,6 +61,7 @@ impl Deposit {
                 blinding,
                 public_amount: Some(request.amount),
                 utxo_data: None,
+                memo: request.memo,
             },
             utxo_hash,
             asset: request.asset,
@@ -127,6 +130,7 @@ fn deposit_instruction(
         blinding: data.blinding,
         public_amount: data.public_amount,
         utxo_data: data.utxo_data.clone(),
+        memo: data.memo.clone(),
     }
     .instruction()
 }
@@ -189,6 +193,7 @@ mod tests {
             blinding: [3u8; 31],
             public_amount: Some(1_000),
             utxo_data: None,
+            memo: Some(b"thanks".to_vec()),
         };
 
         deposit(&rpc, &payer, tree, &depositor, None, &data).expect("action");
@@ -203,6 +208,7 @@ mod tests {
             blinding: data.blinding,
             public_amount: data.public_amount,
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         assert_eq!(sent.message.instructions.len(), 1);
@@ -220,6 +226,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
+            memo: None,
         })
         .expect("prepared deposit");
 
@@ -242,6 +249,7 @@ mod tests {
             recipient: &recipient_address,
             asset,
             amount: 1_000,
+            memo: None,
             spl_token_account: Some(user_token),
         })
         .expect("prepared deposit");

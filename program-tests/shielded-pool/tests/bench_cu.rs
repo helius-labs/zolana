@@ -271,6 +271,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         blinding: data.blinding,
         public_amount: data.public_amount,
         utxo_data: data.utxo_data.clone(),
+        memo: None,
     }
     .instruction();
 
@@ -330,6 +331,7 @@ fn bench_deposit_spl(
         blinding: data.blinding,
         public_amount: data.public_amount,
         utxo_data: data.utxo_data.clone(),
+        memo: None,
     }
     .instruction();
 

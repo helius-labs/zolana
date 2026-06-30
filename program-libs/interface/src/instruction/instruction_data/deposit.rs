@@ -33,6 +33,10 @@ pub struct DepositIxData {
     /// payer; `None` for a plain user deposit. Policy-zone deposits use
     /// [`ZoneDepositIxData`].
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    /// Not committed into any hash, so it is informational only.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
+    pub memo: Option<Vec<u8>>,
 }
 
 impl DepositIxData {
@@ -68,6 +72,10 @@ pub struct ZoneDepositIxData {
     /// `ZoneConfig` account; `None` if the zone deposit carries no application
     /// data.
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    /// Not committed into any hash, so it is informational only.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
+    pub memo: Option<Vec<u8>>,
 }
 
 impl ZoneDepositIxData {
@@ -77,5 +85,26 @@ impl ZoneDepositIxData {
 
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deposit_ix_data_memo_round_trips() {
+        let data = DepositIxData {
+            view_tag: [1u8; 32],
+            owner: [2u8; 32],
+            blinding: [3u8; 31],
+            public_amount: Some(1_000),
+            utxo_data: None,
+            memo: Some(b"hello memo".to_vec()),
+        };
+        let bytes = data.serialize().unwrap();
+        let parsed = DepositIxData::deserialize(&bytes).unwrap();
+        assert_eq!(parsed, data);
+        assert_eq!(parsed.memo.as_deref(), Some(b"hello memo".as_slice()));
     }
 }

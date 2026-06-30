@@ -109,6 +109,7 @@ impl Deposit<'_> {
             blinding,
             public_amount: Some(self.amount),
             utxo_data: None,
+            memo: None,
         };
         let ix = DepositInstruction {
             tree: self.tree,
@@ -119,6 +120,7 @@ impl Deposit<'_> {
             blinding: data.blinding,
             public_amount: data.public_amount,
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         let mut signers: Vec<&Keypair> = vec![payer];

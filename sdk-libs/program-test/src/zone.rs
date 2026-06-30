@@ -111,6 +111,7 @@ impl ZolanaProgramTest {
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
             utxo_data: None,
+            memo: None,
         }
     }
 
@@ -129,6 +130,7 @@ impl ZolanaProgramTest {
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
             utxo_data: None,
+            memo: None,
         })
     }
 
@@ -147,6 +149,7 @@ impl ZolanaProgramTest {
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
             utxo_data: None,
+            memo: None,
         })
     }
 
@@ -168,6 +171,7 @@ impl ZolanaProgramTest {
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
@@ -199,6 +203,7 @@ impl ZolanaProgramTest {
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;

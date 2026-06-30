@@ -935,6 +935,7 @@ mod tests {
             zone_program_id: None,
             zone_data_hash: None,
             zone_data: None,
+            memo: None,
         }
     }
 
