@@ -59,7 +59,8 @@ static IS_LOADING: AtomicBool = AtomicBool::new(false);
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // Generous bound so a slow cold prove never hangs the client forever; the server
-// caps its own sync work at 120s, so a clean timeout returns well before this.
+// caps sync work at 120–180s depending on circuit, so a clean timeout returns
+// well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 

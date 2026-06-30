@@ -1111,10 +1111,14 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256ConfidentialCircuitType, common.TransferP256ZoneCircuitType:
+	case common.TransferP256ConfidentialCircuitType:
 		// P256 ownership rail: emulated-P256 + BSB22 commitment is heavy and
 		// runs well over the 10s floor on slower CI hardware.
 		return 60
+	case common.TransferP256ZoneCircuitType:
+		// Zone P256 adds policy constraints on top of the P256 rail; cold key
+		// load on CI can exceed the vanilla P256 sync budget.
+		return 90
 	case common.TransferConfidentialCircuitType, common.TransferZoneCircuitType, common.TransferZoneAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeZoneCircuitType:
