@@ -110,6 +110,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         blinding: direct_data.blinding,
         public_amount: direct_data.public_amount,
         utxo_data: direct_data.utxo_data,
+        memo: direct_data.memo,
     }
     .instruction();
     let direct_tx = send_indexed(
@@ -148,6 +149,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         zone_data_hash: zone_data.zone_data_hash,
         zone_data: zone_data.zone_data.clone(),
         utxo_data: zone_data.utxo_data,
+        memo: zone_data.memo,
     }
     .instruction();
     let zone_tx = send_indexed(
