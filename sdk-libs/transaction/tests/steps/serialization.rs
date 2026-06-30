@@ -25,6 +25,12 @@ fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String)
             DataRecord::ZoneData(vec![9, 9, 9]),
             DataRecord::UtxoData(vec![1]),
         ]),
+        Data::new(vec![DataRecord::Memo(b"thanks".to_vec())]),
+        Data::new(vec![
+            DataRecord::ZoneData(vec![9, 9, 9]),
+            DataRecord::UtxoData(vec![1]),
+            DataRecord::Memo(vec![5; 300]),
+        ]),
     ] {
         let pt = TransferRecipientPlaintext {
             asset_id: 2,

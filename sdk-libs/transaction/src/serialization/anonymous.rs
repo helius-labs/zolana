@@ -42,7 +42,8 @@ impl AnonymousTransferRecipientPlaintext {
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<Utxo, TransactionError> {
-        if !self.data.is_empty() {
+        // Anonymous recipients may carry a memo, but not zone or utxo data.
+        if self.data.zone_data().is_some() || self.data.utxo_data().is_some() {
             return Err(TransactionError::UnsupportedOutputData);
         }
         Ok(Utxo {
@@ -256,5 +257,47 @@ impl UtxoSerialization for AnonymousSenderBundle {
         Ok(cx
             .tx
             .encrypt_slot(&cx.self_pubkey, bytes, cx.salt, cx.slot_index)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ViewingKey};
+
+    use super::*;
+    use crate::{data::DataRecord, SOL_ASSET_ID};
+
+    fn plaintext(data: Data) -> AnonymousTransferRecipientPlaintext {
+        AnonymousTransferRecipientPlaintext {
+            owner_pubkey: PublicKey::zeroed(),
+            sender_pubkey: ViewingKey::new().pubkey(),
+            asset_id: SOL_ASSET_ID,
+            amount: 7,
+            blinding: [3u8; BLINDING_LEN],
+            data,
+        }
+    }
+
+    #[test]
+    fn memo_only_recipient_is_accepted() {
+        let assets = AssetRegistry::default();
+        let utxo = plaintext(Data::new(vec![DataRecord::Memo(b"hello".to_vec())]))
+            .into_utxo(&assets, None)
+            .unwrap();
+        assert_eq!(utxo.data.memo(), Some(b"hello".as_slice()));
+    }
+
+    #[test]
+    fn zone_or_utxo_data_recipient_is_rejected() {
+        let assets = AssetRegistry::default();
+        for data in [
+            Data::new(vec![DataRecord::UtxoData(vec![1])]),
+            Data::new(vec![DataRecord::ZoneData(vec![1])]),
+        ] {
+            assert_eq!(
+                plaintext(data).into_utxo(&assets, None).unwrap_err(),
+                TransactionError::UnsupportedOutputData
+            );
+        }
     }
 }
