@@ -58,7 +58,7 @@ impl ZolanaProgramTest {
             &message.instructions,
             &meta,
         )?;
-        index_events(&mut self.indexer, &events)?;
+        index_events(&mut self.indexer, &events, signature)?;
         Ok(IndexedTransaction { signature, events })
     }
 }

@@ -1,10 +1,15 @@
 use litesvm::types::TransactionMetadata;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
-use zolana_event::{indexed_events_from_instruction_groups, proofless_output, ProoflessOutput};
+use solana_signature::Signature;
+use zolana_event::{
+    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
+    proofless_output, EventKind, GeneralEvent, ProoflessOutput,
+};
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_transaction::ShieldedTransaction;
 
-use crate::{ProgramTestError, TestIndexer};
+use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
 
 /// A proofless deposit reconstructed from a `GeneralEvent`: the borsh
 /// [`ProoflessOutput`] body plus the output-slot context (view tag, UTXO hash,
@@ -22,26 +27,28 @@ impl DepositOutput {
     /// Wraps the deposit into a proofless [`ShieldedTransaction`] whose single
     /// output slot carries the encoded [`ProoflessOutput`] payload, so a wallet
     /// can rediscover it via `Wallet::sync`.
-    pub fn to_shielded_transaction(
-        &self,
-        tx_signature: solana_signature::Signature,
-    ) -> zolana_transaction::ShieldedTransaction {
-        zolana_transaction::ShieldedTransaction {
-            slot: 0,
-            tx_signature,
-            tx_viewing_pk: None,
-            salt: None,
-            output_slots: vec![zolana_transaction::OutputSlot {
+    pub fn to_shielded_transaction(&self, tx_signature: Signature) -> ShieldedTransaction {
+        shielded_transaction_from_general_event(tx_signature, &self.to_general_event(), true)
+    }
+
+    fn to_general_event(&self) -> GeneralEvent {
+        GeneralEvent {
+            inputs: Vec::new(),
+            outputs: vec![zolana_event::OutputUtxo {
                 view_tag: self.view_tag,
-                output_context: zolana_transaction::OutputContext {
-                    hash: self.utxo_hash,
-                    tree: zolana_transaction::Address::new_from_array(self.output_tree),
-                    leaf_index: self.leaf_index,
-                },
-                payload: zolana_event::encode_output_data(self.output.clone()),
+                utxo_hash: self.utxo_hash,
+                data: zolana_event::encode_output_data(self.output.clone()),
             }],
-            nullifiers: Vec::new(),
-            proofless: true,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            first_output_leaf_index: self.leaf_index,
+            output_tree: self.output_tree,
+            relay_fee: None,
+            deposit_withdraw: Some(zolana_event::DepositWithdraw {
+                is_deposit: true,
+                amount: self.output.amount,
+                asset: Some(self.output.asset),
+            }),
         }
     }
 }
@@ -133,16 +140,13 @@ pub fn indexed_events_from_meta(
 }
 
 pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, ProgramTestError> {
-    let general_event = match &event.decoded {
-        Ok(general_event) => general_event,
-        Err(err) => {
-            return Err(ProgramTestError::Event(format!(
-                "invalid shielded-pool event tag={} payload_len={} error={err:?}",
-                event.tag,
-                event.payload.len()
-            )));
-        }
-    };
+    let general_event = general_event_from_indexed(event).map_err(|err| {
+        ProgramTestError::Event(format!(
+            "invalid shielded-pool event tag={} payload_len={} error={err:?}",
+            event.tag,
+            event.payload.len()
+        ))
+    })?;
     let output = proofless_output(general_event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid proofless output tag={} payload_len={} error={err:?}",
@@ -162,13 +166,34 @@ pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, 
     })
 }
 
+/// Replay every indexed shielded-pool event into the in-memory test indexer.
 pub fn index_events(
     indexer: &mut TestIndexer,
     events: &[IndexedEvent],
+    signature: Signature,
 ) -> Result<(), ProgramTestError> {
     for event in events {
-        let deposit = deposit_output_from_event(event)?;
-        indexer.record_deposit(&deposit)?;
+        match event_kind_from_indexed(event) {
+            Some(EventKind::Deposit) => {
+                let deposit = deposit_output_from_event(event)?;
+                indexer.record_deposit(&deposit)?;
+                indexer.record_transaction(
+                    signature,
+                    general_event_from_indexed(event).map_err(|err| {
+                        ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
+                    })?,
+                    true,
+                );
+            }
+            Some(EventKind::Transact) | Some(EventKind::Merge) => {
+                let general_event = general_event_from_indexed(event).map_err(|err| {
+                    ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
+                })?;
+                indexer.record_state_change(general_event)?;
+                indexer.record_transaction(signature, general_event, false);
+            }
+            Some(EventKind::BatchAddressAppend) | None => {}
+        }
     }
     Ok(())
 }
