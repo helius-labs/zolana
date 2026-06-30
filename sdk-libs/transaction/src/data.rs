@@ -119,10 +119,7 @@ mod tests {
 
     #[test]
     fn duplicate_memo_is_rejected() {
-        let data = Data::new(vec![
-            DataRecord::Memo(vec![1]),
-            DataRecord::Memo(vec![2]),
-        ]);
+        let data = Data::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])]);
         assert_eq!(
             data.validate().unwrap_err(),
             TransactionError::DuplicateDataRecord
