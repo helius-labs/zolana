@@ -103,7 +103,6 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         external_data: zone_external_data(n_out),
         public_amounts: zero_public_amounts(),
         payer_pubkey_hash: [0u8; 32],
-        program_id: None,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
@@ -127,7 +126,6 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         external_data: zone_external_data(3),
         public_amounts: zero_public_amounts(),
         payer_pubkey_hash: [0u8; 32],
-        program_id: None,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
     }
@@ -155,7 +153,6 @@ fn p256_multi_real() -> ZoneTransferP256Prover {
             public_amounts: zero_public_amounts(),
             payer_pubkey_hash: [0u8; 32],
             p256_owner,
-            program_id: None,
             zone_program_id: Some(zone_program()),
             shape: Some(Shape::new(3, 3)),
         }
@@ -209,7 +206,6 @@ fn p256_prover(n_in: usize, n_out: usize) -> ZoneTransferP256Prover {
             public_amounts: zero_public_amounts(),
             payer_pubkey_hash: [0u8; 32],
             p256_owner,
-            program_id: None,
             zone_program_id: Some(zone_program()),
             shape: Some(Shape::new(n_in, n_out)),
         }
@@ -328,9 +324,8 @@ fn build_real_inputs(
         .map(|((utxo, nullifier_key), proof)| TransferSpendInput {
             utxo,
             nullifier_key,
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
-            program_owner: None,
             proof: Some(proof),
         })
         .collect()
@@ -347,9 +342,8 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> OutputUtxo {
         blinding: random_blinding(),
         zone_program_id: Some(zone_program()),
         zone_data_hash: None,
-        program_data_hash: None,
+        data_hash: None,
         owner_tag: None,
-        program_owner: None,
         data: Data::default(),
     }
 }
@@ -376,9 +370,8 @@ fn dummy_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
-        program_owner: None,
         proof: None,
     }
 }
@@ -396,8 +389,7 @@ fn zone_external_data(n_out: usize) -> ExternalData {
         user_sol_account: Address::default(),
         user_spl_token: Address::default(),
         spl_token_interface: Address::default(),
-        cpi_signer: None,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],

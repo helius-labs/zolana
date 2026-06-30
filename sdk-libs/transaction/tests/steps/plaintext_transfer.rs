@@ -138,7 +138,7 @@ fn sender_data_without_output(world: &mut TransactionWorld, name: String) {
             owner_pubkey: world.kp(&name).signing_pubkey(),
             spl: None,
             sol_amount: Some(50),
-            spl_data: Data::new(vec![DataRecord::ProgramData(vec![1, 2, 3])]),
+            spl_data: Data::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]),
             sol_data: Data::default(),
         }),
         recipient_slots: vec![],

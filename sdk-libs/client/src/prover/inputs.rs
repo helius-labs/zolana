@@ -32,7 +32,7 @@ impl UtxoInputs {
         asset: &Address,
         amount: u64,
         blinding: &[u8; 31],
-        program_data_hash: &[u8; 32],
+        data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
         zone_program_id: &Option<Address>,
     ) -> Result<Self, ClientError> {
@@ -42,7 +42,7 @@ impl UtxoInputs {
             asset: be(&asset_field(asset)?),
             amount: be(&right_align(&amount.to_be_bytes())),
             blinding: be(&right_align(blinding)),
-            data_hash: be(program_data_hash),
+            data_hash: be(data_hash),
             zone_data_hash: be(zone_data_hash),
             zone_program_id: be(&program_id_field(zone_program_id)?),
         })
@@ -55,7 +55,7 @@ impl UtxoInputs {
             asset: be(&asset_field(&output.asset)?),
             amount: be(&right_align(&output.amount.to_be_bytes())),
             blinding: be(&right_align(&output.blinding)),
-            data_hash: be(&output.program_data_hash.unwrap_or_default()),
+            data_hash: be(&output.data_hash.unwrap_or_default()),
             zone_data_hash: be(&output.zone_data_hash.unwrap_or_default()),
             zone_program_id: be(&program_id_field(&output.zone_program_id)?),
         })
@@ -183,7 +183,6 @@ pub struct TransferP256Inputs {
     pub public_sol_amount: BigUint,
     pub public_spl_amount: BigUint,
     pub public_spl_asset_pubkey: BigUint,
-    pub program_id: BigUint,
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
     /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
@@ -254,7 +253,6 @@ pub struct TransferInputs {
     pub public_sol_amount: BigUint,
     pub public_spl_amount: BigUint,
     pub public_spl_asset_pubkey: BigUint,
-    pub program_id: BigUint,
     pub zone_program_id: BigUint,
     pub payer_pubkey_hash: BigUint,
     pub public_input_hash: BigUint,

@@ -293,7 +293,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: transfer_ix_data,
     }
@@ -441,7 +440,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
             recipient: public_recipient,
         })),

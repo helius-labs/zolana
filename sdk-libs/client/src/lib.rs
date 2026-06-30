@@ -49,16 +49,18 @@ pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
     P256Signature, SyncWalletAuthority, WalletAuthority,
 };
-pub use wallet_sync::{get_private_token_balances, get_private_transactions};
-pub use wallet_sync::{sync_wallet, sync_wallet_with_config, SyncWalletConfig};
-pub use zolana_transaction::instructions::{
-    merge::{Merge, PreparedMerge, MERGE_INPUTS},
-    merge_zone::{MergeZone, PreparedMergeZone},
-    transact::{SignedTransaction, Transaction, WithdrawalTarget},
-    types::{InputCommitment, SpendUtxo},
-    zone_authority::PreparedZoneAuthority,
+pub use wallet_sync::{
+    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
+    SyncWalletConfig,
 };
 pub use zolana_transaction::{
+    instructions::{
+        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge_zone::{MergeZone, PreparedMergeZone},
+        transact::{SignedTransaction, Transaction, WithdrawalTarget},
+        types::{InputCommitment, SpendUtxo},
+        zone_authority::PreparedZoneAuthority,
+    },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus,
 };

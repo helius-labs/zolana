@@ -7,7 +7,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    utxo::{owner_utxo_hash, program_id_field, utxo_hash, Blinding, Utxo},
+    utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,14 +15,14 @@ pub struct InputUtxo {
     pub utxo: Utxo,
     pub nullifier_pk: [u8; 32],
     pub zone_data_hash: Option<[u8; 32]>,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
 }
 
 impl InputUtxo {
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         self.utxo.hash(
             &self.nullifier_pk,
-            &self.program_data_hash.unwrap_or_default(),
+            &self.data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
         )
     }
@@ -35,10 +35,9 @@ pub struct OutputUtxo {
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
     pub zone_data_hash: Option<[u8; 32]>,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub owner_address: Option<ShieldedAddress>,
     pub owner_tag: Option<[u8; 32]>,
-    pub program_owner: Option<Address>,
     pub data: Data,
 }
 
@@ -55,9 +54,9 @@ impl OutputUtxo {
         self
     }
 
-    pub fn with_program_data(mut self, program_data: Vec<u8>, data_hash: [u8; 32]) -> Self {
-        self.program_data_hash = Some(data_hash);
-        self.set_data_record(DataRecord::ProgramData(program_data));
+    pub fn with_utxo_data(mut self, utxo_data: Vec<u8>, data_hash: [u8; 32]) -> Self {
+        self.data_hash = Some(data_hash);
+        self.set_data_record(DataRecord::UtxoData(utxo_data));
         self
     }
 
@@ -69,14 +68,11 @@ impl OutputUtxo {
         self.data.records.push(record);
         self.data.records.sort_by_key(|record| match record {
             DataRecord::ZoneData(_) => 0u8,
-            DataRecord::ProgramData(_) => 1u8,
+            DataRecord::UtxoData(_) => 1u8,
         });
     }
 
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {
-        if let Some(program_id) = self.program_owner {
-            return program_id_field(&Some(program_id));
-        }
         match &self.owner_address {
             Some(address) => Ok(address.owner_hash()?),
             None => Ok([0u8; 32]),
@@ -87,7 +83,7 @@ impl OutputUtxo {
         utxo_hash(
             self.asset,
             self.amount,
-            &self.program_data_hash.unwrap_or_default(),
+            &self.data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
             self.zone_program_id,
             &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,
@@ -95,7 +91,7 @@ impl OutputUtxo {
     }
 
     pub fn is_dummy(&self) -> bool {
-        self.program_owner.is_none() && self.owner_address.is_none()
+        self.owner_address.is_none()
     }
 }
 

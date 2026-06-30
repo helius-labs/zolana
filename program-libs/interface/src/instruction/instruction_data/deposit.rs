@@ -1,16 +1,13 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
-/// A program that governs `data` for a deposited UTXO (its `auth` PDA signs)
-/// bundled with the data committed into `program_hash`. `cpi_signer`'s pubkey
-/// drives the UTXO's `program_id`. (The zone side carries no `cpi_signer`: its
-/// id comes from the `ZoneConfig` account.)
+/// Application data committed into the deposited UTXO's `data_hash`. The deposit
+/// is authorized by the payer (non-zone) or the `ZoneConfig` account (zone); the
+/// UTXO is not program-owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CpiData {
-    pub cpi_signer: CpiSignerData,
     pub data_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub data: Vec<u8>,
+    pub utxo_data: Vec<u8>,
 }
 
 /// Public deposit without a proof (spec: `deposit`, tag 1).
@@ -32,8 +29,8 @@ pub struct DepositIxData {
     /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
     /// settlement accounts the caller passes; deposits are deposit-only.
     pub public_amount: Option<u64>,
-    /// Invoking program (general program owner, seed `auth`) and its program
-    /// data; `None` for a plain user deposit. Policy-zone deposits use
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// payer; `None` for a plain user deposit. Policy-zone deposits use
     /// [`ZoneDepositIxData`].
     pub program: Option<CpiData>,
 }
@@ -67,8 +64,9 @@ pub struct ZoneDepositIxData {
     pub zone_data_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub zone_data: Vec<u8>,
-    /// Program governing `program_data` (seed `auth`) and its data; `None` if the
-    /// zone deposit carries no application program data.
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `ZoneConfig` account; `None` if the zone deposit carries no application
+    /// data.
     pub program: Option<CpiData>,
 }
 
@@ -80,13 +78,4 @@ impl ZoneDepositIxData {
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
     }
-}
-/// Invoking-program signer for the proofless deposit paths (spec:
-/// `deposit` / `zone_deposit` `cpi_signer`).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
-)]
-pub struct CpiSignerData {
-    pub program_id: [u8; 32],
-    pub bump: u8,
 }

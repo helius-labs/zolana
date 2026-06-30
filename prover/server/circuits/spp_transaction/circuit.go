@@ -41,7 +41,6 @@ type Circuit struct {
 	PublicSolAmount      frontend.Variable
 	PublicSplAmount      frontend.Variable
 	PublicSplAssetPubkey frontend.Variable
-	ProgramID            frontend.Variable
 	ZoneProgramID        frontend.Variable
 	PayerPubkeyHash      frontend.Variable
 
@@ -150,7 +149,6 @@ func (c *Circuit) Define(api frontend.API) error {
 		confidential:       c.Confidential,
 		zone:               zone,
 		zoneAuthority:      c.ZoneAuthority,
-		programID:          c.ProgramID,
 		zoneProgramID:      c.ZoneProgramID,
 		p256SigningPkField: c.P256SigningPkField,
 	}
@@ -202,7 +200,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	// Outputs
 	OutputHashes := make([]frontend.Variable, c.Shape.NOutputs)
 	for i := 0; i < c.Shape.NOutputs; i++ {
-		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential, zone, c.ZoneAuthority, c.ProgramID, c.ZoneProgramID)
+		OutputHashes[i] = constrainOutput(api, c.Outputs[i], c.Confidential, zone, c.ZoneAuthority, c.ZoneProgramID)
 	}
 
 	// Sumcheck
@@ -247,7 +245,6 @@ func (c *Circuit) publicInputHash(api frontend.API) frontend.Variable {
 		c.PublicSolAmount,
 		c.PublicSplAmount,
 		c.PublicSplAssetPubkey,
-		c.ProgramID,
 		c.ZoneProgramID,
 		c.PayerPubkeyHash,
 	}

@@ -1,8 +1,6 @@
 use num_bigint::BigUint;
-use solana_address::Address;
 use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::program_id_field,
     ExternalData, OutputUtxo,
 };
 
@@ -25,8 +23,6 @@ pub struct TransferProver {
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
-    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
-    pub program_id: Option<Address>,
     pub shape: Option<Shape>,
 }
 
@@ -56,7 +52,6 @@ impl TransferProver {
             &external_data_hash,
         )?;
         let p256_message_hash = [0u8; 32];
-        let program_id = program_id_field(&self.program_id)?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -66,7 +61,6 @@ impl TransferProver {
             p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
-            program_id: &program_id,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
@@ -83,7 +77,6 @@ impl TransferProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: be(&program_id),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),

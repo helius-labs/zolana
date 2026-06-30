@@ -46,8 +46,6 @@ pub struct ZoneAuthorityProver {
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
-    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
-    pub program_id: Option<Address>,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -80,13 +78,12 @@ impl ZoneAuthorityProver {
             &external_data_hash,
         )?;
 
-        // Bind the zone program: program_id is 0 (no ZK program), zone_program_id is
-        // the zone's pk_field. The UTXOs themselves carry zone_program_id; the circuit
-        // binds each non-dummy UTXO's zone field to this public input.
-        let program_id = program_id_field(&self.program_id)?;
+        // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
+        // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
+        // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone-authority public-input layout: the 13 base elements, with input owner
+        // Zone-authority public-input layout: the 12 base elements, with input owner
         // pk_fields kept private (no owner chain) and no confidential appendix.
         // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
@@ -101,7 +98,6 @@ impl ZoneAuthorityProver {
             self.public_amounts.sol,
             self.public_amounts.spl,
             self.public_amounts.asset,
-            program_id,
             zone_program_id,
             self.payer_pubkey_hash,
         ])?;
@@ -114,7 +110,6 @@ impl ZoneAuthorityProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),
@@ -172,10 +167,9 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             spends.push(TransferSpendInput {
                 utxo: spend.utxo,
                 nullifier_key: spend.nullifier_key,
-                program_data_hash: spend.program_data_hash,
+                data_hash: spend.data_hash,
                 zone_data_hash: spend.zone_data_hash,
                 proof,
-                program_owner: None,
             });
         }
 
@@ -189,7 +183,6 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
                 asset: public_amounts.asset,
             },
             payer_pubkey_hash,
-            program_id: None,
             zone_program_id,
             shape: Some(Shape::new(shape.n_inputs, shape.n_outputs)),
         })

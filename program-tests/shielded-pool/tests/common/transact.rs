@@ -97,7 +97,6 @@ pub fn public_input_hash_spl(
         zero, // public_sol_amount
         *public_spl_amount,
         hash_field(mint).expect("public spl asset pubkey"),
-        zero, // program_id
         zero, // zone_program_id
         *payer_pubkey_hash,
         hash_chain(input_owner_pk_hashes).expect("input owner chain"),
@@ -124,7 +123,6 @@ pub fn build_transfer_prover_inputs_spl(
         public_sol_amount: be(&zero),
         public_spl_amount: be(&public_spl_amount),
         public_spl_asset_pubkey: be(&hash_field(&mint).expect("spl asset field")),
-        program_id: be(&zero),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),
@@ -150,8 +148,7 @@ pub fn external_data_hash_spl(
         user_sol_account: &zero,
         user_spl_token_account,
         spl_token_interface,
-        cpi_signer: transact_ix_data.cpi_signer,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
         output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
         output_ciphertexts: &transact_ix_data.output_ciphertexts,

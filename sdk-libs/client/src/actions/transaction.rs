@@ -339,7 +339,7 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
         selected.push(SpendUtxo {
             utxo: entry.utxo.clone(),
             nullifier_key: nullifier_key.clone(),
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
         });
         total = total

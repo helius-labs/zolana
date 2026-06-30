@@ -525,7 +525,7 @@ impl Transaction {
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let utxo_hash = spend.utxo.hash(
             &nullifier_pubkey,
-            &spend.program_data_hash.unwrap_or([0u8; 32]),
+            &spend.data_hash.unwrap_or([0u8; 32]),
             &spend.zone_data_hash.unwrap_or([0u8; 32]),
         )?;
         Ok(spend
@@ -629,8 +629,7 @@ impl PreparedTransaction {
             user_sol_account,
             user_spl_token,
             spl_token_interface,
-            cpi_signer: None,
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: *tx_viewing_pk.as_bytes(),
             salt,

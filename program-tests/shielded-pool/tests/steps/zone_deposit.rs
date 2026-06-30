@@ -153,8 +153,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         zone_data: data.zone_data.clone(),
         program: data.program.clone(),
     }
-    .cpi_instruction()
-    .expect("zone auth PDA");
+    .cpi_instruction();
     if let Some(meta) = ix.accounts.get_mut(2) {
         meta.pubkey = depositor.pubkey();
     }

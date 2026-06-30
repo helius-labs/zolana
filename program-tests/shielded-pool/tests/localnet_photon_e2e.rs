@@ -395,7 +395,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: transfer_ix_data,
     }
@@ -561,7 +560,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
             recipient: public_recipient,
         })),
@@ -865,7 +863,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let tx_ix = Transact {
             payer: payer.pubkey(),
             tree: tree_pubkey,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data,
         }
@@ -1607,7 +1604,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: ix_data,
     }

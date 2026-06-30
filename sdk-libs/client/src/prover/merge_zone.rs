@@ -308,10 +308,9 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             spends.push(TransferSpendInput {
                 utxo,
                 nullifier_key,
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
                 proof,
-                program_owner: None,
             });
         }
 

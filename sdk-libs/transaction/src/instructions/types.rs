@@ -10,7 +10,7 @@ use crate::{data::Data, utxo::Utxo};
 pub struct SpendUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
 }
 
@@ -27,7 +27,7 @@ impl SpendUtxo {
         Self {
             utxo,
             nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
         }
     }
@@ -44,7 +44,7 @@ impl SpendUtxo {
         Self {
             utxo,
             nullifier_key: nullifier_key.clone(),
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
         }
     }

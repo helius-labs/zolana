@@ -98,7 +98,6 @@ pub(super) fn submit_private_transaction(
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,
-        cpi_signer: None,
         withdrawal: request.withdrawal,
         data,
     }

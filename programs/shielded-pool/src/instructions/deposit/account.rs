@@ -5,9 +5,8 @@ use pinocchio::{
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::deposit::CpiSignerData,
-    state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY, SPL_ASSET_VAULT_PDA_SEED,
-    SPL_TOKEN_PROGRAM_ID,
+    error::ShieldedPoolError, state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY,
+    SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };
 
 use crate::instructions::{
@@ -36,7 +35,6 @@ impl<'a> DepositAccounts<'a> {
     pub fn validate_and_parse<const HAS_ZONE: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
-        program_cpi_signer: Option<CpiSignerData>,
     ) -> Result<(Self, Option<[u8; 32]>), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
 
@@ -46,9 +44,8 @@ impl<'a> DepositAccounts<'a> {
         // `zone_deposit` passes the `ZoneConfig` account (the zone's `zone_auth`
         // PDA) first. It must sign and is validated by owner/discriminator -- the
         // create-time derivation already bound it to its program -- and its stored
-        // `program_id` becomes the UTXO's `zone_program_id`. The program governing
-        // `program_data` (seed `auth`) follows; the plain `deposit` has no zone, so
-        // its program signer is the first cpi account.
+        // `program_id` becomes the UTXO's `zone_program_id`. The plain `deposit`
+        // has no zone; its program data is authorized by the depositor signer.
         let zone_program_id = if HAS_ZONE {
             let account = iter.next_signer("zone_config")?;
             let config = load_zone_config(account)?;
@@ -56,9 +53,6 @@ impl<'a> DepositAccounts<'a> {
         } else {
             None
         };
-        if program_cpi_signer.is_some() {
-            return Err(ShieldedPoolError::ProgramCpiSignerDisabled.into());
-        }
 
         // SOL settlement is 3 accounts, SPL is 4; with the trailing program
         // account that is 4 (SOL) or 5 (SPL) remaining. Pick the branch by

@@ -144,13 +144,12 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
                 }),
-                program_owner: None,
             });
         }
 
@@ -169,10 +168,9 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
                 proof: None,
-                program_owner: None,
             });
         }
 
@@ -186,9 +184,8 @@ impl LifecycleWorld {
             blinding: output_blinding,
             zone_program_id: None,
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
-            program_owner: None,
             data: Data::default(),
         };
 

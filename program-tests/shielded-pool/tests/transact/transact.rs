@@ -183,7 +183,6 @@ fn transact_sends_valid_proof() {
     let ix = Transact {
         payer,
         tree: env.tree.pubkey(),
-        cpi_signer: None,
         withdrawal: None,
         data: transact_ix_data,
     }
@@ -219,7 +218,6 @@ fn transact_rejects_tampered_output_view_tag() {
     let ix = Transact {
         payer,
         tree: env.tree.pubkey(),
-        cpi_signer: None,
         withdrawal: None,
         data: transact_ix_data,
     }

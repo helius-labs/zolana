@@ -284,7 +284,7 @@ fn build_with_data(world: &mut TransactionWorld, sender: String, a: String) {
     world.sender_name = Some(sender);
     let data = Data::new(vec![
         DataRecord::ZoneData(vec![10, 11, 12]),
-        DataRecord::ProgramData(vec![20, 21]),
+        DataRecord::UtxoData(vec![20, 21]),
     ]);
     build(world, vec![(a, 1000, data)]);
 }

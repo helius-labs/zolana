@@ -20,10 +20,7 @@ pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use shape::{canonical_shape, resolve_shape, Shape, SUPPORTED_SHAPES};
 pub use transact::{
     P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
-    TransferProver, TransferSpendInput,
-};
-pub use transact::{
-    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
-    ZoneTransferProver,
+    TransferProver, TransferSpendInput, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
+    ZoneTransferProofResult, ZoneTransferProver,
 };
 pub use zone_authority::{ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness};

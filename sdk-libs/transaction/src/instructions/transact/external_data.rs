@@ -1,7 +1,6 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::{
-    deposit::CpiSignerData,
-    transact::{ExternalDataHash, OutputCiphertext},
+use zolana_interface::instruction::instruction_data::transact::{
+    ExternalDataHash, OutputCiphertext,
 };
 
 use crate::error::TransactionError;
@@ -21,11 +20,10 @@ pub struct ExternalData {
     pub user_sol_account: Address,
     pub user_spl_token: Address,
     pub spl_token_interface: Address,
-    pub cpi_signer: Option<CpiSignerData>,
-    /// Optional transaction-level program- and zone-specific external data
+    /// Optional transaction-level UTXO- and zone-specific external data
     /// digests folded into `external_data_hash`; `None` for a default-zone
     /// `transact`.
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
@@ -50,8 +48,7 @@ impl ExternalData {
             user_sol_account: self.user_sol_account.as_array(),
             user_spl_token_account: self.user_spl_token.as_array(),
             spl_token_interface: self.spl_token_interface.as_array(),
-            cpi_signer: self.cpi_signer,
-            program_data_hash: self.program_data_hash,
+            data_hash: self.data_hash,
             zone_data_hash: self.zone_data_hash,
             output_utxo_hashes: &self.output_utxo_hashes,
             output_ciphertexts: &self.output_ciphertexts,

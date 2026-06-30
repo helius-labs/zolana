@@ -146,11 +146,11 @@ impl TestIndexer {
 fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], TransactionError> {
     let output = &event.output;
     let zone_data_hash = output.zone_data_hash.unwrap_or([0u8; 32]);
-    let program_data_hash = output.program_data_hash.unwrap_or([0u8; 32]);
+    let data_hash = output.data_hash.unwrap_or([0u8; 32]);
     utxo_hash(
         Address::new_from_array(output.asset),
         output.amount,
-        &program_data_hash,
+        &data_hash,
         &zone_data_hash,
         output.zone_program_id.map(Address::new_from_array),
         &owner_utxo_hash(&output.owner, &output.blinding)?,

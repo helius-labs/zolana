@@ -34,11 +34,6 @@ pub const MAX_OUTPUTS: usize = 8;
 
 pub const P256_OWNED_SIGNER: u8 = 255;
 
-/// Sentinel `eddsa_signer_index` for a program-owned value input. Such an input
-/// is authorized by the invoking program's `cpi_signer` (its program id is the
-/// input's owner pk_hash), not by a per-input user signature.
-pub const PROGRAM_OWNED_SIGNER: u8 = 254;
-
 #[derive(Default, Debug)]
 pub struct TransactProofInputs {
     pub utxo_roots: [[u8; 32]; MAX_INPUTS],
@@ -48,7 +43,6 @@ pub struct TransactProofInputs {
     pub p256_signing_pk_field: [u8; 32],
     pub external_data_hash: [u8; 32],
     pub spl_mint: Option<[u8; 32]>,
-    pub program_id: [u8; 32],
     pub zone_program_id: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
 }
@@ -177,7 +171,7 @@ impl<'a> TransactProof<'a> {
         };
 
         // Mirrors the Go circuit `publicInputHash` (spp_transaction/circuit.go): a
-        // 13-element base, then `input_owner_pk_hashes` for every variant except the
+        // 12-element base, then `input_owner_pk_hashes` for every variant except the
         // zone-authority one (owners stay private and do not sign), then the
         // confidential appendix (`output_owner_pk_hashes`, `p256_signing_pk_field`)
         // only for the confidential (non-zone) variant.
@@ -193,7 +187,6 @@ impl<'a> TransactProof<'a> {
             amount_field(self.ix.public_sol_amount),
             amount_field(self.ix.public_spl_amount),
             public_spl_asset_pubkey,
-            self.derived.program_id,
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
         ]);

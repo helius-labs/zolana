@@ -53,7 +53,6 @@ type TransferParametersJSON struct {
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ProgramID            string             `json:"programId"`
 	ZoneProgramID        string             `json:"zoneProgramId"`
 	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
 	PublicInputHash      string             `json:"publicInputHash"`
@@ -82,7 +81,6 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ProgramID:            feHex(p.ProgramID),
 		ZoneProgramID:        feHex(p.ZoneProgramID),
 		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
 		PublicInputHash:      feHex(p.PublicInputHash),
@@ -140,9 +138,6 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		return err
 	}
 	if p.PublicSplAssetPubkey, err = feFromHex(params.PublicSplAssetPubkey); err != nil {
-		return err
-	}
-	if p.ProgramID, err = feFromHex(params.ProgramID); err != nil {
 		return err
 	}
 	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {

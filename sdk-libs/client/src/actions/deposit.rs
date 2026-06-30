@@ -129,7 +129,6 @@ fn deposit_instruction(
         program: data.program.clone(),
     }
     .instruction()
-    .expect("deposit instruction is infallible without a program signer")
 }
 
 fn spl_accounts(
@@ -205,8 +204,7 @@ mod tests {
             public_amount: data.public_amount,
             program: data.program.clone(),
         }
-        .instruction()
-        .expect("instruction");
+        .instruction();
         assert_eq!(sent.message.instructions.len(), 1);
         assert_eq!(sent.message.instructions[0].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));

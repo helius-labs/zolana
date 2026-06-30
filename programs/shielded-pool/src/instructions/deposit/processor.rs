@@ -43,12 +43,6 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if data.program.is_some() {
-        let program_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !program_signer.is_signer() {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
-    }
     process_deposit_internal::<false>(
         accounts,
         DepositParams {
@@ -71,12 +65,6 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
     let depositor = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
-    }
-    if data.program.is_some() {
-        let program_signer = accounts.get(3).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !program_signer.is_signer() {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
     }
     process_deposit_internal::<true>(
         accounts,
@@ -103,18 +91,15 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
 
-    let (parsed, zone_program_id) = DepositAccounts::validate_and_parse::<HAS_ZONE>(
-        &crate::ID,
-        accounts,
-        d.program.as_ref().map(|cpi| cpi.cpi_signer),
-    )?;
+    let (parsed, zone_program_id) =
+        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts)?;
     let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
     let asset_field = solana_pk_hash(&asset)?;
 
     let zero = [0u8; 32];
-    let program_data_hash = match &d.program {
+    let data_hash = match &d.program {
         Some(program) => program.data_hash,
         None => zero,
     };
@@ -131,7 +116,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
         asset_field.as_slice(),
         field_from_u64(amount).as_slice(),
-        program_data_hash.as_slice(),
+        data_hash.as_slice(),
         zone_hash.as_slice(),
         owner_utxo_hash.as_slice(),
     ])

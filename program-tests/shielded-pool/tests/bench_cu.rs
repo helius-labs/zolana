@@ -272,8 +272,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         public_amount: data.public_amount,
         program: data.program.clone(),
     }
-    .instruction()
-    .expect("instruction");
+    .instruction();
 
     let accounts = deposit_sol_accounts(&pt, &ix, program_id);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -332,8 +331,7 @@ fn bench_deposit_spl(
         public_amount: data.public_amount,
         program: data.program.clone(),
     }
-    .instruction()
-    .expect("instruction");
+    .instruction();
 
     let accounts = deposit_spl_accounts(&pt, &ix, program_id, token_program_account);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -430,7 +428,6 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: None,
         data: transact_ix_data,
     }
@@ -582,7 +579,6 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
         data: transact_ix_data,
     }
@@ -763,7 +759,6 @@ fn bench_withdrawal_spl(
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)),
             vault,

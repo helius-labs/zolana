@@ -47,8 +47,8 @@ pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
 }
 
 /// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
-/// rail. The 15-element anonymous chain is followed by the two confidential
-/// elements: `[15] HashChain(output_owner_pk_hashes)` and `[16]
+/// rail. The 14-element anonymous chain is followed by the two confidential
+/// elements: `[14] HashChain(output_owner_pk_hashes)` and `[15]
 /// p256_signing_pk_field` (zero on the eddsa rail). Mirrors the client
 /// `PublicInputs::hash()` exactly.
 #[allow(clippy::too_many_arguments)]
@@ -77,7 +77,6 @@ pub fn public_input_hash(
         *public_sol_amount,
         zero, // public_spl_amount
         zero, // public_spl_asset_pubkey
-        zero, // program_id
         zero, // zone_program_id
         *payer_pubkey_hash,
         hash_chain(input_owner_pk_hashes).expect("input owner chain"),
@@ -188,8 +187,7 @@ pub fn new_transact_ix_data(
         inputs,
         public_sol_amount,
         public_spl_amount: None,
-        cpi_signer: None,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
@@ -212,8 +210,7 @@ pub fn external_data_hash(
         user_sol_account,
         user_spl_token_account: &zero,
         spl_token_interface: &zero,
-        cpi_signer: transact_ix_data.cpi_signer,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
         output_utxo_hashes: &transact_ix_data.output_utxo_hashes,
         output_ciphertexts: &transact_ix_data.output_ciphertexts,
@@ -277,7 +274,6 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_sol_amount: be(&args.public_sol_amount),
         public_spl_amount: be(&zero),
         public_spl_asset_pubkey: be(&zero),
-        program_id: be(&zero),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),

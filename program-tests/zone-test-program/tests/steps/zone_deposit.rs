@@ -76,8 +76,7 @@ impl ZoneLifecycleWorld {
             zone_data: data.zone_data.clone(),
             program: data.program.clone(),
         }
-        .instruction()
-        .map_err(|e| anyhow!("zone deposit ix: {e}"))?;
+        .instruction();
         let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
 
         // Make the zone-owned note spendable for `name` so later zone_transact /
@@ -145,8 +144,7 @@ impl ZoneLifecycleWorld {
             zone_data: data.zone_data.clone(),
             program: data.program.clone(),
         }
-        .instruction()
-        .map_err(|e| anyhow!("zone SPL deposit ix: {e}"))?;
+        .instruction();
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
 
         self.actor_mut(name).last_zone_deposit = Some(ZoneDepositRecord {
@@ -230,8 +228,7 @@ impl ZoneLifecycleWorld {
             zone_data: Vec::new(),
             program: None,
         }
-        .cpi_instruction()
-        .map_err(|e| anyhow!("zone deposit cpi ix: {e}"))?;
+        .cpi_instruction();
         // Swap the zone config account (index 2) for a non-PDA signer.
         let meta = ix
             .accounts

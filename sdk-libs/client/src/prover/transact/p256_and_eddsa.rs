@@ -1,14 +1,11 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use solana_address::Address;
 use zolana_keypair::{
-    constants::BLINDING_LEN,
     hash::{hash_field, owner_hash, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
-    utxo::{owner_utxo_hash, program_id_field, utxo_hash},
     ExternalData, OutputUtxo, Utxo,
 };
 
@@ -27,18 +24,11 @@ use crate::{
 pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's roots, so it has no proof of its own.
     pub proof: Option<SpendProof>,
-    /// `Some(program_id)` marks a program-owned value input: its owner is the
-    /// invoking program rather than a user keypair, it is authorized by the
-    /// program's cpi_signer (no user signature), and its `nullifier_secret` is 0.
-    /// When set, `utxo.owner` is ignored and the owner field is `program_id`'s
-    /// `pk_field`. Matches the program-owned spend path in the spp_transaction
-    /// circuit (`constrainInput`).
-    pub program_owner: Option<Address>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +64,6 @@ pub struct TransferP256Prover {
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
     pub p256_owner: P256Owner,
-    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
-    pub program_id: Option<Address>,
     pub shape: Option<Shape>,
 }
 
@@ -116,7 +104,6 @@ impl TransferP256Prover {
         let p256_message_hash = sha256(&private_tx);
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
-        let program_id = program_id_field(&self.program_id)?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -126,7 +113,6 @@ impl TransferP256Prover {
             p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
-            program_id: &program_id,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
@@ -149,7 +135,6 @@ impl TransferP256Prover {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: be(&program_id),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),
@@ -287,74 +272,41 @@ pub(crate) fn assemble_inputs(
             continue;
         };
 
-        let program_data_hash = spend.program_data_hash.unwrap_or([0u8; 32]);
+        let data_hash = spend.data_hash.unwrap_or([0u8; 32]);
         let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
 
-        // A program-owned value input: the owner is the invoking program, so the
-        // owner field is `program_id`'s pk_field (not `owner_hash(pubkey,
-        // nullifier_pk)`), the standalone `program_id` field is pinned to 0, the
-        // nullifier secret is 0, and `owner_pk_hash == owner_field`. Mirrors the
-        // program-owned spend path of `constrainInput` in the spp_transaction
-        // circuit.
-        let (owner_field, utxo_hash, nullifier, owner_pk_hash, nullifier_secret) =
-            if let Some(program_id) = spend.program_owner {
-                let owner_field = program_id_field(&Some(program_id))?;
-                let owner_utxo_hash = owner_utxo_hash(&owner_field, &spend.utxo.blinding)?;
-                // program_id is pinned to 0; zone fields come from the spend's UTXO.
-                let utxo_hash = utxo_hash(
-                    spend.utxo.asset,
-                    spend.utxo.amount,
-                    &program_data_hash,
-                    &zone_data_hash,
-                    spend.utxo.zone_program_id,
-                    &owner_utxo_hash,
-                )?;
-                // nullifier_secret == 0: Poseidon(utxo_hash, blinding, 0).
-                let zero_nullifier_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
-                let nullifier = zero_nullifier_key.nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                (owner_field, utxo_hash, nullifier, owner_field, [0u8; 32])
-            } else {
-                let nullifier_pubkey = spend.nullifier_key.pubkey()?;
-                let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
-                let utxo_hash =
-                    spend
-                        .utxo
-                        .hash(&nullifier_pubkey, &program_data_hash, &zone_data_hash)?;
-                let nullifier = spend
-                    .nullifier_key
-                    .nullifier(&utxo_hash, &spend.utxo.blinding)?;
+        let nullifier_pubkey = spend.nullifier_key.pubkey()?;
+        let owner_field = owner_hash(&spend.utxo.owner, &nullifier_pubkey)?;
+        let utxo_hash = spend
+            .utxo
+            .hash(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+        let nullifier = spend
+            .nullifier_key
+            .nullifier(&utxo_hash, &spend.utxo.blinding)?;
 
-                let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
-                // Per-input owner pk_field, selected by mode. A P256 owner's value
-                // depends on the mode (see OwnerMode); an ed25519 owner always uses
-                // its own pk_field.
-                let owner_pk_hash = match (owner_mode, is_p256) {
-                    (OwnerMode::ConfidentialP256(signing_pk_field), true) => *signing_pk_field,
-                    (OwnerMode::Merge, true) => [0u8; 32],
-                    (OwnerMode::Zone, true) => [0u8; 32],
-                    (OwnerMode::ConfidentialEddsa, true) => {
-                        return Err(ClientError::EddsaInputNotSolanaOwned { index })
-                    }
-                    (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_pk_field()?,
-                    (_, false) => spend.utxo.owner.owner_pk_field()?,
-                };
+        let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
+        // Per-input owner pk_field, selected by mode. A P256 owner's value
+        // depends on the mode (see OwnerMode); an ed25519 owner always uses
+        // its own pk_field.
+        let owner_pk_hash = match (owner_mode, is_p256) {
+            (OwnerMode::ConfidentialP256(signing_pk_field), true) => *signing_pk_field,
+            (OwnerMode::Merge, true) => [0u8; 32],
+            (OwnerMode::Zone, true) => [0u8; 32],
+            (OwnerMode::ConfidentialEddsa, true) => {
+                return Err(ClientError::EddsaInputNotSolanaOwned { index })
+            }
+            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_pk_field()?,
+            (_, false) => spend.utxo.owner.owner_pk_field()?,
+        };
 
-                let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
-                (
-                    owner_field,
-                    utxo_hash,
-                    nullifier,
-                    owner_pk_hash,
-                    nullifier_secret,
-                )
-            };
+        let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
 
         let utxo_inputs = UtxoInputs::new(
             &owner_field,
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
-            &program_data_hash,
+            &data_hash,
             &zone_data_hash,
             &spend.utxo.zone_program_id,
         )?;
@@ -416,23 +368,15 @@ pub(crate) fn assemble_outputs(outputs: &[OutputUtxo]) -> Result<AssembledOutput
         // its public tag matches the program's `hash_field(view_tag)` reconstruction
         // and is indistinguishable from a real one; the circuit leaves it
         // unconstrained and `nullifier_pk` is unused (0).
-        // A program-owned output's owner is the program itself: the circuit skips
-        // the owner-tag binding (its program-owned output path), so the public
-        // `output_owner_pk_hashes` entry is the program's `pk_field` (matching the
-        // owner field committed in the leaf) and `nullifier_pk` is unused (0).
-        let (owner_pk_field, nullifier_pk) = if let Some(program_id) = output.program_owner {
-            (program_id_field(&Some(program_id))?, [0u8; 32])
-        } else {
-            match &output.owner_address {
-                Some(address) => (
-                    address.signing_pubkey.owner_pk_field()?,
-                    address.nullifier_pubkey,
-                ),
-                None => (
-                    hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?,
-                    [0u8; 32],
-                ),
-            }
+        let (owner_pk_field, nullifier_pk) = match &output.owner_address {
+            Some(address) => (
+                address.signing_pubkey.owner_pk_field()?,
+                address.nullifier_pubkey,
+            ),
+            None => (
+                hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?,
+                [0u8; 32],
+            ),
         };
         assembled.push(TransferOutput {
             utxo: UtxoInputs::from_output(output)?,
@@ -467,12 +411,11 @@ pub(crate) struct PublicInputs<'a> {
     pub p256_message_hash: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub public_amounts: &'a PublicAmounts,
-    /// Single per-tx program identifiers (pk_field-encoded); 0 on default transact.
-    pub program_id: &'a [u8; 32],
+    /// Per-tx zone program (pk_field-encoded); 0 on default transact.
     pub zone_program_id: &'a [u8; 32],
     pub payer_pubkey_hash: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
-    /// Confidential variant only: appended after the 15-element anonymous chain as
+    /// Confidential variant only: appended after the anonymous chain as
     /// `HashChain(output_owner_pk_hashes)` then `p256_signing_pk_field`. Mirrors
     /// `prover/server/prover-test/spp/protocol/public_inputs.go` (PublicInputHash).
     pub output_owner_pk_hashes: &'a [[u8; 32]],
@@ -492,7 +435,6 @@ impl PublicInputs<'_> {
             self.public_amounts.sol,
             self.public_amounts.spl,
             self.public_amounts.asset,
-            *self.program_id,
             *self.zone_program_id,
             *self.payer_pubkey_hash,
             hash_chain(self.input_owner_pk_hashes)?,

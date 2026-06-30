@@ -1,5 +1,5 @@
 use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::{Pubkey, PubkeyError};
+use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{tag, CpiData, DepositSplAccounts, ZoneDepositIxData},
@@ -19,25 +19,22 @@ pub struct ZoneDeposit {
     pub zone_program_id: Pubkey,
     pub zone_data_hash: [u8; 32],
     pub zone_data: Vec<u8>,
-    /// Program governing `program_data` (its `auth` PDA signs); `None` if the
-    /// zone deposit carries no application program data.
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `ZoneConfig` account; `None` if the zone deposit carries no application
+    /// data.
     pub program: Option<CpiData>,
 }
 
 impl ZoneDeposit {
-    pub fn instruction(&self) -> Result<Instruction, PubkeyError> {
+    pub fn instruction(&self) -> Instruction {
         self.build_instruction(self.zone_program_id, false)
     }
 
-    pub fn cpi_instruction(&self) -> Result<Instruction, PubkeyError> {
+    pub fn cpi_instruction(&self) -> Instruction {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(
-        &self,
-        program_id: Pubkey,
-        auth_signer: bool,
-    ) -> Result<Instruction, PubkeyError> {
+    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
         // The `ZoneConfig` account is the zone's canonical `zone_auth` PDA: it
         // signs and its stored `program_id` becomes the UTXO's `zone_program_id`.
         let zone_config = pda::zone_auth(&self.zone_program_id).0;
@@ -64,13 +61,6 @@ impl ZoneDeposit {
             AccountMeta::new(self.depositor, true),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
-        // The program governing `program_data` (when present) signs under `auth`,
-        // immediately after the zone config account.
-        if let Some(program) = &self.program {
-            let program_id = Pubkey::new_from_array(program.cpi_signer.program_id);
-            let program_auth = pda::cpi_signer_with_bump(&program_id, program.cpi_signer.bump)?;
-            account_metas.push(AccountMeta::new_readonly(program_auth, auth_signer));
-        }
         match self.spl {
             Some(spl) => account_metas.extend([
                 AccountMeta::new(spl.user_token, false),
@@ -86,10 +76,10 @@ impl ZoneDeposit {
         }
         account_metas.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
-        Ok(Instruction {
+        Instruction {
             program_id,
             accounts: account_metas,
             data,
-        })
+        }
     }
 }

@@ -239,7 +239,7 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         sol_amount: 5,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![],
-        spl_data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+        spl_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
         sol_data: Data::default(),
     };
     assert_eq!(
@@ -254,7 +254,7 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![],
         spl_data: Data::default(),
-        sol_data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+        sol_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
         sol_only.into_utxos(&registry, None).unwrap_err(),

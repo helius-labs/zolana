@@ -26,7 +26,7 @@ impl ZolanaProgramTest {
             public_amount: data.public_amount,
             program: data.program.clone(),
         }
-        .instruction()?;
+        .instruction();
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -53,7 +53,7 @@ impl ZolanaProgramTest {
             public_amount: data.public_amount,
             program: data.program.clone(),
         }
-        .instruction()?;
+        .instruction();
         self.send_deposit_ix(ix, depositor)
     }
 
@@ -73,7 +73,7 @@ impl ZolanaProgramTest {
             public_amount: data.public_amount,
             program: data.program.clone(),
         }
-        .instruction()?;
+        .instruction();
         ix.program_id = self.program_id;
         ix.accounts = accounts;
         self.send_deposit_ix(ix, depositor)

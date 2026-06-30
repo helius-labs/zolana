@@ -459,17 +459,13 @@ fn zone_proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'
 }
 
 /// Names every account of a `transact` in builder order: `payer`, `tree`, the
-/// optional `cpi_signer` (present iff the data carries one), the optional
-/// public-amount accounts (SOL or SPL, present iff the data carries that public
-/// amount), and the program account last for the `emit_event` self-CPI. Mirrors
-/// the `Transact` builder layout. A pure shielded transfer carries no public
-/// amount, so it names just `payer`, `tree`, `self_program`.
+/// optional public-amount accounts (SOL or SPL, present iff the data carries that
+/// public amount), and the program account last for the `emit_event` self-CPI.
+/// Mirrors the `Transact` builder layout. A pure shielded transfer carries no
+/// public amount, so it names just `payer`, `tree`, `self_program`.
 fn transact_accounts(data: &TransactIxData, account_count: usize) -> Vec<String> {
     let mut names: Vec<&str> = vec!["payer", "tree"];
-    if data.cpi_signer.is_some() {
-        names.push("cpi_signer");
-    }
-    // The public-amount accounts sit between cpi_signer and the trailing program
+    // The public-amount accounts sit between `tree` and the trailing program
     // account; their count distinguishes an SPL withdrawal (carries cpi_authority)
     // from an SPL shield.
     let public_account_count = account_count.saturating_sub(names.len() + 1);
@@ -494,7 +490,6 @@ fn transact_fields(data: TransactIxData) -> Vec<DecodedField> {
         field("public_spl_amount", option_i64(data.public_spl_amount)),
         field("output_utxo_hashes", data.output_utxo_hashes.len()),
         field("output_ciphertexts", data.output_ciphertexts.len()),
-        field("cpi_signer", data.cpi_signer.is_some()),
     ]
 }
 
@@ -505,16 +500,12 @@ fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
         field("blinding", short_hex(&data.blinding)),
         field("public_amount", option_u64(data.public_amount)),
         field(
-            "program_data_hash",
+            "data_hash",
             option_hash(data.program.as_ref().map(|p| p.data_hash)),
         ),
         field(
-            "program_data_len",
-            data.program.as_ref().map_or(0, |p| p.data.len()),
-        ),
-        field(
-            "cpi_signer",
-            cpi_signer(data.program.as_ref().map(|p| p.cpi_signer)),
+            "utxo_data_len",
+            data.program.as_ref().map_or(0, |p| p.utxo_data.len()),
         ),
     ]
 }
@@ -530,12 +521,12 @@ fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
         field("zone_data_hash", option_hash(Some(data.zone_data_hash))),
         field("zone_data_len", data.zone_data.len()),
         field(
-            "program_data_hash",
+            "data_hash",
             option_hash(data.program.as_ref().map(|p| p.data_hash)),
         ),
         field(
-            "program_data_len",
-            data.program.as_ref().map_or(0, |p| p.data.len()),
+            "utxo_data_len",
+            data.program.as_ref().map_or(0, |p| p.utxo_data.len()),
         ),
     ]
 }
@@ -556,11 +547,8 @@ fn proofless_view_fields(event: &GeneralEvent, data: &ProoflessOutput) -> Vec<De
         field("blinding", short_hex(&data.blinding)),
         field("zone_program_id", option_pubkey(data.zone_program_id)),
         field("zone_data_hash", option_hash(data.zone_data_hash)),
-        field("program_data_hash", option_hash(data.program_data_hash)),
-        field(
-            "program_data_len",
-            data.program_data.as_ref().map_or(0, Vec::len),
-        ),
+        field("data_hash", option_hash(data.data_hash)),
+        field("utxo_data_len", data.utxo_data.as_ref().map_or(0, Vec::len)),
         field("zone_data_len", data.zone_data.as_ref().map_or(0, Vec::len)),
     ]
 }
@@ -691,12 +679,6 @@ fn option_i64(value: Option<i64>) -> String {
         .unwrap_or_else(|| "None".to_string())
 }
 
-fn cpi_signer(value: Option<zolana_interface::instruction::CpiSignerData>) -> String {
-    value
-        .map(|signer| format!("{} bump={}", pubkey(&signer.program_id), signer.bump))
-        .unwrap_or_else(|| "None".to_string())
-}
-
 fn short_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(10);
     for byte in bytes.iter().take(4) {
@@ -711,10 +693,7 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{
-        instruction::{CpiData, CpiSignerData},
-        SHIELDED_POOL_PROGRAM_ID,
-    };
+    use zolana_interface::{instruction::CpiData, SHIELDED_POOL_PROGRAM_ID};
 
     use super::*;
 
@@ -731,12 +710,8 @@ mod tests {
                 blinding: [3; 31],
                 public_amount: Some(42),
                 program: Some(CpiData {
-                    cpi_signer: CpiSignerData {
-                        program_id: [4; 32],
-                        bump: 255,
-                    },
                     data_hash: [0u8; 32],
-                    data: Vec::new(),
+                    utxo_data: Vec::new(),
                 }),
             }
             .serialize()
@@ -746,7 +721,6 @@ mod tests {
         let decoded = decoder.decode(&data, &[]).expect("decode");
 
         assert_eq!(decoded.name, "deposit");
-        assert_eq!(decoded.account_names[2], "cpi_signer");
         assert!(decoded
             .fields
             .iter()

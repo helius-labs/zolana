@@ -23,7 +23,7 @@ fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String)
         Data::default(),
         Data::new(vec![
             DataRecord::ZoneData(vec![9, 9, 9]),
-            DataRecord::ProgramData(vec![1]),
+            DataRecord::UtxoData(vec![1]),
         ]),
     ] {
         let pt = TransferRecipientPlaintext {
@@ -69,7 +69,7 @@ fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: Stri
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
         data: Data::new(vec![
-            DataRecord::ProgramData(vec![1]),
+            DataRecord::UtxoData(vec![1]),
             DataRecord::ZoneData(vec![2]),
         ]),
     };

@@ -92,9 +92,8 @@ impl ZoneLifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
-                program_owner: None,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -117,9 +116,8 @@ impl ZoneLifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
-                program_owner: None,
                 proof: None,
             });
         }
@@ -135,9 +133,8 @@ impl ZoneLifecycleWorld {
             blinding: output_blinding,
             zone_program_id: None,
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
-            program_owner: None,
             data: Data::default(),
         };
 
@@ -169,7 +166,7 @@ impl ZoneLifecycleWorld {
         // owner-pubkey confidential tag is a raw pubkey (not reduced) and the queue
         // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
         // submitting payer as the merge authority; photon indexes the output under it.
-        let merge_view_tag = keypair.get_merge_view_tag(&self.payer.pubkey().to_bytes(), 0)?;
+        let merge_view_tag = keypair.get_merge_view_tag(0)?;
         let data = result.instruction_data(pack_proof(&proof)?, merge_view_tag);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
@@ -288,9 +285,8 @@ impl ZoneLifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
-                program_owner: None,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -311,9 +307,8 @@ impl ZoneLifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
-                program_owner: None,
                 proof: None,
             });
         }
@@ -325,9 +320,8 @@ impl ZoneLifecycleWorld {
             blinding: random_blinding(),
             zone_program_id: None,
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
-            program_owner: None,
             data: Data::default(),
         };
 
@@ -351,7 +345,7 @@ impl ZoneLifecycleWorld {
         // Assemble the instruction data exactly as the happy path does (derived
         // merge_view_tag so the nullifier-queue insert is valid), then zero the
         // 192-byte proof so verification is the only thing that fails.
-        let merge_view_tag = keypair.get_merge_view_tag(&self.payer.pubkey().to_bytes(), 0)?;
+        let merge_view_tag = keypair.get_merge_view_tag(0)?;
         let data = result.instruction_data([0u8; 192], merge_view_tag);
 
         let payer = self.payer.insecure_clone();

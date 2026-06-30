@@ -20,7 +20,6 @@ type publicInputHashVector struct {
 	PublicSolAmount      string   `json:"public_sol_amount"`
 	PublicSplAmount      string   `json:"public_spl_amount"`
 	PublicSplAssetPubkey string   `json:"public_spl_asset_pubkey"`
-	ProgramID            string   `json:"program_id"`
 	ZoneProgramID        string   `json:"zone_program_id"`
 	PayerPubkeyHash      string   `json:"payer_pubkey_hash"`
 	InputOwnerPkHashes   []string `json:"input_owner_pk_hashes"`
@@ -40,7 +39,6 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		PublicSolAmount:      parseField(t, vector.PublicSolAmount),
 		PublicSplAmount:      parseField(t, vector.PublicSplAmount),
 		PublicSplAssetPubkey: parseField(t, vector.PublicSplAssetPubkey),
-		ProgramID:            parseField(t, vector.ProgramID),
 		ZoneProgramID:        parseField(t, vector.ZoneProgramID),
 		PayerPubkeyHash:      parseField(t, vector.PayerPubkeyHash),
 		InputOwnerPkHashes:   parseFields(t, vector.InputOwnerPkHashes),

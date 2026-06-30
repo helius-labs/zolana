@@ -108,8 +108,6 @@ pub(crate) struct TransferP256InputsJson {
     pub public_spl_amount: String,
     #[serde(rename = "publicSplAssetPubkey")]
     pub public_spl_asset_pubkey: String,
-    #[serde(rename = "programId")]
-    pub program_id: String,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
@@ -142,8 +140,6 @@ pub(crate) struct TransferInputsJson {
     pub public_spl_amount: String,
     #[serde(rename = "publicSplAssetPubkey")]
     pub public_spl_asset_pubkey: String,
-    #[serde(rename = "programId")]
-    pub program_id: String,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
@@ -221,7 +217,6 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
         public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
         public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
         public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
-        program_id: big_uint_to_string(&inputs.program_id),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
@@ -394,7 +389,6 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         public_sol_amount: big_uint_to_string(&inputs.public_sol_amount),
         public_spl_amount: big_uint_to_string(&inputs.public_spl_amount),
         public_spl_asset_pubkey: big_uint_to_string(&inputs.public_spl_asset_pubkey),
-        program_id: big_uint_to_string(&inputs.program_id),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
@@ -551,7 +545,6 @@ mod merge_tests {
             public_sol_amount: BigUint::ZERO,
             public_spl_amount: BigUint::ZERO,
             public_spl_asset_pubkey: BigUint::ZERO,
-            program_id: BigUint::ZERO,
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
             public_input_hash: BigUint::from(9u8),
@@ -570,7 +563,6 @@ mod merge_tests {
             "publicSolAmount",
             "publicSplAmount",
             "publicSplAssetPubkey",
-            "programId",
             "zoneProgramId",
             "payerPubkeyHash",
             "publicInputHash",

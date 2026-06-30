@@ -1,8 +1,6 @@
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
-};
+use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef;
 
 use crate::instructions::settlement::{
     validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
@@ -29,20 +27,16 @@ impl<'a> TransactAccounts<'a> {
         Self::from_iter(iter, ix, payer, tree)
     }
 
-    /// Parse the cpi-signer and settlement accounts from an iterator already
-    /// advanced past `payer` and `tree`. `zone_transact` reuses this after
-    /// peeling off its extra `ZoneConfig` signer, so the two instructions share
-    /// one settlement-account validation.
+    /// Parse the settlement accounts from an iterator already advanced past
+    /// `payer` and `tree`. `zone_transact` reuses this after peeling off its
+    /// extra `ZoneConfig` signer, so the two instructions share one
+    /// settlement-account validation.
     pub(crate) fn from_iter(
         mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
         tree: &'a mut AccountView,
     ) -> Result<Self, ProgramError> {
-        if ix.cpi_signer.is_some() {
-            return Err(ShieldedPoolError::ProgramCpiSignerDisabled.into());
-        }
-
         let mut spl_mint = None;
         let settlement = if ix.is_deposit_or_withdrawal() {
             if ix.is_spl() {

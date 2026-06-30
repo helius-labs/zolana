@@ -135,7 +135,7 @@ fn split_data_zero_outputs(world: &mut TransactionWorld, owner: String) {
         asset_id: 2,
         asset_amount: 0,
         blinding_seed: [3u8; BLINDING_LEN],
-        data: Data::new(vec![DataRecord::ProgramData(vec![1])]),
+        data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
         bundle.into_utxos(&registry, None).unwrap_err(),

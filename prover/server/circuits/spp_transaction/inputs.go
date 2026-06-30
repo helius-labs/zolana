@@ -22,7 +22,6 @@ type spendEnv struct {
 	p256SigningPkField frontend.Variable
 	zone               bool
 	zoneAuthority      bool
-	programID          frontend.Variable
 	zoneProgramID      frontend.Variable
 }
 
@@ -59,27 +58,13 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	isPadding := api.Sub(in.IsDummy, isAddress)
 	spendOrAddress := api.Sub(1, isPadding)
 
-	programSet := api.Sub(1, api.IsZero(env.programID))
-	ownerIsProgram := api.IsZero(api.Sub(in.Utxo.Owner, env.programID))
-	isProgramOwned := api.Mul(notDummy, api.Mul(ownerIsProgram, programSet))
-	userOwnedReal := api.Sub(notDummy, isProgramOwned)
-
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
 	assertZeroWhen(api, isPadding, in.Utxo.Owner)
 
-	assertEqualWhen(api, isAddress, in.Utxo.Owner, env.programID)
-	assertZeroWhen(api, isAddress, api.IsZero(env.programID))
-
 	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
-	assertZeroWhen(api, isAddress, in.NullifierSecret)
 	assertZeroWhen(api, isAddress, in.Utxo.Asset)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
 	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
-
-	assertZeroWhen(api, isProgramOwned, in.NullifierSecret)
-	assertEqualWhen(api, isProgramOwned, in.OwnerPkHash, env.programID)
-
-	assertZeroWhen(api, userOwnedReal, in.Utxo.DataHash)
 
 	assertEqualWhen(api, spendOrAddress, in.Utxo.Domain, UtxoDomain)
 	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
@@ -110,14 +95,14 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
 	}
 	if !env.requiresP256 {
-		assertZeroWhen(api, userOwnedReal, isP256)
+		assertZeroWhen(api, spendOrAddress, isP256)
 	}
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
 	})
-	assertEqualWhen(api, userOwnedReal, ownerHash, in.Utxo.Owner)
-	assertZeroWhen(api, api.Mul(userOwnedReal, isP256), api.Sub(1, env.p256SigValid))
+	assertEqualWhen(api, spendOrAddress, ownerHash, in.Utxo.Owner)
+	assertZeroWhen(api, api.Mul(spendOrAddress, isP256), api.Sub(1, env.p256SigValid))
 
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,

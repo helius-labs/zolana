@@ -53,7 +53,6 @@ func (p *TransferParameters) CreateWitness() (*txcircuit.Circuit, error) {
 		PublicSolAmount:      p.PublicSolAmount,
 		PublicSplAmount:      p.PublicSplAmount,
 		PublicSplAssetPubkey: p.PublicSplAssetPubkey,
-		ProgramID:            p.ProgramID,
 		ZoneProgramID:        p.ZoneProgramID,
 		PayerPubkeyHash:      p.PayerPubkeyHash,
 		PublicInputHash:      p.PublicInputHash,

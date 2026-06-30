@@ -40,10 +40,6 @@ pub const SPP_ZONE_CONFIG_PDA_SEED: &[u8] = b"spp_zone_config";
 /// authority.
 pub const SPP_PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"protocol_config";
 pub const ZONE_AUTH_PDA_SEED: &[u8] = b"zone_auth";
-/// Seed for an invoking program's CPI-signer ("auth") PDA, derived under the
-/// invoking program's id. A general program owner on the `deposit` /
-/// `zone_deposit` / `transact` paths signs with this PDA.
-pub const CPI_SIGNER_PDA_SEED: &[u8] = b"auth";
 pub const SPL_ASSET_COUNTER_PDA_SEED: &[u8] = b"spl_asset_counter";
 pub const SPL_ASSET_REGISTRY_PDA_SEED: &[u8] = b"spl_asset_registry";
 pub const SPL_ASSET_VAULT_PDA_SEED: &[u8] = b"spl_asset_vault";

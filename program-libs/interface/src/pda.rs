@@ -1,11 +1,10 @@
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    ASSOCIATED_TOKEN_PROGRAM_ID, CPI_SIGNER_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED,
-    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED,
-    SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED,
-    SPL_TOKEN_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED,
-    ZONE_AUTH_PDA_SEED,
+    ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
+    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, SPP_ZONE_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
 pub fn shielded_pool_program_id() -> Pubkey {
@@ -95,15 +94,6 @@ pub fn zone_auth(zone_program: &Pubkey) -> (Pubkey, u8) {
 pub fn zone_auth_with_bump(zone_program: &Pubkey, bump: u8) -> Result<Pubkey, PubkeyError> {
     let bump = [bump];
     Pubkey::create_program_address(&[ZONE_AUTH_PDA_SEED, bump.as_slice()], zone_program)
-}
-
-pub fn cpi_signer(program: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[CPI_SIGNER_PDA_SEED], program)
-}
-
-pub fn cpi_signer_with_bump(program: &Pubkey, bump: u8) -> Result<Pubkey, PubkeyError> {
-    let bump = [bump];
-    Pubkey::create_program_address(&[CPI_SIGNER_PDA_SEED, bump.as_slice()], program)
 }
 
 #[cfg(test)]

@@ -120,8 +120,7 @@ impl Deposit<'_> {
             public_amount: data.public_amount,
             program: data.program.clone(),
         }
-        .instruction()
-        .expect("instruction");
+        .instruction();
         let mut signers: Vec<&Keypair> = vec![payer];
         if authority.pubkey() != payer.pubkey() {
             signers.push(authority);

@@ -9,7 +9,7 @@
 //! owner pk_field chain stays in the public-input preimage so SPP can route the
 //! per-input signer check. This matches the Go `Confidential=false,
 //! ZoneAuthority=false` case in
-//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 14-element base
+//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 13-element base
 //! chain INCLUDING `input_owner_pk_hashes`, EXCLUDING the output-owner chain and
 //! `p256_signing_pk_field`.
 
@@ -42,8 +42,6 @@ pub struct ZoneTransferProver {
     pub external_data: ExternalData,
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
-    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
-    pub program_id: Option<Address>,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -74,14 +72,13 @@ impl ZoneTransferProver {
             &external_data_hash,
         )?;
 
-        // Bind the zone program: program_id is 0 (no ZK program), zone_program_id is
-        // the zone's pk_field. The UTXOs themselves carry zone_program_id; the circuit
-        // binds each non-dummy UTXO's zone field to this public input.
-        let program_id = program_id_field(&self.program_id)?;
+        // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
+        // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
+        // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone eddsa-rail public-input layout: the 14-element base chain
-        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 13
+        // Zone eddsa-rail public-input layout: the 13-element base chain
+        // (Confidential=false, ZoneAuthority=false in public_inputs.go), i.e. the 12
         // base elements PLUS hash_chain(input_owner_pk_hashes), with NO confidential
         // appendix (no output-owner chain, no p256_signing_pk_field). hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element on
@@ -97,7 +94,6 @@ impl ZoneTransferProver {
             self.public_amounts.sol,
             self.public_amounts.spl,
             self.public_amounts.asset,
-            program_id,
             zone_program_id,
             self.payer_pubkey_hash,
             hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
@@ -111,7 +107,6 @@ impl ZoneTransferProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),

@@ -9,7 +9,7 @@ pub mod zone_config;
 
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
 pub use create_tree::CreateTreeData;
-pub use deposit::{CpiData, CpiSignerData, DepositIxData, ZoneDepositIxData};
+pub use deposit::{CpiData, DepositIxData, ZoneDepositIxData};
 pub use merge_transact::{
     MergeExternalDataHash, MergeTransactIxData, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_LEN,
     MERGE_INPUT_COUNT,

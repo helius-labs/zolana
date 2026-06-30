@@ -12,27 +12,33 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func addressNullifier(t testing.TB, fields UtxoCircuitFields) *big.Int {
+func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *big.Int) *big.Int {
 	t.Helper()
 	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(fields))
-	return spptest.MustNullifier(t, utxoHash, big.NewInt(0), big.NewInt(0))
+	return spptest.MustNullifier(t, utxoHash, big.NewInt(0), nullifierSecret)
 }
 
-func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, programID, seed *big.Int) {
+func makeAddressSlot(t testing.TB, assignment *Circuit, idx int, ownerPkHash, seed *big.Int) {
 	t.Helper()
+	nullifierSecret := spptest.Fe(99)
+	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
+	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
+	if err != nil {
+		t.Fatalf("address slot owner hash: %v", err)
+	}
 	in := &assignment.Inputs[idx]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Domain = spptest.Fe(protocol.UtxoDomain)
-	in.Utxo.Owner = programID
+	in.Utxo.Owner = owner
 	in.Utxo.Asset = spptest.Fe(0)
 	in.Utxo.Amount = spptest.Fe(0)
 	in.Utxo.Blinding = spptest.Fe(0)
 	in.Utxo.DataHash = seed
 	in.Utxo.ZoneDataHash = spptest.Fe(0)
 	in.Utxo.ZoneProgramID = spptest.Fe(0)
-	in.NullifierSecret = spptest.Fe(0)
-	in.Nullifier = addressNullifier(t, in.Utxo)
-	assignment.ProgramID = programID
+	in.OwnerPkHash = ownerPkHash
+	in.NullifierSecret = nullifierSecret
+	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }
 
 func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, confidential bool) {
@@ -80,7 +86,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *Circuit, requiresP256, 
 	refreshPublicInputHashVariant(t, assignment, confidential, false)
 }
 
-func addressProgramID(t testing.TB) *big.Int {
+func addressOwnerPkHash(t testing.TB) *big.Int {
 	return testSolanaPkFieldSeed(t, 0x55)
 }
 
@@ -97,11 +103,11 @@ func buildZoneAddressAssignment(t testing.TB) (*Circuit, *big.Int, *big.Int) {
 		big.NewInt(0),
 		spptest.Fe(0),
 	)
-	programID := addressProgramID(t)
+	ownerPkHash := addressOwnerPkHash(t)
 	seed := spptest.Fe(0xABCDEF)
-	makeAddressSlot(t, assignment, 0, programID, seed)
+	makeAddressSlot(t, assignment, 0, ownerPkHash, seed)
 	finalizeAddressAssignment(t, assignment, true, false)
-	return assignment, programID, seed
+	return assignment, ownerPkHash, seed
 }
 
 func TestAddressSlotZoneSolves(t *testing.T) {
@@ -134,7 +140,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 		assignment.Outputs[i].OwnerPkHash = pkField
 		assignment.Outputs[i].NullifierPk = nullifierPk
 	}
-	makeAddressSlot(t, assignment, 0, addressProgramID(t), spptest.Fe(0xABCDEF))
+	makeAddressSlot(t, assignment, 0, addressOwnerPkHash(t), spptest.Fe(0xABCDEF))
 	finalizeAddressAssignment(t, assignment, false, true)
 
 	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -147,21 +153,7 @@ func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assignment, _, _ := buildZoneAddressAssignment(t)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x77)
-	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
-	finalizeAddressAssignment(t, assignment, true, false)
-
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
-}
-
-func TestAddressSlotRejectsZeroProgramID(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
-	assignment, _, _ := buildZoneAddressAssignment(t)
-
-	assignment.ProgramID = spptest.Fe(0)
-	assignment.Inputs[0].Utxo.Owner = spptest.Fe(0)
-	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
+	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo, spptest.Fe(99))
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
@@ -199,27 +191,12 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 			assignment, _, _ := buildZoneAddressAssignment(t)
 
 			tc.set(&assignment.Inputs[0])
-			assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo)
+			assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo, spptest.Fe(99))
 			finalizeAddressAssignment(t, assignment, true, false)
 
 			assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 		})
 	}
-}
-
-func TestAddressSlotRejectsNonZeroSecret(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCircuit(Shape(shape))
-	assignment, _, _ := buildZoneAddressAssignment(t)
-
-	in := &assignment.Inputs[0]
-	in.NullifierSecret = spptest.Fe(5)
-	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
-	in.Nullifier = spptest.MustNullifier(t, utxoHash, big.NewInt(0), big.NewInt(5))
-	finalizeAddressAssignment(t, assignment, true, false)
-
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotRejectsDuplicate(t *testing.T) {
@@ -240,10 +217,10 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 		big.NewInt(0),
 		spptest.Fe(0),
 	)
-	programID := addressProgramID(t)
+	ownerPkHash := addressOwnerPkHash(t)
 	seed := spptest.Fe(0xABCDEF)
-	makeAddressSlot(t, assignment, 0, programID, seed)
-	makeAddressSlot(t, assignment, 1, programID, seed)
+	makeAddressSlot(t, assignment, 0, ownerPkHash, seed)
+	makeAddressSlot(t, assignment, 1, ownerPkHash, seed)
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))

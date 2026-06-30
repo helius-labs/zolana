@@ -4,7 +4,7 @@
 1. Simplicity
     1. the system program is a basic shielded pool program with minimal functionality.
 2. Versatility
-    1. utxos can have a program owner
+    1. utxos can carry arbitrary data, authorized by the owner signature
 
 ## General Requirements
 

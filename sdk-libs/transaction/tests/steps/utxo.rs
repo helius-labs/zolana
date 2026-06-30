@@ -60,10 +60,10 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     let zone_program_id = Address::new_from_array([7u8; 32]);
     let mut utxo = bare_utxo(world, &name);
     utxo.zone_program_id = Some(zone_program_id);
-    let program_data_hash = [4u8; 32];
+    let data_hash = [4u8; 32];
     let zone_data_hash = [5u8; 32];
     let actual = utxo
-        .hash(&npk, &program_data_hash, &zone_data_hash)
+        .hash(&npk, &data_hash, &zone_data_hash)
         .expect("UTXO hash");
 
     let owner = owner_hash(&utxo.owner, &npk).expect("owner hash");
@@ -76,7 +76,7 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
         &fe(UTXO_DOMAIN.to_be_bytes()),
         &asset,
         &fe(utxo.amount.to_be_bytes()),
-        &program_data_hash,
+        &data_hash,
         &zone_hash,
         &owner_utxo_hash,
     ])
@@ -85,7 +85,7 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     let from_helper = utxo_hash(
         utxo.asset,
         utxo.amount,
-        &program_data_hash,
+        &data_hash,
         &zone_data_hash,
         utxo.zone_program_id,
         &owner_utxo_hash,

@@ -65,7 +65,6 @@ type TransferParameters struct {
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramID            *big.Int
 	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
 

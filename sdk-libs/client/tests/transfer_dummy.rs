@@ -62,8 +62,7 @@ fn dummy_external_data() -> ExternalData {
         user_sol_account: Address::default(),
         user_spl_token: Address::default(),
         spl_token_interface: Address::default(),
-        cpi_signer: None,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
@@ -121,9 +120,8 @@ fn real_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key,
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
-        program_owner: None,
         proof: Some(proof),
     }
 }
@@ -144,9 +142,8 @@ fn dummy_input() -> TransferSpendInput {
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
-        program_data_hash: None,
+        data_hash: None,
         zone_data_hash: None,
-        program_owner: None,
         proof: None,
     }
 }
@@ -199,7 +196,6 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
             asset: [0u8; 32],
         },
         payer_pubkey_hash: [0u8; 32],
-        program_id: None,
         shape: Some(Shape::new(n_in, n_out)),
     };
     let result = prover
@@ -260,7 +256,6 @@ fn dummy_transfer_2_3_proof_verifies() {
             asset: [0u8; 32],
         },
         payer_pubkey_hash: [0u8; 32],
-        program_id: None,
         shape: Some(Shape::new(2, 3)),
     };
 

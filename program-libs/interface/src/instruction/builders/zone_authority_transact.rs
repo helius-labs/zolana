@@ -10,15 +10,14 @@ use crate::{
 /// transition (freeze, thaw, permanent-delegate transfer) over zone-owned UTXOs.
 /// The account layout matches `zone_transact` (the loader reuses
 /// `ZoneTransactAccounts`): `payer`, `tree`, the `ZoneConfig` (the zone's
-/// `zone_auth` PDA, which must have `zone_authority_transact_is_enabled` set), an
-/// optional inner `cpi_signer`, the optional public-amount accounts, then the
-/// program account last for the `emit_event` self-CPI.
+/// `zone_auth` PDA, which must have `zone_authority_transact_is_enabled` set),
+/// the optional public-amount accounts, then the program account last for the
+/// `emit_event` self-CPI.
 pub struct ZoneAuthorityTransact {
     pub payer: Pubkey,
     pub tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
-    pub cpi_signer: Option<Pubkey>,
     pub withdrawal: Option<TransactWithdrawal>,
     pub data: TransactIxData,
 }
@@ -52,9 +51,6 @@ impl ZoneAuthorityTransact {
             AccountMeta::new(self.tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
-        if let Some(cpi_signer) = self.cpi_signer {
-            accounts.push(AccountMeta::new_readonly(cpi_signer, true));
-        }
         match &self.withdrawal {
             Some(TransactWithdrawal::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
@@ -99,8 +95,7 @@ mod tests {
             inputs: Vec::new(),
             public_sol_amount: None,
             public_spl_amount: None,
-            cpi_signer: None,
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
             output_utxo_hashes: Vec::new(),
             output_ciphertexts: Vec::new(),
@@ -114,7 +109,6 @@ mod tests {
             payer: Pubkey::new_unique(),
             tree: Pubkey::new_unique(),
             zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data: empty_data(),
         };
@@ -139,7 +133,6 @@ mod tests {
             payer: Pubkey::new_unique(),
             tree: Pubkey::new_unique(),
             zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data: empty_data(),
         };

@@ -44,7 +44,7 @@ impl PreparedZoneAuthority {
                 let nullifier_pubkey = spend.nullifier_key.pubkey()?;
                 let utxo_hash = spend.utxo.hash(
                     &nullifier_pubkey,
-                    &spend.program_data_hash.unwrap_or([0u8; 32]),
+                    &spend.data_hash.unwrap_or([0u8; 32]),
                     &spend.zone_data_hash.unwrap_or([0u8; 32]),
                 )?;
                 let nullifier = spend

@@ -83,7 +83,7 @@ pub fn owner_utxo_hash(
 pub fn utxo_hash(
     asset: Address,
     amount: u64,
-    program_data_hash: &[u8; 32],
+    data_hash: &[u8; 32],
     zone_data_hash: &[u8; 32],
     zone_program_id: Option<Address>,
     owner_utxo_hash: &[u8; 32],
@@ -97,7 +97,7 @@ pub fn utxo_hash(
         &domain,
         &asset,
         &amount,
-        program_data_hash,
+        data_hash,
         &zone_hash,
         owner_utxo_hash,
     ])
@@ -112,13 +112,13 @@ impl Utxo {
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
-        program_data_hash: &[u8; 32],
+        data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
         utxo_hash(
             self.asset,
             self.amount,
-            program_data_hash,
+            data_hash,
             zone_data_hash,
             self.zone_program_id,
             &self.owner_utxo_hash(nullifier_pk)?,

@@ -12,7 +12,7 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func TestZoneCircuitRejectsProgramDataOnUserOutput(t *testing.T) {
+func TestZoneCircuitAcceptsDataHashOnOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -25,7 +25,7 @@ func TestZoneCircuitRejectsProgramDataOnUserOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new zone circuit: %v", err)
 	}
-	assert.SolvingFailed(circuit, assignment, test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
 }
 
 func TestZoneCircuitRejectsZoneDataHashWithoutZoneProgramID(t *testing.T) {

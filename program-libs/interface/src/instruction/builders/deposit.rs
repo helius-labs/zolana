@@ -1,5 +1,5 @@
 use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::{Pubkey, PubkeyError};
+use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{tag, CpiData, DepositIxData},
@@ -22,13 +22,13 @@ pub struct Deposit {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    /// Program governing the deposited UTXO (its `auth` PDA signs); `None` for a
-    /// plain user deposit.
+    /// Application data committed into the deposited UTXO's `data_hash`,
+    /// authorized by the payer; `None` for a plain user deposit.
     pub program: Option<CpiData>,
 }
 
 impl Deposit {
-    pub fn instruction(&self) -> Result<Instruction, PubkeyError> {
+    pub fn instruction(&self) -> Instruction {
         let ix_data = DepositIxData {
             view_tag: self.view_tag,
             owner: self.owner,
@@ -48,11 +48,6 @@ impl Deposit {
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
         ];
-        if let Some(program) = &self.program {
-            let program_id = Pubkey::new_from_array(program.cpi_signer.program_id);
-            let auth = pda::cpi_signer_with_bump(&program_id, program.cpi_signer.bump)?;
-            accounts.push(AccountMeta::new_readonly(auth, true));
-        }
         match self.spl {
             Some(spl) => accounts.extend([
                 AccountMeta::new(spl.user_token, false),
@@ -68,10 +63,10 @@ impl Deposit {
         }
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
-        Ok(Instruction {
+        Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts,
             data,
-        })
+        }
     }
 }

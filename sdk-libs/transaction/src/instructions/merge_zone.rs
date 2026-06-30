@@ -159,7 +159,7 @@ impl PreparedMergeZone {
             .filter(|spend| !spend.is_dummy())
             .enumerate()
             .map(|(index, spend)| {
-                if spend.program_data_hash.unwrap_or_default() != [0u8; 32]
+                if spend.data_hash.unwrap_or_default() != [0u8; 32]
                     || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
                 {
                     return Err(TransactionError::MergeInputHasData { index });

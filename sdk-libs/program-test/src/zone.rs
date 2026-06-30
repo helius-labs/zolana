@@ -171,8 +171,7 @@ impl ZolanaProgramTest {
             zone_data: data.zone_data.clone(),
             program: data.program.clone(),
         }
-        .instruction()
-        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }
@@ -203,8 +202,7 @@ impl ZolanaProgramTest {
             zone_data: data.zone_data.clone(),
             program: data.program.clone(),
         }
-        .instruction()
-        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }

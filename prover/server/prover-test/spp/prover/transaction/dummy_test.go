@@ -121,7 +121,6 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
 		PublicAmountMode:         publicAmountTransfer,
 		EncryptedUtxos:           "00",
-		ProgramID:                proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
 		StateEntries:             stateEntries,
@@ -150,7 +149,6 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 		PublicAmountMode:         publicAmountShield,
 		PublicSolAmount:          &deposit,
 		EncryptedUtxos:           "00",
-		ProgramID:                proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
 		Outputs: []ProofUtxoRequest{

@@ -15,6 +15,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateAssetCounter, CreateSplInterface, CreateZoneConfigData,
@@ -43,7 +44,6 @@ use crate::{
     },
     support::{MergeZoneRecord, Rail, SplAsset},
 };
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 
 // SOL occupies asset id 1; the first registered SPL mint gets id 2.
 const FIRST_SPL_ASSET_ID: u64 = 2;
@@ -146,7 +146,6 @@ impl ZoneLifecycleWorld {
             forester_authority: accounts.forester_vault.to_bytes().into(),
             zone_creation_authority: accounts.zone_vault.to_bytes().into(),
             zone_creation_is_permissionless: true,
-            merge_authority: accounts.merge_vault.to_bytes().into(),
         }
         .instruction();
         let create_config_sync = execute_sync_ix(

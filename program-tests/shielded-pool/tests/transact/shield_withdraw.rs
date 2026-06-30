@@ -256,7 +256,6 @@ fn shield_then_withdraw_sol() {
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
         data: transact_ix_data,
     }
@@ -475,7 +474,6 @@ fn shield_transfer_then_withdraw_sol() {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: None,
         data: transfer_ix_data,
     }
@@ -640,7 +638,6 @@ fn shield_transfer_then_withdraw_sol() {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
             recipient: public_recipient,
         })),

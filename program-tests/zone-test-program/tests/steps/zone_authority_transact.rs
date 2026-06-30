@@ -96,7 +96,6 @@ impl ZoneLifecycleWorld {
             payer: payer.pubkey(),
             tree,
             zone_program_id: self.zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data.clone(),
         }
@@ -210,9 +209,8 @@ impl ZoneLifecycleWorld {
         let spend_input = TransferSpendInput {
             utxo: input_utxo.clone(),
             nullifier_key: keypair.nullifier_key.clone(),
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
-            program_owner: None,
             proof: Some(SpendProof {
                 state,
                 nullifier: non_inclusion,
@@ -232,9 +230,8 @@ impl ZoneLifecycleWorld {
             blinding: random_blinding(),
             zone_program_id: Some(zone),
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
-            program_owner: None,
             data: Data::default(),
         };
         let output_hash = output.hash()?;
@@ -280,8 +277,7 @@ impl ZoneLifecycleWorld {
             user_sol_account: Address::default(),
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
-            cpi_signer: None,
-            program_data_hash: None,
+            data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: *tx.pubkey().as_bytes(),
             salt,
@@ -299,7 +295,6 @@ impl ZoneLifecycleWorld {
                 asset: [0u8; 32],
             },
             payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
-            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
         }
@@ -335,8 +330,7 @@ impl ZoneLifecycleWorld {
             inputs,
             public_sol_amount: external_data.public_sol_amount,
             public_spl_amount: external_data.public_spl_amount,
-            cpi_signer: external_data.cpi_signer,
-            program_data_hash: external_data.program_data_hash,
+            data_hash: external_data.data_hash,
             zone_data_hash: external_data.zone_data_hash,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
@@ -376,7 +370,6 @@ impl ZoneLifecycleWorld {
             payer: payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data,
         }
@@ -420,7 +413,6 @@ impl ZoneLifecycleWorld {
             payer: payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data,
         }

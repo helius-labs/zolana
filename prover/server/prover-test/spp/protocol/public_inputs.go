@@ -16,7 +16,6 @@ var publicInputNames = [...]string{
 	"public_sol_amount",
 	"public_spl_amount",
 	"public_spl_asset_pubkey",
-	"program_id",
 	"zone_program_id",
 	"payer_pubkey_hash",
 	"input_owner_pk_hashes",
@@ -40,7 +39,6 @@ type PublicInputs struct {
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramID            *big.Int
 	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
 	InputOwnerPkHashes   []*big.Int
@@ -85,7 +83,6 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSolAmount,
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
-		inputs.ProgramID,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
 	}

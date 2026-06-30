@@ -334,7 +334,6 @@ impl ZoneLifecycleWorld {
             payer: fee_payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            cpi_signer: None,
             withdrawal: withdrawal_meta,
             data: data.clone(),
         }
@@ -381,7 +380,6 @@ impl ZoneLifecycleWorld {
                     external_data: signed.external_data.clone(),
                     public_amounts: client_public_amounts(signed.public_amounts),
                     payer_pubkey_hash: signed.payer_pubkey_hash,
-                    program_id: None,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
@@ -406,7 +404,6 @@ impl ZoneLifecycleWorld {
                     public_amounts: client_public_amounts(signed.public_amounts),
                     payer_pubkey_hash: signed.payer_pubkey_hash,
                     p256_owner,
-                    program_id: None,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
                 };
@@ -445,7 +442,6 @@ impl ZoneLifecycleWorld {
                 sig_r: [0u8; 32],
                 sig_s: [0u8; 32],
             },
-            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
         };
@@ -513,9 +509,8 @@ impl ZoneLifecycleWorld {
             out.push(TransferSpendInput {
                 utxo: spend.utxo.clone(),
                 nullifier_key: spend.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
-                program_owner: None,
                 proof,
             });
         }
@@ -672,7 +667,6 @@ impl ZoneLifecycleWorld {
             external_data: signed.external_data.clone(),
             public_amounts: client_public_amounts(signed.public_amounts),
             payer_pubkey_hash: signed.payer_pubkey_hash,
-            program_id: None,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(signed.shape.n_inputs, signed.shape.n_outputs)),
         };
@@ -691,7 +685,6 @@ impl ZoneLifecycleWorld {
             payer: fee_payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            cpi_signer: None,
             withdrawal: None,
             data,
         }
@@ -793,8 +786,7 @@ fn assemble_ix_data(
         inputs,
         public_sol_amount: external.public_sol_amount,
         public_spl_amount: external.public_spl_amount,
-        cpi_signer: external.cpi_signer,
-        program_data_hash: external.program_data_hash,
+        data_hash: external.data_hash,
         zone_data_hash: external.zone_data_hash,
         tx_viewing_pk: external.tx_viewing_pk,
         salt: external.salt,

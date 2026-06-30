@@ -930,8 +930,8 @@ mod tests {
             blinding: [9u8; BLINDING_LEN],
             asset: SOL_MINT.to_bytes(),
             amount,
-            program_data_hash: None,
-            program_data: None,
+            data_hash: None,
+            utxo_data: None,
             zone_program_id: None,
             zone_data_hash: None,
             zone_data: None,
@@ -963,7 +963,7 @@ mod tests {
             assets: &assets,
             zone_program_id: None,
         };
-        let program_data_hash = output.program_data_hash.unwrap_or([0u8; 32]);
+        let data_hash = output.data_hash.unwrap_or([0u8; 32]);
         let zone_data_hash = output.zone_data_hash.unwrap_or([0u8; 32]);
         let utxo = Proofless::into_utxos(output.clone(), &owner_cx)
             .expect("proofless into utxos")
@@ -975,7 +975,7 @@ mod tests {
             .nullifier_key
             .pubkey()
             .expect("nullifier pubkey");
-        utxo.hash(&nullifier_pk, &program_data_hash, &zone_data_hash)
+        utxo.hash(&nullifier_pk, &data_hash, &zone_data_hash)
             .expect("proofless leaf hash")
     }
 }

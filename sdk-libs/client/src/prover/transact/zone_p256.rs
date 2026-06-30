@@ -43,8 +43,6 @@ pub struct ZoneTransferP256Prover {
     pub public_amounts: PublicAmounts,
     pub payer_pubkey_hash: [u8; 32],
     pub p256_owner: P256Owner,
-    /// The CPI program bound to the public `program_id`; `None` leaves it 0.
-    pub program_id: Option<Address>,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -87,13 +85,12 @@ impl ZoneTransferP256Prover {
         let signature = self.p256_owner.witness()?;
         let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
 
-        // Bind the zone program: program_id is 0 (no ZK program), zone_program_id is
-        // the zone's pk_field. The UTXOs themselves carry zone_program_id; the circuit
-        // binds each non-dummy UTXO's zone field to this public input.
-        let program_id = program_id_field(&self.program_id)?;
+        // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
+        // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
+        // zone field to this public input.
         let zone_program_id = program_id_field(&self.zone_program_id)?;
 
-        // Zone P256 public-input layout: the 14-element base chain (input owner
+        // Zone P256 public-input layout: the 13-element base chain (input owner
         // pk_fields committed, but P256 owners contribute the 0 sentinel so identities
         // stay private), with the real hash_field(p256_message_hash) at the
         // p256-message position. No output-owner chain and no p256_signing_pk_field.
@@ -110,7 +107,6 @@ impl ZoneTransferP256Prover {
             self.public_amounts.sol,
             self.public_amounts.spl,
             self.public_amounts.asset,
-            program_id,
             zone_program_id,
             self.payer_pubkey_hash,
             hash_chain(&assembled_inputs.input_owner_pk_hashes)?,
@@ -130,7 +126,6 @@ impl ZoneTransferP256Prover {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id: be(&program_id),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),
