@@ -11,7 +11,10 @@ use crate::{
     error::ClientError,
     prover::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
-        json::{to_json, to_json_batch_address_append, to_json_merge, to_json_p256},
+        json::{
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone, to_json_p256,
+            to_json_p256_zone, to_json_zone, to_json_zone_authority,
+        },
         proof::{proof_from_gnark_json, Proof},
     },
 };
@@ -109,6 +112,33 @@ impl ProverClient {
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
         self.send(to_json_merge(inputs))
+    }
+
+    /// Prove a zone-authority transfer (anonymous, no signature), returning the
+    /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
+    /// call [`Proof::compress`] for the wire format.
+    pub fn prove_zone_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_zone_authority(inputs))
+    }
+
+    /// Prove a policy-zone merge (`merge-zone`), returning the uncompressed negated
+    /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
+    /// wire format.
+    pub fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_zone(inputs))
+    }
+
+    /// Prove an eddsa anonymous policy-zone transfer (`transfer-zone`).
+    pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_zone(inputs))
+    }
+
+    /// Prove a P256 anonymous policy-zone transfer (`transfer-p256-zone`).
+    pub fn prove_transfer_p256_zone(
+        &self,
+        inputs: &TransferP256Inputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_p256_zone(inputs))
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the

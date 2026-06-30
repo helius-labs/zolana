@@ -12,20 +12,17 @@ import (
 // circuit. Returns a TransferProofSystem for proof generation and verification.
 func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs uint32) (*common.TransferProofSystem, error) {
 	switch circuit {
-	case common.TransferP256CircuitType:
-		return SetupTransfer(nInputs, nOutputs, false)
 	case common.TransferP256ConfidentialCircuitType:
 		return SetupTransfer(nInputs, nOutputs, true)
+	case common.TransferP256ZoneCircuitType:
+		return SetupTransfer(nInputs, nOutputs, false)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
 	}
 }
 
 func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.TransferProofSystem, error) {
-	circuitType := common.TransferP256CircuitType
-	if confidential {
-		circuitType = common.TransferP256ConfidentialCircuitType
-	}
+	circuitType := p256CircuitType(confidential)
 	fmt.Println("Setting up", circuitType, ": nInputs", nInputs, "nOutputs", nOutputs)
 	ccs, err := R1CSTransfer(nInputs, nOutputs, confidential)
 	if err != nil {
@@ -49,7 +46,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32, confidential bool) (*common.
 
 func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath string) (*common.TransferProofSystem, error) {
 	fmt.Println("Compiling circuit")
-	ccs, err := R1CSTransfer(nInputs, nOutputs, false)
+	ccs, err := R1CSTransfer(nInputs, nOutputs, true)
 	if err != nil {
 		fmt.Println("Error compiling circuit")
 		return nil, err
@@ -67,7 +64,7 @@ func ImportTransferSetup(nInputs uint32, nOutputs uint32, pkPath string, vkPath 
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferP256CircuitType,
+		CircuitType:      common.TransferP256ConfidentialCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,
@@ -94,7 +91,7 @@ func ImportTransferSetupWithR1CS(nInputs uint32, nOutputs uint32, pkPath string,
 	}
 
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferP256CircuitType,
+		CircuitType:      common.TransferP256ConfidentialCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,

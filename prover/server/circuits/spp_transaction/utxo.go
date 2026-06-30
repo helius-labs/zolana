@@ -18,19 +18,15 @@ type UtxoCircuitFields struct {
 	ZoneProgramID frontend.Variable
 }
 
-// DefineGadget hashes the UTXO's fields into its commitment: the owner and
-// blinding fold into an inner hash, which joins the remaining fields. This lets
-// UtxoCircuitFields be used directly as a gadget via abstractor.Call. Used for
-// both input (step 4.1) and output (step 5.1) utxo hashes.
 func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	ownerUtxoHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.Owner, u.Blinding})
+	zoneHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.ZoneDataHash, u.ZoneProgramID})
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
 		u.Domain,
 		u.Asset,
 		u.Amount,
 		u.DataHash,
-		u.ZoneDataHash,
-		u.ZoneProgramID,
+		zoneHash,
 		ownerUtxoHash,
 	})
 }

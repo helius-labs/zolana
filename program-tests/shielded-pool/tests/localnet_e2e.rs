@@ -32,7 +32,10 @@ use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
     single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
 };
-use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::{no_address_hashes, private_tx_hash},
+    Data, Utxo, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -143,9 +146,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         owner: shield_data.owner,
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
-        program_data_hash: shield_data.program_data_hash,
-        program_data: shield_data.program_data,
-        cpi_signer: shield_data.cpi_signer,
+        utxo_data: shield_data.utxo_data,
     }
     .instruction();
     let shield_tx = send_indexed(
@@ -249,6 +250,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_private_tx = private_tx_hash(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
+        &no_address_hashes(2),
         &transfer_external_hash,
     )?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
@@ -291,7 +293,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: transfer_ix_data,
     }
@@ -395,6 +396,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let withdraw_private_tx = private_tx_hash(
         &[recipient_hash, zero],
         &[zero, zero, zero],
+        &no_address_hashes(2),
         &withdraw_external_hash,
     )?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
@@ -438,7 +440,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
             recipient: public_recipient,
         })),

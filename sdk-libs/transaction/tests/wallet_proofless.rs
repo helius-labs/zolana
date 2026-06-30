@@ -24,10 +24,10 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
         blinding,
         asset: SOL_MINT.to_bytes(),
         amount,
-        program_data_hash: None,
-        program_data: None,
+        data_hash: None,
+        utxo_data: None,
         zone_program_id: None,
-        policy_data_hash: None,
+        zone_data_hash: None,
         zone_data: None,
     };
 

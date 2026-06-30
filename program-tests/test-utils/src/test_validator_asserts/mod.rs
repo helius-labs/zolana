@@ -1,13 +1,16 @@
 pub mod create_spl_interface;
 pub mod deposit;
+pub mod merge_zone;
 pub mod protocol_config;
 pub mod spl_deposit;
 pub mod zone_deposit;
+pub mod zone_transact;
 
 use std::time::{Duration, Instant};
 
 pub use create_spl_interface::assert_create_spl_interface;
 pub use deposit::{assert_deposit, DepositAssertArgs};
+pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
 pub use protocol_config::assert_protocol_config;
 use solana_account::Account;
 use solana_address::Address;
@@ -20,6 +23,7 @@ use zolana_client::{
 use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
 use zolana_program_test::DepositOutput;
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
+pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -47,10 +51,10 @@ pub fn expected_deposit_view(
             blinding: data.blinding,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
+            data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
+            utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
             zone_program_id: None,
-            policy_data_hash: None,
+            zone_data_hash: None,
             zone_data: None,
         },
     }
@@ -187,6 +191,20 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
         let response = indexer.get_non_inclusion_proofs(tree, vec![leaf])?;
         Ok(response.proofs.into_iter().next())
     })
+}
+
+/// Wait until `leaf` is present in the nullifier tree: photon stops serving a
+/// non-inclusion proof for it (the proof is consumed when the leaf is inserted).
+/// Used to assert spent inputs are nullified after a transact/merge.
+#[track_caller]
+pub fn wait_for_nullifier_present<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32]) {
+    wait_for("nullifier present in tree", || {
+        match indexer.get_non_inclusion_proofs(tree, vec![leaf]) {
+            Ok(response) if response.proofs.is_empty() => Ok(Some(())),
+            Ok(_) => Ok(None),
+            Err(_) => Ok(Some(())),
+        }
+    });
 }
 
 #[track_caller]

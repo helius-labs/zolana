@@ -1,5 +1,14 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+
+/// Application data committed into the deposited UTXO's `data_hash`. The deposit
+/// is authorized by the payer (non-zone) or the `ZoneConfig` account (zone); the
+/// UTXO is not program-owned.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct UtxoData {
+    pub data_hash: [u8; 32],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub data: Vec<u8>,
+}
 
 /// Public deposit without a proof (spec: `deposit`, tag 1).
 ///
@@ -20,14 +29,10 @@ pub struct DepositIxData {
     /// Deposited amount. The asset (native SOL vs SPL mint) is inferred from the
     /// settlement accounts the caller passes; deposits are deposit-only.
     pub public_amount: Option<u64>,
-    /// Program-defined data hash; requires `cpi_signer`.
-    pub program_data_hash: Option<[u8; 32]>,
-    /// Preimage of `program_data_hash`.
-    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
-    pub program_data: Option<Vec<u8>>,
-    /// Invoking program PDA (general program owner, seed `auth`); see
-    /// `transact`. Policy-zone deposits use [`ZoneDepositIxData`].
-    pub cpi_signer: Option<CpiSignerData>,
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// payer; `None` for a plain user deposit. Policy-zone deposits use
+    /// [`ZoneDepositIxData`].
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl DepositIxData {
@@ -53,18 +58,16 @@ pub struct ZoneDepositIxData {
     /// As in [`DepositIxData`]: the asset is inferred from the
     /// settlement accounts the zone forwards.
     pub public_amount: Option<u64>,
-    /// Calling zone program; `zone_auth` is re-derived from it (seed `zone_auth`).
-    pub cpi_signer: CpiSignerData,
-    /// Zone-defined policy data hash.
-    pub policy_data_hash: Option<[u8; 32]>,
-    /// Preimage of `policy_data_hash`.
-    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
-    pub zone_data: Option<Vec<u8>>,
-    /// Program-defined data hash.
-    pub program_data_hash: Option<[u8; 32]>,
-    /// Preimage of `program_data_hash`.
-    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
-    pub program_data: Option<Vec<u8>>,
+    /// Zone-defined data committed into `zone_hash`. The zone's `program_id` is
+    /// NOT in instruction data: it is read from the `ZoneConfig` account (the
+    /// signing `zone_auth` PDA) the zone forwards.
+    pub zone_data_hash: [u8; 32],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub zone_data: Vec<u8>,
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `ZoneConfig` account; `None` if the zone deposit carries no application
+    /// data.
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl ZoneDepositIxData {
@@ -75,13 +78,4 @@ impl ZoneDepositIxData {
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
     }
-}
-/// Invoking-program signer for the proofless deposit paths (spec:
-/// `deposit` / `zone_deposit` `cpi_signer`).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
-)]
-pub struct CpiSignerData {
-    pub program_id: [u8; 32],
-    pub bump: u8,
 }

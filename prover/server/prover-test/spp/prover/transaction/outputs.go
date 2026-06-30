@@ -10,10 +10,10 @@ import (
 )
 
 type outputWitnesses struct {
-	outputs          []txcircuit.Output
-	hashes           []*big.Int
-	privateTxHashes  []*big.Int
-	responses        []ProofUtxoResponse
+	outputs         []txcircuit.Output
+	hashes          []*big.Int
+	privateTxHashes []*big.Int
+	responses       []ProofUtxoResponse
 }
 
 type parsedUtxo struct {

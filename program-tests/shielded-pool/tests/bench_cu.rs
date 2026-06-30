@@ -33,7 +33,10 @@ use zolana_keypair::{
 };
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::private_tx_hash, Data, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::{no_address_hashes, private_tx_hash},
+    Data, Utxo, Wallet, SOL_MINT,
+};
 use zolana_tree::TreeAccount;
 
 mod common;
@@ -267,9 +270,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        utxo_data: data.utxo_data.clone(),
     }
     .instruction();
 
@@ -328,9 +329,7 @@ fn bench_deposit_spl(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        utxo_data: data.utxo_data.clone(),
     }
     .instruction();
 
@@ -386,8 +385,13 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &zero).expect("external data hash");
-    let private_tx = private_tx_hash(&[zero, zero], &[zero, zero, zero], &external_data_hash)
-        .expect("private tx hash");
+    let private_tx = private_tx_hash(
+        &[zero, zero],
+        &[zero, zero, zero],
+        &no_address_hashes(2),
+        &external_data_hash,
+    )
+    .expect("private tx hash");
     let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -424,7 +428,6 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: None,
         data: transact_ix_data,
     }
@@ -533,8 +536,13 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
-    let private_tx = private_tx_hash(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-        .expect("private tx hash");
+    let private_tx = private_tx_hash(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &no_address_hashes(2),
+        &external_data_hash,
+    )
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -571,7 +579,6 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
         data: transact_ix_data,
     }
@@ -704,8 +711,13 @@ fn bench_withdrawal_spl(
     let external_data_hash =
         external_data_hash_spl(&transact_ix_data, &user_token.to_bytes(), &vault.to_bytes())
             .expect("external data hash");
-    let private_tx = private_tx_hash(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-        .expect("private tx hash");
+    let private_tx = private_tx_hash(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &no_address_hashes(2),
+        &external_data_hash,
+    )
+    .expect("private tx hash");
     let public_spl_field = public_sol_field(transact_ix_data.public_spl_amount);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
@@ -747,7 +759,6 @@ fn bench_withdrawal_spl(
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)),
             vault,

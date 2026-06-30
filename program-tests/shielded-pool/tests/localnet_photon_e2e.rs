@@ -55,7 +55,7 @@ use zolana_program_test::{
 };
 use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
 use zolana_transaction::{
-    instructions::transact::private_tx_hash,
+    instructions::transact::{no_address_hashes, private_tx_hash},
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
     AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
@@ -226,9 +226,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         owner: shield_data.owner,
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
-        program_data_hash: shield_data.program_data_hash,
-        program_data: shield_data.program_data,
-        cpi_signer: shield_data.cpi_signer,
+        utxo_data: shield_data.utxo_data,
     }
     .instruction();
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
@@ -354,6 +352,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_private_tx = private_tx_hash(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
+        &no_address_hashes(2),
         &transfer_external_hash,
     )?;
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
@@ -396,7 +395,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: transfer_ix_data,
     }
@@ -518,6 +516,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_private_tx = private_tx_hash(
         &[recipient_hash, zero],
         &[zero, zero, zero],
+        &no_address_hashes(2),
         &withdraw_external_hash,
     )?;
     let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
@@ -561,7 +560,6 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
             recipient: public_recipient,
         })),
@@ -754,9 +752,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program_data_hash: shield_data.program_data_hash,
-            program_data: shield_data.program_data,
-            cpi_signer: shield_data.cpi_signer,
+            utxo_data: shield_data.utxo_data,
         }
         .instruction();
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
@@ -867,7 +863,6 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         let tx_ix = Transact {
             payer: payer.pubkey(),
             tree: tree_pubkey,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data,
         }
@@ -1561,9 +1556,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program_data_hash: shield_data.program_data_hash,
-            program_data: shield_data.program_data,
-            cpi_signer: shield_data.cpi_signer,
+            utxo_data: shield_data.utxo_data,
         }
         .instruction();
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
@@ -1611,7 +1604,6 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree: tree_pubkey,
-        cpi_signer: None,
         withdrawal: None,
         data: ix_data,
     }

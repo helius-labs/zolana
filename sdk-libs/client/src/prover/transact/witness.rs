@@ -29,6 +29,11 @@ pub enum CircuitType {
     Eddsa(TransferProver),
 }
 
+/// A built circuit ready to hand to the prover client.
+pub struct BuiltCircuit {
+    pub circuit: CircuitType,
+}
+
 /// Sentinel `eddsa_signer_index` marking a P256-owned input; the program uses it
 /// to select the P256 verifying key and skip the eddsa signer check. Mirrors
 /// `P256_OWNED_SIGNER` in the shielded-pool program.
@@ -106,7 +111,7 @@ fn p256_owner(tx: &SignedTransaction) -> Result<P256Owner, ClientError> {
 pub fn into_prover(
     tx: SignedTransaction,
     input_merkle_proofs: &[SpendProof],
-) -> Result<CircuitType, ClientError> {
+) -> Result<BuiltCircuit, ClientError> {
     let requires_p256 = inputs_require_p256(&tx.inputs)?;
     let p256_owner = if requires_p256 {
         Some(p256_owner(&tx)?)
@@ -128,7 +133,7 @@ pub fn into_prover(
     for spend in inputs {
         let utxo = spend.utxo;
         let nullifier_key = spend.nullifier_key;
-        let program_data_hash = spend.program_data_hash;
+        let data_hash = spend.data_hash;
         let zone_data_hash = spend.zone_data_hash;
         // Real inputs have their own proof; a dummy (zero owner) is proofless and
         // mirrors the first real input's roots downstream.
@@ -145,7 +150,7 @@ pub fn into_prover(
         spends.push(TransferSpendInput {
             utxo,
             nullifier_key,
-            program_data_hash,
+            data_hash,
             zone_data_hash,
             proof,
         });
@@ -154,9 +159,9 @@ pub fn into_prover(
     let shape = client_shape(shape);
     let public_amounts = client_public_amounts(public_amounts);
 
-    if requires_p256 {
+    let circuit = if requires_p256 {
         let p256_owner = p256_owner.ok_or(ClientError::MissingP256Signature)?;
-        Ok(CircuitType::P256(TransferP256Prover {
+        CircuitType::P256(TransferP256Prover {
             inputs: spends,
             outputs,
             external_data,
@@ -164,17 +169,18 @@ pub fn into_prover(
             payer_pubkey_hash,
             p256_owner,
             shape: Some(shape),
-        }))
+        })
     } else {
-        Ok(CircuitType::Eddsa(TransferProver {
+        CircuitType::Eddsa(TransferProver {
             inputs: spends,
             outputs,
             external_data,
             public_amounts,
             payer_pubkey_hash,
             shape: Some(shape),
-        }))
-    }
+        })
+    };
+    Ok(BuiltCircuit { circuit })
 }
 
 /// Assemble the prover witness and the `Transact` instruction data in a single
@@ -193,7 +199,7 @@ pub fn assemble(
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
     // first real input's signer below. A zero owner reads as P256, so it must
     // never reach `signature_type`.
-    let mut real_signer_indices = Vec::new();
+    let mut real_signer_indices: Vec<u8> = Vec::new();
     for spend in tx.inputs.iter().filter(|spend| !spend.is_dummy()) {
         let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             P256_OWNED_SIGNER
@@ -208,13 +214,16 @@ pub fn assemble(
         relayer_fee,
         public_sol_amount,
         public_spl_amount,
-        cpi_signer,
+        data_hash,
+        zone_data_hash,
         tx_viewing_pk,
         salt,
         output_utxo_hashes,
         output_ciphertexts,
         ..
     } = tx.external_data.clone();
+
+    let BuiltCircuit { circuit } = into_prover(tx, input_proofs)?;
 
     let (
         prover_inputs,
@@ -223,7 +232,7 @@ pub fn assemble(
         private_tx,
         root_indices,
         p256_signing_pk_field,
-    ) = match into_prover(tx, input_proofs)? {
+    ) = match circuit {
         CircuitType::P256(prover) => {
             let result = prover.build()?;
             (
@@ -296,7 +305,8 @@ pub fn assemble(
         inputs,
         public_sol_amount,
         public_spl_amount,
-        cpi_signer,
+        data_hash,
+        zone_data_hash,
         tx_viewing_pk,
         salt,
         output_utxo_hashes,

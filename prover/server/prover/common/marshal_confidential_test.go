@@ -42,8 +42,8 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		wantConfidential bool
 		want             CircuitType
 	}{
-		{"transfer_2_3.key", false, false, TransferCircuitType},
-		{"transfer_p256_2_3.key", true, false, TransferP256CircuitType},
+		{"transfer_zone_2_3.key", false, false, TransferZoneCircuitType},
+		{"transfer_p256_zone_2_3.key", true, false, TransferP256ZoneCircuitType},
 		{"transfer_confidential_2_3.key", false, true, TransferConfidentialCircuitType},
 		{"transfer_p256_confidential_2_3.key", true, true, TransferP256ConfidentialCircuitType},
 	}

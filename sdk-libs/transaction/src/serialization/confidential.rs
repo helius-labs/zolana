@@ -18,6 +18,7 @@ pub struct TransferRecipientPlaintext {
     pub asset_id: u64,
     pub amount: u64,
     pub blinding: [u8; BLINDING_LEN],
+    pub zone_program_id: Option<Address>,
     pub data: Data,
 }
 
@@ -37,17 +38,16 @@ impl TransferRecipientPlaintext {
         self,
         owner: PublicKey,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
     ) -> Result<Utxo, TransactionError> {
-        if !self.data.is_empty() {
-            return Err(TransactionError::UnsupportedOutputData);
+        if self.data.zone_data().is_some() && self.zone_program_id.is_none() {
+            return Err(TransactionError::MissingZoneProgramId);
         }
         Ok(Utxo {
             owner,
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
+            zone_program_id: self.zone_program_id,
             data: self.data,
         })
     }
@@ -146,11 +146,7 @@ impl UtxoSerialization for ConfidentialRecipient {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        Ok(vec![plaintext.into_utxo(
-            cx.owner,
-            cx.assets,
-            cx.zone_program_id,
-        )?])
+        Ok(vec![plaintext.into_utxo(cx.owner, cx.assets)?])
     }
 
     fn from_utxos(
@@ -163,6 +159,7 @@ impl UtxoSerialization for ConfidentialRecipient {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
             blinding: first.blinding,
+            zone_program_id: first.zone_program_id,
             data: first.data.clone(),
         })
     }

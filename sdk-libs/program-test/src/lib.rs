@@ -40,8 +40,6 @@ pub mod instructions;
 pub use instructions::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZONE_TEST_PROGRAM_ID,
 };
-mod logging;
-pub use logging::ZolanaInstructionDecoder;
 mod paths;
 use paths::default_program_path;
 mod proofless;
@@ -68,6 +66,8 @@ pub enum ProgramTestError {
     Event(String),
     #[error("rpc: {0}")]
     Rpc(String),
+    #[error("pubkey: {0}")]
+    Pubkey(#[from] solana_pubkey::PubkeyError),
 }
 
 impl From<ClientError> for ProgramTestError {

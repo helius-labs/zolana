@@ -1,47 +1,19 @@
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
+    sysvars::clock::Clock,
     AccountView, Address, ProgramResult,
 };
 use zolana_interface::error::ShieldedPoolError;
 
-/// CPI-signer PDA seed for a general invoking-program owner (a `transact` or
-/// `deposit` carrying a `cpi_signer`). Distinct from
-/// `ZONE_AUTH_PDA_SEED`: a general program owner and a policy zone are different
-/// capabilities.
-pub(crate) const CPI_SIGNER_SEED: &[u8] = b"auth";
-
-/// Verify that `account_key` is the canonical CPI-signer PDA for the declared
-/// invoking program: `create_program_address([seed, bump], program_id)`. The
-/// caller supplies `err` so each instruction reports its own error variant.
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn verify_cpi_signer(
-    account_key: &Address,
-    program_id: &[u8; 32],
-    bump: u8,
-    seed: &[u8],
-    err: ShieldedPoolError,
-) -> Result<(), ProgramError> {
-    use pinocchio::address::address_eq;
-
-    let program_id = Address::from(*program_id);
-    let bump = [bump];
-    let derived = Address::create_program_address(&[seed, &bump], &program_id).map_err(|_| err)?;
-    if !address_eq(account_key, &derived) {
-        return Err(err.into());
+/// Reject a transaction whose `expiry_unix_ts` has passed (or a negative clock).
+/// Shared by every instruction that carries an `expiry_unix_ts`.
+#[inline(always)]
+pub fn check_not_expired(expiry_unix_ts: u64, clock: &Clock) -> ProgramResult {
+    if clock.unix_timestamp < 0 || (clock.unix_timestamp as u64) > expiry_unix_ts {
+        return Err(ShieldedPoolError::ExpiredTransaction.into());
     }
     Ok(())
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn verify_cpi_signer(
-    _account_key: &Address,
-    _program_id: &[u8; 32],
-    _bump: u8,
-    _seed: &[u8],
-    err: ShieldedPoolError,
-) -> Result<(), ProgramError> {
-    Err(err.into())
 }
 
 /// Create a program-derived account. Handles both the hot path (the account has

@@ -1,8 +1,8 @@
 use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::{Pubkey, PubkeyError};
+use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, CpiSignerData, DepositSplAccounts, ZoneDepositIxData},
+    instruction::{tag, DepositSplAccounts, UtxoData, ZoneDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -14,44 +14,39 @@ pub struct ZoneDeposit {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    pub cpi_signer: CpiSignerData,
-    pub policy_data_hash: Option<[u8; 32]>,
-    pub zone_data: Option<Vec<u8>>,
-    pub program_data_hash: Option<[u8; 32]>,
-    pub program_data: Option<Vec<u8>>,
+    /// Calling zone program's id; its (canonical) `zone_auth` PDA is the signing
+    /// `ZoneConfig` account.
+    pub zone_program_id: Pubkey,
+    pub zone_data_hash: [u8; 32],
+    pub zone_data: Vec<u8>,
+    /// Application data committed into the UTXO's `data_hash`, authorized by the
+    /// `ZoneConfig` account; `None` if the zone deposit carries no application
+    /// data.
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl ZoneDeposit {
-    pub fn instruction(&self) -> Result<Instruction, PubkeyError> {
-        let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
-        let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
-
-        Ok(self.build_instruction(zone_program, zone_auth, false))
+    pub fn instruction(&self) -> Instruction {
+        self.build_instruction(self.zone_program_id, false)
     }
 
-    pub fn cpi_instruction(&self) -> Result<Instruction, PubkeyError> {
-        let zone_program = Pubkey::new_from_array(self.cpi_signer.program_id);
-        let zone_auth = pda::zone_auth_with_bump(&zone_program, self.cpi_signer.bump)?;
-
-        Ok(self.build_instruction(PROGRAM_ID_PUBKEY, zone_auth, true))
+    pub fn cpi_instruction(&self) -> Instruction {
+        self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(
-        &self,
-        program_id: Pubkey,
-        zone_auth: Pubkey,
-        zone_auth_signer: bool,
-    ) -> Instruction {
+    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+        // The `ZoneConfig` account is the zone's canonical `zone_auth` PDA: it
+        // signs and its stored `program_id` becomes the UTXO's `zone_program_id`.
+        let zone_config = pda::zone_auth(&self.zone_program_id).0;
+
         let ix_data = ZoneDepositIxData {
             view_tag: self.view_tag,
             owner: self.owner,
             blinding: self.blinding,
             public_amount: self.public_amount,
-            cpi_signer: self.cpi_signer,
-            policy_data_hash: self.policy_data_hash,
+            zone_data_hash: self.zone_data_hash,
             zone_data: self.zone_data.clone(),
-            program_data_hash: self.program_data_hash,
-            program_data: self.program_data.clone(),
+            utxo_data: self.utxo_data.clone(),
         };
 
         let mut data = vec![tag::ZONE_DEPOSIT];
@@ -64,7 +59,7 @@ impl ZoneDeposit {
         let mut account_metas = vec![
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
-            AccountMeta::new_readonly(zone_auth, zone_auth_signer),
+            AccountMeta::new_readonly(zone_config, auth_signer),
         ];
         match self.spl {
             Some(spl) => account_metas.extend([

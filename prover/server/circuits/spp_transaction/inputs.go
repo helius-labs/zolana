@@ -20,29 +20,54 @@ type spendEnv struct {
 	// P256 key's pk_field) instead of the 0 sentinel, so P256 input owners are public.
 	confidential       bool
 	p256SigningPkField frontend.Variable
+	zone               bool
+	zoneAuthority      bool
+	zoneProgramID      frontend.Variable
 }
 
-// constrainInput verifies one spent input: domain, state-tree inclusion, owner
-// binding, nullifier derivation, and nullifier-tree non-inclusion. Every check
-// is gated on the slot being real; a dummy slot skips all of them. It returns
-// the input's UTXO hash (0 for a dummy) for the transaction-hash chain.
-func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) frontend.Variable {
+func constrainProgramZone(api frontend.API, notDummy frontend.Variable, u UtxoCircuitFields, zone, strictZone bool, zoneProgramID frontend.Variable) {
+	if zone {
+		if strictZone {
+			assertEqualWhen(api, notDummy, u.ZoneProgramID, zoneProgramID)
+		} else {
+			bindIfSet(api, notDummy, u.ZoneProgramID, zoneProgramID)
+		}
+		requireIdWhenDataSet(api, notDummy, u.ZoneDataHash, u.ZoneProgramID)
+	} else {
+		assertZeroWhen(api, notDummy, u.ZoneDataHash)
+		assertZeroWhen(api, notDummy, u.ZoneProgramID)
+	}
+}
+
+func bindIfSet(api frontend.API, notDummy, field, public frontend.Variable) {
+	isSet := api.Sub(1, api.IsZero(field))
+	assertEqualWhen(api, api.Mul(notDummy, isSet), field, public)
+}
+
+func requireIdWhenDataSet(api frontend.API, notDummy, dataHash, id frontend.Variable) {
+	dataIsSet := api.Sub(1, api.IsZero(dataHash))
+	assertZeroWhen(api, api.Mul(notDummy, dataIsSet), api.IsZero(id))
+}
+
+func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, env spendEnv) (frontend.Variable, frontend.Variable) {
 	api.AssertIsBoolean(in.IsDummy)
 	notDummy := api.Sub(1, in.IsDummy)
 
-	// A dummy slot must be inert: zero amount. Its public transcript columns
-	// (nullifier, roots, owner entry) are deliberately unpinned so a dummy can
-	// mimic a real slot and hide the transaction's real arity; the on-chain
-	// reconstruction decides what values it accepts there.
+	dataIsSet := api.Sub(1, api.IsZero(in.Utxo.DataHash))
+	isAddress := api.Mul(in.IsDummy, dataIsSet)
+	isPadding := api.Sub(in.IsDummy, isAddress)
+	spendOrAddress := api.Sub(1, isPadding)
+
 	assertZeroWhen(api, in.IsDummy, in.Utxo.Amount)
-	assertEqualWhen(api, notDummy, in.Utxo.Domain, UtxoDomain)
-	// Default transact handles only bare UTXOs: program/policy data and zone
-	// program id must be zero. Program-owned UTXOs (zone_program_id != 0) are
-	// spent via zone_transact with the zone PDA as signer (spec: Program
-	// ownership); the default path must not spend them without that authorization.
-	assertZeroWhen(api, notDummy, in.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneDataHash)
-	assertZeroWhen(api, notDummy, in.Utxo.ZoneProgramID)
+	assertZeroWhen(api, isPadding, in.Utxo.Owner)
+
+	assertZeroWhen(api, isAddress, in.Utxo.Blinding)
+	assertZeroWhen(api, isAddress, in.Utxo.Asset)
+	assertZeroWhen(api, isAddress, in.Utxo.ZoneDataHash)
+	assertZeroWhen(api, isAddress, in.Utxo.ZoneProgramID)
+
+	assertEqualWhen(api, spendOrAddress, in.Utxo.Domain, UtxoDomain)
+	constrainProgramZone(api, notDummy, in.Utxo, env.zone, env.zoneAuthority, env.zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 
@@ -70,30 +95,21 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 		ownerKeyHash = api.Select(isP256, env.p256PkField, in.OwnerPkHash)
 	}
 	if !env.requiresP256 {
-		// Solana-only variant: the P256 gadget (incl. the signature check) is
-		// absent, so every real input MUST be Solana-owned. Otherwise the owner key
-		// is the P256 path and p256SigValid is forced 1, which would let a UTXO
-		// crafted for that owner be spent here with no signature.
-		assertZeroWhen(api, notDummy, isP256)
+		assertZeroWhen(api, spendOrAddress, isP256)
 	}
 	ownerHash := abstractor.Call(api, OwnerHashGadget{
 		OwnerKeyHash: ownerKeyHash,
 		NullifierPk:  nullifierPk,
 	})
-	assertEqualWhen(api, notDummy, ownerHash, in.Utxo.Owner)
-	// A real P256-owned input requires the valid shared signature; Solana
-	// ownership is verified by SPP out of circuit.
-	assertZeroWhen(api, api.Mul(notDummy, isP256), api.Sub(1, env.p256SigValid))
+	assertEqualWhen(api, spendOrAddress, ownerHash, in.Utxo.Owner)
+	assertZeroWhen(api, api.Mul(spendOrAddress, isP256), api.Sub(1, env.p256SigValid))
 
-	// Nullifier: Poseidon over the UTXO hash, blinding, and the input's own
-	// secret — a canonical field element, inserted into the nullifier tree
-	// untruncated.
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	assertEqualWhen(api, notDummy, nullifier, in.Nullifier)
+	assertEqualWhen(api, spendOrAddress, nullifier, in.Nullifier)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).
@@ -108,18 +124,15 @@ func constrainInput(api frontend.API, in Input, nullifierPk frontend.Variable, e
 	assertEqualWhen(api, notDummy, nfRoot, in.NullifierTreeRoot)
 	assertStrictlyOrdered(api, in.IsDummy, in.NullifierLowValue, in.Nullifier, in.NullifierNextValue)
 
-	return api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+	inputHash := api.Select(in.IsDummy, frontend.Variable(0), utxoHash)
+	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
+	return inputHash, addressHash
 }
 
-// assertDistinctNullifiers rejects spending the same input twice in one
-// transaction: every pair of real inputs must carry distinct nullifiers. Dummy
-// inputs are excluded from the check.
 func (c *Circuit) assertDistinctNullifiers(api frontend.API) {
 	for i := range c.Inputs {
 		for j := i + 1; j < len(c.Inputs); j++ {
-			bothReal := api.Mul(api.Sub(1, c.Inputs[i].IsDummy), api.Sub(1, c.Inputs[j].IsDummy))
-			sameNullifier := api.IsZero(api.Sub(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier))
-			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
+			api.AssertIsDifferent(c.Inputs[i].Nullifier, c.Inputs[j].Nullifier)
 		}
 	}
 }

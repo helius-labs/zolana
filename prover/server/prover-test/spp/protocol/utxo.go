@@ -58,13 +58,16 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
+	zoneHash, err := poseidon.Hash([]*big.Int{u.ZoneDataHash, u.ZoneProgramID})
+	if err != nil {
+		return nil, fmt.Errorf("spp: zone hash: %w", err)
+	}
 	h, err := poseidon.Hash([]*big.Int{
 		u.Domain,
 		u.Asset,
 		u.Amount,
 		u.DataHash,
-		u.ZoneDataHash,
-		u.ZoneProgramID,
+		zoneHash,
 		ownerUtxoHash,
 	})
 	if err != nil {

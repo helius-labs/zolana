@@ -156,6 +156,10 @@ pub struct Transaction {
     owner: ShieldedAddress,
     inputs: Vec<SpendUtxo>,
     recipients: Vec<Recipient>,
+    /// Fully specified recipient outputs that bind zone/program data. Unlike
+    /// [`Recipient`] (which carries only address/asset/amount), these are minted
+    /// verbatim, so the caller controls `data` and the zone/program ids.
+    custom_outputs: Vec<OutputUtxo>,
     withdrawal: Option<Withdrawal>,
     payer_pubkey_hash: [u8; 32],
     blinding_seed: [u8; BLINDING_LEN],
@@ -169,6 +173,7 @@ impl Transaction {
             owner,
             inputs,
             recipients: Vec::new(),
+            custom_outputs: Vec::new(),
             withdrawal: None,
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
@@ -177,6 +182,17 @@ impl Transaction {
             // so callers that want a relayer deadline set it explicitly.
             expiry_unix_ts: u64::MAX,
         }
+    }
+
+    /// Push a fully specified custom recipient output. It counts toward the proof
+    /// shape like a [`Self::send`] recipient and is encoded into its own
+    /// ciphertext slot. The output must name its recipient via `owner_address`.
+    pub fn add_output(&mut self, output: OutputUtxo) -> Result<&mut Self, TransactionError> {
+        if output.owner_address.is_none() {
+            return Err(TransactionError::MissingOutput);
+        }
+        self.custom_outputs.push(output);
+        Ok(self)
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
@@ -345,9 +361,30 @@ impl Transaction {
                     asset_id,
                     amount: recipient.amount,
                     blinding,
+                    zone_program_id: None,
                     data: Data::default(),
                 },
             });
+        }
+
+        for output in &self.custom_outputs {
+            let address = output
+                .owner_address
+                .ok_or(TransactionError::MissingOutput)?;
+            let asset_id = self.asset_id(assets, &output.asset)?;
+            recipient_viewing_pks.push(address.viewing_pubkey);
+            recipients.push(PreparedRecipient {
+                view_tag: address.signing_pubkey.confidential_view_tag()?,
+                recipient_pubkey: address.viewing_pubkey,
+                plaintext: TransferRecipientPlaintext {
+                    asset_id,
+                    amount: output.amount,
+                    blinding: output.blinding,
+                    zone_program_id: output.zone_program_id,
+                    data: output.data.clone(),
+                },
+            });
+            outputs.push(output.clone());
         }
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
@@ -420,6 +457,7 @@ impl Transaction {
             .iter()
             .map(|spend| spend.utxo.asset)
             .chain(self.recipients.iter().map(|recipient| recipient.asset))
+            .chain(self.custom_outputs.iter().map(|output| output.asset))
             .chain(self.withdrawal.iter().map(|withdrawal| withdrawal.asset));
         for asset in assets {
             if asset != SOL_MINT {
@@ -458,8 +496,21 @@ impl Transaction {
             .sum()
     }
 
+    fn custom_output_sum(&self, asset: &Address) -> i128 {
+        self.custom_outputs
+            .iter()
+            .filter(|output| &output.asset == asset)
+            .map(|output| i128::from(output.amount))
+            .sum()
+    }
+
     fn change(&self, asset: &Address, public: i128) -> Result<u64, TransactionError> {
-        let leftover = self.input_sum(asset) + public - self.recipient_sum(asset);
+        let leftover = self
+            .input_sum(asset)
+            .checked_add(public)
+            .and_then(|v| v.checked_sub(self.recipient_sum(asset)))
+            .and_then(|v| v.checked_sub(self.custom_output_sum(asset)))
+            .ok_or(TransactionError::SelectedBalanceOverflow)?;
         if leftover < 0 {
             return Err(TransactionError::InsufficientBalance {
                 requested: (-leftover) as u64,
@@ -474,7 +525,7 @@ impl Transaction {
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let utxo_hash = spend.utxo.hash(
             &nullifier_pubkey,
-            &spend.program_data_hash.unwrap_or([0u8; 32]),
+            &spend.data_hash.unwrap_or([0u8; 32]),
             &spend.zone_data_hash.unwrap_or([0u8; 32]),
         )?;
         Ok(spend
@@ -578,7 +629,8 @@ impl PreparedTransaction {
             user_sol_account,
             user_spl_token,
             spl_token_interface,
-            cpi_signer: None,
+            data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: *tx_viewing_pk.as_bytes(),
             salt,
             output_utxo_hashes,

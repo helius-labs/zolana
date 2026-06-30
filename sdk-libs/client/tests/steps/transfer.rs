@@ -141,7 +141,10 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover") {
+        match zolana_client::into_prover(signed, &input_merkle_proofs)
+            .expect("into prover")
+            .circuit
+        {
             CircuitType::P256(prover) => {
                 assert_outputs(
                     &prover.outputs,
@@ -354,7 +357,8 @@ fn assert_outputs(
             user_sol_account,
             user_spl_token,
             spl_token_interface,
-            cpi_signer: None,
+            data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: external_data.tx_viewing_pk,
             salt: external_data.salt,
             output_utxo_hashes: external_data.output_utxo_hashes.clone(),
@@ -404,6 +408,7 @@ fn assert_outputs(
             },
             amount: send.amount,
             blinding: derive_blinding(&seed, 2 + i as u8),
+            zone_program_id: None,
             data: Data::default(),
         })
         .collect();

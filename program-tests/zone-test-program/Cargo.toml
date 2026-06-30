@@ -3,6 +3,9 @@ name = "zone-test-program"
 version = "0.1.0"
 edition.workspace = true
 publish = false
+# Only the explicit `zone_lifecycle` test target builds; tests/{actor,localnet,
+# world,...}.rs are its modules, not standalone integration-test binaries.
+autotests = false
 
 # Test-only fixture: a minimal "policy zone" program that CPIs into SPP,
 # signing with its `zone_auth` PDA. It enforces no policy — it exists so
@@ -20,11 +23,38 @@ cpi = ["no-entrypoint"]
 test-sbf = []
 
 [dependencies]
-borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+p256 = { workspace = true }
+rand = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+
+[[test]]
+name = "zone_lifecycle"
+path = "tests/zone_lifecycle.rs"
+harness = false
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

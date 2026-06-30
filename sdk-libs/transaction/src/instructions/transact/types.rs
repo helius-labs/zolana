@@ -5,34 +5,29 @@ use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
 use crate::{
+    data::{Data, DataRecord},
     error::TransactionError,
     utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
 };
 
-/// A spent input UTXO and the owner `nullifier_pk` its hash commits to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InputUtxo {
     pub utxo: Utxo,
     pub nullifier_pk: [u8; 32],
     pub zone_data_hash: Option<[u8; 32]>,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
 }
 
 impl InputUtxo {
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         self.utxo.hash(
             &self.nullifier_pk,
-            &self.program_data_hash.unwrap_or_default(),
+            &self.data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
         )
     }
 }
 
-/// A new output UTXO. In the confidential default zone the sender knows the
-/// recipient's [`ShieldedAddress`], so the output carries it and the proof
-/// recomputes `owner_hash` from it and exposes `signing_pubkey.hash()` as the
-/// public owner tag. A `None` address is a dummy slot (empty SOL/SPL change or
-/// padding to the fixed proof shape).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct OutputUtxo {
     pub asset: Address,
@@ -40,22 +35,43 @@ pub struct OutputUtxo {
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
     pub zone_data_hash: Option<[u8; 32]>,
-    pub program_data_hash: Option<[u8; 32]>,
+    pub data_hash: Option<[u8; 32]>,
     pub owner_address: Option<ShieldedAddress>,
-    /// Confidential owner tag for a dummy recipient slot: the random `view_tag`
-    /// the builder also writes to the slot's `OutputCiphertext`, so the proof's
-    /// `output_owner_pk_hashes` entry is a real-looking Poseidon hash (not `0`)
-    /// that matches the published tag and never flags the slot as padding.
-    /// `None` for real outputs (the tag derives from `owner_address`). Empty
-    /// change slots set it to the sender's `confidential_view_tag` so the proof
-    /// folds the sender's `owner_pk_field`, matching the program's bundle
-    /// reconstruction.
     pub owner_tag: Option<[u8; 32]>,
+    pub data: Data,
 }
 
 impl OutputUtxo {
-    /// `owner_hash = Poseidon(signing_pubkey.hash(), nullifier_pubkey)` derived
-    /// from the recipient address; `0` (permanently unspendable) for a dummy slot.
+    pub fn with_zone_data(
+        mut self,
+        zone_program_id: Address,
+        zone_data: Vec<u8>,
+        zone_data_hash: [u8; 32],
+    ) -> Self {
+        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_program_id = Some(zone_program_id);
+        self.set_data_record(DataRecord::ZoneData(zone_data));
+        self
+    }
+
+    pub fn with_utxo_data(mut self, utxo_data: Vec<u8>, data_hash: [u8; 32]) -> Self {
+        self.data_hash = Some(data_hash);
+        self.set_data_record(DataRecord::UtxoData(utxo_data));
+        self
+    }
+
+    fn set_data_record(&mut self, record: DataRecord) {
+        let is_zone = matches!(record, DataRecord::ZoneData(_));
+        self.data
+            .records
+            .retain(|existing| matches!(existing, DataRecord::ZoneData(_)) != is_zone);
+        self.data.records.push(record);
+        self.data.records.sort_by_key(|record| match record {
+            DataRecord::ZoneData(_) => 0u8,
+            DataRecord::UtxoData(_) => 1u8,
+        });
+    }
+
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {
         match &self.owner_address {
             Some(address) => Ok(address.owner_hash()?),
@@ -67,23 +83,18 @@ impl OutputUtxo {
         utxo_hash(
             self.asset,
             self.amount,
-            &self.program_data_hash.unwrap_or_default(),
+            &self.data_hash.unwrap_or_default(),
             &self.zone_data_hash.unwrap_or_default(),
             self.zone_program_id,
             &owner_utxo_hash(&self.owner_hash()?, &self.blinding)?,
         )
     }
 
-    /// A dummy slot has no owner address: its `owner_hash` is `0`, so it holds no
-    /// value and contributes `0` to the private-tx hash chain (it still gets a
-    /// distinct `utxo_hash`).
     pub fn is_dummy(&self) -> bool {
         self.owner_address.is_none()
     }
 }
 
-/// A transaction ready to be proved: the spent inputs, the new outputs, and the
-/// [`ExternalData`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncryptedTransaction {
     pub inputs: Vec<InputUtxo>,
@@ -92,7 +103,6 @@ pub struct EncryptedTransaction {
 }
 
 impl EncryptedTransaction {
-    /// `private_tx_hash = Poseidon(HashChain(inputs), HashChain(outputs), external_data_hash)`.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         let input_hashes = self
             .inputs
@@ -104,25 +114,36 @@ impl EncryptedTransaction {
             .iter()
             .map(OutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        private_tx_hash(&input_hashes, &output_hashes, &self.external_data.hash()?)
+        private_tx_hash(
+            &input_hashes,
+            &output_hashes,
+            &no_address_hashes(input_hashes.len()),
+            &self.external_data.hash()?,
+        )
     }
 }
 
 pub fn private_tx_hash(
     input_hashes: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
+    address_hashes: &[[u8; 32]],
     external_data_hash: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
     let input_chain = hash_chain(input_hashes)?;
     let output_chain = hash_chain(output_hashes)?;
+    let address_chain = hash_chain(address_hashes)?;
     Ok(poseidon(&[
         &input_chain,
         &output_chain,
+        &address_chain,
         external_data_hash,
     ])?)
 }
 
-/// Hashes left-to-right: `h = items[0]; h = Poseidon(h, items[i])`. Empty returns zero.
+pub fn no_address_hashes(n_inputs: usize) -> Vec<[u8; 32]> {
+    vec![[0u8; 32]; n_inputs]
+}
+
 fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
     let mut iter = items.iter();
     let mut acc = match iter.next() {
@@ -135,14 +156,13 @@ fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], TransactionError> {
     Ok(acc)
 }
 
-/// Identifies an output commitment and where it lives in the UTXO tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputContext {
     pub hash: [u8; 32],
     pub tree: Address,
     pub leaf_index: u64,
 }
-/// One output of a shielded transaction: its view tag and encrypted/plaintext payload.
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputSlot {
     pub view_tag: [u8; 32],
@@ -156,16 +176,11 @@ impl OutputSlot {
     }
 }
 
-/// A shielded transaction with every output slot in UTXO-tree-append order and the
-/// nullifiers it consumed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: solana_signature::Signature,
-    /// `None` when there is nothing to decrypt (proofless or plaintext transfer).
     pub tx_viewing_pk: Option<P256Pubkey>,
-    /// Transaction-level AES salt shared by every output ciphertext; `None` for
-    /// proofless or plaintext transfers.
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,
     pub nullifiers: Vec<[u8; 32]>,

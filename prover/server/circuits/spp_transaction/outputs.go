@@ -8,16 +8,13 @@ import (
 // constrainOutput verifies one created output and returns its UTXO hash (0 for a
 // dummy) for the transaction-hash chain (step 5). In the confidential variant it
 // also binds the public owner tag to the output owner_hash.
-func constrainOutput(api frontend.API, out Output, confidential bool) frontend.Variable {
+func constrainOutput(api frontend.API, out Output, confidential, zone, zoneAuthority bool, zoneProgramID frontend.Variable) frontend.Variable {
 	api.AssertIsBoolean(out.IsDummy)
 	notDummy := api.Sub(1, out.IsDummy)
 
 	assertZeroWhen(api, out.IsDummy, out.Utxo.Amount)
 	assertEqualWhen(api, notDummy, out.Utxo.Domain, UtxoDomain)
-	// Default transact creates only bare UTXOs (no program/policy/zone data).
-	assertZeroWhen(api, notDummy, out.Utxo.DataHash)
-	assertZeroWhen(api, notDummy, out.Utxo.ZoneDataHash)
-	assertZeroWhen(api, notDummy, out.Utxo.ZoneProgramID)
+	constrainProgramZone(api, notDummy, out.Utxo, zone, zoneAuthority, zoneProgramID)
 
 	utxoHash := UtxoHashCircuit(api, out.Utxo)
 	api.AssertIsEqual(utxoHash, out.Hash)

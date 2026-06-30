@@ -34,14 +34,12 @@ pub enum TransactWithdrawal {
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
-/// program loader (`TransactAccounts::validate_and_parse`): `payer`, `tree`, an
-/// optional `cpi_signer` (present iff `data.cpi_signer` is set), the optional
-/// public-amount accounts (present iff the data carries a public amount), and
-/// the program account last for the `emit_event` self-CPI.
+/// program loader (`TransactAccounts::validate_and_parse`): `payer`, `tree`, the
+/// optional public-amount accounts (present iff the data carries a public
+/// amount), and the program account last for the `emit_event` self-CPI.
 pub struct Transact {
     pub payer: Pubkey,
     pub tree: Pubkey,
-    pub cpi_signer: Option<Pubkey>,
     pub withdrawal: Option<TransactWithdrawal>,
     pub data: TransactIxData,
 }
@@ -60,9 +58,6 @@ impl Transact {
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.tree, false),
         ];
-        if let Some(cpi_signer) = self.cpi_signer {
-            accounts.push(AccountMeta::new_readonly(cpi_signer, true));
-        }
         match &self.withdrawal {
             Some(TransactWithdrawal::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));

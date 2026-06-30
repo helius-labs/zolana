@@ -326,12 +326,12 @@ impl SyncCtx<'_> {
         &mut self,
         utxos: Vec<Utxo>,
         output_context: &OutputContext,
-        program_data_hash: &[u8; 32],
+        data_hash: &[u8; 32],
         zone_data_hash: &[u8; 32],
     ) -> Result<bool, TransactionError> {
         let mut stored = false;
         for utxo in utxos {
-            let hash = utxo.hash(&self.nullifier_pk, program_data_hash, zone_data_hash)?;
+            let hash = utxo.hash(&self.nullifier_pk, data_hash, zone_data_hash)?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
                 continue;
@@ -400,8 +400,8 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let program_data_hash = plaintext.program_data_hash.unwrap_or([0u8; 32]);
-                        let zone_data_hash = plaintext.policy_data_hash.unwrap_or([0u8; 32]);
+                        let data_hash = plaintext.data_hash.unwrap_or([0u8; 32]);
+                        let zone_data_hash = plaintext.zone_data_hash.unwrap_or([0u8; 32]);
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
@@ -409,7 +409,7 @@ impl SyncCtx<'_> {
                         if self.store_recipient_utxos(
                             utxos.clone(),
                             &output_context,
-                            &program_data_hash,
+                            &data_hash,
                             &zone_data_hash,
                         )? {
                             self.processed_slots.insert(site);

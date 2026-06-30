@@ -12,14 +12,12 @@ default = []
 # `<workspace>/target/deploy/shielded_pool_program.so`.
 
 [dependencies]
-borsh = { workspace = true }
 litesvm = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-clock = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
@@ -32,5 +30,4 @@ zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
-light-instruction-decoder = { workspace = true }
 zolana-merkle-tree = { workspace = true }

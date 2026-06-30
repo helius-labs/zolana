@@ -53,10 +53,8 @@ type TransferParametersJSON struct {
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ProgramIDHashchain   string             `json:"programIdHashchain"`
+	ZoneProgramID        string             `json:"zoneProgramId"`
 	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
-	DataHash             string             `json:"dataHash"`
-	ZoneDataHash         string             `json:"zoneDataHash"`
 	PublicInputHash      string             `json:"publicInputHash"`
 }
 
@@ -73,10 +71,7 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 }
 
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
-	circuitType := common.TransferCircuitType
-	if p.Confidential {
-		circuitType = common.TransferConfidentialCircuitType
-	}
+	circuitType := p.Variant.CircuitType()
 	paramsJson := TransferParametersJSON{
 		CircuitType:          circuitType,
 		NInputs:              p.NInputs,
@@ -86,10 +81,8 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ProgramIDHashchain:   feHex(p.ProgramIDHashchain),
+		ZoneProgramID:        feHex(p.ZoneProgramID),
 		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
-		DataHash:             feHex(p.DataHash),
-		ZoneDataHash:         feHex(p.ZoneDataHash),
 		PublicInputHash:      feHex(p.PublicInputHash),
 	}
 
@@ -130,7 +123,7 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	var err error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
-	p.Confidential = params.CircuitType == common.TransferConfidentialCircuitType
+	p.Variant = variantFromCircuitType(params.CircuitType)
 
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
 		return err
@@ -147,16 +140,10 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublicSplAssetPubkey, err = feFromHex(params.PublicSplAssetPubkey); err != nil {
 		return err
 	}
-	if p.ProgramIDHashchain, err = feFromHex(params.ProgramIDHashchain); err != nil {
+	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
 		return err
 	}
 	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
-		return err
-	}
-	if p.DataHash, err = feFromHex(params.DataHash); err != nil {
-		return err
-	}
-	if p.ZoneDataHash, err = feFromHex(params.ZoneDataHash); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {

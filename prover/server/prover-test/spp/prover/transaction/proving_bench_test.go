@@ -100,7 +100,6 @@ func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequ
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
 		PublicAmountMode:         0,
 		EncryptedUtxos:           "00",
-		ProgramIDHashchain:       proofFieldInput(big.NewInt(0)),
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
 	}

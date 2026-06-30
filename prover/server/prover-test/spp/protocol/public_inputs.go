@@ -16,10 +16,8 @@ var publicInputNames = [...]string{
 	"public_sol_amount",
 	"public_spl_amount",
 	"public_spl_asset_pubkey",
-	"program_id_hashchain",
+	"zone_program_id",
 	"payer_pubkey_hash",
-	"data_hash",
-	"zone_data_hash",
 	"input_owner_pk_hashes",
 }
 
@@ -41,17 +39,20 @@ type PublicInputs struct {
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramIDHashchain   *big.Int
+	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
 	InputOwnerPkHashes   []*big.Int
-	DataHash             *big.Int
-	ZoneDataHash         *big.Int
 
 	// Confidential appends the output owner tag chain and the shared P256 signing
 	// key's pk_field to the preimage (see spec circuit-variants).
 	Confidential        bool
 	OutputOwnerPkHashes []*big.Int
 	P256SigningPkField  *big.Int
+
+	// ZoneAuthority omits the input owner pk_field chain from the preimage: the
+	// zone-authority variant keeps input owners private (anonymous) since the zone
+	// authority controls the UTXOs and no signer check needs them on-chain.
+	ZoneAuthority bool
 }
 
 func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
@@ -71,10 +72,6 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier root chain: %w", err)
 	}
-	solanaOwnerChain, err := HashChain(inputs.InputOwnerPkHashes)
-	if err != nil {
-		return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
-	}
 	fields := []*big.Int{
 		nullifierChain,
 		outputChain,
@@ -86,11 +83,17 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.PublicSolAmount,
 		inputs.PublicSplAmount,
 		inputs.PublicSplAssetPubkey,
-		inputs.ProgramIDHashchain,
+		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
-		inputs.DataHash,
-		inputs.ZoneDataHash,
-		solanaOwnerChain,
+	}
+	// The zone-authority variant keeps input owner pk_fields private; every other
+	// variant commits them so SPP can route the per-input signer check.
+	if !inputs.ZoneAuthority {
+		solanaOwnerChain, err := HashChain(inputs.InputOwnerPkHashes)
+		if err != nil {
+			return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
+		}
+		fields = append(fields, solanaOwnerChain)
 	}
 	if inputs.Confidential {
 		outputOwnerChain, err := HashChain(inputs.OutputOwnerPkHashes)

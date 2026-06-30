@@ -51,6 +51,10 @@ type MergeParametersJSON struct {
 	ExternalDataHash    string             `json:"externalDataHash"`
 	PrivateTxHash       string             `json:"privateTxHash"`
 	PublicInputHash     string             `json:"publicInputHash"`
+	// ZoneProgramID is the policy-zone merge circuit's top-level public input
+	// (the zone program's pk_field). Emitted/consumed only on the merge-zone rail;
+	// the default merge rail leaves it zero.
+	ZoneProgramID string `json:"zoneProgramId"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -66,8 +70,13 @@ func (p *MergeParameters) UnmarshalJSON(data []byte) error {
 }
 
 func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
+	circuitType := p.CircuitType
+	if circuitType == "" {
+		circuitType = common.MergeCircuitType
+	}
 	paramsJson := MergeParametersJSON{
-		CircuitType:         common.MergeCircuitType,
+		CircuitType:         circuitType,
+		ZoneProgramID:       feHex(p.ZoneProgramID),
 		P256PubX:            feHex(p.P256PubX),
 		P256PubY:            feHex(p.P256PubY),
 		OwnerPkHash:         feHex(p.OwnerPkHash),
@@ -107,6 +116,13 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 
 func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	var err error
+	p.CircuitType = params.CircuitType
+	if p.CircuitType == "" {
+		p.CircuitType = common.MergeCircuitType
+	}
+	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
+		return err
+	}
 	if p.P256PubX, err = feFromHex(params.P256PubX); err != nil {
 		return err
 	}

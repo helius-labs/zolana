@@ -56,6 +56,7 @@ type PrivateTxHashCircuit struct {
 	Public           PublicInputs
 	Inputs           [NumInputs]Utxo
 	Outputs          [NumOutputs]Utxo
+	AddressHashes    [NumInputs]frontend.Variable
 	ExternalDataHash frontend.Variable
 }
 
@@ -68,7 +69,11 @@ func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
 	for i := range c.Outputs {
 		outputHashes[i] = c.Outputs[i].Hash(api)
 	}
-	h := transaction.PrivateTxHashCircuit(api, inputHashes, outputHashes, c.ExternalDataHash)
+	addressHashes := make([]frontend.Variable, NumInputs)
+	for i := range c.AddressHashes {
+		addressHashes[i] = c.AddressHashes[i]
+	}
+	h := transaction.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, c.ExternalDataHash)
 	api.AssertIsEqual(c.Public.PrivateTxHash, h)
 	// TODO: bind Public.ZoneProgramID to the UTXOs' zone_program_id; currently
 	// declared as a public input but not yet constrained.

@@ -75,13 +75,12 @@ type TransferParameters struct {
 	PublicSolAmount      *big.Int
 	PublicSplAmount      *big.Int
 	PublicSplAssetPubkey *big.Int
-	ProgramIDHashchain   *big.Int
+	ZoneProgramID        *big.Int
 	PayerPubkeyHash      *big.Int
-	DataHash             *big.Int
-	ZoneDataHash         *big.Int
 
-	// Confidential selects the confidential variant; P256SigningPkField is the
-	// shared P256 signing key's pk_field (0 otherwise).
+	// Confidential selects the confidential (non-zone) variant; when false the
+	// anonymous zone variant is used. P256SigningPkField is the shared P256
+	// signing key's pk_field (0 otherwise).
 	Confidential       bool
 	P256SigningPkField *big.Int
 

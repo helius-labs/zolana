@@ -4,8 +4,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        encode_instruction, tag, CpiSignerData, CreateZoneConfigData, DepositSplAccounts,
-        UpdateZoneConfig, UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
+        encode_instruction, tag, CreateZoneConfigData, DepositSplAccounts, UpdateZoneConfig,
+        UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
     },
     pda,
 };
@@ -41,14 +41,12 @@ impl ZolanaProgramTest {
         zone_authority_transact_is_enabled: bool,
     ) -> Result<Pubkey, ProgramTestError> {
         let zone_program = Self::zone_test_program_id();
-        let (zone_config, zone_config_bump) = pda::zone_config(&zone_program);
-        let (zone_auth, zone_auth_bump) = pda::zone_auth(&zone_program);
+        // The config account IS the zone's canonical `zone_auth` PDA.
+        let (zone_config, _) = pda::zone_auth(&zone_program);
         let data = CreateZoneConfigData {
             program_id: ZONE_TEST_PROGRAM_ID.into(),
-            zone_auth_bump,
             authority: authority.to_bytes().into(),
             zone_authority_transact_is_enabled,
-            zone_config_bump,
         };
         let ix = Instruction {
             program_id: zone_program,
@@ -56,7 +54,6 @@ impl ZolanaProgramTest {
                 AccountMeta::new(payer.pubkey(), true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
                 AccountMeta::new(zone_config, false),
-                AccountMeta::new_readonly(zone_auth, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new_readonly(self.program_id, false),
             ],
@@ -106,48 +103,22 @@ impl ZolanaProgramTest {
         owner: [u8; 32],
         blinding: [u8; BLINDING_LEN],
     ) -> ZoneDepositIxData {
-        let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         ZoneDepositIxData {
             view_tag: [0u8; 32],
             owner,
             blinding,
             public_amount: Some(lamports),
-            cpi_signer: CpiSignerData {
-                program_id: ZONE_TEST_PROGRAM_ID,
-                bump,
-            },
-            policy_data_hash: None,
-            zone_data: None,
-            program_data_hash: None,
-            program_data: None,
+            zone_data_hash: [0u8; 32],
+            zone_data: Vec::new(),
+            utxo_data: None,
         }
     }
 
     pub fn wallet_zone_sol_shield_data(
-        &self,
         lamports: u64,
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
-    ) -> Result<ZoneDepositIxData, ProgramTestError> {
-        let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
-        Self::wallet_zone_sol_shield_data_for_zone(
-            lamports,
-            recipient,
-            blinding_seed,
-            position,
-            ZONE_TEST_PROGRAM_ID,
-            bump,
-        )
-    }
-
-    pub fn wallet_zone_sol_shield_data_for_zone(
-        lamports: u64,
-        recipient: &Wallet,
-        blinding_seed: &[u8; BLINDING_LEN],
-        position: u8,
-        zone_program_id: [u8; 32],
-        zone_auth_bump: u8,
     ) -> Result<ZoneDepositIxData, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
@@ -155,39 +126,27 @@ impl ZolanaProgramTest {
             owner: fields.owner,
             blinding: fields.blinding,
             public_amount: Some(lamports),
-            cpi_signer: CpiSignerData {
-                program_id: zone_program_id,
-                bump: zone_auth_bump,
-            },
-            policy_data_hash: None,
-            zone_data: None,
-            program_data_hash: None,
-            program_data: None,
+            zone_data_hash: [0u8; 32],
+            zone_data: Vec::new(),
+            utxo_data: None,
         })
     }
 
     pub fn wallet_zone_spl_shield_data(
-        &self,
         amount: u64,
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
         position: u8,
     ) -> Result<ZoneDepositIxData, ProgramTestError> {
-        let (_, bump) = pda::zone_auth(&Self::zone_test_program_id());
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneDepositIxData {
             view_tag: fields.view_tag,
             owner: fields.owner,
             blinding: fields.blinding,
             public_amount: Some(amount),
-            cpi_signer: CpiSignerData {
-                program_id: ZONE_TEST_PROGRAM_ID,
-                bump,
-            },
-            policy_data_hash: None,
-            zone_data: None,
-            program_data_hash: None,
-            program_data: None,
+            zone_data_hash: [0u8; 32],
+            zone_data: Vec::new(),
+            utxo_data: None,
         })
     }
 
@@ -205,14 +164,12 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: data.cpi_signer,
-            policy_data_hash: data.policy_data_hash,
+            zone_program_id: Self::zone_test_program_id(),
+            zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
-        .instruction()
-        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }
@@ -238,14 +195,12 @@ impl ZolanaProgramTest {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: data.cpi_signer,
-            policy_data_hash: data.policy_data_hash,
+            zone_program_id: Self::zone_test_program_id(),
+            zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
-        .instruction()
-        .map_err(|err| ProgramTestError::Rpc(format!("zone auth PDA: {err}")))?;
+        .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
         single_deposit_view(&outcome.events)
     }

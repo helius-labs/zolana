@@ -36,7 +36,6 @@ type ProofTransactionRequest struct {
 	UtxoTreeRootIndex        []uint16            `json:"utxo_tree_root_index"`
 	NullifierTreeRootIndex   []uint16            `json:"nullifier_tree_root_index"`
 	NullifierEntries         []string            `json:"nullifier_entries"`
-	ProgramIDHashchain       string              `json:"program_id_hashchain"`
 	DataHash                 string              `json:"data_hash"`
 	ZoneDataHash             string              `json:"zone_data_hash"`
 	P256OwnerPubkey          string              `json:"p256_owner_pubkey,omitempty"`

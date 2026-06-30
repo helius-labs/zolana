@@ -121,7 +121,6 @@ impl LifecycleWorld {
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
             tree: self.tree,
-            cpi_signer: None,
             withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
                 recipient: recipient.pubkey(),
             })),

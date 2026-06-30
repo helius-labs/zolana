@@ -149,7 +149,10 @@ fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(signed, &input_merkle_proofs).expect("into prover") {
+    match zolana_client::into_prover(signed, &input_merkle_proofs)
+        .expect("into prover")
+        .circuit
+    {
         CircuitType::P256(prover) => prover,
         CircuitType::Eddsa(_) => panic!("expected P256 rail"),
     }
@@ -320,7 +323,8 @@ fn transfer_round_trip_outputs_and_bundle() {
             user_sol_account: Address::default(),
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
-            cpi_signer: None,
+            data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
@@ -352,6 +356,7 @@ fn transfer_round_trip_outputs_and_bundle() {
             asset_id: SOL_ASSET_ID,
             amount: 60,
             blinding: derive_blinding(&seed, 2),
+            zone_program_id: None,
             data: Data::default(),
         }]
     );
@@ -597,7 +602,8 @@ fn withdrawal_sets_external_data_and_change() {
             user_sol_account: dest,
             user_spl_token: Address::default(),
             spl_token_interface: Address::default(),
-            cpi_signer: None,
+            data_hash: None,
+            zone_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             output_utxo_hashes: prover.external_data.output_utxo_hashes.clone(),
@@ -643,7 +649,9 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(signed, &input_merkle_proofs).unwrap(),
+        zolana_client::into_prover(signed, &input_merkle_proofs)
+            .unwrap()
+            .circuit,
         CircuitType::Eddsa(_)
     ));
 }

@@ -70,9 +70,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs []*big.Int, externalDataHash *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, externalDataHash)
+	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash)
 	return mustHash(t, value, err)
 }
 
@@ -89,19 +89,17 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 	}
 
 	got := mustUtxoHash(t, utxo)
-	// Owner and blinding are nested into owner_utxo_hash = Poseidon(owner, blinding);
-	// the commitment is Poseidon(domain, asset, amount, data, zone_data, zone_prog,
-	// owner_utxo_hash).
 	ownerUtxoHash := mustPoseidon(t, 3, []*big.Int{fe(2), fe(5)})
-	want := mustPoseidon(t, 8, []*big.Int{
-		fe(1), fe(3), fe(4), fe(6), fe(7), fe(8), ownerUtxoHash,
+	zoneHash := mustPoseidon(t, 3, []*big.Int{fe(7), fe(8)})
+	want := mustPoseidon(t, 7, []*big.Int{
+		fe(1), fe(3), fe(4), fe(6), zoneHash, ownerUtxoHash,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("utxo hash mismatch: got %s want %s", got, want)
 	}
 
-	swapped := mustPoseidon(t, 8, []*big.Int{
-		fe(1), fe(4), fe(3), fe(6), fe(7), fe(8), ownerUtxoHash,
+	swapped := mustPoseidon(t, 7, []*big.Int{
+		fe(1), fe(4), fe(3), fe(6), zoneHash, ownerUtxoHash,
 	})
 	if got.Cmp(swapped) == 0 {
 		t.Fatal("utxo hash did not change when asset_id and asset_amount were swapped")
@@ -244,16 +242,19 @@ func TestHashChainEmptyAndSingle(t *testing.T) {
 func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	inputs := []*big.Int{fe(11), fe(12)}
 	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(41), fe(42)}
 	externalDataHash := fe(31)
 
 	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
 	// external_data_hash (tested in the prover's external_data tests).
-	got := mustPrivateTxHash(t, inputs, outputs, externalDataHash)
+	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash)
 	inputChain := mustHashChain(t, inputs)
 	outputChain := mustHashChain(t, outputs)
-	want := mustPoseidon(t, 4, []*big.Int{
+	addressChain := mustHashChain(t, addresses)
+	want := mustPoseidon(t, 5, []*big.Int{
 		inputChain,
 		outputChain,
+		addressChain,
 		externalDataHash,
 	})
 	if got.Cmp(want) != 0 {

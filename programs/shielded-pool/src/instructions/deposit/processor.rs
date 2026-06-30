@@ -3,9 +3,9 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{instruction_data::deposit::CpiSignerData, DepositIxData, ZoneDepositIxData},
+    instruction::{DepositIxData, UtxoData, ZoneDepositIxData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    UTXO_DOMAIN, ZONE_AUTH_PDA_SEED,
+    UTXO_DOMAIN,
 };
 use zolana_tree::TreeAccount;
 
@@ -16,21 +16,20 @@ use super::{
 use crate::instructions::{
     hash::{field_from_u64, solana_pk_hash},
     settlement::{settle_sol, settle_spl, Settlement},
-    shared::CPI_SIGNER_SEED,
 };
 
-/// Parsed instruction request shared across this instruction's submodules.
+pub(crate) struct ZoneData {
+    pub data_hash: [u8; 32],
+    pub data: Vec<u8>,
+}
+
 pub(crate) struct DepositParams {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    pub cpi_signer: Option<CpiSignerData>,
-    pub cpi_signer_seed: &'static [u8],
-    pub program_data_hash: Option<[u8; 32]>,
-    pub program_data: Option<Vec<u8>>,
-    pub policy_data_hash: Option<[u8; 32]>,
-    pub zone_data: Option<Vec<u8>>,
+    pub utxo_data: Option<UtxoData>,
+    pub zone: Option<ZoneData>,
 }
 
 #[profile]
@@ -44,30 +43,15 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if data.cpi_signer.is_some() {
-        let cpi_signer = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-        if !cpi_signer.is_signer() {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
-    }
-    if (data.program_data_hash.is_some() || data.program_data.is_some())
-        && data.cpi_signer.is_none()
-    {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
-    }
-    process_deposit_internal(
+    process_deposit_internal::<false>(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: data.cpi_signer,
-            cpi_signer_seed: CPI_SIGNER_SEED,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data,
-            policy_data_hash: None,
-            zone_data: None,
+            utxo_data: data.utxo_data,
+            zone: None,
         },
     )
 }
@@ -82,51 +66,48 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
     if !depositor.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    let zone_auth = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !zone_auth.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-    process_deposit_internal(
+    process_deposit_internal::<true>(
         accounts,
         DepositParams {
             view_tag: data.view_tag,
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            cpi_signer: Some(data.cpi_signer),
-            cpi_signer_seed: ZONE_AUTH_PDA_SEED,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data,
-            policy_data_hash: data.policy_data_hash,
-            zone_data: data.zone_data,
+            utxo_data: data.utxo_data,
+            zone: Some(ZoneData {
+                data_hash: data.zone_data_hash,
+                data: data.zone_data,
+            }),
         },
     )
 }
 
-fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> ProgramResult {
-    // A deposit must shield a positive amount; reject a missing or zero amount.
+fn process_deposit_internal<const HAS_ZONE: bool>(
+    accounts: &mut [AccountView],
+    d: DepositParams,
+) -> ProgramResult {
     let amount = match d.public_amount {
         Some(amount) if amount > 0 => amount,
         _ => return Err(ShieldedPoolError::InvalidTransactShape.into()),
     };
 
-    // SOL vs SPL is inferred from the settlement accounts the caller passes.
-    let parsed =
-        DepositAccounts::validate_and_parse(&crate::ID, accounts, d.cpi_signer, d.cpi_signer_seed)?;
+    let (parsed, zone_program_id) =
+        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts)?;
     let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
 
     let asset = parsed.asset;
     let asset_field = solana_pk_hash(&asset)?;
 
     let zero = [0u8; 32];
-    let program_data_hash = d.program_data_hash.unwrap_or(zero);
-    let policy_data_hash = d.policy_data_hash.unwrap_or(zero);
-    let zone_program_id = match d.cpi_signer {
-        Some(cpi) => solana_pk_hash(&cpi.program_id)?,
+    let data_hash = match &d.utxo_data {
+        Some(utxo_data) => utxo_data.data_hash,
         None => zero,
     };
-    // Nest the recipient `owner` with the right-aligned `blinding` into the
-    // owner commitment, matching the SDK's `owner_utxo_hash`.
+    let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
+        (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
+        _ => (zero, zero),
+    };
+    let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
     let mut blinding = [0u8; 32];
     blinding[1..].copy_from_slice(&d.blinding);
     let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
@@ -135,9 +116,8 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
         asset_field.as_slice(),
         field_from_u64(amount).as_slice(),
-        program_data_hash.as_slice(),
-        policy_data_hash.as_slice(),
-        zone_program_id.as_slice(),
+        data_hash.as_slice(),
+        zone_hash.as_slice(),
         owner_utxo_hash.as_slice(),
     ])
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -153,7 +133,6 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
         index
     };
 
-    // Proofless shields are deposit-only; the SOL rail always deposits.
     match &parsed.settlement {
         Settlement::Sol(sol) => settle_sol(sol, amount, true)?,
         Settlement::Spl(spl) => settle_spl(spl, amount)?,
@@ -168,6 +147,15 @@ fn process_deposit_internal(accounts: &mut [AccountView], d: DepositParams) -> P
             amount,
             first_output_leaf_index,
             output_tree,
+            zone_program_id,
         },
     )
+}
+
+fn hash_with_program_id(
+    data_hash: &[u8; 32],
+    program_id_field: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
+    Poseidon::hashv(&[data_hash.as_slice(), program_id_field.as_slice()])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }

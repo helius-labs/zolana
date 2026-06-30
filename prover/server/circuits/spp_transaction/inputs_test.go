@@ -293,6 +293,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 	in := &assignment.Inputs[0]
 	in.IsDummy = spptest.Fe(1)
 	in.Utxo.Amount = spptest.Fe(0)
+	in.Utxo.Owner = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
 	in.NullifierTreeRoot = spptest.Fe(0)
 	in.Nullifier = spptest.Fe(0)
@@ -306,6 +307,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *Circuit {
 		t,
 		[]*big.Int{big.NewInt(0)},
 		OutputHashes,
+		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash

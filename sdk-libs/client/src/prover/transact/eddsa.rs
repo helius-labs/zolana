@@ -1,5 +1,8 @@
 use num_bigint::BigUint;
-use zolana_transaction::{instructions::transact::private_tx_hash, ExternalData, OutputUtxo};
+use zolana_transaction::{
+    instructions::transact::{no_address_hashes, private_tx_hash},
+    ExternalData, OutputUtxo,
+};
 
 use crate::{
     error::ClientError,
@@ -7,7 +10,8 @@ use crate::{
         field::be,
         shape::{resolve_shape, Shape},
         transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, PublicAmounts, PublicInputs, TransferSpendInput,
+            assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, PublicInputs,
+            TransferSpendInput,
         },
         TransferInputs,
     },
@@ -38,12 +42,13 @@ impl TransferProver {
         // The eddsa rail has no P256 owner, so the shared signing pk_field is 0 even
         // in the confidential variant; only the output owner tags are bound.
         let p256_signing_pk_field = [0u8; 32];
-        let assembled_inputs = assemble_inputs(&self.inputs, false, None)?;
+        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = private_tx_hash(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
+            &no_address_hashes(assembled_inputs.input_hashes.len()),
             &external_data_hash,
         )?;
         let p256_message_hash = [0u8; 32];
@@ -56,6 +61,7 @@ impl TransferProver {
             p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
             public_amounts: &self.public_amounts,
+            zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
@@ -71,10 +77,8 @@ impl TransferProver {
             public_sol_amount: be(&self.public_amounts.sol),
             public_spl_amount: be(&self.public_amounts.spl),
             public_spl_asset_pubkey: be(&self.public_amounts.asset),
-            program_id_hashchain: BigUint::ZERO,
+            zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
-            data_hash: BigUint::ZERO,
-            zone_data_hash: BigUint::ZERO,
             public_input_hash: be(&public_input),
         };
 

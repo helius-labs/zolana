@@ -144,7 +144,7 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
                 proof: Some(SpendProof {
                     state,
@@ -168,7 +168,7 @@ impl LifecycleWorld {
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
-                program_data_hash: None,
+                data_hash: None,
                 zone_data_hash: None,
                 proof: None,
             });
@@ -184,8 +184,9 @@ impl LifecycleWorld {
             blinding: output_blinding,
             zone_program_id: None,
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
+            data: Data::default(),
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

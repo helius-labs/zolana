@@ -224,7 +224,6 @@ impl LifecycleWorld {
         let transfer_ix = Transact {
             payer: fee_payer.pubkey(),
             tree: self.tree,
-            cpi_signer: None,
             withdrawal: None,
             data: ix_data,
         }

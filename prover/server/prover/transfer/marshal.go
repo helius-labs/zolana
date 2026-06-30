@@ -59,10 +59,8 @@ type TransferParametersJSON struct {
 	PublicSolAmount      string             `json:"publicSolAmount"`
 	PublicSplAmount      string             `json:"publicSplAmount"`
 	PublicSplAssetPubkey string             `json:"publicSplAssetPubkey"`
-	ProgramIDHashchain   string             `json:"programIdHashchain"`
+	ZoneProgramID        string             `json:"zoneProgramId"`
 	PayerPubkeyHash      string             `json:"payerPubkeyHash"`
-	DataHash             string             `json:"dataHash"`
-	ZoneDataHash         string             `json:"zoneDataHash"`
 	P256SigningPkField   string             `json:"p256SigningPkField"`
 	PublicInputHash      string             `json:"publicInputHash"`
 }
@@ -79,11 +77,17 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 	return p.UpdateWithJSON(params)
 }
 
-func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
-	circuitType := common.TransferP256CircuitType
-	if p.Confidential {
-		circuitType = common.TransferP256ConfidentialCircuitType
+// p256CircuitType maps the confidential flag to the P256-rail circuit type
+// string. The two forms are confidential (non-zone) and zone (anonymous).
+func p256CircuitType(confidential bool) common.CircuitType {
+	if confidential {
+		return common.TransferP256ConfidentialCircuitType
 	}
+	return common.TransferP256ZoneCircuitType
+}
+
+func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
+	circuitType := p256CircuitType(p.Confidential)
 	paramsJson := TransferParametersJSON{
 		CircuitType:          circuitType,
 		NInputs:              p.NInputs,
@@ -99,10 +103,8 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicSolAmount:      feHex(p.PublicSolAmount),
 		PublicSplAmount:      feHex(p.PublicSplAmount),
 		PublicSplAssetPubkey: feHex(p.PublicSplAssetPubkey),
-		ProgramIDHashchain:   feHex(p.ProgramIDHashchain),
+		ZoneProgramID:        feHex(p.ZoneProgramID),
 		PayerPubkeyHash:      feHex(p.PayerPubkeyHash),
-		DataHash:             feHex(p.DataHash),
-		ZoneDataHash:         feHex(p.ZoneDataHash),
 		P256SigningPkField:   feHex(p.P256SigningPkField),
 		PublicInputHash:      feHex(p.PublicInputHash),
 	}
@@ -182,16 +184,10 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublicSplAssetPubkey, err = feFromHex(params.PublicSplAssetPubkey); err != nil {
 		return err
 	}
-	if p.ProgramIDHashchain, err = feFromHex(params.ProgramIDHashchain); err != nil {
+	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
 		return err
 	}
 	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
-		return err
-	}
-	if p.DataHash, err = feFromHex(params.DataHash); err != nil {
-		return err
-	}
-	if p.ZoneDataHash, err = feFromHex(params.ZoneDataHash); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {

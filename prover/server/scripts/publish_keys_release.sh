@@ -9,20 +9,34 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v7}"
+tag="${1:-transfer-keys-v9}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 split_threshold_bytes=$((1900 * 1024 * 1024))
 
-key_assets=(
-    "${keys_dir}/transfer_2_3.key"
-    "${keys_dir}/transfer_p256_2_3.key"
-    "${keys_dir}/transfer_confidential_2_3.key"
-    "${keys_dir}/transfer_p256_confidential_2_3.key"
-    "${keys_dir}/merge_8_1.key"
-    "${keys_dir}/batch_address-append_40_10.key"
-    "${keys_dir}/batch_address-append_40_250.key"
-)
+# Every regenerated transfer/merge proving key (all rails and shapes) plus the
+# batched-merkle nullifier-tree keys the prover fetches from this release. The
+# lazy key manager downloads each on demand, so the release must carry the full
+# set the supported shapes can request.
+key_assets=()
+while IFS= read -r asset; do
+    key_assets+=("$asset")
+done < <(find "$keys_dir" -maxdepth 1 -type f \
+    \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)
+
+# Batched-address keys are unchanged by transfer-circuit work; include whichever
+# are present locally (mirrors the previous release).
+for batch in batch_address-append_40_10 batch_address-append_40_250; do
+    if [[ -f "${keys_dir}/${batch}.key" ]]; then
+        key_assets+=("${keys_dir}/${batch}.key")
+    fi
+done
+
+if [[ ${#key_assets[@]} -eq 0 ]]; then
+    echo "No transfer/merge proving keys in $keys_dir" >&2
+    echo "Run scripts/generate_keys_transfer.sh and generate_keys_merge.sh first." >&2
+    exit 1
+fi
 
 for asset in "${key_assets[@]}"; do
     if [[ ! -f "$asset" ]]; then

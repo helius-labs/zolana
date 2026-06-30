@@ -54,7 +54,6 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 		name   string
 		mutate func(tx *ProofTransactionRequest)
 	}{
-		{"tx program_id_hashchain", func(tx *ProofTransactionRequest) { tx.ProgramIDHashchain = proofFieldInput(big.NewInt(1)) }},
 		{"tx data_hash", func(tx *ProofTransactionRequest) { tx.DataHash = proofFieldInput(big.NewInt(1)) }},
 		{"tx zone_data_hash", func(tx *ProofTransactionRequest) { tx.ZoneDataHash = proofFieldInput(big.NewInt(1)) }},
 		{"output data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].DataHash = proofFieldInput(big.NewInt(1)) }},

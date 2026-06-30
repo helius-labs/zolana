@@ -5,11 +5,12 @@ use borsh::BorshSerialize;
 #[cfg(feature = "solana")]
 pub use builders::*;
 pub use instruction_data::{
-    BatchUpdateNullifierTreeData, CompressedProof, CpiSignerData, CreateProtocolConfigData,
-    CreateTreeData, CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash,
-    MergeTransactIxData, MergeTransactIxDataRef, OutputCiphertext, OutputCiphertextRef, OutputUtxo,
-    PauseTreeData, TransactIxData, TransactIxDataRef, TransactProof, UpdateProtocolConfigData,
-    UpdateZoneConfigData, UpdateZoneConfigOwnerData, ZoneDepositIxData,
+    BatchUpdateNullifierTreeData, CompressedProof, CreateProtocolConfigData, CreateTreeData,
+    CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash, MergeTransactIxData,
+    MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, OutputCiphertext,
+    OutputCiphertextRef, OutputUtxo, PauseTreeData, TransactIxData, TransactIxDataRef,
+    TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
+    UtxoData, ZoneDepositIxData,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

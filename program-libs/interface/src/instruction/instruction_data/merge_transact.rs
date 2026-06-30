@@ -1,8 +1,6 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-use crate::instruction::tag::MERGE_TRANSACT;
-
 /// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
 /// carry distinct, in-window nullifiers and valid root indices.
 pub const MERGE_INPUT_COUNT: usize = 8;
@@ -50,7 +48,7 @@ impl MergeTransactIxData {
 /// [`MergeTransactIxData::serialize`], except sequences without an explicit
 /// `FixIntLen` carry a `u16` length prefix, matching `encrypted_utxo`'s
 /// `FixIntLen<u16>` while the element vectors keep their `FixIntLen<u8>` override.
-type RefConfig = wincode::config::Configuration<
+pub(crate) type RefConfig = wincode::config::Configuration<
     true,
     { wincode::config::DEFAULT_PREALLOCATION_SIZE_LIMIT },
     FixIntLen<u16>,
@@ -78,14 +76,21 @@ pub struct MergeTransactIxDataRef<'a> {
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
         let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
-        if parsed.nullifiers.len() != MERGE_INPUT_COUNT
-            || parsed.utxo_tree_root_index.len() != MERGE_INPUT_COUNT
-            || parsed.nullifier_tree_root_index.len() != MERGE_INPUT_COUNT
-            || parsed.encrypted_utxo.len() != MERGE_ENCRYPTED_UTXO_LEN
-        {
-            return Err(wincode::ReadError::Custom("invalid merge_transact shape"));
-        }
+        parsed.validate_shape()?;
         Ok(parsed)
+    }
+
+    /// Enforce the fixed 8-in/1-out merge shape and output blob length. Shared with
+    /// `merge_zone`, which embeds a `MergeTransactIxDataRef`.
+    pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
+        if self.nullifiers.len() != MERGE_INPUT_COUNT
+            || self.utxo_tree_root_index.len() != MERGE_INPUT_COUNT
+            || self.nullifier_tree_root_index.len() != MERGE_INPUT_COUNT
+            || self.encrypted_utxo.len() != MERGE_ENCRYPTED_UTXO_LEN
+        {
+            return Err(wincode::ReadError::Custom("invalid merge shape"));
+        }
+        Ok(())
     }
 
     /// `tx_viewing_pk = encrypted_utxo[6..39]` (after the borsh tag(1) + vec
@@ -105,10 +110,12 @@ impl<'a> MergeTransactIxDataRef<'a> {
     }
 }
 
-/// `external_data_hash` public input for `merge_transact`. Domain-separated by the
-/// `merge_transact` discriminator so a preimage cannot be reused across
-/// instructions. Computed identically by the client and the program.
+/// `external_data_hash` public input for the merge instructions. Domain-separated
+/// by the instruction's discriminator (`merge_transact` or `merge_zone`) so a
+/// preimage cannot be reused across instructions. Computed identically by the
+/// client and the program.
 pub struct MergeExternalDataHash<'a> {
+    pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub output_utxo_hash: &'a [u8; 32],
     pub encrypted_utxo: &'a [u8],
@@ -117,7 +124,7 @@ pub struct MergeExternalDataHash<'a> {
 impl MergeExternalDataHash<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         let mut preimage = Vec::new();
-        preimage.push(MERGE_TRANSACT);
+        preimage.push(self.spp_instruction_discriminator);
         preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
         preimage.extend_from_slice(self.output_utxo_hash);
         preimage.extend_from_slice(&(self.encrypted_utxo.len() as u16).to_be_bytes());
@@ -192,6 +199,7 @@ mod tests {
 
     fn hash_of(expiry: u64, output: &[u8; 32], blob: &[u8]) -> [u8; 32] {
         MergeExternalDataHash {
+            spp_instruction_discriminator: crate::instruction::tag::MERGE_TRANSACT,
             expiry_unix_ts: expiry,
             output_utxo_hash: output,
             encrypted_utxo: blob,

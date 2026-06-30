@@ -11,15 +11,18 @@ use crate::instructions::{
     create_tree::process_create_tree,
     deposit::{process_deposit, process_zone_deposit},
     merge::process_merge_transact_ix,
+    merge_zone::process_merge_zone_ix,
     protocol_config::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
     },
     transact::process_transact_ix,
+    zone_authority_transact::process_zone_authority_transact_ix,
     zone_config::{
         create::process_create_zone_config, update::process_update_zone_config,
         update_owner::process_update_zone_config_owner,
     },
+    zone_transact::process_zone_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -47,6 +50,10 @@ pub fn process_instruction(
     match ix_tag {
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact => process_transact_ix(accounts, payload),
+        InstructionTag::ZoneTransact => process_zone_transact_ix(accounts, payload),
+        InstructionTag::ZoneAuthorityTransact => {
+            process_zone_authority_transact_ix(accounts, payload)
+        }
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)
@@ -64,5 +71,6 @@ pub fn process_instruction(
         }
         InstructionTag::UpdateZoneConfig => process_update_zone_config(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
+        InstructionTag::ZoneMergeTransact => process_merge_zone_ix(accounts, payload),
     }
 }

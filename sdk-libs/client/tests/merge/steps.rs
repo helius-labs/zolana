@@ -135,8 +135,9 @@ impl MergeWorld {
             blinding,
             zone_program_id: None,
             zone_data_hash: None,
-            program_data_hash: None,
+            data_hash: None,
             owner_tag: None,
+            data: Data::default(),
         };
         assert_eq!(
             reconstructed.hash().expect("reconstructed utxo hash"),

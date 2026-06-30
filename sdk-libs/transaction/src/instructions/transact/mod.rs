@@ -13,6 +13,6 @@ pub use builder::{
 pub use external_data::ExternalData;
 pub use signed_transaction::{PublicAmounts, SignedTransaction};
 pub use types::{
-    private_tx_hash, EncryptedTransaction, InputUtxo, OutputContext, OutputSlot, OutputUtxo,
-    ShieldedTransaction,
+    no_address_hashes, private_tx_hash, EncryptedTransaction, InputUtxo, OutputContext, OutputSlot,
+    OutputUtxo, ShieldedTransaction,
 };

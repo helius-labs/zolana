@@ -58,9 +58,7 @@ impl Deposit {
                 owner,
                 blinding,
                 public_amount: Some(request.amount),
-                program_data_hash: None,
-                program_data: None,
-                cpi_signer: None,
+                utxo_data: None,
             },
             utxo_hash,
             asset: request.asset,
@@ -128,9 +126,7 @@ fn deposit_instruction(
         owner: data.owner,
         blinding: data.blinding,
         public_amount: data.public_amount,
-        program_data_hash: data.program_data_hash,
-        program_data: data.program_data.clone(),
-        cpi_signer: data.cpi_signer,
+        utxo_data: data.utxo_data.clone(),
     }
     .instruction()
 }
@@ -192,9 +188,7 @@ mod tests {
             owner: [2u8; 32],
             blinding: [3u8; 31],
             public_amount: Some(1_000),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            utxo_data: None,
         };
 
         deposit(&rpc, &payer, tree, &depositor, None, &data).expect("action");
@@ -208,9 +202,7 @@ mod tests {
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program_data_hash: data.program_data_hash,
-            program_data: data.program_data.clone(),
-            cpi_signer: data.cpi_signer,
+            utxo_data: data.utxo_data.clone(),
         }
         .instruction();
         assert_eq!(sent.message.instructions.len(), 1);

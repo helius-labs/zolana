@@ -88,7 +88,13 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, external.hash)
+	// This builder constructs only real spends and padding dummies, never address
+	// slots, so the address category is all zeros (one per input).
+	addressHashes := make([]*big.Int, shape.NInputs)
+	for i := range addressHashes {
+		addressHashes[i] = big.NewInt(0)
+	}
+	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, addressHashes, external.hash)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -139,10 +145,8 @@ func buildProofAssignment(
 		PublicSolAmount:      publicInputs.PublicSolAmount,
 		PublicSplAmount:      publicInputs.PublicSplAmount,
 		PublicSplAssetPubkey: publicInputs.PublicSplAssetPubkey,
-		ProgramIDHashchain:   publicInputs.ProgramIDHashchain,
+		ZoneProgramID:        publicInputs.ZoneProgramID,
 		PayerPubkeyHash:      publicInputs.PayerPubkeyHash,
-		DataHash:             publicInputs.DataHash,
-		ZoneDataHash:         publicInputs.ZoneDataHash,
 		PublicInputHash:      publicInputHash,
 	}
 	transcript := assignmentTranscript{
@@ -246,10 +250,8 @@ func buildPublicInputs(
 		PublicSolAmount:      external.publicSolAmount,
 		PublicSplAmount:      external.publicSplAmount,
 		PublicSplAssetPubkey: external.publicSplAsset,
-		ProgramIDHashchain:   external.programIDHashchain,
+		ZoneProgramID:        external.zoneProgramID,
 		PayerPubkeyHash:      new(big.Int).Set(payerHash),
 		InputOwnerPkHashes:   inputs.inputOwnerPkHashes,
-		DataHash:             external.dataHash,
-		ZoneDataHash:         external.zoneDataHash,
 	}
 }

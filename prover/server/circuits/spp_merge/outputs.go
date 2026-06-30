@@ -11,13 +11,16 @@ import (
 // user_owner_hash, and its commitment matches the public output_utxo_hash. The
 // merged output is always real, so no dummy gating applies. Returns its UTXO
 // hash for the private-transaction-hash chain.
-func constrainOutput(api frontend.API, out Output, userOwnerHash frontend.Variable) frontend.Variable {
+func constrainOutput(api frontend.API, out Output, userOwnerHash frontend.Variable, zone bool, zoneProgramID frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(out.Utxo.Domain, UtxoDomain)
 
-	// Output cleanliness: merge_transact creates only a bare UTXO.
 	api.AssertIsEqual(out.Utxo.DataHash, 0)
-	api.AssertIsEqual(out.Utxo.ZoneDataHash, 0)
-	api.AssertIsEqual(out.Utxo.ZoneProgramID, 0)
+	if zone {
+		api.AssertIsEqual(out.Utxo.ZoneProgramID, zoneProgramID)
+	} else {
+		api.AssertIsEqual(out.Utxo.ZoneDataHash, 0)
+		api.AssertIsEqual(out.Utxo.ZoneProgramID, 0)
+	}
 
 	// Output well-formed: owner == user_owner_hash.
 	api.AssertIsEqual(out.Utxo.Owner, userOwnerHash)

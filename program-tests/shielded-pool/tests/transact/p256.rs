@@ -280,7 +280,8 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             user_sol_account: &recipient.to_bytes(),
             user_spl_token_account: &zero,
             spl_token_interface: &zero,
-            cpi_signer: ix_data.cpi_signer,
+            data_hash: None,
+            zone_data_hash: None,
             output_utxo_hashes: &ix_data.output_utxo_hashes,
             output_ciphertexts: &ix_data.output_ciphertexts,
         }
@@ -299,10 +300,8 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             signed_to_field(ix_data.public_sol_amount.unwrap_or(0) as i128),
             signed_to_field(ix_data.public_spl_amount.unwrap_or(0) as i128),
             zero, // public_spl_asset_pubkey (no mint)
-            zero, // program_id_hashchain
+            zero, // zone_program_id
             payer_pubkey_hash,
-            zero, // data_hash
-            zero, // zone_data_hash
             hash_chain(&input_owner).unwrap(),
             hash_chain(&output_owner).unwrap(),
             p256_field,

@@ -38,9 +38,7 @@ impl ZolanaProgramTest {
             owner,
             blinding,
             public_amount: Some(lamports),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            utxo_data: None,
         }
     }
 
@@ -54,9 +52,7 @@ impl ZolanaProgramTest {
             owner,
             blinding,
             public_amount: Some(amount),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            utxo_data: None,
         }
     }
 
@@ -72,9 +68,7 @@ impl ZolanaProgramTest {
             owner: fields.owner,
             blinding: fields.blinding,
             public_amount: Some(lamports),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            utxo_data: None,
         })
     }
 
@@ -90,9 +84,7 @@ impl ZolanaProgramTest {
             owner: fields.owner,
             blinding: fields.blinding,
             public_amount: Some(amount),
-            program_data_hash: None,
-            program_data: None,
-            cpi_signer: None,
+            utxo_data: None,
         })
     }
 }
