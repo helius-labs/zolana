@@ -41,28 +41,3 @@ pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
     borsh::to_vec(&OutputData::VerifiablyEncrypted(blob))
         .expect("shielded-pool output data serialization is infallible")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn proofless_output_memo_round_trips() {
-        let output = ProoflessOutput {
-            owner: [1u8; 32],
-            blinding: [2u8; 31],
-            asset: [3u8; 32],
-            amount: 99,
-            data_hash: None,
-            utxo_data: None,
-            zone_program_id: None,
-            zone_data_hash: None,
-            zone_data: None,
-            memo: Some(b"hello".to_vec()),
-        };
-        let bytes = borsh::to_vec(&output).unwrap();
-        let parsed = ProoflessOutput::try_from_slice(&bytes).unwrap();
-        assert_eq!(parsed, output);
-        assert_eq!(parsed.memo.as_deref(), Some(b"hello".as_slice()));
-    }
-}

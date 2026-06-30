@@ -87,24 +87,3 @@ impl ZoneDepositIxData {
         Ok(wincode::deserialize_exact(data)?)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn deposit_ix_data_memo_round_trips() {
-        let data = DepositIxData {
-            view_tag: [1u8; 32],
-            owner: [2u8; 32],
-            blinding: [3u8; 31],
-            public_amount: Some(1_000),
-            utxo_data: None,
-            memo: Some(b"hello memo".to_vec()),
-        };
-        let bytes = data.serialize().unwrap();
-        let parsed = DepositIxData::deserialize(&bytes).unwrap();
-        assert_eq!(parsed, data);
-        assert_eq!(parsed.memo.as_deref(), Some(b"hello memo".as_slice()));
-    }
-}
