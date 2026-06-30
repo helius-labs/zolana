@@ -69,7 +69,6 @@ zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", versio
 zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
-light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673", version = "0.23.0", default-features = false }
 zolana-merkle-tree-metadata = { path = "program-libs/merkle-tree-metadata", version = "0.11.0" }
 light-poseidon = "0.4.0"
 light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "b3155b505ce7c8a5718cb155326baef27d311d8f" }
@@ -187,9 +186,6 @@ zeroize = "1"
 criterion = "0.5"
 proptest = "1"
 wincode = { version = "0.5", features = ["derive"] }
-
-[patch.crates-io]
-light-instruction-decoder = { git = "https://github.com/helius-labs/privacy-program-libs", rev = "dfaf338a92d746e41349706ab9f2b53280fc0673" }
 
 [profile.dev]
 opt-level = 0

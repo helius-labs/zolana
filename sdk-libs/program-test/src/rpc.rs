@@ -1,6 +1,5 @@
 use solana_account::Account;
 use solana_address::Address;
-use solana_clock::Clock;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -12,7 +11,6 @@ use zolana_client::{ClientError, Rpc};
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
-    logging::{log_failed_transaction, log_transaction},
     ProgramTestError, ZolanaProgramTest,
 };
 
@@ -46,11 +44,9 @@ impl ZolanaProgramTest {
             .copied()
             .ok_or_else(|| ProgramTestError::Rpc("transaction has no signatures".into()))?;
         let message = transaction.message.clone();
-        let slot = self.svm.get_sysvar::<Clock>().slot;
         let meta = match self.svm.send_transaction(transaction) {
             Ok(meta) => meta,
             Err(err) => {
-                log_failed_transaction(self.program_id, slot, &message, &err);
                 return Err(ProgramTestError::Litesvm(format!(
                     "send_transaction: {err:?}"
                 )));
@@ -63,7 +59,6 @@ impl ZolanaProgramTest {
             &meta,
         )?;
         index_events(&mut self.indexer, &events)?;
-        log_transaction(self.program_id, slot, &message, &meta, &events);
         Ok(IndexedTransaction { signature, events })
     }
 }

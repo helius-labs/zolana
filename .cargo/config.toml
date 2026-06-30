@@ -1,4 +1,4 @@
 [net]
-# privacy-program-libs is an internal repo; delegate authentication to the
-# system git CLI so the user's existing credentials are picked up.
+# Delegate git fetches to the system git CLI so existing credentials are picked
+# up for any private git dependency.
 git-fetch-with-cli = true

@@ -32,7 +32,6 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 [dev-dependencies]
 cucumber = { workspace = true }
 futures = { workspace = true }
-light-instruction-decoder = { workspace = true }
 rand = { workspace = true }
 
 [[test]]

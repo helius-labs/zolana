@@ -33,7 +33,6 @@ anyhow = { workspace = true }
 bytemuck = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
-light-instruction-decoder = { workspace = true }
 p256 = { workspace = true }
 rand = { workspace = true }
 solana-account = { workspace = true }
