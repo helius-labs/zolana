@@ -148,7 +148,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         public_amount: shield_data.public_amount,
         program: shield_data.program,
     }
-    .instruction()?;
+    .instruction();
     let shield_tx = send_indexed(
         &mut rpc,
         &mut indexer,

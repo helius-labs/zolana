@@ -228,7 +228,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         public_amount: shield_data.public_amount,
         program: shield_data.program,
     }
-    .instruction()?;
+    .instruction();
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
     print_signature("deposit", &shield_sig);
     capture_fixture(&rpc, "proofless_shield", &shield_sig);
@@ -754,7 +754,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             public_amount: shield_data.public_amount,
             program: shield_data.program,
         }
-        .instruction()?;
+        .instruction();
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
         let raw_tx = rpc.fetch_confirmed_transaction(&sig)?;
@@ -1558,7 +1558,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             public_amount: shield_data.public_amount,
             program: shield_data.program,
         }
-        .instruction()?;
+        .instruction();
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
