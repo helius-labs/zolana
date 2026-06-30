@@ -18,8 +18,8 @@ pub(crate) struct ProoflessOutputCtx {
 }
 
 pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) -> ProgramResult {
-    let (data_hash, utxo_data) = match d.program {
-        Some(program) => (Some(program.data_hash), Some(program.utxo_data)),
+    let (data_hash, utxo_data) = match d.utxo_data {
+        Some(record) => (Some(record.data_hash), Some(record.data)),
         None => (None, None),
     };
     let (zone_data_hash, zone_data) = match d.zone {

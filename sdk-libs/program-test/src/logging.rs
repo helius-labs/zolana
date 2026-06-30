@@ -389,14 +389,12 @@ fn decoded_instruction(
 }
 
 fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'static str] {
-    let Ok(data) = DepositIxData::deserialize(payload) else {
+    let Ok(_data) = DepositIxData::deserialize(payload) else {
         return &[];
     };
-    let has_cpi_signer = data.program.is_some();
-    // SPL settlement carries one account more than SOL; cpi_signer (known from
-    // the data) shifts both by one. This mirrors the program's own inference.
-    let is_spl = account_count == 7 + usize::from(has_cpi_signer);
-    if is_spl {
+    // SPL settlement adds one account over SOL (7 vs 6), matching the program's
+    // own inference.
+    if account_count == 7 {
         &[
             "tree",
             "depositor",
@@ -404,16 +402,6 @@ fn proofless_accounts(payload: &[u8], account_count: usize) -> &'static [&'stati
             "vault",
             "asset_registry",
             "token_program",
-            "self_program",
-        ]
-    } else if has_cpi_signer || account_count == 7 {
-        &[
-            "tree",
-            "depositor",
-            "cpi_signer",
-            "system_program",
-            "sol_interface",
-            "sol_source",
             "self_program",
         ]
     } else {
@@ -501,11 +489,11 @@ fn proofless_fields(data: DepositIxData) -> Vec<DecodedField> {
         field("public_amount", option_u64(data.public_amount)),
         field(
             "data_hash",
-            option_hash(data.program.as_ref().map(|p| p.data_hash)),
+            option_hash(data.utxo_data.as_ref().map(|p| p.data_hash)),
         ),
         field(
             "utxo_data_len",
-            data.program.as_ref().map_or(0, |p| p.utxo_data.len()),
+            data.utxo_data.as_ref().map_or(0, |p| p.data.len()),
         ),
     ]
 }
@@ -522,11 +510,11 @@ fn zone_proofless_fields(data: ZoneDepositIxData) -> Vec<DecodedField> {
         field("zone_data_len", data.zone_data.len()),
         field(
             "data_hash",
-            option_hash(data.program.as_ref().map(|p| p.data_hash)),
+            option_hash(data.utxo_data.as_ref().map(|p| p.data_hash)),
         ),
         field(
             "utxo_data_len",
-            data.program.as_ref().map_or(0, |p| p.utxo_data.len()),
+            data.utxo_data.as_ref().map_or(0, |p| p.data.len()),
         ),
     ]
 }
@@ -693,7 +681,7 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use light_instruction_decoder::InstructionDecoder;
-    use zolana_interface::{instruction::CpiData, SHIELDED_POOL_PROGRAM_ID};
+    use zolana_interface::{instruction::UtxoData, SHIELDED_POOL_PROGRAM_ID};
 
     use super::*;
 
@@ -709,9 +697,9 @@ mod tests {
                 owner: [2; 32],
                 blinding: [3; 31],
                 public_amount: Some(42),
-                program: Some(CpiData {
+                utxo_data: Some(UtxoData {
                     data_hash: [0u8; 32],
-                    utxo_data: Vec::new(),
+                    data: Vec::new(),
                 }),
             }
             .serialize()

@@ -110,12 +110,11 @@ impl ZolanaProgramTest {
             public_amount: Some(lamports),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
+            utxo_data: None,
         }
     }
 
     pub fn wallet_zone_sol_shield_data(
-        &self,
         lamports: u64,
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
@@ -129,12 +128,11 @@ impl ZolanaProgramTest {
             public_amount: Some(lamports),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
+            utxo_data: None,
         })
     }
 
     pub fn wallet_zone_spl_shield_data(
-        &self,
         amount: u64,
         recipient: &Wallet,
         blinding_seed: &[u8; BLINDING_LEN],
@@ -148,7 +146,7 @@ impl ZolanaProgramTest {
             public_amount: Some(amount),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
+            utxo_data: None,
         })
     }
 
@@ -169,7 +167,7 @@ impl ZolanaProgramTest {
             zone_program_id: Self::zone_test_program_id(),
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
         .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;
@@ -200,7 +198,7 @@ impl ZolanaProgramTest {
             zone_program_id: Self::zone_test_program_id(),
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
         .instruction();
         let outcome = self.create_and_send_default_payer_transaction(&[ix], &[depositor])?;

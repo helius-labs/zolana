@@ -10,7 +10,6 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
-    pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -110,9 +109,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         owner: direct_data.owner,
         blinding: direct_data.blinding,
         public_amount: direct_data.public_amount,
-        program: direct_data.program,
+        utxo_data: direct_data.utxo_data,
     }
-    .instruction()?;
+    .instruction();
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -129,16 +128,13 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
-    let (_, zone_auth_bump) = pda::zone_auth(&zone_program_id);
-    let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data_for_zone(
+    let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_recipient,
         &[5u8; BLINDING_LEN],
         0,
-        ZONE_TEST_PROGRAM_ID,
-        zone_auth_bump,
     )?;
-    zone_data.zone.data_hash = [5u8; 32];
+    zone_data.zone_data_hash = [5u8; 32];
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
     let zone_ix = ZoneDeposit {
         tree: tree.pubkey(),
@@ -148,10 +144,12 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         owner: zone_data.owner,
         blinding: zone_data.blinding,
         public_amount: zone_data.public_amount,
-        zone: zone_data.zone,
-        program: zone_data.program,
+        zone_program_id,
+        zone_data_hash: zone_data.zone_data_hash,
+        zone_data: zone_data.zone_data.clone(),
+        utxo_data: zone_data.utxo_data,
     }
-    .instruction()?;
+    .instruction();
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

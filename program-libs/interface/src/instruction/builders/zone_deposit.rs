@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, CpiData, DepositSplAccounts, ZoneDepositIxData},
+    instruction::{tag, DepositSplAccounts, UtxoData, ZoneDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -22,7 +22,7 @@ pub struct ZoneDeposit {
     /// Application data committed into the UTXO's `data_hash`, authorized by the
     /// `ZoneConfig` account; `None` if the zone deposit carries no application
     /// data.
-    pub program: Option<CpiData>,
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl ZoneDeposit {
@@ -46,7 +46,7 @@ impl ZoneDeposit {
             public_amount: self.public_amount,
             zone_data_hash: self.zone_data_hash,
             zone_data: self.zone_data.clone(),
-            program: self.program.clone(),
+            utxo_data: self.utxo_data.clone(),
         };
 
         let mut data = vec![tag::ZONE_DEPOSIT];

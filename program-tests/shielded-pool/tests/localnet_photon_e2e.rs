@@ -226,7 +226,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         owner: shield_data.owner,
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
-        program: shield_data.program,
+        utxo_data: shield_data.utxo_data,
     }
     .instruction();
     let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
@@ -752,7 +752,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program: shield_data.program,
+            utxo_data: shield_data.utxo_data,
         }
         .instruction();
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
@@ -1556,7 +1556,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             owner: shield_data.owner,
             blinding: shield_data.blinding,
             public_amount: shield_data.public_amount,
-            program: shield_data.program,
+            utxo_data: shield_data.utxo_data,
         }
         .instruction();
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;

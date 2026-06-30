@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{instruction::ZoneDeposit, pda};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
 use zolana_transaction::Wallet;
 
@@ -36,9 +36,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
 
     let seed = [5u8; BLINDING_LEN];
-    let mut data = world
-        .rpc()
-        .wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
+    let mut data = ZolanaProgramTest::wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone deposit data");
     data.zone_data_hash = [5u8; 32];
 
@@ -85,9 +83,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
 
     let seed = [9u8; BLINDING_LEN];
-    let mut data = world
-        .rpc()
-        .wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
+    let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone SPL deposit data");
     data.zone_data_hash = [9u8; 32];
 
@@ -151,7 +147,7 @@ fn zone_shield_wrong_signer(world: &mut ShieldedPoolWorld) {
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
         zone_data_hash: data.zone_data_hash,
         zone_data: data.zone_data.clone(),
-        program: data.program.clone(),
+        utxo_data: data.utxo_data.clone(),
     }
     .cpi_instruction();
     if let Some(meta) = ix.accounts.get_mut(2) {

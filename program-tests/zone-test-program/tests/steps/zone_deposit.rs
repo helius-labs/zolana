@@ -45,7 +45,7 @@ impl ZoneLifecycleWorld {
             public_amount: Some(amount),
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
+            utxo_data: None,
         })
     }
 
@@ -74,7 +74,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
         .instruction();
         let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
@@ -142,7 +142,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: data.zone_data_hash,
             zone_data: data.zone_data.clone(),
-            program: data.program.clone(),
+            utxo_data: data.utxo_data.clone(),
         }
         .instruction();
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
@@ -226,7 +226,7 @@ impl ZoneLifecycleWorld {
             zone_program_id: self.zone_program_id,
             zone_data_hash: [0u8; 32],
             zone_data: Vec::new(),
-            program: None,
+            utxo_data: None,
         }
         .cpi_instruction();
         // Swap the zone config account (index 2) for a non-PDA signer.

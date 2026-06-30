@@ -3,7 +3,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{CpiData, DepositIxData, ZoneDepositIxData},
+    instruction::{DepositIxData, UtxoData, ZoneDepositIxData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     UTXO_DOMAIN,
 };
@@ -28,7 +28,7 @@ pub(crate) struct DepositParams {
     pub owner: [u8; 32],
     pub blinding: [u8; 31],
     pub public_amount: Option<u64>,
-    pub program: Option<CpiData>,
+    pub utxo_data: Option<UtxoData>,
     pub zone: Option<ZoneData>,
 }
 
@@ -50,7 +50,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program,
+            utxo_data: data.utxo_data,
             zone: None,
         },
     )
@@ -73,7 +73,7 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
             owner: data.owner,
             blinding: data.blinding,
             public_amount: data.public_amount,
-            program: data.program,
+            utxo_data: data.utxo_data,
             zone: Some(ZoneData {
                 data_hash: data.zone_data_hash,
                 data: data.zone_data,
@@ -99,8 +99,8 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     let asset_field = solana_pk_hash(&asset)?;
 
     let zero = [0u8; 32];
-    let data_hash = match &d.program {
-        Some(program) => program.data_hash,
+    let data_hash = match &d.utxo_data {
+        Some(utxo_data) => utxo_data.data_hash,
         None => zero,
     };
     let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {

@@ -4,10 +4,10 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 /// is authorized by the payer (non-zone) or the `ZoneConfig` account (zone); the
 /// UTXO is not program-owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CpiData {
+pub struct UtxoData {
     pub data_hash: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub utxo_data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 /// Public deposit without a proof (spec: `deposit`, tag 1).
@@ -32,7 +32,7 @@ pub struct DepositIxData {
     /// Application data committed into the UTXO's `data_hash`, authorized by the
     /// payer; `None` for a plain user deposit. Policy-zone deposits use
     /// [`ZoneDepositIxData`].
-    pub program: Option<CpiData>,
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl DepositIxData {
@@ -67,7 +67,7 @@ pub struct ZoneDepositIxData {
     /// Application data committed into the UTXO's `data_hash`, authorized by the
     /// `ZoneConfig` account; `None` if the zone deposit carries no application
     /// data.
-    pub program: Option<CpiData>,
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl ZoneDepositIxData {

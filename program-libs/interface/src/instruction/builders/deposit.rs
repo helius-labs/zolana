@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, CpiData, DepositIxData},
+    instruction::{tag, DepositIxData, UtxoData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -24,7 +24,7 @@ pub struct Deposit {
     pub public_amount: Option<u64>,
     /// Application data committed into the deposited UTXO's `data_hash`,
     /// authorized by the payer; `None` for a plain user deposit.
-    pub program: Option<CpiData>,
+    pub utxo_data: Option<UtxoData>,
 }
 
 impl Deposit {
@@ -34,7 +34,7 @@ impl Deposit {
             owner: self.owner,
             blinding: self.blinding,
             public_amount: self.public_amount,
-            program: self.program.clone(),
+            utxo_data: self.utxo_data.clone(),
         };
 
         let mut data = vec![tag::DEPOSIT];
