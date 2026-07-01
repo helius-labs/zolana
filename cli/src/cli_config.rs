@@ -185,7 +185,10 @@ pub(crate) fn resolve_prover_url(cli_override: Option<&str>, config: &CliConfigF
         .to_string()
 }
 
-pub(crate) fn resolve_tree<'a>(cli_override: Option<&'a str>, config: &'a CliConfigFile) -> &'a str {
+pub(crate) fn resolve_tree<'a>(
+    cli_override: Option<&'a str>,
+    config: &'a CliConfigFile,
+) -> &'a str {
     cli_override
         .or(config.tree.as_deref())
         .unwrap_or(DEFAULT_TREE)
