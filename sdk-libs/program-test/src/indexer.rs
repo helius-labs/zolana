@@ -50,6 +50,8 @@ pub struct ProoflessOutput {
     pub amount: u64,
     /// Blinding sent in the clear for the recipient to spend the note.
     pub blinding: [u8; 31],
+    /// Optional free-form memo emitted in the clear with the deposit.
+    pub memo: Option<Vec<u8>>,
 }
 
 impl IndexedUtxo {
@@ -112,6 +114,7 @@ impl TestIndexer {
                 asset: event.output.asset,
                 amount: event.output.amount,
                 blinding: event.output.blinding,
+                memo: event.output.memo.clone(),
             }),
         });
         Ok(&self.utxos[record_index])

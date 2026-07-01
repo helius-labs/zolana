@@ -36,6 +36,7 @@ pub(crate) fn emit_proofless_event(d: DepositParams, ctx: ProoflessOutputCtx) ->
         zone_program_id: ctx.zone_program_id,
         zone_data_hash,
         zone_data,
+        memo: d.memo,
     });
     let event = GeneralEvent {
         inputs: Vec::new(),

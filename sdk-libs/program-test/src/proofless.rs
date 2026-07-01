@@ -25,6 +25,7 @@ impl ZolanaProgramTest {
             blinding: data.blinding,
             public_amount: data.public_amount,
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         self.send_deposit_ix(ix, depositor)
@@ -52,6 +53,7 @@ impl ZolanaProgramTest {
             blinding: data.blinding,
             public_amount: data.public_amount,
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         self.send_deposit_ix(ix, depositor)
@@ -72,6 +74,7 @@ impl ZolanaProgramTest {
             blinding: data.blinding,
             public_amount: data.public_amount,
             utxo_data: data.utxo_data.clone(),
+            memo: data.memo.clone(),
         }
         .instruction();
         ix.program_id = self.program_id;

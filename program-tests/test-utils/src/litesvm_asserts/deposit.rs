@@ -29,6 +29,10 @@ pub fn litesvm_assert_deposit(
     assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
     assert_eq!(event.output.blinding, data.blinding, "blinding");
+    assert_eq!(
+        event.output.memo, data.memo,
+        "event memo mirrors instruction data"
+    );
 
     let root_after = program_test.state_root(tree).expect("state root");
     assert_ne!(root_after, root_before, "leaf must be appended");
@@ -69,4 +73,9 @@ pub fn litesvm_assert_deposit(
         "wallet UTXO hash"
     );
     assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
+    assert_eq!(
+        utxo.utxo.data.memo().map(<[u8]>::to_vec),
+        data.memo,
+        "wallet UTXO memo mirrors the deposited memo"
+    );
 }

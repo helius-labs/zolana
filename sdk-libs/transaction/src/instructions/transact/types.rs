@@ -10,6 +10,16 @@ use crate::{
     utxo::{owner_utxo_hash, utxo_hash, Blinding, Utxo},
 };
 
+/// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
+/// matching `Data::validate`.
+fn canonical_data_order(record: &DataRecord) -> u8 {
+    match record {
+        DataRecord::ZoneData(_) => 0,
+        DataRecord::UtxoData(_) => 1,
+        DataRecord::Memo(_) => 2,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InputUtxo {
     pub utxo: Utxo,
@@ -60,16 +70,21 @@ impl OutputUtxo {
         self
     }
 
+    /// Attach a free-form memo to the output. The memo is encrypted into the
+    /// recipient's note but not bound by the commitment, so unlike
+    /// `with_utxo_data`/`with_zone_data` it sets no `data_hash`.
+    pub fn with_memo(mut self, memo: Vec<u8>) -> Self {
+        self.set_data_record(DataRecord::Memo(memo));
+        self
+    }
+
     fn set_data_record(&mut self, record: DataRecord) {
-        let is_zone = matches!(record, DataRecord::ZoneData(_));
+        let order = canonical_data_order(&record);
         self.data
             .records
-            .retain(|existing| matches!(existing, DataRecord::ZoneData(_)) != is_zone);
+            .retain(|existing| canonical_data_order(existing) != order);
         self.data.records.push(record);
-        self.data.records.sort_by_key(|record| match record {
-            DataRecord::ZoneData(_) => 0u8,
-            DataRecord::UtxoData(_) => 1u8,
-        });
+        self.data.records.sort_by_key(canonical_data_order);
     }
 
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {

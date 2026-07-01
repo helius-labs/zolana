@@ -39,6 +39,7 @@ impl ZolanaProgramTest {
             blinding,
             public_amount: Some(lamports),
             utxo_data: None,
+            memo: None,
         }
     }
 
@@ -53,6 +54,7 @@ impl ZolanaProgramTest {
             blinding,
             public_amount: Some(amount),
             utxo_data: None,
+            memo: None,
         }
     }
 
@@ -69,6 +71,7 @@ impl ZolanaProgramTest {
             blinding: fields.blinding,
             public_amount: Some(lamports),
             utxo_data: None,
+            memo: None,
         })
     }
 
@@ -85,6 +88,7 @@ impl ZolanaProgramTest {
             blinding: fields.blinding,
             public_amount: Some(amount),
             utxo_data: None,
+            memo: None,
         })
     }
 }

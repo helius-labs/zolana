@@ -147,6 +147,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         blinding: shield_data.blinding,
         public_amount: shield_data.public_amount,
         utxo_data: shield_data.utxo_data,
+        memo: shield_data.memo,
     }
     .instruction();
     let shield_tx = send_indexed(

@@ -11,6 +11,9 @@ pub struct ProoflessOutput {
     pub zone_program_id: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub zone_data: Option<Vec<u8>>,
+    /// Optional free-form memo, emitted in the clear. Not committed into any
+    /// hash, so it is informational only.
+    pub memo: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]

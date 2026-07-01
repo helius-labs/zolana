@@ -67,8 +67,11 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
     let mut recipient =
         Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet deposit data");
+    // Exercise the proofless memo end-to-end: instruction data -> emitted event
+    // -> recipient wallet discovery.
+    data.memo = Some(b"shielded memo".to_vec());
     let root_before = world.rpc().state_root(&tree).expect("root");
     let depositor = world.depositor().insecure_clone();
     let event = world

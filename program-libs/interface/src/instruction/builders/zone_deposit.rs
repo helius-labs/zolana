@@ -23,6 +23,8 @@ pub struct ZoneDeposit {
     /// `ZoneConfig` account; `None` if the zone deposit carries no application
     /// data.
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    pub memo: Option<Vec<u8>>,
 }
 
 impl ZoneDeposit {
@@ -47,6 +49,7 @@ impl ZoneDeposit {
             zone_data_hash: self.zone_data_hash,
             zone_data: self.zone_data.clone(),
             utxo_data: self.utxo_data.clone(),
+            memo: self.memo.clone(),
         };
 
         let mut data = vec![tag::ZONE_DEPOSIT];

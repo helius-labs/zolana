@@ -186,8 +186,8 @@ jobs:
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PHOTON_ZOLANA_RELEASE_TAG: photon-zolana-50bd88039013
-      PHOTON_ZOLANA_SHA256: ab61934738c58d5d9cd1b3d6519ea3a331e105b686caf98d860829f33dfec782
+      PHOTON_ZOLANA_RELEASE_TAG: photon-zolana-313fadb92be0
+      PHOTON_ZOLANA_SHA256: f922fd14cf59381fca3212c6f31952607a25d2eb276226524e0aff91c9cc8969
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:
       - uses: actions/checkout@v4

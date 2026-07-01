@@ -56,6 +56,7 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
             zone_program_id: Some(expected_zone_program_id),
             zone_data_hash: Some(data.zone_data_hash),
             zone_data: Some(data.zone_data.clone()),
+            memo: None,
         },
     };
     assert_eq!(*event, expected, "zone deposit event");

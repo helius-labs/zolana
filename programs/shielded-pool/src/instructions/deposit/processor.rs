@@ -30,6 +30,7 @@ pub(crate) struct DepositParams {
     pub public_amount: Option<u64>,
     pub utxo_data: Option<UtxoData>,
     pub zone: Option<ZoneData>,
+    pub memo: Option<Vec<u8>>,
 }
 
 #[profile]
@@ -52,6 +53,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             public_amount: data.public_amount,
             utxo_data: data.utxo_data,
             zone: None,
+            memo: data.memo,
         },
     )
 }
@@ -78,6 +80,7 @@ pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> Progra
                 data_hash: data.zone_data_hash,
                 data: data.zone_data,
             }),
+            memo: data.memo,
         },
     )
 }

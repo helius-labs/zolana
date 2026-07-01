@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-50bd88039013}"
+release_tag="${PHOTON_ZOLANA_RELEASE_TAG:-photon-zolana-313fadb92be0}"
 repo="${PHOTON_ZOLANA_RELEASE_REPO:-helius-labs/zolana}"
 out_dir="${PHOTON_BIN_DIR:-target/bin}"
 out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
@@ -13,11 +13,11 @@ out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64|Linux-amd64)
     default_asset="photon-zolana-linux-x86_64.tar.gz"
-    default_sha256="ab61934738c58d5d9cd1b3d6519ea3a331e105b686caf98d860829f33dfec782"
+    default_sha256="f922fd14cf59381fca3212c6f31952607a25d2eb276226524e0aff91c9cc8969"
     ;;
   Darwin-arm64)
     default_asset="photon-zolana-macos-aarch64.tar.gz"
-    default_sha256="b0a025b2d7aab882758840956ba534c5b506d6eebb8c8f3d403e2708f4a5c326"
+    default_sha256="00f552ddb24674fa7c6e58f039dde6860fe688a1ffbb3fffc689a0e9b3688a2f"
     ;;
   *)
     echo "unsupported Photon release platform: $(uname -s)-$(uname -m)" >&2

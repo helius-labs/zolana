@@ -33,6 +33,10 @@ pub struct DepositIxData {
     /// payer; `None` for a plain user deposit. Policy-zone deposits use
     /// [`ZoneDepositIxData`].
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    /// Not committed into any hash, so it is informational only.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
+    pub memo: Option<Vec<u8>>,
 }
 
 impl DepositIxData {
@@ -68,6 +72,10 @@ pub struct ZoneDepositIxData {
     /// `ZoneConfig` account; `None` if the zone deposit carries no application
     /// data.
     pub utxo_data: Option<UtxoData>,
+    /// Optional free-form memo emitted in the clear with the proofless output.
+    /// Not committed into any hash, so it is informational only.
+    #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
+    pub memo: Option<Vec<u8>>,
 }
 
 impl ZoneDepositIxData {

@@ -29,6 +29,7 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
         zone_program_id: None,
         zone_data_hash: None,
         zone_data: None,
+        memo: Some(b"deposit memo".to_vec()),
     };
 
     ShieldedTransaction {
@@ -75,6 +76,11 @@ fn sync_discovers_and_spends_proofless_deposit() {
     let discovered = wallet.utxos.first().expect("discovered utxo");
     assert_eq!(discovered.output_context.hash, deposit_hash);
     assert!(!discovered.spent);
+    assert_eq!(
+        discovered.utxo.data.memo(),
+        Some(b"deposit memo".as_slice()),
+        "proofless memo survives decode into the discovered UTXO"
+    );
     let nullifier = discovered.nullifier;
 
     wallet
