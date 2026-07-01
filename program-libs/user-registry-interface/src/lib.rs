@@ -4,7 +4,7 @@ pub mod state;
 pub use state::{SyncDelegateEntry, UserRecord};
 
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("9EwHPNdsPHMt7kaUZaXDTaj92HVC8CL4Q16io4Vu87t4");
+    pubkey_array!("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
 
 pub const USER_RECORD_SEED: &[u8] = b"zolana/registry/v0";
 
