@@ -13,6 +13,7 @@ use zolana_transaction::{Address, AssetRegistry};
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
+pub(crate) const DEFAULT_TREE: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 const CONFIG_VERSION: u8 = 1;
 
 #[cfg(test)]
@@ -184,11 +185,10 @@ pub(crate) fn resolve_prover_url(cli_override: Option<&str>, config: &CliConfigF
         .to_string()
 }
 
-pub(crate) fn resolve_tree<'a>(
-    cli_override: Option<&'a str>,
-    config: &'a CliConfigFile,
-) -> Option<&'a str> {
-    cli_override.or(config.tree.as_deref())
+pub(crate) fn resolve_tree<'a>(cli_override: Option<&'a str>, config: &'a CliConfigFile) -> &'a str {
+    cli_override
+        .or(config.tree.as_deref())
+        .unwrap_or(DEFAULT_TREE)
 }
 
 #[cfg(test)]
@@ -248,7 +248,7 @@ mod tests {
         );
         assert_eq!(
             resolve_tree(Some("So11111111111111111111111111111111111111112"), &config),
-            Some("So11111111111111111111111111111111111111112")
+            "So11111111111111111111111111111111111111112"
         );
     }
 }
