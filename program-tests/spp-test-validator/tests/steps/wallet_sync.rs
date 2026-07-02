@@ -14,7 +14,12 @@ impl LifecycleWorld {
     pub(crate) fn sync(&mut self, name: &str) -> Result<()> {
         self.ensure_actor(name)?;
         let indexed = self.indexed.clone();
+        // The wallet decodes SPL notes via its own registry; keep it current with
+        // the scenario's registered assets (actors are created before assets in
+        // some flows, and assets can be added mid-scenario).
+        let assets = self.assets.clone();
         let actor = self.actor_mut(name);
+        actor.wallet.registry = assets;
         actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
 
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
@@ -52,7 +57,9 @@ impl LifecycleWorld {
     pub(crate) fn assert_no_utxos(&mut self, name: &str) -> Result<()> {
         self.ensure_actor(name)?;
         let indexed = self.indexed.clone();
+        let assets = self.assets.clone();
         let actor = self.actor_mut(name);
+        actor.wallet.registry = assets;
         actor.wallet.sync(&indexed, 0, DEFAULT_TAG_WINDOW)?;
         assert!(
             actor.wallet.utxos.is_empty(),
