@@ -266,8 +266,8 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
-        let report = wallet.sync(&self.txs, &self.assets, at, WINDOW).unwrap();
+        let mut wallet = Wallet::new(keypair, self.assets.clone()).unwrap();
+        let report = wallet.sync(&self.txs, at, WINDOW).unwrap();
         prop_assert_eq!(report.unparsed_transactions, 0);
         prop_assert_eq!(report.undecryptable_candidates, 0);
         prop_assert_eq!(wallet.last_synced, at);
@@ -308,7 +308,7 @@ impl Harness {
         prop_assert_eq!(&entry.known_senders, &known_senders);
         prop_assert_eq!(&entry.known_recipients, &known_recipients);
 
-        let balances = wallet.balances(&self.assets, true).unwrap();
+        let balances = wallet.balances(true).unwrap();
         let expected_total: u64 = self
             .expected
             .iter()
@@ -337,10 +337,8 @@ impl Harness {
         let signing = SigningKey::from_bytes(&self.alice.signing_key.secret_bytes()).unwrap();
         let viewing = ViewingKey::from_bytes(&self.alice.viewing_key.secret_bytes()).unwrap();
         let keypair = ShieldedKeypair::from_keys(signing, viewing).unwrap();
-        let mut wallet = Wallet::new(keypair).unwrap();
-        let parallel_report = wallet
-            .sync_parallel(&self.txs, &self.assets, at, WINDOW)
-            .unwrap();
+        let mut wallet = Wallet::new(keypair, self.assets.clone()).unwrap();
+        let parallel_report = wallet.sync_parallel(&self.txs, at, WINDOW).unwrap();
         prop_assert_eq!(&parallel_report, report);
         prop_assert_eq!(wallet.last_synced, sequential.last_synced);
 

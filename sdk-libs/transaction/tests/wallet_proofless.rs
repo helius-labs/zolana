@@ -53,9 +53,11 @@ fn self_consistent_deposit(wallet: &Wallet, amount: u64) -> ShieldedTransaction 
 
 #[test]
 fn sync_discovers_and_spends_proofless_deposit() {
-    let mut wallet =
-        Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
-    let assets = AssetRegistry::default();
+    let mut wallet = Wallet::new(
+        ShieldedKeypair::new().expect("shielded keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
     let deposit = self_consistent_deposit(&wallet, 1_234);
     let deposit_hash = deposit
         .output_slots
@@ -65,12 +67,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         .hash;
 
     wallet
-        .sync(
-            std::slice::from_ref(&deposit),
-            &assets,
-            1,
-            DEFAULT_TAG_WINDOW,
-        )
+        .sync(std::slice::from_ref(&deposit), 1, DEFAULT_TAG_WINDOW)
         .expect("sync discovers deposit");
     assert_eq!(wallet.utxos.len(), 1, "deposit discovered");
     let discovered = wallet.utxos.first().expect("discovered utxo");
@@ -84,12 +81,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
     let nullifier = discovered.nullifier;
 
     wallet
-        .sync(
-            std::slice::from_ref(&deposit),
-            &assets,
-            2,
-            DEFAULT_TAG_WINDOW,
-        )
+        .sync(std::slice::from_ref(&deposit), 2, DEFAULT_TAG_WINDOW)
         .expect("resync deposit");
     assert_eq!(wallet.utxos.len(), 1, "idempotent on re-sync");
 
@@ -103,7 +95,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         proofless: false,
     };
     wallet
-        .sync(std::slice::from_ref(&spend), &assets, 3, DEFAULT_TAG_WINDOW)
+        .sync(std::slice::from_ref(&spend), 3, DEFAULT_TAG_WINDOW)
         .expect("sync spend");
     assert!(
         wallet.utxos.first().expect("spent utxo").spent,

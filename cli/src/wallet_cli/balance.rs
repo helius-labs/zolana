@@ -10,7 +10,7 @@ use crate::args::BalanceOptions;
 
 pub(super) fn run_balance(opts: BalanceOptions) -> Result<()> {
     let ctx = sync_context(&opts.sync)?;
-    let balances = ctx.wallet.balances(&ctx.assets, true)?;
+    let balances = ctx.wallet.balances(true)?;
 
     if let Some(mint) = &opts.mint {
         let mint = parse_address(mint)?;

@@ -187,7 +187,7 @@ impl ZoneLifecycleWorld {
         let event = deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
-        let mut wallet = Wallet::new(keypair)?;
+        let mut wallet = Wallet::new(keypair, self.assets.clone())?;
         let expected_asset = match &record.spl {
             None => SOL_MINT,
             Some(spl) => Address::new_from_array(spl.mint.to_bytes()),

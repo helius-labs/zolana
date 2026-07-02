@@ -11,7 +11,7 @@ use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit,
 };
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet};
 
 use crate::{common::assert_custom, ShieldedPoolWorld};
 
@@ -143,8 +143,11 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let mint = world.mint();
     let user_token = world.user_token();
     let vault = pda::spl_asset_vault(&mint);
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
     let seed = [7u8; BLINDING_LEN];
     let data = ZolanaProgramTest::wallet_spl_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet deposit data");

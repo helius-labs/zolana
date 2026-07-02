@@ -30,8 +30,11 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
         .map(|a| a.lamports)
         .unwrap_or(0);
     let tree_before = world.rpc().account_data(&tree).expect("tree data");
-    let recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
 
     let seed = [42u8; BLINDING_LEN];
     let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
@@ -85,8 +88,11 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
         .rpc()
         .airdrop(&depositor.pubkey(), 10_000_000_000)
         .expect("airdrop");
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
 
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
@@ -113,7 +119,6 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
         recipient
             .sync(
                 &[event.to_shielded_transaction(Signature::default())],
-                &AssetRegistry::default(),
                 0,
                 DEFAULT_TAG_WINDOW,
             )

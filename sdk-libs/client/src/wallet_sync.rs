@@ -6,7 +6,7 @@ use std::{
 use zolana_interface::event::decode_output_data;
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, AssetRegistry, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
+    AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
     ShieldedTransaction, SyncReport, Wallet, DEFAULT_TAG_WINDOW,
 };
 
@@ -38,21 +38,16 @@ impl Default for SyncWalletConfig {
     }
 }
 
-pub fn sync_wallet<I>(
-    wallet: &mut Wallet,
-    indexer: &I,
-    assets: &AssetRegistry,
-) -> Result<SyncReport, ClientError>
+pub fn sync_wallet<I>(wallet: &mut Wallet, indexer: &I) -> Result<SyncReport, ClientError>
 where
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, indexer, assets, SyncWalletConfig::default())
+    sync_wallet_with_config(wallet, indexer, SyncWalletConfig::default())
 }
 
 pub fn sync_wallet_with_config<I>(
     wallet: &mut Wallet,
     indexer: &I,
-    assets: &AssetRegistry,
     config: SyncWalletConfig,
 ) -> Result<SyncReport, ClientError>
 where
@@ -89,7 +84,7 @@ where
                 ))
         });
         txs.extend(deposits);
-        report = wallet.sync(&txs, assets, now_unix_ts(), config.tag_window)?;
+        report = wallet.sync(&txs, now_unix_ts(), config.tag_window)?;
 
         if before == (transactions.len(), proofless_deposits.len()) {
             break;
@@ -103,11 +98,8 @@ pub fn get_private_transactions(wallet: &Wallet) -> &[PrivateTransaction] {
     wallet.private_transactions()
 }
 
-pub fn get_private_token_balances(
-    wallet: &Wallet,
-    assets: &AssetRegistry,
-) -> Result<Vec<AssetBalance>, ClientError> {
-    Ok(wallet.balances(assets, true)?)
+pub fn get_private_token_balances(wallet: &Wallet) -> Result<Vec<AssetBalance>, ClientError> {
+    Ok(wallet.balances(true)?)
 }
 
 fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
@@ -320,8 +312,8 @@ mod tests {
             merge::{Merge, MergeEncode},
             Proofless,
         },
-        Address, Data, OwnerCx, PrivateTransactionDirection, PrivateTransactionKind, Utxo,
-        UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, Data, OwnerCx, PrivateTransactionDirection, PrivateTransactionKind,
+        Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
     use super::*;
@@ -373,14 +365,13 @@ mod tests {
         let bob = ShieldedKeypair::new().expect("bob");
         let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
 
-        let mut wallet = Wallet::new(alice.clone()).expect("wallet");
+        let mut wallet = Wallet::new(alice.clone(), assets.clone()).expect("wallet");
         sync_wallet(
             &mut wallet,
             &MockIndexer {
                 transactions: vec![funding.clone()],
                 matches: Vec::new(),
             },
-            &assets,
         )
         .expect("sync funding");
         assert_eq!(wallet.private_transactions().len(), 1);
@@ -400,8 +391,8 @@ mod tests {
             matches: Vec::new(),
         };
 
-        sync_wallet(&mut wallet, &indexer, &assets).expect("sync outbound");
-        sync_wallet(&mut wallet, &indexer, &assets).expect("resync is idempotent");
+        sync_wallet(&mut wallet, &indexer).expect("sync outbound");
+        sync_wallet(&mut wallet, &indexer).expect("resync is idempotent");
 
         assert_eq!(wallet.private_transactions().len(), 2);
         let outbound = wallet
@@ -435,7 +426,6 @@ mod tests {
                 transactions: vec![withdrawal],
                 matches: Vec::new(),
             },
-            &assets,
         )
         .expect("sync withdrawal");
 
@@ -471,7 +461,6 @@ mod tests {
                 transactions: vec![tx],
                 matches: Vec::new(),
             },
-            &assets,
         )
         .expect("sync mixed outbound");
 
@@ -504,7 +493,6 @@ mod tests {
                 transactions: vec![tx],
                 matches: Vec::new(),
             },
-            &assets,
         )
         .expect("sync merge");
         assert_eq!(report.undecryptable_candidates, 0);
@@ -554,8 +542,11 @@ mod tests {
 
     #[test]
     fn proofless_fetch_decodes_indexed_payload() {
-        let wallet =
-            Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
+        let wallet = Wallet::new(
+            ShieldedKeypair::new().expect("shielded keypair"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let output = proofless_output_for_wallet(&wallet, 1_234);
         let item = encrypted_match(&wallet, output.clone());
         let indexer = MockIndexer {
@@ -586,16 +577,18 @@ mod tests {
 
     #[test]
     fn sync_wallet_discovers_indexed_proofless_deposit() {
-        let mut wallet =
-            Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
+        let mut wallet = Wallet::new(
+            ShieldedKeypair::new().expect("shielded keypair"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let output = proofless_output_for_wallet(&wallet, 42);
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
         };
 
-        sync_wallet(&mut wallet, &indexer, &AssetRegistry::default())
-            .expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
 
         assert_eq!(wallet.utxos.len(), 1);
         assert_eq!(wallet.utxos[0].utxo.amount, 42);
@@ -614,19 +607,20 @@ mod tests {
 
     #[test]
     fn get_private_token_balances_aggregates_unspent_utxos() {
-        let mut wallet =
-            Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
+        let mut wallet = Wallet::new(
+            ShieldedKeypair::new().expect("shielded keypair"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let output = proofless_output_for_wallet(&wallet, 42);
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
         };
 
-        sync_wallet(&mut wallet, &indexer, &AssetRegistry::default())
-            .expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
 
-        let balances =
-            get_private_token_balances(&wallet, &AssetRegistry::default()).expect("balances");
+        let balances = get_private_token_balances(&wallet).expect("balances");
         assert_eq!(balances.len(), 1);
         assert_eq!(balances[0].amount, 42);
         assert_eq!(balances[0].mint, SOL_MINT);
@@ -635,16 +629,18 @@ mod tests {
 
     #[test]
     fn get_private_transactions_matches_wallet_history() {
-        let mut wallet =
-            Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
+        let mut wallet = Wallet::new(
+            ShieldedKeypair::new().expect("shielded keypair"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let output = proofless_output_for_wallet(&wallet, 7);
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
         };
 
-        sync_wallet(&mut wallet, &indexer, &AssetRegistry::default())
-            .expect("sync indexed proofless deposit");
+        sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
 
         let txs = get_private_transactions(&wallet);
         assert_eq!(txs.len(), 1);
@@ -657,8 +653,11 @@ mod tests {
 
     #[test]
     fn proofless_fetch_skips_rows_with_viewing_material() {
-        let wallet =
-            Wallet::new(ShieldedKeypair::new().expect("shielded keypair")).expect("wallet");
+        let wallet = Wallet::new(
+            ShieldedKeypair::new().expect("shielded keypair"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
         let mut item = encrypted_match(&wallet, proofless_output_for_wallet(&wallet, 1));
         item.salt = Some([1u8; 16]);
         let indexer = MockIndexer {
@@ -889,7 +888,17 @@ mod tests {
     }
 
     fn wallet_with_utxos(owner: &ShieldedKeypair, entries: &[(Address, u64, u8)]) -> Wallet {
-        let mut wallet = Wallet::new(owner.clone()).expect("wallet");
+        let mut registry = AssetRegistry::default();
+        let mut next_asset_id = 2u64;
+        for &(asset, _, _) in entries {
+            if asset != SOL_MINT && registry.asset_id(&asset).is_err() {
+                registry
+                    .insert(next_asset_id, asset)
+                    .expect("register asset");
+                next_asset_id += 1;
+            }
+        }
+        let mut wallet = Wallet::new(owner.clone(), registry).expect("wallet");
         for &(asset, amount, seed) in entries {
             let utxo = test_utxo(owner, asset, amount, seed);
             let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier pubkey");
