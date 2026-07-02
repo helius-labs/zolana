@@ -1,9 +1,84 @@
 use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
 use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType};
-use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
+use zolana_user_registry_interface::{
+    instruction::{register, update_keys, RegisterData, UpdateKeysData},
+    user_record_pda, user_registry_program_id, UserRecord,
+};
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
+
+/// Derive the on-chain registry record fields from a shielded keypair: the
+/// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
+/// pubkey. Returns the exact `RegisterData` the register/update instructions take.
+fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientError> {
+    let owner_p256 = match keypair.signing_pubkey().signature_type()? {
+        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+        SignatureType::Ed25519 => None,
+    };
+    Ok(RegisterData {
+        owner_p256,
+        nullifier_pubkey: keypair.nullifier_key.pubkey()?,
+        viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
+    })
+}
+
+/// Publish `keypair`'s shielded keys to the on-chain user-registry directory
+/// under `funding`'s pubkey, so senders who know only that Solana address route
+/// transfers to the shielded path (rather than falling back to a public
+/// withdrawal). Registration is optional for receiving a confidential transfer
+/// to a known shielded address; it is the pubkey-addressability directory.
+///
+/// Idempotent: registers if no record exists, updates the record on a key
+/// change, and returns `Ok(None)` if the record already matches (no transaction
+/// sent). The record lives at `user_record_pda(&funding.pubkey()).0`.
+///
+/// `funding` must sign — the registry keys the record under its pubkey and the
+/// program requires the owner's signature, so only the record's owner can
+/// publish or update it.
+pub fn ensure_registered<R: Rpc>(
+    rpc: &R,
+    funding: &Keypair,
+    keypair: &ShieldedKeypair,
+) -> Result<Option<Signature>, ClientError> {
+    let owner = funding.pubkey();
+    let data = register_fields(keypair)?;
+    let (user_record, _bump) = user_record_pda(&owner);
+    let owner_address = Address::new_from_array(owner.to_bytes());
+
+    if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
+        if record.owner_p256 == data.owner_p256
+            && record.nullifier_pubkey == data.nullifier_pubkey
+            && record.viewing_pubkey == data.viewing_pubkey
+        {
+            return Ok(None);
+        }
+        let ix = update_keys(
+            user_record,
+            owner,
+            UpdateKeysData {
+                owner_p256: data.owner_p256,
+                nullifier_pubkey: data.nullifier_pubkey,
+                viewing_pubkey: data.viewing_pubkey,
+            },
+        );
+        return Ok(Some(rpc.create_and_send_transaction(
+            &[ix],
+            owner_address,
+            &[funding],
+        )?));
+    }
+
+    let ix = register(user_record, owner, data);
+    Ok(Some(rpc.create_and_send_transaction(
+        &[ix],
+        owner_address,
+        &[funding],
+    )?))
+}
 
 pub fn fetch_user_record_checked<R: Rpc>(
     rpc: &R,
@@ -392,5 +467,89 @@ mod tests {
         assert!(err
             .to_string()
             .contains("missing user record discriminator"));
+    }
+
+    /// Mock that serves an optional record account and captures the sent
+    /// transaction, so `ensure_registered`'s three branches can be asserted
+    /// without a validator.
+    #[derive(Default)]
+    struct SendMockRpc {
+        account: Option<(Address, Account)>,
+        sent: std::cell::RefCell<Option<solana_transaction::Transaction>>,
+    }
+
+    impl Rpc for SendMockRpc {
+        fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Ok(self
+                .account
+                .as_ref()
+                .and_then(|(expected, account)| (*expected == address).then(|| account.clone())))
+        }
+
+        fn get_latest_blockhash(&self) -> Result<(solana_hash::Hash, u64), ClientError> {
+            Ok((solana_hash::Hash::default(), 0))
+        }
+
+        fn send_transaction(
+            &self,
+            transaction: &solana_transaction::Transaction,
+        ) -> Result<Signature, ClientError> {
+            *self.sent.borrow_mut() = Some(transaction.clone());
+            Ok(Signature::default())
+        }
+    }
+
+    fn account_at(owner: Pubkey, record: &UserRecord) -> (Address, Account) {
+        let (pda, _bump) = user_record_pda(&owner);
+        (Address::new_from_array(pda.to_bytes()), account_for(record))
+    }
+
+    fn ensure_registered_ix_tag(rpc: &SendMockRpc) -> u8 {
+        // First byte of the single instruction's data = the user-registry tag.
+        rpc.sent.borrow().as_ref().expect("a tx was sent").message.instructions[0].data[0]
+    }
+
+    #[test]
+    fn ensure_registered_registers_when_absent() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let rpc = SendMockRpc::default(); // no record -> register path
+        let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
+        assert!(sig.is_some(), "register should send a transaction");
+        // Tag 0 = register (first user-registry instruction tag).
+        assert_eq!(ensure_registered_ix_tag(&rpc), zolana_user_registry_interface::instruction::discriminator::REGISTER);
+    }
+
+    #[test]
+    fn ensure_registered_noops_when_current() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        let record = registered_record(owner, bump, &keypair);
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &record)),
+            ..Default::default()
+        };
+        let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
+        assert!(sig.is_none(), "matching record must not send a transaction");
+        assert!(rpc.sent.borrow().is_none());
+    }
+
+    #[test]
+    fn ensure_registered_updates_when_keys_changed() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        // Record exists but with stale keys (a different keypair).
+        let stale = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &stale)),
+            ..Default::default()
+        };
+        let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
+        assert!(sig.is_some(), "key change should send an update transaction");
+        assert_eq!(ensure_registered_ix_tag(&rpc), zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS);
     }
 }
