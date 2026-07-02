@@ -1,0 +1,55 @@
+[package]
+name = "rust-client-example"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+
+[[example]]
+name = "action_spl_deposit"
+path = "examples/action_spl_deposit.rs"
+
+[[example]]
+name = "instruction_spl_deposit"
+path = "examples/instruction_spl_deposit.rs"
+
+[[example]]
+name = "action_spl_transfer"
+path = "examples/action_spl_transfer.rs"
+
+[[example]]
+name = "instruction_spl_transfer"
+path = "examples/instruction_spl_transfer.rs"
+
+[[example]]
+name = "action_spl_withdraw"
+path = "examples/action_spl_withdraw.rs"
+
+[[example]]
+name = "instruction_spl_withdraw"
+path = "examples/instruction_spl_withdraw.rs"
+
+[[example]]
+name = "action_sync_balance"
+path = "examples/action_sync_balance.rs"
+
+[[example]]
+name = "instruction_sync_balance"
+path = "examples/instruction_sync_balance.rs"

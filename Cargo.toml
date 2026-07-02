@@ -29,6 +29,7 @@ members = [
     "sdk-libs/program-test",
     "sdk-libs/transaction",
     "xtask",
+    "examples/rust-client",
 ]
 default-members = [
     "forester",

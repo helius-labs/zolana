@@ -4471,6 +4471,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-client-example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "solana-address 2.6.1",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-user-registry-interface",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
