@@ -1,4 +1,6 @@
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
@@ -13,7 +15,9 @@ use zolana_transaction::{
 };
 
 use crate::{
+    actions::submit::Submit,
     error::ClientError,
+    prover::ProverClient,
     rpc::Rpc,
     user_registry::try_resolve_registered_address,
     wallet_authority::{
@@ -33,6 +37,29 @@ pub struct CreatedTransfer {
     pub signed: SignedTransaction,
     pub wait_tag: ViewTag,
     pub recipient: TransferRecipient,
+}
+
+impl CreatedTransfer {
+    /// Prove and submit this transfer in one call, mirroring [`super::Deposit::send`].
+    ///
+    /// The public-withdrawal settlement is derived internally — a transfer to an
+    /// unregistered recipient falls back to a public withdrawal — so the caller
+    /// cannot mismatch it. `cu_limit` of `None` uses [`super::DEFAULT_TRANSACT_CU_LIMIT`].
+    pub fn submit<R: Rpc>(
+        self,
+        rpc: &R,
+        prover: &ProverClient,
+        payer: &Keypair,
+        tree: Pubkey,
+        cu_limit: Option<u32>,
+    ) -> Result<Signature, ClientError> {
+        Submit {
+            signed: self.signed,
+            withdrawal: self.recipient.withdrawal().cloned(),
+            cu_limit,
+        }
+        .execute(rpc, prover, payer, tree)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +96,26 @@ pub struct CreatedWithdrawal {
     pub signed: SignedTransaction,
     pub wait_tag: ViewTag,
     pub withdrawal: TransactWithdrawal,
+}
+
+impl CreatedWithdrawal {
+    /// Prove and submit this withdrawal in one call, mirroring [`super::Deposit::send`].
+    /// `cu_limit` of `None` uses [`super::DEFAULT_TRANSACT_CU_LIMIT`].
+    pub fn submit<R: Rpc>(
+        self,
+        rpc: &R,
+        prover: &ProverClient,
+        payer: &Keypair,
+        tree: Pubkey,
+        cu_limit: Option<u32>,
+    ) -> Result<Signature, ClientError> {
+        Submit {
+            signed: self.signed,
+            withdrawal: Some(self.withdrawal),
+            cu_limit,
+        }
+        .execute(rpc, prover, payer, tree)
+    }
 }
 
 pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
