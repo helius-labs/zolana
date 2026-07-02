@@ -38,7 +38,6 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         recipient_owner,
         asset,
         amount: opts.amount,
-        assets: &ctx.assets,
     })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {

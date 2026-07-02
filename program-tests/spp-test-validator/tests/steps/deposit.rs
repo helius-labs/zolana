@@ -133,7 +133,7 @@ impl LifecycleWorld {
         let event = deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
-        let mut wallet = Wallet::new(keypair)?;
+        let mut wallet = Wallet::new(keypair, self.assets.clone())?;
         match &record.spl {
             None => assert_deposit(
                 &self.rpc,

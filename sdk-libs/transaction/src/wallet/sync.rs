@@ -643,13 +643,16 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[ShieldedTransaction],
-        assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
+        // Borrow the registry up front, before `ctx` takes `&mut self.utxos`;
+        // disjoint-field borrows let this immutable borrow of `self.registry`
+        // coexist with the mutable UTXO/transaction borrows below.
+        let assets = &self.registry;
         let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),

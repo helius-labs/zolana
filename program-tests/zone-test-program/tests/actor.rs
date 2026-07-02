@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_interface::instruction::ZoneDepositIxData;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_transaction::{Utxo, Wallet, WalletUtxo};
+use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
 /// What a zone deposit's action recorded, so the separate assert step can verify
 /// it with `assert_zone_deposit` (which needs the sent data and the pre-deposit
@@ -54,7 +54,7 @@ impl Actor {
     }
 
     pub(crate) fn with_keypair(keypair: ShieldedKeypair) -> Result<Self> {
-        let wallet = Wallet::new(keypair.clone())?;
+        let wallet = Wallet::new(keypair.clone(), AssetRegistry::default())?;
         Ok(Self {
             keypair,
             wallet,

@@ -34,15 +34,15 @@ fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
 }
 
 fn alice_wallet() -> Wallet {
-    Wallet::new(keypair_from_index(0)).unwrap()
+    Wallet::new(keypair_from_index(0), AssetRegistry::default()).unwrap()
 }
 
 #[test]
 fn untampered_transfer_is_discovered() {
-    let (tx, recipient_utxo, assets) = transfer_alice_receives();
+    let (tx, recipient_utxo, _assets) = transfer_alice_receives();
     let mut wallet = alice_wallet();
     wallet
-        .sync(std::slice::from_ref(&tx), &assets, 1, DEFAULT_TAG_WINDOW)
+        .sync(std::slice::from_ref(&tx), 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     assert_eq!(wallet.utxos.len(), 1);
     assert_eq!(wallet.utxos.first().unwrap().utxo, recipient_utxo);
@@ -50,7 +50,7 @@ fn untampered_transfer_is_discovered() {
 
 #[test]
 fn tampered_ciphertext_is_rejected_by_utxo_hash() {
-    let (mut tx, _recipient_utxo, assets) = transfer_alice_receives();
+    let (mut tx, _recipient_utxo, _assets) = transfer_alice_receives();
 
     let recipient_payload = &mut tx
         .output_slots
@@ -66,7 +66,7 @@ fn tampered_ciphertext_is_rejected_by_utxo_hash() {
 
     let mut wallet = alice_wallet();
     let report = wallet
-        .sync(std::slice::from_ref(&tx), &assets, 1, DEFAULT_TAG_WINDOW)
+        .sync(std::slice::from_ref(&tx), 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     assert!(wallet.utxos.is_empty(), "{:?}", wallet.utxos);
     assert!(report.undecryptable_candidates >= 1);

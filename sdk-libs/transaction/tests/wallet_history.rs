@@ -32,9 +32,9 @@ fn sync_records_inbound_and_outbound_transfer_history() {
         },
     );
 
-    let mut alice_wallet = Wallet::new(alice.clone()).unwrap();
+    let mut alice_wallet = Wallet::new(alice.clone(), assets.clone()).unwrap();
     alice_wallet
-        .sync(std::slice::from_ref(&bootstrap_tx), &assets, 1, WINDOW)
+        .sync(std::slice::from_ref(&bootstrap_tx), 1, WINDOW)
         .unwrap();
     assert_eq!(alice_wallet.private_transactions().len(), 1);
     let inbound = &alice_wallet.private_transactions()[0];
@@ -73,7 +73,7 @@ fn sync_records_inbound_and_outbound_transfer_history() {
     );
 
     alice_wallet
-        .sync(&[bootstrap_tx, outbound_tx], &assets, 2, WINDOW)
+        .sync(&[bootstrap_tx, outbound_tx], 2, WINDOW)
         .unwrap();
     assert_eq!(alice_wallet.private_transactions().len(), 2);
 
@@ -114,11 +114,11 @@ fn sync_parallel_records_same_history_as_sync() {
         },
     );
 
-    let mut serial = Wallet::new(alice.clone()).unwrap();
-    serial.sync(&[tx.clone()], &assets, 1, WINDOW).unwrap();
+    let mut serial = Wallet::new(alice.clone(), assets.clone()).unwrap();
+    serial.sync(&[tx.clone()], 1, WINDOW).unwrap();
 
-    let mut parallel = Wallet::new(alice).unwrap();
-    parallel.sync_parallel(&[tx], &assets, 1, WINDOW).unwrap();
+    let mut parallel = Wallet::new(alice, assets.clone()).unwrap();
+    parallel.sync_parallel(&[tx], 1, WINDOW).unwrap();
 
     assert_eq!(
         serial.private_transactions(),

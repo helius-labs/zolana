@@ -93,7 +93,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
 
-    let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?)?;
+    let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_recipient,
@@ -128,7 +128,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_eq!(direct_root_after, indexer.root());
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
-    let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?)?;
+    let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_recipient,

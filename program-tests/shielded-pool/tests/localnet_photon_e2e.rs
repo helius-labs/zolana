@@ -1689,7 +1689,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     // The recipient wallet is handed only the on-chain ciphertext and recovers by
     // decrypting it. `Wallet::store` keeps only recipient-owned notes, so the
     // sender's change slot (encrypted to the sender) is not stored.
-    let mut wallet = Wallet::new(recipient)?;
+    let mut wallet = Wallet::new(recipient, AssetRegistry::default())?;
     wallet.sync(
         std::slice::from_ref(&indexed),
         &assets,

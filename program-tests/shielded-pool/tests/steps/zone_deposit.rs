@@ -8,7 +8,7 @@ use zolana_interface::{instruction::ZoneDeposit, pda};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
-use zolana_transaction::Wallet;
+use zolana_transaction::{AssetRegistry, Wallet};
 
 use crate::ShieldedPoolWorld;
 
@@ -32,8 +32,11 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         .rpc()
         .airdrop(&depositor.pubkey(), 5_000_000_000)
         .expect("fund");
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
 
     let seed = [5u8; BLINDING_LEN];
     let mut data = ZolanaProgramTest::wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
@@ -79,8 +82,11 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let user_token = world.user_token();
     let vault = pda::spl_asset_vault(&mint);
     let depositor = world.depositor().insecure_clone();
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
 
     let seed = [9u8; BLINDING_LEN];
     let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
