@@ -1,4 +1,8 @@
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use futures::Stream;
 use solana_account::Account;
@@ -304,6 +308,22 @@ pub trait Rpc {
         Err(unsupported("get_input_merkle_proofs"))
     }
 
+    /// Fetch the spend proofs for each input commitment on `tree`, polling the
+    /// indexer until every proof is available or [`INDEXER_TIMEOUT`] elapses.
+    ///
+    /// Proofs are returned in the same order as `commitments`. This is the
+    /// production form of the retry a caller would otherwise hand-roll: the
+    /// underlying [`Rpc::get_merkle_proofs`] / [`Rpc::get_non_inclusion_proofs`]
+    /// return an empty proof set until the transaction is indexed. On timeout it
+    /// returns [`ClientError::Rpc`] rather than blocking forever.
+    fn get_spend_proofs(
+        &self,
+        tree: Address,
+        commitments: &[InputCommitment],
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        poll_spend_proofs(self, tree, commitments, INDEXER_TIMEOUT)
+    }
+
     // ===== Proving =====
 
     /// Build the SPP proof for a signed transaction (server-side proving).
@@ -319,4 +339,215 @@ pub trait Rpc {
 
 fn unsupported(method: &'static str) -> ClientError {
     ClientError::UnsupportedRpcMethod(method)
+}
+
+/// How long [`Rpc::get_spend_proofs`] polls the indexer before giving up.
+const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
+/// Delay between indexer polls.
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Poll `rpc` for the spend proof of each commitment until all are available or
+/// `timeout` elapses. Factored out of [`Rpc::get_spend_proofs`] with an explicit
+/// `timeout` so tests can inject a short deadline instead of waiting 120s.
+fn poll_spend_proofs<R: Rpc + ?Sized>(
+    rpc: &R,
+    tree: Address,
+    commitments: &[InputCommitment],
+    timeout: Duration,
+) -> Result<Vec<SpendProof>, ClientError> {
+    let mut proofs = Vec::with_capacity(commitments.len());
+    for commitment in commitments {
+        proofs.push(wait_for_spend_proof(rpc, tree, commitment, timeout)?);
+    }
+    Ok(proofs)
+}
+
+/// Poll until both the state-inclusion and nullifier-non-inclusion proofs for a
+/// single commitment are indexed, or `timeout` elapses.
+fn wait_for_spend_proof<R: Rpc + ?Sized>(
+    rpc: &R,
+    tree: Address,
+    commitment: &InputCommitment,
+    timeout: Duration,
+) -> Result<SpendProof, ClientError> {
+    let started = Instant::now();
+    let mut last_error: Option<String> = None;
+    loop {
+        match spend_proof_once(rpc, tree, commitment) {
+            Ok(Some(proof)) => return Ok(proof),
+            Ok(None) => {}
+            Err(error) => last_error = Some(error.to_string()),
+        }
+        if started.elapsed() >= timeout {
+            return Err(ClientError::Rpc(format!(
+                "timed out after {timeout:?} waiting for spend proof of input {}; last indexer error: {}",
+                commitment.index,
+                last_error.unwrap_or_else(|| "none".to_string()),
+            )));
+        }
+        sleep(POLL_INTERVAL);
+    }
+}
+
+/// One non-blocking attempt to assemble a commitment's spend proof. Returns
+/// `Ok(None)` when either proof is not yet indexed.
+fn spend_proof_once<R: Rpc + ?Sized>(
+    rpc: &R,
+    tree: Address,
+    commitment: &InputCommitment,
+) -> Result<Option<SpendProof>, ClientError> {
+    let Some(state) = rpc
+        .get_merkle_proofs(tree, vec![commitment.utxo_hash])?
+        .proofs
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let Some(nullifier) = rpc
+        .get_non_inclusion_proofs(tree, vec![commitment.nullifier])?
+        .proofs
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    Ok(Some(SpendProof { state, nullifier }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    fn merkle_context(tree: Address) -> MerkleContext {
+        MerkleContext { tree_type: 0, tree }
+    }
+
+    fn merkle_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
+        MerkleProof {
+            leaf,
+            merkle_context: merkle_context(tree),
+            path: Vec::new(),
+            leaf_index: 0,
+            root: [0u8; 32],
+            root_seq: 0,
+            root_index: 0,
+        }
+    }
+
+    fn non_inclusion_proof(tree: Address, leaf: [u8; 32]) -> NonInclusionProof {
+        NonInclusionProof {
+            leaf,
+            merkle_context: merkle_context(tree),
+            path: Vec::new(),
+            low_element: [0u8; 32],
+            low_element_index: 0,
+            high_element: [0u8; 32],
+            high_element_index: 0,
+            root: [0u8; 32],
+            root_seq: 0,
+            root_index: 0,
+        }
+    }
+
+    /// Indexer that returns empty proof sets for the first `misses` calls to each
+    /// fetch, then serves the requested leaf back. Models indexer lag.
+    struct LaggyIndexer {
+        merkle_calls: Cell<usize>,
+        non_inclusion_calls: Cell<usize>,
+        misses: usize,
+    }
+
+    impl LaggyIndexer {
+        fn new(misses: usize) -> Self {
+            Self {
+                merkle_calls: Cell::new(0),
+                non_inclusion_calls: Cell::new(0),
+                misses,
+            }
+        }
+    }
+
+    impl Rpc for LaggyIndexer {
+        fn get_merkle_proofs(
+            &self,
+            tree_account: Address,
+            leaves: Vec<[u8; 32]>,
+        ) -> Result<GetMerkleProofsResponse, ClientError> {
+            let n = self.merkle_calls.get();
+            self.merkle_calls.set(n + 1);
+            let proofs = if n < self.misses {
+                Vec::new()
+            } else {
+                leaves
+                    .into_iter()
+                    .map(|leaf| merkle_proof(tree_account, leaf))
+                    .collect()
+            };
+            Ok(GetMerkleProofsResponse {
+                context: Context { slot: 0 },
+                proofs,
+            })
+        }
+
+        fn get_non_inclusion_proofs(
+            &self,
+            tree_account: Address,
+            leaves: Vec<[u8; 32]>,
+        ) -> Result<GetNonInclusionProofsResponse, ClientError> {
+            let n = self.non_inclusion_calls.get();
+            self.non_inclusion_calls.set(n + 1);
+            let proofs = if n < self.misses {
+                Vec::new()
+            } else {
+                leaves
+                    .into_iter()
+                    .map(|leaf| non_inclusion_proof(tree_account, leaf))
+                    .collect()
+            };
+            Ok(GetNonInclusionProofsResponse {
+                context: Context { slot: 0 },
+                proofs,
+            })
+        }
+    }
+
+    fn commitment(index: usize, byte: u8) -> InputCommitment {
+        InputCommitment {
+            index,
+            utxo_hash: [byte; 32],
+            nullifier: [byte.wrapping_add(1); 32],
+        }
+    }
+
+    #[test]
+    fn polls_until_indexed_and_preserves_order() {
+        let tree = Address::new_from_array([9u8; 32]);
+        let indexer = LaggyIndexer::new(2); // two empty rounds, then a hit
+        let commitments = [commitment(0, 1), commitment(1, 3)];
+
+        let proofs = poll_spend_proofs(&indexer, tree, &commitments, Duration::from_secs(5))
+            .expect("proofs");
+
+        assert_eq!(proofs.len(), 2);
+        // Returned in commitment order: each state proof's leaf is that
+        // commitment's utxo_hash.
+        assert_eq!(proofs[0].state.leaf, commitments[0].utxo_hash);
+        assert_eq!(proofs[0].nullifier.leaf, commitments[0].nullifier);
+        assert_eq!(proofs[1].state.leaf, commitments[1].utxo_hash);
+        assert_eq!(proofs[1].nullifier.leaf, commitments[1].nullifier);
+    }
+
+    #[test]
+    fn returns_err_on_timeout() {
+        let tree = Address::new_from_array([9u8; 32]);
+        // Never serves a proof within the window.
+        let indexer = LaggyIndexer::new(usize::MAX);
+        let commitments = [commitment(0, 1)];
+
+        let result = poll_spend_proofs(&indexer, tree, &commitments, Duration::from_millis(0));
+        assert!(matches!(result, Err(ClientError::Rpc(_))));
+    }
 }

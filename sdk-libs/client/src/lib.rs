@@ -13,8 +13,8 @@ pub mod wallet_sync;
 pub use actions::{
     create_deposit, create_transfer, create_transfer_sync, create_withdrawal,
     create_withdrawal_sync, sign_transaction, sign_transaction_sync, CreateDeposit, CreateTransfer,
-    CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress,
-    TransferRecipient,
+    CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress, Submit,
+    TransferRecipient, DEFAULT_TRANSACT_CU_LIMIT,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]

@@ -379,6 +379,61 @@ mod tests {
                 .as_ref()
                 .and_then(|(expected, account)| (*expected == address).then(|| account.clone())))
         }
+
+        // Echo an inclusion proof for every requested leaf so `get_spend_proofs`
+        // (and thus `Submit::prepare`) resolves without a live indexer.
+        fn get_merkle_proofs(
+            &self,
+            tree_account: Address,
+            leaves: Vec<[u8; 32]>,
+        ) -> Result<crate::rpc::GetMerkleProofsResponse, ClientError> {
+            Ok(crate::rpc::GetMerkleProofsResponse {
+                context: crate::rpc::Context { slot: 0 },
+                proofs: leaves
+                    .into_iter()
+                    .map(|leaf| crate::rpc::MerkleProof {
+                        leaf,
+                        merkle_context: crate::rpc::MerkleContext {
+                            tree_type: 0,
+                            tree: tree_account,
+                        },
+                        path: vec![[0u8; 32]; crate::rpc::STATE_TREE_HEIGHT],
+                        leaf_index: 0,
+                        root: [0u8; 32],
+                        root_seq: 0,
+                        root_index: 0,
+                    })
+                    .collect(),
+            })
+        }
+
+        fn get_non_inclusion_proofs(
+            &self,
+            tree_account: Address,
+            leaves: Vec<[u8; 32]>,
+        ) -> Result<crate::rpc::GetNonInclusionProofsResponse, ClientError> {
+            Ok(crate::rpc::GetNonInclusionProofsResponse {
+                context: crate::rpc::Context { slot: 0 },
+                proofs: leaves
+                    .into_iter()
+                    .map(|leaf| crate::rpc::NonInclusionProof {
+                        leaf,
+                        merkle_context: crate::rpc::MerkleContext {
+                            tree_type: 0,
+                            tree: tree_account,
+                        },
+                        path: vec![[0u8; 32]; crate::rpc::NULLIFIER_TREE_HEIGHT],
+                        low_element: [0u8; 32],
+                        low_element_index: 0,
+                        high_element: [0u8; 32],
+                        high_element_index: 0,
+                        root: [0u8; 32],
+                        root_seq: 0,
+                        root_index: 0,
+                    })
+                    .collect(),
+            })
+        }
     }
 
     fn account_data(record: &UserRecord) -> Vec<u8> {
@@ -469,6 +524,74 @@ mod tests {
             TransferRecipient::Registered(resolved) if resolved.owner == owner
         ));
         assert!(result.recipient.withdrawal().is_none());
+    }
+
+    #[test]
+    fn submit_prepare_fetches_proofs_and_assembles_the_witness() {
+        // Build a real signed transfer, then drive the network-free prefix of
+        // `Submit::execute` (proof fetch + witness assembly) against a mock that
+        // echoes proofs. The prove/send tail needs a live prover and is covered by
+        // the BDD harness; this asserts the SDK wires fetch→assemble correctly.
+        let sender = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new().unwrap();
+        let owner = Pubkey::new_unique();
+        let (record_pda, bump) = user_record_pda(&owner);
+        let record = UserRecord {
+            owner: owner.to_bytes().into(),
+            bump,
+            owner_p256: Some(*recipient.signing_pubkey().as_p256().unwrap().as_bytes()),
+            nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
+            viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
+            sync_delegate: None,
+            entries: Vec::new(),
+            merging_enabled: false,
+        };
+        let rpc = MockRpc {
+            account: Some((
+                Address::new_from_array(record_pda.to_bytes()),
+                Account {
+                    lamports: 1,
+                    data: account_data(&record),
+                    owner: user_registry_program_id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )),
+        };
+        let wallet = wallet_with_sol(sender.clone(), 10);
+
+        let created = create_transfer_sync(CreateTransfer {
+            rpc: &rpc,
+            wallet: &wallet,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            recipient_owner: owner,
+            asset: SOL_MINT,
+            amount: 1,
+            assets: &AssetRegistry::default(),
+        })
+        .expect("transfer");
+
+        let submit = crate::actions::submit::Submit {
+            signed: created.signed,
+            withdrawal: created.recipient.withdrawal().cloned(),
+            cu_limit: None,
+        };
+        // Uses the echo-proof MockRpc above; `prepare` must fetch a spend proof for
+        // each input commitment and assemble a witness without a prover.
+        let assembled = submit
+            .prepare(&rpc, Pubkey::default())
+            .expect("prepare assembles the witness");
+        // Assembling produces a rail-specific witness and a non-zero public input
+        // hash committing to the transaction; the concrete rail depends on the
+        // input's ownership and is exercised end-to-end by the BDD harness.
+        assert!(matches!(
+            assembled.prover_inputs,
+            crate::prover::transact::witness::ProverInputs::Eddsa(_)
+                | crate::prover::transact::witness::ProverInputs::P256(_)
+        ));
+        assert_ne!(assembled.public_input_hash, [0u8; 32]);
     }
 
     #[test]
