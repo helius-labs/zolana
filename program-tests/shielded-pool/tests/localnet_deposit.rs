@@ -214,7 +214,6 @@ fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
 fn assert_wallet_discovers(wallet: &mut Wallet, view: &DepositOutput) -> TestResult {
     wallet.sync(
         &[view.to_shielded_transaction(Signature::default())],
-        &AssetRegistry::default(),
         0,
         DEFAULT_TAG_WINDOW,
     )?;

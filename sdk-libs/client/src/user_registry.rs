@@ -506,7 +506,13 @@ mod tests {
 
     fn ensure_registered_ix_tag(rpc: &SendMockRpc) -> u8 {
         // First byte of the single instruction's data = the user-registry tag.
-        rpc.sent.borrow().as_ref().expect("a tx was sent").message.instructions[0].data[0]
+        rpc.sent
+            .borrow()
+            .as_ref()
+            .expect("a tx was sent")
+            .message
+            .instructions[0]
+            .data[0]
     }
 
     #[test]
@@ -517,7 +523,10 @@ mod tests {
         let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
         assert!(sig.is_some(), "register should send a transaction");
         // Tag 0 = register (first user-registry instruction tag).
-        assert_eq!(ensure_registered_ix_tag(&rpc), zolana_user_registry_interface::instruction::discriminator::REGISTER);
+        assert_eq!(
+            ensure_registered_ix_tag(&rpc),
+            zolana_user_registry_interface::instruction::discriminator::REGISTER
+        );
     }
 
     #[test]
@@ -549,7 +558,13 @@ mod tests {
             ..Default::default()
         };
         let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
-        assert!(sig.is_some(), "key change should send an update transaction");
-        assert_eq!(ensure_registered_ix_tag(&rpc), zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS);
+        assert!(
+            sig.is_some(),
+            "key change should send an update transaction"
+        );
+        assert_eq!(
+            ensure_registered_ix_tag(&rpc),
+            zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
+        );
     }
 }

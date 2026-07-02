@@ -16,7 +16,6 @@ use crate::{
     data::Data,
     error::TransactionError,
     instructions::types::SpendUtxo,
-    wallet::Wallet,
     serialization::{
         confidential::{
             ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
@@ -25,6 +24,7 @@ use crate::{
         OwnerCx, UtxoSerialization,
     },
     utxo::{derive_blinding, Utxo},
+    wallet::Wallet,
     AssetRegistry, SOL_MINT,
 };
 
@@ -745,9 +745,13 @@ mod from_wallet_tests {
 
     #[test]
     fn from_wallet_builds_tx_over_wallet_inputs() {
-        let wallet = Wallet::new(ShieldedKeypair::new().unwrap(), AssetRegistry::default()).unwrap();
+        let wallet =
+            Wallet::new(ShieldedKeypair::new().unwrap(), AssetRegistry::default()).unwrap();
         let payer = Address::new_from_array([9u8; 32]);
-        let inputs = vec![sample_utxo(&wallet.keypair, 100), sample_utxo(&wallet.keypair, 50)];
+        let inputs = vec![
+            sample_utxo(&wallet.keypair, 100),
+            sample_utxo(&wallet.keypair, 50),
+        ];
 
         let tx = Transaction::from_wallet(&wallet, &inputs, payer).expect("from_wallet");
 
