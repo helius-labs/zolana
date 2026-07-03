@@ -3,7 +3,7 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    types::{Base64String, Hash as ApiHash, SerializablePubkey, ZolanaOutputSlot as ApiOutputSlot},
+    types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
     BlockingZolanaApi,
 };
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
@@ -152,7 +152,9 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
 }
 
 fn convert_context(context: zolana_api::Context) -> Context {
-    Context { slot: context.slot }
+    Context {
+        slot: context.slot as u64,
+    }
 }
 
 fn convert_encrypted_utxo_match(
@@ -230,7 +232,7 @@ fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, C
 }
 
 fn convert_output_context(
-    context: zolana_api::ZolanaOutputContext,
+    context: zolana_api::RingsOutputContext,
     field: &str,
 ) -> Result<OutputContext, ClientError> {
     Ok(OutputContext {
@@ -261,7 +263,7 @@ fn convert_merkle_proof(
         leaf_index: proof.leaf_index,
         root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
         root_seq: proof.root_seq,
-        root_index: proof.root_index,
+        root_index: proof.root_index as u16,
     })
 }
 
@@ -292,7 +294,7 @@ fn convert_non_inclusion_proof(
         high_element_index: proof.high_element_index,
         root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
         root_seq: proof.root_seq,
-        root_index: proof.root_index,
+        root_index: proof.root_index as u16,
     })
 }
 
@@ -301,7 +303,7 @@ fn convert_merkle_context(
     field: &str,
 ) -> Result<MerkleContext, ClientError> {
     Ok(MerkleContext {
-        tree_type: context.tree_type,
+        tree_type: context.tree_type as u16,
         tree: decode_pubkey(&context.tree, &format!("{field}.tree"))?,
     })
 }

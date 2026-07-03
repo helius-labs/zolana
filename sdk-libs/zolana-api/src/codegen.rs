@@ -45,9 +45,6 @@ pub mod types {
     ///{
     ///  "description": "A base 64 encoded string.",
     ///  "default": "SGVsbG8sIFdvcmxkIQ==",
-    ///  "examples": [
-    ///    "SGVsbG8sIFdvcmxkIQ=="
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -105,11 +102,8 @@ pub mod types {
     ///  "properties": {
     ///    "slot": {
     ///      "default": 100,
-    ///      "examples": [
-    ///        100
-    ///      ],
     ///      "type": "integer",
-    ///      "format": "uint64"
+    ///      "format": "u-int64"
     ///    }
     ///  }
     ///}
@@ -117,7 +111,7 @@ pub mod types {
     /// </details>
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Context {
-        pub slot: u64,
+        pub slot: i64,
     }
     impl Context {
         pub fn builder() -> builder::Context {
@@ -138,21 +132,43 @@ pub mod types {
     ///  ],
     ///  "properties": {
     ///    "output_slot": {
-    ///      "$ref": "#/components/schemas/ZolanaOutputSlot"
+    ///      "$ref": "#/components/schemas/RingsOutputSlot"
     ///    },
     ///    "salt": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    },
     ///    "slot": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    },
     ///    "tx_signature": {
     ///      "$ref": "#/components/schemas/SerializableSignature"
     ///    },
     ///    "tx_viewing_pk": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    }
     ///  },
     ///  "additionalProperties": false
@@ -162,7 +178,7 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(deny_unknown_fields)]
     pub struct EncryptedUtxoMatch {
-        pub output_slot: ZolanaOutputSlot,
+        pub output_slot: RingsOutputSlot,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
         pub slot: u64,
@@ -182,9 +198,6 @@ pub mod types {
     /// ```json
     ///{
     ///  "description": "A 32-byte hash represented as a base58 string.",
-    ///  "examples": [
-    ///    "11111112cMQwSC9qirWGjZM6gLGwW69X22mqwLLGP"
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -236,44 +249,45 @@ pub mod types {
     /// ```json
     ///{
     ///  "type": "integer",
-    ///  "format": "uint64",
-    ///  "minimum": 0.0
+    ///  "format": "u-int64",
+    ///  "maximum": 1000.0,
+    ///  "minimum": 1.0
     ///}
     /// ```
     /// </details>
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
-    pub struct Limit(pub u64);
+    pub struct Limit(pub ::std::num::NonZeroU64);
     impl ::std::ops::Deref for Limit {
-        type Target = u64;
-        fn deref(&self) -> &u64 {
+        type Target = ::std::num::NonZeroU64;
+        fn deref(&self) -> &::std::num::NonZeroU64 {
             &self.0
         }
     }
-    impl ::std::convert::From<Limit> for u64 {
+    impl ::std::convert::From<Limit> for ::std::num::NonZeroU64 {
         fn from(value: Limit) -> Self {
             value.0
         }
     }
-    impl ::std::convert::From<u64> for Limit {
-        fn from(value: u64) -> Self {
+    impl ::std::convert::From<::std::num::NonZeroU64> for Limit {
+        fn from(value: ::std::num::NonZeroU64) -> Self {
             Self(value)
         }
     }
     impl ::std::str::FromStr for Limit {
-        type Err = <u64 as ::std::str::FromStr>::Err;
+        type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
             Ok(Self(value.parse()?))
         }
     }
     impl ::std::convert::TryFrom<&str> for Limit {
-        type Error = <u64 as ::std::str::FromStr>::Err;
+        type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
             value.parse()
         }
     }
     impl ::std::convert::TryFrom<String> for Limit {
-        type Error = <u64 as ::std::str::FromStr>::Err;
+        type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
         fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
             value.parse()
         }
@@ -300,7 +314,7 @@ pub mod types {
     ///    },
     ///    "tree_type": {
     ///      "type": "integer",
-    ///      "format": "uint16",
+    ///      "format": "u-int16",
     ///      "minimum": 0.0
     ///    }
     ///  },
@@ -312,7 +326,7 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct MerkleContext {
         pub tree: SerializablePubkey,
-        pub tree_type: u16,
+        pub tree_type: u64,
     }
     impl MerkleContext {
         pub fn builder() -> builder::MerkleContext {
@@ -341,7 +355,7 @@ pub mod types {
     ///    },
     ///    "leaf_index": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    },
     ///    "merkle_context": {
@@ -358,12 +372,12 @@ pub mod types {
     ///    },
     ///    "root_index": {
     ///      "type": "integer",
-    ///      "format": "uint16",
+    ///      "format": "u-int16",
     ///      "minimum": 0.0
     ///    },
     ///    "root_seq": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    }
     ///  },
@@ -379,7 +393,7 @@ pub mod types {
         pub merkle_context: MerkleContext,
         pub path: ::std::vec::Vec<Hash>,
         pub root: Hash,
-        pub root_index: u16,
+        pub root_index: u64,
         pub root_seq: u64,
     }
     impl MerkleProof {
@@ -412,7 +426,7 @@ pub mod types {
     ///    },
     ///    "high_element_index": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    },
     ///    "leaf": {
@@ -423,7 +437,7 @@ pub mod types {
     ///    },
     ///    "low_element_index": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    },
     ///    "merkle_context": {
@@ -440,12 +454,12 @@ pub mod types {
     ///    },
     ///    "root_index": {
     ///      "type": "integer",
-    ///      "format": "uint16",
+    ///      "format": "u-int16",
     ///      "minimum": 0.0
     ///    },
     ///    "root_seq": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    }
     ///  },
@@ -464,11 +478,48 @@ pub mod types {
         pub merkle_context: MerkleContext,
         pub path: ::std::vec::Vec<Hash>,
         pub root: Hash,
-        pub root_index: u16,
+        pub root_index: u64,
         pub root_seq: u64,
     }
     impl NonInclusionProof {
         pub fn builder() -> builder::NonInclusionProof {
+            Default::default()
+        }
+    }
+    ///One queued nullifier, in on-chain input-queue order.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "One queued nullifier, in on-chain input-queue order.",
+    ///  "type": "object",
+    ///  "required": [
+    ///    "seq",
+    ///    "value"
+    ///  ],
+    ///  "properties": {
+    ///    "seq": {
+    ///      "type": "integer",
+    ///      "format": "u-int64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "value": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct NullifierQueueElement {
+        pub seq: u64,
+        pub value: Hash,
+    }
+    impl NullifierQueueElement {
+        pub fn builder() -> builder::NullifierQueueElement {
             Default::default()
         }
     }
@@ -905,13 +956,25 @@ pub mod types {
     ///          "$ref": "#/components/schemas/Context"
     ///        },
     ///        "matches": {
+    ///          "description": "Output-level matches; every returned output slot has a view tag from the request.",
     ///          "type": "array",
     ///          "items": {
     ///            "$ref": "#/components/schemas/EncryptedUtxoMatch"
     ///          }
     ///        },
     ///        "next_cursor": {
-    ///          "$ref": "#/components/schemas/Base64String"
+    ///          "oneOf": [
+    ///            {
+    ///              "type": "null"
+    ///            },
+    ///            {
+    ///              "allOf": [
+    ///                {
+    ///                  "$ref": "#/components/schemas/Base64String"
+    ///                }
+    ///              ]
+    ///            }
+    ///          ]
     ///        }
     ///      },
     ///      "additionalProperties": false
@@ -1138,13 +1201,25 @@ pub mod types {
     ///      "$ref": "#/components/schemas/Context"
     ///    },
     ///    "matches": {
+    ///      "description": "Output-level matches; every returned output slot has a view tag from the request.",
     ///      "type": "array",
     ///      "items": {
     ///        "$ref": "#/components/schemas/EncryptedUtxoMatch"
     ///      }
     ///    },
     ///    "next_cursor": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    }
     ///  },
     ///  "additionalProperties": false
@@ -1155,6 +1230,7 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct PostGetEncryptedUtxosByTagsResponseResult {
         pub context: Context,
+        ///Output-level matches; every returned output slot has a view tag from the request.
         pub matches: ::std::vec::Vec<EncryptedUtxoMatch>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub next_cursor: ::std::option::Option<Base64String>,
@@ -2424,6 +2500,655 @@ pub mod types {
             Default::default()
         }
     }
+    ///`PostGetNullifierQueueElementsBody`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "id",
+    ///    "jsonrpc",
+    ///    "method",
+    ///    "params"
+    ///  ],
+    ///  "properties": {
+    ///    "id": {
+    ///      "description": "An ID to identify the request.",
+    ///      "type": "string",
+    ///      "enum": [
+    ///        "test-account"
+    ///      ]
+    ///    },
+    ///    "jsonrpc": {
+    ///      "description": "The version of the JSON-RPC protocol.",
+    ///      "type": "string",
+    ///      "enum": [
+    ///        "2.0"
+    ///      ]
+    ///    },
+    ///    "method": {
+    ///      "description": "The name of the method to invoke.",
+    ///      "type": "string",
+    ///      "enum": [
+    ///        "get_nullifier_queue_elements"
+    ///      ]
+    ///    },
+    ///    "params": {
+    ///      "type": "object",
+    ///      "required": [
+    ///        "limit",
+    ///        "tree_account"
+    ///      ],
+    ///      "properties": {
+    ///        "limit": {
+    ///          "description": "Maximum number of elements to return.",
+    ///          "type": "integer",
+    ///          "format": "u-int64",
+    ///          "minimum": 0.0
+    ///        },
+    ///        "start_seq": {
+    ///          "description": "Return elements with `input_queue_seq >= start_seq` (default 0).",
+    ///          "type": "integer",
+    ///          "format": "u-int64",
+    ///          "minimum": 0.0
+    ///        },
+    ///        "tree_account": {
+    ///          "$ref": "#/components/schemas/SerializablePubkey"
+    ///        }
+    ///      },
+    ///      "additionalProperties": false
+    ///    }
+    ///  }
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PostGetNullifierQueueElementsBody {
+        ///An ID to identify the request.
+        pub id: PostGetNullifierQueueElementsBodyId,
+        ///The version of the JSON-RPC protocol.
+        pub jsonrpc: PostGetNullifierQueueElementsBodyJsonrpc,
+        ///The name of the method to invoke.
+        pub method: PostGetNullifierQueueElementsBodyMethod,
+        pub params: PostGetNullifierQueueElementsBodyParams,
+    }
+    impl PostGetNullifierQueueElementsBody {
+        pub fn builder() -> builder::PostGetNullifierQueueElementsBody {
+            Default::default()
+        }
+    }
+    ///An ID to identify the request.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "An ID to identify the request.",
+    ///  "type": "string",
+    ///  "enum": [
+    ///    "test-account"
+    ///  ]
+    ///}
+    /// ```
+    /// </details>
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd
+    )]
+    pub enum PostGetNullifierQueueElementsBodyId {
+        #[serde(rename = "test-account")]
+        TestAccount,
+    }
+    impl ::std::fmt::Display for PostGetNullifierQueueElementsBodyId {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::TestAccount => f.write_str("test-account"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for PostGetNullifierQueueElementsBodyId {
+        type Err = self::error::ConversionError;
+        fn from_str(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "test-account" => Ok(Self::TestAccount),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PostGetNullifierQueueElementsBodyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<&::std::string::String>
+    for PostGetNullifierQueueElementsBodyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+    for PostGetNullifierQueueElementsBodyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///The version of the JSON-RPC protocol.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "The version of the JSON-RPC protocol.",
+    ///  "type": "string",
+    ///  "enum": [
+    ///    "2.0"
+    ///  ]
+    ///}
+    /// ```
+    /// </details>
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd
+    )]
+    pub enum PostGetNullifierQueueElementsBodyJsonrpc {
+        #[serde(rename = "2.0")]
+        X20,
+    }
+    impl ::std::fmt::Display for PostGetNullifierQueueElementsBodyJsonrpc {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::X20 => f.write_str("2.0"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for PostGetNullifierQueueElementsBodyJsonrpc {
+        type Err = self::error::ConversionError;
+        fn from_str(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "2.0" => Ok(Self::X20),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PostGetNullifierQueueElementsBodyJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<&::std::string::String>
+    for PostGetNullifierQueueElementsBodyJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+    for PostGetNullifierQueueElementsBodyJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///The name of the method to invoke.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "The name of the method to invoke.",
+    ///  "type": "string",
+    ///  "enum": [
+    ///    "get_nullifier_queue_elements"
+    ///  ]
+    ///}
+    /// ```
+    /// </details>
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd
+    )]
+    pub enum PostGetNullifierQueueElementsBodyMethod {
+        #[serde(rename = "get_nullifier_queue_elements")]
+        GetNullifierQueueElements,
+    }
+    impl ::std::fmt::Display for PostGetNullifierQueueElementsBodyMethod {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::GetNullifierQueueElements => {
+                    f.write_str("get_nullifier_queue_elements")
+                }
+            }
+        }
+    }
+    impl ::std::str::FromStr for PostGetNullifierQueueElementsBodyMethod {
+        type Err = self::error::ConversionError;
+        fn from_str(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "get_nullifier_queue_elements" => Ok(Self::GetNullifierQueueElements),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PostGetNullifierQueueElementsBodyMethod {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<&::std::string::String>
+    for PostGetNullifierQueueElementsBodyMethod {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+    for PostGetNullifierQueueElementsBodyMethod {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///`PostGetNullifierQueueElementsBodyParams`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "limit",
+    ///    "tree_account"
+    ///  ],
+    ///  "properties": {
+    ///    "limit": {
+    ///      "description": "Maximum number of elements to return.",
+    ///      "type": "integer",
+    ///      "format": "u-int64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "start_seq": {
+    ///      "description": "Return elements with `input_queue_seq >= start_seq` (default 0).",
+    ///      "type": "integer",
+    ///      "format": "u-int64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "tree_account": {
+    ///      "$ref": "#/components/schemas/SerializablePubkey"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct PostGetNullifierQueueElementsBodyParams {
+        ///Maximum number of elements to return.
+        pub limit: u64,
+        ///Return elements with `input_queue_seq >= start_seq` (default 0).
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub start_seq: ::std::option::Option<u64>,
+        pub tree_account: SerializablePubkey,
+    }
+    impl PostGetNullifierQueueElementsBodyParams {
+        pub fn builder() -> builder::PostGetNullifierQueueElementsBodyParams {
+            Default::default()
+        }
+    }
+    ///`PostGetNullifierQueueElementsResponse`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "id",
+    ///    "jsonrpc"
+    ///  ],
+    ///  "properties": {
+    ///    "error": {
+    ///      "type": "object",
+    ///      "properties": {
+    ///        "code": {
+    ///          "type": "integer"
+    ///        },
+    ///        "message": {
+    ///          "type": "string"
+    ///        }
+    ///      }
+    ///    },
+    ///    "id": {
+    ///      "description": "An ID to identify the response.",
+    ///      "type": "string",
+    ///      "enum": [
+    ///        "test-account"
+    ///      ]
+    ///    },
+    ///    "jsonrpc": {
+    ///      "description": "The version of the JSON-RPC protocol.",
+    ///      "type": "string",
+    ///      "enum": [
+    ///        "2.0"
+    ///      ]
+    ///    },
+    ///    "result": {
+    ///      "type": "object",
+    ///      "required": [
+    ///        "context",
+    ///        "elements"
+    ///      ],
+    ///      "properties": {
+    ///        "context": {
+    ///          "$ref": "#/components/schemas/Context"
+    ///        },
+    ///        "elements": {
+    ///          "type": "array",
+    ///          "items": {
+    ///            "$ref": "#/components/schemas/NullifierQueueElement"
+    ///          }
+    ///        }
+    ///      },
+    ///      "additionalProperties": false
+    ///    }
+    ///  }
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PostGetNullifierQueueElementsResponse {
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub error: ::std::option::Option<PostGetNullifierQueueElementsResponseError>,
+        ///An ID to identify the response.
+        pub id: PostGetNullifierQueueElementsResponseId,
+        ///The version of the JSON-RPC protocol.
+        pub jsonrpc: PostGetNullifierQueueElementsResponseJsonrpc,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub result: ::std::option::Option<PostGetNullifierQueueElementsResponseResult>,
+    }
+    impl PostGetNullifierQueueElementsResponse {
+        pub fn builder() -> builder::PostGetNullifierQueueElementsResponse {
+            Default::default()
+        }
+    }
+    ///`PostGetNullifierQueueElementsResponseError`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "properties": {
+    ///    "code": {
+    ///      "type": "integer"
+    ///    },
+    ///    "message": {
+    ///      "type": "string"
+    ///    }
+    ///  }
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct PostGetNullifierQueueElementsResponseError {
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub code: ::std::option::Option<i64>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        pub message: ::std::option::Option<::std::string::String>,
+    }
+    impl ::std::default::Default for PostGetNullifierQueueElementsResponseError {
+        fn default() -> Self {
+            Self {
+                code: Default::default(),
+                message: Default::default(),
+            }
+        }
+    }
+    impl PostGetNullifierQueueElementsResponseError {
+        pub fn builder() -> builder::PostGetNullifierQueueElementsResponseError {
+            Default::default()
+        }
+    }
+    ///An ID to identify the response.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "An ID to identify the response.",
+    ///  "type": "string",
+    ///  "enum": [
+    ///    "test-account"
+    ///  ]
+    ///}
+    /// ```
+    /// </details>
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd
+    )]
+    pub enum PostGetNullifierQueueElementsResponseId {
+        #[serde(rename = "test-account")]
+        TestAccount,
+    }
+    impl ::std::fmt::Display for PostGetNullifierQueueElementsResponseId {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::TestAccount => f.write_str("test-account"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for PostGetNullifierQueueElementsResponseId {
+        type Err = self::error::ConversionError;
+        fn from_str(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "test-account" => Ok(Self::TestAccount),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PostGetNullifierQueueElementsResponseId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<&::std::string::String>
+    for PostGetNullifierQueueElementsResponseId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+    for PostGetNullifierQueueElementsResponseId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///The version of the JSON-RPC protocol.
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "description": "The version of the JSON-RPC protocol.",
+    ///  "type": "string",
+    ///  "enum": [
+    ///    "2.0"
+    ///  ]
+    ///}
+    /// ```
+    /// </details>
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd
+    )]
+    pub enum PostGetNullifierQueueElementsResponseJsonrpc {
+        #[serde(rename = "2.0")]
+        X20,
+    }
+    impl ::std::fmt::Display for PostGetNullifierQueueElementsResponseJsonrpc {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::X20 => f.write_str("2.0"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for PostGetNullifierQueueElementsResponseJsonrpc {
+        type Err = self::error::ConversionError;
+        fn from_str(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "2.0" => Ok(Self::X20),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for PostGetNullifierQueueElementsResponseJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &str,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<&::std::string::String>
+    for PostGetNullifierQueueElementsResponseJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: &::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String>
+    for PostGetNullifierQueueElementsResponseJsonrpc {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///`PostGetNullifierQueueElementsResponseResult`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "context",
+    ///    "elements"
+    ///  ],
+    ///  "properties": {
+    ///    "context": {
+    ///      "$ref": "#/components/schemas/Context"
+    ///    },
+    ///    "elements": {
+    ///      "type": "array",
+    ///      "items": {
+    ///        "$ref": "#/components/schemas/NullifierQueueElement"
+    ///      }
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct PostGetNullifierQueueElementsResponseResult {
+        pub context: Context,
+        pub elements: ::std::vec::Vec<NullifierQueueElement>,
+    }
+    impl PostGetNullifierQueueElementsResponseResult {
+        pub fn builder() -> builder::PostGetNullifierQueueElementsResponseResult {
+            Default::default()
+        }
+    }
     ///`PostGetShieldedTransactionsByTagsBody`
     ///
     /// <details><summary>JSON schema</summary>
@@ -2859,9 +3584,21 @@ pub mod types {
     ///          "$ref": "#/components/schemas/Context"
     ///        },
     ///        "next_cursor": {
-    ///          "$ref": "#/components/schemas/Base64String"
+    ///          "oneOf": [
+    ///            {
+    ///              "type": "null"
+    ///            },
+    ///            {
+    ///              "allOf": [
+    ///                {
+    ///                  "$ref": "#/components/schemas/Base64String"
+    ///                }
+    ///              ]
+    ///            }
+    ///          ]
     ///        },
     ///        "transactions": {
+    ///          "description": "Transaction-level matches; each returned transaction has at least one requested\noutput view tag and includes all of its output slots.",
     ///          "type": "array",
     ///          "items": {
     ///            "$ref": "#/components/schemas/ShieldedTransaction"
@@ -3095,9 +3832,21 @@ pub mod types {
     ///      "$ref": "#/components/schemas/Context"
     ///    },
     ///    "next_cursor": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    },
     ///    "transactions": {
+    ///      "description": "Transaction-level matches; each returned transaction has at least one requested\noutput view tag and includes all of its output slots.",
     ///      "type": "array",
     ///      "items": {
     ///        "$ref": "#/components/schemas/ShieldedTransaction"
@@ -3114,10 +3863,92 @@ pub mod types {
         pub context: Context,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub next_cursor: ::std::option::Option<Base64String>,
+        /**Transaction-level matches; each returned transaction has at least one requested
+output view tag and includes all of its output slots.*/
         pub transactions: ::std::vec::Vec<ShieldedTransaction>,
     }
     impl PostGetShieldedTransactionsByTagsResponseResult {
         pub fn builder() -> builder::PostGetShieldedTransactionsByTagsResponseResult {
+            Default::default()
+        }
+    }
+    ///`RingsOutputContext`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "hash",
+    ///    "leaf_index",
+    ///    "tree"
+    ///  ],
+    ///  "properties": {
+    ///    "hash": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    },
+    ///    "leaf_index": {
+    ///      "type": "integer",
+    ///      "format": "u-int64",
+    ///      "minimum": 0.0
+    ///    },
+    ///    "tree": {
+    ///      "$ref": "#/components/schemas/SerializablePubkey"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct RingsOutputContext {
+        pub hash: Hash,
+        pub leaf_index: u64,
+        pub tree: SerializablePubkey,
+    }
+    impl RingsOutputContext {
+        pub fn builder() -> builder::RingsOutputContext {
+            Default::default()
+        }
+    }
+    ///`RingsOutputSlot`
+    ///
+    /// <details><summary>JSON schema</summary>
+    ///
+    /// ```json
+    ///{
+    ///  "type": "object",
+    ///  "required": [
+    ///    "output_context",
+    ///    "payload",
+    ///    "view_tag"
+    ///  ],
+    ///  "properties": {
+    ///    "output_context": {
+    ///      "$ref": "#/components/schemas/RingsOutputContext"
+    ///    },
+    ///    "payload": {
+    ///      "$ref": "#/components/schemas/Base64String"
+    ///    },
+    ///    "view_tag": {
+    ///      "$ref": "#/components/schemas/Hash"
+    ///    }
+    ///  },
+    ///  "additionalProperties": false
+    ///}
+    /// ```
+    /// </details>
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(deny_unknown_fields)]
+    pub struct RingsOutputSlot {
+        pub output_context: RingsOutputContext,
+        pub payload: Base64String,
+        pub view_tag: Hash,
+    }
+    impl RingsOutputSlot {
+        pub fn builder() -> builder::RingsOutputSlot {
             Default::default()
         }
     }
@@ -3128,10 +3959,7 @@ pub mod types {
     /// ```json
     ///{
     ///  "description": "A Solana public key represented as a base58 string.",
-    ///  "default": "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs",
-    ///  "examples": [
-    ///    "11157t3sqMV725NVRLrVQbAu98Jjfk1uCKehJnXXQs"
-    ///  ],
+    ///  "default": "111gbUgQk1ZFzZAQ2u4VePsUmmbjvubFCb4fwnFfhB",
     ///  "type": "string"
     ///}
     /// ```
@@ -3184,9 +4012,6 @@ pub mod types {
     ///{
     ///  "description": "A Solana transaction signature.",
     ///  "default": "5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c",
-    ///  "examples": [
-    ///    "5J8H5sTvEhnGcB4R8K1n7mfoiWUD9RzPVGES7e3WxC7c"
-    ///  ],
     ///  "type": "string"
     ///}
     /// ```
@@ -3255,25 +4080,48 @@ pub mod types {
     ///    "output_slots": {
     ///      "type": "array",
     ///      "items": {
-    ///        "$ref": "#/components/schemas/ZolanaOutputSlot"
+    ///        "$ref": "#/components/schemas/RingsOutputSlot"
     ///      }
     ///    },
     ///    "proofless": {
+    ///      "description": "True when at least one output in this transaction is proofless.",
     ///      "type": "boolean"
     ///    },
     ///    "salt": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    },
     ///    "slot": {
     ///      "type": "integer",
-    ///      "format": "uint64",
+    ///      "format": "u-int64",
     ///      "minimum": 0.0
     ///    },
     ///    "tx_signature": {
     ///      "$ref": "#/components/schemas/SerializableSignature"
     ///    },
     ///    "tx_viewing_pk": {
-    ///      "$ref": "#/components/schemas/Base64String"
+    ///      "oneOf": [
+    ///        {
+    ///          "type": "null"
+    ///        },
+    ///        {
+    ///          "allOf": [
+    ///            {
+    ///              "$ref": "#/components/schemas/Base64String"
+    ///            }
+    ///          ]
+    ///        }
+    ///      ]
     ///    }
     ///  },
     ///  "additionalProperties": false
@@ -3284,7 +4132,8 @@ pub mod types {
     #[serde(deny_unknown_fields)]
     pub struct ShieldedTransaction {
         pub nullifiers: ::std::vec::Vec<Hash>,
-        pub output_slots: ::std::vec::Vec<ZolanaOutputSlot>,
+        pub output_slots: ::std::vec::Vec<RingsOutputSlot>,
+        ///True when at least one output in this transaction is proofless.
         pub proofless: bool,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         pub salt: ::std::option::Option<Base64String>,
@@ -3298,91 +4147,11 @@ pub mod types {
             Default::default()
         }
     }
-    ///`ZolanaOutputContext`
-    ///
-    /// <details><summary>JSON schema</summary>
-    ///
-    /// ```json
-    ///{
-    ///  "type": "object",
-    ///  "required": [
-    ///    "hash",
-    ///    "leaf_index",
-    ///    "tree"
-    ///  ],
-    ///  "properties": {
-    ///    "hash": {
-    ///      "$ref": "#/components/schemas/Hash"
-    ///    },
-    ///    "leaf_index": {
-    ///      "type": "integer",
-    ///      "format": "uint64",
-    ///      "minimum": 0.0
-    ///    },
-    ///    "tree": {
-    ///      "$ref": "#/components/schemas/SerializablePubkey"
-    ///    }
-    ///  },
-    ///  "additionalProperties": false
-    ///}
-    /// ```
-    /// </details>
-    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-    #[serde(deny_unknown_fields)]
-    pub struct ZolanaOutputContext {
-        pub hash: Hash,
-        pub leaf_index: u64,
-        pub tree: SerializablePubkey,
-    }
-    impl ZolanaOutputContext {
-        pub fn builder() -> builder::ZolanaOutputContext {
-            Default::default()
-        }
-    }
-    ///`ZolanaOutputSlot`
-    ///
-    /// <details><summary>JSON schema</summary>
-    ///
-    /// ```json
-    ///{
-    ///  "type": "object",
-    ///  "required": [
-    ///    "output_context",
-    ///    "payload",
-    ///    "view_tag"
-    ///  ],
-    ///  "properties": {
-    ///    "output_context": {
-    ///      "$ref": "#/components/schemas/ZolanaOutputContext"
-    ///    },
-    ///    "payload": {
-    ///      "$ref": "#/components/schemas/Base64String"
-    ///    },
-    ///    "view_tag": {
-    ///      "$ref": "#/components/schemas/Hash"
-    ///    }
-    ///  },
-    ///  "additionalProperties": false
-    ///}
-    /// ```
-    /// </details>
-    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-    #[serde(deny_unknown_fields)]
-    pub struct ZolanaOutputSlot {
-        pub output_context: ZolanaOutputContext,
-        pub payload: Base64String,
-        pub view_tag: Hash,
-    }
-    impl ZolanaOutputSlot {
-        pub fn builder() -> builder::ZolanaOutputSlot {
-            Default::default()
-        }
-    }
     /// Types for composing complex structures.
     pub mod builder {
         #[derive(Clone, Debug)]
         pub struct Context {
-            slot: ::std::result::Result<u64, ::std::string::String>,
+            slot: ::std::result::Result<i64, ::std::string::String>,
         }
         impl ::std::default::Default for Context {
             fn default() -> Self {
@@ -3394,7 +4163,7 @@ pub mod types {
         impl Context {
             pub fn slot<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<u64>,
+                T: ::std::convert::TryInto<i64>,
                 T::Error: ::std::fmt::Display,
             {
                 self.slot = value
@@ -3421,7 +4190,7 @@ pub mod types {
         #[derive(Clone, Debug)]
         pub struct EncryptedUtxoMatch {
             output_slot: ::std::result::Result<
-                super::ZolanaOutputSlot,
+                super::RingsOutputSlot,
                 ::std::string::String,
             >,
             salt: ::std::result::Result<
@@ -3452,7 +4221,7 @@ pub mod types {
         impl EncryptedUtxoMatch {
             pub fn output_slot<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<super::ZolanaOutputSlot>,
+                T: ::std::convert::TryInto<super::RingsOutputSlot>,
                 T::Error: ::std::fmt::Display,
             {
                 self.output_slot = value
@@ -3542,7 +4311,7 @@ pub mod types {
                 super::SerializablePubkey,
                 ::std::string::String,
             >,
-            tree_type: ::std::result::Result<u16, ::std::string::String>,
+            tree_type: ::std::result::Result<u64, ::std::string::String>,
         }
         impl ::std::default::Default for MerkleContext {
             fn default() -> Self {
@@ -3567,7 +4336,7 @@ pub mod types {
             }
             pub fn tree_type<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<u16>,
+                T: ::std::convert::TryInto<u64>,
                 T::Error: ::std::fmt::Display,
             {
                 self.tree_type = value
@@ -3610,7 +4379,7 @@ pub mod types {
                 ::std::string::String,
             >,
             root: ::std::result::Result<super::Hash, ::std::string::String>,
-            root_index: ::std::result::Result<u16, ::std::string::String>,
+            root_index: ::std::result::Result<u64, ::std::string::String>,
             root_seq: ::std::result::Result<u64, ::std::string::String>,
         }
         impl ::std::default::Default for MerkleProof {
@@ -3693,7 +4462,7 @@ pub mod types {
             }
             pub fn root_index<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<u16>,
+                T: ::std::convert::TryInto<u64>,
                 T::Error: ::std::fmt::Display,
             {
                 self.root_index = value
@@ -3761,7 +4530,7 @@ pub mod types {
                 ::std::string::String,
             >,
             root: ::std::result::Result<super::Hash, ::std::string::String>,
-            root_index: ::std::result::Result<u16, ::std::string::String>,
+            root_index: ::std::result::Result<u64, ::std::string::String>,
             root_seq: ::std::result::Result<u64, ::std::string::String>,
         }
         impl ::std::default::Default for NonInclusionProof {
@@ -3891,7 +4660,7 @@ pub mod types {
             }
             pub fn root_index<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<u16>,
+                T: ::std::convert::TryInto<u64>,
                 T::Error: ::std::fmt::Display,
             {
                 self.root_index = value
@@ -3946,6 +4715,66 @@ pub mod types {
                     root: Ok(value.root),
                     root_index: Ok(value.root_index),
                     root_seq: Ok(value.root_seq),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct NullifierQueueElement {
+            seq: ::std::result::Result<u64, ::std::string::String>,
+            value: ::std::result::Result<super::Hash, ::std::string::String>,
+        }
+        impl ::std::default::Default for NullifierQueueElement {
+            fn default() -> Self {
+                Self {
+                    seq: Err("no value supplied for seq".to_string()),
+                    value: Err("no value supplied for value".to_string()),
+                }
+            }
+        }
+        impl NullifierQueueElement {
+            pub fn seq<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.seq = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for seq: {e}")
+                    });
+                self
+            }
+            pub fn value<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.value = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for value: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<NullifierQueueElement>
+        for super::NullifierQueueElement {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: NullifierQueueElement,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    seq: value.seq?,
+                    value: value.value?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::NullifierQueueElement>
+        for NullifierQueueElement {
+            fn from(value: super::NullifierQueueElement) -> Self {
+                Self {
+                    seq: Ok(value.seq),
+                    value: Ok(value.value),
                 }
             }
         }
@@ -5207,6 +6036,443 @@ pub mod types {
             }
         }
         #[derive(Clone, Debug)]
+        pub struct PostGetNullifierQueueElementsBody {
+            id: ::std::result::Result<
+                super::PostGetNullifierQueueElementsBodyId,
+                ::std::string::String,
+            >,
+            jsonrpc: ::std::result::Result<
+                super::PostGetNullifierQueueElementsBodyJsonrpc,
+                ::std::string::String,
+            >,
+            method: ::std::result::Result<
+                super::PostGetNullifierQueueElementsBodyMethod,
+                ::std::string::String,
+            >,
+            params: ::std::result::Result<
+                super::PostGetNullifierQueueElementsBodyParams,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for PostGetNullifierQueueElementsBody {
+            fn default() -> Self {
+                Self {
+                    id: Err("no value supplied for id".to_string()),
+                    jsonrpc: Err("no value supplied for jsonrpc".to_string()),
+                    method: Err("no value supplied for method".to_string()),
+                    params: Err("no value supplied for params".to_string()),
+                }
+            }
+        }
+        impl PostGetNullifierQueueElementsBody {
+            pub fn id<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::PostGetNullifierQueueElementsBodyId>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.id = value
+                    .try_into()
+                    .map_err(|e| format!("error converting supplied value for id: {e}"));
+                self
+            }
+            pub fn jsonrpc<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    super::PostGetNullifierQueueElementsBodyJsonrpc,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.jsonrpc = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for jsonrpc: {e}")
+                    });
+                self
+            }
+            pub fn method<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    super::PostGetNullifierQueueElementsBodyMethod,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.method = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for method: {e}")
+                    });
+                self
+            }
+            pub fn params<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    super::PostGetNullifierQueueElementsBodyParams,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.params = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for params: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<PostGetNullifierQueueElementsBody>
+        for super::PostGetNullifierQueueElementsBody {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: PostGetNullifierQueueElementsBody,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    id: value.id?,
+                    jsonrpc: value.jsonrpc?,
+                    method: value.method?,
+                    params: value.params?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::PostGetNullifierQueueElementsBody>
+        for PostGetNullifierQueueElementsBody {
+            fn from(value: super::PostGetNullifierQueueElementsBody) -> Self {
+                Self {
+                    id: Ok(value.id),
+                    jsonrpc: Ok(value.jsonrpc),
+                    method: Ok(value.method),
+                    params: Ok(value.params),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct PostGetNullifierQueueElementsBodyParams {
+            limit: ::std::result::Result<u64, ::std::string::String>,
+            start_seq: ::std::result::Result<
+                ::std::option::Option<u64>,
+                ::std::string::String,
+            >,
+            tree_account: ::std::result::Result<
+                super::SerializablePubkey,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for PostGetNullifierQueueElementsBodyParams {
+            fn default() -> Self {
+                Self {
+                    limit: Err("no value supplied for limit".to_string()),
+                    start_seq: Ok(Default::default()),
+                    tree_account: Err("no value supplied for tree_account".to_string()),
+                }
+            }
+        }
+        impl PostGetNullifierQueueElementsBodyParams {
+            pub fn limit<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.limit = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for limit: {e}")
+                    });
+                self
+            }
+            pub fn start_seq<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::option::Option<u64>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.start_seq = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for start_seq: {e}")
+                    });
+                self
+            }
+            pub fn tree_account<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::SerializablePubkey>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.tree_account = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for tree_account: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<PostGetNullifierQueueElementsBodyParams>
+        for super::PostGetNullifierQueueElementsBodyParams {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: PostGetNullifierQueueElementsBodyParams,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    limit: value.limit?,
+                    start_seq: value.start_seq?,
+                    tree_account: value.tree_account?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::PostGetNullifierQueueElementsBodyParams>
+        for PostGetNullifierQueueElementsBodyParams {
+            fn from(value: super::PostGetNullifierQueueElementsBodyParams) -> Self {
+                Self {
+                    limit: Ok(value.limit),
+                    start_seq: Ok(value.start_seq),
+                    tree_account: Ok(value.tree_account),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct PostGetNullifierQueueElementsResponse {
+            error: ::std::result::Result<
+                ::std::option::Option<super::PostGetNullifierQueueElementsResponseError>,
+                ::std::string::String,
+            >,
+            id: ::std::result::Result<
+                super::PostGetNullifierQueueElementsResponseId,
+                ::std::string::String,
+            >,
+            jsonrpc: ::std::result::Result<
+                super::PostGetNullifierQueueElementsResponseJsonrpc,
+                ::std::string::String,
+            >,
+            result: ::std::result::Result<
+                ::std::option::Option<
+                    super::PostGetNullifierQueueElementsResponseResult,
+                >,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for PostGetNullifierQueueElementsResponse {
+            fn default() -> Self {
+                Self {
+                    error: Ok(Default::default()),
+                    id: Err("no value supplied for id".to_string()),
+                    jsonrpc: Err("no value supplied for jsonrpc".to_string()),
+                    result: Ok(Default::default()),
+                }
+            }
+        }
+        impl PostGetNullifierQueueElementsResponse {
+            pub fn error<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    ::std::option::Option<
+                        super::PostGetNullifierQueueElementsResponseError,
+                    >,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.error = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for error: {e}")
+                    });
+                self
+            }
+            pub fn id<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    super::PostGetNullifierQueueElementsResponseId,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.id = value
+                    .try_into()
+                    .map_err(|e| format!("error converting supplied value for id: {e}"));
+                self
+            }
+            pub fn jsonrpc<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    super::PostGetNullifierQueueElementsResponseJsonrpc,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.jsonrpc = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for jsonrpc: {e}")
+                    });
+                self
+            }
+            pub fn result<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    ::std::option::Option<
+                        super::PostGetNullifierQueueElementsResponseResult,
+                    >,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.result = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for result: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<PostGetNullifierQueueElementsResponse>
+        for super::PostGetNullifierQueueElementsResponse {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: PostGetNullifierQueueElementsResponse,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    error: value.error?,
+                    id: value.id?,
+                    jsonrpc: value.jsonrpc?,
+                    result: value.result?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::PostGetNullifierQueueElementsResponse>
+        for PostGetNullifierQueueElementsResponse {
+            fn from(value: super::PostGetNullifierQueueElementsResponse) -> Self {
+                Self {
+                    error: Ok(value.error),
+                    id: Ok(value.id),
+                    jsonrpc: Ok(value.jsonrpc),
+                    result: Ok(value.result),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct PostGetNullifierQueueElementsResponseError {
+            code: ::std::result::Result<
+                ::std::option::Option<i64>,
+                ::std::string::String,
+            >,
+            message: ::std::result::Result<
+                ::std::option::Option<::std::string::String>,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for PostGetNullifierQueueElementsResponseError {
+            fn default() -> Self {
+                Self {
+                    code: Ok(Default::default()),
+                    message: Ok(Default::default()),
+                }
+            }
+        }
+        impl PostGetNullifierQueueElementsResponseError {
+            pub fn code<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::option::Option<i64>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.code = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for code: {e}")
+                    });
+                self
+            }
+            pub fn message<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.message = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for message: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<PostGetNullifierQueueElementsResponseError>
+        for super::PostGetNullifierQueueElementsResponseError {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: PostGetNullifierQueueElementsResponseError,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    code: value.code?,
+                    message: value.message?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::PostGetNullifierQueueElementsResponseError>
+        for PostGetNullifierQueueElementsResponseError {
+            fn from(value: super::PostGetNullifierQueueElementsResponseError) -> Self {
+                Self {
+                    code: Ok(value.code),
+                    message: Ok(value.message),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct PostGetNullifierQueueElementsResponseResult {
+            context: ::std::result::Result<super::Context, ::std::string::String>,
+            elements: ::std::result::Result<
+                ::std::vec::Vec<super::NullifierQueueElement>,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for PostGetNullifierQueueElementsResponseResult {
+            fn default() -> Self {
+                Self {
+                    context: Err("no value supplied for context".to_string()),
+                    elements: Err("no value supplied for elements".to_string()),
+                }
+            }
+        }
+        impl PostGetNullifierQueueElementsResponseResult {
+            pub fn context<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Context>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.context = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for context: {e}")
+                    });
+                self
+            }
+            pub fn elements<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<
+                    ::std::vec::Vec<super::NullifierQueueElement>,
+                >,
+                T::Error: ::std::fmt::Display,
+            {
+                self.elements = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for elements: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<PostGetNullifierQueueElementsResponseResult>
+        for super::PostGetNullifierQueueElementsResponseResult {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: PostGetNullifierQueueElementsResponseResult,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    context: value.context?,
+                    elements: value.elements?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::PostGetNullifierQueueElementsResponseResult>
+        for PostGetNullifierQueueElementsResponseResult {
+            fn from(value: super::PostGetNullifierQueueElementsResponseResult) -> Self {
+                Self {
+                    context: Ok(value.context),
+                    elements: Ok(value.elements),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
         pub struct PostGetShieldedTransactionsByTagsBody {
             id: ::std::result::Result<
                 super::PostGetShieldedTransactionsByTagsBodyId,
@@ -5673,13 +6939,171 @@ pub mod types {
             }
         }
         #[derive(Clone, Debug)]
+        pub struct RingsOutputContext {
+            hash: ::std::result::Result<super::Hash, ::std::string::String>,
+            leaf_index: ::std::result::Result<u64, ::std::string::String>,
+            tree: ::std::result::Result<
+                super::SerializablePubkey,
+                ::std::string::String,
+            >,
+        }
+        impl ::std::default::Default for RingsOutputContext {
+            fn default() -> Self {
+                Self {
+                    hash: Err("no value supplied for hash".to_string()),
+                    leaf_index: Err("no value supplied for leaf_index".to_string()),
+                    tree: Err("no value supplied for tree".to_string()),
+                }
+            }
+        }
+        impl RingsOutputContext {
+            pub fn hash<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.hash = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for hash: {e}")
+                    });
+                self
+            }
+            pub fn leaf_index<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<u64>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.leaf_index = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for leaf_index: {e}")
+                    });
+                self
+            }
+            pub fn tree<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::SerializablePubkey>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.tree = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for tree: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<RingsOutputContext> for super::RingsOutputContext {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: RingsOutputContext,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    hash: value.hash?,
+                    leaf_index: value.leaf_index?,
+                    tree: value.tree?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::RingsOutputContext> for RingsOutputContext {
+            fn from(value: super::RingsOutputContext) -> Self {
+                Self {
+                    hash: Ok(value.hash),
+                    leaf_index: Ok(value.leaf_index),
+                    tree: Ok(value.tree),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
+        pub struct RingsOutputSlot {
+            output_context: ::std::result::Result<
+                super::RingsOutputContext,
+                ::std::string::String,
+            >,
+            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
+            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
+        }
+        impl ::std::default::Default for RingsOutputSlot {
+            fn default() -> Self {
+                Self {
+                    output_context: Err(
+                        "no value supplied for output_context".to_string(),
+                    ),
+                    payload: Err("no value supplied for payload".to_string()),
+                    view_tag: Err("no value supplied for view_tag".to_string()),
+                }
+            }
+        }
+        impl RingsOutputSlot {
+            pub fn output_context<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::RingsOutputContext>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.output_context = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!(
+                            "error converting supplied value for output_context: {e}"
+                        )
+                    });
+                self
+            }
+            pub fn payload<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Base64String>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.payload = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for payload: {e}")
+                    });
+                self
+            }
+            pub fn view_tag<T>(mut self, value: T) -> Self
+            where
+                T: ::std::convert::TryInto<super::Hash>,
+                T::Error: ::std::fmt::Display,
+            {
+                self.view_tag = value
+                    .try_into()
+                    .map_err(|e| {
+                        format!("error converting supplied value for view_tag: {e}")
+                    });
+                self
+            }
+        }
+        impl ::std::convert::TryFrom<RingsOutputSlot> for super::RingsOutputSlot {
+            type Error = super::error::ConversionError;
+            fn try_from(
+                value: RingsOutputSlot,
+            ) -> ::std::result::Result<Self, super::error::ConversionError> {
+                Ok(Self {
+                    output_context: value.output_context?,
+                    payload: value.payload?,
+                    view_tag: value.view_tag?,
+                })
+            }
+        }
+        impl ::std::convert::From<super::RingsOutputSlot> for RingsOutputSlot {
+            fn from(value: super::RingsOutputSlot) -> Self {
+                Self {
+                    output_context: Ok(value.output_context),
+                    payload: Ok(value.payload),
+                    view_tag: Ok(value.view_tag),
+                }
+            }
+        }
+        #[derive(Clone, Debug)]
         pub struct ShieldedTransaction {
             nullifiers: ::std::result::Result<
                 ::std::vec::Vec<super::Hash>,
                 ::std::string::String,
             >,
             output_slots: ::std::result::Result<
-                ::std::vec::Vec<super::ZolanaOutputSlot>,
+                ::std::vec::Vec<super::RingsOutputSlot>,
                 ::std::string::String,
             >,
             proofless: ::std::result::Result<bool, ::std::string::String>,
@@ -5725,7 +7149,7 @@ pub mod types {
             }
             pub fn output_slots<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<::std::vec::Vec<super::ZolanaOutputSlot>>,
+                T: ::std::convert::TryInto<::std::vec::Vec<super::RingsOutputSlot>>,
                 T::Error: ::std::fmt::Display,
             {
                 self.output_slots = value
@@ -5826,165 +7250,6 @@ pub mod types {
                 }
             }
         }
-        #[derive(Clone, Debug)]
-        pub struct ZolanaOutputContext {
-            hash: ::std::result::Result<super::Hash, ::std::string::String>,
-            leaf_index: ::std::result::Result<u64, ::std::string::String>,
-            tree: ::std::result::Result<
-                super::SerializablePubkey,
-                ::std::string::String,
-            >,
-        }
-        impl ::std::default::Default for ZolanaOutputContext {
-            fn default() -> Self {
-                Self {
-                    hash: Err("no value supplied for hash".to_string()),
-                    leaf_index: Err("no value supplied for leaf_index".to_string()),
-                    tree: Err("no value supplied for tree".to_string()),
-                }
-            }
-        }
-        impl ZolanaOutputContext {
-            pub fn hash<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.hash = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for hash: {e}")
-                    });
-                self
-            }
-            pub fn leaf_index<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<u64>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.leaf_index = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for leaf_index: {e}")
-                    });
-                self
-            }
-            pub fn tree<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::SerializablePubkey>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.tree = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for tree: {e}")
-                    });
-                self
-            }
-        }
-        impl ::std::convert::TryFrom<ZolanaOutputContext>
-        for super::ZolanaOutputContext {
-            type Error = super::error::ConversionError;
-            fn try_from(
-                value: ZolanaOutputContext,
-            ) -> ::std::result::Result<Self, super::error::ConversionError> {
-                Ok(Self {
-                    hash: value.hash?,
-                    leaf_index: value.leaf_index?,
-                    tree: value.tree?,
-                })
-            }
-        }
-        impl ::std::convert::From<super::ZolanaOutputContext> for ZolanaOutputContext {
-            fn from(value: super::ZolanaOutputContext) -> Self {
-                Self {
-                    hash: Ok(value.hash),
-                    leaf_index: Ok(value.leaf_index),
-                    tree: Ok(value.tree),
-                }
-            }
-        }
-        #[derive(Clone, Debug)]
-        pub struct ZolanaOutputSlot {
-            output_context: ::std::result::Result<
-                super::ZolanaOutputContext,
-                ::std::string::String,
-            >,
-            payload: ::std::result::Result<super::Base64String, ::std::string::String>,
-            view_tag: ::std::result::Result<super::Hash, ::std::string::String>,
-        }
-        impl ::std::default::Default for ZolanaOutputSlot {
-            fn default() -> Self {
-                Self {
-                    output_context: Err(
-                        "no value supplied for output_context".to_string(),
-                    ),
-                    payload: Err("no value supplied for payload".to_string()),
-                    view_tag: Err("no value supplied for view_tag".to_string()),
-                }
-            }
-        }
-        impl ZolanaOutputSlot {
-            pub fn output_context<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::ZolanaOutputContext>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.output_context = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!(
-                            "error converting supplied value for output_context: {e}"
-                        )
-                    });
-                self
-            }
-            pub fn payload<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Base64String>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.payload = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for payload: {e}")
-                    });
-                self
-            }
-            pub fn view_tag<T>(mut self, value: T) -> Self
-            where
-                T: ::std::convert::TryInto<super::Hash>,
-                T::Error: ::std::fmt::Display,
-            {
-                self.view_tag = value
-                    .try_into()
-                    .map_err(|e| {
-                        format!("error converting supplied value for view_tag: {e}")
-                    });
-                self
-            }
-        }
-        impl ::std::convert::TryFrom<ZolanaOutputSlot> for super::ZolanaOutputSlot {
-            type Error = super::error::ConversionError;
-            fn try_from(
-                value: ZolanaOutputSlot,
-            ) -> ::std::result::Result<Self, super::error::ConversionError> {
-                Ok(Self {
-                    output_context: value.output_context?,
-                    payload: value.payload?,
-                    view_tag: value.view_tag?,
-                })
-            }
-        }
-        impl ::std::convert::From<super::ZolanaOutputSlot> for ZolanaOutputSlot {
-            fn from(value: super::ZolanaOutputSlot) -> Self {
-                Self {
-                    output_context: Ok(value.output_context),
-                    payload: Ok(value.payload),
-                    view_tag: Ok(value.view_tag),
-                }
-            }
-        }
     }
 }
 #[derive(Clone, Debug)]
@@ -6078,6 +7343,19 @@ let response = client.post_get_non_inclusion_proofs()
         &self,
     ) -> builder::PostGetNonInclusionProofs<'_> {
         builder::PostGetNonInclusionProofs::new(self)
+    }
+    /**Sends a `POST` request to `/get_nullifier_queue_elements`
+
+```ignore
+let response = client.post_get_nullifier_queue_elements()
+    .body(body)
+    .send()
+    .await;
+```*/
+    pub fn post_get_nullifier_queue_elements(
+        &self,
+    ) -> builder::PostGetNullifierQueueElements<'_> {
+        builder::PostGetNullifierQueueElements::new(self)
     }
     /**Sends a `POST` request to `/get_shielded_transactions_by_tags`
 
@@ -6385,6 +7663,109 @@ pub mod builder {
                 .build()?;
             let info = OperationInfo {
                 operation_id: "post_get_non_inclusion_proofs",
+            };
+            client.pre(&mut request, &info).await?;
+            let result = client.exec(request, &info).await;
+            client.post(&result, &info).await?;
+            let response = result?;
+            match response.status().as_u16() {
+                200u16 => ResponseValue::from_response(response).await,
+                429u16 => {
+                    Err(
+                        Error::ErrorResponse(
+                            ResponseValue::from_response(response).await?,
+                        ),
+                    )
+                }
+                500u16 => {
+                    Err(
+                        Error::ErrorResponse(
+                            ResponseValue::from_response(response).await?,
+                        ),
+                    )
+                }
+                _ => Err(Error::UnexpectedResponse(response)),
+            }
+        }
+    }
+    /**Builder for [`Client::post_get_nullifier_queue_elements`]
+
+[`Client::post_get_nullifier_queue_elements`]: super::Client::post_get_nullifier_queue_elements*/
+    #[derive(Debug, Clone)]
+    pub struct PostGetNullifierQueueElements<'a> {
+        client: &'a super::Client,
+        body: Result<types::builder::PostGetNullifierQueueElementsBody, String>,
+    }
+    impl<'a> PostGetNullifierQueueElements<'a> {
+        pub fn new(client: &'a super::Client) -> Self {
+            Self {
+                client: client,
+                body: Ok(::std::default::Default::default()),
+            }
+        }
+        pub fn body<V>(mut self, value: V) -> Self
+        where
+            V: std::convert::TryInto<types::PostGetNullifierQueueElementsBody>,
+            <V as std::convert::TryInto<
+                types::PostGetNullifierQueueElementsBody,
+            >>::Error: std::fmt::Display,
+        {
+            self.body = value
+                .try_into()
+                .map(From::from)
+                .map_err(|s| {
+                    format!(
+                        "conversion to `PostGetNullifierQueueElementsBody` for body failed: {}",
+                        s
+                    )
+                });
+            self
+        }
+        pub fn body_map<F>(mut self, f: F) -> Self
+        where
+            F: std::ops::FnOnce(
+                types::builder::PostGetNullifierQueueElementsBody,
+            ) -> types::builder::PostGetNullifierQueueElementsBody,
+        {
+            self.body = self.body.map(f);
+            self
+        }
+        ///Sends a `POST` request to `/get_nullifier_queue_elements`
+        pub async fn send(
+            self,
+        ) -> Result<
+            ResponseValue<types::PostGetNullifierQueueElementsResponse>,
+            Error<types::PostGetNullifierQueueElementsResponse>,
+        > {
+            let Self { client, body } = self;
+            let body = body
+                .and_then(|v| {
+                    types::PostGetNullifierQueueElementsBody::try_from(v)
+                        .map_err(|e| e.to_string())
+                })
+                .map_err(Error::InvalidRequest)?;
+            let url = format!("{}/get_nullifier_queue_elements", client.baseurl,);
+            let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+            header_map
+                .append(
+                    ::reqwest::header::HeaderName::from_static("api-version"),
+                    ::reqwest::header::HeaderValue::from_static(
+                        super::Client::api_version(),
+                    ),
+                );
+            #[allow(unused_mut)]
+            let mut request = client
+                .client
+                .post(url)
+                .header(
+                    ::reqwest::header::ACCEPT,
+                    ::reqwest::header::HeaderValue::from_static("application/json"),
+                )
+                .json(&body)
+                .headers(header_map)
+                .build()?;
+            let info = OperationInfo {
+                operation_id: "post_get_nullifier_queue_elements",
             };
             client.pre(&mut request, &info).await?;
             let result = client.exec(request, &info).await;

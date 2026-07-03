@@ -31,11 +31,13 @@ pub type Limit = types::Limit;
 pub type MerkleContext = types::MerkleContext;
 pub type MerkleProof = types::MerkleProof;
 pub type NonInclusionProof = types::NonInclusionProof;
+pub type NullifierQueueElement = types::NullifierQueueElement;
+pub type GetNullifierQueueElementsResponse = types::PostGetNullifierQueueElementsResponseResult;
 pub type SerializablePubkey = types::SerializablePubkey;
 pub type SerializableSignature = types::SerializableSignature;
 pub type ShieldedTransaction = types::ShieldedTransaction;
-pub type ZolanaOutputContext = types::ZolanaOutputContext;
-pub type ZolanaOutputSlot = types::ZolanaOutputSlot;
+pub type RingsOutputContext = types::RingsOutputContext;
+pub type RingsOutputSlot = types::RingsOutputSlot;
 
 #[derive(Clone, Debug)]
 pub struct ZolanaApi {
@@ -154,7 +156,7 @@ impl ZolanaApi {
             method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
             params: types::PostGetEncryptedUtxosByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
                 tags,
             },
         };
@@ -183,7 +185,7 @@ impl ZolanaApi {
                 types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
             params: types::PostGetShieldedTransactionsByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
                 tags,
             },
         };
@@ -241,6 +243,35 @@ impl ZolanaApi {
             },
         };
         let response: types::PostGetNonInclusionProofsResponse = self.post(method, &body).await?;
+        if let Some(error) = response.error {
+            return Err(ApiError::JsonRpc {
+                method,
+                code: error.code,
+                message: error.message,
+            });
+        }
+        response.result.ok_or(ApiError::MissingResult(method))
+    }
+
+    pub async fn get_nullifier_queue_elements(
+        &self,
+        tree_account: SerializablePubkey,
+        start_seq: Option<u64>,
+        limit: u64,
+    ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
+        let method = "get_nullifier_queue_elements";
+        let body = types::PostGetNullifierQueueElementsBody {
+            id: types::PostGetNullifierQueueElementsBodyId::TestAccount,
+            jsonrpc: types::PostGetNullifierQueueElementsBodyJsonrpc::X20,
+            method: types::PostGetNullifierQueueElementsBodyMethod::GetNullifierQueueElements,
+            params: types::PostGetNullifierQueueElementsBodyParams {
+                limit,
+                start_seq,
+                tree_account,
+            },
+        };
+        let response: types::PostGetNullifierQueueElementsResponse =
+            self.post(method, &body).await?;
         if let Some(error) = response.error {
             return Err(ApiError::JsonRpc {
                 method,
@@ -329,7 +360,7 @@ impl BlockingZolanaApi {
             method: types::PostGetEncryptedUtxosByTagsBodyMethod::GetEncryptedUtxosByTags,
             params: types::PostGetEncryptedUtxosByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
                 tags,
             },
         };
@@ -358,7 +389,7 @@ impl BlockingZolanaApi {
                 types::PostGetShieldedTransactionsByTagsBodyMethod::GetShieldedTransactionsByTags,
             params: types::PostGetShieldedTransactionsByTagsBodyParams {
                 cursor,
-                limit: limit.map(types::Limit),
+                limit: limit.and_then(|value| ::std::num::NonZeroU64::new(value).map(types::Limit)),
                 tags,
             },
         };
@@ -416,6 +447,34 @@ impl BlockingZolanaApi {
             },
         };
         let response: types::PostGetNonInclusionProofsResponse = self.post(method, &body)?;
+        if let Some(error) = response.error {
+            return Err(ApiError::JsonRpc {
+                method,
+                code: error.code,
+                message: error.message,
+            });
+        }
+        response.result.ok_or(ApiError::MissingResult(method))
+    }
+
+    pub fn get_nullifier_queue_elements(
+        &self,
+        tree_account: SerializablePubkey,
+        start_seq: Option<u64>,
+        limit: u64,
+    ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
+        let method = "get_nullifier_queue_elements";
+        let body = types::PostGetNullifierQueueElementsBody {
+            id: types::PostGetNullifierQueueElementsBodyId::TestAccount,
+            jsonrpc: types::PostGetNullifierQueueElementsBodyJsonrpc::X20,
+            method: types::PostGetNullifierQueueElementsBodyMethod::GetNullifierQueueElements,
+            params: types::PostGetNullifierQueueElementsBodyParams {
+                limit,
+                start_seq,
+                tree_account,
+            },
+        };
+        let response: types::PostGetNullifierQueueElementsResponse = self.post(method, &body)?;
         if let Some(error) = response.error {
             return Err(ApiError::JsonRpc {
                 method,
