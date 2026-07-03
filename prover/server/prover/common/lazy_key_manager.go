@@ -127,7 +127,7 @@ func (m *LazyKeyManager) loadMerkleSystem(
 		Str("cache_key", key).
 		Msg("Loading MerkleProofSystem")
 
-	if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
+	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -180,11 +180,7 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 		Str("cache_key", key).
 		Msg("Loading BatchProofSystem")
 
-	if usesProvingKeysRelease(circuitType, treeHeight, batchSize) {
-		if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
-			return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
-		}
-	} else if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
+	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
 	}
 
@@ -354,10 +350,6 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 	return ""
 }
 
-func usesProvingKeysRelease(circuitType CircuitType, treeHeight uint32, batchSize uint32) bool {
-	return circuitType == BatchAddressAppendCircuitType && treeHeight == 40 && (batchSize == 10 || batchSize == 250)
-}
-
 // transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
 // canonical shape set). Kept here because common must not import prover-test;
 // keep in sync with prover-test/spp/protocol/shape.go.
@@ -507,7 +499,7 @@ func (m *LazyKeyManager) preloadKeys(keyPaths []string) error {
 			Str("key_path", keyPath).
 			Msg("Preloading key")
 
-		if err := DownloadKey(keyPath, m.downloadConfig); err != nil {
+		if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
 			return fmt.Errorf("failed to download key %s: %w", keyPath, err)
 		}
 

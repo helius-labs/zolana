@@ -3,37 +3,36 @@ package common
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"zolana/prover/logging"
 )
 
 const (
-	DefaultBaseURL       = "https://storage.googleapis.com/light-protocol-proving-keys/light-protocol-keys"
 	DefaultMaxRetries    = 10
 	DefaultRetryDelay    = 5 * time.Second
 	DefaultMaxRetryDelay = 5 * time.Minute
 
-	// ProvingKeysRepo and ProvingKeysReleaseTag identify the GitHub release
-	// that hosts Zolana-specific proving keys and their CHECKSUM. They must
-	// match the repo/tag used by scripts/publish_keys_release.sh. The repo is
-	// private, so the keys are fetched with the `gh` CLI (which carries the
-	// caller's auth, or CI's same-repo GITHUB_TOKEN) rather than an
-	// unauthenticated URL.
-	ProvingKeysRepo       = "helius-labs/zolana"
-	ProvingKeysReleaseTag = "transfer-keys-v10"
+	// ProvingKeysRepo and ProvingKeysReleaseTag identify the GitHub release that
+	// hosts every Zolana proving key and its CHECKSUM. They must match the
+	// repo/tag used by scripts/publish_keys_release.sh. The repo is private, so
+	// assets are fetched from the GitHub REST API with a bearer token from
+	// GITHUB_TOKEN / GH_TOKEN -- this works in the distroless prover image, which
+	// has no `gh` CLI. The tag is overridable via PROVING_KEYS_RELEASE_TAG so key
+	// rotations don't require a prover rebuild.
+	ProvingKeysRepo             = "helius-labs/zolana"
+	ProvingKeysReleaseTag       = "transfer-keys-v10"
+	provingKeysReleaseTagEnvVar = "PROVING_KEYS_RELEASE_TAG"
 )
 
 type DownloadConfig struct {
-	BaseURL       string
 	MaxRetries    int
 	RetryDelay    time.Duration
 	MaxRetryDelay time.Duration
@@ -42,7 +41,6 @@ type DownloadConfig struct {
 
 func DefaultDownloadConfig() *DownloadConfig {
 	return &DownloadConfig{
-		BaseURL:       DefaultBaseURL,
 		MaxRetries:    DefaultMaxRetries,
 		RetryDelay:    DefaultRetryDelay,
 		MaxRetryDelay: DefaultMaxRetryDelay,
@@ -50,84 +48,24 @@ func DefaultDownloadConfig() *DownloadConfig {
 	}
 }
 
-type checksumCacheEntry struct {
-	checksums map[string]string
-	loaded    bool
+// releaseTag returns the release tag to fetch keys from, honoring the
+// PROVING_KEYS_RELEASE_TAG override.
+func releaseTag() string {
+	if v := strings.TrimSpace(os.Getenv(provingKeysReleaseTagEnvVar)); v != "" {
+		return v
+	}
+	return ProvingKeysReleaseTag
 }
 
-type checksumCacheManager struct {
-	mu     sync.RWMutex
-	caches map[string]*checksumCacheEntry
-}
-
-var globalChecksumCaches = &checksumCacheManager{
-	caches: make(map[string]*checksumCacheEntry),
-}
-
-func downloadChecksum(config *DownloadConfig) error {
-	globalChecksumCaches.mu.RLock()
-	if entry, exists := globalChecksumCaches.caches[config.BaseURL]; exists && entry.loaded {
-		globalChecksumCaches.mu.RUnlock()
-		return nil
-	}
-	globalChecksumCaches.mu.RUnlock()
-
-	globalChecksumCaches.mu.Lock()
-	defer globalChecksumCaches.mu.Unlock()
-
-	if entry, exists := globalChecksumCaches.caches[config.BaseURL]; exists && entry.loaded {
-		return nil
-	}
-
-	checksumURL := config.BaseURL + "/CHECKSUM"
-	logging.Logger().Info().
-		Str("url", checksumURL).
-		Msg("Downloading CHECKSUM file")
-
-	resp, err := http.Get(checksumURL)
-	if err != nil {
-		return fmt.Errorf("failed to download CHECKSUM file: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download CHECKSUM file: HTTP %d", resp.StatusCode)
-	}
-
-	content, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read CHECKSUM file: %w", err)
-	}
-
-	entry := &checksumCacheEntry{
-		checksums: make(map[string]string),
-		loaded:    false,
-	}
-
-	// Parse CHECKSUM file (format: "checksum  filename")
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			checksum := parts[0]
-			filename := parts[1]
-			entry.checksums[filename] = checksum
+// githubToken returns the bearer token used to reach the private proving-keys
+// release, honoring the env names the `gh` CLI also reads.
+func githubToken() string {
+	for _, env := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return v
 		}
 	}
-
-	entry.loaded = true
-	globalChecksumCaches.caches[config.BaseURL] = entry
-
-	logging.Logger().Info().
-		Int("count", len(entry.checksums)).
-		Str("base_url", config.BaseURL).
-		Msg("Loaded checksums")
-
-	return nil
+	return ""
 }
 
 // readLocalChecksum looks up filename in a CHECKSUM file located in dir (format:
@@ -170,254 +108,150 @@ func calculateBackoff(attempt int, initialDelay, maxDelay time.Duration) time.Du
 	return delay
 }
 
-func downloadFileWithResume(url, outputPath string, config *DownloadConfig) error {
-	tempPath := outputPath + ".tmp"
-
-	for attempt := 1; attempt <= config.MaxRetries; attempt++ {
-		var existingSize int64 = 0
-		if fileInfo, err := os.Stat(tempPath); err == nil {
-			existingSize = fileInfo.Size()
-		}
-
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-
-		if existingSize > 0 {
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", existingSize))
-			logging.Logger().Info().
-				Str("url", url).
-				Int64("resume_from", existingSize).
-				Int("attempt", attempt).
-				Int("max_retries", config.MaxRetries).
-				Msg("Resuming download")
-		} else {
-			logging.Logger().Info().
-				Str("url", url).
-				Int("attempt", attempt).
-				Int("max_retries", config.MaxRetries).
-				Msg("Starting download")
-		}
-
-		client := &http.Client{
-			Timeout: 60 * time.Minute,
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			if attempt < config.MaxRetries {
-				delay := calculateBackoff(attempt, config.RetryDelay, config.MaxRetryDelay)
-				logging.Logger().Warn().
-					Err(err).
-					Dur("retry_delay", delay).
-					Msg("Download failed, retrying")
-				time.Sleep(delay)
-				continue
-			}
-			return fmt.Errorf("failed to download after %d attempts: %w", config.MaxRetries, err)
-		}
-
-		// Check response status
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-			resp.Body.Close()
-			if attempt < config.MaxRetries {
-				delay := calculateBackoff(attempt, config.RetryDelay, config.MaxRetryDelay)
-				logging.Logger().Warn().
-					Int("status_code", resp.StatusCode).
-					Dur("retry_delay", delay).
-					Msg("Unexpected status code, retrying")
-				time.Sleep(delay)
-				continue
-			}
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		}
-
-		var file *os.File
-		if existingSize > 0 && resp.StatusCode == http.StatusPartialContent {
-			file, err = os.OpenFile(tempPath, os.O_APPEND|os.O_WRONLY, 0644)
-		} else {
-			file, err = os.Create(tempPath)
-			existingSize = 0
-		}
-		if err != nil {
-			resp.Body.Close()
-			return fmt.Errorf("failed to open file: %w", err)
-		}
-
-		totalSize := existingSize + resp.ContentLength
-		downloadedBytes := existingSize
-		lastLogTime := time.Now()
-		logInterval := 5 * time.Second
-
-		buffer := make([]byte, 32*1024)
-		for {
-			n, err := resp.Body.Read(buffer)
-			if n > 0 {
-				if _, writeErr := file.Write(buffer[:n]); writeErr != nil {
-					file.Close()
-					resp.Body.Close()
-					return fmt.Errorf("failed to write to file: %w", writeErr)
-				}
-				downloadedBytes += int64(n)
-
-				if time.Since(lastLogTime) >= logInterval {
-					if totalSize > 0 {
-						progress := float64(downloadedBytes) / float64(totalSize) * 100
-						logging.Logger().Info().
-							Int64("downloaded", downloadedBytes).
-							Int64("total", totalSize).
-							Float64("progress", progress).
-							Msg("Download progress")
-					}
-					lastLogTime = time.Now()
-				}
-			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				file.Close()
-				resp.Body.Close()
-				if attempt < config.MaxRetries {
-					delay := calculateBackoff(attempt, config.RetryDelay, config.MaxRetryDelay)
-					logging.Logger().Warn().
-						Err(err).
-						Dur("retry_delay", delay).
-						Msg("Download interrupted, retrying")
-					time.Sleep(delay)
-					continue
-				}
-				return fmt.Errorf("download failed: %w", err)
-			}
-		}
-
-		file.Close()
-		resp.Body.Close()
-
-		if err := os.Rename(tempPath, outputPath); err != nil {
-			return fmt.Errorf("failed to rename temp file: %w", err)
-		}
-
-		logging.Logger().Info().
-			Str("file", filepath.Base(outputPath)).
-			Int64("size", downloadedBytes).
-			Msg("Download completed successfully")
-
-		return nil
-	}
-
-	return fmt.Errorf("failed to download after %d attempts", config.MaxRetries)
+type releaseAsset struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
-func DownloadKey(keyPath string, config *DownloadConfig) error {
-	filename := filepath.Base(keyPath)
+// githubAPIRequest builds a GitHub REST API request carrying the bearer token
+// (when set) and the standard API headers.
+func githubAPIRequest(method, url, accept string) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", accept)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if tok := githubToken(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	return req, nil
+}
 
-	// Offline path: a CHECKSUM file in the key's directory (written by
-	// scripts/generate_checksums.py) is authoritative for locally-generated keys
-	// such as the transfer proving keys, which are not published to the CDN. If it
-	// covers this file and the on-disk key verifies, accept it without any network.
-	if localChecksum, ok := readLocalChecksum(filepath.Dir(keyPath), filename); ok {
-		if _, err := os.Stat(keyPath); err == nil {
-			valid, verr := verifyChecksum(keyPath, localChecksum)
-			if verr == nil && valid {
-				logging.Logger().Info().
-					Str("file", filename).
-					Msg("Key file verified against local CHECKSUM, skipping download")
-				return nil
-			}
+// listReleaseAssets fetches the asset list for the configured release tag. The
+// proving-keys repo is private, so the request carries a bearer token.
+func listReleaseAssets() ([]releaseAsset, error) {
+	tag := releaseTag()
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", ProvingKeysRepo, tag)
+	req, err := githubAPIRequest(http.MethodGet, url, "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query release %s@%s: %w", ProvingKeysRepo, tag, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		hint := ""
+		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			hint = " (set GITHUB_TOKEN/GH_TOKEN with read access to the private proving-keys repo)"
 		}
+		return nil, fmt.Errorf("failed to query release %s@%s: HTTP %d%s: %s", ProvingKeysRepo, tag, resp.StatusCode, hint, strings.TrimSpace(string(body)))
 	}
-
-	if err := downloadChecksum(config); err != nil {
-		return fmt.Errorf("failed to load checksums: %w", err)
+	var release struct {
+		Assets []releaseAsset `json:"assets"`
 	}
-
-	globalChecksumCaches.mu.RLock()
-	entry, exists := globalChecksumCaches.caches[config.BaseURL]
-	if !exists {
-		globalChecksumCaches.mu.RUnlock()
-		return fmt.Errorf("checksum cache not found for BaseURL: %s", config.BaseURL)
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, fmt.Errorf("failed to decode release metadata: %w", err)
 	}
-	expectedChecksum, checksumExists := entry.checksums[filename]
-	globalChecksumCaches.mu.RUnlock()
+	return release.Assets, nil
+}
 
-	if !checksumExists {
-		return fmt.Errorf("no checksum found for %s", filename)
-	}
-
-	if fileInfo, err := os.Stat(keyPath); err == nil {
-		logging.Logger().Info().
-			Str("file", filename).
-			Int64("size", fileInfo.Size()).
-			Msg("Verifying existing key file")
-
-		valid, err := verifyChecksum(keyPath, expectedChecksum)
-		if err != nil {
-			if !config.AutoDownload {
-				return fmt.Errorf("key file %s exists but failed verification (auto-download disabled): %w", filename, err)
-			}
-			logging.Logger().Warn().
-				Err(err).
-				Str("file", filename).
-				Msg("Failed to verify checksum, will re-download")
-		} else if valid {
-			logging.Logger().Info().
-				Str("file", filename).
-				Msg("Key file is valid, skipping download")
-			return nil
-		} else {
-			if !config.AutoDownload {
-				return fmt.Errorf("key file %s checksum mismatch (auto-download disabled)", filename)
-			}
-			logging.Logger().Warn().
-				Str("file", filename).
-				Msg("Checksum mismatch, re-downloading")
-			os.Remove(keyPath)
-		}
-	} else if os.IsNotExist(err) {
-		if !config.AutoDownload {
-			return fmt.Errorf("required key file not found: %s (auto-download disabled)", filename)
-		}
-	} else {
-		return fmt.Errorf("failed to check key file %s: %w", filename, err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/%s", config.BaseURL, filename)
-	logging.Logger().Info().
-		Str("file", filename).
-		Str("url", url).
-		Msg("Downloading key file")
-
-	if err := downloadFileWithResume(url, keyPath, config); err != nil {
+// downloadReleaseAsset downloads every asset whose name matches pattern (a
+// filepath.Match glob) into dir via the GitHub REST API. Errors if nothing
+// matches. Replaces the `gh` CLI so downloads work in the distroless image.
+func downloadReleaseAsset(pattern string, dir string) error {
+	assets, err := listReleaseAssets()
+	if err != nil {
 		return err
 	}
-
-	valid, err := verifyChecksum(keyPath, expectedChecksum)
-	if err != nil {
-		return fmt.Errorf("failed to verify downloaded file: %w", err)
+	matched := 0
+	for _, asset := range assets {
+		ok, err := filepath.Match(pattern, asset.Name)
+		if err != nil {
+			return fmt.Errorf("invalid asset pattern %q: %w", pattern, err)
+		}
+		if !ok {
+			continue
+		}
+		if err := downloadAssetByID(asset.ID, filepath.Join(dir, asset.Name)); err != nil {
+			return fmt.Errorf("failed to download asset %s: %w", asset.Name, err)
+		}
+		matched++
 	}
-	if !valid {
-		os.Remove(keyPath)
-		return fmt.Errorf("downloaded file checksum mismatch")
+	if matched == 0 {
+		return fmt.Errorf("no asset matches %q in release %s@%s", pattern, ProvingKeysRepo, releaseTag())
 	}
-
-	logging.Logger().Info().
-		Str("file", filename).
-		Msg("Key file downloaded and verified successfully")
-
 	return nil
 }
 
-// EnsureProvingKeyFromRelease makes a Zolana-specific proving key available at
-// keyPath, fetching it (and the release CHECKSUM) from the private GitHub
-// release via the `gh` CLI. `gh` carries the caller's auth locally and CI's
-// same-repo GITHUB_TOKEN, so this works without an unauthenticated URL. If the
-// file is already present and verifies against the local CHECKSUM, no download
-// happens. When autoDownload is false, a missing file is an error.
+// downloadAssetByID streams a release asset (by numeric id) to outputPath,
+// retrying with backoff. With Accept: application/octet-stream GitHub redirects
+// to signed storage on a different host; the default client follows it and drops
+// the bearer token on that hop (the redirect URL is already signed).
+func downloadAssetByID(id int64, outputPath string) error {
+	assetURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/assets/%d", ProvingKeysRepo, id)
+	tempPath := outputPath + ".tmp"
+	var lastErr error
+	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+		if attempt > 1 {
+			delay := calculateBackoff(attempt-1, DefaultRetryDelay, DefaultMaxRetryDelay)
+			logging.Logger().Warn().
+				Err(lastErr).
+				Dur("retry_delay", delay).
+				Str("file", filepath.Base(outputPath)).
+				Msg("Release asset download failed, retrying")
+			time.Sleep(delay)
+		}
+		req, err := githubAPIRequest(http.MethodGet, assetURL, "application/octet-stream")
+		if err != nil {
+			return err
+		}
+		client := &http.Client{Timeout: 60 * time.Minute}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+		file, err := os.Create(tempPath)
+		if err != nil {
+			resp.Body.Close()
+			return fmt.Errorf("failed to create temp file %s: %w", tempPath, err)
+		}
+		_, copyErr := io.Copy(file, resp.Body)
+		resp.Body.Close()
+		if closeErr := file.Close(); closeErr != nil && copyErr == nil {
+			copyErr = closeErr
+		}
+		if copyErr != nil {
+			os.Remove(tempPath)
+			lastErr = copyErr
+			continue
+		}
+		if err := os.Rename(tempPath, outputPath); err != nil {
+			return fmt.Errorf("failed to rename temp file to %s: %w", outputPath, err)
+		}
+		logging.Logger().Info().
+			Str("file", filepath.Base(outputPath)).
+			Msg("Release asset downloaded")
+		return nil
+	}
+	return fmt.Errorf("failed to download asset after %d attempts: %w", DefaultMaxRetries, lastErr)
+}
+
+// EnsureProvingKeyFromRelease makes a Zolana proving key available at keyPath,
+// fetching it (and the release CHECKSUM) from the private GitHub release via the
+// REST API with a bearer token (GITHUB_TOKEN / GH_TOKEN). If the file is already
+// present and verifies against the local CHECKSUM, no download happens. When
+// autoDownload is false, a missing file is an error.
 func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 	filename := filepath.Base(keyPath)
 	dir := filepath.Dir(keyPath)
@@ -447,8 +281,8 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 	logging.Logger().Info().
 		Str("file", filename).
 		Str("repo", ProvingKeysRepo).
-		Str("tag", ProvingKeysReleaseTag).
-		Msg("Downloading proving key from GitHub release via gh")
+		Str("tag", releaseTag()).
+		Msg("Downloading proving key from GitHub release via REST API")
 
 	if err := downloadReleaseAsset("CHECKSUM", dir); err != nil {
 		return fmt.Errorf("failed to download release CHECKSUM: %w", err)
@@ -483,19 +317,6 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 	logging.Logger().Info().
 		Str("file", filename).
 		Msg("Proving key downloaded and verified successfully")
-	return nil
-}
-
-func downloadReleaseAsset(pattern string, dir string) error {
-	cmd := exec.Command("gh", "release", "download", ProvingKeysReleaseTag,
-		"--repo", ProvingKeysRepo,
-		"--pattern", pattern,
-		"--dir", dir,
-		"--clobber",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("gh release download failed for pattern %s: %w: %s", pattern, err, strings.TrimSpace(string(out)))
-	}
 	return nil
 }
 
@@ -560,10 +381,6 @@ func EnsureKeysExist(keys []string, config *DownloadConfig) error {
 		return nil
 	}
 
-	if err := downloadChecksum(config); err != nil {
-		return fmt.Errorf("failed to download checksums: %w", err)
-	}
-
 	var missingKeys []string
 	for _, key := range keys {
 		if _, err := os.Stat(key); os.IsNotExist(err) {
@@ -584,7 +401,7 @@ func EnsureKeysExist(keys []string, config *DownloadConfig) error {
 				Str("file", filepath.Base(key)).
 				Msg("Downloading missing key")
 
-			if err := DownloadKey(key, config); err != nil {
+			if err := EnsureProvingKeyFromRelease(key, config.AutoDownload); err != nil {
 				return fmt.Errorf("failed to download key %s: %w", filepath.Base(key), err)
 			}
 		}
