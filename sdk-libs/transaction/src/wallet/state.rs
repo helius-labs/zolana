@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
@@ -95,6 +95,11 @@ pub struct SyncReport {
     pub stored_utxos: usize,
     pub unparsed_transactions: usize,
     pub undecryptable_candidates: usize,
+    /// Compact asset ids that failed to decode because the wallet's registry
+    /// did not know them (SPL assets registered after the registry was built).
+    /// The client sync layer uses this to lazily backfill the registry from
+    /// chain and retry; it stays empty when every id is known.
+    pub unknown_asset_ids: BTreeSet<u64>,
 }
 
 pub struct Wallet {

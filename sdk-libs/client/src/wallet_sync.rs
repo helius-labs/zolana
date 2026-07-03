@@ -3,7 +3,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use zolana_interface::event::decode_output_data;
+use solana_address::Address;
+use zolana_interface::{
+    event::decode_output_data, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
+};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
     AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
@@ -57,6 +60,7 @@ where
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
+    let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
@@ -64,7 +68,7 @@ where
         fetch_shielded_transactions(indexer, &tags, &mut transactions, config)?;
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config)?;
 
-        let mut txs = transactions.values().cloned().collect::<Vec<_>>();
+        txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
         deposits.sort_by(|a, b| {
@@ -91,7 +95,50 @@ where
         }
     }
 
+    // Lazy registry backfill: if decode hit asset ids the wallet's registry did
+    // not know, refresh the id->mint map from the on-chain SplAssetRegistry
+    // accounts and re-run sync once. Single pass — if an id is still unknown
+    // after the refresh it is genuinely not on chain, so we stop rather than
+    // loop. A refresh source that cannot enumerate accounts (RPC without
+    // `get_program_accounts`) is a soft miss: sync keeps today's behaviour.
+    if !report.unknown_asset_ids.is_empty() && refresh_registry_from_chain(wallet, indexer)? > 0 {
+        report = wallet.sync(&txs, now_unix_ts(), config.tag_window)?;
+    }
+
     Ok(report)
+}
+
+/// Fetch every `SplAssetRegistry` account owned by the shielded-pool program and
+/// insert any new `asset_id -> mint` pairs into the wallet's registry. Returns
+/// the number of newly inserted ids. `get_program_accounts` being unsupported on
+/// the RPC is treated as zero new ids (soft miss), not an error.
+fn refresh_registry_from_chain<I>(wallet: &mut Wallet, indexer: &I) -> Result<usize, ClientError>
+where
+    I: Rpc,
+{
+    let program_id = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let accounts = match indexer.get_program_accounts(program_id) {
+        Ok(accounts) => accounts,
+        Err(ClientError::UnsupportedRpcMethod(_)) => return Ok(0),
+        Err(err) => return Err(err),
+    };
+
+    let mut inserted = 0;
+    for (_, account) in accounts {
+        let Ok(registry) = SplAssetRegistry::from_account_bytes(&account.data) else {
+            continue;
+        };
+        // `insert` rejects the reserved SOL id and duplicates; a dup just means
+        // the id is already known, which is not an error for a refresh.
+        if wallet
+            .registry
+            .insert(registry.asset_id, registry.mint)
+            .is_ok()
+        {
+            inserted += 1;
+        }
+    }
+    Ok(inserted)
 }
 
 pub fn get_private_transactions(wallet: &Wallet) -> &[PrivateTransaction] {
@@ -322,12 +369,23 @@ mod tests {
         OutputContext, OutputSlot,
     };
 
+    #[derive(Default)]
     struct MockIndexer {
         transactions: Vec<ShieldedTransaction>,
         matches: Vec<EncryptedUtxoMatch>,
+        /// Canned SplAssetRegistry accounts returned by `get_program_accounts`,
+        /// used to exercise the lazy registry backfill during sync.
+        program_accounts: Vec<(Address, solana_account::Account)>,
     }
 
     impl Rpc for MockIndexer {
+        fn get_program_accounts(
+            &self,
+            _program_id: Address,
+        ) -> Result<Vec<(Address, solana_account::Account)>, ClientError> {
+            Ok(self.program_accounts.clone())
+        }
+
         fn get_encrypted_utxos_by_tags(
             &self,
             _tags: Vec<ViewTag>,
@@ -371,6 +429,7 @@ mod tests {
             &MockIndexer {
                 transactions: vec![funding.clone()],
                 matches: Vec::new(),
+                program_accounts: Vec::new(),
             },
         )
         .expect("sync funding");
@@ -389,6 +448,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: vec![funding, outbound],
             matches: Vec::new(),
+            program_accounts: Vec::new(),
         };
 
         sync_wallet(&mut wallet, &indexer).expect("sync outbound");
@@ -425,6 +485,7 @@ mod tests {
             &MockIndexer {
                 transactions: vec![withdrawal],
                 matches: Vec::new(),
+                program_accounts: Vec::new(),
             },
         )
         .expect("sync withdrawal");
@@ -460,6 +521,7 @@ mod tests {
             &MockIndexer {
                 transactions: vec![tx],
                 matches: Vec::new(),
+                program_accounts: Vec::new(),
             },
         )
         .expect("sync mixed outbound");
@@ -492,6 +554,7 @@ mod tests {
             &MockIndexer {
                 transactions: vec![tx],
                 matches: Vec::new(),
+                program_accounts: Vec::new(),
             },
         )
         .expect("sync merge");
@@ -526,6 +589,7 @@ mod tests {
                 proofless: false,
             }],
             matches: Vec::new(),
+            program_accounts: Vec::new(),
         };
         let mut out = HashMap::new();
 
@@ -552,6 +616,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![item],
+            program_accounts: Vec::new(),
         };
         let mut out = HashMap::new();
 
@@ -586,6 +651,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
+            program_accounts: Vec::new(),
         };
 
         sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
@@ -616,6 +682,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
+            program_accounts: Vec::new(),
         };
 
         sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
@@ -638,6 +705,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![encrypted_match(&wallet, output)],
+            program_accounts: Vec::new(),
         };
 
         sync_wallet(&mut wallet, &indexer).expect("sync indexed proofless deposit");
@@ -663,6 +731,7 @@ mod tests {
         let indexer = MockIndexer {
             transactions: Vec::new(),
             matches: vec![item],
+            program_accounts: Vec::new(),
         };
         let mut out = HashMap::new();
 
@@ -987,5 +1056,103 @@ mod tests {
             .expect("nullifier pubkey");
         utxo.hash(&nullifier_pk, &data_hash, &zone_data_hash)
             .expect("proofless leaf hash")
+    }
+
+    /// A canned on-chain `SplAssetRegistry` account (as `get_program_accounts`
+    /// would return it), owned by the shielded-pool program, mapping `mint` to
+    /// `asset_id`.
+    fn spl_registry_account(mint: Address, asset_id: u64) -> (Address, solana_account::Account) {
+        let data = SplAssetRegistry::account_bytes(mint, asset_id).to_vec();
+        let pda = Address::new_from_array([9u8; 32]);
+        let account = solana_account::Account {
+            lamports: 1,
+            data,
+            owner: solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+            executable: false,
+            rent_epoch: 0,
+        };
+        (pda, account)
+    }
+
+    #[test]
+    fn sync_backfills_unknown_asset_from_chain_then_decodes() {
+        // Alice receives a confidential transfer in an SPL asset her wallet's
+        // registry does not know yet (built SOL-only). Sync must hit the unknown
+        // id, refresh the registry from the on-chain SplAssetRegistry account,
+        // and decode the note on the retry.
+        let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
+
+        // Alice's wallet only knows SOL — the SPL id is unknown at first.
+        let mut wallet = Wallet::new(alice.clone(), AssetRegistry::default()).expect("wallet");
+        let indexer = MockIndexer {
+            transactions: vec![transfer],
+            matches: Vec::new(),
+            program_accounts: vec![spl_registry_account(SPL_MINT, SPL_ASSET_ID)],
+        };
+
+        let report = sync_wallet(&mut wallet, &indexer).expect("sync with backfill");
+
+        // The note decoded after the refresh: it is stored and no id remains
+        // unknown in the final report.
+        assert_eq!(report.stored_utxos, 1);
+        assert!(report.unknown_asset_ids.is_empty());
+        let balances = wallet.balances(true).expect("balances");
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0].mint, SPL_MINT);
+        assert_eq!(balances[0].amount, 100);
+    }
+
+    #[test]
+    fn sync_without_gpa_leaves_unknown_asset_undecoded() {
+        // Same stale-registry setup, but the RPC returns NO registry accounts
+        // (e.g. get_program_accounts unavailable / empty). The note stays
+        // undecoded and the refresh does not loop.
+        let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
+
+        let mut wallet = Wallet::new(alice.clone(), AssetRegistry::default()).expect("wallet");
+        let indexer = MockIndexer {
+            transactions: vec![transfer],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        let report = sync_wallet(&mut wallet, &indexer).expect("sync no backfill");
+
+        assert_eq!(report.stored_utxos, 0);
+        assert!(report.unknown_asset_ids.contains(&SPL_ASSET_ID));
+        assert!(wallet.balances(true).expect("balances").is_empty());
+    }
+
+    #[test]
+    fn sync_known_asset_reports_no_unknown_ids() {
+        // When the wallet already knows every asset, sync decodes on the first
+        // pass and never records an unknown id.
+        let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
+        let sender = ShieldedKeypair::new().expect("sender");
+        let alice = ShieldedKeypair::new().expect("alice");
+        let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
+
+        let mut wallet = Wallet::new(alice.clone(), full.clone()).expect("wallet");
+        let indexer = MockIndexer {
+            transactions: vec![transfer],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        let report = sync_wallet(&mut wallet, &indexer).expect("sync known");
+        // `stored_utxos` is per-sync-call and the multi-round loop re-syncs the
+        // same tx (a duplicate store), so assert the durable wallet state and
+        // that no id was ever unknown.
+        assert!(report.unknown_asset_ids.is_empty());
+        let balances = wallet.balances(true).expect("balances");
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0].mint, SPL_MINT);
+        assert_eq!(balances[0].amount, 100);
     }
 }
