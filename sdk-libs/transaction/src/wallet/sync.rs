@@ -551,14 +551,14 @@ impl SyncCtx<'_> {
                         };
                         let pks = plaintext.recipient_viewing_pks.clone();
                         let real_recipient_count = Self::confidential_recipient_count(tx);
-                        let change = match ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx)
-                        {
-                            Ok(change) => change,
-                            Err(err) => {
-                                self.note_undecryptable(&err);
-                                return Ok(outcome);
-                            }
-                        };
+                        let change =
+                            match ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx) {
+                                Ok(change) => change,
+                                Err(err) => {
+                                    self.note_undecryptable(&err);
+                                    return Ok(outcome);
+                                }
+                            };
                         for utxo in &change {
                             self.store_in_tx(utxo.clone(), tx)?;
                         }

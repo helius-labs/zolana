@@ -88,7 +88,9 @@ impl Rpc for ZolanaProgramTest {
             .into_iter()
             .filter_map(|address| {
                 let pubkey = Pubkey::new_from_array(address.to_bytes());
-                self.svm.get_account(&pubkey).map(|account| (address, account))
+                self.svm
+                    .get_account(&pubkey)
+                    .map(|account| (address, account))
             })
             .collect())
     }

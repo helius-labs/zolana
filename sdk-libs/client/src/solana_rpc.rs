@@ -309,9 +309,7 @@ impl Rpc for SolanaRpc {
             .map(|accounts| {
                 accounts
                     .into_iter()
-                    .map(|(pubkey, account)| {
-                        (Address::new_from_array(pubkey.to_bytes()), account)
-                    })
+                    .map(|(pubkey, account)| (Address::new_from_array(pubkey.to_bytes()), account))
                     .collect()
             })
             .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))
