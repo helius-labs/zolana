@@ -31,7 +31,7 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::TreeAccount;
 
 use crate::forest::{batch_update_nullifier_tree_once, ForestParams};
-use crate::photon::PhotonClient;
+use zolana_api::{types::SerializablePubkey, BlockingZolanaApi};
 
 /// BN254 scalar field modulus minus one: the nullifier tree's initial
 /// `next_value` sentinel. Pinned by `reference_tree_matches_on_chain_init`
@@ -83,7 +83,7 @@ struct TreeSnapshot {
 pub fn run(opts: RunOptions) -> Result<()> {
     let rpc_url = env::var("RPC_URL").context("RPC_URL is not set")?;
     let photon_url = env::var("PHOTON_URL").context("PHOTON_URL is not set")?;
-    let photon = PhotonClient::new(photon_url);
+    let photon = BlockingZolanaApi::new(photon_url);
 
     if opts.dry_run {
         return check_once(&rpc_url, &photon, opts.tree);
@@ -190,31 +190,40 @@ fn applied_count(snapshot: &TreeSnapshot) -> Result<u64> {
 /// fresh reference tree, and verify the reconstructed root matches on-chain.
 /// Returns the reference tree (at the on-chain state) and the fetched values.
 fn reconstruct_and_verify(
-    photon: &PhotonClient,
+    photon: &BlockingZolanaApi,
     tree: Pubkey,
     snapshot: &TreeSnapshot,
     fetch_total: u64,
 ) -> Result<(IndexedMerkleTree<Poseidon, usize>, Vec<[u8; 32]>)> {
     let applied = applied_count(snapshot)?;
-    let queued = photon
-        .fetch_queued(tree, 0, fetch_total)
-        .context("fetch queued nullifiers from photon")?;
-    if (queued.len() as u64) < applied {
+    let tree_account = SerializablePubkey(bs58::encode(tree.to_bytes()).into_string());
+    let elements = photon
+        .get_nullifier_queue_elements(tree_account, Some(0), fetch_total)
+        .map_err(|err| anyhow!("fetch queued nullifiers from photon: {err}"))?
+        .elements;
+    if (elements.len() as u64) < applied {
         bail!(
             "photon returned {} queued nullifiers, need at least the {} already-applied to reconstruct",
-            queued.len(),
+            elements.len(),
             applied
         );
     }
-    for (index, element) in queued.iter().enumerate() {
+    let mut values = Vec::with_capacity(elements.len());
+    for (index, element) in elements.into_iter().enumerate() {
         if element.seq != index as u64 {
             bail!(
                 "queued nullifier sequence gap at index {index}: photon returned seq {}",
                 element.seq
             );
         }
+        let decoded = bs58::decode(&element.value.0)
+            .into_vec()
+            .map_err(|err| anyhow!("decode nullifier {}: {err}", element.value.0))?;
+        let value: [u8; 32] = decoded.try_into().map_err(|bytes: Vec<u8>| {
+            anyhow!("nullifier decoded to {} bytes, expected 32", bytes.len())
+        })?;
+        values.push(value);
     }
-    let values: Vec<[u8; 32]> = queued.into_iter().map(|element| element.value).collect();
 
     let mut reference = reference_nullifier_tree(snapshot.height)?;
     for value in &values[..applied as usize] {
@@ -238,7 +247,7 @@ fn reconstruct_and_verify(
 fn drain_once(
     rpc_url: &str,
     prover: &ProverClient,
-    photon: &PhotonClient,
+    photon: &BlockingZolanaApi,
     member: &Keypair,
     settings: Pubkey,
     account_index: u8,
@@ -325,7 +334,7 @@ fn drain_once(
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
 /// and report, without proving or submitting. Works even with no ready
 /// zkp-batches, so it is a cheap way to check the integration end to end.
-fn check_once(rpc_url: &str, photon: &PhotonClient, tree: Pubkey) -> Result<()> {
+fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result<()> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     let applied = applied_count(&snapshot)?;
     // Fetch the applied prefix plus the pending batch's queued values so the

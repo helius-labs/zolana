@@ -7,7 +7,6 @@ pub mod cli;
 pub mod forest;
 pub mod info;
 pub mod logging;
-pub mod photon;
 pub mod run;
 
 pub use forest::{batch_update_nullifier_tree_once, ForestError, ForestParams};
