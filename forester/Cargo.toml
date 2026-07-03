@@ -8,7 +8,9 @@ publish = false
 default = []
 
 [dependencies]
+anyhow = { workspace = true }
 clap = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -27,3 +29,7 @@ solana-transaction = { workspace = true }
 
 # Shielded-pool interface for instruction-data shapes and builders.
 zolana-interface = { workspace = true, features = ["solana"] }
+
+# Tree + nullifier-queue state for the read-only `info` report.
+zolana-tree = { workspace = true }
+zolana-batched-merkle-tree = { workspace = true }

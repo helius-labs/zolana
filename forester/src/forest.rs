@@ -83,11 +83,16 @@ mod tests {
             Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
         );
         assert_eq!(ix.data[0], tag::BATCH_UPDATE_NULLIFIER_TREE);
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 4);
         assert_eq!(ix.accounts[0].pubkey, authority);
         assert!(ix.accounts[0].is_signer);
         assert_eq!(ix.accounts[1].pubkey, pda::protocol_config());
         assert_eq!(ix.accounts[2].pubkey, tree);
         assert!(ix.accounts[2].is_writable);
+        // Program account last, loadable for the `emit_event` self-CPI.
+        assert_eq!(
+            ix.accounts[3].pubkey,
+            Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
+        );
     }
 }

@@ -2055,8 +2055,10 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 name = "forester"
 version = "1.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "dotenvy",
+ "serde_json",
  "solana-commitment-config",
  "solana-keypair",
  "solana-message 3.1.0",
@@ -2069,7 +2071,9 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zolana-batched-merkle-tree",
  "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
