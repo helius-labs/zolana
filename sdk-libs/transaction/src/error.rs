@@ -73,6 +73,15 @@ pub enum TransactionError {
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("a split must produce at least one output")]
+    SplitWithoutOutputs,
+
+    #[error("split output amounts sum to {requested} but the selected input holds {available}")]
+    SplitAmountMismatch { requested: u64, available: u64 },
+
+    #[error("a split spends exactly one input; got {0}")]
+    SplitInputCount(usize),
+
     #[error("unsupported proof shape: {n_in} input(s), {n_out} output(s)")]
     UnsupportedShape { n_in: usize, n_out: usize },
 

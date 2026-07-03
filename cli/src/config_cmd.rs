@@ -22,6 +22,10 @@ fn run_config_get() -> Result<()> {
     let path = config_file_path();
     let config = CliConfigFile::load()?;
     println!("Config File: {}", path.display());
+    match config.wallet.as_deref() {
+        Some(wallet) => println!("Wallet: {wallet}"),
+        None => println!("Wallet: (not set)"),
+    }
     print_field(
         "Keypair Path",
         config.keypair.as_deref(),
@@ -54,7 +58,8 @@ fn print_field(label: &str, configured: Option<&str>, default: Option<&str>) {
 }
 
 fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
-    if opts.keypair.is_none()
+    if opts.wallet.is_none()
+        && opts.keypair.is_none()
         && opts.rpc_url.is_none()
         && opts.indexer_url.is_none()
         && opts.prover_url.is_none()
@@ -63,6 +68,9 @@ fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
         bail!("pass at least one field to set");
     }
     let mut config = CliConfigFile::load()?;
+    if let Some(wallet) = opts.wallet {
+        config.wallet = Some(wallet);
+    }
     if let Some(keypair) = opts.keypair {
         config.keypair = Some(keypair);
     }

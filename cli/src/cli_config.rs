@@ -24,6 +24,8 @@ pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(
 pub(crate) struct CliConfigFile {
     pub version: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub keypair: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_url: Option<String>,
@@ -153,6 +155,14 @@ pub(crate) fn default_keypair_path() -> PathBuf {
     config_dir().join("pid.json")
 }
 
+pub(crate) fn wallets_dir() -> PathBuf {
+    config_dir().join("wallets")
+}
+
+pub(crate) fn wallet_file(name: &str) -> PathBuf {
+    wallets_dir().join(format!("{name}.json"))
+}
+
 pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfigFile) -> PathBuf {
     match cli_override {
         Some(path) => PathBuf::from(path),
@@ -162,6 +172,28 @@ pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfi
             .map(PathBuf::from)
             .unwrap_or_else(default_keypair_path),
     }
+}
+
+/// Resolve which wallet file to use, in precedence order:
+/// 1. an explicit `--keypair <PATH>` file path,
+/// 2. a `--wallet <NAME>` named wallet (-> `wallets/<name>.json`),
+/// 3. the configured default wallet name (-> `wallets/<name>.json`),
+/// 4. the legacy `resolve_keypair_path` fallback (`config.keypair` or `pid.json`).
+pub(crate) fn resolve_wallet_path(
+    wallet_name: Option<&str>,
+    keypair_path: Option<&str>,
+    config: &CliConfigFile,
+) -> PathBuf {
+    if let Some(path) = keypair_path {
+        return PathBuf::from(path);
+    }
+    if let Some(name) = wallet_name {
+        return wallet_file(name);
+    }
+    if let Some(name) = config.wallet.as_deref() {
+        return wallet_file(name);
+    }
+    resolve_keypair_path(None, config)
 }
 
 pub(crate) fn resolve_rpc_url(cli_override: Option<&str>, config: &CliConfigFile) -> String {
@@ -219,6 +251,7 @@ mod tests {
         unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
         let config = CliConfigFile {
             version: CONFIG_VERSION,
+            wallet: Some("alice".to_string()),
             keypair: Some("/tmp/alice.pid.json".to_string()),
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             indexer_url: Some("http://127.0.0.1:8785".to_string()),
@@ -249,9 +282,44 @@ mod tests {
             resolve_rpc_url(Some("http://127.0.0.1:9999"), &config),
             "http://127.0.0.1:9999"
         );
+    }
+
+    #[test]
+    fn resolve_wallet_path_follows_precedence() {
+        let base = CliConfigFile {
+            keypair: Some("/tmp/config.pid.json".to_string()),
+            wallet: Some("default".to_string()),
+            ..CliConfigFile::default()
+        };
+
+        // 1. explicit keypair path wins over everything.
         assert_eq!(
-            resolve_tree(Some("So11111111111111111111111111111111111111112"), &config),
-            "So11111111111111111111111111111111111111112"
+            resolve_wallet_path(Some("alice"), Some("/tmp/flag.pid.json"), &base),
+            PathBuf::from("/tmp/flag.pid.json")
+        );
+        // 2. named wallet resolves to wallets/<name>.json.
+        assert_eq!(
+            resolve_wallet_path(Some("alice"), None, &base),
+            wallet_file("alice")
+        );
+        // 3. configured default wallet name resolves to wallets/<name>.json.
+        assert_eq!(
+            resolve_wallet_path(None, None, &base),
+            wallet_file("default")
+        );
+        // 4. no wallet configured -> legacy keypair fallback.
+        let no_wallet = CliConfigFile {
+            keypair: Some("/tmp/config.pid.json".to_string()),
+            ..CliConfigFile::default()
+        };
+        assert_eq!(
+            resolve_wallet_path(None, None, &no_wallet),
+            PathBuf::from("/tmp/config.pid.json")
+        );
+        // 4b. nothing set at all -> default pid.json path.
+        assert_eq!(
+            resolve_wallet_path(None, None, &CliConfigFile::default()),
+            default_keypair_path()
         );
     }
 }

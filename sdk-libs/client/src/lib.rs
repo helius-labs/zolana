@@ -11,10 +11,12 @@ pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_associated_token_account, create_deposit, create_transfer, create_transfer_sync,
-    create_withdrawal, create_withdrawal_sync, sign_transaction, sign_transaction_sync,
-    CreateDeposit, CreateTransfer, CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit,
-    ResolvedAddress, TransferRecipient,
+    create_associated_token_account, create_deposit, create_merge, create_merge_sync, create_split,
+    create_split_sync, create_transfer, create_transfer_sync, create_withdrawal,
+    create_withdrawal_sync, select_inputs, sign_transaction, sign_transaction_sync, CreateDeposit,
+    CreateMerge, CreateSplit, CreateTransfer, CreateWithdrawal, CreatedMerge, CreatedSplit,
+    CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection, ResolvedAddress,
+    TransferRecipient,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
@@ -39,15 +41,15 @@ pub use rpc::{
     ShieldedTransaction, ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
-pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
+pub use solana_rpc::{ConfirmedInstructionGroups, SignatureState, SolanaRpc};
 pub use user_registry::{
     decode_user_record_account, ensure_registered, fetch_user_record_checked,
     fetch_user_record_optional_checked, resolve_registered_address, resolved_address_from_record,
     try_resolve_registered_address, validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    P256Signature, SyncWalletAuthority, WalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedSplit,
+    EncryptedTransfer, P256Signature, SyncWalletAuthority, WalletAuthority,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
@@ -57,10 +59,10 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{SignedTransaction, Transaction, WithdrawalTarget},
+        transact::{PreparedSplit, SignedTransaction, Transaction, WithdrawalTarget},
         types::{InputCommitment, SpendUtxo},
         zone_authority::PreparedZoneAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus,
+    PrivateTransactionKind, PrivateTransactionStatus, SpendableUtxo,
 };

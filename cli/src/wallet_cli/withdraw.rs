@@ -1,26 +1,33 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{
+    create_withdrawal_sync, CreateWithdrawal, InputSelection, SolanaRpc, ZolanaIndexer,
+};
 use zolana_transaction::Address;
 
 use super::{
-    resolve::get_network,
+    resolve::get_network_with_config,
     sync::sync_context,
     transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{
+        ensure_positive, format_address, parse_address, parse_amount_for_asset,
+        resolve_recipient_pubkey,
+    },
 };
-use crate::args::WithdrawOptions;
+use crate::{args::WithdrawOptions, cli_config::CliConfigFile};
 
 pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
-    ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
-    let network = get_network(&opts.network)?;
+    let amount = parse_amount_for_asset(&opts.amount, asset)?;
+    ensure_positive(amount)?;
+    let config = CliConfigFile::load()?;
+    let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
-    let recipient = parse_pubkey(&opts.to)?;
+    let recipient = resolve_recipient_pubkey(&opts.to, &config)?;
 
     let withdrawal = create_withdrawal_sync(CreateWithdrawal {
         wallet: &ctx.wallet,
@@ -29,9 +36,11 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         recipient,
         asset,
-        amount: opts.amount,
+        amount,
+        assets: &ctx.wallet.registry,
+        selection: InputSelection::Auto,
     })?;
-    let signature = submit_private_transaction(
+    let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
             indexer: &indexer,
@@ -39,16 +48,17 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
             tree,
             prover_url: &network.prover_url,
             withdrawal: Some(withdrawal.withdrawal),
-            wait_tag: withdrawal.wait_tag,
+            wait_output_hash: withdrawal.wait_output_hash,
         },
         withdrawal.signed,
     )?;
     println!(
-        "ok withdraw amount={} mint={} to={} signature={}",
+        "ok withdraw amount={} mint={} to={} signature={}{}",
         opts.amount,
         format_address(asset),
         recipient,
-        signature
+        signature,
+        outcome.pending_suffix(),
     );
     Ok(())
 }

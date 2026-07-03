@@ -30,8 +30,8 @@ pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
-    WalletUtxo, DEFAULT_TAG_WINDOW,
+    PrivateTransactionKind, PrivateTransactionStatus, SpendableUtxo, SyncReport, ViewingKeyEntry,
+    Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 

@@ -41,6 +41,22 @@ pub struct ConfirmedInstructionGroups {
     pub groups: Vec<InstructionGroup>,
 }
 
+/// On-chain outcome of a submitted signature, as seen by the RPC.
+///
+/// Distinguishes a genuine on-chain failure (which the caller should surface
+/// immediately) from a not-yet-visible signature (which may still be
+/// propagating) and a confirmed success. A confirmed transaction is a
+/// successful one even if a downstream indexer has not caught up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignatureState {
+    /// The transaction landed but executed with an error.
+    Failed(String),
+    /// The transaction is confirmed (or finalized) with no execution error.
+    Confirmed,
+    /// The RPC has no record of the signature yet.
+    NotFound,
+}
+
 impl SolanaRpc {
     pub fn new(url: impl Into<String>) -> Self {
         Self::with_client(RpcClient::new_with_commitment(
@@ -96,6 +112,26 @@ impl SolanaRpc {
         Err(ClientError::Rpc(format!(
             "signature not confirmed: {signature}"
         )))
+    }
+
+    /// Classify a submitted signature via `getSignatureStatuses`
+    /// (`searchTransactionHistory = true`), so the wait path can fail fast on a
+    /// genuine on-chain failure and treat confirmed-but-unindexed as success.
+    /// A missing status is [`SignatureState::NotFound`] (still propagating), not
+    /// an error.
+    pub fn signature_state(&self, signature: &Signature) -> Result<SignatureState, ClientError> {
+        let statuses = self
+            .client
+            .get_signature_statuses_with_history(&[*signature])
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses {signature}: {err}")))?
+            .value;
+        match statuses.into_iter().next().flatten() {
+            Some(status) => match status.err {
+                Some(err) => Ok(SignatureState::Failed(err.to_string())),
+                None => Ok(SignatureState::Confirmed),
+            },
+            None => Ok(SignatureState::NotFound),
+        }
     }
 
     pub fn fetch_confirmed_instruction_groups(

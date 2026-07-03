@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_keypair::KeypairError;
-use zolana_transaction::TransactionError;
+use zolana_transaction::{Address, TransactionError};
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -26,8 +26,21 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("balance is too fragmented: covering {requested} needs {notes} notes but a transfer spends at most {max_inputs}; consolidate (merge) first")]
+    FragmentedBalance {
+        requested: u64,
+        notes: usize,
+        max_inputs: usize,
+    },
+
+    #[error("nothing to consolidate for asset {asset}: a merge needs at least two unspent notes")]
+    NothingToConsolidate { asset: Address },
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
+
+    #[error("explicitly selected note {hash} is not an unspent note of the requested asset")]
+    InputNoteUnavailable { hash: String },
 
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },

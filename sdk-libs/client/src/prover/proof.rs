@@ -92,6 +92,24 @@ impl ProofCompressed {
             },
         }
     }
+
+    /// Pack the compressed proof into the fixed 192-byte `merge_transact` wire
+    /// format `a(32) || b(64) || c(32) || commitment(32) || commitment_pok(32)`
+    /// (matching the on-chain merge verifier's slicing). A merge proof always
+    /// carries a BSB22 commitment (the merge rail is always P256-committed), so
+    /// [`Self::commitment`] must be `Some`; a vanilla proof is a caller error.
+    pub fn to_merge_proof(self) -> Result<[u8; 192], ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse("merge proof must carry a BSB22 commitment".to_string())
+        })?;
+        let mut proof = [0u8; 192];
+        proof[..32].copy_from_slice(&self.a);
+        proof[32..96].copy_from_slice(&self.b);
+        proof[96..128].copy_from_slice(&self.c);
+        proof[128..160].copy_from_slice(&commitment.commitment);
+        proof[160..192].copy_from_slice(&commitment.commitment_pok);
+        Ok(proof)
+    }
 }
 
 fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {

@@ -7,8 +7,8 @@ use super::util::parse_pubkey;
 use crate::{
     args::{NetworkWalletOptions, SyncOptions},
     cli_config::{
-        resolve_indexer_url, resolve_keypair_path, resolve_prover_url, resolve_rpc_url,
-        resolve_tree, CliConfigFile,
+        resolve_indexer_url, resolve_prover_url, resolve_rpc_url, resolve_tree,
+        resolve_wallet_path, CliConfigFile,
     },
 };
 
@@ -37,15 +37,14 @@ pub(crate) fn resolve_sync_with_config(
     config: &CliConfigFile,
 ) -> Result<ResolvedSyncOptions> {
     Ok(ResolvedSyncOptions {
-        keypair_path: resolve_keypair_path(opts.keypair.keypair.as_deref(), config),
+        keypair_path: resolve_wallet_path(
+            opts.keypair.wallet.as_deref(),
+            opts.keypair.keypair.as_deref(),
+            config,
+        ),
         rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), config),
         indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), config),
     })
-}
-
-pub(crate) fn get_network(opts: &NetworkWalletOptions) -> Result<ResolvedNetworkOptions> {
-    let config = CliConfigFile::load()?;
-    get_network_with_config(opts, &config)
 }
 
 pub(crate) fn get_network_with_config(
@@ -98,16 +97,22 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(None);
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
-        let resolved = get_network(&NetworkWalletOptions {
-            sync: SyncOptions {
-                keypair: WalletKeypairOptions { keypair: None },
-                rpc_url: None,
-                indexer_url: None,
+        let resolved = get_network_with_config(
+            &NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        wallet: None,
+                        keypair: None,
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: None,
+                prover_url: None,
+                airdrop_lamports: None,
             },
-            tree: None,
-            prover_url: None,
-            airdrop_lamports: None,
-        })
+            &CliConfigFile::load().expect("load config"),
+        )
         .expect("resolve network");
         assert_eq!(
             resolved.tree.to_string(),
@@ -120,16 +125,22 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(Some("Tree111111111111111111111111111111111111111"));
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
-        let resolved = get_network(&NetworkWalletOptions {
-            sync: SyncOptions {
-                keypair: WalletKeypairOptions { keypair: None },
-                rpc_url: None,
-                indexer_url: None,
+        let resolved = get_network_with_config(
+            &NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        wallet: None,
+                        keypair: None,
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: None,
+                prover_url: None,
+                airdrop_lamports: None,
             },
-            tree: None,
-            prover_url: None,
-            airdrop_lamports: None,
-        })
+            &CliConfigFile::load().expect("load config"),
+        )
         .expect("resolve network");
         assert_eq!(
             resolved.tree.to_string(),
@@ -142,16 +153,22 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(Some("Tree111111111111111111111111111111111111111"));
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
-        let resolved = get_network(&NetworkWalletOptions {
-            sync: SyncOptions {
-                keypair: WalletKeypairOptions { keypair: None },
-                rpc_url: None,
-                indexer_url: None,
+        let resolved = get_network_with_config(
+            &NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        wallet: None,
+                        keypair: None,
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("So11111111111111111111111111111111111111112".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
             },
-            tree: Some("So11111111111111111111111111111111111111112".to_string()),
-            prover_url: None,
-            airdrop_lamports: None,
-        })
+            &CliConfigFile::load().expect("load config"),
+        )
         .expect("resolve network");
         assert_eq!(
             resolved.tree.to_string(),

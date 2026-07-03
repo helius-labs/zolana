@@ -17,6 +17,7 @@ use p256::{
 };
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
@@ -27,6 +28,7 @@ use zolana_client::{
     STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
+use zolana_interface::instruction::builders::Transact;
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
@@ -113,6 +115,22 @@ impl WalletAuthority for AsyncTestAuthority {
             sender_view_tag,
             sender,
             recipients,
+        )
+    }
+
+    async fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: [u8; 32],
+        bundle: &zolana_transaction::serialization::split::SplitBundlePlaintext,
+    ) -> Result<zolana_client::EncryptedSplit, ClientError> {
+        SyncWalletAuthority::encrypt_split(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            view_tag,
+            bundle,
         )
     }
 
@@ -425,6 +443,79 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         change_only.output_ciphertexts.first().unwrap().data.len(),
         one_recipient.output_ciphertexts.first().unwrap().data.len(),
     );
+}
+
+/// Every enabled confidential-transfer shape must fit Solana's 1232-byte legacy
+/// transaction limit. All transfer shapes carry three outputs (two change slots +
+/// one recipient) and differ only in input count, so this walks 1..=5 real inputs
+/// -- shapes {2,3},{2,3},{3,3},{4,3},{5,3} -- and asserts the fully assembled
+/// instruction stays under the packet limit. Uses the worst case: the P256 rail
+/// (192-byte proof + a `p256_signing_pk_field`, both larger than the eddsa rail),
+/// wrapped in a single-signer message.
+#[test]
+fn every_transfer_shape_fits_the_packet_limit() {
+    // Solana's max transaction wire size (PACKET_DATA_SIZE).
+    const PACKET_DATA_SIZE: usize = 1232;
+    let p256_proof = TransactProof::P256 {
+        a: [0u8; 32],
+        b: [0u8; 64],
+        c: [0u8; 32],
+        commitment: [0u8; 32],
+        commitment_pok: [0u8; 32],
+    };
+
+    for n_inputs in 1..=5usize {
+        let mut rng = rand::thread_rng();
+        let sender = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new().unwrap();
+        let inputs: Vec<SpendUtxo> = (0..n_inputs)
+            .map(|_| p256_input(&sender, 100, &mut rng))
+            .collect();
+        let mut tx = Transaction::new(
+            sender.shielded_address().unwrap(),
+            inputs,
+            Address::default(),
+        );
+        tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+            .unwrap();
+        let signed = sign(tx, &sender).unwrap();
+        let commitments = signed.input_commitments().unwrap();
+        let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
+        let ix = zolana_client::assemble(signed, &proofs)
+            .unwrap()
+            .with_proof(p256_proof);
+
+        // 1-2 real inputs resolve to {2,3}; 3/4/5 to {3,3}/{4,3}/{5,3}.
+        let expected_inputs = n_inputs.max(2);
+        assert_eq!(
+            ix.inputs.len(),
+            expected_inputs,
+            "{n_inputs} real inputs should resolve to a {expected_inputs}-input shape",
+        );
+
+        // Size it as a single-signer legacy transaction: a 1-byte compact
+        // signature count + 64 bytes/required-signature + the serialized message.
+        let payer = Pubkey::new_unique();
+        let instruction = Transact {
+            payer,
+            tree: Pubkey::new_unique(),
+            withdrawal: None,
+            data: ix,
+        }
+        .instruction();
+        let message = Message::new(&[instruction], Some(&payer));
+        let sigs = message.header.num_required_signatures as usize;
+        let tx_size = 1 + sigs * 64 + message.serialize().len();
+
+        eprintln!(
+            "shape {{{expected_inputs},3}}: {tx_size} bytes ({} headroom under {PACKET_DATA_SIZE})",
+            PACKET_DATA_SIZE as i64 - tx_size as i64,
+        );
+        assert!(
+            tx_size <= PACKET_DATA_SIZE,
+            "shape with {expected_inputs} inputs serializes to {tx_size} bytes, over the {PACKET_DATA_SIZE}-byte limit",
+        );
+    }
 }
 
 #[test]

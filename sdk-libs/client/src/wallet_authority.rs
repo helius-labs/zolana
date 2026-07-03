@@ -18,6 +18,7 @@ use zolana_transaction::{
             ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
             ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
         },
+        split::{Split, SplitBundlePlaintext, SplitEncode},
     },
     UtxoSerialization,
 };
@@ -65,6 +66,16 @@ pub struct EncryptedTransfer {
     pub slots: Vec<OutputCiphertext>,
 }
 
+/// The encrypted [`Split`] bundle for a split transaction. The single `bundle`
+/// ciphertext (slot 0) carries every self-owned output note; there are no
+/// recipient tail slots.
+#[derive(Clone, Debug)]
+pub struct EncryptedSplit {
+    pub tx_viewing_pk: P256Pubkey,
+    pub salt: Salt,
+    pub bundle: OutputCiphertext,
+}
+
 /// Authority for production wallet hosts where approval, key access, or signing
 /// may cross a process, device, or remote custody boundary.
 #[async_trait(?Send)]
@@ -88,6 +99,16 @@ pub trait WalletAuthority {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError>;
+
+    /// Seal a [`Split`] bundle plaintext into slot 0 with a fresh transaction
+    /// viewing key derived from `first_nullifier`.
+    async fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, ClientError>;
 
     async fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
         Ok(())
@@ -123,6 +144,16 @@ pub trait SyncWalletAuthority {
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, ClientError>;
+
+    /// Seal a [`Split`] bundle plaintext into slot 0 with a fresh transaction
+    /// viewing key derived from `first_nullifier`.
+    fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, ClientError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), ClientError> {
         Ok(())
@@ -180,6 +211,16 @@ where
             sender,
             recipients,
         )
+    }
+
+    async fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, ClientError> {
+        SyncWalletAuthority::encrypt_split(self, owner_pubkey, first_nullifier, view_tag, bundle)
     }
 
     async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
@@ -307,6 +348,35 @@ impl SyncWalletAuthority for ShieldedKeypair {
             tx_viewing_pk: tx.pubkey(),
             salt,
             slots,
+        })
+    }
+
+    fn encrypt_split(
+        &self,
+        _owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, ClientError> {
+        let tx = self
+            .viewing_key
+            .get_transaction_viewing_key(first_nullifier)?;
+        let salt = random_salt();
+        let ciphertext = Split::encode_plaintext(
+            bundle,
+            view_tag,
+            &SplitEncode {
+                tx: tx.clone(),
+                recipient_pubkey: self.viewing_key.pubkey(),
+                salt,
+                slot_index: 0,
+                blinding_seed: bundle.blinding_seed,
+            },
+        )?;
+        Ok(EncryptedSplit {
+            tx_viewing_pk: tx.pubkey(),
+            salt,
+            bundle: ciphertext,
         })
     }
 

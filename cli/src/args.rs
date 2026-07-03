@@ -54,6 +54,13 @@ pub(crate) enum ConfigCommand {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct ConfigSetOptions {
     #[arg(
+        long = "wallet",
+        help = "Default named wallet (~/.config/zolana/wallets/<NAME>.json)",
+        value_name = "NAME"
+    )]
+    pub(crate) wallet: Option<String>,
+
+    #[arg(
         long = "keypair",
         help = "Default wallet file path",
         value_name = "PATH"
@@ -91,6 +98,21 @@ pub(crate) struct ConfigAddAssetOptions {
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum WalletCommand {
     #[command(
+        name = "new",
+        about = "Create a named wallet (~/.config/zolana/wallets/<NAME>.json), optionally fund and register it"
+    )]
+    New(NewWalletOptions),
+
+    #[command(name = "address", about = "Print the selected wallet's owner pubkey")]
+    Address(WalletKeypairOptions),
+
+    #[command(
+        name = "list",
+        about = "List named wallets in ~/.config/zolana/wallets"
+    )]
+    List,
+
+    #[command(
         name = "init",
         about = "Create a filesystem private keypair and register it on-chain"
     )]
@@ -120,6 +142,12 @@ pub(crate) enum WalletCommand {
     #[command(name = "merge", about = "Enable or disable merging for this wallet")]
     Merge(MergeOptions),
 
+    #[command(
+        name = "consolidate",
+        about = "Merge several small shielded notes of a mint into one (distinct from `merge`, which toggles the merging flag)"
+    )]
+    Consolidate(ConsolidateOptions),
+
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
 
@@ -128,6 +156,18 @@ pub(crate) enum WalletCommand {
 
     #[command(name = "withdraw", about = "Withdraw to public address")]
     Withdraw(WithdrawOptions),
+
+    #[command(
+        name = "split",
+        about = "Split one shielded note into N equal self-owned notes"
+    )]
+    Split(SplitOptions),
+
+    #[command(
+        name = "utxos",
+        about = "List the selected wallet's spendable SOL notes (hash + amount)"
+    )]
+    Utxos(UtxosOptions),
 }
 
 #[derive(Debug)]
@@ -316,11 +356,58 @@ pub(crate) struct StartProverOptions {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct WalletKeypairOptions {
     #[arg(
+        short = 'w',
+        long = "wallet",
+        help = "Named wallet to use (~/.config/zolana/wallets/<NAME>.json); defaults to the configured wallet",
+        value_name = "NAME"
+    )]
+    pub(crate) wallet: Option<String>,
+
+    #[arg(
         long = "keypair",
-        help = "Path to private keypair file (default: ~/.config/zolana/pid.json)",
+        help = "Path to private keypair file (overrides --wallet; default: ~/.config/zolana/pid.json)",
         value_name = "PATH"
     )]
     pub(crate) keypair: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct NewWalletOptions {
+    #[arg(help = "Wallet name (stored at ~/.config/zolana/wallets/<NAME>.json)")]
+    pub(crate) name: String,
+
+    #[arg(
+        long = "funding-keypair",
+        help = "Use an existing Solana keypair file (e.g. ~/.config/solana/id.json) as the wallet's funding/fee-payer key instead of generating a new one",
+        value_name = "PATH"
+    )]
+    pub(crate) funding_keypair: Option<String>,
+
+    #[arg(
+        long = "fund-from",
+        help = "Solana keypair file to transfer SOL from into the new wallet's funding key (use with --fund-sol)",
+        value_name = "PATH"
+    )]
+    pub(crate) fund_from: Option<String>,
+
+    #[arg(
+        long = "fund-sol",
+        help = "Amount of SOL to transfer from --fund-from into the new wallet's funding key",
+        value_name = "SOL"
+    )]
+    pub(crate) fund_sol: Option<String>,
+
+    #[arg(
+        long = "register",
+        help = "Register the new wallet on-chain via the user registry after creating (and optionally funding) it"
+    )]
+    pub(crate) register: bool,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL used for --fund-from and --register (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -343,6 +430,19 @@ pub(crate) struct InitOptions {
         help = "Request a localnet airdrop for the wallet funding key before registering"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
+
+    #[arg(
+        long = "funding-keypair",
+        help = "Use an existing Solana keypair file (e.g. ~/.config/solana/id.json) as the wallet's funding/fee-payer key instead of generating a new one",
+        value_name = "PATH"
+    )]
+    pub(crate) funding_keypair: Option<String>,
+
+    #[arg(
+        long = "skip-register",
+        help = "Skip on-chain user-registry registration (use on networks without the user-registry program; a self-deposit does not need it)"
+    )]
+    pub(crate) skip_register: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -431,16 +531,19 @@ pub(crate) struct DepositOptions {
     pub(crate) network: NetworkWalletOptions,
 
     #[arg(
-        long,
-        help = "Optional registered recipient Solana pubkey (defaults to the --keypair wallet owner)"
+        help = "Amount to deposit (SOL as a decimal for the SOL mint, raw base units for SPL mints)",
+        value_name = "AMOUNT"
+    )]
+    pub(crate) amount: String,
+
+    #[arg(
+        long = "to",
+        help = "Optional registered recipient (a local wallet name or Solana pubkey; defaults to this wallet's owner)"
     )]
     pub(crate) to: Option<String>,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
-
-    #[arg(long, help = "Amount to deposit")]
-    pub(crate) amount: u64,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -449,17 +552,58 @@ pub(crate) struct TransferOptions {
     pub(crate) network: NetworkWalletOptions,
 
     #[arg(
-        long = "to",
-        help = "Recipient Solana pubkey; registered recipients receive a shielded transfer, unregistered recipients receive a public SOL withdrawal",
-        value_name = "PUBKEY"
+        help = "Amount to transfer (SOL as a decimal for the SOL mint, raw base units for SPL mints)",
+        value_name = "AMOUNT"
+    )]
+    pub(crate) amount: String,
+
+    #[arg(
+        help = "Recipient (a local wallet name or Solana pubkey); registered recipients receive a shielded transfer, unregistered recipients receive a public SOL withdrawal",
+        value_name = "TO"
     )]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
 
-    #[arg(long, help = "Amount to transfer")]
-    pub(crate) amount: u64,
+    #[arg(
+        long = "input",
+        help = "Spend this exact note (its utxo hash, hex from `wallet utxos`), skipping automatic reservation-based selection",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct SplitOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(
+        help = "Number of equal self-owned notes to split into (2..=8)",
+        value_name = "PARTS"
+    )]
+    pub(crate) parts: u8,
+
+    #[arg(
+        long = "part-sol",
+        help = "SOL per output note; omit to split the wallet's largest SOL note evenly into <PARTS>",
+        value_name = "SOL"
+    )]
+    pub(crate) part_sol: Option<String>,
+
+    #[arg(
+        long = "input",
+        help = "Split this exact note (its utxo hash, hex from `wallet utxos`) instead of the largest",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct UtxosOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -467,14 +611,36 @@ pub(crate) struct WithdrawOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
 
-    #[arg(long, help = "Destination public address")]
+    #[arg(
+        help = "Amount to withdraw (SOL as a decimal for the SOL mint, raw base units for SPL mints)",
+        value_name = "AMOUNT"
+    )]
+    pub(crate) amount: String,
+
+    #[arg(
+        help = "Destination (a local wallet name or public Solana address)",
+        value_name = "TO"
+    )]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
     pub(crate) mint: String,
+}
 
-    #[arg(long, help = "Amount to withdraw")]
-    pub(crate) amount: u64,
+#[derive(Args, Debug, Clone)]
+pub(crate) struct ConsolidateOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long = "input",
+        help = "Consolidate these exact notes (their utxo hashes, hex from `wallet utxos`); repeat the flag per note (2..=8). Omit to auto-select the smallest unspent notes.",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Vec<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -618,14 +784,20 @@ mod tests {
             ["zolana", "config", "asset-registry", "--help"].as_slice(),
             ["zolana", "config", "add-asset", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
+            ["zolana", "wallet", "new", "--help"].as_slice(),
+            ["zolana", "wallet", "address", "--help"].as_slice(),
+            ["zolana", "wallet", "list", "--help"].as_slice(),
             ["zolana", "wallet", "init", "--help"].as_slice(),
             ["zolana", "wallet", "create-tree", "--help"].as_slice(),
             ["zolana", "wallet", "test-mint", "--help"].as_slice(),
             ["zolana", "wallet", "sync", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
+            ["zolana", "wallet", "consolidate", "--help"].as_slice(),
             ["zolana", "wallet", "transfer", "--help"].as_slice(),
             ["zolana", "wallet", "withdraw", "--help"].as_slice(),
+            ["zolana", "wallet", "split", "--help"].as_slice(),
+            ["zolana", "wallet", "utxos", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -891,17 +1063,50 @@ mod tests {
     }
 
     #[test]
+    fn parses_wallet_consolidate_options() {
+        // Default (auto) consolidation: no --input, SOL mint by default.
+        let WalletCommand::Consolidate(auto) = parse_wallet(&[
+            "consolidate",
+            "-w",
+            "alice",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+        ]) else {
+            panic!("expected wallet consolidate command");
+        };
+        assert_eq!(auto.mint, "SOL");
+        assert!(auto.input.is_empty());
+        assert_eq!(auto.network.sync.keypair.wallet.as_deref(), Some("alice"));
+
+        // Explicit notes: repeat --input per note.
+        let WalletCommand::Consolidate(explicit) = parse_wallet(&[
+            "consolidate",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--mint",
+            "SOL",
+            "--input",
+            "aa",
+            "--input",
+            "bb",
+        ]) else {
+            panic!("expected wallet consolidate command");
+        };
+        assert_eq!(explicit.input, vec!["aa".to_string(), "bb".to_string()]);
+    }
+
+    #[test]
     fn parses_wallet_deposit_transfer_and_withdraw_options() {
+        // Amount is positional (first); `--to`/`--mint` remain flags on deposit.
         let WalletCommand::Deposit(deposit) = parse_wallet(&[
             "deposit",
+            "0.5",
             "--keypair",
             "/tmp/alice.pid.json",
             "--tree",
             "Tree111111111111111111111111111111111111111",
             "--to",
             "Recipient1111111111111111111111111111111111",
-            "--amount",
-            "1000000000",
             "--mint",
             "SOL",
             "--rpc-url",
@@ -921,32 +1126,31 @@ mod tests {
             deposit.to.as_deref(),
             Some("Recipient1111111111111111111111111111111111")
         );
-        assert_eq!(deposit.amount, 1_000_000_000);
+        assert_eq!(deposit.amount, "0.5");
         assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
 
         let WalletCommand::Deposit(self_deposit) = parse_wallet(&[
             "deposit",
+            "1",
             "--keypair",
             "/tmp/alice.pid.json",
             "--tree",
             "Tree111111111111111111111111111111111111111",
-            "--amount",
-            "1000000000",
         ]) else {
             panic!("expected wallet self-deposit command");
         };
         assert_eq!(self_deposit.to, None);
+        assert_eq!(self_deposit.amount, "1");
 
+        // `-w` selects a named wallet, amount and recipient are positional.
         let WalletCommand::Transfer(transfer) = parse_wallet(&[
             "transfer",
-            "--keypair",
-            "/tmp/bob.pid.json",
+            "0.4",
+            "Recipient1111111111111111111111111111111111",
+            "-w",
+            "bob",
             "--tree",
             "Tree111111111111111111111111111111111111111",
-            "--to",
-            "Recipient1111111111111111111111111111111111",
-            "--amount",
-            "400000000",
             "--mint",
             "SOL",
             "--prover-url",
@@ -955,7 +1159,8 @@ mod tests {
             panic!("expected wallet transfer command");
         };
         assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
-        assert_eq!(transfer.amount, 400_000_000);
+        assert_eq!(transfer.amount, "0.4");
+        assert_eq!(transfer.network.sync.keypair.wallet.as_deref(), Some("bob"));
         assert_eq!(
             transfer.network.prover_url.as_deref(),
             Some("http://127.0.0.1:3002")
@@ -963,20 +1168,119 @@ mod tests {
 
         let WalletCommand::Withdraw(withdraw) = parse_wallet(&[
             "withdraw",
+            "0.2",
+            "Dest1111111111111111111111111111111111111111",
             "--keypair",
             "/tmp/alice.pid.json",
             "--tree",
             "Tree111111111111111111111111111111111111111",
-            "--to",
-            "Dest1111111111111111111111111111111111111111",
-            "--amount",
-            "200000000",
             "--mint",
             "SOL",
         ]) else {
             panic!("expected wallet withdraw command");
         };
         assert_eq!(withdraw.to, "Dest1111111111111111111111111111111111111111");
-        assert_eq!(withdraw.amount, 200_000_000);
+        assert_eq!(withdraw.amount, "0.2");
+    }
+
+    #[test]
+    fn parses_wallet_split_and_utxos_options() {
+        // `parts` is positional; `--part-sol` and `--input` are optional flags.
+        let WalletCommand::Split(split) = parse_wallet(&[
+            "split",
+            "4",
+            "-w",
+            "alice",
+            "--part-sol",
+            "0.25",
+            "--tree",
+            "Tree111111111111111111111111111111111111111",
+        ]) else {
+            panic!("expected wallet split command");
+        };
+        assert_eq!(split.parts, 4);
+        assert_eq!(split.part_sol.as_deref(), Some("0.25"));
+        assert_eq!(split.input, None);
+        assert_eq!(split.network.sync.keypair.wallet.as_deref(), Some("alice"));
+
+        // Default split: only <parts>, splitting the largest note evenly.
+        let WalletCommand::Split(split) =
+            parse_wallet(&["split", "8", "--keypair", "/tmp/alice.pid.json"])
+        else {
+            panic!("expected wallet split command");
+        };
+        assert_eq!(split.parts, 8);
+        assert_eq!(split.part_sol, None);
+
+        // Split an explicit note by hash.
+        let WalletCommand::Split(split) = parse_wallet(&[
+            "split",
+            "3",
+            "--input",
+            "aa",
+            "--keypair",
+            "/tmp/alice.pid.json",
+        ]) else {
+            panic!("expected wallet split command");
+        };
+        assert_eq!(split.input.as_deref(), Some("aa"));
+
+        let WalletCommand::Utxos(utxos) = parse_wallet(&["utxos", "-w", "bob"]) else {
+            panic!("expected wallet utxos command");
+        };
+        assert_eq!(utxos.sync.keypair.wallet.as_deref(), Some("bob"));
+    }
+
+    #[test]
+    fn parses_wallet_transfer_input_override() {
+        let WalletCommand::Transfer(transfer) = parse_wallet(&[
+            "transfer",
+            "0.4",
+            "Recipient1111111111111111111111111111111111",
+            "--input",
+            "deadbeef",
+            "--keypair",
+            "/tmp/alice.pid.json",
+        ]) else {
+            panic!("expected wallet transfer command");
+        };
+        assert_eq!(transfer.input.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn parses_wallet_new_options() {
+        let WalletCommand::New(opts) = parse_wallet(&[
+            "new",
+            "alice",
+            "--funding-keypair",
+            "/tmp/id.json",
+            "--fund-from",
+            "/tmp/payer.json",
+            "--fund-sol",
+            "1.5",
+            "--register",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+        ]) else {
+            panic!("expected wallet new command");
+        };
+        assert_eq!(opts.name, "alice");
+        assert_eq!(opts.funding_keypair.as_deref(), Some("/tmp/id.json"));
+        assert_eq!(opts.fund_from.as_deref(), Some("/tmp/payer.json"));
+        assert_eq!(opts.fund_sol.as_deref(), Some("1.5"));
+        assert!(opts.register);
+        assert_eq!(opts.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
+    }
+
+    #[test]
+    fn wallet_tree_defaults_when_flag_omitted() {
+        let WalletCommand::Deposit(deposit) =
+            parse_wallet(&["deposit", "1", "--keypair", "/tmp/alice.pid.json"])
+        else {
+            panic!("expected wallet deposit command");
+        };
+        // `--tree` omitted parses to None; the default tree is applied later by
+        // `resolve_tree` (see cli_config), not at parse time.
+        assert!(deposit.network.tree.is_none());
     }
 }

@@ -90,6 +90,15 @@ pub struct AssetBalance {
     pub utxos: Vec<Utxo>,
 }
 
+/// A spendable note identified by its on-chain commitment hash and its amount.
+/// The `hash` is the value `InputSelection::Explicit` matches against and equals
+/// the note's `WalletUtxo::output_context.hash`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpendableUtxo {
+    pub hash: [u8; 32],
+    pub amount: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncReport {
     pub stored_utxos: usize,
@@ -145,6 +154,19 @@ impl Wallet {
 
     pub(super) fn unspent(&self) -> impl Iterator<Item = &WalletUtxo> {
         self.utxos.iter().filter(|u| !u.spent)
+    }
+
+    /// Unspent notes of `asset` in selection order (wallet insertion order, which
+    /// matches `select_inputs`' first-fit scan), each tagged with its commitment
+    /// hash for explicit input selection.
+    pub fn spendable_utxos(&self, asset: Address) -> Vec<SpendableUtxo> {
+        self.unspent()
+            .filter(|u| u.utxo.asset == asset)
+            .map(|u| SpendableUtxo {
+                hash: u.output_context.hash,
+                amount: u.utxo.amount,
+            })
+            .collect()
     }
 
     pub fn balances(&self, skip_utxos: bool) -> Result<Vec<AssetBalance>, TransactionError> {
