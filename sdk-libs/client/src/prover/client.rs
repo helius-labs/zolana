@@ -63,6 +63,12 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
+// Redis-backed provers queue heavy batch proofs (address-append) and return a
+// job handle immediately instead of blocking; the client then polls the status
+// endpoint. The first batch job loads a multi-GB proving key before proving, so
+// the bound is generous — the status endpoint itself returns immediately.
+const ASYNC_POLL_INTERVAL_SECS: u64 = 3;
+const ASYNC_MAX_WAIT_SECS: u64 = 1200;
 
 fn build_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
@@ -155,7 +161,7 @@ impl ProverClient {
     fn send(&self, body: String) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
-        loop {
+        let response = loop {
             attempt += 1;
             let outcome = self
                 .http
@@ -164,7 +170,7 @@ impl ProverClient {
                 .body(body.clone())
                 .send();
             match outcome {
-                Ok(response) => return Self::parse_response(response),
+                Ok(response) => break response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
                 }
@@ -174,26 +180,80 @@ impl ProverClient {
                     )));
                 }
             }
-        }
-    }
+        };
 
-    fn parse_response(response: reqwest::blocking::Response) -> Result<Proof, ClientError> {
         let status = response.status();
         let text = response
             .text()
             .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
-
         if !status.is_success() {
             return Err(ClientError::ProverServer(format!(
                 "status {status}: {text}"
             )));
         }
 
-        // The server returns either a plain gnark proof JSON or a
-        // `{ "proof": {..}, "proof_duration_ms": N }` envelope.
         let value: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
-        let proof_value = value.get("proof").unwrap_or(&value);
+
+        // A Redis-backed prover queues heavy batch proofs and returns a job
+        // handle (`{ job_id, status, status_url }`) instead of a proof; poll the
+        // status endpoint until it completes. A synchronous prover returns the
+        // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
+        if value.get("proof").is_none() {
+            if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
+                return self.poll_async(job_id);
+            }
+        }
+        Self::proof_from_value(&value, &text)
+    }
+
+    /// Poll the async job status endpoint until the queued proof completes.
+    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+        let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
+        let mut waited = 0u64;
+        loop {
+            let text = self
+                .http
+                .get(&url)
+                .send()
+                .map_err(|e| ClientError::ProverServer(format!("status poll failed: {e}")))?
+                .text()
+                .map_err(|e| {
+                    ClientError::ProverServer(format!("failed to read status body: {e}"))
+                })?;
+            let value: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
+
+            match value.get("status").and_then(|v| v.as_str()) {
+                // The completed result is a `{ proof, proof_duration_ms }` envelope
+                // nested under `result`.
+                Some("completed") => {
+                    let result = value.get("result").unwrap_or(&value);
+                    return Self::proof_from_value(result, &text);
+                }
+                Some("failed") => {
+                    return Err(ClientError::ProverServer(format!(
+                        "async proof failed (job {job_id}): {text}"
+                    )));
+                }
+                // queued / processing / unknown: keep polling until the bound.
+                _ => {
+                    if waited >= ASYNC_MAX_WAIT_SECS {
+                        return Err(ClientError::ProverServer(format!(
+                            "async proof timed out after {waited}s (job {job_id})"
+                        )));
+                    }
+                    sleep(Duration::from_secs(ASYNC_POLL_INTERVAL_SECS));
+                    waited += ASYNC_POLL_INTERVAL_SECS;
+                }
+            }
+        }
+    }
+
+    /// Extract and parse a gnark proof from a proof value, accepting either a
+    /// plain proof object or a `{ proof, .. }` envelope.
+    fn proof_from_value(value: &serde_json::Value, raw: &str) -> Result<Proof, ClientError> {
+        let proof_value = value.get("proof").unwrap_or(value);
         if proof_value.is_null() {
             return Err(ClientError::ProverServer(
                 "server returned a null proof".to_string(),
@@ -201,9 +261,8 @@ impl ProverClient {
         }
         let proof_json = serde_json::to_string(proof_value)
             .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
-
         proof_from_gnark_json(&proof_json)
-            .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {text}")))
+            .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
     }
 }
 
