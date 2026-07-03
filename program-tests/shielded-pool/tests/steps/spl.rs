@@ -7,7 +7,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::Rpc;
-use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY,
+    SHIELDED_POOL_PROGRAM_ID,
+};
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
@@ -137,6 +140,40 @@ fn register_interface_non_authority(world: &mut ShieldedPoolWorld) {
         .create_spl_interface(&impostor, &mint)
         .unwrap_err();
     world.last_error = Some(err);
+}
+
+#[when(expr = "the authority makes SPL interface creation permissionless")]
+fn make_spl_interface_permissionless(world: &mut ShieldedPoolWorld) {
+    let authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .send_protocol_config_update(
+            &authority,
+            UpdateProtocolConfigData::SplInterfaceCreationPermissionless(true),
+        )
+        .expect("enable permissionless SPL interface creation");
+}
+
+#[when(expr = "a non-authority successfully registers an SPL interface for a mint")]
+fn register_interface_non_authority_permissionless(world: &mut ShieldedPoolWorld) {
+    let mint = world.rpc().create_mint().expect("create_mint");
+    let authority = world.authority().insecure_clone();
+    world
+        .rpc()
+        .ensure_asset_counter(&authority)
+        .expect("create_asset_counter");
+    let signer = Keypair::new();
+    world
+        .rpc()
+        .airdrop(&signer.pubkey(), 1_000_000_000)
+        .expect("fund");
+    let (registry, vault) = world
+        .rpc()
+        .create_spl_interface(&signer, &mint)
+        .expect("permissionless create_spl_interface");
+    world.mint = Some(mint);
+    world.spl_registry = Some(registry);
+    world.spl_vault = Some(vault);
 }
 
 // === SPL deposit setup ===

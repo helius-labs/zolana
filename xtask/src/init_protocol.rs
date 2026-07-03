@@ -57,7 +57,7 @@ pub enum Cluster {
 }
 
 impl Cluster {
-    fn parse(value: &str) -> Result<Self> {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         match value {
             "localnet" => Ok(Self::Localnet),
             "devnet" => Ok(Self::Devnet),
@@ -66,7 +66,7 @@ impl Cluster {
         }
     }
 
-    fn default_url(self) -> &'static str {
+    pub(crate) fn default_url(self) -> &'static str {
         match self {
             Self::Localnet => "http://127.0.0.1:8899",
             Self::Devnet => "https://api.devnet.solana.com",
@@ -74,7 +74,7 @@ impl Cluster {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Localnet => "localnet",
             Self::Devnet => "devnet",
@@ -181,7 +181,7 @@ struct Signers {
     tree_keypair: Keypair,
 }
 
-fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
+pub(crate) fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
     read_keypair_file(path)
         .map_err(|e| anyhow!("failed to read {label} keypair {}: {e}", path.display()))
 }
@@ -212,8 +212,8 @@ fn load_signers(options: &Options) -> Result<Signers> {
     })
 }
 
-struct ProgramConfig {
-    smart_account_index: u128,
+pub(crate) struct ProgramConfig {
+    pub(crate) smart_account_index: u128,
     treasury: Pubkey,
 }
 
@@ -224,7 +224,7 @@ struct RoleAddrs {
     vault: Pubkey,
 }
 
-fn to_address(key: &Pubkey) -> Address {
+pub(crate) fn to_address(key: &Pubkey) -> Address {
     Address::new_from_array(key.to_bytes())
 }
 
@@ -256,7 +256,7 @@ fn parse_program_config(account: &Account) -> Result<ProgramConfig> {
     })
 }
 
-fn read_program_config(rpc: &SolanaRpc) -> Result<ProgramConfig> {
+pub(crate) fn read_program_config(rpc: &SolanaRpc) -> Result<ProgramConfig> {
     let (pc_pda, _) = program_config_pda();
     let account = rpc
         .get_account(to_address(&pc_pda))
@@ -471,6 +471,7 @@ fn send_protocol_config(
         forester_authority: forester.vault.to_bytes().into(),
         zone_creation_authority: zone.vault.to_bytes().into(),
         zone_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: false,
     }
     .instruction();
     let sync = execute_sync_ix(

@@ -31,6 +31,9 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
         UpdateProtocolConfigData::ZoneCreationPermissionless(b) => {
             current.zone_creation_is_permissionless = u8::from(b)
         }
+        UpdateProtocolConfigData::SplInterfaceCreationPermissionless(b) => {
+            current.spl_interface_creation_is_permissionless = u8::from(b)
+        }
     }
     Ok(())
 }

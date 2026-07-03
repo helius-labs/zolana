@@ -83,6 +83,7 @@ fn create_config_mismatched_authority(world: &mut ShieldedPoolWorld) {
         forester_authority: named.into(),
         zone_creation_authority: named.into(),
         zone_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: false,
     }
     .instruction();
     let err = world
