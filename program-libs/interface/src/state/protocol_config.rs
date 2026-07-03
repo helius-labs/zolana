@@ -14,6 +14,7 @@ pub struct ProtocolConfig {
     pub zone_creation_authority: Address,
     pub tree_creation_is_permissionless: u8,
     pub zone_creation_is_permissionless: u8,
+    pub spl_interface_creation_is_permissionless: u8,
 }
 
 impl ProtocolConfig {
@@ -56,7 +57,11 @@ impl ProtocolConfig {
     pub fn allows_permissionless_zone_creation(&self) -> bool {
         self.zone_creation_is_permissionless != 0
     }
+
+    pub fn allows_permissionless_spl_interface_creation(&self) -> bool {
+        self.spl_interface_creation_is_permissionless != 0
+    }
 }
 
-const _: () = assert!(ProtocolConfig::SIZE == 131);
+const _: () = assert!(ProtocolConfig::SIZE == 132);
 const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 1);

@@ -20,6 +20,7 @@ pub struct CreateProtocolConfig {
     pub forester_authority: Address,
     pub zone_creation_authority: Address,
     pub zone_creation_is_permissionless: bool,
+    pub spl_interface_creation_is_permissionless: bool,
 }
 
 impl CreateProtocolConfig {
@@ -31,6 +32,8 @@ impl CreateProtocolConfig {
             forester_authority: self.forester_authority,
             zone_creation_authority: self.zone_creation_authority,
             zone_creation_is_permissionless: self.zone_creation_is_permissionless as u8,
+            spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless
+                as u8,
         };
 
         Instruction {

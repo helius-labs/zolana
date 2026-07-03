@@ -17,6 +17,11 @@ Feature: SPL asset registration and deposits
     When a non-authority registers an SPL interface for a mint
     Then the operation is rejected as unauthorized
 
+  Scenario: Permissionless SPL interface creation lets any signer register
+    When the authority makes SPL interface creation permissionless
+    And a non-authority successfully registers an SPL interface for a mint
+    Then the registry and vault are initialized with indices 2 and 3
+
   Scenario: An SPL deposit succeeds and the event is faithful
     Given an SPL depositor holding 1000000 tokens
     When the SPL depositor shields 400000 tokens to a fresh recipient
