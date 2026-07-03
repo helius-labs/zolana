@@ -146,7 +146,7 @@ fn spl_accounts(
     let user_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
     Ok(Some(DepositSplAccounts {
         user_token,
-        vault: pda::spl_asset_vault(&mint),
+        spl_token_interface: pda::spl_asset_vault(&mint),
         registry: pda::spl_asset_registry(&mint),
         token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
     }))
@@ -260,7 +260,7 @@ mod tests {
             prepared.spl,
             Some(DepositSplAccounts {
                 user_token,
-                vault: pda::spl_asset_vault(&mint),
+                spl_token_interface: pda::spl_asset_vault(&mint),
                 registry: pda::spl_asset_registry(&mint),
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
             })

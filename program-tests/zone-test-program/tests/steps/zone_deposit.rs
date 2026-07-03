@@ -133,7 +133,7 @@ impl ZoneLifecycleWorld {
             depositor: payer.pubkey(),
             spl: Some(DepositSplAccounts {
                 user_token,
-                vault,
+                spl_token_interface: vault,
                 registry: pda::spl_asset_registry(&mint),
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
             }),

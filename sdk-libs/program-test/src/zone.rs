@@ -191,7 +191,7 @@ impl ZolanaProgramTest {
             depositor: depositor.pubkey(),
             spl: Some(DepositSplAccounts {
                 user_token: *user_token,
-                vault: pda::spl_asset_vault(mint),
+                spl_token_interface: pda::spl_asset_vault(mint),
                 registry: pda::spl_asset_registry(mint),
                 token_program: Self::token_program_id(),
             }),

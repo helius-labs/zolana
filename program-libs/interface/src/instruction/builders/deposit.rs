@@ -9,7 +9,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DepositSplAccounts {
     pub user_token: Pubkey,
-    pub vault: Pubkey,
+    pub spl_token_interface: Pubkey,
     pub registry: Pubkey,
     pub token_program: Pubkey,
 }
@@ -54,7 +54,7 @@ impl Deposit {
         match self.spl {
             Some(spl) => accounts.extend([
                 AccountMeta::new(spl.user_token, false),
-                AccountMeta::new(spl.vault, false),
+                AccountMeta::new(spl.spl_token_interface, false),
                 AccountMeta::new_readonly(spl.registry, false),
                 AccountMeta::new_readonly(spl.token_program, false),
             ]),

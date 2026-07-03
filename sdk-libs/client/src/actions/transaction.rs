@@ -358,7 +358,7 @@ fn withdrawal_target(
         },
         TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-            vault,
+            spl_token_interface: vault,
             recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
@@ -695,7 +695,7 @@ mod tests {
             result.recipient.withdrawal(),
             Some(&TransactWithdrawal::Spl(TransactSplWithdrawal {
                 cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                vault: pda::spl_asset_vault(&mint),
+                spl_token_interface: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
@@ -727,7 +727,7 @@ mod tests {
             result.withdrawal,
             TransactWithdrawal::Spl(TransactSplWithdrawal {
                 cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                vault: pda::spl_asset_vault(&mint),
+                spl_token_interface: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),

@@ -328,7 +328,7 @@ fn bench_deposit_spl(
         depositor: depositor.pubkey(),
         spl: Some(DepositSplAccounts {
             user_token,
-            vault: pda::spl_asset_vault(&mint),
+            spl_token_interface: pda::spl_asset_vault(&mint),
             registry: pda::spl_asset_registry(&mint),
             token_program: ZolanaProgramTest::token_program_id(),
         }),
@@ -769,7 +769,7 @@ fn bench_withdrawal_spl(
         tree,
         withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)),
-            vault,
+            spl_token_interface: vault,
             recipient: payer.pubkey(),
             user_token_account: user_token,
             token_program: ZolanaProgramTest::token_program_id(),
