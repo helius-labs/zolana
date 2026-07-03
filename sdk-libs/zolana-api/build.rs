@@ -32,6 +32,18 @@ fn generate() {
     let mut spec: serde_yaml::Value =
         serde_yaml::from_str(&spec_content).expect("Failed to parse OpenAPI spec");
 
+    // progenitor's openapiv3 (3.0.x only, latest 2.2.0) rejects the "3.1.0"
+    // version utoipa emits. Normalize the declared version and rewrite utoipa's
+    // 3.1 nullable form (`oneOf/anyOf: [{type: 'null'}, X]`) to 3.0's
+    // `nullable: true`, which progenitor understands.
+    if let Some(map) = spec.as_mapping_mut() {
+        map.insert(
+            serde_yaml::Value::String("openapi".to_string()),
+            serde_yaml::Value::String("3.0.3".to_string()),
+        );
+    }
+    normalize_nullable(&mut spec);
+
     if let Some(info) = spec.get_mut("info").and_then(|info| info.as_mapping_mut()) {
         info.insert(
             serde_yaml::Value::String("title".to_string()),
@@ -86,6 +98,74 @@ fn generate() {
         .expect("Failed to write generated code");
 
     eprintln!("zolana-api: regenerated src/codegen.rs from OpenAPI spec");
+}
+
+#[cfg(feature = "generate")]
+fn is_null_type(value: &serde_yaml::Value) -> bool {
+    value.get("type").and_then(|t| t.as_str()) == Some("null")
+}
+
+/// Rewrite utoipa's OpenAPI 3.1 nullable form
+/// (`oneOf`/`anyOf: [{type: 'null'}, X]`) into 3.0's `X + nullable: true`, which
+/// progenitor/openapiv3 (3.0.x) can parse. A nullable `$ref` becomes
+/// `allOf: [ref], nullable: true` (the standard 3.0 workaround).
+#[cfg(feature = "generate")]
+fn normalize_nullable(value: &mut serde_yaml::Value) {
+    use serde_yaml::Value;
+
+    match value {
+        Value::Mapping(map) => {
+            for (_key, child) in map.iter_mut() {
+                normalize_nullable(child);
+            }
+
+            for combiner in ["oneOf", "anyOf"] {
+                let items = match map.get(combiner) {
+                    Some(Value::Sequence(items)) => items.clone(),
+                    _ => continue,
+                };
+                if !items.iter().any(is_null_type) {
+                    continue;
+                }
+                let non_null: Vec<Value> = items
+                    .into_iter()
+                    .filter(|item| !is_null_type(item))
+                    .collect();
+                if non_null.len() != 1 {
+                    continue;
+                }
+
+                map.remove(combiner);
+                match non_null.into_iter().next().expect("one non-null variant") {
+                    Value::Mapping(inner) if inner.contains_key("$ref") => {
+                        map.insert(
+                            Value::String("allOf".to_string()),
+                            Value::Sequence(vec![Value::Mapping(inner)]),
+                        );
+                    }
+                    Value::Mapping(inner) => {
+                        for (inner_key, inner_val) in inner {
+                            map.insert(inner_key, inner_val);
+                        }
+                    }
+                    other => {
+                        map.insert(
+                            Value::String("allOf".to_string()),
+                            Value::Sequence(vec![other]),
+                        );
+                    }
+                }
+                map.insert(Value::String("nullable".to_string()), Value::Bool(true));
+                break;
+            }
+        }
+        Value::Sequence(seq) => {
+            for child in seq.iter_mut() {
+                normalize_nullable(child);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(feature = "generate")]
