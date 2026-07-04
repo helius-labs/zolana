@@ -660,6 +660,7 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
         forester_authority: authority_bytes.into(),
         zone_creation_authority: authority_bytes.into(),
         zone_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: false,
     }
     .instruction();
     print_signature(

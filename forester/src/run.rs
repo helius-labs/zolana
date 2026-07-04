@@ -30,6 +30,8 @@ use zolana_interface::instruction::{BatchUpdateNullifierTreeData, CompressedProo
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::TreeAccount;
 
+type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
+
 use crate::forest::{batch_update_nullifier_tree_once, ForestParams};
 use zolana_api::{types::SerializablePubkey, BlockingZolanaApi};
 
@@ -196,7 +198,7 @@ fn reconstruct_and_verify(
     tree: Pubkey,
     snapshot: &TreeSnapshot,
     fetch_total: u64,
-) -> Result<(IndexedMerkleTree<Poseidon, usize>, Vec<[u8; 32]>)> {
+) -> Result<(ReferenceNullifierTree, Vec<[u8; 32]>)> {
     let applied = applied_count(snapshot)?;
     let tree_account = SerializablePubkey(bs58::encode(tree.to_bytes()).into_string());
     let elements = photon
@@ -380,7 +382,7 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
 /// Build the batch address-append witness for one zkp-batch, appending its
 /// values into `reference`. Ported from `nullifier_tree.rs::build_inputs`.
 fn build_inputs(
-    reference: &mut IndexedMerkleTree<Poseidon, usize>,
+    reference: &mut ReferenceNullifierTree,
     next_index: u64,
     height: u32,
     leaves_hash_chain: [u8; 32],
@@ -446,7 +448,7 @@ fn build_inputs(
     ))
 }
 
-fn reference_nullifier_tree(height: u32) -> Result<IndexedMerkleTree<Poseidon, usize>> {
+fn reference_nullifier_tree(height: u32) -> Result<ReferenceNullifierTree> {
     let init_next_value = BigUint::from_str_radix(NULLIFIER_INIT_NEXT_VALUE_DEC, 10)
         .expect("nullifier init next value is a valid decimal constant");
     IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(height as usize, 0, init_next_value)
