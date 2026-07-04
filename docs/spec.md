@@ -305,9 +305,7 @@ The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Sol
 
 # Nullifier Key
 
-Symmetric spend key to derive nullifiers. It is derived from the signing secret,
-not from the [viewing key](#viewingkey): viewing and auditor keys are read-only
-capabilities and do not by themselves compute spend nullifiers.
+Symmetric key to derive nullifiers.
 
 `nullifier_secret := HKDF-SHA256(salt=∅, IKM=signing_sk_bytes, info="TSPP/nullifier", L=31)`
 
@@ -1183,7 +1181,7 @@ Usage by instruction:
 | --- | --- |
 | transact | Tag 0; implements shield/unshield/shielded transfer; verifies proofs, updates trees |
 | proofless_shield | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`proofless_shield`](#proofless_shield). |
-| zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies the SPP zone proof, updates trees, and binds zone UTXOs to `zone_config.program_id`. SPP does not parse or decrypt auditor payloads; enterprise zones enforce auditor encryption in their policy proof and bind the audit payload through `zone_data_hash`. |
+| zone_transact | Tag 2; shield/unshield/transfer; verify SPP zone proof, update trees; bind UTXOs to `zone_config.program_id`. Auditor payloads are zone-defined (see [Enterprise Audit Envelope](#enterprise-audit-envelope)). |
 | zone_proofless_shield | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`proofless_shield`](#proofless_shield). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
@@ -1723,11 +1721,13 @@ UTXOs can include a `zone_data` field interpreted by the zone program, hashed in
 
 ## Enterprise Audit Envelope
 
-An enterprise zone that offers [Zone RPC](#zone-rpc) MUST publish an auditor-encrypted audit envelope for every audited `zone_transact`, `zone_authority_transact`, and `merge_zone` it exposes. SPP treats `zone_data_hash` and output ciphertext bytes as opaque external data; the zone program is responsible for verifying its own policy proof before CPI and for binding the audit envelope digest into that policy proof and `zone_data_hash`.
+Optional extension for [Zone RPC](#zone-rpc). An enterprise zone publishes auditor ciphertext and proves the bindings below; other policy zones remain valid without it.
 
-The audit envelope is encrypted to the zone auditor key configured by the zone program, not by the SPP `zone_config`. The ciphertext must be publicly indexable by Photon, either in a zone-program audit event or in the zone instruction data. The SPP `GeneralEvent` alone is not sufficient because it does not carry zone-program policy payloads.
+**Scope.** Required for audited `zone_transact`, `zone_authority_transact`, and `merge_zone` exposed via Zone RPC.
 
-The envelope plaintext is versioned. Version 1 is:
+**Publication.** Encrypt the envelope to the zone auditor key (configured in the zone program's `create_zone_config`, not SPP [`zone_config`](#zone-accounts)). Ciphertext MUST be indexer-visible (zone event or instruction data). SPP [`GeneralEvent`](#general-event) does not carry zone-policy payloads.
+
+**Plaintext (v1).**
 
 ```rust
 struct ZoneAuditEnvelopeV1 {
@@ -1757,30 +1757,22 @@ struct ZoneAuditInputV1 {
 }
 ```
 
-For each output record, the zone proof must bind the encrypted plaintext to the SPP output witness:
+**Bindings.** Verified by the zone policy proof before CPI; SPP verifies only the SPP proof.
+
+- **Outputs.** Each `ZoneAuditOutputV1` at `output_index` MUST match the SPP output witness. Recompute `utxo_hash` per [UTXO Hash](#utxo-hash) (`domain = UTXO_DOMAIN`, `asset` Poseidon-encoded; `zone_data_hash` is the per-output UTXO body field).
+- **Inputs.** Each `ZoneAuditInputV1` at `input_index` MUST match the spent input: `spent_utxo_hash` to the input UTXO hash; `nullifier` to `inputs[input_index].nullifier_hash` in the SPP instruction. Gives auditors spent visibility without `nullifier_secret`.
+- **Transaction.** `private_tx_hash` and `external_data_hash` MUST equal the SPP transaction.
+
+**Tx-level `zone_data_hash`.** For [`transact`](#transact), [`zone_transact`](#zone_transact), and [`zone_authority_transact`](#zone_authority_transact), `TransactIxData.zone_data_hash` MAY commit:
 
 ```
-owner_hash       = Poseidon(pk_field(owner_signing_pk), owner_nullifier_pk)
-owner_utxo_hash  = Poseidon(owner_hash, blinding)
-zone_hash        = Poseidon(zone_data_hash, pk_field(zone_program_id))
-utxo_hash        = Poseidon(domain, asset, amount, data_hash, zone_hash, owner_utxo_hash)
+audit_ciphertext_hash := Sha256BE("TSPP/zone-audit-ciphertext/v1" || auditor_tx_viewing_pk || audit_ciphertext)
+zone_data_hash := Sha256BE("TSPP/zone-data/v1" || policy_public_inputs_hash || audit_ciphertext_hash)
 ```
 
-For each input record, the zone proof must bind `spent_utxo_hash` to the corresponding private input UTXO hash and `nullifier` to the public SPP input nullifier at `input_index`. This mapping gives the auditor spent-state visibility without exposing or deriving `nullifier_secret`.
+Distinct from per-output `ZoneAuditOutputV1.zone_data_hash`. [`merge_zone`](#merge_zone) has no `TransactIxData.zone_data_hash`; enterprise merges bind via zone publication and policy proof only.
 
-The transaction-level `TransactIxData.zone_data_hash` SHOULD commit to the audit ciphertext and the zone policy proof public inputs. This is distinct from the per-output `ZoneAuditOutputV1.zone_data_hash`, which is the UTXO body field used to recompute that output's `utxo_hash`. Example transaction-level commitment:
-
-```
-audit_ciphertext_hash := Sha256BE("TSPP/zone-audit-ciphertext/v1" ||
-                                  auditor_tx_viewing_pk ||
-                                  audit_ciphertext)
-
-zone_data_hash := Sha256BE("TSPP/zone-data/v1" ||
-                            policy_public_inputs_hash ||
-                            audit_ciphertext_hash)
-```
-
-The exact zone proof circuit and ciphertext format are zone-defined, but the decrypted `ZoneAuditEnvelopeV1` schema above is the indexer/RPC contract. A zone that does not publish and prove this envelope is still a valid policy zone, but it is not a decryptable enterprise zone for Zone RPC.
+**Contract.** Ciphertext format and zone circuit are zone-defined; decrypted `ZoneAuditEnvelopeV1` is the indexer/RPC schema. Zones without a proven envelope are valid policy zones but not decryptable enterprise zones.
 
 # ZK Program Interface
 
@@ -2011,9 +2003,7 @@ A Zone RPC holds the zone's auditor key, if configured, and serves decrypted ana
 
 ### `get_decrypted_utxos_by_owner`
 
-Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags). Filters spent UTXOs unless `include_spent`.
-
-**Spent.** The RPC does not derive `nullifier_secret`. It marks an output spent by joining decrypted audit inputs where `ZoneAuditInputV1.spent_utxo_hash == ZoneAuditOutputV1.utxo_hash`, and confirming the input `nullifier` was observed in the nullifier tree. A zone without proven audit input records cannot provide server-side spent filtering.
+Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags). Filters spent UTXOs unless `include_spent`. Spent status joins audit inputs where `spent_utxo_hash` matches the output `utxo_hash` and confirms the input `nullifier` in the nullifier tree; no `nullifier_secret` derivation.
 
 ```rust
 struct GetDecryptedUtxosByOwnerRequest {
