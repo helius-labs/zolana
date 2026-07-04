@@ -36,9 +36,11 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
 
     {
         let config = load_protocol_config(protocol_config)?;
-        config
-            .check_protocol_authority(authority.address())
-            .map_err(ShieldedPoolError::from)?;
+        if !config.allows_permissionless_spl_interface_creation() {
+            config
+                .check_protocol_authority(authority.address())
+                .map_err(ShieldedPoolError::from)?;
+        }
     }
 
     let mint_key = *mint.address();

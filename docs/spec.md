@@ -1112,6 +1112,9 @@ struct ProtocolConfig {
     /// Permitted to call `create_zone_config` unless `zone_creation_is_permissionless`.
     zone_creation_authority: Address,
     zone_creation_is_permissionless: bool,
+    /// When set, any signer may call `create_spl_interface`; otherwise it is
+    /// gated by `protocol_authority`.
+    spl_interface_creation_is_permissionless: bool,
 }
 ```
 
@@ -1180,7 +1183,7 @@ Usage by instruction:
 | zone_transact | Tag 2; implements shield/unshield/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the zone auditor key and the recipient keys named in the policy proof |
 | zone_proofless_shield | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`proofless_shield`](#proofless_shield). |
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
-| create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
+| create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
 | create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes |
 | update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; rewrites every authority and flag |

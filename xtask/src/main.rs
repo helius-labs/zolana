@@ -8,6 +8,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 mod init_protocol;
+mod update_protocol_config;
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -54,6 +55,14 @@ fn main() {
         Some("init-protocol") => {
             if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
                 eprintln!("init-protocol failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("update-protocol-config") => {
+            if let Err(error) =
+                update_protocol_config::run(update_protocol_config::Options::parse(args.collect()))
+            {
+                eprintln!("update-protocol-config failed: {error:?}");
                 std::process::exit(1);
             }
         }
@@ -308,6 +317,7 @@ fn print_help() {
     println!("  vk-json                  Export one JSON verifying key as Rust source");
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
+    println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
 }
 

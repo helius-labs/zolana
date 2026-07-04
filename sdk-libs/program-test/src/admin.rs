@@ -43,6 +43,8 @@ impl ZolanaProgramTest {
             forester_authority: data.forester_authority,
             zone_creation_authority: data.zone_creation_authority,
             zone_creation_is_permissionless: data.zone_creation_is_permissionless != 0,
+            spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless
+                != 0,
         }
         .instruction();
         self.send(&[ix], &[authority])?;
@@ -76,6 +78,19 @@ impl ZolanaProgramTest {
             signers.push(new_authority);
         }
         self.send(&ixs, &signers)
+    }
+
+    pub fn send_protocol_config_update(
+        &mut self,
+        authority: &Keypair,
+        update: UpdateProtocolConfigData,
+    ) -> Result<(), ProgramTestError> {
+        let ix = UpdateProtocolConfig {
+            authority: authority.pubkey(),
+            update,
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
     }
 
     pub fn pause_tree(
@@ -119,5 +134,6 @@ fn create_protocol_config_data(
         forester_authority: authority.into(),
         zone_creation_authority: authority.into(),
         zone_creation_is_permissionless: u8::from(permissionless),
+        spl_interface_creation_is_permissionless: u8::from(permissionless),
     }
 }

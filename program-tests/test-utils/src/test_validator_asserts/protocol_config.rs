@@ -21,6 +21,7 @@ pub fn assert_protocol_config<R: Rpc>(
         zone_creation_authority: authority,
         tree_creation_is_permissionless: 0,
         zone_creation_is_permissionless: 0,
+        spl_interface_creation_is_permissionless: 0,
     };
     assert_eq!(cfg, expected, "protocol config");
     Ok(())
