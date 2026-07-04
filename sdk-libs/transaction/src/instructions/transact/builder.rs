@@ -24,7 +24,6 @@ use crate::{
         OwnerCx, UtxoSerialization,
     },
     utxo::{derive_blinding, Utxo},
-    wallet::Wallet,
     AssetRegistry, SOL_MINT,
 };
 
@@ -183,23 +182,6 @@ impl Transaction {
             // so callers that want a relayer deadline set it explicitly.
             expiry_unix_ts: u64::MAX,
         }
-    }
-
-    /// Build a transaction spending `inputs` from `wallet`, paid by `payer`.
-    ///
-    /// Wraps [`Self::new`]: the spend inputs are derived from the wallet's
-    /// nullifier key and the owner is the wallet's shielded address. Use this
-    /// instead of hand-assembling `SpendUtxo`s when you already hold a `Wallet`.
-    pub fn from_wallet(
-        wallet: &Wallet,
-        inputs: &[Utxo],
-        payer: Address,
-    ) -> Result<Self, TransactionError> {
-        let spends = inputs
-            .iter()
-            .map(|utxo| SpendUtxo::from_keypair(utxo.clone(), &wallet.keypair))
-            .collect();
-        Ok(Self::new(wallet.keypair.shielded_address()?, spends, payer))
     }
 
     /// Push a fully specified custom recipient output. It counts toward the proof
@@ -723,40 +705,4 @@ fn dummy_ciphertext_len(
         },
     )?;
     Ok(ciphertext.data.len())
-}
-
-#[cfg(test)]
-mod from_wallet_tests {
-    use zolana_keypair::ShieldedKeypair;
-
-    use super::*;
-    use crate::{AssetRegistry, SOL_MINT};
-
-    fn sample_utxo(keypair: &ShieldedKeypair, amount: u64) -> Utxo {
-        Utxo {
-            owner: keypair.signing_pubkey(),
-            asset: SOL_MINT,
-            amount,
-            blinding: [7u8; BLINDING_LEN],
-            zone_program_id: None,
-            data: Data::default(),
-        }
-    }
-
-    #[test]
-    fn from_wallet_builds_tx_over_wallet_inputs() {
-        let wallet =
-            Wallet::new(ShieldedKeypair::new().unwrap(), AssetRegistry::default()).unwrap();
-        let payer = Address::new_from_array([9u8; 32]);
-        let inputs = vec![
-            sample_utxo(&wallet.keypair, 100),
-            sample_utxo(&wallet.keypair, 50),
-        ];
-
-        let tx = Transaction::from_wallet(&wallet, &inputs, payer).expect("from_wallet");
-
-        assert_eq!(tx.inputs.len(), 2, "one spend per input");
-        assert_eq!(tx.owner, wallet.keypair.shielded_address().unwrap());
-        assert_eq!(tx.payer_pubkey_hash, sha256_be(payer.as_array()));
-    }
 }
