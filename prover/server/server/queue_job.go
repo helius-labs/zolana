@@ -9,7 +9,10 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
+	"zolana/prover/prover/transfer"
+	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
 
 const (
@@ -72,6 +75,22 @@ func getMaxConcurrency() int {
 		Int("max_concurrency", MinConcurrencyPerWorker).
 		Msg("Using default min concurrency (set PROVER_MAX_CONCURRENCY or PROVER_TOTAL_MEMORY_GB to configure)")
 	return MinConcurrencyPerWorker
+}
+
+// getTransferMaxConcurrency returns how many transfer proofs the transfer worker
+// runs at once. Transfer proofs are far lighter than batch address-append, so the
+// operator can raise TRANSFER_WORKER_CONCURRENCY above the shared default (which
+// getMaxConcurrency keeps conservative for the heavy batch worker).
+func getTransferMaxConcurrency() int {
+	if val := os.Getenv("TRANSFER_WORKER_CONCURRENCY"); val != "" {
+		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
+			logging.Logger().Info().
+				Int("max_concurrency", concurrency).
+				Msg("Using TRANSFER_WORKER_CONCURRENCY")
+			return concurrency
+		}
+	}
+	return getMaxConcurrency()
 }
 
 // calculateConcurrency computes per-worker concurrency from total memory.
@@ -431,6 +450,36 @@ func (w *AddressAppendQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
+// TransferQueueWorker drains the transfer/merge proof queue. Transfers are
+// synchronous-fast individually but flood a shared prover under concurrency; the
+// queue bounds in-flight proofs so many clients can submit without stampeding.
+type TransferQueueWorker struct {
+	*BaseQueueWorker
+}
+
+func NewTransferQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *TransferQueueWorker {
+	maxConcurrency := getTransferMaxConcurrency()
+	return &TransferQueueWorker{
+		BaseQueueWorker: &BaseQueueWorker{
+			queue:               redisQueue,
+			keyManager:          keyManager,
+			stopChan:            make(chan struct{}),
+			queueName:           "zk_transfer_queue",
+			processingQueueName: "zk_transfer_processing_queue",
+			maxConcurrency:      maxConcurrency,
+			semaphore:           make(chan struct{}, maxConcurrency),
+		},
+	}
+}
+
+func (w *TransferQueueWorker) Start() {
+	w.BaseQueueWorker.Start()
+}
+
+func (w *TransferQueueWorker) Stop() {
+	w.BaseQueueWorker.Stop()
+}
+
 // generateProof generates a proof for the given job and returns it.
 // Result storage is handled by the caller to include timing information.
 func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
@@ -450,6 +499,17 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
+	case common.TransferP256ConfidentialCircuitType,
+		common.TransferP256ZoneCircuitType:
+		proof, proofError = w.processTransferP256Proof(job.Payload)
+	case common.TransferConfidentialCircuitType,
+		common.TransferZoneCircuitType,
+		common.TransferZoneAuthorityCircuitType:
+		proof, proofError = w.processTransferEddsaProof(job.Payload)
+	case common.MergeCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
+	case common.MergeZoneCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeZoneCircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -488,6 +548,46 @@ func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage
 
 	logging.Logger().Info().Msg("Processing batch address append proof")
 	return nullifiertree.ProveBatchAddressAppend(ps, &params)
+}
+
+func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*common.Proof, error) {
+	var params transfer.TransferParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal transfer params: %w", err)
+	}
+	circuitType := common.TransferP256ZoneCircuitType
+	if params.Confidential {
+		circuitType = common.TransferP256ConfidentialCircuitType
+	}
+	ps, err := w.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("transfer: %w", err)
+	}
+	return transfer.ProveTransfer(ps, &params)
+}
+
+func (w *BaseQueueWorker) processTransferEddsaProof(payload json.RawMessage) (*common.Proof, error) {
+	var params transfereddsaonly.TransferParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal transfer-eddsa params: %w", err)
+	}
+	ps, err := w.keyManager.GetTransferSystem(params.Variant.CircuitType(), params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("transfer-eddsa: %w", err)
+	}
+	return transfereddsaonly.ProveTransfer(ps, &params)
+}
+
+func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
+	var params mergeprover.MergeParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal merge params: %w", err)
+	}
+	ps, err := w.keyManager.GetTransferSystem(circuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", circuitType, err)
+	}
+	return mergeprover.ProveMerge(ps, &params)
 }
 
 func (w *BaseQueueWorker) removeFromProcessingQueue(jobID string) {

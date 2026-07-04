@@ -466,7 +466,10 @@ func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitT
 		return false
 	}
 
-	return circuitType == common.BatchAddressAppendCircuitType
+	// A circuit is queueable iff it has a dedicated queue. address-append is heavy
+	// and must go async; transfer/merge circuits now share zk_transfer_queue so a
+	// shared prover doesn't get stampeded by concurrent synchronous transfers.
+	return GetQueueNameForCircuit(circuitType) != ""
 }
 
 type queueStatsHandler struct {
@@ -1093,6 +1096,14 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
+	case common.TransferP256ConfidentialCircuitType,
+		common.TransferP256ZoneCircuitType,
+		common.TransferConfidentialCircuitType,
+		common.TransferZoneCircuitType,
+		common.TransferZoneAuthorityCircuitType,
+		common.MergeCircuitType,
+		common.MergeZoneCircuitType:
+		return "zk_transfer_queue"
 	default:
 		return ""
 	}
