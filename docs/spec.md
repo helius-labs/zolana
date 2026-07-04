@@ -1759,9 +1759,10 @@ struct ZoneAuditInputV1 {
 
 **Bindings.** Verified by the zone policy proof before CPI; SPP verifies only the SPP proof.
 
+- **Completeness.** `outputs` and `inputs` MUST enumerate every non-dummy SPP input and output for the instruction — one record per real position; padding dummies omitted.
 - **Outputs.** Each `ZoneAuditOutputV1` at `output_index` MUST match the SPP output witness. Recompute `utxo_hash` per [UTXO Hash](#utxo-hash) (`domain = UTXO_DOMAIN`, `asset` Poseidon-encoded; `zone_data_hash` is the per-output UTXO body field).
-- **Inputs.** Each `ZoneAuditInputV1` at `input_index` MUST match the spent input: `spent_utxo_hash` to the input UTXO hash; `nullifier` to `inputs[input_index].nullifier_hash` in the SPP instruction. Gives auditors spent visibility without `nullifier_secret`.
-- **Transaction.** `private_tx_hash` and `external_data_hash` MUST equal the SPP transaction.
+- **Inputs.** Each `ZoneAuditInputV1` at `input_index` MUST match the spent input. The zone policy proof MUST witness the full input UTXO body, recompute its `utxo_hash`, and prove it equals `spent_utxo_hash`, appears in the SPP `private_tx_hash` input chain, and reproduces `inputs[input_index].nullifier_hash`. Gives auditors spent visibility without `nullifier_secret`.
+- **Transaction.** `private_tx_hash` MUST equal the SPP transaction. `external_data_hash` MUST equal the instruction the zone CPI invokes: [external_data_hash](#external_data_hash) for [`zone_transact`](#zone_transact) and [`zone_authority_transact`](#zone_authority_transact); the merge instruction hash for [`merge_zone`](#merge_zone) (see [Merge Proof](#merge-proof---merge-zk-proof)).
 
 **Tx-level `zone_data_hash`.** For [`transact`](#transact), [`zone_transact`](#zone_transact), and [`zone_authority_transact`](#zone_authority_transact), `TransactIxData.zone_data_hash` MAY commit:
 
@@ -1770,7 +1771,7 @@ audit_ciphertext_hash := Sha256BE("TSPP/zone-audit-ciphertext/v1" || auditor_tx_
 zone_data_hash := Sha256BE("TSPP/zone-data/v1" || policy_public_inputs_hash || audit_ciphertext_hash)
 ```
 
-Distinct from per-output `ZoneAuditOutputV1.zone_data_hash`. [`merge_zone`](#merge_zone) has no `TransactIxData.zone_data_hash`; enterprise merges bind via zone publication and policy proof only.
+Distinct from per-output `ZoneAuditOutputV1.zone_data_hash`. [`merge_zone`](#merge_zone) has no `TransactIxData.zone_data_hash`; enterprise merges bind via zone publication, policy proof, and the merge `external_data_hash` above.
 
 **Contract.** Ciphertext format and zone circuit are zone-defined; decrypted `ZoneAuditEnvelopeV1` is the indexer/RPC schema. Zones without a proven envelope are valid policy zones but not decryptable enterprise zones.
 
