@@ -1,4 +1,4 @@
-use solana_account::Account;
+use solana_account::{Account, ReadableAccount};
 use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
@@ -67,6 +67,32 @@ impl Rpc for ZolanaProgramTest {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = Pubkey::new_from_array(address.to_bytes());
         Ok(self.svm.get_account(&pubkey))
+    }
+
+    fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        // litesvm has no native get_program_accounts; enumerate the account
+        // store and filter by owner, reusing `get_account` for the
+        // AccountSharedData -> Account conversion already used above.
+        let matches: Vec<Address> = self
+            .svm
+            .accounts_db()
+            .inner
+            .iter()
+            .filter(|(_, account)| account.owner().to_bytes() == program_id.to_bytes())
+            .map(|(address, _)| *address)
+            .collect();
+        Ok(matches
+            .into_iter()
+            .filter_map(|address| {
+                let pubkey = Pubkey::new_from_array(address.to_bytes());
+                self.svm
+                    .get_account(&pubkey)
+                    .map(|account| (address, account))
+            })
+            .collect())
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {

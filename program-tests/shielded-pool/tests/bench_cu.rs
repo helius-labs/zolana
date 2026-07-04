@@ -35,7 +35,7 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
-    Data, Utxo, Wallet, SOL_MINT,
+    AssetRegistry, Data, Utxo, Wallet, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -255,8 +255,11 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
     let seed = [3u8; BLINDING_LEN];
     let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
@@ -310,8 +313,11 @@ fn bench_deposit_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, 1_000_000).expect("mint_to");
 
-    let mut recipient =
-        Wallet::new(ShieldedKeypair::new().expect("recipient keypair")).expect("wallet");
+    let mut recipient = Wallet::new(
+        ShieldedKeypair::new().expect("recipient keypair"),
+        AssetRegistry::default(),
+    )
+    .expect("wallet");
     let seed = [7u8; BLINDING_LEN];
     let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
@@ -322,7 +328,7 @@ fn bench_deposit_spl(
         depositor: depositor.pubkey(),
         spl: Some(DepositSplAccounts {
             user_token,
-            vault: pda::spl_asset_vault(&mint),
+            spl_token_interface: pda::spl_asset_vault(&mint),
             registry: pda::spl_asset_registry(&mint),
             token_program: ZolanaProgramTest::token_program_id(),
         }),
@@ -763,7 +769,7 @@ fn bench_withdrawal_spl(
         tree,
         withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)),
-            vault,
+            spl_token_interface: vault,
             recipient: payer.pubkey(),
             user_token_account: user_token,
             token_program: ZolanaProgramTest::token_program_id(),

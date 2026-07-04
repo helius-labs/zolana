@@ -39,7 +39,8 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionError, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputUtxo, TransactionError, Utxo, Wallet, SOL_ASSET_ID,
+    SOL_MINT,
 };
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
@@ -703,13 +704,10 @@ fn async_authority_signs_p256_and_invokes_approval() {
     tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
 
-    let signed = futures::executor::block_on(sign_transaction(
-        tx,
-        Pubkey::default(),
-        &authority,
-        &registry(),
-    ))
-    .unwrap();
+    let wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
+    let signed =
+        futures::executor::block_on(sign_transaction(tx, &wallet, Pubkey::default(), &authority))
+            .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);

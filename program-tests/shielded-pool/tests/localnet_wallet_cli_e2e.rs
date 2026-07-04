@@ -12,12 +12,11 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use serial_test::serial;
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use zolana_interface::{SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
 use zolana_transaction::Address;
 
 #[path = "common/transact.rs"]
@@ -85,44 +84,14 @@ fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u
     Ok(u64::from_le_bytes(amount_bytes))
 }
 
-fn create_associated_token_account_ix(
-    payer: &Pubkey,
-    owner: &Pubkey,
-    mint: &Pubkey,
-) -> Instruction {
-    let ata = pda::associated_token_address(owner, mint);
-    Instruction {
-        program_id: pda::associated_token_program_id(),
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new(ata, false),
-            AccountMeta::new_readonly(*owner, false),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(pda::spl_token_program_id(), false),
-        ],
-        data: Vec::new(),
-    }
-}
-
 fn ensure_associated_token_account(
     rpc_url: &str,
     payer: &Keypair,
     owner: &Pubkey,
     mint: &Pubkey,
 ) -> Result<Pubkey> {
-    let mint = *mint;
-    let ata = pda::associated_token_address(owner, &mint);
     let rpc = SolanaRpc::new(rpc_url);
-    if rpc
-        .get_account(Address::new_from_array(ata.to_bytes()))?
-        .is_some()
-    {
-        return Ok(ata);
-    }
-    let ix = create_associated_token_account_ix(&payer.pubkey(), owner, &mint);
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    rpc.create_and_send_transaction(&[ix], payer_address, &[payer])?;
+    let (_sig, ata) = zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
     Ok(ata)
 }
 

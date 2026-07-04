@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::ZoneDepositIxData;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `zone_deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -61,7 +61,6 @@ pub fn litesvm_assert_zone_deposit(
     recipient
         .sync(
             &[event.to_shielded_transaction(solana_signature::Signature::default())],
-            &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,
         )

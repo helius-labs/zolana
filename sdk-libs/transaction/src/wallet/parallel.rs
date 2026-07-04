@@ -84,13 +84,13 @@ impl Wallet {
     pub fn sync_parallel(
         &mut self,
         transactions: &[ShieldedTransaction],
-        assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
+        let assets = &self.registry;
         let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),

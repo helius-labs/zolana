@@ -348,10 +348,10 @@ fn verify_sync(scenario: &Scenario, wallet: &Wallet, report: &SyncReport) {
 #[ignore]
 fn defi_trader_full_sync() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = Wallet::new(keypair_from_index(0), scenario.assets.clone()).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync(&scenario.txs, &scenario.assets, 1i64, DEFAULT_TAG_WINDOW)
+        .sync(&scenario.txs, 1i64, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 
@@ -377,10 +377,10 @@ fn defi_trader_full_sync() {
 #[ignore]
 fn defi_trader_full_sync_parallel() {
     let scenario = build_scenario();
-    let mut wallet = Wallet::new(keypair_from_index(0)).unwrap();
+    let mut wallet = Wallet::new(keypair_from_index(0), scenario.assets.clone()).unwrap();
     let started = Instant::now();
     let report = wallet
-        .sync_parallel(&scenario.txs, &scenario.assets, 1, DEFAULT_TAG_WINDOW)
+        .sync_parallel(&scenario.txs, 1, DEFAULT_TAG_WINDOW)
         .unwrap();
     let elapsed = started.elapsed();
 

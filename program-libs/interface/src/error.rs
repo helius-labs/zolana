@@ -7,6 +7,10 @@ use zolana_tree::TreeError;
 pub enum InterfaceError {
     InvalidDiscriminator,
     Unauthorized,
+    /// Account bytes are the wrong length to be cast to the expected state
+    /// struct (e.g. a client reading a fetched account whose data does not
+    /// match the struct size).
+    InvalidAccountData,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -76,6 +80,7 @@ impl From<InterfaceError> for ShieldedPoolError {
         match error {
             InterfaceError::InvalidDiscriminator => ShieldedPoolError::InvalidProtocolConfig,
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
+            InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
         }
     }
 }

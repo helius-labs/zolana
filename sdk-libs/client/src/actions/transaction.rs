@@ -80,7 +80,6 @@ pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
     pub recipient_owner: Pubkey,
     pub asset: Address,
     pub amount: u64,
-    pub assets: &'a AssetRegistry,
 }
 
 pub struct CreateWithdrawal<'a, A: ?Sized> {
@@ -91,7 +90,6 @@ pub struct CreateWithdrawal<'a, A: ?Sized> {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
-    pub assets: &'a AssetRegistry,
 }
 
 pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
@@ -107,7 +105,6 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
             recipient: request.recipient_owner,
             asset: request.asset,
             amount: request.amount,
-            assets: request.assets,
         })
         .await?;
         return Ok(CreatedTransfer {
@@ -134,13 +131,13 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.send(&recipient.address, request.asset, request.amount)?;
-    let prepared = tx.prepare(request.assets)?;
+    let prepared = tx.prepare(&request.wallet.registry)?;
     let signed = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
         request.authority,
-        request.assets,
+        &request.wallet.registry,
         format!(
             "private transfer of {} to {}",
             request.amount, request.recipient_owner
@@ -181,13 +178,13 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
-    let prepared = tx.prepare(request.assets)?;
+    let prepared = tx.prepare(&request.wallet.registry)?;
     let signed = sign_prepared(
         prepared,
         &address,
         request.owner_pubkey,
         request.authority,
-        request.assets,
+        &request.wallet.registry,
         format!("withdraw {} to {}", request.amount, request.recipient),
     )
     .await?;
@@ -210,18 +207,18 @@ pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
 /// P256-sign).
 pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
     tx: Transaction,
+    wallet: &Wallet,
     owner_pubkey: Pubkey,
     authority: &A,
-    assets: &AssetRegistry,
 ) -> Result<SignedTransaction, ClientError> {
     let address = authority.shielded_address(owner_pubkey).await?;
-    let prepared = tx.prepare(assets)?;
+    let prepared = tx.prepare(&wallet.registry)?;
     sign_prepared(
         prepared,
         &address,
         owner_pubkey,
         authority,
-        assets,
+        &wallet.registry,
         "private transaction".to_string(),
     )
     .await
@@ -231,11 +228,11 @@ pub async fn sign_transaction<A: WalletAuthority + ?Sized>(
 /// [`sign_transaction`] directly.
 pub fn sign_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     tx: Transaction,
+    wallet: &Wallet,
     owner_pubkey: Pubkey,
     authority: &A,
-    assets: &AssetRegistry,
 ) -> Result<SignedTransaction, ClientError> {
-    futures::executor::block_on(sign_transaction(tx, owner_pubkey, authority, assets))
+    futures::executor::block_on(sign_transaction(tx, wallet, owner_pubkey, authority))
 }
 
 fn recipient_slots(prepared: &PreparedTransaction) -> Vec<ConfidentialRecipientSlot> {
@@ -314,7 +311,7 @@ fn withdrawal_target(
         },
         TransactWithdrawal::Spl(TransactSplWithdrawal {
             cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-            vault,
+            spl_token_interface: vault,
             recipient,
             user_token_account: user_spl_token,
             token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
@@ -392,7 +389,12 @@ mod tests {
     }
 
     fn wallet_with_asset(keypair: ShieldedKeypair, asset: Address, amount: u64) -> Wallet {
-        let mut wallet = Wallet::new(keypair.clone()).expect("wallet");
+        let registry = if asset == SOL_MINT {
+            AssetRegistry::default()
+        } else {
+            AssetRegistry::new([(2, asset)]).expect("asset registry")
+        };
+        let mut wallet = Wallet::new(keypair.clone(), registry).expect("wallet");
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset,
@@ -460,7 +462,6 @@ mod tests {
             recipient_owner: owner,
             asset: SOL_MINT,
             amount: 1,
-            assets: &AssetRegistry::default(),
         })
         .expect("transfer");
 
@@ -487,7 +488,6 @@ mod tests {
             recipient_owner: recipient,
             asset: SOL_MINT,
             amount: 1,
-            assets: &AssetRegistry::default(),
         })
         .expect("public withdrawal fallback");
 
@@ -519,7 +519,6 @@ mod tests {
             recipient_owner: recipient,
             asset,
             amount: 1,
-            assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
         })
         .expect("public withdrawal fallback");
 
@@ -527,7 +526,7 @@ mod tests {
             result.recipient.withdrawal(),
             Some(&TransactWithdrawal::Spl(TransactSplWithdrawal {
                 cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                vault: pda::spl_asset_vault(&mint),
+                spl_token_interface: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
@@ -552,7 +551,6 @@ mod tests {
             recipient,
             asset,
             amount: 1,
-            assets: &AssetRegistry::new([(2, asset)]).expect("asset registry"),
         })
         .expect("withdrawal");
 
@@ -560,7 +558,7 @@ mod tests {
             result.withdrawal,
             TransactWithdrawal::Spl(TransactSplWithdrawal {
                 cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-                vault: pda::spl_asset_vault(&mint),
+                spl_token_interface: pda::spl_asset_vault(&mint),
                 recipient,
                 user_token_account: token_account,
                 token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),

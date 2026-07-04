@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
@@ -95,10 +95,19 @@ pub struct SyncReport {
     pub stored_utxos: usize,
     pub unparsed_transactions: usize,
     pub undecryptable_candidates: usize,
+    /// Compact asset ids that failed to decode because the wallet's registry
+    /// did not know them (SPL assets registered after the registry was built).
+    /// The client sync layer uses this to lazily backfill the registry from
+    /// chain and retry; it stays empty when every id is known.
+    pub unknown_asset_ids: BTreeSet<u64>,
 }
 
 pub struct Wallet {
     pub keypair: ShieldedKeypair,
+    /// Asset-id ↔ mint translation config for this wallet's session. Built once
+    /// before the wallet and immutable afterward; the build and sync paths read
+    /// it to encode/decode UTXO asset ids.
+    pub registry: AssetRegistry,
     pub viewing_key_history: Vec<ViewingKeyEntry>,
     pub utxos: Vec<WalletUtxo>,
     pub transactions: Vec<PrivateTransaction>,
@@ -110,10 +119,14 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    pub fn new(keypair: ShieldedKeypair) -> Result<Self, TransactionError> {
+    pub fn new(
+        keypair: ShieldedKeypair,
+        registry: AssetRegistry,
+    ) -> Result<Self, TransactionError> {
         let key = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())?;
         Ok(Self {
             keypair,
+            registry,
             viewing_key_history: vec![ViewingKeyEntry::new(key, 0)],
             utxos: Vec::new(),
             transactions: Vec::new(),
@@ -134,17 +147,13 @@ impl Wallet {
         self.utxos.iter().filter(|u| !u.spent)
     }
 
-    pub fn balances(
-        &self,
-        assets: &AssetRegistry,
-        skip_utxos: bool,
-    ) -> Result<Vec<AssetBalance>, TransactionError> {
+    pub fn balances(&self, skip_utxos: bool) -> Result<Vec<AssetBalance>, TransactionError> {
         let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
         for wallet_utxo in self.unspent() {
             let balance = match by_mint.entry(wallet_utxo.utxo.asset) {
                 Entry::Occupied(occupied) => occupied.into_mut(),
                 Entry::Vacant(vacant) => vacant.insert(AssetBalance {
-                    asset_id: assets.asset_id(&wallet_utxo.utxo.asset)?,
+                    asset_id: self.registry.asset_id(&wallet_utxo.utxo.asset)?,
                     mint: wallet_utxo.utxo.asset,
                     amount: 0,
                     utxos: Vec::new(),

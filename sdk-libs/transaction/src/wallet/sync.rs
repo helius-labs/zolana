@@ -342,6 +342,18 @@ impl SyncCtx<'_> {
         Ok(stored)
     }
 
+    /// Record a slot that failed to turn its plaintext into UTXOs. Counts it as
+    /// an undecryptable candidate and, when the failure was an unknown asset id,
+    /// remembers the id so the client sync layer can backfill the registry and
+    /// retry. `resolve()` is the only source of `UnknownAsset`, so this is the
+    /// single seam where a stale registry surfaces during decode.
+    fn note_undecryptable(&mut self, err: &TransactionError) {
+        if let TransactionError::UnknownAsset(id) = err {
+            self.report.unknown_asset_ids.insert(*id);
+        }
+        self.report.undecryptable_candidates += 1;
+    }
+
     /// Decode one candidate slot, dispatching on its scheme byte. Recipient
     /// slots are 1:1 and verified against the slot's committed leaf; sender
     /// bundles (passed as slot 0) store their change against the whole
@@ -423,9 +435,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let Ok(utxos) = PlaintextTransfer::into_utxos(plaintext, &owner_cx) else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
+                        let utxos = match PlaintextTransfer::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
                         };
                         for utxo in utxos {
                             self.store_in_tx(utxo, tx)?;
@@ -453,9 +468,12 @@ impl SyncCtx<'_> {
                             return Ok(outcome);
                         };
                         let sender = plaintext.sender_pubkey;
-                        let Ok(utxos) = AnonymousRecipient::into_utxos(plaintext, &owner_cx) else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
+                        let utxos = match AnonymousRecipient::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
                         };
                         if self.store_recipient_utxos(
                             utxos.clone(),
@@ -475,10 +493,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let Ok(utxos) = ConfidentialRecipient::into_utxos(plaintext, &owner_cx)
-                        else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
+                        let utxos = match ConfidentialRecipient::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
                         };
                         if self.store_recipient_utxos(
                             utxos.clone(),
@@ -499,10 +519,12 @@ impl SyncCtx<'_> {
                         };
                         let pks = plaintext.recipient_viewing_pks.clone();
                         let real_recipient_count = pks.len();
-                        let Ok(change) = AnonymousSenderBundle::into_utxos(plaintext, &owner_cx)
-                        else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
+                        let change = match AnonymousSenderBundle::into_utxos(plaintext, &owner_cx) {
+                            Ok(change) => change,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
                         };
                         for utxo in &change {
                             self.store_in_tx(utxo.clone(), tx)?;
@@ -529,11 +551,14 @@ impl SyncCtx<'_> {
                         };
                         let pks = plaintext.recipient_viewing_pks.clone();
                         let real_recipient_count = Self::confidential_recipient_count(tx);
-                        let Ok(change) = ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx)
-                        else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
-                        };
+                        let change =
+                            match ConfidentialSenderBundle::into_utxos(plaintext, &owner_cx) {
+                                Ok(change) => change,
+                                Err(err) => {
+                                    self.note_undecryptable(&err);
+                                    return Ok(outcome);
+                                }
+                            };
                         for utxo in &change {
                             self.store_in_tx(utxo.clone(), tx)?;
                         }
@@ -557,9 +582,12 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let Ok(utxos) = Split::into_utxos(plaintext, &owner_cx) else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
+                        let utxos = match Split::into_utxos(plaintext, &owner_cx) {
+                            Ok(utxos) => utxos,
+                            Err(err) => {
+                                self.note_undecryptable(&err);
+                                return Ok(outcome);
+                            }
                         };
                         for utxo in &utxos {
                             self.store_in_tx(utxo.clone(), tx)?;
@@ -643,13 +671,16 @@ impl Wallet {
     pub fn sync(
         &mut self,
         transactions: &[ShieldedTransaction],
-        assets: &AssetRegistry,
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
         let mut report = SyncReport::default();
         let index = TxIndex::build(transactions, &mut report);
 
+        // Borrow the registry up front, before `ctx` takes `&mut self.utxos`;
+        // disjoint-field borrows let this immutable borrow of `self.registry`
+        // coexist with the mutable UTXO/transaction borrows below.
+        let assets = &self.registry;
         let owner_tag = self.keypair.signing_pubkey().confidential_view_tag()?;
         let mut ctx = SyncCtx {
             owner: self.keypair.signing_pubkey(),

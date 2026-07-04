@@ -8,6 +8,7 @@ Feature: SPL asset registration and deposits
   Scenario: Registering an SPL interface initializes the registry and vault
     When the authority registers an SPL interface for a mint
     Then the registry and vault are initialized with indices 2 and 3
+    And the on-chain asset registry resolves the mint to id 2
     When the authority registers the same SPL interface again
     Then the operation is rejected as an invalid SPL asset registry
     When the authority registers an SPL interface for a second mint

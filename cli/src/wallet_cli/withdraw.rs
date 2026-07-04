@@ -30,7 +30,6 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         recipient,
         asset,
         amount: opts.amount,
-        assets: &ctx.assets,
     })?;
     let signature = submit_private_transaction(
         SubmitPrivateTx {

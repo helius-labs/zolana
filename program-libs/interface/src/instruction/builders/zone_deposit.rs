@@ -67,7 +67,7 @@ impl ZoneDeposit {
         match self.spl {
             Some(spl) => account_metas.extend([
                 AccountMeta::new(spl.user_token, false),
-                AccountMeta::new(spl.vault, false),
+                AccountMeta::new(spl.spl_token_interface, false),
                 AccountMeta::new_readonly(spl.registry, false),
                 AccountMeta::new_readonly(spl.token_program, false),
             ]),

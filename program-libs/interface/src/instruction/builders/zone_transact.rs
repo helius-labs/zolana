@@ -63,7 +63,7 @@ impl ZoneTransact {
                 if let Some(cpi_authority) = spl.cpi_authority {
                     accounts.push(AccountMeta::new_readonly(cpi_authority, false));
                 }
-                accounts.push(AccountMeta::new(spl.vault, false));
+                accounts.push(AccountMeta::new(spl.spl_token_interface, false));
                 accounts.push(AccountMeta::new(spl.recipient, false));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));

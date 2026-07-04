@@ -5,7 +5,7 @@ use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::instruction::ZoneDepositIxData;
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
     assert_indexed_deposit_utxo, fetch_account, state_root_from, to_address, wait_for_indexed_utxo,
@@ -78,7 +78,6 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
     recipient
         .sync(
             &[event.to_shielded_transaction(signature)],
-            &AssetRegistry::default(),
             0,
             DEFAULT_TAG_WINDOW,
         )

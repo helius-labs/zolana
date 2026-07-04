@@ -299,6 +299,22 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_account {pubkey}: {err}")))
     }
 
+    fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        let program = pubkey_from_address(&program_id);
+        self.client
+            .get_program_accounts(&program)
+            .map(|accounts| {
+                accounts
+                    .into_iter()
+                    .map(|(pubkey, account)| (Address::new_from_array(pubkey.to_bytes()), account))
+                    .collect()
+            })
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))
+    }
+
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         self.client
             .get_minimum_balance_for_rent_exemption(data_len)

@@ -96,7 +96,7 @@ impl Deposit<'_> {
                 Address::new_from_array(mint_bytes),
                 Some(DepositSplAccounts {
                     user_token: self.sender,
-                    vault: pda::spl_asset_vault(&mint),
+                    spl_token_interface: pda::spl_asset_vault(&mint),
                     registry: pda::spl_asset_registry(&mint),
                     token_program: account.owner,
                 }),

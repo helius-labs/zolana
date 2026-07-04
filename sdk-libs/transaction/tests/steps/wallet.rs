@@ -272,14 +272,9 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
 
 #[when(expr = "a fresh wallet for {string} is synced from the recorded transactions")]
 fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
-    let mut wallet = Wallet::new(world.fresh_keypair(&name)).unwrap();
+    let mut wallet = Wallet::new(world.fresh_keypair(&name), AssetRegistry::default()).unwrap();
     let report = wallet
-        .sync(
-            &world.sync_transactions,
-            &AssetRegistry::default(),
-            1_700_000_000,
-            8,
-        )
+        .sync(&world.sync_transactions, 1_700_000_000, 8)
         .unwrap();
     assert_eq!(report.unparsed_transactions, 0);
     assert_eq!(report.stored_utxos, wallet.utxos.len());
@@ -299,7 +294,7 @@ fn wallet_holds(world: &mut TransactionWorld, total: usize, spent: usize) {
 fn unspent_sol_balance(world: &mut TransactionWorld, amount: u64) {
     let wallet = world.wallet.as_ref().expect("wallet not synced");
     let owner = world.wallet_name.as_ref().expect("wallet not synced");
-    let balances = wallet.balances(&AssetRegistry::default(), false).unwrap();
+    let balances = wallet.balances(false).unwrap();
     assert_eq!(balances.len(), 1);
     let mut actual = balances.into_iter().next().unwrap();
     actual.utxos.sort_by_key(|a| a.blinding);

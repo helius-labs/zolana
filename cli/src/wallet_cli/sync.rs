@@ -3,7 +3,7 @@ use std::{thread::sleep, time::SystemTime};
 use anyhow::{bail, Result};
 use solana_signature::Signature;
 use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
-use zolana_transaction::{AssetRegistry, Wallet};
+use zolana_transaction::Wallet;
 
 use super::{
     material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial},
@@ -18,7 +18,6 @@ use crate::{
 pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,
     pub(super) wallet: Wallet,
-    pub(super) assets: AssetRegistry,
     pub(super) local_assets: Vec<LocalAssetConfig>,
     pub(super) report: zolana_transaction::SyncReport,
 }
@@ -40,12 +39,11 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let material = load_sender_from_resolved_sync(&sync)?;
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
-    let mut wallet = Wallet::new(clone_keypair(&material.keypair)?)?;
-    let report = client_sync_wallet(&mut wallet, &indexer, &assets)?;
+    let mut wallet = Wallet::new(clone_keypair(&material.keypair)?, assets)?;
+    let report = client_sync_wallet(&mut wallet, &indexer)?;
     Ok(SyncContext {
         material,
         wallet,
-        assets,
         local_assets: config.assets,
         report,
     })
