@@ -34,6 +34,12 @@ fn pubkey_from_address(address: &Address) -> Pubkey {
 pub struct SolanaRpc {
     client: RpcClient,
     confirmation_timeout: Duration,
+    /// Answers the SPP indexer methods (spend proofs). Set it with
+    /// [`SolanaRpc::with_indexer`] so one backend both fetches proofs and sends
+    /// transactions, which is what [`Submit::execute`](crate::Submit::execute)
+    /// and the other one-call actions need.
+    #[cfg(feature = "indexer-api")]
+    indexer: Option<crate::indexer::ZolanaIndexer>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,11 +59,35 @@ impl SolanaRpc {
         Self {
             client,
             confirmation_timeout: Duration::from_secs(30),
+            #[cfg(feature = "indexer-api")]
+            indexer: None,
         }
+    }
+
+    /// Attach an indexer so this backend also answers spend-proof lookups. With
+    /// it set, a single `SolanaRpc` satisfies the one-call actions
+    /// ([`Submit::execute`](crate::Submit::execute)) that both fetch proofs and
+    /// send the transaction.
+    #[cfg(feature = "indexer-api")]
+    pub fn with_indexer(mut self, indexer: crate::indexer::ZolanaIndexer) -> Self {
+        self.indexer = Some(indexer);
+        self
     }
 
     pub fn client(&self) -> &RpcClient {
         &self.client
+    }
+
+    /// The attached indexer, or `UnsupportedRpcMethod` if none was set. The
+    /// message name matches the caller so the error still reads as "this
+    /// backend can't do X".
+    #[cfg(feature = "indexer-api")]
+    fn indexer(&self) -> Result<&crate::indexer::ZolanaIndexer, ClientError> {
+        self.indexer
+            .as_ref()
+            .ok_or(ClientError::UnsupportedRpcMethod(
+                "get_merkle_proofs (no indexer attached; use SolanaRpc::with_indexer)",
+            ))
     }
 
     pub fn assert_executable(&self, program_id: &Pubkey) -> Result<(), ClientError> {
@@ -337,5 +367,60 @@ impl Rpc for SolanaRpc {
         self.client
             .send_and_confirm_transaction(transaction)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    // ===== Indexer (SPP) =====
+    //
+    // Delegated to the attached indexer. Without one, these keep the trait's
+    // default behavior: `ClientError::UnsupportedRpcMethod`.
+
+    #[cfg(feature = "indexer-api")]
+    fn get_encrypted_utxos_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<crate::rpc::GetEncryptedUtxosByTagsResponse, ClientError> {
+        self.indexer()?
+            .get_encrypted_utxos_by_tags(tags, cursor, limit)
+    }
+
+    #[cfg(feature = "indexer-api")]
+    fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+    ) -> Result<crate::rpc::GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.indexer()?
+            .get_shielded_transactions_by_tags(tags, cursor, limit)
+    }
+
+    #[cfg(feature = "indexer-api")]
+    fn subscribe_to_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+    ) -> Result<crate::rpc::ShieldedTransactionStream, ClientError> {
+        self.indexer()?
+            .subscribe_to_shielded_transactions_by_tags(tags)
+    }
+
+    #[cfg(feature = "indexer-api")]
+    fn get_merkle_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<crate::rpc::GetMerkleProofsResponse, ClientError> {
+        self.indexer()?.get_merkle_proofs(tree_account, leaves)
+    }
+
+    #[cfg(feature = "indexer-api")]
+    fn get_non_inclusion_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<crate::rpc::GetNonInclusionProofsResponse, ClientError> {
+        self.indexer()?
+            .get_non_inclusion_proofs(tree_account, leaves)
     }
 }
