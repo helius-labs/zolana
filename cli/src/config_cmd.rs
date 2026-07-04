@@ -5,7 +5,7 @@ use crate::{
     args::{ConfigAddAssetOptions, ConfigCommand, ConfigSetOptions},
     cli_config::{
         config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL,
-        DEFAULT_PROVER_URL, DEFAULT_RPC_URL,
+        DEFAULT_PROVER_URL, DEFAULT_RPC_URL, DEFAULT_TREE,
     },
 };
 
@@ -38,11 +38,7 @@ fn run_config_get() -> Result<()> {
         config.prover_url.as_deref(),
         Some(DEFAULT_PROVER_URL),
     );
-    if let Some(tree) = &config.tree {
-        println!("Tree: {tree}");
-    } else {
-        println!("Tree: (not set)");
-    }
+    print_field("Tree", config.tree.as_deref(), Some(DEFAULT_TREE));
     print_assets(&config);
     Ok(())
 }

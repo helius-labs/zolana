@@ -83,7 +83,7 @@ impl Cluster {
     }
 
     fn allows_airdrop(self) -> bool {
-        matches!(self, Self::Localnet | Self::Devnet)
+        matches!(self, Self::Localnet)
     }
 }
 

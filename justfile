@@ -385,6 +385,16 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Deploy/upgrade programs to devnet using the local `solana` CLI config.
+# Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
+# Requires `just build-programs` first and that the local config keypair is
+# the current upgrade authority. Set ZOLANA_DEVNET_KEYS_DIR to a
+# `<dir>/program-id/<pubkey>.json` keys checkout for a program's first-ever
+# deploy (only needed once per program's fixed address; upgrades work without
+# it since only the pubkey is required after the account exists on-chain).
+deploy-devnet *programs:
+    ./tools/deploy-devnet.sh {{programs}}
+
 # Download the Squads smart account program binary from mainnet into `target/deploy`.
 # Run once before `test-spp-validator*` recipes; requires `solana` CLI and network access.
 fetch-smart-account:

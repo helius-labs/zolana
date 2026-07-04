@@ -53,13 +53,7 @@ pub(crate) fn get_network_with_config(
     config: &CliConfigFile,
 ) -> Result<ResolvedNetworkOptions> {
     let sync = resolve_sync_with_config(&opts.sync, config)?;
-    let tree = resolve_tree(opts.tree.as_deref(), config)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "shielded-pool tree is unset; pass --tree or run `zolana wallet create-tree` first"
-            )
-        })
-        .and_then(parse_pubkey)?;
+    let tree = parse_pubkey(resolve_tree(opts.tree.as_deref(), config))?;
     Ok(ResolvedNetworkOptions {
         sync,
         tree,
@@ -100,11 +94,11 @@ mod tests {
     }
 
     #[test]
-    fn write_commands_require_tree_when_unset() {
+    fn write_commands_use_default_tree_when_unset() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(None);
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
-        let Err(err) = get_network(&NetworkWalletOptions {
+        let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions { keypair: None },
                 rpc_url: None,
@@ -113,10 +107,12 @@ mod tests {
             tree: None,
             prover_url: None,
             airdrop_lamports: None,
-        }) else {
-            panic!("expected missing tree error");
-        };
-        assert!(err.to_string().contains("tree is unset"));
+        })
+        .expect("resolve network");
+        assert_eq!(
+            resolved.tree.to_string(),
+            "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
+        );
     }
 
     #[test]
