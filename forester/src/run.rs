@@ -160,9 +160,11 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
     let mut hash_chains = Vec::with_capacity(ready as usize);
     for i in 0..ready {
         let zkp_index = (already_applied + i) as usize;
-        let hash_chain = nullifier.get_hash_chain(pending, zkp_index).ok_or_else(|| {
-            anyhow!("missing leaves hash chain for batch {pending} zkp {zkp_index}")
-        })?;
+        let hash_chain = nullifier
+            .get_hash_chain(pending, zkp_index)
+            .ok_or_else(|| {
+                anyhow!("missing leaves hash chain for batch {pending} zkp {zkp_index}")
+            })?;
         hash_chains.push(hash_chain);
     }
 
@@ -343,7 +345,10 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
     let (reference, values) = reconstruct_and_verify(photon, tree, &snapshot, fetch_total)?;
 
     println!("forester dry-run for tree {tree}");
-    println!("  on-chain nullifier root:  {}", hex(&snapshot.on_chain_root));
+    println!(
+        "  on-chain nullifier root:  {}",
+        hex(&snapshot.on_chain_root)
+    );
     println!(
         "  reconstructed root:       {} (matches on-chain)",
         hex(&reference.root())
@@ -354,13 +359,18 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
     );
     println!("  appended (applied):            {applied}");
     println!("  photon queued values returned: {}", values.len());
-    println!("  pending batch queued:          {}", snapshot.pending_queued);
+    println!(
+        "  pending batch queued:          {}",
+        snapshot.pending_queued
+    );
     println!("  ready zkp-batches:             {}", snapshot.ready);
     if snapshot.ready == 0 {
         let remaining = snapshot
             .zkp_batch_size
             .saturating_sub(snapshot.pending_queued);
-        println!("  => nothing ready to forest yet (~{remaining} more nullifiers to fill a zkp-batch)");
+        println!(
+            "  => nothing ready to forest yet (~{remaining} more nullifiers to fill a zkp-batch)"
+        );
     } else {
         println!("  => would prove & submit {} zkp-batch(es)", snapshot.ready);
     }
@@ -389,7 +399,9 @@ fn build_inputs(
         let non_inclusion = reference
             .get_non_inclusion_proof(&value)
             .map_err(|err| anyhow!("non-inclusion proof: {err:?}"))?;
-        low_element_values.push(BigUint::from_bytes_be(&non_inclusion.leaf_lower_range_value));
+        low_element_values.push(BigUint::from_bytes_be(
+            &non_inclusion.leaf_lower_range_value,
+        ));
         low_element_indices.push(BigUint::from(non_inclusion.leaf_index as u64));
         low_element_next_values.push(BigUint::from_bytes_be(
             &non_inclusion.leaf_higher_range_value,
@@ -454,7 +466,8 @@ fn forester_keypair() -> Result<Keypair> {
     let payer = env::var("PAYER").context("PAYER is not set (forester signing keypair)")?;
     let bytes: Vec<u8> =
         serde_json::from_str(&payer).context("PAYER must be a JSON byte array keypair")?;
-    Keypair::try_from(bytes.as_slice()).map_err(|err| anyhow!("PAYER is not a valid keypair: {err}"))
+    Keypair::try_from(bytes.as_slice())
+        .map_err(|err| anyhow!("PAYER is not a valid keypair: {err}"))
 }
 
 fn hex(bytes: &[u8; 32]) -> String {

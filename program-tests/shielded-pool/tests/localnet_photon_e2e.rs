@@ -664,7 +664,12 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
     .instruction();
     print_signature(
         "create_protocol_config",
-        &send_transaction(&mut rpc, &[create_config], &authority.pubkey(), &[&authority])?,
+        &send_transaction(
+            &mut rpc,
+            &[create_config],
+            &authority.pubkey(),
+            &[&authority],
+        )?,
     );
 
     let tree = Keypair::new();
