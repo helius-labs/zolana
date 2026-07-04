@@ -315,7 +315,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "asset registry missing SPL mint: {asset_registry_out}"
     );
 
-    let deposit_amount = "500000000";
+    let deposit_amount = "0.5";
     for _ in 0..2 {
         run_cli_with_env(
             &[
@@ -434,7 +434,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &prover_url,
             "--airdrop-lamports",
             "2000000000",
-            "400000000",
+            "0.4",
             &alice_funding,
         ],
         &cli_env,
@@ -527,7 +527,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &prover_url,
             "--airdrop-lamports",
             "2000000000",
-            "200000000",
+            "0.2",
             &bob_funding,
         ],
         &cli_env,
