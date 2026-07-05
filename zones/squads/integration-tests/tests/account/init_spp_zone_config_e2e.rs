@@ -73,6 +73,7 @@ fn install_spp_protocol_config(test: &mut SquadsZoneTest) -> Pubkey {
         zone_creation_authority: Default::default(),
         tree_creation_is_permissionless: 0,
         zone_creation_is_permissionless: 1,
+        spl_interface_creation_is_permissionless: 0,
     };
     let address = spp_protocol_config_pda();
     test.set_account_with_owner(

@@ -216,6 +216,7 @@ fn init_spp_zone_config_against_real_validator() {
         forester_authority: accounts.forester_vault.to_bytes().into(),
         zone_creation_authority: accounts.zone_vault.to_bytes().into(),
         zone_creation_is_permissionless: true,
+        spl_interface_creation_is_permissionless: false,
     }
     .instruction();
     let create_config_sync = execute_sync_ix(
