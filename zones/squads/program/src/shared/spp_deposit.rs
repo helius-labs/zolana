@@ -34,6 +34,7 @@ pub fn build_spp_zone_deposit_data(
         zone_data_hash: [0u8; 32],
         zone_data: Vec::new(),
         utxo_data: None,
+        memo: None,
     };
 
     let mut instruction_data = vec![ZONE_DEPOSIT];
