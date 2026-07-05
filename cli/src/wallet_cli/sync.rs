@@ -70,25 +70,3 @@ pub(super) fn wait_for_indexed_utxo(
         sleep(INDEXER_POLL);
     }
 }
-
-pub(super) fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
-    tag: [u8; 32],
-    signature: Signature,
-) -> Result<()> {
-    let started = SystemTime::now();
-    loop {
-        let response = indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(50))?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
-        }
-        if started.elapsed().unwrap_or_default() >= INDEXER_TIMEOUT {
-            bail!("timed out waiting for Photon to index {signature}");
-        }
-        sleep(INDEXER_POLL);
-    }
-}

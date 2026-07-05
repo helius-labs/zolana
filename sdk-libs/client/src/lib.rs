@@ -16,6 +16,8 @@ pub use actions::{
     CreateDeposit, CreateTransfer, CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit,
     ResolvedAddress, TransferRecipient,
 };
+#[cfg(feature = "indexer-api")]
+pub use actions::{Submit, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;

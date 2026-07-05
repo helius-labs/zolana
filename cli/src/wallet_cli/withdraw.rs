@@ -1,12 +1,14 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{
+    create_withdrawal_sync, CreateWithdrawal, ProverClient, SolanaRpc, Submit, ZolanaIndexer,
+};
 use zolana_transaction::Address;
 
 use super::{
     resolve::get_network,
     sync::sync_context,
-    transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
+    transaction::maybe_airdrop,
     util::{ensure_positive, format_address, parse_address, parse_pubkey},
 };
 use crate::args::WithdrawOptions;
@@ -31,17 +33,19 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         asset,
         amount: opts.amount,
     })?;
-    let signature = submit_private_transaction(
-        SubmitPrivateTx {
-            rpc: &rpc,
-            indexer: &indexer,
-            material: &ctx.material,
-            tree,
-            prover_url: &network.prover_url,
-            withdrawal: Some(withdrawal.withdrawal),
-            wait_tag: withdrawal.wait_tag,
-        },
+    let prover = ProverClient::new(network.prover_url.clone());
+    let signature = Submit {
+        indexer: &indexer,
+        rpc: &rpc,
+        prover: &prover,
+        payer: &ctx.material.funding,
+        tree,
+        cu_limit: None,
+    }
+    .execute(
         withdrawal.signed,
+        Some(withdrawal.withdrawal),
+        withdrawal.wait_tag,
     )?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",
