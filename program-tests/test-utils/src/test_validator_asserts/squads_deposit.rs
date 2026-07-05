@@ -99,6 +99,7 @@ pub fn assert_squads_deposit<R: Rpc, I: Rpc>(
             zone_program_id: Some(expected_zone_program_id),
             zone_data_hash: Some(ZERO32),
             zone_data: Some(Vec::new()),
+            memo: None,
         },
     };
     assert_eq!(*event, expected, "squads deposit event");

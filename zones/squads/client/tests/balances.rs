@@ -137,6 +137,7 @@ fn get_balances_sums_deposit_and_transfer_via_auditor_key() {
         zone_program_id: None,
         zone_data_hash: None,
         zone_data: None,
+        memo: None,
     };
     let deposit_match = EncryptedUtxoMatch {
         slot: 1,
