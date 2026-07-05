@@ -1,4 +1,7 @@
 pub mod actions;
+#[cfg(all(feature = "indexer-api", feature = "solana-rpc"))]
+pub mod client;
+mod env;
 pub mod error;
 #[cfg(feature = "indexer-api")]
 pub mod indexer;
@@ -18,6 +21,8 @@ pub use actions::{
 };
 #[cfg(feature = "indexer-api")]
 pub use actions::{Submit, DEFAULT_TRANSACT_CU_LIMIT};
+#[cfg(all(feature = "indexer-api", feature = "solana-rpc"))]
+pub use client::{ZolanaClient, ZolanaClientConfig};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;

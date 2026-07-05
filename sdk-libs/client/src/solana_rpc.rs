@@ -31,6 +31,17 @@ fn pubkey_from_address(address: &Address) -> Pubkey {
     Pubkey::new_from_array(address.to_bytes())
 }
 
+pub const LOCAL_RPC_URL: &str = "http://127.0.0.1:8899";
+/// Helius devnet RPC host. Requires an API key; see [`SolanaRpc::devnet`].
+pub const HELIUS_DEVNET_RPC_URL: &str = "https://devnet.helius-rpc.com";
+
+/// Solana RPC the local preset connects to. Defaults to [`LOCAL_RPC_URL`];
+/// set `ZOLANA_LOCALNET_URL` per local clone to avoid port contention between
+/// concurrent checkouts.
+pub fn rpc_url() -> String {
+    crate::env::env_url("ZOLANA_LOCALNET_URL", LOCAL_RPC_URL)
+}
+
 pub struct SolanaRpc {
     client: RpcClient,
     confirmation_timeout: Duration,
@@ -47,6 +58,16 @@ impl SolanaRpc {
             url.into(),
             CommitmentConfig::confirmed(),
         ))
+    }
+
+    pub fn local() -> Self {
+        Self::new(rpc_url())
+    }
+
+    /// Helius devnet RPC with the caller's API key embedded in the URL. The
+    /// key is never read from env or stored outside the URL.
+    pub fn devnet(api_key: &str) -> Self {
+        Self::new(format!("{HELIUS_DEVNET_RPC_URL}/?api-key={api_key}"))
     }
 
     pub fn with_client(client: RpcClient) -> Self {
@@ -337,5 +358,18 @@ impl Rpc for SolanaRpc {
         self.client
             .send_and_confirm_transaction(transaction)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn devnet_preset_builds_keyed_helius_url() {
+        assert_eq!(
+            SolanaRpc::devnet("test-key").client().url(),
+            "https://devnet.helius-rpc.com/?api-key=test-key"
+        );
     }
 }

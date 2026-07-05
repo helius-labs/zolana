@@ -20,6 +20,10 @@ use crate::{
 };
 
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
+/// Shared devnet prover. Not overridable via env: the `ZOLANA_PROVER_URL`
+/// override exists for local port contention only; pass a custom remote to
+/// [`ProverClient::new`] instead.
+pub const DEVNET_SERVER_ADDRESS: &str = "http://202.8.10.77:3011";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
 
@@ -31,10 +35,7 @@ const DEFAULT_PROVER_PORT: u16 = 3001;
 /// the server on. Defaults to [`SERVER_ADDRESS`]; set `ZOLANA_PROVER_URL` per
 /// local clone to avoid port contention between concurrent checkouts.
 pub fn server_address() -> String {
-    match env::var("ZOLANA_PROVER_URL") {
-        Ok(url) if !url.trim().is_empty() => url.trim().to_string(),
-        _ => SERVER_ADDRESS.to_string(),
-    }
+    crate::env::env_url("ZOLANA_PROVER_URL", SERVER_ADDRESS)
 }
 
 /// Extract the TCP port from a prover address so [`spawn_prover`] starts the
@@ -90,11 +91,19 @@ impl ProverClient {
         Self::new(server_address())
     }
 
+    pub fn devnet() -> Self {
+        Self::new(DEVNET_SERVER_ADDRESS.to_string())
+    }
+
     pub fn new(server_address: String) -> Self {
         Self {
             server_address,
             http: build_http_client(),
         }
+    }
+
+    pub fn server_address(&self) -> &str {
+        &self.server_address
     }
 
     /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
@@ -355,5 +364,13 @@ mod tests {
         assert_eq!(prover_port("garbage"), DEFAULT_PROVER_PORT);
         // The default const and SERVER_ADDRESS stay in agreement.
         assert_eq!(prover_port(SERVER_ADDRESS), DEFAULT_PROVER_PORT);
+    }
+
+    #[test]
+    fn devnet_preset_uses_devnet_address() {
+        assert_eq!(
+            ProverClient::devnet().server_address(),
+            DEVNET_SERVER_ADDRESS
+        );
     }
 }
