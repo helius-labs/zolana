@@ -11,8 +11,10 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	keyencryption "zolana/prover/prover/key_encryption"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
+	squadszone "zolana/prover/prover/squads_zone"
 	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
@@ -1149,6 +1151,10 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeZoneCircuitType:
 		return handler.mergeZoneProof(buf)
+	case common.SquadsZoneCircuitType:
+		return handler.squadsZoneProof(buf)
+	case common.SquadsKeyEncryptionCircuitType:
+		return handler.squadsKeyEncryptionProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1239,6 +1245,48 @@ func (handler proveHandler) transferProof(buf []byte) (*common.Proof, *Error) {
 	}
 
 	proof, err := transfer.ProveTransfer(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsZoneProof(buf []byte) (*common.Proof, *Error) {
+	var params squadszone.ZoneParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetZoneSystem(params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-zone: %w", err))
+	}
+
+	proof, err := squadszone.ProveZone(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsKeyEncryptionProof(buf []byte) (*common.Proof, *Error) {
+	var params keyencryption.KeyEncryptionParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		logging.Logger().Info().Msg("error Unmarshal")
+		logging.Logger().Info().Msg(err.Error())
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetKeyEncryptionSystem(params.NumKeys)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-key-encryption: %w", err))
+	}
+
+	proof, err := keyencryption.ProveKeyEncryption(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

@@ -22,14 +22,23 @@ for key in $keys; do
     module="${stem//-/_}"
     vk_bin="$tmp_dir/${stem}.vkbin"
 
+    # Only regenerate verifying keys that already exist in git. Deprecated key
+    # shapes (e.g. the plain transfer_* / transfer_p256_* combinations) remain on
+    # disk but have no committed vk; skip them rather than mint spurious files.
+    if ! git ls-files --error-unmatch "$vkey_dir/${module}.rs" >/dev/null 2>&1; then
+        continue
+    fi
+
     echo "exporting raw vk: $stem"
     if ! ./light-prover export-vk --keys-file "$key" --output "$vk_bin" >/dev/null; then
         echo "WARN: export-vk failed, skipping $stem"
         continue
     fi
 
+    # Absolute path so the checksum comment resolves after the xtask cd's to root.
+    key_abs="$(cd "$(dirname "$key")" && pwd)/$(basename "$key")"
     if (cd ../.. && cargo run -q -p xtask -- bsb22-vk \
-        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs"); then
+        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs" "$key_abs"); then
         modules="${modules}${module}"$'\n'
     else
         echo "WARN: vk codegen failed, skipping $stem"

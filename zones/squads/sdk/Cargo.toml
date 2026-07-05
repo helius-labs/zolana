@@ -1,0 +1,66 @@
+[package]
+name = "zolana-squads-sdk"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["encryption"]
+encryption = []
+rpc = []
+prover = [
+    "dep:reqwest",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:num-bigint",
+    "dep:num-traits",
+    "dep:solana-bn254",
+    "dep:groth16-solana",
+    "dep:hex",
+    "dep:zolana-interface",
+]
+
+[dependencies]
+borsh = { workspace = true }
+wincode = { workspace = true }
+zolana-squads-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-client = { workspace = true }
+
+# Pure-crypto deps. Always available: `crypto.rs` (the relocated zone gadgets) and
+# the client-side construction/decryption modules use them under the default
+# `encryption` feature, and the `prover` witness builders reuse the same code.
+# Versions mirror the root workspace.
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+aes = { version = "0.8", default-features = false }
+ctr = { version = "0.9", default-features = false }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+
+# prover feature. Versions mirror the root workspace (the squads workspace does
+# not inherit these, so they are pinned directly here).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"], optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+num-bigint = { version = "0.4.6", optional = true }
+num-traits = { version = "0.2.19", optional = true }
+solana-bn254 = { version = "3.2.1", optional = true }
+groth16-solana = { workspace = true, optional = true }
+hex = { version = "0.4", optional = true }
+zolana-interface = { workspace = true, optional = true }
+
+[dev-dependencies]
+groth16-solana = { workspace = true }
+# The merge_zone_8_1 verifying key lives in `zolana-interface`, which pins a
+# different groth16-solana rev than this workspace; the merge prover test verifies
+# against it with a matching-rev verifier (the rev is already in Cargo.lock as a
+# transitive dep of zolana-interface).
+groth16-solana-interface = { package = "groth16-solana", git = "https://github.com/Lightprotocol/groth16-solana", rev = "3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5", features = ["bsb22"] }
+zolana-merkle-tree = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+num-bigint = "0.4.6"
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+
+[[test]]
+name = "smart_account_prover"
+required-features = ["prover"]

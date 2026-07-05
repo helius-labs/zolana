@@ -1,0 +1,63 @@
+use zolana_squads_interface::error::SquadsZoneError::*;
+
+/// Pin every on-chain error code for this program version.
+#[test]
+fn error_codes_are_stable() {
+    let table = [
+        (InvalidInstructionData as u32, 8000),
+        (Deserialization as u32, 8001),
+        (InvalidZoneConfig as u32, 8002),
+        (InvalidViewingKeyAccount as u32, 8003),
+        (InvalidProposal as u32, 8004),
+        (InvalidKeyUpdateProposal as u32, 8005),
+        (InvalidDiscriminator as u32, 8006),
+        (InvalidAccountSize as u32, 8007),
+        (AccountAlreadyInitialized as u32, 8008),
+        (InvalidAccountOwner as u32, 8009),
+        (InvalidPda as u32, 8010),
+        (InvalidZoneAuth as u32, 8011),
+        (MissingAuthoritySignature as u32, 8012),
+        (MissingOwnerSignature as u32, 8013),
+        (MissingExecutorSignature as u32, 8014),
+        (MissingCoSignerSignature as u32, 8015),
+        (MissingMergeAuthoritySignature as u32, 8016),
+        (AuthorityMismatch as u32, 8017),
+        (OwnerMismatch as u32, 8018),
+        (ExecutorMismatch as u32, 8019),
+        (CoSignerMismatch as u32, 8020),
+        (MergeAuthorityNotWhitelisted as u32, 8021),
+        (ViewingKeyAccountBlocked as u32, 8022),
+        (InvalidEncryptionScheme as u32, 8023),
+        (InvalidViewingKeyState as u32, 8024),
+        (ConfigFrozen as u32, 8025),
+        (InvalidAuditorKeyCount as u32, 8026),
+        (MixedKeyOperationTypes as u32, 8027),
+        (AuditorNotChanged as u32, 8028),
+        (InvalidKeyOperation as u32, 8029),
+        (InvalidKeyOperationIndex as u32, 8030),
+        (CiphertextCountMismatch as u32, 8031),
+        (KeyBufferNotFull as u32, 8032),
+        (KeyBufferOverflow as u32, 8033),
+        (ProposalExpired as u32, 8034),
+        (TransactionExpired as u32, 8035),
+        (ProposalOwnershipMismatch as u32, 8036),
+        (ProposalTargetMismatch as u32, 8037),
+        (RentRecipientMismatch as u32, 8038),
+        (InvalidProofEncoding as u32, 8039),
+        (ZoneProofVerificationFailed as u32, 8040),
+        (KeyEncryptionProofVerificationFailed as u32, 8041),
+        (MergeProofVerificationFailed as u32, 8042),
+        (ProofHashingFailed as u32, 8043),
+        (InvalidSppProgram as u32, 8044),
+        (SppCpiFailed as u32, 8045),
+        (ArithmeticOverflow as u32, 8046),
+        (InvalidAmount as u32, 8047),
+        (ZoneSettlementNotImplemented as u32, 8048),
+        (InvalidDepositAccounts as u32, 8049),
+        (InvalidWithdrawalAccounts as u32, 8050),
+        (InvalidOwnerKind as u32, 8051),
+    ];
+    for (got, want) in table {
+        assert_eq!(got, want, "error code drifted");
+    }
+}

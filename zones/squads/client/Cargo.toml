@@ -1,0 +1,30 @@
+[package]
+name = "zolana-squads-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+zolana-squads-sdk = { workspace = true, features = ["prover", "encryption", "rpc"] }
+zolana-squads-interface = { workspace = true, features = ["solana"] }
+zolana-client = { workspace = true, features = ["solana-rpc", "indexer-api"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+
+thiserror = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-signature = { workspace = true }
+solana-message = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+
+[dev-dependencies]
+groth16-solana = { workspace = true }

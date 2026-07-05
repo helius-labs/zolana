@@ -14,7 +14,11 @@ Feature: Mixed zone lifecycle across owners
     owner syncs.
   - A merge consumes N of the sender's same-asset zone UTXOs into one consolidated
     zone output (discovered on-chain by inclusion proof, not by wallet sync, since
-    the merged output carries the single-use merge_view_tag sync has no scan for).
+    the merged output carries an opaque zone-chosen merge_view_tag sync has no
+    scan for).
+  - The merge_view_tag is opaque to SPP: every merge in this suite reuses the
+    same non-field-element tag, and consecutive merges with the same tag must
+    both succeed (replay protection comes from the input nullifiers).
   - A zone authority transfer consumes one of the source's zone UTXOs and re-owns
     it to the recipient, skipping the owner's spend signature.
   - The invalid-proof transfer/merge negatives borrow (do not consume) two of
@@ -28,6 +32,7 @@ Feature: Mixed zone lifecycle across owners
   - bob: recipient of alice's eddsa transfer.
   - carol: P256 rail. 2 deposits; consumes 2 in the P256 transfer to dave.
   - gary: 2 deposits; both consumed by the merge.
+  - fred: 4 deposits; consumed 2 + 2 by the two tag-reusing merges.
   - henry: 1 deposit; re-owned to ivan by the zone authority.
   - jane / kyle: 1 deposit each, for the authority bad-proof / disabled negatives.
 
@@ -70,6 +75,18 @@ Feature: Mixed zone lifecycle across owners
     When gary zone-shields 1000000000 lamports of SOL
     When the zone consolidates 2 of gary's SOL zone UTXOs
     Then gary holds one consolidated zone SOL UTXO
+
+    # merge_view_tag reuse: every consolidation is tagged with the same opaque
+    # non-field-element constant, so fred's two consecutive merges (different
+    # inputs, same tag, which also repeats gary's tag above) must both succeed.
+    When fred zone-shields 1000000000 lamports of SOL
+    When fred zone-shields 1000000000 lamports of SOL
+    When fred zone-shields 1000000000 lamports of SOL
+    When fred zone-shields 1000000000 lamports of SOL
+    When the zone consolidates 2 of fred's SOL zone UTXOs
+    Then fred holds one consolidated zone SOL UTXO
+    When the zone consolidates 2 of fred's SOL zone UTXOs
+    Then fred holds one consolidated zone SOL UTXO
 
     # zone_authority_transact: the zone authority re-owns henry's zone UTXO to ivan
     # (no owner signature; config must be enabled, so this precedes the disabled

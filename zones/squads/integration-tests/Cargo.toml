@@ -1,0 +1,114 @@
+[package]
+name = "squads-zone-tests"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+# Integration tests for the Squads zone program. The tests load the program's
+# prebuilt SBF binary into a LiteSVM instance. The binary must be built first
+# from this workspace:
+#
+#   cd zones/squads/program && cargo build-sbf --features bpf-entrypoint
+#
+# That produces `zones/squads/target/deploy/zolana_squads_program.so`, which the
+# harness in `src/harness.rs` resolves by default (overridable via the
+# SQUADS_ZONE_PROGRAM_PATH env var). Tests skip (do not fail) when it is missing.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+litesvm = { workspace = true }
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-instruction-error = "2.3"
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true }
+zolana-squads-interface = { workspace = true, features = ["solana"] }
+
+[[test]]
+name = "zone_config"
+path = "tests/admin/zone_config.rs"
+
+[[test]]
+name = "viewing_key"
+path = "tests/account/viewing_key.rs"
+
+[dev-dependencies]
+zolana-squads-sdk = { workspace = true, features = ["prover"] }
+zolana-squads-client = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-interface = { workspace = true }
+zolana-event = { path = "../../../program-libs/event", features = ["program-test"] }
+bytemuck = { workspace = true }
+rand = "0.8.5"
+solana-address-lookup-table-interface = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-commitment-config = "3.1"
+solana-rpc-client-api = "4.0.0-rc.0"
+solana-signature = { workspace = true }
+p256 = { version = "0.13", default-features = false, features = ["arithmetic", "std"] }
+anyhow = { workspace = true }
+solana-address = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+cucumber = "0.22"
+futures = "0.3"
+
+[[test]]
+name = "create_viewing_key_e2e"
+path = "tests/account/create_viewing_key_e2e.rs"
+
+[[test]]
+name = "transact_e2e"
+path = "tests/account/transact_e2e.rs"
+
+[[test]]
+name = "key_update_e2e"
+path = "tests/account/key_update_e2e.rs"
+
+[[test]]
+name = "execute_proposal_e2e"
+path = "tests/account/execute_proposal_e2e.rs"
+
+[[test]]
+name = "init_spp_zone_config_e2e"
+path = "tests/account/init_spp_zone_config_e2e.rs"
+
+[[test]]
+name = "composed_localnet"
+path = "tests/account/composed_localnet.rs"
+
+[[test]]
+name = "deferred_settlement"
+path = "tests/account/deferred_settlement.rs"
+
+[[test]]
+name = "key_update"
+path = "tests/account/key_update.rs"
+
+[[test]]
+name = "merge_transact_cpi"
+path = "tests/account/merge_transact_cpi.rs"
+
+[[test]]
+name = "proposal"
+path = "tests/account/proposal.rs"
+
+[[test]]
+name = "keypair_lifecycle"
+path = "tests/keypair/lifecycle.rs"
+harness = false
+
+[[test]]
+name = "smart_account_lifecycle"
+path = "tests/smart-account/lifecycle.rs"
+harness = false

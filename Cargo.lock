@@ -9820,6 +9820,7 @@ dependencies = [
  "zolana-client",
  "zolana-event",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-program-test",
  "zolana-transaction",
 ]

@@ -312,7 +312,173 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
+func (ps *SquadsZoneProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var totalWritten int64 = 0
+	var intBuf [4]byte
+
+	for _, field := range []uint32{ps.NInputs, ps.NOutputs} {
+		binary.BigEndian.PutUint32(intBuf[:], field)
+		written, err := w.Write(intBuf[:])
+		totalWritten += int64(written)
+		if err != nil {
+			return totalWritten, err
+		}
+	}
+
+	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.VerifyingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
+}
+
+func (ps *SquadsZoneProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var totalRead int64 = 0
+	var intBuf [4]byte
+
+	for _, field := range []*uint32{&ps.NInputs, &ps.NOutputs} {
+		read, err := io.ReadFull(r, intBuf[:])
+		totalRead += int64(read)
+		if err != nil {
+			return totalRead, err
+		}
+		*field = binary.BigEndian.Uint32(intBuf[:])
+	}
+
+	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	return totalRead, nil
+}
+
+func (ps *SquadsKeyEncryptionProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var totalWritten int64 = 0
+	var intBuf [4]byte
+
+	binary.BigEndian.PutUint32(intBuf[:], ps.NumKeys)
+	written, err := w.Write(intBuf[:])
+	totalWritten += int64(written)
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.VerifyingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
+}
+
+func (ps *SquadsKeyEncryptionProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var totalRead int64 = 0
+	var intBuf [4]byte
+
+	read, err := io.ReadFull(r, intBuf[:])
+	totalRead += int64(read)
+	if err != nil {
+		return totalRead, err
+	}
+	ps.NumKeys = binary.BigEndian.Uint32(intBuf[:])
+
+	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	return totalRead, nil
+}
+
 func ReadSystemFromFile(path string) (interface{}, error) {
+	if strings.Contains(strings.ToLower(path), "squads_key_encryption") {
+		ps := new(SquadsKeyEncryptionProofSystem)
+		ps.CircuitType = SquadsKeyEncryptionCircuitType
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	}
+	if strings.Contains(strings.ToLower(path), "squads_zone") {
+		ps := new(SquadsZoneProofSystem)
+		ps.CircuitType = SquadsZoneCircuitType
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	}
 	if strings.Contains(strings.ToLower(path), "transfer") {
 		ps := new(TransferProofSystem)
 		file, err := os.Open(path)

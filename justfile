@@ -353,6 +353,76 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
 
+# BDD Squads-zone lifecycle over a fresh validator + Photon per scenario
+# (program-tests/squads-zone-test-validator). Mirrors test-zone-validator but
+# drives the REAL Squads zone program (whose `deposit`/withdrawal CPI into SPP via
+# its `zone_auth` PDA) rather than a forwarder fixture. build-programs does not
+# cover the nested squads workspace, so the recipe builds that `.so` itself; the
+# withdrawal scenarios use the persistent prover, while deposit is proofless and
+# seeds its recipient viewing key accounts as genesis fixtures.
+test-squads-zone: build-programs build-prover-server build-cli ensure-photon ensure-smart-account ensure-squads-keys
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build-sbf --features bpf-entrypoint --manifest-path zones/squads/program/Cargo.toml
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test --manifest-path zones/squads/Cargo.toml -p squads-zone-tests --test keypair_lifecycle --release
+
+# Smart-account variant of test-squads-zone: a Squads vault is the executor/owner.
+# The vault executes deposit + sync transact (wrapped in executeTransactionSyncV2)
+# and creates + owns the async proposal; a co-signer keypair settles execute_proposal.
+# Settlement uses the signatureless SPP zone-authority rail
+# (transfer_zone_authority_{1_1,2_2} keys), so the prover needs those alongside the
+# squads zone keys.
+test-squads-zone-smart-account: build-programs build-prover-server build-cli ensure-photon ensure-smart-account ensure-squads-keys
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build-sbf --features bpf-entrypoint --manifest-path zones/squads/program/Cargo.toml
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test --manifest-path zones/squads/Cargo.toml -p squads-zone-tests --test smart_account_lifecycle --release
+
+# Fetch the squads zone (1x1 withdrawal, 2x2 transfer) and key-encryption
+# proving keys if absent. The canonical keys live on the proving-keys GitHub
+# release (the committed zones/squads/interface verifying-key constants were
+# generated from them); the prover server also lazy-downloads them on demand,
+# this just pre-materializes. Falls back to local generation (groth16 setup,
+# slow) only when the release is unreachable -- freshly generated keys DO NOT
+# match the committed verifying keys, so on-chain verification rejects their
+# proofs; regenerate the vk constants too if you take that path deliberately.
+ensure-squads-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f prover/server/proving-keys/squads_zone_1_1.key ]; then
+      echo "Fetching squads proving keys from the proving-keys release..."
+      if gh release download transfer-keys-v11 --repo helius-labs/zolana \
+          --dir prover/server/proving-keys --clobber \
+          --pattern 'squads_zone_*.key' --pattern 'squads_key_encryption_*.key' \
+          --pattern CHECKSUM; then
+        echo "Squads proving keys downloaded."
+      else
+        echo "WARNING: release download failed; generating locally. Generated keys" >&2
+        echo "WARNING: will NOT match the committed verifying-key constants." >&2
+        bash prover/server/scripts/generate_keys_squads.sh
+      fi
+    fi
+
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -422,7 +492,7 @@ build-spp-keys:
     prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
 
 publish-spp-keys-release:
-    prover/server/scripts/publish_keys_release.sh transfer-keys-v9 "$(pwd)/{{spp-keys-dir}}"
+    prover/server/scripts/publish_keys_release.sh transfer-keys-v11 "$(pwd)/{{spp-keys-dir}}"
 
 build-photon:
     #!/usr/bin/env bash

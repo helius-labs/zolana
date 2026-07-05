@@ -1,0 +1,4 @@
+/target
+Cargo.lock
+# Program-id keypair holds a secret key; never commit it.
+program/*-keypair.json

@@ -3,6 +3,8 @@ pub mod deposit;
 pub mod merge_zone;
 pub mod protocol_config;
 pub mod spl_deposit;
+pub mod squads_deposit;
+pub mod squads_withdrawal;
 pub mod zone_deposit;
 pub mod zone_transact;
 
@@ -17,6 +19,10 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
+pub use squads_deposit::{assert_squads_deposit, SquadsDepositAssertArgs, SquadsDepositSettlement};
+pub use squads_withdrawal::{
+    assert_squads_withdrawal, SquadsWithdrawalAssertArgs, SquadsWithdrawalSettlement,
+};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
 };
@@ -116,6 +122,21 @@ pub fn state_root_from(account: &Account) -> [u8; 32] {
     let mut root = [0u8; 32];
     root.copy_from_slice(slice);
     root
+}
+
+/// The tree's `next_index` (leaf count). It sits immediately before the state
+/// root in the tree layout (`root` is 8 bytes into the utxo layout, right after
+/// the 8-byte `next_index`), so it lives at `state_root_offset() - 8`.
+#[track_caller]
+pub fn tree_next_index(account: &Account) -> u64 {
+    let offset = state_root_offset() - 8;
+    let bytes = account
+        .data
+        .get(offset..offset + 8)
+        .expect("next index slice")
+        .try_into()
+        .expect("next index is 8 bytes");
+    u64::from_le_bytes(bytes)
 }
 
 #[track_caller]

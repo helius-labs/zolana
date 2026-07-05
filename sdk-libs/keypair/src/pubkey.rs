@@ -8,6 +8,14 @@ use crate::{
 pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
 
+/// Tag byte for a synthetic [`PublicKey`] that carries a precomputed
+/// `owner_pk_field` instead of a real signing key (see
+/// [`PublicKey::from_owner_pk_field`]). Distinct from the 0x00/0x01 signature
+/// types; a key with this tag must never reach [`PublicKey::signature_type`],
+/// signing, or byte serialization -- gate with
+/// [`PublicKey::is_precomputed_owner_field`] first.
+pub(crate) const PRECOMPUTED_OWNER_FIELD_TYPE: u8 = 0xFF;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SignatureType {
     P256,
@@ -88,6 +96,21 @@ impl PublicKey {
         Self(bytes)
     }
 
+    /// A synthetic public key that carries only a precomputed `owner_pk_field`:
+    /// [`Self::owner_pk_field`] returns `field` verbatim (no `hash_field`). This
+    /// addresses a UTXO owner known only by its `owner_pk_field` (e.g. a transfer
+    /// recipient read from a viewing-key account, whose raw signing key is
+    /// unavailable) so its `OutputUtxo` still hashes and proves identically:
+    /// `owner_hash` and the prover's output-owner assembly both consume
+    /// `owner_pk_field` unchanged. The result must never be signed with, compared
+    /// against a real key, or serialized as bytes.
+    pub fn from_owner_pk_field(field: [u8; 32]) -> Self {
+        let mut bytes = [0u8; PUBLIC_KEY_LEN];
+        bytes[0] = PRECOMPUTED_OWNER_FIELD_TYPE;
+        bytes[1..1 + 32].copy_from_slice(&field);
+        Self(bytes)
+    }
+
     /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
     /// unspendable, so a real input never has it; it is the canonical dummy marker.
     /// Byte 0 reads as `SIGNATURE_TYPE_P256`, so this value must never reach
@@ -98,6 +121,14 @@ impl PublicKey {
 
     pub fn is_zero(&self) -> bool {
         self.0 == [0u8; PUBLIC_KEY_LEN]
+    }
+
+    /// True for a synthetic key built by [`Self::from_owner_pk_field`]. Such a
+    /// key has no signature scheme: callers must check this before
+    /// [`Self::signature_type`] and may only consume it via
+    /// [`Self::owner_pk_field`].
+    pub fn is_precomputed_owner_field(&self) -> bool {
+        self.0[0] == PRECOMPUTED_OWNER_FIELD_TYPE
     }
 
     pub fn from_bytes(bytes: [u8; PUBLIC_KEY_LEN]) -> Result<Self, KeypairError> {
@@ -168,6 +199,42 @@ impl PublicKey {
     /// has the same pk_field shape as an ed25519 owner. Matches the circuit
     /// `OwnerPkFieldGadget` and the program's `hash_field(view_tag)` reconstruction.
     pub fn owner_pk_field(&self) -> Result<[u8; 32], KeypairError> {
+        if self.is_precomputed_owner_field() {
+            let mut field = [0u8; 32];
+            field.copy_from_slice(&self.0[1..1 + 32]);
+            return Ok(field);
+        }
         crate::hash::hash_field(&self.confidential_view_tag()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p256_key() -> PublicKey {
+        let mut secret = [0u8; 32];
+        secret[31] = 7;
+        let sk = p256::SecretKey::from_slice(&secret).unwrap();
+        PublicKey::from_p256(&P256Pubkey::from_p256(&sk.public_key()))
+    }
+
+    #[test]
+    fn precomputed_owner_field_key_returns_field_verbatim() {
+        let mut field = [0u8; 32];
+        field[31] = 42;
+        let key = PublicKey::from_owner_pk_field(field);
+        assert!(key.is_precomputed_owner_field());
+        assert_eq!(key.owner_pk_field().unwrap(), field);
+    }
+
+    #[test]
+    fn real_keys_are_not_precomputed_owner_fields() {
+        let p256 = p256_key();
+        assert!(!p256.is_precomputed_owner_field());
+        assert!(p256.signature_type().is_ok());
+        let ed25519 = PublicKey::from_ed25519(&[5u8; ED25519_PUBKEY_LEN]);
+        assert!(!ed25519.is_precomputed_owner_field());
+        assert!(ed25519.signature_type().is_ok());
     }
 }

@@ -9,20 +9,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tag="${1:-transfer-keys-v10}"
+tag="${1:-transfer-keys-v11}"
 keys_dir="${2:-./proving-keys}"
 repo="helius-labs/zolana"
 split_threshold_bytes=$((1900 * 1024 * 1024))
 
-# Every regenerated transfer/merge proving key (all rails and shapes) plus the
-# batched-merkle nullifier-tree keys the prover fetches from this release. The
-# lazy key manager downloads each on demand, so the release must carry the full
-# set the supported shapes can request.
+# Every regenerated transfer/merge/squads proving key (all rails and shapes)
+# plus the batched-merkle nullifier-tree keys the prover fetches from this
+# release. The lazy key manager downloads each on demand, so the release must
+# carry the full set the supported shapes can request. The squads keys must be
+# the ones the committed zones/squads/interface verifying-key constants were
+# generated from, or on-chain verification rejects every squads proof.
 key_assets=()
 while IFS= read -r asset; do
     key_assets+=("$asset")
 done < <(find "$keys_dir" -maxdepth 1 -type f \
-    \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)
+    \( -name 'transfer_*.key' -o -name 'merge_*.key' \
+       -o -name 'squads_zone_*.key' -o -name 'squads_key_encryption_*.key' \) | sort)
 
 # Batched-address keys are unchanged by transfer-circuit work; include whichever
 # are present locally (mirrors the previous release).

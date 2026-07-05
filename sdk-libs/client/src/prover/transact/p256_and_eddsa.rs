@@ -284,10 +284,14 @@ pub(crate) fn assemble_inputs(
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
 
-        let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
+        // A precomputed-owner-field key has no signature scheme and must never
+        // reach signature_type(); it takes the non-P256 arms below, which only
+        // consume owner_pk_field() (the field verbatim, no P256 point).
+        let is_p256 = !spend.utxo.owner.is_precomputed_owner_field()
+            && spend.utxo.owner.signature_type()? == SignatureType::P256;
         // Per-input owner pk_field, selected by mode. A P256 owner's value
-        // depends on the mode (see OwnerMode); an ed25519 owner always uses
-        // its own pk_field.
+        // depends on the mode (see OwnerMode); an ed25519 or
+        // precomputed-owner-field owner always uses its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
             (OwnerMode::ConfidentialP256(signing_pk_field), true) => *signing_pk_field,
             (OwnerMode::Merge, true) => [0u8; 32],
@@ -450,5 +454,76 @@ fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
         Ok(())
     } else {
         Err(ClientError::ProofPathLength { got, expected })
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use solana_address::Address;
+    use zolana_transaction::Data;
+
+    use super::*;
+    use crate::rpc::{MerkleContext, MerkleProof, NonInclusionProof};
+
+    pub(crate) fn spend_with_owner(owner: PublicKey) -> TransferSpendInput {
+        let merkle_context = MerkleContext {
+            tree_type: 0,
+            tree: Address::default(),
+        };
+        let state = MerkleProof {
+            leaf: [0u8; 32],
+            merkle_context: merkle_context.clone(),
+            path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
+            leaf_index: 0,
+            root: [0u8; 32],
+            root_seq: 0,
+            root_index: 0,
+        };
+        let nullifier = NonInclusionProof {
+            leaf: [0u8; 32],
+            merkle_context,
+            path: vec![[0u8; 32]; NULLIFIER_TREE_HEIGHT],
+            low_element: [0u8; 32],
+            low_element_index: 0,
+            high_element: [0u8; 32],
+            high_element_index: 0,
+            root: [0u8; 32],
+            root_seq: 0,
+            root_index: 0,
+        };
+        TransferSpendInput {
+            utxo: Utxo {
+                owner,
+                asset: Address::default(),
+                amount: 100,
+                blinding: [1u8; 31],
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key: NullifierKey::from_secret([2u8; 31]),
+            data_hash: None,
+            zone_data_hash: None,
+            proof: Some(SpendProof { state, nullifier }),
+        }
+    }
+
+    #[test]
+    fn assemble_inputs_accepts_precomputed_owner_field() {
+        let mut field = [0u8; 32];
+        field[31] = 42;
+        let spend = spend_with_owner(PublicKey::from_owner_pk_field(field));
+        let modes = [
+            OwnerMode::ConfidentialP256([7u8; 32]),
+            OwnerMode::ConfidentialEddsa,
+            OwnerMode::Merge,
+            OwnerMode::ZoneAuthority,
+            OwnerMode::Zone,
+        ];
+        for mode in &modes {
+            let assembled = assemble_inputs(std::slice::from_ref(&spend), mode).unwrap();
+            assert_eq!(assembled.input_owner_pk_hashes, vec![field]);
+            let input = assembled.inputs.first().unwrap();
+            assert_eq!(input.owner_pk_hash, be(&field));
+        }
     }
 }

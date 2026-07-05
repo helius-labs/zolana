@@ -3,9 +3,11 @@ use wincode::{SchemaRead, SchemaWrite};
 use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConfig};
 
 /// `merge_zone` instruction data (spec: SPP `merge_zone`): the
-/// [`MergeTransactIxData`] body prefixed with a single-use `merge_view_tag` that
-/// indexes the merged output (the owner-pubkey fetch tag of `merge_transact` does
-/// not apply in a policy zone).
+/// [`MergeTransactIxData`] body prefixed with a zone-chosen `merge_view_tag`
+/// that indexes the merged output (the owner-pubkey fetch tag of
+/// `merge_transact` does not apply in a policy zone). SPP treats the tag as
+/// opaque bytes and may see it repeat across merges; replay protection comes
+/// from the input nullifiers.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeZoneIxData {
     pub merge_view_tag: [u8; 32],

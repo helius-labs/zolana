@@ -10,16 +10,16 @@ use crate::{
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
 /// program loader (`MergeZoneAccounts::validate_and_parse`): `tree` (writable),
 /// `zone_config` (the zone's `zone_auth` PDA), `payer` (signer), and the program
-/// account last for the `emit_event` self-CPI. Instruction data is the single-use
-/// `merge_view_tag` followed by the `MergeTransactIxData` body.
+/// account last for the `emit_event` self-CPI. Instruction data is the
+/// zone-chosen `merge_view_tag` followed by the `MergeTransactIxData` body.
 pub struct MergeZone {
     pub tree: Pubkey,
     /// Calling zone program; its `zone_config` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
     pub payer: Pubkey,
     pub data: MergeTransactIxData,
-    /// Single-use tag indexing the merged output (inserted into the nullifier
-    /// queue for replay protection).
+    /// Zone-chosen opaque tag indexing the merged output; it may repeat across
+    /// merges (replay protection comes from the input nullifiers).
     pub merge_view_tag: [u8; 32],
 }
 
