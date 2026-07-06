@@ -74,6 +74,19 @@ impl ShieldedKeypair {
         Self::from_keys(SigningKey::new(), ViewingKey::new())
     }
 
+    /// Spec wallet keys from a BIP-39 `wallet_seed`: signing and viewing at
+    /// sibling SLIP-0010 paths, nullifier from the derived signing secret —
+    /// one seed reproduces the whole shielded keypair. Signs on the P256 rail;
+    /// [`ShieldedKeypair::from_ed25519`] wallets sign on the Solana rail with
+    /// a caller-provided viewing key, and are not an alternative encoding of
+    /// the same wallet.
+    pub fn from_seed(wallet_seed: &[u8], account: u32) -> Result<Self, KeypairError> {
+        Self::from_keys(
+            SigningKey::from_seed(wallet_seed, account)?,
+            ViewingKey::from_seed(wallet_seed, account)?,
+        )
+    }
+
     pub fn from_ed25519(
         signing_secret: &[u8; 32],
         viewing_key: ViewingKey,

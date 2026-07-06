@@ -9742,6 +9742,7 @@ dependencies = [
  "ed25519-dalek 2.2.0",
  "hex",
  "hkdf",
+ "hmac 0.12.1",
  "p256",
  "rand 0.8.6",
  "sha2 0.10.9",

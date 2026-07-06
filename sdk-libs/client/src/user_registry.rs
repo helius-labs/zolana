@@ -4,6 +4,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType};
+use zolana_transaction::{AssetRegistry, Wallet};
 use zolana_user_registry_interface::{
     instruction::{register, update_keys, RegisterData, UpdateKeysData},
     user_record_pda, user_registry_program_id, UserRecord,
@@ -78,6 +79,28 @@ pub fn ensure_registered<R: Rpc>(
         owner_address,
         &[funding],
     )?))
+}
+
+/// Create a private wallet for `keypair` and register it for private
+/// transfers. `owner` is the wallet's Solana identity: the user record is
+/// keyed under its address and it signs (and pays for) the registration — a
+/// third party cannot register on someone's behalf. Idempotent: re-running
+/// refreshes the registration. The returned wallet starts empty; sync it
+/// (e.g. [`crate::sync_wallet`]) to load existing balances.
+///
+/// Built for embedded wallets: derive `keypair` from the user's BIP-39 seed
+/// via [`ShieldedKeypair::from_seed`], so the mnemonic reproduces the shielded
+/// keys. The Solana identity is a separate secret. Self-custody flows
+/// construct the [`ShieldedKeypair`] from their own key management; the SDK
+/// never reads raw Solana secrets.
+pub fn create_private_wallet<R: Rpc>(
+    rpc: &R,
+    owner: &Keypair,
+    keypair: ShieldedKeypair,
+    registry: AssetRegistry,
+) -> Result<Wallet, ClientError> {
+    ensure_registered(rpc, owner, &keypair)?;
+    Ok(Wallet::new(keypair, registry)?)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(

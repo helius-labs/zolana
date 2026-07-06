@@ -14,6 +14,9 @@ pub enum KeypairError {
     #[error("invalid signature-type prefix: {0}")]
     InvalidSignatureType(u8),
 
+    #[error("derivation account index must be below 2^31")]
+    DerivationIndexTooLarge,
+
     #[error("HKDF expansion failed")]
     Hkdf,
 
