@@ -1126,6 +1126,15 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.MergeCircuitType, common.MergeZoneCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
+	case common.SquadsKeyEncryptionCircuitType:
+		// Recovery/auditor viewing-key encryption: the largest proving keys
+		// (up to ~191MB) plus cold lazy-load push the first proof well past
+		// the 10s sync floor on CI.
+		return 120
+	case common.SquadsZoneCircuitType:
+		// Squads zone transfer: P256 + AES-CTR policy constraints on top of a
+		// cold key load can exceed the vanilla sync budget on CI.
+		return 90
 	default:
 		return 1
 	}
