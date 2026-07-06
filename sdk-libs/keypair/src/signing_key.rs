@@ -52,6 +52,14 @@ impl SigningKey {
         })
     }
 
+    /// Spec signing key: SLIP-0010-P256 at `m/44'/TSPP_COIN_TYPE'/account'/0'/0'`
+    /// on a BIP-39 `wallet_seed` (typically 64 bytes) — the mnemonic reproduces it.
+    pub fn from_seed(wallet_seed: &[u8], account: u32) -> Result<Self, KeypairError> {
+        let secret =
+            crate::slip10::derive_wallet_key(wallet_seed, account, crate::slip10::CHANGE_SIGNING)?;
+        Self::from_bytes(&secret)
+    }
+
     pub fn from_ed25519(bytes: &[u8; 32]) -> Self {
         Self {
             inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(bytes)),

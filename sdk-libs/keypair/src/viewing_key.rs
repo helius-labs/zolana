@@ -99,6 +99,15 @@ impl ViewingKey {
         Ok(Self::from_secret_key(secret))
     }
 
+    /// Spec viewing key: SLIP-0010-P256 at `m/44'/TSPP_COIN_TYPE'/account'/1'/0'`,
+    /// a sibling of the signing path on the same BIP-39 `wallet_seed` — the
+    /// mnemonic reproduces it.
+    pub fn from_seed(wallet_seed: &[u8], account: u32) -> Result<Self, KeypairError> {
+        let secret =
+            crate::slip10::derive_wallet_key(wallet_seed, account, crate::slip10::CHANGE_VIEWING)?;
+        Self::from_bytes(&secret)
+    }
+
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
         let mut out = [0u8; 32];
         out.copy_from_slice(self.secret.to_bytes().as_slice());

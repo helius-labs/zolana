@@ -47,6 +47,7 @@ pub mod nullifier_key;
 pub mod pubkey;
 pub mod shielded;
 pub mod signing_key;
+pub(crate) mod slip10;
 pub mod traits;
 pub mod viewing_key;
 
