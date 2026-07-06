@@ -17,6 +17,19 @@ use crate::{
     },
 };
 
+pub const LOCAL_INDEXER_URL: &str = "http://127.0.0.1:8784";
+/// Shared devnet indexer. Not overridable via env: the `ZOLANA_INDEXER_URL`
+/// override exists for local port contention only; pass a custom remote to
+/// [`ZolanaIndexer::new`] instead.
+pub const DEVNET_INDEXER_URL: &str = "http://202.8.10.77:8784";
+
+/// Indexer the local preset connects to. Defaults to [`LOCAL_INDEXER_URL`];
+/// set `ZOLANA_INDEXER_URL` per local clone to avoid port contention between
+/// concurrent checkouts.
+pub fn indexer_url() -> String {
+    crate::env::env_url("ZOLANA_INDEXER_URL", LOCAL_INDEXER_URL)
+}
+
 #[derive(Clone, Debug)]
 pub struct ZolanaIndexer {
     api: BlockingZolanaApi,
@@ -27,6 +40,14 @@ impl ZolanaIndexer {
         Self {
             api: BlockingZolanaApi::new(url),
         }
+    }
+
+    pub fn local() -> Self {
+        Self::new(indexer_url())
+    }
+
+    pub fn devnet() -> Self {
+        Self::new(DEVNET_INDEXER_URL)
     }
 
     pub fn with_api(api: BlockingZolanaApi) -> Self {
@@ -408,6 +429,14 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+
+    #[test]
+    fn devnet_preset_uses_devnet_url() {
+        assert_eq!(
+            ZolanaIndexer::devnet().api().base_path(),
+            DEVNET_INDEXER_URL
+        );
+    }
 
     #[test]
     fn round_trips_hashes_and_cursors() {
