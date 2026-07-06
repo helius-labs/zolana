@@ -137,6 +137,43 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --test bench_cu -- --ignored --nocapture
 
+# Profile the confidential swap create/fill/cancel instructions and record proving
+# times. The bench builds the shielded-pool tree account directly and replays one
+# swap instruction under mollusk. Only the swap program is built with profiling; the
+# shielded-pool program is built plain so its `transact` CPI runs as an
+# uninstrumented black box and its functions do not pollute the swap CU table.
+# SOL-only, so no SPL Token clone is needed. Regenerates
+# sdk-tests/zk-program-swap/CU_BENCHMARK.md.
+# Regenerate any swap circuit whose proving keys are missing, writing both the
+# proving key (build/, gitignored) and the committed verifying key. groth16.Setup
+# is non-deterministic, so the keys and the verifying key must be generated
+# together; this keeps a fresh checkout (or CI) self-healing.
+ensure-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for c in create fill cancel fill_verifiable_encryption; do
+        if [ ! -f "sdk-tests/zk-program-swap/build/gnark/$c/pk.bin" ]; then
+            cargo run --release -p swap-prover --bin swap-prover-setup -- \
+                "$c" "sdk-tests/zk-program-swap/build/gnark/$c" \
+                --rust-vk "sdk-tests/zk-program-swap/program/src/verifying_keys/$c.rs"
+        fi
+    done
+
+# The profiling swap build calls a profiler syscall that solana-test-validator
+# does not register, so it must never land in target/deploy (validator/CI load
+# the plain program from there). Build the bench programs into a dedicated dir,
+# matching PROFILING_SBF_DIR in bench_cu.rs.
+bench-swap: ensure-swap-keys
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/swap-bench \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --features bpf-entrypoint
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/swap-bench \
+        --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml \
+        -- --features bpf-entrypoint,profile-program
+    cargo test -p swap-test-validator --test bench_cu -- --ignored --nocapture
+
 # === Local validator helpers ===
 
 # Local-validator end-to-end SOL cycle.
@@ -352,6 +389,29 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
+
+# BDD lifecycle scenarios for the swap SDK example over a fresh validator
+# (sdk-tests/zk-program-swap/test). The harness boots solana-test-validator
+# via the `zolana` CLI with the swap program, the shielded pool, the user registry,
+# and the Squads smart account loaded together, plus Photon and the persistent SPP
+# prover -- mirroring test-spp-validator -- so the issuer can shield and create.
+test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SWAP_PROGRAM_ID
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test -p swap-test-validator --test lifecycle
 
 install-surfpool:
     #!/usr/bin/env bash

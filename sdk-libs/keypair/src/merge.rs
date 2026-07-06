@@ -152,6 +152,21 @@ pub fn decrypt_verifiable(
     Ok(buf)
 }
 
+/// Symmetric verifiable encryption: derive the AES-256-CTR key/nonce from a
+/// pre-shared `shared_secret` via the same Poseidon key schedule as the merge
+/// scheme (no ECDH), then apply the keystream. Encryption and decryption are the
+/// same operation. Mirrors feeding a Poseidon-derived seed to the circuit's
+/// `KeySchedule` + `CTREncrypt`.
+pub fn symmetric_apply(
+    shared_secret: &[u8; 32],
+    info: &[u8],
+    buf: &mut [u8],
+) -> Result<(), KeypairError> {
+    let (key, nonce) = key_schedule(shared_secret, info)?;
+    ctr_apply(&key, &nonce, buf);
+    Ok(())
+}
+
 /// The merge ciphertext's contribution to the public input hash: the two field
 /// limbs of the compressed `tx_viewing_pk` and the Poseidon ciphertext hash, in
 /// the order the circuit folds them into the public input.

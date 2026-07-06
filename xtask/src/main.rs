@@ -89,6 +89,10 @@ fn print_program_ids() {
         "ZONE_TEST_PROGRAM_ID={}",
         bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
     );
+    println!(
+        "SWAP_PROGRAM_ID={}",
+        bs58::encode(swap_program::SWAP_PROGRAM_ID).into_string()
+    );
 }
 
 #[derive(Debug)]

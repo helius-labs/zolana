@@ -1,0 +1,18 @@
+[package]
+name = "swap-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+borsh = { workspace = true }
+swap-program = { path = "../program" }
+swap-prover = { path = "../prover" }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+zolana-client = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }

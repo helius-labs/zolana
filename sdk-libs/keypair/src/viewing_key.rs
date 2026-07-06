@@ -99,6 +99,15 @@ impl ViewingKey {
         Ok(Self::from_secret_key(secret))
     }
 
+    pub fn from_seed(seed: &[u8; 32], info: &[u8]) -> Result<Self, KeypairError> {
+        let mut okm = [0u8; 48];
+        hkdf_expand(None, seed, &[info], &mut okm)?;
+        let scalar = Scalar::from_okm(GenericArray::from_slice(&okm));
+        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
+            .ok_or(KeypairError::ZeroScalar)?;
+        Ok(Self::from_secret_key(SecretKey::from(nonzero)))
+    }
+
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
         let mut out = [0u8; 32];
         out.copy_from_slice(self.secret.to_bytes().as_slice());

@@ -1,0 +1,38 @@
+[package]
+name = "swap-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "swap_program"
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+profile-program = ["light-program-profiler/profile-program"]
+
+[dependencies]
+borsh = { workspace = true }
+groth16-solana = { workspace = true, features = ["bsb22"] }
+light-program-profiler = { workspace = true }
+pinocchio = { workspace = true, features = ["cpi"] }
+solana-program-error = { workspace = true }
+thiserror = { workspace = true }
+zolana-account-checks = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+swap-prover = { path = "../prover" }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

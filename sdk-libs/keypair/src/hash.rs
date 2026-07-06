@@ -1,7 +1,16 @@
+use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{error::KeypairError, pubkey::PublicKey};
+
+pub fn derive_seed_secret(seed: &[u8; 32], info: &[u8]) -> Result<[u8; 32], KeypairError> {
+    let mut out = [0u8; 32];
+    Hkdf::<Sha256>::new(None, seed)
+        .expand(info, &mut out)
+        .map_err(|_| KeypairError::Hkdf)?;
+    Ok(out)
+}
 
 pub fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], KeypairError> {
     Poseidon::hashv(inputs).map_err(|e| KeypairError::Poseidon(e.into()))

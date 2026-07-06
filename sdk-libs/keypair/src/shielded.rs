@@ -87,6 +87,12 @@ impl ShieldedKeypair {
         })
     }
 
+    pub fn from_seed_ed25519(seed: &[u8; 32]) -> Result<Self, KeypairError> {
+        let signing_secret = crate::hash::derive_seed_secret(seed, b"TSPP/seed/ed25519_signing")?;
+        let viewing_key = ViewingKey::from_seed(seed, b"TSPP/seed/p256_viewing")?;
+        Self::from_ed25519(&signing_secret, viewing_key)
+    }
+
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
     }

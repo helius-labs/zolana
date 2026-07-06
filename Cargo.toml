@@ -28,6 +28,10 @@ members = [
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
+    "sdk-tests/zk-program-swap/program",
+    "sdk-tests/zk-program-swap/prover",
+    "sdk-tests/zk-program-swap/sdk",
+    "sdk-tests/zk-program-swap/test",
     "xtask",
 ]
 default-members = [

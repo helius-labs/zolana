@@ -19,3 +19,7 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
     --manifest-path program-tests/zone-test-program/Cargo.toml
+cargo build-sbf --tools-version "$sbf_tools_version" \
+    --sbf-out-dir target/deploy \
+    --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml \
+    -- --features bpf-entrypoint
