@@ -1,4 +1,5 @@
 /target/
+/node_modules/
 /.tools/
 # Per-clone local env (port offsets etc.); keep .env.example checked in.
 /.env

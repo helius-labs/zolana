@@ -73,6 +73,33 @@ test-sdk-libs:
     cargo test -p zolana-client --lib actions::transaction
     cargo test -p zolana-client --test transaction
 
+# Type-check and test the TypeScript client SDK.
+test-ts-client:
+    npm run ts-client:check
+    npm run ts-client:test
+
+# TypeScript client prover-backed integration test.
+test-ts-client-integration: build-prover-server build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+      if [[ -n "${prover_pid:-}" ]]; then
+        kill "$prover_pid" 2>/dev/null || true
+        wait "$prover_pid" 2>/dev/null || true
+      fi
+    }
+    trap cleanup EXIT
+    if ! curl -fsS "{{localnet-prover-url}}/health" >/dev/null 2>&1; then
+      target/debug/zolana start-prover --prover-port {{localnet-prover-port}} &
+      prover_pid=$!
+      for _ in $(seq 1 120); do
+        curl -fsS "{{localnet-prover-url}}/health" >/dev/null 2>&1 && break
+        sleep 1
+      done
+      curl -fsS "{{localnet-prover-url}}/health" >/dev/null
+    fi
+    env ZOLANA_PROVER_URL="{{localnet-prover-url}}" ZOLANA_TS_E2E=1 npm run ts-client:test:e2e
+
 # All zolana-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
 # (via the zolana CLI), which lazily downloads transfer proving keys from the
