@@ -351,12 +351,23 @@ cd prover/server && go build -o light-prover .
 ### Distribute proving keys via GitHub release
 
 Gitignored keys are published as assets on a private-repo GitHub release
-(`transfer-keys-v7` on `helius-labs/zolana`). The unauthenticated asset URL
-404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
-`GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
-`TransferKeysReleaseTag` in `key_downloader.go` and must match
-`publish_keys_release.sh`; bump both (and the `proving-keys-transfer-keys-<tag>`
-cache key in `.github/workflows/rust.yml`) when rotating.
+(`transfer-keys-v10` on `helius-labs/zolana` as of this writing). The
+unauthenticated asset URL 404s, so keys are fetched with `gh` (local `gh auth
+login`, or CI's same-repo `GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as
+`ProvingKeysRepo` / `ProvingKeysReleaseTag` in `key_downloader.go` and must
+match `publish_keys_release.sh`; bump both (and the
+`proving-keys-transfer-keys-<tag>` cache key in `.github/workflows/rust.yml`)
+when rotating.
+
+NEVER re-upload regenerated keys over an existing tag's assets. Groth16 setup
+is randomized, so replaced keys no longer match the verifying keys committed on
+every branch pinned to that tag: all proofs fail verification (local
+`ProofVerificationFailed`, on-chain error 7008) with no code change anywhere.
+Publish a new tag and bump `ProvingKeysReleaseTag` + the CI cache key in the
+same PR as the regenerated `verifying_keys/*.rs`. (This happened on
+2026-07-05: v10 assets were clobbered in place by a branch that had moved to
+v11, breaking merge/zone proofs on main and all open PRs until the v10 assets
+were restored from the byte-identical v9 release.)
 
 ```bash
 prover/server/scripts/publish_keys_release.sh        # publish/refresh the release
