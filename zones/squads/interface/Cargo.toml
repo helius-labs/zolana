@@ -9,14 +9,11 @@ solana = ["dep:solana-instruction"]
 verifying-keys = ["dep:groth16-solana"]
 
 [dependencies]
-borsh = { workspace = true }
-bytemuck = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-program-error = { workspace = true }
 wincode = { workspace = true }
-zolana-hasher = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 thiserror = { workspace = true }
 

@@ -1769,12 +1769,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6923,7 +6917,6 @@ dependencies = [
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "p256",
  "solana-account",
- "solana-address 2.6.1",
  "solana-address-lookup-table-interface",
  "solana-compute-budget-interface",
  "solana-instruction",
@@ -6946,8 +6939,6 @@ dependencies = [
 name = "zolana-squads-interface"
 version = "0.1.0"
 dependencies = [
- "borsh",
- "bytemuck",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "solana-address 2.6.1",
  "solana-instruction",
@@ -6955,15 +6946,12 @@ dependencies = [
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "wincode",
- "zolana-hasher",
 ]
 
 [[package]]
 name = "zolana-squads-program"
 version = "0.1.0"
 dependencies = [
- "borsh",
- "bytemuck",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -6979,11 +6967,9 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "aes-gcm",
- "borsh",
  "ctr",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=6f44fe18ece7e9f2d09141707f7822e9321c7b66)",
- "hex",
  "num-bigint 0.4.6",
  "num-traits",
  "p256",
@@ -6991,7 +6977,6 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-bn254",
- "wincode",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",

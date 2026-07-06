@@ -24,8 +24,6 @@ test-sbf = []
 pinocchio = { workspace = true, features = ["account-resize", "cpi"] }
 pinocchio-system = { workspace = true }
 groth16-solana = { workspace = true }
-borsh = { workspace = true }
-bytemuck = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-squads-interface = { workspace = true }

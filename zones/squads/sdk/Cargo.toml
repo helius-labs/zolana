@@ -15,13 +15,10 @@ prover = [
     "dep:num-traits",
     "dep:solana-bn254",
     "dep:groth16-solana",
-    "dep:hex",
     "dep:zolana-interface",
 ]
 
 [dependencies]
-borsh = { workspace = true }
-wincode = { workspace = true }
 zolana-squads-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
@@ -46,7 +43,6 @@ num-bigint = { version = "0.4.6", optional = true }
 num-traits = { version = "0.2.19", optional = true }
 solana-bn254 = { version = "3.2.1", optional = true }
 groth16-solana = { workspace = true, optional = true }
-hex = { version = "0.4", optional = true }
 zolana-interface = { workspace = true, optional = true }
 
 [dev-dependencies]

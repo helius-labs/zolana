@@ -16,7 +16,6 @@ p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithm
 
 thiserror = { workspace = true }
 solana-account = { workspace = true }
-solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
