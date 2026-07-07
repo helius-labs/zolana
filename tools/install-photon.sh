@@ -13,11 +13,11 @@ out_bin="${PHOTON_BIN_PATH:-${out_dir}/photon}"
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64|Linux-amd64)
     default_asset="photon-zolana-linux-x86_64.tar.gz"
-    default_sha256="2d749df080d9cee1c5c18d9483c9e2d0afc40a431ee6d81760348f80647d5cdd"
+    default_sha256="c43fa71f5941da7bb0ce72eccb5179c3d6ecf9191f094c5113272a7d5bab7eaa"
     ;;
   Darwin-arm64)
     default_asset="photon-zolana-macos-aarch64.tar.gz"
-    default_sha256="c318667633e1b3f3455d798b774aa5f35426216c48a806a9478f2e05bfafb368"
+    default_sha256="44fae82a4a9e00b2e56f3d74350e6d584d2f2fba3b986afe93566b61897c1ebd"
     ;;
   *)
     echo "unsupported Photon release platform: $(uname -s)-$(uname -m)" >&2
