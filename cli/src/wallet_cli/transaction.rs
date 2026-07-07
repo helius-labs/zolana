@@ -26,7 +26,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
-    let recipient_owner = parse_pubkey(&opts.to)?;
+    let recipient = parse_pubkey(&opts.to)?;
     let tree = network.tree;
 
     let transfer = create_transfer_sync(CreateTransfer {
@@ -35,7 +35,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         authority: &ctx.material,
         owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient_owner,
+        recipient,
         asset,
         amount: opts.amount,
     })?;
