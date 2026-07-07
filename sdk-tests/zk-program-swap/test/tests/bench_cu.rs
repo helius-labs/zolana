@@ -366,16 +366,16 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     SectionTable {
         title: "Transaction Size".into(),
         headers: vec![
-            "ix data (B)".into(),
-            "accounts".into(),
-            "legacy tx (B)".into(),
-            "v0 + ALT tx (B)".into(),
+            "Instruction Data".into(),
+            "Accounts".into(),
+            "Legacy Tx".into(),
+            "v0 + ALT Tx".into(),
         ],
         rows: vec![vec![
-            ix.data.len().to_string(),
+            format!("{} bytes", ix.data.len()),
             ix.accounts.len().to_string(),
-            legacy.to_string(),
-            v0_alt.to_string(),
+            format!("{} bytes", legacy),
+            format!("{} bytes", v0_alt),
         ]],
     }
 }

@@ -28,12 +28,12 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              50 ms |              18 ms | 68 ms |
+|              45 ms |              18 ms | 63 ms |
 
 **Transaction Size**
-| ix data (B) | accounts | legacy tx (B) | v0 + ALT tx (B) |
-| ----------- | -------- | ------------- | --------------- |
-|         524 |        6 |           836 |             779 |
+| Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
+| ---------------- | -------- | --------- | ----------- |
+|        524 bytes |        6 | 836 bytes |   779 bytes |
 
 ## 2. Create swap
 
@@ -47,12 +47,12 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|              93 ms |              22 ms | 115 ms |
+|              86 ms |              20 ms | 107 ms |
 
 **Transaction Size**
-| ix data (B) | accounts | legacy tx (B) | v0 + ALT tx (B) |
-| ----------- | -------- | ------------- | --------------- |
-|         949 |        4 |          1227 |            1201 |
+| Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
+| ---------------- | -------- | ---------- | ----------- |
+|        949 bytes |        4 | 1227 bytes |  1201 bytes |
 
 ## 3. Fill
 
@@ -66,29 +66,29 @@ Regenerate with `just bench-swap`.
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|              90 ms |              22 ms | 112 ms |
+|              84 ms |              21 ms | 106 ms |
 
 **Transaction Size**
-| ix data (B) | accounts | legacy tx (B) | v0 + ALT tx (B) |
-| ----------- | -------- | ------------- | --------------- |
-|         751 |        5 |          1062 |            1005 |
+| Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
+| ---------------- | -------- | ---------- | ----------- |
+|        751 bytes |        5 | 1062 bytes |  1005 bytes |
 
 ## 4. Fill Verifiable Encryption
 
 | Function                                       |   Total CU |     Net CU |
 | ---------------------------------------------- | ---------- | ---------- |
 | `fill_verifiable_encryption_public_input_hash` |      3,721 |      3,721 |
-| `verify_fill_verifiable_encryption_zk_proof`   |    222,903 |    222,903 |
+| `verify_fill_verifiable_encryption_zk_proof`   |    224,929 |    224,929 |
 | `cpi_spp_transact_signed`                      |    164,059 |    164,059 |
-| `process_fill_verifiable_encryption`           |    391,779 |      1,096 |
+| `process_fill_verifiable_encryption`           |    393,805 |      1,096 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|              94 ms |             116 ms | 211 ms |
+|              92 ms |             112 ms | 205 ms |
 
 **Transaction Size**
-| ix data (B) | accounts | legacy tx (B) | v0 + ALT tx (B) |
-| ----------- | -------- | ------------- | --------------- |
-|         831 |        5 |          1142 |            1085 |
+| Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
+| ---------------- | -------- | ---------- | ----------- |
+|        831 bytes |        5 | 1142 bytes |  1085 bytes |
 
