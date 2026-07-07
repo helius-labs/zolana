@@ -189,6 +189,16 @@ pub(crate) struct TestValidatorOptions {
     pub(crate) prover_port: u16,
 
     #[arg(
+        long = "prover-auto-download",
+        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        default_value_t = true,
+        action = ArgAction::Set,
+        value_parser = clap::builder::FalseyValueParser::new(),
+        help = "Allow the prover to download missing proving keys"
+    )]
+    pub(crate) prover_auto_download: bool,
+
+    #[arg(
         long,
         default_value_t = DEFAULT_PHOTON_PORT,
         help = "Photon indexer API port"
@@ -291,6 +301,16 @@ pub(crate) struct StartProverOptions {
         help = "Redis URL for prover state"
     )]
     pub(crate) redis_url: Option<String>,
+
+    #[arg(
+        long = "auto-download",
+        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        default_value_t = true,
+        action = ArgAction::Set,
+        value_parser = clap::builder::FalseyValueParser::new(),
+        help = "Allow the prover to download missing proving keys"
+    )]
+    pub(crate) auto_download: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -684,6 +704,25 @@ mod tests {
 
         assert_eq!(opts.prover_port, 3002);
         assert_eq!(opts.redis_url.as_deref(), Some("redis://localhost:6379/15"));
+    }
+
+    #[test]
+    fn parses_start_prover_auto_download_option() {
+        let command = parse_cli(&["start-prover", "--auto-download", "off"])
+            .command
+            .expect("command");
+        let CliCommand::StartProver(opts) = command else {
+            panic!("expected start-prover command");
+        };
+
+        assert!(!opts.auto_download);
+    }
+
+    #[test]
+    fn parses_test_validator_prover_auto_download_option() {
+        let opts = parse_validator(&["--prover-auto-download", "off"]);
+
+        assert!(!opts.prover_auto_download);
     }
 
     #[test]
