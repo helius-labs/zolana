@@ -4,12 +4,14 @@
 
 pub mod create_associated_token_account;
 pub mod deposit;
+pub mod spl_interface;
 #[cfg(feature = "indexer-api")]
 pub mod submit;
 pub mod transaction;
 
 pub use create_associated_token_account::create_associated_token_account;
 pub use deposit::{create_deposit, deposit, CreateDeposit, Deposit};
+pub use spl_interface::{fetch_asset_id, register_spl_interface};
 #[cfg(feature = "indexer-api")]
 pub use submit::{Submit, DEFAULT_TRANSACT_CU_LIMIT};
 pub use transaction::{
