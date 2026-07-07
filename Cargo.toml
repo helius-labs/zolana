@@ -75,7 +75,7 @@ zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-featu
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 zolana-merkle-tree-metadata = { path = "program-libs/merkle-tree-metadata", version = "0.11.0" }
 light-poseidon = "0.4.0"
-light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "b3155b505ce7c8a5718cb155326baef27d311d8f" }
+light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "862df52dd8c6099c11f795553514c654f3c2c459" }
 light-sparse-merkle-tree = "0.3.0"
 
 # Solana and SPL.

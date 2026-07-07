@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
-    report::{CuBenchmark, ReadmeConfig},
+    report::{CuBenchmark, ReadmeConfig, SectionTable},
 };
 use mollusk_solana_account::Account as MolluskAccount;
 use mollusk_solana_instruction::{
@@ -306,27 +306,29 @@ fn start_prover() {
     zolana_client::spawn_prover().expect("spawn prover");
 }
 
-struct ProvingTime {
-    label: &'static str,
-    spp: Duration,
-    swap: Duration,
-}
-
-struct TxSize {
-    label: &'static str,
-    ix_data: usize,
-    accounts: usize,
-    legacy: usize,
-    v0_alt: usize,
+fn proving_time_table(spp: Duration, swap: Duration) -> SectionTable {
+    SectionTable {
+        title: "Proving Time".into(),
+        headers: vec![
+            "SPP transfer proof".into(),
+            "Swap circuit proof".into(),
+            "Total".into(),
+        ],
+        rows: vec![vec![
+            format!("{} ms", spp.as_millis()),
+            format!("{} ms", swap.as_millis()),
+            format!("{} ms", (spp + swap).as_millis()),
+        ]],
+    }
 }
 
 // Serialized on-chain transaction size for a single swap instruction, prefixed
 // with a compute-budget limit ix (as the real client sends it). `legacy` is the
-// plain v0-less transaction; `v0_alt` compiles a v0 message that sinks every
+// plain v0-less transaction; `v0 + ALT` compiles a v0 message that sinks every
 // non-signer account plus the program id into one address lookup table, the
 // layout that lets these proof-carrying instructions fit under the 1232-byte
 // packet limit.
-fn measure_tx_size(label: &'static str, ix: &Instruction, payer: &Pubkey) -> TxSize {
+fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
 
     let message = Message::new(&[compute.clone(), ix.clone()], Some(payer));
@@ -361,12 +363,20 @@ fn measure_tx_size(label: &'static str, ix: &Instruction, payer: &Pubkey) -> TxS
     };
     let v0_alt = bincode::serialize(&tx).expect("serialize v0").len();
 
-    TxSize {
-        label,
-        ix_data: ix.data.len(),
-        accounts: ix.accounts.len(),
-        legacy,
-        v0_alt,
+    SectionTable {
+        title: "Transaction Size".into(),
+        headers: vec![
+            "ix data (B)".into(),
+            "accounts".into(),
+            "legacy tx (B)".into(),
+            "v0 + ALT tx (B)".into(),
+        ],
+        rows: vec![vec![
+            ix.data.len().to_string(),
+            ix.accounts.len().to_string(),
+            legacy.to_string(),
+            v0_alt.to_string(),
+        ]],
     }
 }
 
@@ -393,8 +403,11 @@ fn bench_cu_swap() {
              `transact` (the `cpi_spp_transact*` row). Only the swap program is profiled; the \
              shielded-pool program is built plain, so the CU its CPI consumes is charged to the \
              `cpi_spp_transact*` row as a black box and its internal functions do not appear \
-             here. Serialized transaction sizes and proving times for both rails are appended \
-             below."
+             here. Each instruction section also records its proving times (SPP transfer proof \
+             plus swap circuit proof) and its serialized transaction size: the instruction \
+             prefixed with a compute-budget limit ix, as a legacy transaction and as a v0 \
+             transaction with every non-signer account and the program id in one address lookup \
+             table (Solana's packet limit is 1232 bytes)."
                 .into(),
         output_path: OUTPUT_PATH.into(),
         regenerate_command: Some("just bench-swap".into()),
@@ -409,26 +422,16 @@ fn bench_cu_swap() {
     preload(CircuitId::FillVerifiableEncryption).expect("preload fill_verifiable_encryption keys");
     preload(CircuitId::Cancel).expect("preload cancel keys");
 
-    let mut timings: Vec<ProvingTime> = Vec::new();
-    let mut sizes: Vec<TxSize> = Vec::new();
-    bench_create(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
-    bench_fill_derived(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
-    bench_fill(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
-    bench_cancel(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
+    bench_create(&mut mollusk, &spp_id, &mut bench);
+    bench_fill_derived(&mut mollusk, &spp_id, &mut bench);
+    bench_fill(&mut mollusk, &spp_id, &mut bench);
+    bench_cancel(&mut mollusk, &spp_id, &mut bench);
 
     bench.generate().expect("write BENCHMARK.md");
-    append_tx_sizes(OUTPUT_PATH, &sizes).expect("append tx sizes");
-    append_proving_times(OUTPUT_PATH, &timings).expect("append proving times");
 }
 
 // create_swap: 1 real input (maker source SOL) -> change + escrow + marker (2x3).
-fn bench_create(
-    mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    bench: &mut CuBenchmark,
-    timings: &mut Vec<ProvingTime>,
-    sizes: &mut Vec<TxSize>,
-) {
+fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const INPUT_AMOUNT: u64 = 1_000_000;
     const SOURCE_AMOUNT: u64 = 400_000;
     const EXPIRY: u64 = 1_900_000_000;
@@ -555,7 +558,6 @@ fn bench_create(
         maker_address,
         transact,
     );
-    sizes.push(measure_tx_size("create swap", &ix, &payer.pubkey()));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -571,24 +573,15 @@ fn bench_create(
         "no profiling entries for 'create swap'"
     );
     bench.add_from_entries("create swap", entries);
-    timings.push(ProvingTime {
-        label: "create swap",
-        spp: spp_dur,
-        swap: swap_dur,
-    });
+    bench.add_table("create swap", proving_time_table(spp_dur, swap_dur));
+    bench.add_table("create swap", tx_size_table(&ix, &payer.pubkey()));
 }
 
 // fill (derived blinding): escrow + taker destination inputs -> source (to taker)
 // + destination (to maker, blinding derived from the escrow blinding) (2x2).
 // Permissionless: any opening holder fills; the maker recomputes the derived
 // blinding without a ciphertext.
-fn bench_fill_derived(
-    mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    bench: &mut CuBenchmark,
-    timings: &mut Vec<ProvingTime>,
-    sizes: &mut Vec<TxSize>,
-) {
+fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
     const EXPIRY: u64 = 1_900_000_000;
@@ -716,7 +709,6 @@ fn bench_fill_derived(
         fill_proof_ix(&fill_result.proof),
         transact,
     );
-    sizes.push(measure_tx_size("fill", &ix, &taker_payer.pubkey()));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -729,23 +721,14 @@ fn bench_fill_derived(
     let entries = take_profiling_entries();
     assert!(!entries.is_empty(), "no profiling entries for 'fill'");
     bench.add_from_entries("fill", entries);
-    timings.push(ProvingTime {
-        label: "fill",
-        spp: spp_dur,
-        swap: swap_dur,
-    });
+    bench.add_table("fill", proving_time_table(spp_dur, swap_dur));
+    bench.add_table("fill", tx_size_table(&ix, &taker_payer.pubkey()));
 }
 
 // fill: escrow + taker destination inputs -> source (to taker) + destination (to
 // maker, verifiably encrypted) (2x2). The escrow is spent via the opening; the
 // swap program signs for the escrow-authority PDA via invoke_signed.
-fn bench_fill(
-    mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    bench: &mut CuBenchmark,
-    timings: &mut Vec<ProvingTime>,
-    sizes: &mut Vec<TxSize>,
-) {
+fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
     const EXPIRY: u64 = 1_900_000_000;
@@ -883,11 +866,6 @@ fn bench_fill(
         fill_verifiable_encryption_proof_ix(&fill_result.proof),
         transact,
     );
-    sizes.push(measure_tx_size(
-        "fill_verifiable_encryption",
-        &ix,
-        &taker_payer.pubkey(),
-    ));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -903,23 +881,20 @@ fn bench_fill(
         "no profiling entries for 'fill_verifiable_encryption'"
     );
     bench.add_from_entries("fill_verifiable_encryption", entries);
-    timings.push(ProvingTime {
-        label: "fill_verifiable_encryption",
-        spp: spp_dur,
-        swap: swap_dur,
-    });
+    bench.add_table(
+        "fill_verifiable_encryption",
+        proving_time_table(spp_dur, swap_dur),
+    );
+    bench.add_table(
+        "fill_verifiable_encryption",
+        tx_size_table(&ix, &taker_payer.pubkey()),
+    );
 }
 
 // cancel: escrow input -> source output back to the maker (1x1), after the order
 // expiry. The SPP transact carries a future relayer deadline; the committed order
 // expiry rides the cancel ix and proof, checked on-chain as `now > order_expiry`.
-fn bench_cancel(
-    mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    bench: &mut CuBenchmark,
-    timings: &mut Vec<ProvingTime>,
-    sizes: &mut Vec<TxSize>,
-) {
+fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const ORDER_EXPIRY: u64 = 1_000_000;
     const SPP_RELAYER_DEADLINE: u64 = u64::MAX;
@@ -1034,7 +1009,6 @@ fn bench_cancel(
         terms.expiry,
         transact,
     );
-    sizes.push(measure_tx_size("cancel", &ix, &maker_payer.pubkey()));
 
     // The swap program requires `now > order_expiry`; SPP requires its own
     // relayer deadline (u64::MAX) to be in the future. Sit the clock between them.
@@ -1051,77 +1025,7 @@ fn bench_cancel(
     let entries = take_profiling_entries();
     assert!(!entries.is_empty(), "no profiling entries for 'cancel'");
     bench.add_from_entries("cancel", entries);
-    timings.push(ProvingTime {
-        label: "cancel",
-        spp: spp_dur,
-        swap: swap_dur,
-    });
+    bench.add_table("cancel", proving_time_table(spp_dur, swap_dur));
+    bench.add_table("cancel", tx_size_table(&ix, &maker_payer.pubkey()));
 }
 
-fn append_tx_sizes(path: &str, sizes: &[TxSize]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    if sizes.is_empty() {
-        return Ok(());
-    }
-    let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
-    writeln!(f, "## Transaction Sizes\n")?;
-    writeln!(
-        f,
-        "Serialized transaction size per instruction, prefixed with a \
-         compute-budget limit ix. `legacy` is the v0-less transaction; \
-         `v0 + ALT` sinks every non-signer account and the program id into one \
-         address lookup table. Solana's packet limit is 1232 bytes.\n"
-    )?;
-    writeln!(
-        f,
-        "| {:<26} | {:>11} | {:>8} | {:>13} | {:>15} |",
-        "Instruction", "ix data (B)", "accounts", "legacy tx (B)", "v0 + ALT tx (B)"
-    )?;
-    writeln!(
-        f,
-        "| {:-<26} | {:-<11} | {:-<8} | {:-<13} | {:-<15} |",
-        "", "", "", "", ""
-    )?;
-    for s in sizes {
-        writeln!(
-            f,
-            "| {:<26} | {:>11} | {:>8} | {:>13} | {:>15} |",
-            s.label, s.ix_data, s.accounts, s.legacy, s.v0_alt
-        )?;
-    }
-    writeln!(f)?;
-    Ok(())
-}
-
-fn append_proving_times(path: &str, timings: &[ProvingTime]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    if timings.is_empty() {
-        return Ok(());
-    }
-    let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
-    writeln!(f, "## Proving Times\n")?;
-    writeln!(
-        f,
-        "| {:<12} | {:>18} | {:>18} | {:>8} |",
-        "Instruction", "SPP transfer proof", "Swap circuit proof", "Total"
-    )?;
-    writeln!(
-        f,
-        "| {:-<12} | {:-<18} | {:-<18} | {:-<8} |",
-        "", "", "", ""
-    )?;
-    for t in timings {
-        let total = t.spp + t.swap;
-        writeln!(
-            f,
-            "| {:<12} | {:>18} | {:>18} | {:>8} |",
-            t.label,
-            format!("{} ms", t.spp.as_millis()),
-            format!("{} ms", t.swap.as_millis()),
-            format!("{} ms", total.as_millis()),
-        )?;
-    }
-    Ok(())
-}
