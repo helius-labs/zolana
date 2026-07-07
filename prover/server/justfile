@@ -64,9 +64,12 @@ bench-spp benchtime="5x":
 
 # === Formal Verification ===
 extract-circuit: build-binary
-    ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --address-tree-height 40 --compressed-accounts 8 --state-tree-height 32
+    ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --state-tree-height 32 --nullifier-tree-height 40 --batch-size 8
 
+# `cache get` is best-effort: it downloads prebuilt mathlib oleans (hard
+# requirement for CI speed) but its binary can crash on some macOS versions;
+# lake build falls back to compiling mathlib from source.
 lean-build:
-    cd formal-verification && lake exe cache get && lake build
+    cd formal-verification && (lake exe cache get || true) && lake build
 
 verify: extract-circuit lean-build

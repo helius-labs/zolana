@@ -1,0 +1,60 @@
+name: formal-verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "prover/server/**"
+      - ".github/workflows/formal-verification.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "prover/server/**"
+      - ".github/workflows/formal-verification.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lean-verification:
+    name: formal-verification / lean
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+
+      - name: Build light-prover
+        run: cd prover/server && go build -o light-prover .
+
+      # The committed Circuit.lean must match the extraction of the current
+      # circuits; the Lean proofs are stated against these definitions, so
+      # silent drift would verify stale circuits.
+      - name: Extract circuits and check for drift
+        run: |
+          cd prover/server
+          ./light-prover extract-circuit --output formal-verification/FormalVerification/Circuit.lean --state-tree-height 32 --nullifier-tree-height 40 --batch-size 8
+          git diff --exit-code formal-verification/FormalVerification/Circuit.lean
+
+      - name: Install Elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Lean dependencies
+        uses: actions/cache@v4
+        with:
+          path: prover/server/formal-verification/.lake
+          key: lean-${{ hashFiles('prover/server/formal-verification/lean-toolchain') }}-${{ hashFiles('prover/server/formal-verification/lake-manifest.json') }}
+
+      - name: Build Lean project (checks all theorems)
+        run: |
+          cd prover/server/formal-verification
+          lake exe cache get
+          lake build
