@@ -143,7 +143,7 @@ bench-shielded-pool: build-programs
 # shielded-pool program is built plain so its `transact` CPI runs as an
 # uninstrumented black box and its functions do not pollute the swap CU table.
 # SOL-only, so no SPL Token clone is needed. Regenerates
-# sdk-tests/zk-program-swap/CU_BENCHMARK.md.
+# sdk-tests/zk-program-swap/BENCHMARK.md.
 # Regenerate any swap circuit whose proving keys are missing, writing both the
 # proving key (build/, gitignored) and the committed verifying key. groth16.Setup
 # is non-deterministic, so the keys and the verifying key must be generated

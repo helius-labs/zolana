@@ -12,10 +12,13 @@ use mollusk_solana_pubkey::Pubkey as MolluskPubkey;
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
+use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     cancel, create_swap, escrow_authority_pda, fill, fill_verifiable_encryption,
@@ -61,7 +64,7 @@ use zolana_tree::TreeAccount;
 // `target/deploy/swap_program.so` that validator tests load -- the profiling
 // build calls a profiler syscall the test validator does not register.
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/swap-bench");
-const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../CU_BENCHMARK.md");
+const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../BENCHMARK.md");
 const PROVER_KEYS_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../prover/server/proving-keys"
@@ -309,6 +312,64 @@ struct ProvingTime {
     swap: Duration,
 }
 
+struct TxSize {
+    label: &'static str,
+    ix_data: usize,
+    accounts: usize,
+    legacy: usize,
+    v0_alt: usize,
+}
+
+// Serialized on-chain transaction size for a single swap instruction, prefixed
+// with a compute-budget limit ix (as the real client sends it). `legacy` is the
+// plain v0-less transaction; `v0_alt` compiles a v0 message that sinks every
+// non-signer account plus the program id into one address lookup table, the
+// layout that lets these proof-carrying instructions fit under the 1232-byte
+// packet limit.
+fn measure_tx_size(label: &'static str, ix: &Instruction, payer: &Pubkey) -> TxSize {
+    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+
+    let message = Message::new(&[compute.clone(), ix.clone()], Some(payer));
+    let legacy = bincode::serialize(&Transaction::new_unsigned(message))
+        .expect("serialize legacy")
+        .len();
+
+    let alt = AddressLookupTableAccount {
+        key: Address::new_from_array([250u8; 32]),
+        addresses: ix
+            .accounts
+            .iter()
+            .filter(|m| !m.is_signer)
+            .map(|m| Address::new_from_array(m.pubkey.to_bytes()))
+            .chain(std::iter::once(Address::new_from_array(
+                ix.program_id.to_bytes(),
+            )))
+            .collect(),
+    };
+    let v0_message = v0::Message::try_compile(
+        payer,
+        &[compute, ix.clone()],
+        std::slice::from_ref(&alt),
+        Default::default(),
+    )
+    .expect("compile v0 message");
+    let versioned = VersionedMessage::V0(v0_message);
+    let signature_count = versioned.header().num_required_signatures as usize;
+    let tx = VersionedTransaction {
+        signatures: vec![Default::default(); signature_count],
+        message: versioned,
+    };
+    let v0_alt = bincode::serialize(&tx).expect("serialize v0").len();
+
+    TxSize {
+        label,
+        ix_data: ix.data.len(),
+        accounts: ix.accounts.len(),
+        legacy,
+        v0_alt,
+    }
+}
+
 #[test]
 #[ignore]
 fn bench_cu_swap() {
@@ -332,7 +393,8 @@ fn bench_cu_swap() {
              `transact` (the `cpi_spp_transact*` row). Only the swap program is profiled; the \
              shielded-pool program is built plain, so the CU its CPI consumes is charged to the \
              `cpi_spp_transact*` row as a black box and its internal functions do not appear \
-             here. Proving times for both rails are appended below."
+             here. Serialized transaction sizes and proving times for both rails are appended \
+             below."
                 .into(),
         output_path: OUTPUT_PATH.into(),
         regenerate_command: Some("just bench-swap".into()),
@@ -348,12 +410,14 @@ fn bench_cu_swap() {
     preload(CircuitId::Cancel).expect("preload cancel keys");
 
     let mut timings: Vec<ProvingTime> = Vec::new();
-    bench_create(&mut mollusk, &spp_id, &mut bench, &mut timings);
-    bench_fill_derived(&mut mollusk, &spp_id, &mut bench, &mut timings);
-    bench_fill(&mut mollusk, &spp_id, &mut bench, &mut timings);
-    bench_cancel(&mut mollusk, &spp_id, &mut bench, &mut timings);
+    let mut sizes: Vec<TxSize> = Vec::new();
+    bench_create(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
+    bench_fill_derived(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
+    bench_fill(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
+    bench_cancel(&mut mollusk, &spp_id, &mut bench, &mut timings, &mut sizes);
 
-    bench.generate().expect("write CU_BENCHMARK.md");
+    bench.generate().expect("write BENCHMARK.md");
+    append_tx_sizes(OUTPUT_PATH, &sizes).expect("append tx sizes");
     append_proving_times(OUTPUT_PATH, &timings).expect("append proving times");
 }
 
@@ -363,6 +427,7 @@ fn bench_create(
     spp_id: &MolluskPubkey,
     bench: &mut CuBenchmark,
     timings: &mut Vec<ProvingTime>,
+    sizes: &mut Vec<TxSize>,
 ) {
     const INPUT_AMOUNT: u64 = 1_000_000;
     const SOURCE_AMOUNT: u64 = 400_000;
@@ -490,6 +555,7 @@ fn bench_create(
         maker_address,
         transact,
     );
+    sizes.push(measure_tx_size("create swap", &ix, &payer.pubkey()));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -521,6 +587,7 @@ fn bench_fill_derived(
     spp_id: &MolluskPubkey,
     bench: &mut CuBenchmark,
     timings: &mut Vec<ProvingTime>,
+    sizes: &mut Vec<TxSize>,
 ) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
@@ -649,6 +716,7 @@ fn bench_fill_derived(
         fill_proof_ix(&fill_result.proof),
         transact,
     );
+    sizes.push(measure_tx_size("fill", &ix, &taker_payer.pubkey()));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -676,6 +744,7 @@ fn bench_fill(
     spp_id: &MolluskPubkey,
     bench: &mut CuBenchmark,
     timings: &mut Vec<ProvingTime>,
+    sizes: &mut Vec<TxSize>,
 ) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const DESTINATION_AMOUNT: u64 = 250;
@@ -814,6 +883,11 @@ fn bench_fill(
         fill_verifiable_encryption_proof_ix(&fill_result.proof),
         transact,
     );
+    sizes.push(measure_tx_size(
+        "fill_verifiable_encryption",
+        &ix,
+        &taker_payer.pubkey(),
+    ));
 
     let fixtures = vec![
         (tree, tree_account),
@@ -844,6 +918,7 @@ fn bench_cancel(
     spp_id: &MolluskPubkey,
     bench: &mut CuBenchmark,
     timings: &mut Vec<ProvingTime>,
+    sizes: &mut Vec<TxSize>,
 ) {
     const SOURCE_AMOUNT: u64 = 400_000;
     const ORDER_EXPIRY: u64 = 1_000_000;
@@ -959,6 +1034,7 @@ fn bench_cancel(
         terms.expiry,
         transact,
     );
+    sizes.push(measure_tx_size("cancel", &ix, &maker_payer.pubkey()));
 
     // The swap program requires `now > order_expiry`; SPP requires its own
     // relayer deadline (u64::MAX) to be in the future. Sit the clock between them.
@@ -980,6 +1056,42 @@ fn bench_cancel(
         spp: spp_dur,
         swap: swap_dur,
     });
+}
+
+fn append_tx_sizes(path: &str, sizes: &[TxSize]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    if sizes.is_empty() {
+        return Ok(());
+    }
+    let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
+    writeln!(f, "## Transaction Sizes\n")?;
+    writeln!(
+        f,
+        "Serialized transaction size per instruction, prefixed with a \
+         compute-budget limit ix. `legacy` is the v0-less transaction; \
+         `v0 + ALT` sinks every non-signer account and the program id into one \
+         address lookup table. Solana's packet limit is 1232 bytes.\n"
+    )?;
+    writeln!(
+        f,
+        "| {:<26} | {:>11} | {:>8} | {:>13} | {:>15} |",
+        "Instruction", "ix data (B)", "accounts", "legacy tx (B)", "v0 + ALT tx (B)"
+    )?;
+    writeln!(
+        f,
+        "| {:-<26} | {:-<11} | {:-<8} | {:-<13} | {:-<15} |",
+        "", "", "", "", ""
+    )?;
+    for s in sizes {
+        writeln!(
+            f,
+            "| {:<26} | {:>11} | {:>8} | {:>13} | {:>15} |",
+            s.label, s.ix_data, s.accounts, s.legacy, s.v0_alt
+        )?;
+    }
+    writeln!(f)?;
+    Ok(())
 }
 
 fn append_proving_times(path: &str, timings: &[ProvingTime]) -> std::io::Result<()> {
