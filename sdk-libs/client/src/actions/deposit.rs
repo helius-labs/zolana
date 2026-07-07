@@ -1,5 +1,10 @@
 //! Proofless shield action.
 
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -11,9 +16,15 @@ use zolana_interface::{
     pda, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
+use zolana_transaction::{owner_utxo_hash, utxo_hash, Wallet, SOL_MINT};
 
-use crate::{error::ClientError, rpc::Rpc};
+use crate::{error::ClientError, rpc::Rpc, wallet_sync::sync_wallet};
+
+/// How long [`Deposit::send_and_sync`] waits for the indexer to pick up the
+/// deposited UTXO before giving up.
+const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
+/// Delay between indexer polls.
+const INDEXER_POLL: Duration = Duration::from_millis(500);
 
 /// Prepared direct proofless SOL shield.
 ///
@@ -83,8 +94,85 @@ impl Deposit {
         deposit(rpc, payer, tree, depositor, self.spl, &self.data)
     }
 
+    /// [`Deposit::send`], then sync `wallet` until the deposited UTXO is
+    /// visible. The indexer lags the chain, so a single sync straight after
+    /// the send can miss the deposit — the next transfer would then select
+    /// stale inputs. Polls up to 120s; on timeout the deposit has still been
+    /// sent and confirmed ([`ClientError::DepositNotIndexed`] carries the
+    /// signature).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use solana_keypair::Keypair;
+    /// use solana_pubkey::Pubkey;
+    /// use zolana_client::{create_deposit, ClientError, CreateDeposit, Rpc};
+    /// use zolana_keypair::ShieldedAddress;
+    /// use zolana_transaction::{Wallet, SOL_MINT};
+    ///
+    /// fn deposit_sol<R: Rpc, I: Rpc>(
+    ///     rpc: &R,
+    ///     indexer: &I,
+    ///     payer: &Keypair,
+    ///     tree: Pubkey,
+    ///     recipient: &ShieldedAddress,
+    ///     wallet: &mut Wallet,
+    /// ) -> Result<(), ClientError> {
+    ///     let prepared = create_deposit(CreateDeposit {
+    ///         recipient,
+    ///         asset: SOL_MINT,
+    ///         amount: 1_000_000,
+    ///         spl_token_account: None,
+    ///         memo: None,
+    ///     })?;
+    ///     prepared.send_and_sync(rpc, payer, tree, payer, wallet, indexer)?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn send_and_sync<R: Rpc, I: Rpc>(
+        &self,
+        rpc: &R,
+        payer: &Keypair,
+        tree: Pubkey,
+        depositor: &Keypair,
+        wallet: &mut Wallet,
+        indexer: &I,
+    ) -> Result<Signature, ClientError> {
+        let signature = self.send(rpc, payer, tree, depositor)?;
+        wait_for_deposited_utxo(wallet, indexer, self.utxo_hash, signature)?;
+        Ok(signature)
+    }
+
     pub fn view_tag(&self) -> [u8; 32] {
         self.data.view_tag
+    }
+}
+
+/// Poll [`sync_wallet`] until the wallet holds the UTXO with `utxo_hash`, or
+/// [`INDEXER_TIMEOUT`] elapses.
+fn wait_for_deposited_utxo<I: Rpc>(
+    wallet: &mut Wallet,
+    indexer: &I,
+    utxo_hash: [u8; 32],
+    signature: Signature,
+) -> Result<(), ClientError> {
+    let started = Instant::now();
+    loop {
+        sync_wallet(wallet, indexer)?;
+        if wallet
+            .utxos
+            .iter()
+            .any(|utxo| utxo.output_context.hash == utxo_hash)
+        {
+            return Ok(());
+        }
+        if started.elapsed() >= INDEXER_TIMEOUT {
+            return Err(ClientError::DepositNotIndexed {
+                utxo_hash,
+                signature,
+            });
+        }
+        sleep(INDEXER_POLL);
     }
 }
 

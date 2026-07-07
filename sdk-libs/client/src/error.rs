@@ -1,4 +1,5 @@
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use thiserror::Error;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
@@ -99,6 +100,15 @@ pub enum ClientError {
 
     #[error("deposit funding account not found: {address:?}")]
     AccountNotFound { address: [u8; 32] },
+
+    #[error("deposit {signature} confirmed but its UTXO {utxo_hash:?} was not indexed after 120s")]
+    DepositNotIndexed {
+        utxo_hash: [u8; 32],
+        signature: Signature,
+    },
+
+    #[error("asset registry entry not found for mint {mint}; the mint has no SPL interface on this deployment")]
+    AssetNotRegistered { mint: Pubkey },
 
     #[error("SOL deposit funding account {sender:?} must be the signing authority")]
     DepositSenderNotSigner { sender: [u8; 32] },
