@@ -41,6 +41,18 @@ impl Default for SyncWalletConfig {
     }
 }
 
+/// Sync the wallet's UTXOs and history from the indexer.
+///
+/// Unknown asset ids are resolved best effort: when decode hits ids the
+/// wallet's registry does not know, sync scans the on-chain `SplAssetRegistry`
+/// accounts via `get_program_accounts` and retries once. On backends without
+/// that method the backfill silently resolves nothing — the stock
+/// `ZolanaIndexer` is such a backend (it implements only the indexer queries),
+/// so with Photon as the sync source the
+/// backfill never fires. Backfill eagerly with a `get_program_accounts`-capable
+/// backend via [`refresh_registry_from_chain`], or insert ids directly with
+/// [`fetch_asset_id`](crate::fetch_asset_id) + `wallet.registry.insert` — the
+/// path that works on every backend.
 pub fn sync_wallet<I>(wallet: &mut Wallet, indexer: &I) -> Result<SyncReport, ClientError>
 where
     I: Rpc,
@@ -111,8 +123,15 @@ where
 /// Fetch every `SplAssetRegistry` account owned by the shielded-pool program and
 /// insert any new `asset_id -> mint` pairs into the wallet's registry. Returns
 /// the number of newly inserted ids. `get_program_accounts` being unsupported on
-/// the RPC is treated as zero new ids (soft miss), not an error.
-fn refresh_registry_from_chain<I>(wallet: &mut Wallet, indexer: &I) -> Result<usize, ClientError>
+/// the backend is treated as zero new ids (soft miss), not an error — which is
+/// why this is public: a wallet synced against Photon (no `get_program_accounts`)
+/// can still backfill eagerly through a capable backend such as
+/// `SolanaRpc`. The guaranteed per-mint path is
+/// [`fetch_asset_id`](crate::fetch_asset_id) + `wallet.registry.insert`.
+pub fn refresh_registry_from_chain<I>(
+    wallet: &mut Wallet,
+    indexer: &I,
+) -> Result<usize, ClientError>
 where
     I: Rpc,
 {

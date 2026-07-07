@@ -57,8 +57,8 @@ pub use wallet_authority::{
     P256Signature, SyncWalletAuthority, WalletAuthority,
 };
 pub use wallet_sync::{
-    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
-    SyncWalletConfig,
+    get_private_token_balances, get_private_transactions, refresh_registry_from_chain, sync_wallet,
+    sync_wallet_with_config, SyncWalletConfig,
 };
 pub use zolana_transaction::{
     instructions::{
