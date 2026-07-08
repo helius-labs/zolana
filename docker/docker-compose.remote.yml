@@ -1,0 +1,202 @@
+name: zolana
+
+# Remote / no-build variant of docker-compose.yml: pulls prebuilt images instead
+# of building from source. Copy this file + .env (+ ./pgdata if you want to carry
+# the index) to the server and run:
+#
+#     docker compose -f docker-compose.remote.yml up -d
+#
+# Set PHOTON_IMAGE / PROVER_IMAGE (in .env) to the images you published for the
+# server's architecture (linux/amd64 for a typical x86 server) -- see the buildx
+# bake commands in the project notes. postgres/redis are multi-arch (auto-pull).
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-photon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-photon}
+      POSTGRES_DB: ${POSTGRES_DB:-photon}
+    # Internal only (reached over the compose network as postgres:5432); not
+    # published to the host, to avoid clashing with an existing Postgres. Use
+    # `docker compose exec postgres psql -U photon` if you need a shell.
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-photon} -d ${POSTGRES_DB:-photon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.4.4-alpine3.21}
+    restart: unless-stopped
+    # Internal only (reached as redis:6379 by the prover); not published to the
+    # host, to avoid clashing with an existing Redis.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  # Client-facing prover (transfer/merge proofs). With the async-transfer build it
+  # queues transfer proofs and drains them with a bounded worker, so concurrent
+  # clients (e.g. a soak/bench) don't stampede it. Clients must use the async-aware
+  # ProverClient -- they poll the returned job. --redis-url + no --circuit means it
+  # starts the transfer worker (startAll).
+  prover:
+    image: ${PROVER_IMAGE:-zolana-prover:local}
+    restart: unless-stopped
+    environment:
+      # Cap concurrent transfer proofs the worker runs (light proofs; raise for
+      # bench throughput). Empty -> PROVER_MAX_CONCURRENCY -> conservative default.
+      TRANSFER_WORKER_CONCURRENCY: ${TRANSFER_WORKER_CONCURRENCY:-}
+      PROVER_MAX_CONCURRENCY: ${PROVER_MAX_CONCURRENCY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command:
+      - start
+      - --keys-dir
+      - /proving-keys/
+      - --prover-address
+      - 0.0.0.0:3001
+      - --metrics-address
+      - 0.0.0.0:9998
+      - --auto-download
+      - "true"
+      - --redis-url
+      - redis://redis:6379
+    # TEMPORARY: prover exposed so external clients can prove against it.
+    # NOTE: clients send UNENCRYPTED witnesses to this port -- the operator can
+    # see them. Revert to internal-only (drop this block) once client-side or
+    # TEE-attested proving is in place. Default bind is 0.0.0.0 to make it
+    # reachable off-box; set PROVER_BIND_ADDRESS=127.0.0.1 to restrict.
+    ports:
+      - "${PROVER_BIND_ADDRESS:-0.0.0.0}:${PROVER_PORT:-3001}:3001"
+
+  # Dedicated Redis for the forester's async batch-proof queue, isolated from
+  # the client prover's redis so the two never race for the same jobs.
+  forester-redis:
+    image: ${REDIS_IMAGE:-redis:7.4.4-alpine3.21}
+    profiles:
+      - forester
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  # Forester prover: a dedicated prover for the forester's batch address-append
+  # proofs. The forester reaches it as forester-prover:3001; the host port
+  # default (3002) never clashes with the client prover. A single batch-250
+  # proof takes ~62s (over the 60s sync cap), so it proves via its own Redis
+  # async queue (forester-redis). The zolana-prover-forester image BAKES IN the
+  # batch key matching the on-chain vkey (KEY_PROFILE=forester), so it needs no
+  # key download and no GitHub token on the box (--auto-download stays off).
+  forester-prover:
+    image: ${FORESTER_PROVER_IMAGE:-zolana-prover-forester:local}
+    # Gated with the forester; brought up by its profile.
+    profiles:
+      - forester
+    restart: unless-stopped
+    depends_on:
+      forester-redis:
+        condition: service_healthy
+    command:
+      - start
+      - --keys-dir
+      - /proving-keys/
+      - --prover-address
+      - 0.0.0.0:3001
+      - --metrics-address
+      - 0.0.0.0:9998
+      - --circuit
+      - address-append
+      - --redis-url
+      - redis://forester-redis:6379
+    ports:
+      - "${FORESTER_PROVER_BIND_ADDRESS:-127.0.0.1}:${FORESTER_PROVER_PORT:-3002}:3001"
+
+  photon-migration:
+    image: ${PHOTON_IMAGE:-zolana-photon:local}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
+    command:
+      - photon-migration
+      - up
+
+  photon:
+    image: ${PHOTON_IMAGE:-zolana-photon:local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      photon-migration:
+        condition: service_completed_successfully
+    environment:
+      RUST_LOG: ${PHOTON_RUST_LOG:-info}
+      PHOTON_RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
+      DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
+      # Set for initial backfill; blank to resume from the DB's last-indexed slot.
+      PHOTON_START_SLOT: ${PHOTON_START_SLOT:-}
+    command:
+      - sh
+      - -c
+      - |
+        set -- photon --port 8784 --rpc-url "$$PHOTON_RPC_URL" --db-url "$$DATABASE_URL"
+        if [ -n "$$PHOTON_START_SLOT" ]; then set -- "$$@" --start-slot "$$PHOTON_START_SLOT"; fi
+        echo "exec: $$*"
+        exec "$$@"
+    ports:
+      # Photon-only bind knob (default localhost). Set PHOTON_BIND_ADDRESS=0.0.0.0
+      # to reach it from outside -- postgres/redis/prover stay on 127.0.0.1.
+      - "${PHOTON_BIND_ADDRESS:-127.0.0.1}:${PHOTON_PORT:-8784}:8784"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # SPP forester (prebuilt zolana-forester image). Continuous worker: `run
+  # --watch` reconstructs the reference nullifier tree from photon's queued
+  # values, proves ready zkp-batches on forester-prover, and submits
+  # `batch_update_nullifier_tree` through the forester smart-account vault.
+  #   FORESTER_SETTINGS  the forester smart-account settings pubkey (required);
+  #                      the vault at FORESTER_ACCOUNT_INDEX is the tree's
+  #                      forester_authority.
+  #   FORESTER_PAYER     a member keypair of that smart account (JSON byte
+  #                      array); signs the execute + pays fees.
+  # Kept out of the default `up` set (profile: forester). For a one-off status
+  # check use the read-only `info` command instead:
+  #   docker compose -f docker-compose.remote.yml run --rm forester info
+  forester:
+    image: ${FORESTER_IMAGE:-zolana-forester:local}
+    profiles:
+      - forester
+    restart: unless-stopped
+    depends_on:
+      - forester-prover
+      - photon
+    environment:
+      RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
+      PHOTON_URL: http://photon:8784
+      PROVER_URL: http://forester-prover:3001
+      PAYER: ${FORESTER_PAYER:-}
+    command:
+      - run
+      - --tree
+      - ${FORESTER_TREE:-treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8}
+      - --settings
+      - ${FORESTER_SETTINGS:?set FORESTER_SETTINGS to the forester smart-account settings pubkey}
+      - --account-index
+      - ${FORESTER_ACCOUNT_INDEX:-0}
+      - --watch
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
