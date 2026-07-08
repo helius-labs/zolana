@@ -63,12 +63,31 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-// Redis-backed provers queue heavy batch proofs (address-append) and return a
-// job handle immediately instead of blocking; the client then polls the status
-// endpoint. The first batch job loads a multi-GB proving key before proving, so
-// the bound is generous — the status endpoint itself returns immediately.
-const ASYNC_POLL_INTERVAL_SECS: u64 = 3;
-const ASYNC_MAX_WAIT_SECS: u64 = 1200;
+/// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
+/// queue heavy batch proofs (address-append) and return a job handle immediately
+/// instead of blocking; the client then polls the status endpoint until the
+/// proof completes or `max_wait_secs` elapses. The first batch job loads a
+/// multi-GB proving key before proving, so the default ceiling is generous.
+///
+/// Held on the [`ProverClient`] and overridable via
+/// [`ProverClient::with_async_poll_config`], mirroring light-client's
+/// `RetryConfig` (a client-held config with a `Default`).
+#[derive(Clone, Copy, Debug)]
+pub struct AsyncPollConfig {
+    /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
+    pub poll_interval_secs: u64,
+    /// Max seconds to wait for a queued proof before returning a timeout error.
+    pub max_wait_secs: u64,
+}
+
+impl Default for AsyncPollConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_secs: 3,
+            max_wait_secs: 1200,
+        }
+    }
+}
 
 fn build_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
@@ -83,6 +102,7 @@ fn build_http_client() -> reqwest::blocking::Client {
 pub struct ProverClient {
     server_address: String,
     http: reqwest::blocking::Client,
+    async_poll: AsyncPollConfig,
 }
 
 impl Default for ProverClient {
@@ -100,7 +120,14 @@ impl ProverClient {
         Self {
             server_address,
             http: build_http_client(),
+            async_poll: AsyncPollConfig::default(),
         }
+    }
+
+    /// Override the async-proof polling config (see [`AsyncPollConfig`]).
+    pub fn with_async_poll_config(mut self, config: AsyncPollConfig) -> Self {
+        self.async_poll = config;
+        self
     }
 
     /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
@@ -210,6 +237,8 @@ impl ProverClient {
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
+        let poll_interval = self.async_poll.poll_interval_secs.max(1);
+        let max_wait = self.async_poll.max_wait_secs;
         let mut waited = 0u64;
         loop {
             let text = self
@@ -238,13 +267,13 @@ impl ProverClient {
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
-                    if waited >= ASYNC_MAX_WAIT_SECS {
+                    if waited >= max_wait {
                         return Err(ClientError::ProverServer(format!(
                             "async proof timed out after {waited}s (job {job_id})"
                         )));
                     }
-                    sleep(Duration::from_secs(ASYNC_POLL_INTERVAL_SECS));
-                    waited += ASYNC_POLL_INTERVAL_SECS;
+                    sleep(Duration::from_secs(poll_interval));
+                    waited += poll_interval;
                 }
             }
         }
