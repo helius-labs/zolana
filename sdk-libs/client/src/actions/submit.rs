@@ -5,9 +5,10 @@
 //! exposing it as the single [`Submit`] action.
 //!
 //! A private submit needs two backends, not one: spend proofs come from the
-//! Photon indexer ([`ZolanaIndexer`]) and the transaction is sent through a
-//! Solana RPC ([`Rpc`]). [`Submit`] takes them separately so the indexer
-//! dependency is explicit rather than hidden behind a single "rpc".
+//! Photon indexer and the transaction is sent through a Solana RPC. [`Submit`]
+//! takes them as two [`Rpc`] values so the indexer dependency is explicit
+//! rather than hidden behind a single "rpc"; a combined backend (such as
+//! `ZolanaClient`) can fill both fields.
 
 use std::{
     thread::sleep,
@@ -19,12 +20,13 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::{Transact, TransactWithdrawal};
+use zolana_interface::instruction::{
+    instruction_data::transact::TransactIxData, Transact, TransactWithdrawal,
+};
 use zolana_transaction::instructions::{transact::SignedTransaction, types::InputCommitment};
 
 use crate::{
     error::ClientError,
-    indexer::ZolanaIndexer,
     prover::{
         transact::witness::{assemble, AssembledTransfer, ProverInputs, SpendProof},
         ProofCompressed, ProverClient,
@@ -46,17 +48,17 @@ const INDEXER_POLL: Duration = Duration::from_millis(500);
 
 /// One-call submit for a signed private transaction.
 ///
-/// Holds the two backends a submit needs plus the fixed parameters: the
-/// [`ZolanaIndexer`] answers spend-proof lookups, the [`Rpc`] sends the
-/// transaction. [`Submit::execute`] then fetches proofs, proves, sends, and
-/// waits for the transaction to be indexed.
+/// Holds the two backends a submit needs plus the fixed parameters: `indexer`
+/// answers spend-proof lookups (Photon), `rpc` sends the transaction (a Solana
+/// RPC). [`Submit::execute`] then fetches proofs, proves, sends, and waits for
+/// the transaction to be indexed.
 ///
 /// The three per-transaction pieces (`signed`, `withdrawal`, `wait_tag`) are
 /// passed to [`Submit::execute`]; a caller holds them on the `CreatedTransfer` /
 /// `CreatedWithdrawal` returned by `create_transfer` / `create_withdrawal`.
-pub struct Submit<'a, R: Rpc> {
+pub struct Submit<'a, R: Rpc, I: Rpc> {
     /// Answers spend-proof lookups (Photon).
-    pub indexer: &'a ZolanaIndexer,
+    pub indexer: &'a I,
     /// Sends the transaction (a Solana RPC).
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
@@ -66,7 +68,7 @@ pub struct Submit<'a, R: Rpc> {
     pub cu_limit: Option<u32>,
 }
 
-impl<R: Rpc> Submit<'_, R> {
+impl<R: Rpc, I: Rpc> Submit<'_, R, I> {
     /// Fetch the input spend proofs for `tree` and assemble the prover witness:
     /// the network-bound, prover-free prefix of [`Submit::execute`].
     fn prepare(&self, signed: SignedTransaction) -> Result<AssembledTransfer, ClientError> {
@@ -91,13 +93,7 @@ impl<R: Rpc> Submit<'_, R> {
         wait_tag: [u8; 32],
     ) -> Result<Signature, ClientError> {
         let assembled = self.prepare(signed)?;
-
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.prover.prove_transfer_p256(inputs)?,
-            ProverInputs::Eddsa(inputs) => self.prover.prove_transfer(inputs)?,
-        };
-        let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        let data = assembled.with_proof(proof);
+        let data = prove_assembled(self.prover, assembled)?.data;
 
         let transact_ix = Transact {
             payer: self.payer.pubkey(),
@@ -122,11 +118,54 @@ impl<R: Rpc> Submit<'_, R> {
     }
 }
 
+/// A proven transaction: the ready-to-send `Transact` instruction data plus the
+/// pieces a caller reporting a bare proof needs (compressed proof, public input
+/// hash, circuit id).
+pub(crate) struct ProvenTransact {
+    pub data: TransactIxData,
+    pub proof: ProofCompressed,
+    pub public_input_hash: [u8; 32],
+    pub circuit_id: u16,
+}
+
+/// Prove an assembled witness on the matching rail and compress the proof:
+/// the prover-bound suffix shared by [`Submit::execute`] and the client-side
+/// [`Rpc::prove`] implementation.
+pub(crate) fn prove_assembled(
+    prover: &ProverClient,
+    assembled: AssembledTransfer,
+) -> Result<ProvenTransact, ClientError> {
+    // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
+    let (proof, circuit_id) = match &assembled.prover_inputs {
+        ProverInputs::P256(inputs) => (prover.prove_transfer_p256(inputs)?, 1),
+        ProverInputs::Eddsa(inputs) => (prover.prove_transfer(inputs)?, 0),
+    };
+    let proof = ProofCompressed::try_from(proof)?;
+    let public_input_hash = assembled.public_input_hash;
+    let data = assembled.with_proof(proof.to_transact_proof());
+    Ok(ProvenTransact {
+        data,
+        proof,
+        public_input_hash,
+        circuit_id,
+    })
+}
+
+/// Assemble the witness from the fetched spend proofs, then prove and compress:
+/// the full proving pipeline minus the proof fetch.
+pub(crate) fn prove_transact(
+    prover: &ProverClient,
+    signed: SignedTransaction,
+    spend_proofs: &[SpendProof],
+) -> Result<ProvenTransact, ClientError> {
+    prove_assembled(prover, assemble(signed, spend_proofs)?)
+}
+
 /// Resolve the spend proof (state inclusion + nullifier non-inclusion) for each
 /// input commitment on `tree`, in commitment order. Batches both indexer lookups
 /// so a multi-input spend costs two round trips, not two per input.
-fn fetch_spend_proofs(
-    indexer: &ZolanaIndexer,
+pub(crate) fn fetch_spend_proofs(
+    indexer: &impl Rpc,
     tree: Address,
     commitments: &[InputCommitment],
 ) -> Result<Vec<SpendProof>, ClientError> {
@@ -158,7 +197,7 @@ fn fetch_spend_proofs(
 /// [`INDEXER_TIMEOUT`] elapses. The indexer lags the chain, so a plain on-chain
 /// confirmation is not enough for a caller that reads state back immediately.
 fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
+    indexer: &impl Rpc,
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<(), ClientError> {
