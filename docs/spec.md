@@ -359,7 +359,7 @@ Policy zones hide the recipient, so a wallet cannot find its outputs by owner pu
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-**Uniqueness.** View tags should not be reused. `merge_view_tag` (used only by [`merge_zone`](#merge_zone)) is inserted into the nullifier tree by the SPP. For other view tags the indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
+**Uniqueness.** View tags should not be reused, but uniqueness is not enforced: the indexer must handle the case that a tag is used multiple times and return all ciphertexts matching a single tag value.
 
 **Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
 
@@ -402,17 +402,17 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 
 ### Merge view tag
 
-5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate single-use view tag.
+5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate view tag.
     - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
-    - Counter: a single per-user `merge_count` (`wallet.merge_count`), advanced on every `merge_zone`.
-    - Uniqueness: enforced single-use by SPP — inserted into the nullifier tree on `merge_zone`.
+    - Counter: a single per-user `merge_count` (`wallet.merge_count`), advanced on every `merge_zone`. The Counter and Derivation bullets are the anonymous-zone wallet convention; a confidential policy zone (e.g. the squads zone) instead tags every merge with the owner's static account view tag.
+    - Uniqueness: not enforced — replay protection comes from the input nullifiers, SPP treats the tag as opaque bytes, and the indexer must tolerate a reused tag.
     - Derivation: `HKDF-SHA256(salt=∅, IKM=merge_view_tag_secret, info="TSPP/merge_view_tag/" || u64_be(merge_count), L=31)`. The secret `merge_view_tag_secret` already scopes the tag stream per user, so no per-service domain separator is needed; each user enables merging on their registry record.
 
 ### View Tag Selection
 
-In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. The `merge_zone` service uses merge view tags; `merge_transact`, being confidential, tags by the owner's signing pubkey. Wallets select recipient tags as follows:
+In the [default zone](#default-zone) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy zones. In an anonymous policy zone the `merge_zone` service uses merge view tags, while a confidential policy zone tags merges with the owner's static account view tag; `merge_transact`, being confidential, tags by the owner's signing pubkey. Wallets select recipient tags as follows:
 
 ```mermaid
 flowchart TD
@@ -1648,7 +1648,7 @@ struct MergeTransactIxData {
 5. SPP derives `pk_field(user_record.viewing_pubkey)` and, by the `eddsa_owner` flag, the signing `pk_field` (from `owner_p256` or the registry account `owner`), and uses them as the proof's owner public inputs, so the proof verifies only if it encrypted the output to the owner's registered viewing key. The merged output is tagged in the [`GeneralEvent`](#general-event) by the owner's signing pubkey — the confidential [default-zone](#default-zone) owner-pubkey tag — so the owner finds it on sync; the proof binds that signing `pk_field` to the output.
 6. Proof verifies against public inputs (`ciphertext_hash` recomputed from `encrypted_utxo`).
 7. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
-8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of a single-use view tag. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
+8. Insert each input nullifier into the nullifier queue. Duplicates are rejected, so an input cannot be merged twice; this is the replay protection. SPP does not parse `encrypted_utxo` beyond hashing it; the [merge proof](#merge-proof---merge-zk-proof) checks the ciphertext via verifiable encryption, so a passing proof means the owner can decrypt the merged output.
 
 Total instruction data: `8 + 256 (proof) + 32 + 32·N + 4·N + 32 + 105` bytes (the
 owner `pk_field`s come from `user_record`, not the instruction). At the full `N =
@@ -1672,8 +1672,12 @@ table) `≈ 927 B`.
 **Instruction data**
 
 [`MergeTransactIxData`](#merge_transact) plus a `merge_view_tag: [u8; 32]` field:
-`merge_zone` indexes the output by the single-use `merge_view_tag` (the owner-pubkey
-fetch tag of `merge_transact` does not apply in a policy zone). The zone program
+`merge_zone` indexes the output by the zone-chosen `merge_view_tag` (the owner-pubkey
+fetch tag of `merge_transact` does not apply in a policy zone). An anonymous zone
+derives a fresh tag per merge (see [merge view tag](#merge-view-tag)); a
+confidential policy zone (e.g. the squads zone) tags with the owner's static
+account view tag. SPP treats the tag as opaque bytes; replay protection comes
+from the input nullifiers. The zone program
 authorizes the merge, so there is no `user_record` account or registry check; the
 owner identity comes from the witnessed signing key as bound by the input UTXOs.
 The merge proof's circuit branch enforces the policy-zone variant of the
@@ -1686,7 +1690,6 @@ cleanliness and output-well-formed rules.
 3. Proof verifies against public inputs (the policy-zone variant: inputs share `zone_program_id` = `zone_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to the UTXO sparse Merkle tree.
 5. Insert each input nullifier into the nullifier queue.
-6. Insert `merge_view_tag` into the nullifier queue, single-use (rejects on duplicate).
 
 # Zone Program Interface
 
@@ -2021,7 +2024,7 @@ A merge service consolidates a user's fragmented UTXOs into fewer larger ones by
 
 **Identity.** A merge service is a Solana account (Ed25519). It signs its own `merge_transact` transactions as the fee payer, so the Solana runtime verifies the signature; SPP does not check the signer against any registered authority.
 
-**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the owner's registered `owner_p256` / `viewing_pk` through the proof. In a policy zone, [`merge_zone`](#merge_zone) uses the [`merge_view_tag`](#merge-view-tag) stream instead.
+**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the owner's registered `owner_p256` / `viewing_pk` through the proof. In an anonymous policy zone, [`merge_zone`](#merge_zone) may use the [`merge_view_tag`](#merge-view-tag) stream instead.
 
 **Scope.** The merge service consolidates UTXOs in both default and policy zones if the zone program exposes a merge instruction. In policy zones the zone program authorizes the merge (see [`merge_zone`](#merge_zone)); the registry `merging_enabled` flag applies only to default-zone `merge_transact`.
 UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they are subject to program logic.

@@ -13,11 +13,16 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
-use solana_message::compiled_instruction::CompiledInstruction;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_message::{
+    compiled_instruction::CompiledInstruction, v0, AddressLookupTableAccount, VersionedMessage,
+};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
+use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction::Transaction;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
@@ -333,9 +338,57 @@ impl Rpc for SolanaRpc {
         Ok((blockhash, 0))
     }
 
+    fn get_slot(&self) -> Result<u64, ClientError> {
+        self.client
+            .get_slot()
+            .map_err(|err| ClientError::Rpc(format!("get_slot: {err}")))
+    }
+
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         self.client
             .send_and_confirm_transaction(transaction)
             .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+    }
+
+    fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        let signature = self
+            .client
+            .send_transaction_with_config(transaction, config)
+            .map_err(|err| ClientError::Rpc(format!("send_versioned_transaction: {err}")))?;
+        self.wait_for_signature(&signature)?;
+        Ok(signature)
+    }
+
+    fn create_and_send_versioned_transaction(
+        &self,
+        instructions: &[Instruction],
+        payer: Address,
+        signers: &[&Keypair],
+        address_lookup_tables: &[AddressLookupTableAccount],
+    ) -> Result<Signature, ClientError> {
+        let (blockhash, _) = self.get_latest_blockhash()?;
+        let payer = Pubkey::new_from_array(payer.to_bytes());
+        let message =
+            v0::Message::try_compile(&payer, instructions, address_lookup_tables, blockhash)
+                .map_err(|err| ClientError::Rpc(format!("compile v0 message: {err}")))?;
+        let transaction = VersionedTransaction::try_new(VersionedMessage::V0(message), signers)
+            .map_err(|err| ClientError::Rpc(format!("sign versioned transaction: {err}")))?;
+        // Skip preflight: this path always resolves a caller-supplied address
+        // lookup table, and a preflight simulation can run against a bank that has
+        // not yet loaded a freshly created table ("address table account that
+        // doesn't exist") even though it is confirmed on-chain. Real execution
+        // resolves it; `send_versioned_transaction_with_config` still confirms the
+        // signature and surfaces any on-chain error.
+        self.send_versioned_transaction_with_config(
+            &transaction,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..Default::default()
+            },
+        )
     }
 }

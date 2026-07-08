@@ -1,0 +1,30 @@
+[package]
+name = "zolana-squads-program"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(target_arch, values("bpf"))',
+]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+
+[dependencies]
+pinocchio = { workspace = true, features = ["account-resize", "cpi"] }
+pinocchio-system = { workspace = true }
+groth16-solana = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-account-checks = { workspace = true }
+zolana-squads-interface = { workspace = true }
+zolana-interface = { workspace = true }

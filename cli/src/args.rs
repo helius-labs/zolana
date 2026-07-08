@@ -376,7 +376,7 @@ pub(crate) struct NetworkWalletOptions {
 
     #[arg(
         long = "prover-url",
-        help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
+        help = "Prover server URL (default: configured value or http://127.0.0.1:4001)"
     )]
     pub(crate) prover_url: Option<String>,
 

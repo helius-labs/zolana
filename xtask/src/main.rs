@@ -18,15 +18,16 @@ fn main() {
             create_verifying_keys(options);
         }
         Some("bsb22-vk") => {
-            let vk_bin = args
-                .next()
-                .unwrap_or_else(|| usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename>"));
+            let vk_bin = args.next().unwrap_or_else(|| {
+                usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename> [proving_key]")
+            });
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <out_dir>"));
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
+            let proving_key = args.next();
             groth16_solana::gnark_vk_parser::generate_bsb22_vk_file(
                 &vk_bin,
                 Path::new(&out_dir),
@@ -34,6 +35,12 @@ fn main() {
                 "VERIFYINGKEY",
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            if let Some(proving_key) = proving_key {
+                prepend_proving_key_checksum(
+                    &Path::new(&out_dir).join(&filename),
+                    Path::new(&proving_key),
+                );
+            }
             println!("wrote {out_dir}/{filename}");
         }
         Some("vk-json") => {
@@ -218,6 +225,35 @@ fn create_verifying_keys(options: CreateVerifyingKeysOptions) {
 
     fs::write(out_dir.join("MANIFEST.txt"), manifest)
         .expect("failed to write verifying key manifest");
+}
+
+/// Prepend a comment recording the SHA-256 of the proving key the verifying key
+/// was generated from. A committed vk whose recorded checksum differs from the
+/// SHA-256 of the on-disk `.key` is out of sync with that key (the skew that
+/// makes proofs fail on-chain), so the comment makes the mismatch auditable.
+fn prepend_proving_key_checksum(vk_path: &Path, proving_key: &Path) {
+    let checksum = sha256_file(proving_key);
+    let key_name = proving_key
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("<unknown>");
+    let header = format!("// proving key: {key_name}\n// proving key sha256: {checksum}\n");
+
+    let rust = fs::read_to_string(vk_path).unwrap_or_else(|error| {
+        panic!("failed to read generated vk {}: {error}", vk_path.display())
+    });
+    // Drop any checksum header from a previous run so re-generation is idempotent.
+    let body = rust
+        .lines()
+        .skip_while(|line| line.starts_with("// proving key"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(vk_path, format!("{header}{body}\n")).unwrap_or_else(|error| {
+        panic!(
+            "failed to write generated vk {}: {error}",
+            vk_path.display()
+        )
+    });
 }
 
 fn add_vanilla_commitment_fields(path: PathBuf) {

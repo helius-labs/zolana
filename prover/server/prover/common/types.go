@@ -31,6 +31,9 @@ const (
 	// CPI-calling zone), which is committed as a public input. Otherwise identical
 	// to the default merge.
 	MergeZoneCircuitType CircuitType = "merge-zone"
+
+	SquadsZoneCircuitType          CircuitType = "squads-zone"
+	SquadsKeyEncryptionCircuitType CircuitType = "squads-key-encryption"
 )
 
 // JSON input structures (these are not in circuit_utils.go)

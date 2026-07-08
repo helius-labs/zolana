@@ -1,0 +1,35 @@
+[package]
+name = "zolana-squads-interface"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["verifying-keys"]
+solana = ["dep:solana-instruction"]
+verifying-keys = ["dep:groth16-solana"]
+
+[dependencies]
+solana-address = { workspace = true }
+solana-instruction = { workspace = true, optional = true }
+solana-pubkey = { workspace = true }
+solana-program-error = { workspace = true }
+wincode = { workspace = true }
+groth16-solana = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[[test]]
+name = "error"
+path = "tests/error.rs"
+
+[[test]]
+name = "state"
+path = "tests/state.rs"
+
+[[test]]
+name = "instruction_data"
+path = "tests/instruction_data.rs"
+
+[[test]]
+name = "builders"
+path = "tests/builders.rs"
+required-features = ["solana"]

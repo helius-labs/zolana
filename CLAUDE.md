@@ -351,7 +351,9 @@ cd prover/server && go build -o light-prover .
 ### Distribute proving keys via GitHub release
 
 Gitignored keys are published as assets on a private-repo GitHub release
-(`transfer-keys-v7` on `helius-labs/zolana`). The unauthenticated asset URL
+(`transfer-keys-v10` on `helius-labs/zolana`); since v10 this includes the
+squads zone / key-encryption keys, which the prover also lazy-downloads and
+`just ensure-squads-keys` pre-fetches. The unauthenticated asset URL
 404s, so keys are fetched with `gh` (local `gh auth login`, or CI's same-repo
 `GITHUB_TOKEN` -- no PAT). Repo/tag are hardcoded as `TransferKeysRepo` /
 `TransferKeysReleaseTag` in `key_downloader.go` and must match

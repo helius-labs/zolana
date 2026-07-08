@@ -163,13 +163,18 @@ fn stop_test_env(opts: &TestValidatorOptions) {
 
 fn stop_test_validator(rpc_port: u16) {
     remove_launchd_validators();
-    stop_name("solana-test-validator");
-    stop_name("surfpool");
+    // Reclaim only the validator bound to THIS RPC port. A global
+    // `pkill -x solana-test-validator` / `pkill -x surfpool` would kill every
+    // validator on the machine -- including a concurrent clone running its own
+    // localnet on a different `ZOLANA_PORT_OFFSET` -- so the port is the only
+    // safe teardown key. Both solana-test-validator and surfpool bind `rpc_port`,
+    // so freeing the port reclaims either backend.
     stop_port(rpc_port);
 }
 
 fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
-    stop_name("photon");
+    // Port-scoped only: a global `pkill -x photon` would kill a concurrent
+    // clone's indexer running on a different offset.
     stop_port(opts.photon_port);
 
     let photon = find_binary(

@@ -13,6 +13,8 @@ type LazyKeyManager struct {
 	merkleSystems     map[string]*MerkleProofSystem
 	batchSystems      map[string]*BatchProofSystem
 	transferSystems   map[string]*TransferProofSystem
+	zoneSystems       map[string]*SquadsZoneProofSystem
+	keyEncSystems     map[string]*SquadsKeyEncryptionProofSystem
 	keysDir           string
 	downloadConfig    *DownloadConfig
 	loadingInProgress map[string]chan struct{}
@@ -26,6 +28,8 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 		merkleSystems:     make(map[string]*MerkleProofSystem),
 		batchSystems:      make(map[string]*BatchProofSystem),
 		transferSystems:   make(map[string]*TransferProofSystem),
+		zoneSystems:       make(map[string]*SquadsZoneProofSystem),
+		keyEncSystems:     make(map[string]*SquadsKeyEncryptionProofSystem),
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
 		loadingInProgress: make(map[string]chan struct{}),
@@ -93,6 +97,139 @@ func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint
 	m.mu.RUnlock()
 
 	return m.loadTransferSystem(key, circuitType, nInputs, nOutputs)
+}
+
+func (m *LazyKeyManager) GetZoneSystem(nInputs uint32, nOutputs uint32) (*SquadsZoneProofSystem, error) {
+	key := fmt.Sprintf("%s_%d_%d", SquadsZoneCircuitType, nInputs, nOutputs)
+
+	m.mu.RLock()
+	if ps, exists := m.zoneSystems[key]; exists {
+		m.mu.RUnlock()
+		logging.Logger().Debug().
+			Str("key", key).
+			Msg("Found cached SquadsZoneProofSystem")
+		return ps, nil
+	}
+	m.mu.RUnlock()
+
+	return m.loadZoneSystem(key, nInputs, nOutputs)
+}
+
+func (m *LazyKeyManager) loadZoneSystem(key string, nInputs uint32, nOutputs uint32) (*SquadsZoneProofSystem, error) {
+	loadChan := m.acquireLoadingLock(key)
+	if loadChan == nil {
+		m.waitForLoading(key)
+		m.mu.RLock()
+		ps, exists := m.zoneSystems[key]
+		m.mu.RUnlock()
+		if exists {
+			return ps, nil
+		}
+		return nil, fmt.Errorf("loading completed but system not found in cache")
+	}
+	defer m.releaseLoadingLock(key, loadChan)
+
+	keyPath := m.determineZoneKeyPath(nInputs, nOutputs)
+	if keyPath == "" {
+		return nil, fmt.Errorf("no key file mapping for squads-zone with %d inputs and %d outputs", nInputs, nOutputs)
+	}
+
+	logging.Logger().Info().
+		Str("key_path", keyPath).
+		Str("cache_key", key).
+		Msg("Loading SquadsZoneProofSystem")
+
+	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
+		return nil, fmt.Errorf("failed to ensure key %s: %w", keyPath, err)
+	}
+
+	system, err := ReadSystemFromFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
+	}
+
+	ps, ok := system.(*SquadsZoneProofSystem)
+	if !ok {
+		return nil, fmt.Errorf("expected SquadsZoneProofSystem but got different type")
+	}
+
+	m.mu.Lock()
+	m.zoneSystems[key] = ps
+	m.mu.Unlock()
+
+	logging.Logger().Info().
+		Str("cache_key", key).
+		Uint32("n_inputs", ps.NInputs).
+		Uint32("n_outputs", ps.NOutputs).
+		Msg("SquadsZoneProofSystem loaded and cached successfully")
+
+	return ps, nil
+}
+
+func (m *LazyKeyManager) GetKeyEncryptionSystem(numKeys uint32) (*SquadsKeyEncryptionProofSystem, error) {
+	key := fmt.Sprintf("%s_%d", SquadsKeyEncryptionCircuitType, numKeys)
+
+	m.mu.RLock()
+	if ps, exists := m.keyEncSystems[key]; exists {
+		m.mu.RUnlock()
+		logging.Logger().Debug().
+			Str("key", key).
+			Msg("Found cached SquadsKeyEncryptionProofSystem")
+		return ps, nil
+	}
+	m.mu.RUnlock()
+
+	return m.loadKeyEncryptionSystem(key, numKeys)
+}
+
+func (m *LazyKeyManager) loadKeyEncryptionSystem(key string, numKeys uint32) (*SquadsKeyEncryptionProofSystem, error) {
+	loadChan := m.acquireLoadingLock(key)
+	if loadChan == nil {
+		m.waitForLoading(key)
+		m.mu.RLock()
+		ps, exists := m.keyEncSystems[key]
+		m.mu.RUnlock()
+		if exists {
+			return ps, nil
+		}
+		return nil, fmt.Errorf("loading completed but system not found in cache")
+	}
+	defer m.releaseLoadingLock(key, loadChan)
+
+	keyPath := m.determineKeyEncryptionKeyPath(numKeys)
+	if keyPath == "" {
+		return nil, fmt.Errorf("no key file mapping for squads-key-encryption with %d keys", numKeys)
+	}
+
+	logging.Logger().Info().
+		Str("key_path", keyPath).
+		Str("cache_key", key).
+		Msg("Loading SquadsKeyEncryptionProofSystem")
+
+	if err := EnsureProvingKeyFromRelease(keyPath, m.downloadConfig.AutoDownload); err != nil {
+		return nil, fmt.Errorf("failed to ensure key %s: %w", keyPath, err)
+	}
+
+	system, err := ReadSystemFromFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
+	}
+
+	ps, ok := system.(*SquadsKeyEncryptionProofSystem)
+	if !ok {
+		return nil, fmt.Errorf("expected SquadsKeyEncryptionProofSystem but got different type")
+	}
+
+	m.mu.Lock()
+	m.keyEncSystems[key] = ps
+	m.mu.Unlock()
+
+	logging.Logger().Info().
+		Str("cache_key", key).
+		Uint32("num_keys", ps.NumKeys).
+		Msg("SquadsKeyEncryptionProofSystem loaded and cached successfully")
+
+	return ps, nil
 }
 
 func (m *LazyKeyManager) loadMerkleSystem(
@@ -411,6 +548,35 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return ""
 }
 
+// zoneSupportedShapes is the squads zone circuit's supported (nInputs, nOutputs)
+// set: (1,1) withdrawal and (2,2) transfer.
+var zoneSupportedShapes = [][2]uint32{
+	{1, 1},
+	{2, 2},
+}
+
+func (m *LazyKeyManager) determineZoneKeyPath(nInputs uint32, nOutputs uint32) string {
+	for _, shape := range zoneSupportedShapes {
+		if shape[0] == nInputs && shape[1] == nOutputs {
+			return m.keyPath(fmt.Sprintf("squads_zone_%d_%d.key", nInputs, nOutputs))
+		}
+	}
+	return ""
+}
+
+// keyEncryptionSupportedKeys is the squads key encryption circuit's supported
+// recipient-count (recovery + auditor) set.
+var keyEncryptionSupportedKeys = []uint32{1, 2, 3}
+
+func (m *LazyKeyManager) determineKeyEncryptionKeyPath(numKeys uint32) string {
+	for _, n := range keyEncryptionSupportedKeys {
+		if n == numKeys {
+			return m.keyPath(fmt.Sprintf("squads_key_encryption_%d.key", numKeys))
+		}
+	}
+	return ""
+}
+
 func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -574,6 +740,20 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 		logging.Logger().Debug().
 			Str("cache_key", key).
 			Msg("Cached TransferProofSystem")
+
+	case *SquadsZoneProofSystem:
+		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.NInputs, ps.NOutputs)
+		m.zoneSystems[key] = ps
+		logging.Logger().Debug().
+			Str("cache_key", key).
+			Msg("Cached SquadsZoneProofSystem")
+
+	case *SquadsKeyEncryptionProofSystem:
+		key := fmt.Sprintf("%s_%d", ps.CircuitType, ps.NumKeys)
+		m.keyEncSystems[key] = ps
+		logging.Logger().Debug().
+			Str("cache_key", key).
+			Msg("Cached SquadsKeyEncryptionProofSystem")
 
 	default:
 		return fmt.Errorf("unknown system type: %T", system)

@@ -6,10 +6,12 @@
 //! merge there is no user-registry record, no smart account, and no
 //! merge-authority check.
 //!
-//! The consolidated output carries the owner's signing-pubkey view tag (the
-//! confidential default-zone tag) as its single-use `merge_view_tag`, so the same
-//! tag both indexes the merged output for `Wallet::sync` discovery and is inserted
-//! into the nullifier queue for replay protection. The functional inclusion /
+//! The consolidated output is indexed by a zone-chosen, opaque `merge_view_tag`:
+//! SPP never inserts it anywhere, so it need not be a BN254 field element and may
+//! repeat across merges (a confidential policy zone tags every merge with the
+//! owner's static account view tag); replay protection comes from the input
+//! nullifiers alone. This suite tags every merge with the same non-field-element
+//! constant to lock both freedoms in. The functional inclusion /
 //! nullifier-presence check runs inside the `merge_zone` action (where the spent
 //! nullifiers and the pre-merge tree snapshot are in scope); `assert_merged_zone`
 //! then syncs and full-struct asserts the actor's wallet (the merged output
@@ -44,6 +46,11 @@ use crate::{
 /// `ShieldedPoolError::TransactProofVerificationFailed` (the shared merge proof
 /// verifier rejects a malformed / zeroed proof).
 const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
+
+/// Every merge in this suite is tagged with this constant: it exceeds the BN254
+/// modulus and repeats across merges, proving SPP treats the tag as opaque bytes
+/// and photon tolerates reuse.
+const OPAQUE_MERGE_VIEW_TAG: [u8; 32] = [0xFF; 32];
 
 impl ZoneLifecycleWorld {
     /// Build, prove, and submit a `merge_zone` of `count` of `name`'s spendable
@@ -161,12 +168,10 @@ impl ZoneLifecycleWorld {
 
         let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
 
-        // `merge_zone` inserts the single-use `merge_view_tag` into the nullifier
-        // queue for replay protection, so it must be a BN254 field element: the
-        // owner-pubkey confidential tag is a raw pubkey (not reduced) and the queue
-        // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
-        // submitting payer as the merge authority; photon indexes the output under it.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
+        // The `merge_view_tag` is opaque to SPP (never inserted into the nullifier
+        // queue), so it need not be a field element or unique; photon indexes the
+        // output under it.
+        let merge_view_tag = OPAQUE_MERGE_VIEW_TAG;
         let data = result.instruction_data(pack_proof(&proof)?, merge_view_tag);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
@@ -206,7 +211,7 @@ impl ZoneLifecycleWorld {
             },
         )?;
 
-        // The merged output is anonymous (tagged by the derived merge_view_tag, which
+        // The merged output is anonymous (tagged by the opaque constant, which
         // `Wallet::sync` has no scan for), so discovery is verified on-chain via the
         // inclusion + nullifier-presence check above rather than a wallet sync.
         self.indexed.push(indexed);
@@ -342,10 +347,10 @@ impl ZoneLifecycleWorld {
         }
         .build()?;
 
-        // Assemble the instruction data exactly as the happy path does (derived
-        // merge_view_tag so the nullifier-queue insert is valid), then zero the
-        // 192-byte proof so verification is the only thing that fails.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
+        // Assemble the instruction data exactly as the happy path does (same
+        // opaque merge_view_tag), then zero the 192-byte proof so verification is
+        // the only thing that fails.
+        let merge_view_tag = OPAQUE_MERGE_VIEW_TAG;
         let data = result.instruction_data([0u8; 192], merge_view_tag);
 
         let payer = self.payer.insecure_clone();

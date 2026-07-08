@@ -88,7 +88,9 @@ pub struct MergeZoneProofResult {
     /// uses to decrypt it back to the merged output's `(amount, asset, blinding)`.
     pub ciphertext: Vec<u8>,
     pub tx_viewing_pk: P256Pubkey,
-    /// True when the owner is a Solana (ed25519) signer.
+    /// True when the owner takes the pass-through rail: a Solana (ed25519)
+    /// signer or a precomputed-owner-field key (owner known only by its
+    /// `owner_pk_field`).
     pub eddsa_owner: bool,
 }
 
@@ -199,9 +201,11 @@ impl MergeZoneProver {
 
         // Owner rail select, mirroring the merge circuit: a P256 owner witnesses its
         // real point (pk_field recomputed in-circuit, owner_pk_hash = 0); a
-        // Solana owner witnesses a discarded dummy point and feeds its pk_field
-        // through owner_pk_hash.
-        let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
+        // Solana or precomputed-owner-field owner witnesses a discarded dummy
+        // point and feeds its pk_field through owner_pk_hash. The precomputed
+        // gate must come first: such a key must never reach signature_type().
+        let eddsa_owner = self.signing_pubkey.is_precomputed_owner_field()
+            || self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
         let (pub_x, pub_y, owner_pk_hash) = if eddsa_owner {
             let (x, y) = dummy_p256_xy()?;
             (x, y, BigUint::from_bytes_be(&user_signing_pk_hash))
@@ -324,5 +328,66 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             tx_viewing_sk,
             zone_program_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedAddress;
+    use zolana_transaction::Data;
+
+    use super::*;
+    use crate::prover::transact::p256_and_eddsa::tests::spend_with_owner;
+
+    #[test]
+    fn build_accepts_precomputed_owner_field_signing_key() {
+        let mut field = [0u8; 32];
+        field[31] = 42;
+        let signing_pubkey = PublicKey::from_owner_pk_field(field);
+        let nullifier_key = NullifierKey::from_secret([2u8; 31]);
+        let nullifier_pubkey = nullifier_key.pubkey().unwrap();
+
+        let mut viewing_secret = [0u8; 32];
+        viewing_secret[31] = 7;
+        let user_viewing_sk = SecretKey::from_slice(&viewing_secret).unwrap();
+        let user_viewing_pk = P256Pubkey::from_p256(&user_viewing_sk.public_key());
+        let mut tx_secret = [0u8; 32];
+        tx_secret[31] = 9;
+        let tx_viewing_sk = SecretKey::from_slice(&tx_secret).unwrap();
+
+        let output = OutputUtxo {
+            asset: Address::default(),
+            amount: 100,
+            blinding: [3u8; 31],
+            zone_program_id: None,
+            zone_data_hash: None,
+            data_hash: None,
+            owner_address: Some(ShieldedAddress {
+                signing_pubkey,
+                nullifier_pubkey,
+                viewing_pubkey: user_viewing_pk,
+            }),
+            owner_tag: None,
+            data: Data::default(),
+        };
+
+        let result = MergeZoneProver {
+            inputs: vec![spend_with_owner(signing_pubkey)],
+            output,
+            expiry_unix_ts: 0,
+            signing_pubkey,
+            nullifier_key,
+            user_viewing_pk,
+            tx_viewing_sk,
+            zone_program_id: Address::new_from_array([9u8; 32]),
+        }
+        .build()
+        .unwrap();
+
+        assert!(result.eddsa_owner);
+        assert_eq!(result.inputs.owner_pk_hash, BigUint::from_bytes_be(&field));
+        let (dummy_x, dummy_y) = dummy_p256_xy().unwrap();
+        assert_eq!(result.inputs.p256_pub_x, be(&dummy_x));
+        assert_eq!(result.inputs.p256_pub_y, be(&dummy_y));
     }
 }

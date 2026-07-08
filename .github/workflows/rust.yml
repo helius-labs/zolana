@@ -121,7 +121,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v11
       - run: just test-shielded-pool
 
   test-sdk-libs:
@@ -162,7 +162,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v11
       - run: just test-programs
 
   test-localnet-photon:
@@ -183,6 +183,10 @@ jobs:
             recipe: test-spp-validator-randomized
           - name: zone lifecycle
             recipe: test-zone-validator
+          - name: squads zone
+            recipe: test-squads-zone
+          - name: squads smart-account
+            recipe: test-squads-zone-smart-account
     env:
       AGAVE_VERSION: v4.0.2
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -208,7 +212,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v11
       - name: Install pinned Photon
         run: ./tools/install-photon.sh
       - name: Cache Squads smart account binary
@@ -258,7 +262,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       # The spawned prover lazily fetches Zolana-specific proving keys from the
-      # transfer-keys-v10 release via `gh`. The release lives in this repo, so the
+      # transfer-keys-v11 release via `gh`. The release lives in this repo, so the
       # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -278,5 +282,5 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prover/server/proving-keys
-          key: proving-keys-transfer-keys-v10
+          key: proving-keys-transfer-keys-v11
       - run: just test-client-integration

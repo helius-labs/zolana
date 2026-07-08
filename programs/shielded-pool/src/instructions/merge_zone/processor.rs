@@ -27,8 +27,10 @@ use crate::instructions::{
 
 /// Policy-zone analog of `merge_transact`, invoked via CPI from a zone program.
 /// The zone's `zone_config` account signs (authorization), the merged output is
-/// indexed by the single-use `merge_view_tag`, and SPP does not check
-/// `protocol_config.merge_authorities`.
+/// indexed by the zone-chosen `merge_view_tag` (the squads zone tags with the
+/// owner's static account view tag), and SPP does not check
+/// `protocol_config.merge_authorities`. SPP treats the tag as opaque bytes;
+/// replay protection comes from the input nullifiers.
 #[inline(never)]
 pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix =
@@ -67,14 +69,11 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         owner_binding: MergeOwnerBinding::Zone { zone_program_id },
     };
 
-    // The merged output is indexed by the single-use `merge_view_tag`, which is
-    // also inserted into the nullifier queue for replay protection.
     process_merge_core(
         merge_accounts.tree,
         merge,
         derived,
         merge_view_tag,
         clock.slot,
-        Some(merge_view_tag),
     )
 }

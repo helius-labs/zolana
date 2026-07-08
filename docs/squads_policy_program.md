@@ -75,15 +75,15 @@ Types used in this document.
 | `Signature` | `[u8; 64]` | Ed25519 Solana transaction signature. |
 | `Instruction` | — | Solana SDK instruction. |
 | `P256Pubkey` | `[u8; 33]` | SEC1-compressed P-256 public key: 1-byte parity prefix + 32-byte x-coordinate. |
-| `asset_id` | `u64` | Asset identifier in UTXOs and ciphertexts. `1` is SOL; each SPL mint gets a distinct `asset_id ≥ 2`, set in a per-mint PDA at SPL interface creation. |
+| `asset_id` | `u64` | Asset identifier surfaced by the backend API. `1` is SOL; each SPL mint gets a distinct `asset_id ≥ 2`, set in a per-mint PDA at SPL interface creation. On-chain UTXO commitments and zone ciphertexts carry the full 32-byte `asset` field element, not this packed id. |
 | `Spp` | — | Solana privacy program. |
 | `ZoneProof` | `[u8; 192]` | Compressed Groth16 zone proof with commitment. |
 | `SppProof` | `[u8; 192]` | Compressed Groth16 SPP proof with commitment; verified in SPP. |
 | `MergeProof` | `[u8; 192]` | Compressed Groth16 merge proof with commitment. Proves a single owner's input UTXOs consolidate into one output UTXO of the same owner and total value, verifiably encrypted to the owner's shared viewing key. |
-| `SharedKeyCiphertext` | `[u8; 81]` | HPKE-encrypted shared viewing private key: 33-byte ephemeral P-256 key + 32-byte AES-GCM ciphertext + 16-byte GCM tag. |
+| `SharedKeyCiphertext` | `[u8; 32]` | AES-CTR ciphertext of the 32-byte shared viewing private key, encrypted to one recovery or auditor key. No per-entry ephemeral key or tag: one ephemeral key (`key_ciphertext_ephemeral`) is shared across all of an account's shared-key ciphertexts, and integrity comes from the Poseidon ciphertext hash bound by the [key encryption proof](#key-encryption-proof). |
 | `ProposalCiphertext` | `[u8; 88]` | Operation amount and blinding encrypted to the shared viewing key: 33-byte ephemeral P-256 key + 39-byte AES-GCM ciphertext (8-byte amount + 31-byte blinding) + 16-byte GCM tag. |
-| `SenderCiphertext` | `[u8; 32]` | Sender change ciphertext: 16-byte plaintext (`amount`, `asset_id`) + 16-byte GCM tag. |
-| `RecipientCiphertext` | `[u8; 63]` | Recipient output ciphertext: 47-byte plaintext (`amount`, `asset_id`, 31-byte `blinding`) + 16-byte GCM tag. |
+| `SenderCiphertext` | `[u8; 40]` | Sender change ciphertext: 40-byte AES-CTR ciphertext over the plaintext (8-byte `amount`, 32-byte `asset`). No tag; integrity comes from the Poseidon ciphertext hash bound by the zone proof. |
+| `RecipientCiphertext` | `[u8; 71]` | Recipient output ciphertext: 71-byte AES-CTR ciphertext over the plaintext (8-byte `amount`, 32-byte `asset`, 31-byte `blinding`). No tag; integrity comes from the Poseidon ciphertext hash bound by the zone proof. |
 | `Shielded Address` | — | UTXO owner identity `(signing_pk, nullifier_pk, viewing_pk)`: the spend-authorizing key, the nullifier commitment, and the viewing key. See [Shielded Address](spec.md#shielded-address). |
 | `Shielded Keypair` | — | The wallet-held secrets behind a `Shielded Address`: `signing_sk`, the derived `nullifier_secret`, and the viewing secret key. See [Signing Key](spec.md#signing-key). |
 | `nullifier_pubkey` | `[u8; 32]` | Nullifier commitment `Poseidon(nullifier_secret)`; UTXOs to the owner commit to it in their owner hash. A smart-account [viewing key account](#viewing-key-account) holds a per-account random value that rotates with the shared key, since it has no `signing_sk` to derive one from. |
@@ -169,6 +169,8 @@ A key holder creates a proposal that commits to a single operation (withdrawal o
 Once the threshold is met, a co-signer or relayer holding the shared viewing key decrypts the proposal, builds the proof, and executes the transaction. The proposer can cancel a proposal before it executes, and a proposal expires at a set Unix timestamp.
 
 The zone program does not verify the smart-account threshold itself. Approval is enforced by the smart account program that votes on the `create_proposal` instruction. The zone program treats an existing `Proposal` account as an approved operation; `execute_proposal` checks only the co-signer and the proof.
+
+Only an owner that can sign `create_proposal` with an ed25519 Solana signature can queue a proposal: a smart-account vault (via the multisig CPI) or a Solana keypair. A P256 owner has no such signature; its spend is authorized by the SPP proof, so it settles synchronously via `transact`.
 
 ## Concurrency
 
@@ -372,14 +374,26 @@ struct ViewingKeyAccount {
     /// Public shared viewing key. UTXOs to and from `owner`
     /// are encrypted to it.
     shared_viewing_key: P256Pubkey,
+    /// Poseidon commitment to the shared viewing secret key behind
+    /// `shared_viewing_key` (its P-256 scalar absorbed as 128-bit hi/lo limbs).
+    /// The zone proof binds the sender's witnessed viewing secret against this,
+    /// avoiding an in-circuit P-256 scalar multiplication to `shared_viewing_key`.
+    /// Written from instruction data and bound to the same secret by the key
+    /// encryption proof at creation and on each rotation.
+    shared_viewing_key_commitment: [u8; 32],
     /// Incremented on each rotation; orders key updates.
     key_nonce: u64,
     /// Nullifier commitment for `owner`'s UTXOs; replaced on each rotation.
     nullifier_pubkey: [u8; 32],
-    /// Nullifier secret encrypted to the shared viewing key, letting each recovery
-    /// key and the auditor recover it to derive spend nullifiers. Rotated to a
-    /// fresh random value on execute_key_update.
-    encrypted_nullifier_secret: SharedKeyCiphertext,
+    /// Ephemeral P-256 key shared by every shared-key ciphertext in this account
+    /// (the recovery, auditor, and nullifier-secret ciphertexts); rotated with the
+    /// shared key. ECDH against it recovers each ciphertext's AES-CTR key.
+    key_ciphertext_ephemeral: P256Pubkey,
+    /// Nullifier secret AES-CTR-encrypted to the shared viewing key using
+    /// `key_ciphertext_ephemeral`, letting each recovery key and the auditor
+    /// recover it to derive spend nullifiers. Rotated to a fresh random value on
+    /// execute_key_update. No tag; integrity comes from the key encryption proof.
+    encrypted_nullifier_secret: [u8; 31],
     /// One recovery key per smart account key holder.
     recovery_keys: Vec<P256Pubkey>,
     /// Shared private key encrypted to each `recovery_keys[i]`.
@@ -391,22 +405,22 @@ struct ViewingKeyAccount {
 }
 ```
 
-ViewingKeyAccount size is `205 + 114·(R + A)` bytes, for `R` recovery keys and `A` auditors (the 32-byte `nullifier_pubkey` and 81-byte `encrypted_nullifier_secret` are in the fixed part; four 4-byte `Vec` length prefixes, borsh-packed):
+ViewingKeyAccount size is `208 + 65·(R + A)` bytes, for `R` recovery keys and `A` auditors. Each recovery or auditor entry is a 33-byte `P256Pubkey` plus a 32-byte `SharedKeyCiphertext`. The fixed part (208) holds the 32-byte `nullifier_pubkey`, 32-byte `shared_viewing_key_commitment`, 33-byte `key_ciphertext_ephemeral`, and 31-byte `encrypted_nullifier_secret`, plus four 1-byte `Vec` length prefixes, wincode-packed:
 
 | Recovery keys (R) | Auditors (A) | Size (bytes) |
 | --- | --- | --- |
-| 1 | 1 | 433 |
-| 2 | 1 | 547 |
-| 3 | 1 | 661 |
-| 5 | 1 | 889 |
-| 10 | 1 | 1459 |
+| 1 | 1 | 338 |
+| 2 | 1 | 403 |
+| 3 | 1 | 468 |
+| 5 | 1 | 598 |
+| 10 | 1 | 923 |
 
 
 #### Proposal
 
 The proposal account holds the parameters of a queued withdrawal or transfer. The `proposal_hash` is a public input to the [zone proof](#zone-proof) so that the executor who creates the proof when sending the transaction cannot change the operation between approval and execution.
 
-Derivation seed: `[b"proposal", owner, cipher_text[0..33]]`. The ciphertext prefix is the ephemeral P-256 key, fresh per encryption, so each proposal derives a distinct PDA.
+Derivation seed: `[b"proposal", owner, cipher_text[0..32]]`. The seed uses the first 32 bytes of the ciphertext's leading ephemeral P-256 key (Solana caps a seed at 32 bytes), fresh per encryption, so each proposal derives a distinct PDA.
 
 Created by `create_proposal`. `execute_proposal` settles the operation and closes the proposal; `cancel_proposal` closes it before execution. Either close returns the rent to `rent_payer`. A proposal expires once the cluster Unix time passes `expiry`.
 
@@ -432,7 +446,7 @@ struct Proposal {
 }
 ```
 
-Size: `257` bytes (`1 + 32 + 32 + 32 + 32 + 88 + 8 + 32`, borsh-packed).
+Size: `257` bytes (`1 + 32 + 32 + 32 + 32 + 88 + 8 + 32`, wincode-packed; fixed-size, no length prefixes).
 
 #### Key Update Proposal
 
@@ -477,7 +491,7 @@ struct KeyOperation {
 
 `operations` apply in array order to the target's `recovery_keys`; the resulting count is `R'`. A proposal holds either a batch of recovery-key ops (smart-account approval) or a single auditor-update op; the two are not mixed. The auditor-update op is valid only when `zone_config.auditor_keys` differs from the stored auditor keys, is signed by the co-signer, and triggers a full rotation like the recovery-key ops.
 
-Size is `115 + 35·O + 81·K` bytes for `O` operations and `K = R' + A` buffered ciphertexts (fixed part `1 + 2 + 32 + 8 + 32 + 32 = 107` plus two 4-byte `Vec` length prefixes; each `KeyOperation` is 35 and each `SharedKeyCiphertext` 81).
+Size is `109 + 35·O + 32·K` bytes for `O` operations and `K = R' + A` buffered ciphertexts (fixed part `1 + 2 + 32 + 8 + 32 + 32 = 107` plus two 1-byte `Vec` length prefixes; each `KeyOperation` is 35 and each `SharedKeyCiphertext` 32). The shared `key_ciphertext_ephemeral` and the new `encrypted_nullifier_secret` are not buffered here; the executor supplies them in `execute_key_update`.
 
 #### Zone Config
 
@@ -504,7 +518,7 @@ struct ZoneConfig {
 }
 ```
 
-Size: `81 + 33·A + 32·M` bytes for `A` auditor keys and `M` merge authorities (fixed part `1 + 32 + 32 + 8 = 73` plus two 4-byte `Vec` length prefixes; each auditor key 33, each authority 32).
+Size: `75 + 33·A + 32·M` bytes for `A` auditor keys and `M` merge authorities (fixed part `1 + 32 + 32 + 8 = 73` plus two 1-byte `Vec` length prefixes; each auditor key 33, each authority 32).
 
 
 ### Zone ZK Proofs
@@ -515,24 +529,22 @@ The zone verifies its own ZK proof (Groth16), separate from the SPP proof which 
 
 Verified by `transact` and `execute_proposal`. One circuit covers both spend flows, withdrawal and transfer; a withdrawal's single output is the sender change. It enforces the verifiable encryption of every output to its recipient's auditor-shared viewing key, and the canonical derivation of the sender's change blinding.
 
-**Public Inputs**
+**Public input.** The circuit exposes a single public input: a Poseidon hash chain over the values below, in this exact order. `transact` and `execute_proposal` recompute the chain from instruction data and account state and pass it as the proof's public input.
 
-| Input | Source |
-| --- | --- |
-| `private_tx_hash` | instruction data; shared with the SPP proof |
-| `recipient_viewing_keys` | recipient ViewingKeyAccount(s) |
-| `sender_viewing_key` | sender ViewingKeyAccount's `shared_viewing_key`; the change output is encrypted to it (transfer and withdrawal) |
-| `output_utxo_ciphertexts` | instruction data; includes `tx_viewing_pk` |
-| `output_utxo_hashes` | instruction data; the same output commitments the SPP proof commits in `private_tx_hash` |
-| `public_amount` | instruction data (withdrawal; `0` for transfer) |
-| `proposal_hash` | Proposal account (async only); `0` for sync `transact`, where the owner's signature over `private_tx_hash` already covers the outputs |
-| `first_nullifier` | equals the SPP proof's first nullifier; seeds per-transaction uniqueness of `tx_viewing_sk` |
+1. `private_tx_hash` — instruction data; shared with the SPP proof. It already commits the input and output UTXO hashes, so those commitments are not separate public inputs.
+2. `public_amount` — instruction data (withdrawal; `0` for transfer).
+3. `sender_account_hash` — `Poseidon(owner, shared_viewing_key_commitment, nullifier_pubkey)` from the sender ViewingKeyAccount; binds the witnessed viewing secret that derives the change ciphertext (transfer and withdrawal).
+4. `sender_ciphertext_hash` — Poseidon hash of the sender change ciphertext.
+5. recipient elements (transfer only, in order): `tx_viewing_pk` (packed), `recipient_account_hash` = `Poseidon(owner, viewing_key, nullifier_pubkey)` from the recipient ViewingKeyAccount (the viewing key absorbed as 128-bit lo/hi limbs), and `recipient_ciphertext_hash`.
+6. `proposal_hash` — Proposal account (async only); `0` for sync `transact`, where the owner's signature over `private_tx_hash` already covers the outputs.
+
+`first_nullifier` (`Poseidon(Inputs[0].hash, Inputs[0].blinding, nullifier_secret)`) is a private intermediate that seeds the per-transaction `tx_viewing_sk` (see the change-blinding derivation below), not a public input.
 
 **Private Inputs**
 
 | Input | Description |
 | --- | --- |
-| `viewing_sk` | shared viewing secret behind `sender_viewing_key`; supplied by the wallet or auditor |
+| `viewing_sk` | shared viewing secret committed by `sender_viewing_key_commitment`; supplied by the wallet or auditor |
 | output plaintexts | per output: `amount`, `asset`, `blinding`; the body fields encrypted into `output_utxo_ciphertexts` and recomputed into `output_utxo_hashes[i]` |
 
 **Checks**
@@ -542,7 +554,7 @@ Verified by `transact` and `execute_proposal`. One circuit covers both spend flo
 | Output encryption | Every output UTXO is encrypted to its named recipient viewing key. |
 | Output binding | Each output's `(owner, amount, asset, blinding)` recomputes to its `output_utxo_hashes[i]`, so the ciphertext describes the UTXOs the SPP proof settles via `private_tx_hash`. |
 | Amount binding | The encrypted output amounts match the committed operation (`public_amount` / `proposal_hash`). |
-| Shared key binding | `viewing_sk · G == sender_viewing_key`, pinning the witnessed secret to the sender account. |
+| Shared key binding | `Poseidon(viewing_sk_lo, viewing_sk_hi) == sender_viewing_key_commitment` (the secret's 128-bit hi/lo limbs), pinning the witnessed secret to the sender account without an in-circuit P-256 scalar multiplication. |
 | Keypair consistency | `tx_viewing_pk == tx_viewing_sk · G`, against the `tx_viewing_pk` in `output_utxo_ciphertexts`. |
 | Change blinding | The change output's `blinding` equals the derivation below (its `output_utxo_hashes[i]` then follows from Output binding). |
 
@@ -552,21 +564,31 @@ Verified by `transact` and `execute_proposal`. One circuit covers both spend flo
 view_root         = PoseidonKDF(viewing_sk)
 tx_viewing_secret = PoseidonKDF(view_root, "TSPP/tx_viewing")
 tx_viewing_sk     = PoseidonKDF(tx_viewing_secret, first_nullifier)
-blinding          = PoseidonKDF(tx_viewing_sk, "blinding")
+blinding          = low248(PoseidonKDF(tx_viewing_sk, "blinding"))
 ```
+
+`low248` keeps the low 248 bits of the KDF output (the top byte of its 32-byte
+big-endian encoding is zeroed), so the change blinding always fits the SPP
+UTXO's 31-byte blinding and any deposit blinding yields a spendable UTXO.
 
 #### Key Encryption Proof
 
-Verified by `create_viewing_key_account` and `execute_key_update`. Proves the inserted ciphertexts encrypt the shared viewing private key to every recovery and auditor key, and that `encrypted_nullifier_secret` encrypts the nullifier secret for `nullifier_pubkey = Poseidon(nullifier_secret)`. `old_state_hash` is the account's prior keys-and-ciphertexts hash for an update (including the prior `nullifier_pubkey` and `encrypted_nullifier_secret`), and `0` at creation. Under `execute_key_update` every update is a full rotation: the new shared private key is re-encrypted to all `R'` resulting recovery keys and the auditor.
+Verified by `create_viewing_key_account` and `execute_key_update`. Proves the inserted ciphertexts encrypt the shared viewing private key to every recovery and auditor key, that `shared_viewing_key_commitment` is the Poseidon commitment of that same private key and that `shared_viewing_key = secret · G` (so the stored commitment the [zone proof](#zone-proof) reads matches `shared_viewing_key`), and that `encrypted_nullifier_secret` encrypts the nullifier secret for `nullifier_pubkey = Poseidon(nullifier_secret)`. `old_state_hash` is the account's prior keys-and-ciphertexts hash for an update (including the prior `key_ciphertext_ephemeral`, `nullifier_pubkey`, and `encrypted_nullifier_secret`), and `0` at creation. Under `execute_key_update` every update is a full rotation: the new shared private key is re-encrypted to all `R'` resulting recovery keys and the auditor.
 
-**Public inputs**
+Each ciphertext is AES-CTR, like the zone [encrypted UTXO ciphertexts](#encrypted-utxo-serialization): one `key_ciphertext_ephemeral` is shared across all of an account's shared-key ciphertexts (the recovery, auditor, and nullifier-secret ciphertexts), and per-ciphertext integrity comes from the Poseidon ciphertext hash bound below, not a GCM tag. The AES-CTR key for each entry derives from `ECDH(key_ciphertext_ephemeral_secret, target_key)` through the same Poseidon KDF the zone proof uses.
+
+**Public inputs.** The proof exposes a single public input: a Poseidon hash chain over the values below, in this exact order. `create_viewing_key_account` and `execute_key_update` recompute the chain from instruction data and account state and pass it as the proof's public input.
 
 1. `old_state_hash` — `0` at creation; the account's current keys-and-ciphertexts hash for an update.
 2. `shared_viewing_key` (`new_shared_viewing_key` for an update) — instruction data.
-3. recovery and auditor keys — recovery from instruction data and auditor from ZoneConfig at creation; for an update, recovery is the target's `recovery_keys` with the proposal's `operations` applied, and auditor from ZoneConfig.
-4. recovery and auditor ciphertexts — instruction data at creation; KeyUpdateProposal buffer for `execute_key_update`.
-5. `nullifier_pubkey` (`new_nullifier_pubkey` for an update) — instruction data.
-6. `encrypted_nullifier_secret` — instruction data at creation; re-encrypted to the new shared viewing key for an update.
+3. `shared_viewing_key_commitment` (`new_shared_viewing_key_commitment` for an update) — instruction data; Poseidon of the same shared viewing secret the proof encrypts.
+4. `key_ciphertext_ephemeral` — the single ephemeral key shared by every ciphertext below; instruction data.
+5. recovery and auditor keys, in order: each recovery key in `recovery_keys` order, then each auditor key. Recovery from instruction data and auditor from ZoneConfig at creation; for an update, recovery is the target's `recovery_keys` with the proposal's `operations` applied, and auditor from ZoneConfig.
+6. recovery and auditor ciphertexts — the Poseidon hash of each `SharedKeyCiphertext`, in the same recovery-then-auditor order as the keys. Instruction data at creation; KeyUpdateProposal buffer for `execute_key_update`.
+7. `nullifier_pubkey` (`new_nullifier_pubkey` for an update) — instruction data.
+8. `encrypted_nullifier_secret` — the Poseidon hash of its `[u8; 31]` AES-CTR ciphertext; instruction data at creation, re-encrypted to the new shared viewing key for an update.
+
+The recovery-then-auditor order in inputs 5 and 6 is a positional contract: the prover and the program MUST iterate the keys and ciphertexts in the same order, or the recomputed chain will not match.
 
 ### Instructions
 
@@ -648,8 +670,8 @@ struct TransactIxData {
     output_utxo_hashes: Vec<[u8; 32]>,
     /// Per input: its nullifier, the tree holding it, and the roots to verify it against. Length N.
     input_contexts: Vec<InputContext>,
-    /// Output ciphertexts, zone serialization. Checked by the zone proof, not parsed by SPP.
-    encrypted_utxos: Vec<u8>,
+    /// Output ciphertexts (`EncryptedUtxos`), zone serialization. Parsed inline and checked by the zone proof, not parsed by SPP.
+    encrypted_utxos: EncryptedUtxos,
 }
 
 struct InputContext {
@@ -666,7 +688,7 @@ struct InputContext {
 
 ##### Encrypted UTXO Serialization
 
-The `sender_viewing_key_account` and `recipient_viewing_key_account` identify the owners and serve as view tags, so the ciphertext contains no pubkeys or tags. A transfer moves one asset with no separate SOL change, so the sender has one change output and each recipient one. The asset stays private; each ciphertext includes its own `asset_id`.
+The `sender_viewing_key_account` and `recipient_viewing_key_account` identify the owners and serve as view tags, so the ciphertext contains no pubkeys or tags. A transfer moves one asset with no separate SOL change, so the sender has one change output and each recipient one. The asset stays private; each ciphertext includes its own 32-byte `asset` field.
 
 The sender change derives its blinding as a Poseidon KDF of `tx_viewing_sk` (itself derived from the shared viewing key; see [Zone Proof](#zone-proof)), so only its amount and asset are transmitted, in a separate ciphertext encrypted to the sender's shared viewing key. Each recipient output transmits amount, asset, and the sender-chosen blinding, encrypted to the recipient's shared viewing key. One ephemeral `tx_viewing_pk` is shared across all ciphertexts.
 
@@ -682,12 +704,15 @@ struct EncryptedUtxos {
 
 struct SenderPlaintext {
     amount: u64,
-    asset_id: u64,
+    /// The UTXO's 32-byte asset field element (e.g. Poseidon(0, 0) for SOL),
+    /// transmitted in full rather than as a packed `asset_id`.
+    asset: [u8; 32],
 }
 
 struct RecipientPlaintext {
     amount: u64,
-    asset_id: u64,
+    /// The UTXO's 32-byte asset field element, as in SenderPlaintext.
+    asset: [u8; 32],
     /// Random blinding chosen by the sender.
     blinding: [u8; 31],
 }
@@ -697,37 +722,37 @@ The recipient reconstructs its UTXO from the plaintext plus `owner` (the `recipi
 
 The Squads backend is the relayer and the `payer`: it pays the Solana base fee natively, so there is no reimbursement. The zone passes `relayer_fee = 0` to the SPP CPI and omits the field from its own instruction data.
 
-Blob size: `33 (tx_viewing_pk) + 32 (sender_ciphertext) + 4 (Vec len) + 63·R`.
+`EncryptedUtxos` is parsed inline in the instruction data (it is not an opaque byte blob). Size: `33 (tx_viewing_pk) + 40 (sender_ciphertext) + 1 (recipient_ciphertexts Vec len) + 71·R`.
 
-| R | Blob (B) |
+| R | Size (B) |
 | --- | --- |
-| 0 | 69 |
-| 1 | 132 |
+| 0 | 74 |
+| 1 | 145 |
 
 **Transaction Size**
 
-Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). Three `Vec` fields each add a 4-byte length prefix: `output_utxo_hashes` (`32·M`), `input_contexts` (`37·N`, each `InputContext` is `32 + 1 + 2 + 2`), and `encrypted_utxos` (`69 + 63·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `506 + 32·M + 37·N + 63·R`.
+Fixed-size fields: `zone_proof 192 + spp_proof 192 + private_tx_hash 32 + expiry 8 = 424`, plus `public_amount` (1 `None`, 9 `Some`). The `output_utxo_hashes` (`1 + 32·M`) and `input_contexts` (`1 + 37·N`, each `InputContext` is `32 + 1 + 2 + 2`) vectors each carry a 1-byte length prefix; `encrypted_utxos` is the inline `EncryptedUtxos` struct (`74 + 71·R`, see [Encrypted UTXO Serialization](#encrypted-utxo-serialization)). Data total for a transfer: `501 + 32·M + 37·N + 71·R`.
 
 Each account address costs 32 bytes when written in full, or ~1 byte when referenced through an address-lookup table (ALT). The static accounts (`zone_config`, `zone_auth`, `spp_program`) and the `tree_accounts` tail are referenced through the ALT; `payer`, `co_signer`, the viewing key accounts, and `zone_program_id` are written in full. Each distinct tree touched adds one ALT key. The transaction total assumes one signer (65 B), the message header (3 B), a recent blockhash (32 B), and the instruction framing.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| transfer | 1 | 2 | 670 | 5 | 4 | 983 |
-| transfer | 2 | 2 | 707 | 5 | 4 | 1020 |
-| transfer | 3 | 2 | 744 | 5 | 4 | 1057 |
-| transfer | 4 | 2 | 781 | 5 | 4 | 1094 |
+| transfer | 1 | 2 | 673 | 5 | 4 | 986 |
+| transfer | 2 | 2 | 710 | 5 | 4 | 1023 |
+| transfer | 3 | 2 | 747 | 5 | 4 | 1060 |
+| transfer | 4 | 2 | 784 | 5 | 4 | 1097 |
 
 **Withdraw Transaction Size**
 
-A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_amount` `Some`, 9 B). The single output is the sender's change, so it uses only the sender ciphertext (`R = 0`, `encrypted_utxos` `69` B), and there is no `recipient_viewing_key_account`.
+A withdrawal is a 1-in 1-out circuit with the withdrawn amount public (`public_amount` `Some`, 9 B). The single output is the sender's change, so it uses only the sender ciphertext (`R = 0`, `encrypted_utxos` `74` B), and there is no `recipient_viewing_key_account`.
 
-Data, at `M = N = 1`: `424 + 9 (public_amount) + (4 + 32) + (4 + 37) + (4 + 69) = 583` B.
+Data, at `M = N = 1`: `424 + 9 (public_amount) + (1 + 32) + (1 + 37) + 74 = 578` B.
 
 A withdrawal also moves SPL out of the SPL interface account: `spl_token_program` and `spl_interface` are referenced through the ALT, and `spl_recipient_account` is written in full.
 
 | Shape | Inputs (N) | Outputs (M) | Data (B) | Full keys | ALT keys | Tx total (B) |
 | --- | --- | --- | --- | --- | --- | --- |
-| withdraw | 1 | 1 | 583 | 5 | 6 | 900 |
+| withdraw | 1 | 1 | 578 | 5 | 6 | 895 |
 
 ---
 
@@ -848,10 +873,16 @@ struct CreateViewingKeyAccountIxData {
     encryption_scheme: u8,
     /// Public shared viewing key.
     shared_viewing_key: P256Pubkey,
+    /// Poseidon commitment to the shared viewing secret key; bound to the same
+    /// secret by the key encryption proof and stored in the viewing key account.
+    shared_viewing_key_commitment: [u8; 32],
     /// Nullifier commitment.
     nullifier_pubkey: [u8; 32],
-    /// Nullifier secret encrypted to the shared viewing key.
-    encrypted_nullifier_secret: SharedKeyCiphertext,
+    /// Ephemeral P-256 key shared by every shared-key ciphertext below.
+    key_ciphertext_ephemeral: P256Pubkey,
+    /// Nullifier secret AES-CTR-encrypted to the shared viewing key using
+    /// `key_ciphertext_ephemeral`.
+    encrypted_nullifier_secret: [u8; 31],
     /// Smart account holder keys; empty for an auditor-only account.
     recovery_keys: Vec<P256Pubkey>,
     /// Shared private key encrypted to each recovery key, then the auditor.
@@ -914,7 +945,7 @@ struct FillKeyUpdateIxData {
 
 #### execute_key_update
 
-Settles an approved [key update proposal](#key-update-proposal): verifies the [key encryption proof](#key-encryption-proof), applies the proposal's `operations` to the target's `recovery_keys` (or `auditor_keys` for an auditor update), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key`, `nullifier_pubkey`, and re-encrypted `encrypted_nullifier_secret`, increments `key_nonce`, and closes the proposal. Before overwriting them, it records the complete pre-rotation viewing key account as a self-CPI event (the program invokes itself with the account as instruction data), so indexers retain the old keys for decrypting balances from before the rotation. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`), the signer to equal the proposal's `executor`, and the zone co-signer to sign.
+Settles an approved [key update proposal](#key-update-proposal): verifies the [key encryption proof](#key-encryption-proof), applies the proposal's `operations` to the target's `recovery_keys` (or `auditor_keys` for an auditor update), copies the new recovery and auditor ciphertexts from the proposal buffer into the [viewing key account](#viewing-key-account), writes the new `shared_viewing_key`, `shared_viewing_key_commitment`, `nullifier_pubkey`, `key_ciphertext_ephemeral`, and re-encrypted `encrypted_nullifier_secret`, increments `key_nonce`, and closes the proposal. Before overwriting them, it records the complete pre-rotation viewing key account as a self-CPI event (the program invokes itself with the account as instruction data), so indexers retain the old keys for decrypting balances from before the rotation. Buffering the ciphertexts in the proposal keeps them out of this instruction, so its size is constant in the key count. Requires the buffer fully filled (`new_key_ciphertexts.len() == K`), the signer to equal the proposal's `executor`, and the zone co-signer to sign.
 
 **Accounts**
 
@@ -934,10 +965,17 @@ struct ExecuteKeyUpdateIxData {
     rotation_proof: [u8; 192],
     /// New public shared viewing key.
     new_shared_viewing_key: P256Pubkey,
+    /// Poseidon commitment to the new shared viewing secret key; bound to the
+    /// same secret by the rotation proof.
+    new_shared_viewing_key_commitment: [u8; 32],
     /// Fresh nullifier commitment for this rotation.
     new_nullifier_pubkey: [u8; 32],
-    /// New random nullifier secret encrypted to the new shared viewing key.
-    new_encrypted_nullifier_secret: SharedKeyCiphertext,
+    /// Ephemeral P-256 key shared by the buffered recovery and auditor ciphertexts
+    /// and `new_encrypted_nullifier_secret`; the executor encrypts them all to it.
+    new_key_ciphertext_ephemeral: P256Pubkey,
+    /// New random nullifier secret AES-CTR-encrypted to the new shared viewing key
+    /// using `new_key_ciphertext_ephemeral`.
+    new_encrypted_nullifier_secret: [u8; 31],
 }
 ```
 
@@ -1081,7 +1119,7 @@ struct UpdateZoneConfigIxData {
 
 #### merge_transact
 
-Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation)). It verifies the `MergeProof`, then CPIs SPP's native merge. The signer must be in `zone_config.merge_authorities`.
+Lets a merge authority consolidate one owner's UTXOs into a single UTXO of the same owner and total value, without the owner signing (see [UTXO Balance Consolidation](#utxo-balance-consolidation)). It forwards the `MergeProof` and the SPP merge proof to SPP's native merge, which verifies both and settles the consolidation; the merge verifying key lives in the SPP, not the zone. The signer must be in `zone_config.merge_authorities`.
 
 **Accounts**
 

@@ -79,15 +79,14 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         derived,
         output_view_tag,
         clock.slot,
-        None,
     )
 }
 
 /// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
-/// inputs (and, for `merge_zone`, insert the single-use `merge_view_tag`), append
-/// the output, verify the proof, and emit the event. `derived` already carries
-/// the resolved `external_data_hash` and the variant-specific owner binding,
-/// which selects both the public-input shape and the verifying key.
+/// inputs, append the output, verify the proof, and emit the event. `derived`
+/// already carries the resolved `external_data_hash` and the variant-specific
+/// owner binding, which selects both the public-input shape and the verifying
+/// key.
 #[inline(never)]
 pub(crate) fn process_merge_core(
     tree_account: &mut AccountView,
@@ -95,7 +94,6 @@ pub(crate) fn process_merge_core(
     mut derived: MergeProofInputs,
     output_view_tag: [u8; 32],
     current_slot: u64,
-    single_use_tag: Option<[u8; 32]>,
 ) -> ProgramResult {
     let tree_write = {
         let output_tree = tree_account.address().to_bytes();
@@ -105,14 +103,7 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_tree(
-            &mut tree,
-            ix,
-            current_slot,
-            output_tree,
-            &mut derived,
-            single_use_tag,
-        )?
+        apply_tree(&mut tree, ix, current_slot, output_tree, &mut derived)?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag);
@@ -127,7 +118,6 @@ fn apply_tree(
     current_slot: u64,
     output_tree: [u8; 32],
     derived: &mut MergeProofInputs,
-    single_use_tag: Option<[u8; 32]>,
 ) -> Result<MergeTreeWrite, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
@@ -151,14 +141,6 @@ fn apply_tree(
             input_queue_seq: nullifier_seq_base + i as u64,
             nullifier: *nullifier,
         });
-    }
-
-    // `merge_zone` indexes the output by a single-use `merge_view_tag`; insert it
-    // into the nullifier queue so a duplicate tag is rejected (replay protection).
-    if let Some(tag) = single_use_tag {
-        tree.nullifer_tree()
-            .insert_address_into_queue(&tag, &current_slot)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
     }
 
     let output_leaf_index = tree.utxo_tree().next_index();
