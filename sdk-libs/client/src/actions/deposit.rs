@@ -25,8 +25,8 @@ use crate::{error::ClientError, rpc::Rpc, wallet_sync::sync_wallet};
 /// ~34k CU (`program-tests/shielded-pool/CU_BENCHMARK.md`).
 pub const DEFAULT_DEPOSIT_CU_LIMIT: u32 = 40_000;
 
-/// How long [`Deposit::send_and_sync`] waits for the indexer to pick up the
-/// deposited UTXO before giving up.
+/// How long [`Deposit::wait_until_synced`] waits for the indexer to pick up
+/// the deposited UTXO before giving up.
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 /// Delay between indexer polls.
 const INDEXER_POLL: Duration = Duration::from_millis(500);
@@ -89,6 +89,9 @@ impl Deposit {
         deposit_instruction(tree, depositor, self.spl, &self.data)
     }
 
+    /// Send the deposit. The recipient's wallet sees the deposited UTXO only
+    /// after a sync; a recipient who needs to block until it is visible calls
+    /// [`Deposit::wait_until_synced`].
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
@@ -99,12 +102,16 @@ impl Deposit {
         deposit(rpc, payer, tree, depositor, self.spl, &self.data)
     }
 
-    /// [`Deposit::send`], then sync `wallet` until the deposited UTXO is
-    /// visible. The indexer lags the chain, so a single sync straight after
-    /// the send can miss the deposit — the next transfer would then select
-    /// stale inputs. Polls up to 120s; on timeout the deposit has still been
-    /// sent and confirmed ([`ClientError::DepositNotIndexed`] carries the
-    /// signature).
+    /// Sync `wallet` until the deposited UTXO is visible: the recipient-side
+    /// read-your-write step after [`Deposit::send`], for callers that spend or
+    /// display the balance immediately.
+    ///
+    /// `wallet` must be the deposit recipient's (a self-deposit, or an
+    /// app-held recipient wallet). A wallet that is not the recipient can
+    /// never see the UTXO: the call waits the full 120s and returns
+    /// [`ClientError::DepositNotIndexed`] even though the deposit succeeded.
+    /// For a deposit to a third party there is nothing to wait for on the
+    /// sender side — the recipient's own sync discovers the UTXO.
     ///
     /// # Examples
     ///
@@ -130,22 +137,18 @@ impl Deposit {
     ///         spl_token_account: None,
     ///         memo: None,
     ///     })?;
-    ///     prepared.send_and_sync(rpc, payer, tree, payer, wallet, indexer)?;
+    ///     let signature = prepared.send(rpc, payer, tree, payer)?;
+    ///     prepared.wait_until_synced(wallet, indexer, signature)?;
     ///     Ok(())
     /// }
     /// ```
-    pub fn send_and_sync<R: Rpc, I: Rpc>(
+    pub fn wait_until_synced<I: Rpc>(
         &self,
-        rpc: &R,
-        payer: &Keypair,
-        tree: Pubkey,
-        depositor: &Keypair,
         wallet: &mut Wallet,
         indexer: &I,
-    ) -> Result<Signature, ClientError> {
-        let signature = self.send(rpc, payer, tree, depositor)?;
-        wait_for_deposited_utxo(wallet, indexer, self.utxo_hash, signature)?;
-        Ok(signature)
+        signature: Signature,
+    ) -> Result<(), ClientError> {
+        wait_for_deposited_utxo(wallet, indexer, self.utxo_hash, signature)
     }
 
     pub fn view_tag(&self) -> [u8; 32] {
