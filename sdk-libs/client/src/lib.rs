@@ -23,7 +23,7 @@ pub use actions::{
 #[cfg(feature = "indexer-api")]
 pub use actions::{Submit, DEFAULT_TRANSACT_CU_LIMIT};
 #[cfg(all(feature = "indexer-api", feature = "solana-rpc"))]
-pub use client::{ZolanaClient, ZolanaClientConfig};
+pub use client::{ZolanaClient, ZolanaClientConfig, DEFAULT_TREE};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;

@@ -2,6 +2,8 @@
 //! wallet needs, plus the fee payer. Requires both the `indexer-api` and
 //! `solana-rpc` features.
 
+use solana_commitment_config::CommitmentConfig;
+use solana_pubkey::{pubkey, Pubkey};
 use solana_signer::Signer;
 
 use crate::{
@@ -9,6 +11,12 @@ use crate::{
     prover::{server_address, ProverClient, DEVNET_SERVER_ADDRESS},
     solana_rpc::{rpc_url, SolanaRpc, HELIUS_DEVNET_RPC_URL},
 };
+
+/// The protocol's state-tree account. One fixed address, created from the same
+/// keypair on localnet and devnet, so the presets fill it in. Verified for
+/// localnet and devnet only; on other networks set [`ZolanaClientConfig::tree`]
+/// to the deployed tree.
+pub const DEFAULT_TREE: Pubkey = pubkey!("treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8");
 
 /// Endpoints and fee payer for [`ZolanaClient`]. The payer is any [`Signer`]:
 /// a local keypair on a server, or a wallet-backed signer in an app. It is
@@ -20,6 +28,11 @@ pub struct ZolanaClientConfig {
     pub indexer_url: String,
     pub prover_url: String,
     pub payer: Box<dyn Signer + Send + Sync>,
+    /// State tree private transactions write to; the presets fill
+    /// [`DEFAULT_TREE`].
+    pub tree: Pubkey,
+    /// Commitment level for every read and send; `None` means `confirmed`.
+    pub commitment: Option<CommitmentConfig>,
 }
 
 impl ZolanaClientConfig {
@@ -31,6 +44,8 @@ impl ZolanaClientConfig {
             indexer_url: indexer_url(),
             prover_url: server_address(),
             payer: Box::new(payer),
+            tree: DEFAULT_TREE,
+            commitment: None,
         }
     }
 
@@ -44,6 +59,8 @@ impl ZolanaClientConfig {
             indexer_url: DEVNET_INDEXER_URL.to_string(),
             prover_url: DEVNET_SERVER_ADDRESS.to_string(),
             payer: Box::new(payer),
+            tree: DEFAULT_TREE,
+            commitment: None,
         }
     }
 }
@@ -68,15 +85,20 @@ pub struct ZolanaClient {
     indexer: ZolanaIndexer,
     prover: ProverClient,
     payer: Box<dyn Signer + Send + Sync>,
+    tree: Pubkey,
 }
 
 impl ZolanaClient {
     pub fn new(config: ZolanaClientConfig) -> Self {
+        let commitment = config
+            .commitment
+            .unwrap_or_else(CommitmentConfig::confirmed);
         Self {
-            rpc: SolanaRpc::new(config.rpc_url),
+            rpc: SolanaRpc::new_with_commitment(config.rpc_url, commitment),
             indexer: ZolanaIndexer::new(config.indexer_url),
             prover: ProverClient::new(config.prover_url),
             payer: config.payer,
+            tree: config.tree,
         }
     }
 
@@ -118,6 +140,11 @@ impl ZolanaClient {
 
     pub fn payer(&self) -> &dyn Signer {
         self.payer.as_ref()
+    }
+
+    /// State tree private transactions write to.
+    pub fn tree(&self) -> Pubkey {
+        self.tree
     }
 }
 
@@ -169,16 +196,34 @@ mod tests {
     fn new_wires_all_connections_and_payer() {
         let payer = Keypair::new();
         let payer_pubkey = payer.pubkey();
+        let tree = Pubkey::new_unique();
         let client = ZolanaClient::new(ZolanaClientConfig {
             rpc_url: "http://127.0.0.1:9899".to_string(),
             indexer_url: "http://127.0.0.1:9784".to_string(),
             prover_url: "http://127.0.0.1:9001".to_string(),
             payer: Box::new(payer),
+            tree,
+            commitment: Some(CommitmentConfig::processed()),
         });
         assert_eq!(client.rpc().client().url(), "http://127.0.0.1:9899");
         assert_eq!(client.indexer().api().base_path(), "http://127.0.0.1:9784");
         assert_eq!(client.prover().server_address(), "http://127.0.0.1:9001");
         assert_eq!(client.payer().pubkey(), payer_pubkey);
+        assert_eq!(client.tree(), tree);
+        assert_eq!(
+            client.rpc().client().commitment(),
+            CommitmentConfig::processed()
+        );
+    }
+
+    #[test]
+    fn presets_fill_default_tree_and_confirmed_commitment() {
+        let client = ZolanaClient::devnet(Keypair::new(), "test-key");
+        assert_eq!(client.tree(), DEFAULT_TREE);
+        assert_eq!(
+            client.rpc().client().commitment(),
+            CommitmentConfig::confirmed()
+        );
     }
 
     /// A signer that is not a keypair — the shape a wallet adapter provides.
