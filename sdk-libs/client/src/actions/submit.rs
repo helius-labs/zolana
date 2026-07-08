@@ -33,9 +33,10 @@ use crate::{
 };
 
 /// Compute-unit ceiling a private transaction is submitted with unless the
-/// caller overrides it. Benchmarked transfers and withdrawals run ~148k-152k CU
-/// (`program-tests/shielded-pool/CU_BENCHMARK.md`).
-pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 200_000;
+/// caller overrides it. The mollusk benchmark reports ~148k-152k CU
+/// (`program-tests/shielded-pool/CU_BENCHMARK.md`), but live localnet
+/// transfers and withdrawals consume ~290k-296k; 600k leaves headroom.
+pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 600_000;
 
 /// How long [`Submit::execute`] waits for the indexer to pick up the sent
 /// transaction before giving up.
