@@ -238,8 +238,8 @@ fn reconstruct_and_verify(
     if reference.root() != snapshot.on_chain_root {
         bail!(
             "reconstructed nullifier root {} does not match on-chain root {}; refusing to proceed",
-            hex(&reference.root()),
-            hex(&snapshot.on_chain_root)
+            hex::encode(reference.root()),
+            hex::encode(snapshot.on_chain_root)
         );
     }
     Ok((reference, values))
@@ -318,6 +318,9 @@ fn drain_once(
             batch_update: BatchUpdateNullifierTreeData {
                 new_root,
                 old_root,
+                // `zkp_index` is bounded by the batch's `num_zkp_batches`
+                // (= batch_size / zkp_batch_size), well within `u16`, so the
+                // cast cannot truncate.
                 zkp_batch_index: zkp_index as u16,
                 compressed_proof: CompressedProof {
                     a: compressed.a,
@@ -328,7 +331,7 @@ fn drain_once(
         })
         .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
 
-        tracing::info!(%signature, zkp_index, new_root = %hex(&new_root), "submitted nullifier batch update");
+        tracing::info!(%signature, zkp_index, new_root = %hex::encode(new_root), "submitted nullifier batch update");
         submitted += 1;
     }
 
@@ -349,11 +352,11 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
     println!("forester dry-run for tree {tree}");
     println!(
         "  on-chain nullifier root:  {}",
-        hex(&snapshot.on_chain_root)
+        hex::encode(snapshot.on_chain_root)
     );
     println!(
         "  reconstructed root:       {} (matches on-chain)",
-        hex(&reference.root())
+        hex::encode(reference.root())
     );
     println!(
         "  height={}  zkp_batch_size={}",
@@ -466,18 +469,7 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 /// configured forester authority.
 fn forester_keypair() -> Result<Keypair> {
     let payer = env::var("PAYER").context("PAYER is not set (forester signing keypair)")?;
-    let bytes: Vec<u8> =
-        serde_json::from_str(&payer).context("PAYER must be a JSON byte array keypair")?;
-    Keypair::try_from(bytes.as_slice())
-        .map_err(|err| anyhow!("PAYER is not a valid keypair: {err}"))
-}
-
-fn hex(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
+    crate::parse_payer_keypair(&payer)
 }
 
 #[cfg(test)]
