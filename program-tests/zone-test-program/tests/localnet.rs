@@ -95,7 +95,8 @@ pub(crate) fn restart_localnet() {
     let status = std::process::Command::new(&cli)
         .current_dir(root)
         .args([
-            "test-validator",
+            "dev",
+            "start",
             "--no-use-surfpool",
             "--with-photon",
             "--skip-prover",
