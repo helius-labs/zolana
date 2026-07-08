@@ -475,6 +475,9 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
+    # The `server` package's handler tests need redis, but the queue-routing
+    # unit test does not -- run it explicitly so routing stays covered in CI.
+    go test ./server/ -run '^TestGetQueueNameForCircuit$'
 
 [private]
 xtask-create-verifying-keys:
