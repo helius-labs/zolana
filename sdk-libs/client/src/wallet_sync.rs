@@ -436,6 +436,46 @@ mod tests {
     const SPL_MINT: Address = Address::new_from_array([2u8; 32]);
 
     #[test]
+    fn transfer_memo_round_trips_to_the_recipient_wallet() {
+        let assets = AssetRegistry::default();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let recipient = ShieldedKeypair::new().expect("recipient");
+
+        let input = SpendUtxo::from_keypair(test_utxo(&sender, SOL_MINT, 100, 1), &sender);
+        let mut tx = Transaction::new(
+            sender.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        );
+        tx.send_with_memo(
+            &recipient.shielded_address().expect("recipient address"),
+            SOL_MINT,
+            40,
+            Some(b"gm".to_vec()),
+        )
+        .expect("send");
+        let transfer = signed_to_shielded_tx(tx.sign(&sender, &assets).expect("sign"), 1);
+
+        let mut wallet = Wallet::new(recipient.clone(), assets).expect("wallet");
+        sync_wallet(
+            &mut wallet,
+            &MockIndexer {
+                transactions: vec![transfer],
+                matches: Vec::new(),
+                program_accounts: Vec::new(),
+            },
+        )
+        .expect("sync");
+
+        let received = wallet
+            .utxos
+            .iter()
+            .find(|entry| entry.utxo.amount == 40)
+            .expect("received utxo");
+        assert_eq!(received.utxo.data.memo(), Some(b"gm".as_slice()));
+    }
+
+    #[test]
     fn sync_wallet_records_confidential_transfer_history_without_duplicates() {
         let assets = AssetRegistry::default();
         let alice = ShieldedKeypair::new().expect("alice");

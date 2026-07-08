@@ -80,6 +80,7 @@ struct Recipient {
     address: ShieldedAddress,
     asset: Address,
     amount: u64,
+    memo: Option<Vec<u8>>,
 }
 
 pub enum WithdrawalTarget {
@@ -215,10 +216,25 @@ impl Transaction {
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
+        self.send_with_memo(recipient, asset, amount, None)
+    }
+
+    /// [`Self::send`] with a free-form note for the recipient. The memo is
+    /// encrypted into the recipient's output ciphertext and not committed into
+    /// any hash. It lengthens that ciphertext, so its presence and byte length
+    /// are visible onchain; the contents are not.
+    pub fn send_with_memo(
+        &mut self,
+        recipient: &ShieldedAddress,
+        asset: Address,
+        amount: u64,
+        memo: Option<Vec<u8>>,
+    ) -> Result<&mut Self, TransactionError> {
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
             amount,
+            memo,
         });
         Ok(self)
     }
@@ -346,13 +362,16 @@ impl Transaction {
             let position = RECIPIENT_POSITION_BASE + i as u8;
             let blinding = derive_blinding(&self.blinding_seed, position);
             let asset_id = self.asset_id(assets, &recipient.asset)?;
-            outputs.push(OutputUtxo {
+            let mut output = OutputUtxo {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
                 amount: recipient.amount,
                 blinding,
                 ..Default::default()
-            });
+            };
+            if let Some(memo) = &recipient.memo {
+                output = output.with_memo(memo.clone());
+            }
             recipient_viewing_pks.push(recipient.address.viewing_pubkey);
             recipients.push(PreparedRecipient {
                 view_tag: recipient.address.signing_pubkey.confidential_view_tag()?,
@@ -362,9 +381,10 @@ impl Transaction {
                     amount: recipient.amount,
                     blinding,
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: output.data.clone(),
                 },
             });
+            outputs.push(output);
         }
 
         for output in &self.custom_outputs {

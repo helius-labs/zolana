@@ -33,6 +33,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         recipient: recipient_owner,
         asset,
         amount: opts.amount,
+        memo: None,
     })?;
     let prover = ProverClient::new(network.prover_url.clone());
     let signature = Submit {

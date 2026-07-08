@@ -80,6 +80,12 @@ pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+    /// Free-form note for the recipient, encrypted into their output
+    /// ciphertext and not committed into any hash. It lengthens that
+    /// ciphertext, so its presence and byte length are visible onchain; the
+    /// contents are not. Ignored when the transfer falls back to a public
+    /// withdrawal (public funds carry no ciphertext).
+    pub memo: Option<Vec<u8>>,
 }
 
 pub struct CreateWithdrawal<'a, A: ?Sized> {
@@ -129,7 +135,12 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         .await?;
     let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.send(&recipient.address, request.asset, request.amount)?;
+    tx.send_with_memo(
+        &recipient.address,
+        request.asset,
+        request.amount,
+        request.memo,
+    )?;
     let prepared = tx.prepare(&request.wallet.registry)?;
     let signed = sign_prepared(
         prepared,
@@ -461,6 +472,7 @@ mod tests {
             recipient: owner,
             asset: SOL_MINT,
             amount: 1,
+            memo: None,
         })
         .expect("transfer");
 
@@ -487,6 +499,7 @@ mod tests {
             recipient,
             asset: SOL_MINT,
             amount: 1,
+            memo: None,
         })
         .expect("public withdrawal fallback");
 
@@ -518,6 +531,7 @@ mod tests {
             recipient,
             asset,
             amount: 1,
+            memo: None,
         })
         .expect("public withdrawal fallback");
 
