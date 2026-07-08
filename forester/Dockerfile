@@ -6,9 +6,8 @@
 #
 #   docker build -f forester/Dockerfile .
 #
-# A bare `docker build forester/` will NOT work. The root .dockerignore keeps the
-# context small. The compose/bake orchestration that wires this image together
-# with photon, the prover, and postgres lives outside this repo (ops workspace).
+# A bare `docker build forester/` will NOT work; the root .dockerignore keeps the
+# context small.
 #
 # rust:1.95: the workspace pulls solana crates that need a recent toolchain.
 FROM rust:1.95-slim-bookworm AS builder
