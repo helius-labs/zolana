@@ -8,13 +8,13 @@
 //! # Examples
 //!
 //! ```no_run
-//! use solana_keypair::Keypair;
 //! use solana_pubkey::Pubkey;
+//! use solana_signer::Signer;
 //! use zolana_client::{fetch_asset_id, register_spl_interface, ClientError, Rpc};
 //!
 //! fn asset_id<R: Rpc>(
 //!     rpc: &R,
-//!     authority: &Keypair,
+//!     authority: &dyn Signer,
 //!     mint: Pubkey,
 //! ) -> Result<u64, ClientError> {
 //!     // Production path: read the canonical per-mint registry PDA.
@@ -29,7 +29,6 @@
 //! ```
 
 use solana_address::Address;
-use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
@@ -75,7 +74,7 @@ pub fn fetch_asset_id<R: Rpc>(rpc: &R, mint: Pubkey) -> Result<u64, ClientError>
 /// with [`fetch_asset_id`] instead.
 pub fn register_spl_interface<R: Rpc>(
     rpc: &R,
-    authority: &Keypair,
+    authority: &dyn Signer,
     mint: Pubkey,
 ) -> Result<u64, ClientError> {
     match fetch_asset_id(rpc, mint) {
@@ -121,6 +120,7 @@ mod tests {
 
     use solana_account::Account;
     use solana_hash::Hash;
+    use solana_keypair::Keypair;
     use solana_signature::Signature;
     use solana_transaction::Transaction;
     use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
