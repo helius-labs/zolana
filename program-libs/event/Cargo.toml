@@ -10,6 +10,11 @@ publish = false
 # stays lean.
 program-test = []
 
+[[test]]
+name = "indexed_events"
+path = "tests/indexed_events.rs"
+required-features = ["program-test"]
+
 [dependencies]
 borsh = { workspace = true }
 solana-pubkey = { workspace = true }

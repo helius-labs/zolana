@@ -201,7 +201,7 @@ fn fetch_indexed_events(
 ) -> TestResult<Vec<IndexedEvent>> {
     let confirmed = rpc.fetch_confirmed_instruction_groups(signature)?;
     let events = indexed_events_from_instruction_groups(program_id, &confirmed.groups);
-    index_events(indexer, &events)?;
+    index_events(indexer, &events, *signature)?;
     Ok(events)
 }
 
@@ -266,4 +266,47 @@ fn shielded_event_detection_checks_program_context() {
         None,
     );
     assert!(produces_shielded_events(shielded_pool, &zone_wrapper));
+
+    let direct_transact = Message::new(
+        &[Instruction {
+            program_id: shielded_pool,
+            accounts: Vec::new(),
+            data: vec![tag::TRANSACT],
+        }],
+        None,
+    );
+    assert!(produces_shielded_events(shielded_pool, &direct_transact));
+
+    let zone_transact_wrapper = Message::new(
+        &[Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::ZONE_TRANSACT],
+        }],
+        None,
+    );
+    assert!(produces_shielded_events(
+        shielded_pool,
+        &zone_transact_wrapper
+    ));
+
+    let zone_merge_wrapper = Message::new(
+        &[Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::ZONE_MERGE_TRANSACT],
+        }],
+        None,
+    );
+    assert!(produces_shielded_events(shielded_pool, &zone_merge_wrapper));
+
+    let false_positive = Message::new(
+        &[Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::TRANSACT],
+        }],
+        None,
+    );
+    assert!(!produces_shielded_events(shielded_pool, &false_positive));
 }
