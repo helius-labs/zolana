@@ -6,11 +6,11 @@ use solana_address::Address;
 use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
 use solana_message::{AddressLookupTableAccount, Message};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
+use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
@@ -223,7 +223,7 @@ pub trait Rpc {
         &self,
         instructions: &[Instruction],
         payer: Address,
-        signers: &[&Keypair],
+        signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
         let (blockhash, _) = self.get_latest_blockhash()?;
         let payer = Pubkey::new_from_array(payer.to_bytes());
@@ -236,7 +236,7 @@ pub trait Rpc {
         &self,
         instructions: &[Instruction],
         payer: Address,
-        signers: &[&Keypair],
+        signers: &[&dyn Signer],
         address_lookup_tables: &[AddressLookupTableAccount],
     ) -> Result<Signature, ClientError> {
         Err(unsupported("create_and_send_versioned_transaction"))

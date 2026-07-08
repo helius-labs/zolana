@@ -16,7 +16,6 @@ use std::{
 
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -60,7 +59,7 @@ pub struct Submit<'a, R: Rpc> {
     /// Sends the transaction (a Solana RPC).
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
-    pub payer: &'a Keypair,
+    pub payer: &'a dyn Signer,
     pub tree: Pubkey,
     /// Compute-unit limit; `None` uses [`DEFAULT_TRANSACT_CU_LIMIT`].
     pub cu_limit: Option<u32>,

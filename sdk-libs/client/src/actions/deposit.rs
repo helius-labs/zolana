@@ -8,7 +8,6 @@ use std::{
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -95,9 +94,9 @@ impl Deposit {
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
-        payer: &Keypair,
+        payer: &dyn Signer,
         tree: Pubkey,
-        depositor: &Keypair,
+        depositor: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         deposit(rpc, payer, tree, depositor, self.spl, &self.data)
     }
@@ -116,8 +115,8 @@ impl Deposit {
     /// # Examples
     ///
     /// ```no_run
-    /// use solana_keypair::Keypair;
     /// use solana_pubkey::Pubkey;
+    /// use solana_signer::Signer;
     /// use zolana_client::{create_deposit, ClientError, CreateDeposit, Rpc};
     /// use zolana_keypair::ShieldedAddress;
     /// use zolana_transaction::{Wallet, SOL_MINT};
@@ -125,7 +124,7 @@ impl Deposit {
     /// fn deposit_sol<R: Rpc, I: Rpc>(
     ///     rpc: &R,
     ///     indexer: &I,
-    ///     payer: &Keypair,
+    ///     payer: &dyn Signer,
     ///     tree: Pubkey,
     ///     recipient: &ShieldedAddress,
     ///     wallet: &mut Wallet,
@@ -196,15 +195,15 @@ pub fn create_deposit(request: CreateDeposit<'_>) -> Result<Deposit, ClientError
 /// Returns the transaction signature; event indexing is the caller's concern.
 pub fn deposit<R: Rpc>(
     rpc: &R,
-    payer: &Keypair,
+    payer: &dyn Signer,
     tree: Pubkey,
-    depositor: &Keypair,
+    depositor: &dyn Signer,
     spl: Option<DepositSplAccounts>,
     data: &DepositIxData,
 ) -> Result<Signature, ClientError> {
     let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(DEFAULT_DEPOSIT_CU_LIMIT);
     let ix = deposit_instruction(tree, depositor.pubkey(), spl, data);
-    let mut signers: Vec<&Keypair> = vec![payer];
+    let mut signers: Vec<&dyn Signer> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
     }
@@ -254,6 +253,7 @@ mod tests {
     use std::cell::RefCell;
 
     use solana_hash::Hash;
+    use solana_keypair::Keypair;
     use solana_transaction::Transaction;
     use zolana_keypair::ShieldedKeypair;
 

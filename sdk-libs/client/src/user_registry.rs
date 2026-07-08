@@ -1,5 +1,4 @@
 use solana_address::Address;
-use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -42,7 +41,7 @@ fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientErro
 /// publish or update it.
 pub fn ensure_registered<R: Rpc>(
     rpc: &R,
-    funding: &Keypair,
+    funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
     let owner = funding.pubkey();
@@ -95,7 +94,7 @@ pub fn ensure_registered<R: Rpc>(
 /// never reads raw Solana secrets.
 pub fn create_private_wallet<R: Rpc>(
     rpc: &R,
-    owner: &Keypair,
+    owner: &dyn Signer,
     keypair: ShieldedKeypair,
     registry: AssetRegistry,
 ) -> Result<Wallet, ClientError> {
@@ -233,6 +232,7 @@ pub fn resolved_address_from_record(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
+    use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_keypair::{ShieldedKeypair, ViewingKey};
     use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
