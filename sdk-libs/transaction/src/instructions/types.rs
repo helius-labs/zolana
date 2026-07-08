@@ -50,7 +50,7 @@ impl SpendUtxo {
     }
 }
 
-pub struct InputCommitment {
+pub struct InputUtxoContext {
     pub index: usize,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],

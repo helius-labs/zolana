@@ -18,7 +18,7 @@ use zolana_transaction::{
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
     order::{sdk_private_tx_hash, BlindingField, Escrow, OrderTerms, Recipient},
-    prover::{fill_verifiable_encryption_proof_ix, prove_transact},
+    prover::prove_transact,
     spp_program_meta, tag, FillVerifiableEncryptionProof,
 };
 
@@ -268,7 +268,7 @@ impl FillVerifiableEncryption {
         let ix = fill_verifiable_encryption(
             payer,
             spp_accounts,
-            fill_verifiable_encryption_proof_ix(&fill_result.proof),
+            fill_result.proof.into(),
             transact,
         );
         Ok((ix, fill_result))

@@ -8,7 +8,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
+    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
     SpendUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
@@ -164,7 +164,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
         zone_program_id: Some(zone),
         shape: TxShape::new(2, 2),
     };
-    let commitments = prepared.input_commitments().expect("input commitments");
+    let commitments = prepared.input_utxo_hashes().expect("input commitments");
     let proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("merkle proofs");
@@ -243,7 +243,7 @@ fn build_real_inputs(
             .nullifier(&utxo_hash, &kp.nullifier_key)
             .expect("nullifier");
         indexer.add_utxo(utxo_hash);
-        commitments.push(InputCommitment {
+        commitments.push(InputUtxoContext {
             index,
             utxo_hash,
             nullifier,

@@ -2,15 +2,24 @@ use anyhow::{anyhow, Result};
 use cucumber::{then, when};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use swap_sdk::{
     instructions::create_swap::{CreateSharedInputs, CreateSwap, EscrowCreate},
-    order::{marker_output, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
-use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{instructions::types::SpendUtxo, utxo::Blinding, SOL_MINT};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair};
+use zolana_transaction::{
+    instructions::{
+        transact::{OutputUtxo, SignedTransaction},
+        types::SpendUtxo,
+    },
+    utxo::Blinding,
+    Utxo, SOL_MINT,
+};
 
 use crate::{localnet::send_v0_with_lookup_table, SwapWorld};
 
@@ -33,6 +42,17 @@ pub(crate) struct SwapParams {
     pub(crate) fill_mode: u64,
 }
 
+struct MakerInput {
+    keypair: ShieldedKeypair,
+    solana: Keypair,
+    utxo: Utxo,
+}
+
+struct OrderOutputs {
+    escrow: OutputUtxo,
+    marker: OutputUtxo,
+}
+
 impl SwapWorld {
     pub(crate) fn create_swap(
         &mut self,
@@ -40,26 +60,72 @@ impl SwapWorld {
         taker_name: &str,
         params: SwapParams,
     ) -> Result<()> {
-        let SwapParams {
-            source_amount,
-            destination_asset,
-            destination_amount,
-            expiry,
-            fill_mode,
-        } = params;
         self.ensure_actor(maker_name)?;
         self.ensure_actor(taker_name)?;
 
+        // 1. Select the maker input UTXO to spend.
+        let input = self.select_input(maker_name, params.source_amount)?;
+
+        // 2. Create the output UTXOs: escrow + marker (both taker-owned), and the
+        //    maker change UTXO produced by signing the spend.
+        let (terms, taker_address) = self.build_order_terms(&input.keypair, taker_name, &params)?;
+        let escrow_blinding = random_blinding();
+        let outputs = build_order_outputs(&terms, escrow_blinding, taker_address)?;
+        let signed = self.sign_spend(&input, outputs)?;
+
+        // 3. Build the proof inputs shared by the create proof and the SPP transact.
+        let create_inputs =
+            shared_inputs_from_signed(&terms, escrow_blinding, taker_address, &signed)?;
+
+        // 4. Prove (outside the instruction), then assemble the create instruction.
+        let spend_proofs = self.resolve_spend_proofs(&signed)?;
+        let source_asset_id = create_inputs.terms.source_asset_id;
+        let (proof, transact) =
+            create_inputs.prove(signed, SOL_MINT, &spend_proofs, &ProverClient::local())?;
+        let ix = CreateSwap {
+            inputs: create_inputs,
+            payer: input.solana.pubkey(),
+            tree: self.tree,
+            proof,
+            transact,
+            source_asset_id,
+        }
+        .instruction();
+
+        // 5. Build and send the transaction (mechanical).
+        self.send_create_ix(ix, &input.solana)?;
+
+        self.record_open_order(
+            maker_name,
+            &input.utxo,
+            terms,
+            escrow_blinding,
+            taker_address,
+        );
+        Ok(())
+    }
+
+    fn select_input(&self, maker_name: &str, source_amount: u64) -> Result<MakerInput> {
         let maker = self.actor(maker_name);
-        let maker_keypair = maker.shielded_keypair.clone();
-        let maker_solana = maker.solana_keypair.insecure_clone();
-        let input_utxo = maker
+        let utxo = maker
             .spendable
             .iter()
             .find(|u| u.asset == SOL_MINT && u.amount >= source_amount)
             .cloned()
             .ok_or_else(|| anyhow!("{maker_name} has no spendable SOL utxo >= {source_amount}"))?;
+        Ok(MakerInput {
+            keypair: maker.shielded_keypair.clone(),
+            solana: maker.solana_keypair.insecure_clone(),
+            utxo,
+        })
+    }
 
+    fn build_order_terms(
+        &mut self,
+        maker_keypair: &ShieldedKeypair,
+        taker_name: &str,
+        params: &SwapParams,
+    ) -> Result<(OrderTerms, ShieldedAddress)> {
         // The taker owns the escrow (via its viewing pubkey) and the marker
         // (via its shielded address). Both come from its shielded keypair.
         let taker_shielded = self.actor(taker_name).shielded_keypair.clone();
@@ -75,50 +141,51 @@ impl SwapWorld {
             .owner_pk_field()
             .map_err(|e| anyhow!("taker pk_fe: {e:?}"))?;
 
-        let destination_mint = self.destination_mint(destination_asset)?;
+        let destination_mint = self.destination_mint(params.destination_asset)?;
         let maker_owner_hash = maker_keypair
             .owner_hash()
             .map_err(|e| anyhow!("owner hash: {e:?}"))?;
         let maker_viewing_pk = *maker_keypair.viewing_pubkey().as_bytes();
+
         let terms = OrderTerms {
             source_asset_id: SOL_ASSET_ID,
-            source_amount,
-            destination_asset_id: destination_asset,
+            source_amount: params.source_amount,
+            destination_asset_id: params.destination_asset,
             destination_mint,
-            destination_amount,
+            destination_amount: params.destination_amount,
             maker_owner_hash,
             maker_viewing_pk,
-            expiry,
+            expiry: params.expiry,
             taker_pk_fe,
-            fill_mode,
+            fill_mode: params.fill_mode,
         };
+        Ok((terms, taker_address))
+    }
 
-        let escrow_blinding = random_blinding();
-
-        let escrow = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint: SOL_MINT,
-        }
-        .output(taker_address.viewing_pubkey)?;
-        let marker = marker_output(taker_address);
-
-        let payer_address = Address::new_from_array(maker_solana.pubkey().to_bytes());
-        let spend = SpendUtxo::from_keypair(input_utxo.clone(), &maker_keypair);
+    fn sign_spend(&self, input: &MakerInput, outputs: OrderOutputs) -> Result<SignedTransaction> {
+        let payer_address = Address::new_from_array(input.solana.pubkey().to_bytes());
+        let spend = SpendUtxo::from_keypair(input.utxo.clone(), &input.keypair);
         let tx = TxBuilder::new(
-            maker_keypair
+            input
+                .keypair
                 .shielded_address()
                 .map_err(|e| anyhow!("addr: {e:?}"))?,
             vec![spend],
             payer_address,
         );
-        let signed = EscrowCreate { tx, escrow, marker }
-            .sign(&maker_keypair, &self.assets)
-            .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
+        EscrowCreate {
+            tx,
+            escrow: outputs.escrow,
+            marker: outputs.marker,
+            payer: input.solana.pubkey(),
+        }
+        .sign(&input.keypair, &self.assets)
+        .map_err(|e| anyhow!("escrow create sign: {e:?}"))
+    }
 
-        // Resolve merkle / non-inclusion proofs for the single real input.
+    fn resolve_spend_proofs(&self, signed: &SignedTransaction) -> Result<Vec<SpendProof>> {
         let commitments = signed
-            .input_commitments()
+            .input_utxo_hashes()
             .map_err(|e| anyhow!("input commitments: {e:?}"))?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {
@@ -126,51 +193,10 @@ impl SwapWorld {
             let nullifier = self.wait_for_non_inclusion_proof(commitment.nullifier)?;
             spend_proofs.push(SpendProof { state, nullifier });
         }
+        Ok(spend_proofs)
+    }
 
-        // Recover the create-inputs fields from the signed transaction so the swap
-        // create proof commits the exact same private_tx_hash the SPP transact does.
-        let spend = signed.inputs.first().ok_or_else(|| anyhow!("no input"))?;
-        let nullifier_pubkey = spend
-            .nullifier_key
-            .pubkey()
-            .map_err(|e| anyhow!("nullifier pubkey: {e:?}"))?;
-        let source_input_hash = spend
-            .utxo
-            .hash(
-                &nullifier_pubkey,
-                &spend.data_hash.unwrap_or([0u8; 32]),
-                &spend.zone_data_hash.unwrap_or([0u8; 32]),
-            )
-            .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let change_output = signed
-            .outputs
-            .first()
-            .ok_or_else(|| anyhow!("no change output"))?;
-        let change_amount = change_output.amount;
-        let change_blinding = change_output.blinding.to_field();
-        let external_data_hash = signed
-            .external_data
-            .hash()
-            .map_err(|e| anyhow!("external data hash: {e:?}"))?;
-
-        let create_inputs = CreateSharedInputs {
-            terms: terms.clone(),
-            escrow_blinding,
-            taker_address,
-            source_input_hash,
-            change_amount,
-            change_blinding,
-            external_data_hash,
-        };
-
-        let ix = CreateSwap {
-            inputs: create_inputs,
-            signed,
-            source_mint: SOL_MINT,
-            payer: maker_solana.pubkey(),
-            tree: self.tree,
-        }
-        .instruction(&spend_proofs, &ProverClient::local())?;
+    fn send_create_ix(&mut self, ix: Instruction, maker_solana: &Keypair) -> Result<()> {
         let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let alt_addresses: Vec<Pubkey> = ix
             .accounts
@@ -182,17 +208,24 @@ impl SwapWorld {
         send_v0_with_lookup_table(
             &mut self.rpc,
             &[compute, ix],
-            &maker_solana,
-            &[&maker_solana],
+            maker_solana,
+            &[maker_solana],
             &alt_addresses,
         )?;
+        Ok(())
+    }
 
-        // The maker's input utxo is now spent; drop it and record the open order.
+    fn record_open_order(
+        &mut self,
+        maker_name: &str,
+        spent: &Utxo,
+        terms: OrderTerms,
+        escrow_blinding: Blinding,
+        taker_address: ShieldedAddress,
+    ) {
         let maker_mut = self.actor_mut(maker_name);
         maker_mut.spendable.retain(|u| {
-            !(u.asset == input_utxo.asset
-                && u.amount == input_utxo.amount
-                && u.blinding == input_utxo.blinding)
+            !(u.asset == spent.asset && u.amount == spent.amount && u.blinding == spent.blinding)
         });
         self.open_orders.push(OpenOrder {
             maker_name: maker_name.to_string(),
@@ -201,7 +234,6 @@ impl SwapWorld {
             source_mint: SOL_MINT,
             taker_address,
         });
-        Ok(())
     }
 
     fn escrow_utxo_hash(&self, order: &OpenOrder) -> Result<[u8; 32]> {
@@ -233,6 +265,62 @@ impl SwapWorld {
             .map_err(|e| anyhow!("register destination asset {asset_id}: {e:?}"))?;
         Ok(mint)
     }
+}
+
+fn build_order_outputs(
+    terms: &OrderTerms,
+    escrow_blinding: Blinding,
+    taker_address: ShieldedAddress,
+) -> Result<OrderOutputs> {
+    let escrow = Escrow {
+        terms: terms.clone(),
+        blinding: escrow_blinding,
+        source_mint: SOL_MINT,
+    }
+    .output(taker_address.viewing_pubkey)?;
+    let marker = marker_output_utxo(taker_address);
+    Ok(OrderOutputs { escrow, marker })
+}
+
+// Recover the create-input fields from the signed transaction so the create proof
+// commits the exact same private_tx_hash the SPP transact does.
+fn shared_inputs_from_signed(
+    terms: &OrderTerms,
+    escrow_blinding: Blinding,
+    taker_address: ShieldedAddress,
+    signed: &SignedTransaction,
+) -> Result<CreateSharedInputs> {
+    let spend = signed.inputs.first().ok_or_else(|| anyhow!("no input"))?;
+    let nullifier_pubkey = spend
+        .nullifier_key
+        .pubkey()
+        .map_err(|e| anyhow!("nullifier pubkey: {e:?}"))?;
+    let source_input_hash = spend
+        .utxo
+        .hash(
+            &nullifier_pubkey,
+            &spend.data_hash.unwrap_or([0u8; 32]),
+            &spend.zone_data_hash.unwrap_or([0u8; 32]),
+        )
+        .map_err(|e| anyhow!("source input hash: {e:?}"))?;
+    let change_output = signed
+        .outputs
+        .first()
+        .ok_or_else(|| anyhow!("no change output"))?;
+    let external_data_hash = signed
+        .external_data
+        .hash()
+        .map_err(|e| anyhow!("external data hash: {e:?}"))?;
+
+    Ok(CreateSharedInputs {
+        terms: terms.clone(),
+        escrow_blinding,
+        taker_address,
+        source_input_hash,
+        change_amount: change_output.amount,
+        change_blinding: change_output.blinding.to_field(),
+        external_data_hash,
+    })
 }
 
 #[when(

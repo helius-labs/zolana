@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use groth16_solana::groth16::negate_g1_be;
 use solana_address::Address;
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::{create_swap::CreateProof, shared::u64_to_field};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
@@ -32,6 +32,16 @@ pub struct OrderProof {
     pub proof_b: [u8; 64],
     pub proof_c: [u8; 32],
     pub commitment: Option<([u8; 32], [u8; 32])>,
+}
+
+impl From<OrderProof> for CreateProof {
+    fn from(proof: OrderProof) -> Self {
+        Self {
+            proof_a: proof.proof_a,
+            proof_b: proof.proof_b,
+            proof_c: proof.proof_c,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::{cancel::CancelProof, shared::u64_to_field};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
@@ -33,6 +33,16 @@ impl From<crate::create::CreateError> for CancelError {
             crate::create::CreateError::Poseidon => CancelError::Poseidon,
             crate::create::CreateError::CompressG1(s) => CancelError::CompressG1(s),
             crate::create::CreateError::CompressG2(s) => CancelError::CompressG2(s),
+        }
+    }
+}
+
+impl From<OrderProof> for CancelProof {
+    fn from(proof: OrderProof) -> Self {
+        Self {
+            proof_a: proof.proof_a,
+            proof_b: proof.proof_b,
+            proof_c: proof.proof_c,
         }
     }
 }

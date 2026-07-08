@@ -16,7 +16,7 @@ use crate::{
     check_private_tx_hash, err, escrow_authority_pda,
     order::{sdk_private_tx_hash, BlindingField, Escrow, OrderTerms, Recipient},
     program_id_pubkey,
-    prover::{cancel_proof_ix, prove_transact},
+    prover::prove_transact,
     spp_program_meta, tag, CancelProof,
 };
 
@@ -222,7 +222,7 @@ impl Cancel {
             payer,
             maker_signer,
             spp_accounts,
-            cancel_proof_ix(&cancel_result.proof),
+            cancel_result.proof.into(),
             inputs.terms.expiry,
             transact,
         ))

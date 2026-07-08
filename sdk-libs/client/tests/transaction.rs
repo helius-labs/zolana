@@ -143,7 +143,7 @@ fn sign(tx: Transaction, sender: &ShieldedKeypair) -> Result<SignedTransaction, 
 
 fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let mut indexer = TestIndexer::new();
-    let commitments = signed.input_commitments().expect("commitments");
+    let commitments = signed.input_utxo_hashes().expect("commitments");
     for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }
@@ -267,7 +267,7 @@ fn transfer_round_trip_outputs_and_bundle() {
 
     let signed = sign(tx, &sender).unwrap();
     let first_nullifier = signed
-        .input_commitments()
+        .input_utxo_hashes()
         .unwrap()
         .first()
         .unwrap()
@@ -389,7 +389,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
                 .unwrap();
         }
         let signed = sign(tx, &sender).unwrap();
-        let commitments = signed.input_commitments().unwrap();
+        let commitments = signed.input_utxo_hashes().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
         zolana_client::assemble(signed, &proofs)
             .unwrap()
@@ -443,7 +443,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .unwrap();
     let signed = sign(tx, &sender).unwrap();
 
-    let commitments = signed.input_commitments().unwrap();
+    let commitments = signed.input_utxo_hashes().unwrap();
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
@@ -549,7 +549,7 @@ fn withdrawal_sets_external_data_and_change() {
 
     let signed = sign(tx, &sender).unwrap();
     let first_nullifier = signed
-        .input_commitments()
+        .input_utxo_hashes()
         .unwrap()
         .first()
         .unwrap()
@@ -644,7 +644,7 @@ fn rail_follows_input_owner_type() {
 
     let signed = ed_tx.sign(&sender, &registry()).unwrap();
     let mut indexer = TestIndexer::new();
-    let commitments = signed.input_commitments().unwrap();
+    let commitments = signed.input_utxo_hashes().unwrap();
     for commitment in &commitments {
         indexer.add_utxo(commitment.utxo_hash);
     }

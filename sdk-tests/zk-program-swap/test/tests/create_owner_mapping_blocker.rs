@@ -1,8 +1,9 @@
 use solana_address::Address;
+use solana_pubkey::Pubkey;
 use swap_sdk::{
     escrow_authority_pda,
     instructions::create_swap::EscrowCreate,
-    order::{marker_output, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
 };
 use zolana_keypair::{hash::hash_field, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
@@ -118,7 +119,7 @@ fn create_change_first_owner_tag_mapping_matches() {
     }
     .output(taker_address.viewing_pubkey)
     .expect("escrow output");
-    let marker = marker_output(taker_address);
+    let marker = marker_output_utxo(taker_address);
 
     let assets = AssetRegistry::default();
     let payer = Address::new_from_array(maker.signing_pubkey().hash().expect("hash"));
@@ -131,6 +132,7 @@ fn create_change_first_owner_tag_mapping_matches() {
         ),
         escrow,
         marker,
+        payer: Pubkey::new_from_array(maker.signing_pubkey().hash().expect("hash")),
     }
     .sign(&maker, &assets)
     .expect("sign escrow create");

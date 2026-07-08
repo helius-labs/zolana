@@ -21,7 +21,7 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
 use zolana_interface::{
@@ -108,7 +108,7 @@ fn real_input() -> TransferSpendInput {
     let mut indexer = TestIndexer::new();
     indexer.add_utxo(utxo_hash);
     let proof = indexer
-        .get_input_merkle_proofs(&[InputCommitment {
+        .get_input_merkle_proofs(&[InputUtxoContext {
             index: 0,
             utxo_hash,
             nullifier,

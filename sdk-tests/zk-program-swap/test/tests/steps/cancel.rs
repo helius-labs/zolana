@@ -74,7 +74,7 @@ impl SwapWorld {
             .map_err(|e| anyhow!("escrow cancel sign: {e:?}"))?;
 
         let commitments = signed
-            .input_commitments()
+            .input_utxo_hashes()
             .map_err(|e| anyhow!("input commitments: {e:?}"))?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {

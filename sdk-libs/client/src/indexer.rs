@@ -1,5 +1,10 @@
 //! Blocking RPC adapter for the Zolana indexer API.
 
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
@@ -16,6 +21,9 @@ use crate::{
         MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
+
+const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
+const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub struct ZolanaIndexer {
@@ -40,6 +48,30 @@ impl ZolanaIndexer {
 
     pub fn api(&self) -> &BlockingZolanaApi {
         &self.api
+    }
+
+    fn get_merkle_proofs_once(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+    ) -> Result<GetMerkleProofsResponse, ClientError> {
+        let response = self
+            .api
+            .get_merkle_proofs(
+                encode_pubkey(tree_account),
+                leaves.into_iter().map(encode_hash).collect(),
+            )
+            .map_err(indexer_error)?;
+
+        Ok(GetMerkleProofsResponse {
+            context: convert_context(response.context),
+            proofs: response
+                .proofs
+                .into_iter()
+                .enumerate()
+                .map(|(index, proof)| convert_merkle_proof(index, proof))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 
@@ -103,23 +135,24 @@ impl Rpc for ZolanaIndexer {
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        let response = self
-            .api
-            .get_merkle_proofs(
-                encode_pubkey(tree_account),
-                leaves.into_iter().map(encode_hash).collect(),
-            )
-            .map_err(indexer_error)?;
-
-        Ok(GetMerkleProofsResponse {
-            context: convert_context(response.context),
-            proofs: response
-                .proofs
-                .into_iter()
-                .enumerate()
-                .map(|(index, proof)| convert_merkle_proof(index, proof))
-                .collect::<Result<Vec<_>, _>>()?,
-        })
+        let expected = leaves.len();
+        let started = Instant::now();
+        let mut last_error = None;
+        loop {
+            match self.get_merkle_proofs_once(tree_account, leaves.clone()) {
+                Ok(response) if response.proofs.len() >= expected => return Ok(response),
+                Ok(_) => {}
+                Err(error) => last_error = Some(error),
+            }
+            if started.elapsed() >= MERKLE_PROOF_POLL_TIMEOUT {
+                return Err(last_error.unwrap_or_else(|| {
+                    ClientError::Rpc(format!(
+                        "merkle proofs for {expected} leaves not indexed within {MERKLE_PROOF_POLL_TIMEOUT:?}"
+                    ))
+                }));
+            }
+            sleep(MERKLE_PROOF_POLL_INTERVAL);
+        }
     }
 
     fn get_non_inclusion_proofs(

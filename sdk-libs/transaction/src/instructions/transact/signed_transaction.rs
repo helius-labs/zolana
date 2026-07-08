@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     error::TransactionError,
-    instructions::types::{InputCommitment, SpendUtxo},
+    instructions::types::{InputUtxoContext, SpendUtxo},
     ExternalData, OutputUtxo,
 };
 
@@ -58,7 +58,7 @@ pub struct SignedTransaction {
 }
 
 impl SignedTransaction {
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -73,7 +73,7 @@ impl SignedTransaction {
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
                     utxo_hash,
                     nullifier,

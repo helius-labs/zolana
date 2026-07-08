@@ -11,8 +11,8 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct MarkerData {
-    pub maker_address: [u8; 65],
     pub escrow_utxo_hash: [u8; 32],
+    pub maker_pubkey: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -28,7 +28,7 @@ const ESCROW_OUTPUT_INDEX: usize = 1;
 #[profile]
 pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("payer")?;
+    let maker_pubkey = *iter.next_signer_mut("payer")?.address().as_array();
 
     let mut cursor = data;
     let proof =
@@ -52,8 +52,8 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
         .get(ESCROW_OUTPUT_INDEX)
         .ok_or(SwapError::InvalidInstructionData)?;
     let marker = MarkerData {
-        maker_address,
         escrow_utxo_hash,
+        maker_pubkey,
     };
     transact
         .output_ciphertexts

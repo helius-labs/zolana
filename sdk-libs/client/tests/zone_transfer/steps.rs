@@ -12,7 +12,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputCommitment, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
+    spawn_prover, InputUtxoContext, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
     TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::{
@@ -306,7 +306,7 @@ fn build_real_inputs(
             .nullifier(&utxo_hash, &kp.nullifier_key)
             .expect("nullifier");
         indexer.add_utxo(utxo_hash);
-        commitments.push(InputCommitment {
+        commitments.push(InputUtxoContext {
             index,
             utxo_hash,
             nullifier,

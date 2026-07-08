@@ -8,7 +8,7 @@ use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_sdk::{
     instructions::create_swap::{create_swap, CreateSwapIxData, EscrowCreate},
-    order::{marker_output, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
     CreateProof,
 };
 use zolana_client::Transaction as TxBuilder;
@@ -72,7 +72,7 @@ fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
     }
     .output(taker_recipient.viewing_pubkey)
     .expect("escrow output");
-    let marker = marker_output(taker_recipient);
+    let marker = marker_output_utxo(taker_recipient);
 
     let source_utxo = Utxo {
         owner: maker.signing_pubkey(),
@@ -93,6 +93,7 @@ fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
         ),
         escrow,
         marker,
+        payer: Pubkey::new_from_array([9u8; 32]),
     }
     .sign(&maker, &assets)
     .expect("escrow create sign");

@@ -66,21 +66,10 @@ impl SwapWorld {
         .output(taker_recipient.viewing_pubkey)?
         .hash()
         .map_err(|e| anyhow!("escrow hash: {e:?}"))?;
-        let mut expected_maker_address = [0u8; 65];
-        expected_maker_address[0..32].copy_from_slice(
-            &maker_keypair
-                .owner_hash()
-                .map_err(|e| anyhow!("maker owner hash: {e:?}"))?,
-        );
-        expected_maker_address[32..65].copy_from_slice(maker_keypair.viewing_pubkey().as_bytes());
         let marker = self.discover_marker(taker_view_tag)?;
         assert_eq!(
             marker.escrow_utxo_hash, expected_escrow_hash,
             "marker must point to this order's escrow leaf"
-        );
-        assert_eq!(
-            marker.maker_address, expected_maker_address,
-            "marker must name the order's creator"
         );
 
         // Taker's destination utxo (destination_amount SOL) it spends to pay the maker.
@@ -156,7 +145,7 @@ impl SwapWorld {
         .map_err(|e| anyhow!("escrow fill sign: {e:?}"))?;
 
         let commitments = signed
-            .input_commitments()
+            .input_utxo_hashes()
             .map_err(|e| anyhow!("input commitments: {e:?}"))?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {

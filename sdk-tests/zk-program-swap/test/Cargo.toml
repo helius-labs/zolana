@@ -72,3 +72,8 @@ path = "tests/create_tx_size.rs"
 [[test]]
 name = "bench_cu"
 path = "tests/bench_cu.rs"
+
+[[test]]
+name = "create_fill_inline"
+path = "tests/create_fill_inline.rs"
+harness = true

@@ -8,7 +8,7 @@ use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, Shield
 
 use crate::{
     error::TransactionError,
-    instructions::types::{InputCommitment, SpendUtxo},
+    instructions::types::{InputUtxoContext, SpendUtxo},
     OutputUtxo,
 };
 
@@ -120,7 +120,7 @@ impl Merge {
 }
 
 /// A merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at the tail),
-/// still proofless. [`Self::input_commitments`] yields what to fetch Merkle proofs
+/// still proofless. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs
 /// for.
 pub struct PreparedMerge {
     pub inputs: Vec<SpendUtxo>,
@@ -135,7 +135,7 @@ impl PreparedMerge {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up. Merge assembly only supports clean inputs,
     /// so an input that committed to program or zone data is rejected.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -151,7 +151,7 @@ impl PreparedMerge {
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
                     utxo_hash,
                     nullifier,

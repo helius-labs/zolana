@@ -131,7 +131,7 @@ impl TransferWorld {
 
         let signed = tx.sign(&sender, &assets).expect("sign");
 
-        let commitments = signed.input_commitments().expect("input commitments");
+        let commitments = signed.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
         let mut indexer = TestIndexer::new();
         for commitment in &commitments {

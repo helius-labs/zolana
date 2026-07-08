@@ -14,7 +14,7 @@ use crate::{
     error::TransactionError,
     instructions::{
         merge::MERGE_INPUTS,
-        types::{InputCommitment, SpendUtxo},
+        types::{InputUtxoContext, SpendUtxo},
     },
     OutputUtxo,
 };
@@ -138,7 +138,7 @@ impl MergeZone {
 
 /// A policy-zone merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at
 /// the tail), still proofless. Carries the shared `zone_program_id` the proof
-/// commits. [`Self::input_commitments`] yields what to fetch Merkle proofs for.
+/// commits. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs for.
 pub struct PreparedMergeZone {
     pub inputs: Vec<SpendUtxo>,
     pub output: OutputUtxo,
@@ -153,7 +153,7 @@ impl PreparedMergeZone {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up. Merge assembly only supports clean inputs,
     /// so an input that committed to program or zone data is rejected.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -169,7 +169,7 @@ impl PreparedMergeZone {
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
                     utxo_hash,
                     nullifier,

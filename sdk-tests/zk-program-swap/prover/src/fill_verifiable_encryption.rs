@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::{
+    fill_verifiable_encryption::FillVerifiableEncryptionProof, shared::u64_to_field,
+};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO};
 
@@ -46,6 +48,21 @@ impl From<crate::create::CreateError> for FillVerifiableEncryptionError {
 impl From<zolana_keypair::KeypairError> for FillVerifiableEncryptionError {
     fn from(e: zolana_keypair::KeypairError) -> Self {
         FillVerifiableEncryptionError::Keypair(format!("{e:?}"))
+    }
+}
+
+impl From<OrderProof> for FillVerifiableEncryptionProof {
+    fn from(proof: OrderProof) -> Self {
+        let (commitment, commitment_pok) = proof
+            .commitment
+            .expect("fill proof carries a BSB22 commitment");
+        Self {
+            proof_a: proof.proof_a,
+            proof_b: proof.proof_b,
+            proof_c: proof.proof_c,
+            commitment,
+            commitment_pok,
+        }
     }
 }
 

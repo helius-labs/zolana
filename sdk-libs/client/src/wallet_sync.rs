@@ -841,7 +841,7 @@ mod tests {
 
     fn signed_to_shielded_tx(signed: SignedTransaction, slot: u64) -> ShieldedTransaction {
         let nullifiers = signed
-            .input_commitments()
+            .input_utxo_hashes()
             .expect("input commitments")
             .into_iter()
             .map(|commitment| commitment.nullifier)
@@ -890,7 +890,7 @@ mod tests {
     ) -> ShieldedTransaction {
         let merge = MergePlan::new(owner, inputs).expect("merge plan");
         let prepared = merge.prepare();
-        let commitments = prepared.input_commitments().expect("input commitments");
+        let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let output = Utxo {
             owner: owner.signing_pubkey(),
             asset: prepared.output.asset,

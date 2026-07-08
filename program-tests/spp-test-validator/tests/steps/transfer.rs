@@ -192,7 +192,7 @@ impl LifecycleWorld {
         }
         let signed = tx.sign(&from_keypair, &self.assets)?;
 
-        let commitments = signed.input_commitments()?;
+        let commitments = signed.input_utxo_hashes()?;
         let mut spend_proofs = Vec::new();
         for commitment in &commitments {
             let state =

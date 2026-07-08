@@ -21,10 +21,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
-    order::{marker_output, sdk_private_tx_hash, BlindingField, Escrow, OrderTerms},
-    prover::{create_proof_ix, prove_transact},
-    spp_program_meta, tag, CreateProof, MarkerData,
+    CreateProof, MarkerData, check_private_tx_hash, err, escrow_authority_pda, order::{BlindingField, Escrow, OrderTerms, marker_output_utxo, sdk_private_tx_hash}, program_id_pubkey, prover::prove_transact, spp_program_meta, tag
 };
 
 /// Wire layout for an order-lifecycle instruction's body: a Borsh proof-struct
@@ -68,10 +65,7 @@ pub fn create_swap(
     maker_address: [u8; 65],
     mut transact: TransactIxData,
 ) -> Instruction {
-    // The marker payload `{ maker_address, escrow_utxo_hash }` is reconstructable by the
-    // create program (maker_address from instruction data, escrow_utxo_hash from
-    // `output_utxo_hashes[1]`), so the client clears it before sending and the program
-    // refills it before the SPP CPI. The proofs were already committed over the filled payload.
+    // marker payload is rebuilt on-chain; clear it so it doesn't ship in the tx
     if let Some(marker) = transact.output_ciphertexts.last_mut() {
         marker.data = Vec::new();
     }
@@ -82,7 +76,15 @@ pub fn create_swap(
         transact,
     }
     .serialize();
-    lifecycle_instruction(tag::CREATE_SWAP, payer, spp_accounts, data)
+    let mut accounts = vec![AccountMeta::new(payer, true)];
+    accounts.extend(spp_accounts);
+    let mut instruction_data = vec![tag::CREATE_SWAP];
+    instruction_data.extend_from_slice(&data);
+    Instruction {
+        program_id: program_id_pubkey(),
+        accounts,
+        data: instruction_data,
+    }
 }
 
 pub struct CreateSharedInputs {
@@ -133,12 +135,12 @@ impl CreateSharedInputs {
         .output(self.taker_address.viewing_pubkey)
     }
 
-    pub fn marker_output(&self) -> OutputUtxo {
-        marker_output(self.taker_address)
+    pub fn marker_output_utxo(&self) -> OutputUtxo {
+        marker_output_utxo(self.taker_address)
     }
 
     pub fn marker_output_hash(&self) -> Result<[u8; 32]> {
-        self.marker_output().hash().map_err(err)
+        self.marker_output_utxo().hash().map_err(err)
     }
 
     pub fn sdk_private_tx_hash(&self, source_mint: Address) -> Result<[u8; 32]> {
@@ -153,14 +155,39 @@ impl CreateSharedInputs {
             &self.external_data_hash,
         )
     }
+
+    /// Generate the create proof and the SPP transact proof (the blocking work
+    /// kept out of `CreateSwap::instruction`), validating both against the
+    /// SDK-computed private_tx_hash.
+    pub fn prove(
+        &self,
+        signed: SignedTransaction,
+        source_mint: Address,
+        spend_proofs: &[SpendProof],
+        prover: &ProverClient,
+    ) -> Result<(CreateProof, TransactIxData)> {
+        let expected = self.sdk_private_tx_hash(source_mint)?;
+        let transact = prove_transact(signed, spend_proofs, prover)?;
+        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
+        let create_result = self
+            .create_proof_inputs(source_mint)?
+            .prove()
+            .map_err(err)?;
+        check_private_tx_hash("create proof", create_result.private_tx_hash, expected)?;
+        Ok((create_result.proof.into(), transact))
+    }
 }
 
-const SOL_CHANGE_POSITION: u8 = 1;
+const CHANGE_POSITION: u8 = 1;
 
 pub struct EscrowCreate {
     pub tx: Transaction,
     pub escrow: OutputUtxo,
     pub marker: OutputUtxo,
+    /// The maker's 32-byte owner pubkey (the create tx fee payer / user-registry
+    /// key). Written into the marker so the taker can look the maker up; the
+    /// on-chain program reconstructs the same value from the payer signer.
+    pub payer: Pubkey,
 }
 
 impl EscrowCreate {
@@ -173,6 +200,7 @@ impl EscrowCreate {
             mut tx,
             escrow,
             marker,
+            payer,
         } = self;
         if tx.inputs.len() != 1 {
             return Err(TransactionError::TooManyInputs {
@@ -186,32 +214,38 @@ impl EscrowCreate {
         let marker_address = marker
             .owner_address
             .ok_or(TransactionError::MissingOutput)?;
-        if escrow.asset != SOL_MINT {
-            return Err(TransactionError::UnsupportedShape { n_in: 2, n_out: 3 });
-        }
-
-        let sol_leftover = input_sum(&tx, &SOL_MINT)
+        // Change is denominated in the escrow (source) asset: the single real input
+        // spends `source_amount` into the escrow and returns the remainder to the
+        // maker. SOL rides `sol_amount`; any other asset rides `spl_amount` with its
+        // registered `spl_asset_id`.
+        let escrow_asset = escrow.asset;
+        let leftover = input_sum(&tx, &escrow_asset)
             .checked_sub(i128::from(escrow.amount))
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
-        if sol_leftover < 0 {
+        if leftover < 0 {
             return Err(TransactionError::InsufficientBalance {
-                requested: (-sol_leftover) as u64,
+                requested: (-leftover) as u64,
                 available: 0,
             });
         }
-        let sol_change = sol_leftover as u64;
+        let change_amount = leftover as u64;
+        let (sol_change, spl_change, spl_asset_id) = if escrow_asset == SOL_MINT {
+            (change_amount, 0, 0)
+        } else {
+            (0, change_amount, assets.asset_id(&escrow_asset)?)
+        };
 
-        let change = if sol_change > 0 {
+        let change = if change_amount > 0 {
             OutputUtxo {
                 owner_address: Some(tx.owner),
-                asset: SOL_MINT,
-                amount: sol_change,
-                blinding: derive_blinding(&tx.blinding_seed, SOL_CHANGE_POSITION),
+                asset: escrow_asset,
+                amount: change_amount,
+                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
                 ..Default::default()
             }
         } else {
             OutputUtxo {
-                blinding: derive_blinding(&tx.blinding_seed, SOL_CHANGE_POSITION),
+                blinding: derive_blinding(&tx.blinding_seed, CHANGE_POSITION),
                 owner_tag: Some(tx.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             }
@@ -220,8 +254,8 @@ impl EscrowCreate {
         let sender_slot = SenderSlot {
             plaintext: TransferSenderPlaintext {
                 owner_pubkey: tx.owner.signing_pubkey,
-                spl_asset_id: 0,
-                spl_amount: 0,
+                spl_asset_id,
+                spl_amount: spl_change,
                 sol_amount: sol_change,
                 blinding_seed: tx.blinding_seed,
                 recipient_viewing_pks: vec![escrow_address.viewing_pubkey],
@@ -230,9 +264,6 @@ impl EscrowCreate {
             },
             output: change,
         };
-        let mut maker_compressed_address = [0u8; 65];
-        maker_compressed_address[0..32].copy_from_slice(&tx.owner.owner_hash()?);
-        maker_compressed_address[32..65].copy_from_slice(tx.owner.viewing_pubkey.as_bytes());
         let escrow_hash = escrow.hash()?;
         let escrow_slot = RecipientSlot::new(escrow, assets)?;
 
@@ -241,8 +272,8 @@ impl EscrowCreate {
             ciphertext: OutputCiphertext {
                 view_tag: marker_address.signing_pubkey.confidential_view_tag()?,
                 data: borsh::to_vec(&MarkerData {
-                    maker_address: maker_compressed_address,
                     escrow_utxo_hash: escrow_hash,
+                    maker_pubkey: payer.to_bytes(),
                 })
                 .expect("MarkerData serialization is infallible"),
             },
@@ -264,49 +295,53 @@ fn input_sum(tx: &Transaction, asset: &Address) -> i128 {
 
 pub struct CreateSwap {
     pub inputs: CreateSharedInputs,
-    pub signed: SignedTransaction,
-    pub source_mint: Address,
     pub payer: Pubkey,
     pub tree: Pubkey,
+    pub proof: CreateProof,
+    pub transact: TransactIxData,
+    pub source_asset_id: u64,
 }
 
 impl CreateSwap {
-    pub fn instruction(
-        self,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-    ) -> Result<Instruction> {
+    pub fn instruction(self) -> Instruction {
         let Self {
             inputs,
-            signed,
-            source_mint,
             payer,
             tree,
+            proof,
+            mut transact,
+            source_asset_id,
         } = self;
-        let expected = inputs.sdk_private_tx_hash(source_mint)?;
-        let transact = prove_transact(signed, spend_proofs, prover)?;
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let create_result = inputs
-            .create_proof_inputs(source_mint)?
-            .prove()
-            .map_err(err)?;
-        check_private_tx_hash("create proof", create_result.private_tx_hash, expected)?;
-        let spp_accounts = vec![
+
+        // marker payload is rebuilt on-chain; clear it so it doesn't ship in the tx
+        if let Some(marker) = transact.output_ciphertexts.last_mut() {
+            marker.data = Vec::new();
+        }
+
+        let mut maker_address = [0u8; 65]; // TODO: refactor this it doesnt make sense
+        maker_address[0..32].copy_from_slice(&inputs.terms.maker_owner_hash);
+        maker_address[32..65].copy_from_slice(&inputs.terms.maker_viewing_pk);
+        let data = CreateSwapIxData {
+            proof,
+            source_asset_id,
+            maker_address,
+            transact,
+        }
+        .serialize();
+
+        let accounts = vec![
+            AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             spp_program_meta(),
         ];
-        let mut maker_address = [0u8; 65];
-        maker_address[0..32].copy_from_slice(&inputs.terms.maker_owner_hash);
-        maker_address[32..65].copy_from_slice(&inputs.terms.maker_viewing_pk);
-        Ok(create_swap(
-            payer,
-            spp_accounts,
-            create_proof_ix(&create_result.proof),
-            inputs.terms.source_asset_id,
-            maker_address,
-            transact,
-        ))
+        let mut instruction_data = vec![tag::CREATE_SWAP];
+        instruction_data.extend_from_slice(&data);
+        Instruction {
+            program_id: program_id_pubkey(),
+            accounts,
+            data: instruction_data,
+        }
     }
 }
 
@@ -379,8 +414,13 @@ mod tests {
 
         let escrow_hash = escrow.hash().expect("escrow hash");
         let marker_hash = marker.hash().expect("marker hash");
-        let signed = EscrowCreate { tx, escrow, marker }
-            .sign(&owner_keypair, &assets)
+        let signed = EscrowCreate {
+            tx,
+            escrow,
+            marker,
+            payer: Pubkey::default(),
+        }
+        .sign(&owner_keypair, &assets)
             .expect("escrow create");
 
         assert_eq!(signed.shape, Shape::new(2, 3));
@@ -476,8 +516,13 @@ mod tests {
             Address::default(),
         );
 
-        let signed = EscrowCreate { tx, escrow, marker }
-            .sign(&owner_keypair, &assets)
+        let signed = EscrowCreate {
+            tx,
+            escrow,
+            marker,
+            payer: Pubkey::default(),
+        }
+        .sign(&owner_keypair, &assets)
             .expect("escrow create");
 
         let change = signed.outputs.first().expect("change output");

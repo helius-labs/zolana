@@ -84,6 +84,7 @@ impl Escrow {
         PublicKey::from_ed25519(crate::escrow_authority_pda().as_array())
     }
 
+    /// Constant nullifier key so that both counter parties can spend this utxo.
     fn nullifier_key() -> NullifierKey {
         NullifierKey::from_secret([0u8; BLINDING_LEN])
     }
@@ -139,7 +140,7 @@ pub const MARKER_BLINDING: Blinding = [0u8; BLINDING_LEN];
 /// to `SOL_MINT`: the marker is 0-value, so its asset never enters balance
 /// conservation, and a constant asset makes the marker fully deterministic from the
 /// taker's address alone (independent of the order's source asset).
-pub fn marker_output(taker_address: ShieldedAddress) -> OutputUtxo {
+pub fn marker_output_utxo(taker_address: ShieldedAddress) -> OutputUtxo {
     OutputUtxo {
         asset: SOL_MINT,
         amount: 0,

@@ -81,7 +81,7 @@ impl MergeWorld {
             .expect("build merge plan")
             .with_expiry(0);
         let prepared = merge.prepare();
-        let commitments = prepared.input_commitments().expect("input commitments");
+        let commitments = prepared.input_utxo_hashes().expect("input commitments");
         let proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("merkle proofs");

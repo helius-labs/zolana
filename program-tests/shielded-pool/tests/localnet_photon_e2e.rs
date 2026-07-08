@@ -836,7 +836,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         );
         tx.send(&sender_address, SOL_MINT, TRANSFER_AMOUNT)?;
         let signed = tx.sign(&sender, &assets)?;
-        let commitments = signed.input_commitments()?;
+        let commitments = signed.input_utxo_hashes()?;
         assert_eq!(commitments.len(), 2);
         assert_eq!(commitments[0].nullifier, first_note.nullifier);
         assert_eq!(commitments[1].nullifier, second_note.nullifier);
@@ -1577,7 +1577,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     tx.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
     let signed = tx.sign(&sender, &assets)?;
 
-    let commitments = signed.input_commitments()?;
+    let commitments = signed.input_utxo_hashes()?;
     let mut spend_proofs = Vec::new();
     for commitment in &commitments {
         let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash)?;

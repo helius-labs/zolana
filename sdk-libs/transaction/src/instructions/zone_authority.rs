@@ -11,7 +11,7 @@ use crate::{
     error::TransactionError,
     instructions::{
         transact::{builder::Shape, signed_transaction::PublicAmounts},
-        types::{InputCommitment, SpendUtxo},
+        types::{InputUtxoContext, SpendUtxo},
     },
     ExternalData, OutputUtxo,
 };
@@ -35,7 +35,7 @@ pub struct PreparedZoneAuthority {
 impl PreparedZoneAuthority {
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up.
-    pub fn input_commitments(&self) -> Result<Vec<InputCommitment>, TransactionError> {
+    pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         self.inputs
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -50,7 +50,7 @@ impl PreparedZoneAuthority {
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                Ok(InputCommitment {
+                Ok(InputUtxoContext {
                     index,
                     utxo_hash,
                     nullifier,

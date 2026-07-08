@@ -9,6 +9,7 @@
 //! that called the helper, not the helper body.
 
 pub mod litesvm_asserts;
+pub mod localnet;
 pub mod smart_account;
 pub mod spl;
 pub mod test_validator_asserts;

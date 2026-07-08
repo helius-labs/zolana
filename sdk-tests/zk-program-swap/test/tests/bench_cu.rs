@@ -30,11 +30,8 @@ use swap_sdk::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryptionSharedInputs,
         },
     },
-    order::{marker_output, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
-    prover::{
-        cancel_proof_ix, create_proof_ix, fill_proof_ix, fill_verifiable_encryption_proof_ix,
-        pack_transact_proof,
-    },
+    order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    prover::pack_transact_proof,
 };
 use zolana_client::{
     assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
@@ -182,7 +179,7 @@ fn build_spend_proofs(
     tree: &Pubkey,
     state_tree: &MerkleTree<Poseidon>,
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
-    commitments: &[zolana_transaction::instructions::types::InputCommitment],
+    commitments: &[zolana_transaction::instructions::types::InputUtxoContext],
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
     root_index: u16,
@@ -476,7 +473,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     }
     .output(taker_address.viewing_pubkey)
     .expect("escrow output");
-    let marker = marker_output(taker_address);
+    let marker = marker_output_utxo(taker_address);
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let spend = SpendUtxo::from_keypair(input_utxo, &maker);
@@ -486,11 +483,16 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         payer_address,
     );
     let assets = AssetRegistry::default();
-    let signed = EscrowCreate { tx, escrow, marker }
-        .sign(&maker, &assets)
-        .expect("escrow create sign");
+    let signed = EscrowCreate {
+        tx,
+        escrow,
+        marker,
+        payer: payer.pubkey(),
+    }
+    .sign(&maker, &assets)
+    .expect("escrow create sign");
 
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = signed.input_utxo_hashes().expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -553,7 +555,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let ix = create_swap(
         payer.pubkey(),
         spp_accounts,
-        create_proof_ix(&create_result.proof),
+        create_result.proof.into(),
         SOL_ASSET_ID,
         maker_address,
         transact,
@@ -665,7 +667,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     .sign(&taker, &assets)
     .expect("escrow fill sign");
 
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = signed.input_utxo_hashes().expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -706,7 +708,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let ix = fill(
         taker_payer.pubkey(),
         spp_accounts,
-        fill_proof_ix(&fill_result.proof),
+        fill_result.proof.into(),
         transact,
     );
 
@@ -821,7 +823,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     .sign(&taker, &assets)
     .expect("escrow fill sign");
 
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = signed.input_utxo_hashes().expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -863,7 +865,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let ix = fill_verifiable_encryption(
         taker_payer.pubkey(),
         spp_accounts,
-        fill_verifiable_encryption_proof_ix(&fill_result.proof),
+        fill_result.proof.into(),
         transact,
     );
 
@@ -955,7 +957,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         .sign(&maker, &assets)
         .expect("escrow cancel sign");
 
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = signed.input_utxo_hashes().expect("input commitments");
     let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
     let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
@@ -1005,7 +1007,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         maker_payer.pubkey(),
         maker_signer,
         spp_accounts,
-        cancel_proof_ix(&cancel_result.proof),
+        cancel_result.proof.into(),
         terms.expiry,
         transact,
     );
@@ -1028,4 +1030,3 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     bench.add_table("cancel", proving_time_table(spp_dur, swap_dur));
     bench.add_table("cancel", tx_size_table(&ix, &maker_payer.pubkey()));
 }
-

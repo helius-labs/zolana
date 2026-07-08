@@ -160,7 +160,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // One real input: build its state-inclusion + nullifier-non-inclusion proof
     // from the reference trees, with the on-chain root indices (utxo root at
     // history index 1, nullifier root at index 0).
-    let commitments = signed.input_commitments().expect("input commitments");
+    let commitments = signed.input_utxo_hashes().expect("input commitments");
     let commitment = commitments.first().expect("one input commitment");
     let state_path: Vec<[u8; 32]> = state_tree
         .get_proof_of_leaf(0, true)

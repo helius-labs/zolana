@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
-use swap_program::instructions::shared::u64_to_field;
+use swap_program::instructions::{fill::FillProof, shared::u64_to_field};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
@@ -48,6 +48,16 @@ pub fn derive_destination_blinding(
     let mut out = zolana_keypair::hash::poseidon(&[escrow_blinding, &domain])?;
     out[DESTINATION_BLINDING_TOP_BYTE] = 0;
     Ok(out)
+}
+
+impl From<OrderProof> for FillProof {
+    fn from(proof: OrderProof) -> Self {
+        Self {
+            proof_a: proof.proof_a,
+            proof_b: proof.proof_b,
+            proof_c: proof.proof_c,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

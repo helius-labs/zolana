@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
+    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputUtxoContext,
     ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
     ZolanaIndexer,
 };
@@ -81,7 +81,7 @@ pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
     signed: SignedTransaction,
 ) -> Result<Signature> {
-    let commitments = signed.input_commitments()?;
+    let commitments = signed.input_utxo_hashes()?;
     let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
     // `assemble` runs the witness build once: the per-input nullifiers, root
     // indices, and dummy padding come out of the prover, so the instruction data
@@ -119,7 +119,7 @@ pub(super) fn submit_private_transaction(
 fn spend_proofs(
     indexer: &ZolanaIndexer,
     tree: Pubkey,
-    commitments: &[InputCommitment],
+    commitments: &[InputUtxoContext],
 ) -> Result<Vec<SpendProof>> {
     let tree_address = Address::new_from_array(tree.to_bytes());
     let leaves = commitments
