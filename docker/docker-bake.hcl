@@ -1,15 +1,17 @@
 # Build + PUBLISH the photon and prover images for a remote server. This is the
-# PUBLISH path; the RUN path is docker/docker-compose.yml, which PULLS the
-# published photon image (${PHOTON_IMAGE}) instead of building it. Run bake from
-# the repo root so the repo-relative build contexts (`..`, `../prover/server`)
+# PUBLISH path; the RUN path is the single docker/docker-compose.yml, whose
+# services default to PULLING these published images (${PHOTON_IMAGE},
+# ${PROVER_IMAGE}, ...) -- `up` pulls, `up --build` builds from source. Run bake
+# from the repo root so the repo-relative build contexts (`..`, `../prover/server`)
 # resolve.
 #
 # The build config (contexts, inline Dockerfiles, the `..` patch context) is read
 # from docker/docker-compose.yml; this file only overrides the target platform(s),
 # registry tags, and -- for photon -- supplies the build context that the compose
 # run path omits (compose gates photon-build behind the build-photon profile).
-# Your local `:local` images are built for your Mac's arch (arm64) -- a typical x86
-# server needs linux/amd64.
+# Images are published under the sergeytimoshin/* Docker Hub account (the same
+# tags the compose services default to). Your local build is your Mac's arch
+# (arm64) -- a typical x86 server needs linux/amd64.
 #
 # One-time: a builder that can cross-build + push multi-arch manifests.
 #   docker buildx create --name zolana --driver docker-container --use

@@ -1,21 +1,33 @@
 name: zolana
 
-# Zolana / SPP local stack: Photon (Rings indexer) + Postgres + Redis + Prover.
+# Zolana / SPP stack: Photon (Rings indexer) + Postgres + Redis + Prover.
 #
-# This compose file lives at docker/ inside the zolana repo and is self-contained
-# -- every build context is repo-root-relative (`..`). Run it from the repo root:
+# ONE compose file for both local dev and a remote server. It lives at docker/
+# inside the zolana repo and is self-contained -- every build context is
+# repo-root-relative (`..`). Run it from the repo root:
 #
-#     docker compose -f docker/docker-compose.yml up -d
+#     docker compose -f docker/docker-compose.yml up -d          # PULL published images
+#     docker compose -f docker/docker-compose.yml up -d --build  # BUILD from source
 #
-#   - Photon  <- pulls the published ${PHOTON_IMAGE} by default (no local photon
-#               checkout needed). Building photon from source is opt-in via the
-#               `build-photon` profile (see the photon-build service below).
-#   - Prover  <- built from ../prover/server (Go `light-prover`). No GH token
-#               needed (go.mod is public).
+# Every buildable service defaults `image:` to the PUBLISHED tag (see
+# docker-bake.hcl) and keeps a `build:` block, mirroring photon:
+#   - Photon  <- pulls ${PHOTON_IMAGE} by default; building from source is opt-in
+#               via the `build-photon` profile (photon-build service below).
+#   - Prover  <- pulls ${PROVER_IMAGE} by default; `--build` builds it from
+#               ../prover/server (Go `light-prover`; go.mod is public, no GH token).
+# So a plain `up` on a server needs no source tree; `up --build` on a dev box
+# rebuilds locally.
+#
+# Server-safe by default: infra services (postgres, redis, prover, forester-redis,
+# forester-prover) publish only to 127.0.0.1; only photon is meant to be reachable
+# off-box (PHOTON_BIND_ADDRESS, default localhost). Local dev is unaffected by the
+# 127.0.0.1 binds.
 #
 # Photon indexes an external / host Solana RPC (default host.docker.internal:8899)
-# -- run the validator yourself via the zolana CLI / `just`. Foresters and the
-# forester dashboards are gated behind the `forester` profile.
+# -- run the validator yourself via the zolana CLI / `just`. The forester (+ its
+# dedicated prover/redis) is gated behind `profiles: [forester]`, so a plain `up`
+# never starts it and never requires FORESTER_SETTINGS; start it with
+# `--profile forester up`.
 #
 # Companion change: the repo's .dockerignore keeps the 6.8G target/ out of the
 # build context.
@@ -131,7 +143,8 @@ services:
   # release download); at runtime --auto-download is a fallback for any un-baked
   # shape (but the distroless image has no `gh`, so bake what you rely on).
   prover:
-    image: ${PROVER_IMAGE:-zolana-prover:local}
+    # Plain `up` PULLS the published image; `up --build` builds from ../prover/server.
+    image: ${PROVER_IMAGE:-sergeytimoshin/zolana-prover:devnet}
     build:
       context: ../prover/server
       dockerfile_inline: |
@@ -184,8 +197,13 @@ services:
       - --redis-url
       - redis://redis:6379
     ports:
-      # 3001 matches ZOLANA_PROVER_URL, so host `just`/CLI tests can reuse it.
-      - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${PROVER_PORT:-3001}:3001"
+      # Bound to 127.0.0.1 by default (server-safe): 3001 matches ZOLANA_PROVER_URL,
+      # so host `just`/CLI tests can reuse it. To expose the prover off-box for
+      # external clients, set PROVER_BIND_ADDRESS=0.0.0.0 -- but NOTE clients then
+      # send UNENCRYPTED witnesses to this port (the operator can see them); only
+      # do so for a trusted/temporary setup behind a firewall, until client-side or
+      # TEE-attested proving lands.
+      - "${PROVER_BIND_ADDRESS:-${COMPOSE_BIND_ADDRESS:-127.0.0.1}}:${PROVER_PORT:-3001}:3001"
       - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${PROVER_METRICS_PORT:-9998}:9998"
 
   # Dedicated Redis for the forester's async batch-proof queue, isolated from the
@@ -214,7 +232,9 @@ services:
   #     --repo helius-labs/zolana --pattern 'batch_address-append_*.key' \
   #     --pattern CHECKSUM --dir proving-keys --clobber
   forester-prover:
-    image: ${FORESTER_PROVER_IMAGE:-zolana-prover-forester:local}
+    # Plain `--profile forester up` PULLS the published image; add --build to build
+    # from ../prover/server with KEY_PROFILE=forester.
+    image: ${FORESTER_PROVER_IMAGE:-sergeytimoshin/zolana-prover-forester:devnet}
     # Gated with the forester (GB-scale key image); brought up by its profile so
     # a plain `up` / `build` doesn't pull the tree-maintenance keys.
     profiles:
@@ -267,9 +287,9 @@ services:
       - --redis-url
       - redis://forester-redis:6379
     ports:
-      # Internal by default (reached as forester-prover:3001). Own host port so it
-      # never clashes with the client prover on 3001.
-      - "${COMPOSE_BIND_ADDRESS:-127.0.0.1}:${FORESTER_PROVER_PORT:-3002}:3001"
+      # Internal by default (reached as forester-prover:3001), bound to 127.0.0.1.
+      # Own host port so it never clashes with the client prover on 3001.
+      - "${FORESTER_PROVER_BIND_ADDRESS:-${COMPOSE_BIND_ADDRESS:-127.0.0.1}}:${FORESTER_PROVER_PORT:-3002}:3001"
 
   # One-shot: create/upgrade the Rings schema before photon connects. Photon
   # only auto-migrates its temporary SQLite DB, never a provided Postgres URL.
@@ -319,35 +339,50 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # SPP forester (Rust binary). The continuous nullifier-tree worker (`run`) is
-  # not built yet -- TODO: swap the command to `run` once it exists. For now the
-  # service ships the read-only `info` status command:
-  #   docker compose run --rm forester
-  # `info` degrades gracefully without PAYER (prints "forester key: unset"), so
-  # it's kept out of the default `up` set below (profile: forester) rather than
-  # erroring on startup. Run it on demand, or `docker compose --profile forester
-  # up forester` once you set PAYER.
+  # SPP forester (Rust binary). Gated behind `profiles: [forester]`, so a plain
+  # `docker compose up` never starts it (and never requires FORESTER_SETTINGS).
+  # Start the forester + its dedicated prover/redis with:
+  #   docker compose -f docker/docker-compose.yml --profile forester up -d
+  # Plain `--profile forester up` PULLS the published image; add --build to build
+  # it from forester/Dockerfile (repo root as context).
+  #
+  # WIP: the current binary only has the `start` subcommand (main just logs "no
+  # worker configured" and exits). The continuous nullifier-tree worker -- which
+  # will reconstruct the reference tree from photon's queued values, prove ready
+  # zkp-batches on forester-prover, and submit batch_update_nullifier_tree through
+  # the forester smart-account vault -- is not wired yet. The environment below is
+  # forward-looking scaffolding for that worker (the binary reads none of it yet);
+  # the vars are documented in .env.example:
+  #   FORESTER_SETTINGS       forester smart-account settings pubkey; the vault at
+  #                           FORESTER_ACCOUNT_INDEX is the tree's forester_authority
+  #   FORESTER_PAYER          a member keypair of that smart account (JSON byte
+  #                           array); signs the execute + pays fees
+  #   FORESTER_TREE           pool tree to maintain
+  #   FORESTER_ACCOUNT_INDEX  vault index within the smart account
+  # These stay optional (no hard `:?` requirement) so `--profile forester up`
+  # works today; the worker will enforce what it needs once implemented.
   forester:
-    image: ${FORESTER_IMAGE:-zolana-forester:local}
+    image: ${FORESTER_IMAGE:-sergeytimoshin/zolana-forester:devnet}
     build:
       context: ..
       dockerfile: forester/Dockerfile
     profiles:
       - forester
-    restart: "no"
+    restart: unless-stopped
     depends_on:
       - forester-prover
       - photon
     environment:
       # RPC the forester reads tree/queue/balance from (same host RPC photon
-      # indexes). INDEXER_URL/PROVER_URL are wired for the future `run` worker.
+      # indexes). PHOTON_URL/PROVER_URL are wired for the future worker.
       RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
-      INDEXER_URL: http://photon:8784
+      PHOTON_URL: http://photon:8784
       PROVER_URL: http://forester-prover:3001
-      # Forester fee-payer keypair (JSON byte array). Placeholder: set it to run
-      # the worker or see the balance line; `info` tolerates it being unset.
       PAYER: ${FORESTER_PAYER:-}
+      FORESTER_SETTINGS: ${FORESTER_SETTINGS:-}
+      FORESTER_TREE: ${FORESTER_TREE:-treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8}
+      FORESTER_ACCOUNT_INDEX: ${FORESTER_ACCOUNT_INDEX:-0}
     command:
-      - info
+      - start
     extra_hosts:
       - "host.docker.internal:host-gateway"
