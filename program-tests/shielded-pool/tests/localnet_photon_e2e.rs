@@ -616,6 +616,121 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     Ok(())
 }
 
+/// Plumbing smoke for `forester run --dry-run`: stand up the validator + Photon,
+/// create a fresh pool tree, and confirm the forester binary reconstructs the
+/// reference nullifier tree from Photon and matches the on-chain root — no
+/// proving or submitting, so no prover is needed.
+///
+/// Requires the LOCALLY built Photon (with the `get_nullifier_queue_elements`
+/// RPC — `cargo build -p photon-indexer --bin photon` under ../photon) and
+/// `cargo build -p forester`. It is `#[ignore]`d out of the standard recipe
+/// (which runs the released Photon, without the new RPC) and run explicitly:
+///   cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e \
+///     forester_dry_run_reconstructs_from_photon -- --ignored --nocapture
+#[test]
+#[ignore]
+fn forester_dry_run_reconstructs_from_photon() -> TestResult {
+    restart_localnet();
+
+    let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
+    let indexer_url =
+        std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
+
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
+    rpc.assert_executable(&program_id)?;
+
+    let payer = Keypair::new();
+    let authority = Keypair::new();
+    print_signature(
+        "airdrop payer",
+        &rpc.airdrop(&payer.pubkey(), 20_000_000_000)?,
+    );
+    print_signature(
+        "airdrop authority",
+        &rpc.airdrop(&authority.pubkey(), 1_000_000_000)?,
+    );
+
+    let authority_bytes = authority.pubkey().to_bytes();
+    let create_config = CreateProtocolConfig {
+        authority: authority.pubkey(),
+        protocol_authority: authority_bytes.into(),
+        tree_creation_authority: authority_bytes.into(),
+        tree_creation_is_permissionless: false,
+        forester_authority: authority_bytes.into(),
+        zone_creation_authority: authority_bytes.into(),
+        zone_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: false,
+    }
+    .instruction();
+    print_signature(
+        "create_protocol_config",
+        &send_transaction(
+            &mut rpc,
+            &[create_config],
+            &authority.pubkey(),
+            &[&authority],
+        )?,
+    );
+
+    let tree = Keypair::new();
+    let create_tree = create_tree_instructions(
+        &rpc,
+        &payer.pubkey(),
+        &authority.pubkey(),
+        &tree.pubkey(),
+        tree_account_size() as u64,
+    )?;
+    print_signature(
+        "create_tree",
+        &send_transaction(
+            &mut rpc,
+            &create_tree,
+            &payer.pubkey(),
+            &[&payer, &tree, &authority],
+        )?,
+    );
+    let tree_pubkey = tree.pubkey();
+
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let forester_bin = [
+        manifest_dir.join("../../target/release/forester"),
+        manifest_dir.join("../../target/debug/forester"),
+    ]
+    .into_iter()
+    .find(|path| path.exists())
+    .ok_or_else(|| anyhow!("forester binary not built; run `cargo build -p forester`"))?;
+
+    // Photon indexes asynchronously (its Context needs at least one indexed
+    // block), so retry the dry-run until it succeeds.
+    let started = Instant::now();
+    let stdout = loop {
+        let output = std::process::Command::new(&forester_bin)
+            .args(["run", "--dry-run", "--tree", &tree_pubkey.to_string()])
+            .env("RPC_URL", &rpc_url)
+            .env("PHOTON_URL", &indexer_url)
+            .output()
+            .map_err(|err| anyhow!("run forester {}: {err}", forester_bin.display()))?;
+        if output.status.success() {
+            break String::from_utf8_lossy(&output.stdout).into_owned();
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if started.elapsed() >= INDEXER_TIMEOUT {
+            return Err(anyhow!(
+                "forester dry-run never succeeded; last error: {stderr}"
+            ));
+        }
+        sleep(Duration::from_millis(500));
+    };
+
+    assert!(
+        stdout.contains("matches on-chain"),
+        "forester dry-run did not confirm root match:\n{stdout}"
+    );
+    println!("forester dry-run plumbing smoke passed:\n{stdout}");
+    Ok(())
+}
+
 #[test]
 #[serial]
 fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> TestResult {
@@ -986,58 +1101,100 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         "queued nullifiers should not update the indexed tree root"
     );
 
-    let mut forester = NullifierTestForester::default();
-    let mut previous_forester_roots = before_forester;
-    for batch_index in 0..LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT {
-        let forester_sig = forester.run(
-            &mut rpc,
-            ForesterAuthority {
-                signer: &forester_key,
-                settings: accounts.forester_settings,
-                account_index: 0,
-                vault: accounts.forester_vault,
-            },
-            tree_pubkey,
-            &queued_nullifiers,
-        )?;
-        print_signature(
-            &format!("batch_update_nullifier_tree_{batch_index}"),
-            &forester_sig,
-        );
-        let raw_tx = rpc.fetch_confirmed_transaction(&forester_sig)?;
-        fixture_transactions.push(PhotonSnapshotFixtureTx {
-            signature: forester_sig,
-            slot: raw_tx.slot,
-            kind: "batch_update",
-            order: batch_index,
-        });
+    // Default path drives the in-test forester. Set `FORESTER_BIN` to drain via
+    // the real `forester` binary instead (a full end-to-end drain through the
+    // smart-account vault: photon RPC -> reconstruct -> prove -> execute_sync
+    // submit). Gated because the binary needs the locally built Photon with the
+    // `get_nullifier_queue_elements` RPC, while the standard recipe runs the
+    // released Photon.
+    if let Ok(forester_bin) = std::env::var("FORESTER_BIN") {
+        let prover_url = std::env::var("ZOLANA_PROVER_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+        let payer_json = serde_json::to_string(&forester_key.to_bytes().to_vec())?;
+        let max_batches = LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT.to_string();
+        let status = std::process::Command::new(&forester_bin)
+            .args([
+                "run",
+                "--tree",
+                &tree_pubkey.to_string(),
+                "--settings",
+                &accounts.forester_settings.to_string(),
+                "--account-index",
+                "0",
+                "--max-batches",
+                &max_batches,
+                "--watch",
+                "--poll-secs",
+                "1",
+            ])
+            .env("RPC_URL", &rpc_url)
+            .env("PROVER_URL", &prover_url)
+            .env("PHOTON_URL", &indexer_url)
+            .env("PAYER", payer_json)
+            .status()
+            .map_err(|err| anyhow!("run forester binary {forester_bin}: {err}"))?;
+        assert!(status.success(), "forester binary drain failed");
 
         let after_forester = latest_tree_roots(&rpc, &tree_pubkey)?;
-        assert_ne!(
-            after_forester.nullifier_root_index, previous_forester_roots.nullifier_root_index,
-            "forester batch {batch_index} should advance the nullifier root"
+        assert_eq!(
+            u64::from(after_forester.nullifier_root_index),
+            LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
+            "forester binary should drain all queued zkp-batches"
         );
+    } else {
+        let mut forester = NullifierTestForester::default();
+        let mut previous_forester_roots = before_forester;
+        for batch_index in 0..LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT {
+            let forester_sig = forester.run(
+                &mut rpc,
+                ForesterAuthority {
+                    signer: &forester_key,
+                    settings: accounts.forester_settings,
+                    account_index: 0,
+                    vault: accounts.forester_vault,
+                },
+                tree_pubkey,
+                &queued_nullifiers,
+            )?;
+            print_signature(
+                &format!("batch_update_nullifier_tree_{batch_index}"),
+                &forester_sig,
+            );
+            let raw_tx = rpc.fetch_confirmed_transaction(&forester_sig)?;
+            fixture_transactions.push(PhotonSnapshotFixtureTx {
+                signature: forester_sig,
+                slot: raw_tx.slot,
+                kind: "batch_update",
+                order: batch_index,
+            });
 
-        let fresh_nullifier = fe(9_000 + batch_index);
-        let fresh_proof = wait_for(
-            format!("Photon nullifier root after batch {batch_index}"),
-            || {
-                let response =
-                    indexer.get_non_inclusion_proofs(tree_address, vec![fresh_nullifier])?;
-                Ok(response.proofs.into_iter().next().filter(|proof| {
-                    proof.root == after_forester.nullifier_root
-                        && proof.root_index == after_forester.nullifier_root_index
-                }))
-            },
-        )?;
-        assert_eq!(fresh_proof.leaf, fresh_nullifier);
-        previous_forester_roots = after_forester;
+            let after_forester = latest_tree_roots(&rpc, &tree_pubkey)?;
+            assert_ne!(
+                after_forester.nullifier_root_index, previous_forester_roots.nullifier_root_index,
+                "forester batch {batch_index} should advance the nullifier root"
+            );
+
+            let fresh_nullifier = fe(9_000 + batch_index);
+            let fresh_proof = wait_for(
+                format!("Photon nullifier root after batch {batch_index}"),
+                || {
+                    let response =
+                        indexer.get_non_inclusion_proofs(tree_address, vec![fresh_nullifier])?;
+                    Ok(response.proofs.into_iter().next().filter(|proof| {
+                        proof.root == after_forester.nullifier_root
+                            && proof.root_index == after_forester.nullifier_root_index
+                    }))
+                },
+            )?;
+            assert_eq!(fresh_proof.leaf, fresh_nullifier);
+            previous_forester_roots = after_forester;
+        }
+        assert_eq!(
+            u64::from(previous_forester_roots.nullifier_root_index),
+            LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
+            "all forester batches should advance the nullifier root"
+        );
     }
-    assert_eq!(
-        u64::from(previous_forester_roots.nullifier_root_index),
-        LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
-        "all forester batches should advance the nullifier root"
-    );
 
     for nullifier_index in [0, queued_nullifiers.len() / 2, queued_nullifiers.len() - 1] {
         wait_for(

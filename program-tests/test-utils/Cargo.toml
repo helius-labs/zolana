@@ -6,7 +6,6 @@ publish = false
 
 [dependencies]
 base64 = { workspace = true }
-borsh = { workspace = true }
 bytemuck = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
@@ -17,6 +16,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-smart-account-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }

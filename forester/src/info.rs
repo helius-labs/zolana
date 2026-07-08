@@ -12,7 +12,6 @@ use std::env;
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use solana_commitment_config::CommitmentConfig;
-use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
@@ -191,10 +190,7 @@ fn read_forester(rpc: &RpcClient) -> Result<Option<(Pubkey, u64)>> {
         Ok(payer) => payer,
         Err(_) => return Ok(None),
     };
-    let bytes: Vec<u8> =
-        serde_json::from_str(&payer).context("PAYER must be a JSON byte array keypair")?;
-    let keypair = Keypair::try_from(bytes.as_slice())
-        .map_err(|err| anyhow!("PAYER is not a valid keypair: {err}"))?;
+    let keypair = crate::parse_payer_keypair(&payer)?;
     let pubkey = keypair.pubkey();
     let lamports = rpc
         .get_balance(&pubkey)
