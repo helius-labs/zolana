@@ -2,13 +2,15 @@
 #
 # The forester crate depends on workspace crates (zolana-tree,
 # zolana-batched-merkle-tree, zolana-interface, ...), so the build context must
-# be the whole zolana workspace root, not just forester/. In docker-bake.hcl the
-# `forester` target sets `context = ./zolana-main`; a bare `docker build
-# forester/` will NOT work.
+# be the repository root, not just forester/:
 #
-# rust:1.95 matches the photon builder (docker-compose.yml x-photon-image): the
-# workspace pulls solana crates that need a recent toolchain, and 1.92 (the old
-# pin here) is stale.
+#   docker build -f forester/Dockerfile .
+#
+# A bare `docker build forester/` will NOT work. The root .dockerignore keeps the
+# context small. The compose/bake orchestration that wires this image together
+# with photon, the prover, and postgres lives outside this repo (ops workspace).
+#
+# rust:1.95: the workspace pulls solana crates that need a recent toolchain.
 FROM rust:1.95-slim-bookworm AS builder
 WORKDIR /app
 
@@ -23,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Whole workspace as context (kept small by zolana-main/.dockerignore, which
+# Repository root as context (kept small by the root .dockerignore, which
 # excludes target/, .git/, proving-keys/, ...).
 COPY . .
 RUN cargo build --release --package forester
