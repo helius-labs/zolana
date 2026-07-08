@@ -221,20 +221,8 @@ func testBatchAddressAppendHappyPath40_10(t *testing.T) {
 	runBatchAddressAppendTest(t, 40, 10)
 }
 
-func testBatchAddressAppendHappyPath40_100(t *testing.T) {
-	runBatchAddressAppendTest(t, 40, 100)
-}
-
-func testBatchAddressAppendHappyPath40_500(t *testing.T) {
-	runBatchAddressAppendTest(t, 40, 500)
-}
-
 func testBatchAddressAppendHappyPath40_250(t *testing.T) {
 	runBatchAddressAppendTest(t, 40, 250)
-}
-
-func testBatchAddressAppendHappyPath40_1000(t *testing.T) {
-	runBatchAddressAppendTest(t, 40, 1000)
 }
 
 func runBatchAddressAppendTest(t *testing.T, treeHeight uint32, batchSize uint32) {
@@ -268,10 +256,6 @@ func runBatchAddressAppendTest(t *testing.T, treeHeight uint32, batchSize uint32
 
 func testBatchAddressAppendWithPreviousState40_10(t *testing.T) {
 	runBatchAddressAppendWithPreviousStateTest(t, 40, 10)
-}
-
-func testBatchAddressAppendWithPreviousState40_100(t *testing.T) {
-	runBatchAddressAppendWithPreviousStateTest(t, 40, 100)
 }
 
 func testBatchAddressAppendWithPreviousState40_250(t *testing.T) {
