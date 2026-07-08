@@ -11,9 +11,33 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"zolana/prover/logging"
 )
+
+// metadataHTTPClient fetches the small release-metadata JSON. Asset downloads
+// use their own long-timeout client (see downloadAssetByID); metadata is a tiny
+// GET, so a short bounded timeout keeps a stalled connection from hanging the
+// whole key-download path forever.
+var metadataHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// checksumMergeOnce serializes the once-per-release CHECKSUM merge. Preloading N
+// keys (see EnsureKeysExist) would otherwise re-download and re-merge the
+// identical release CHECKSUM N times, racing on dir/CHECKSUM. A sync.Once per
+// release tag (keyed under checksumMergeMu) makes the merge run exactly once per
+// process regardless of whether EnsureKeysExist iterates sequentially or
+// concurrently. The stored error is memoized so later callers see the same
+// outcome without retrying.
+var (
+	checksumMergeMu   sync.Mutex
+	checksumMergeOnce = map[string]*checksumMergeState{}
+)
+
+type checksumMergeState struct {
+	once sync.Once
+	err  error
+}
 
 const (
 	DefaultMaxRetries    = 10
@@ -84,6 +108,117 @@ func readLocalChecksum(dir string, filename string) (string, bool) {
 	return "", false
 }
 
+// parseChecksumFile reads a CHECKSUM file (format "checksum  filename" per
+// line, as written by scripts/generate_checksums.py) into a filename->checksum
+// map. A missing file yields an empty map (not an error) so a first-ever
+// download can still merge into a fresh CHECKSUM.
+func parseChecksumFile(path string) (map[string]string, error) {
+	entries := map[string]string{}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return entries, nil
+		}
+		return nil, err
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		parts := strings.Fields(strings.TrimSpace(line))
+		if len(parts) >= 2 {
+			entries[parts[1]] = parts[0]
+		}
+	}
+	return entries, nil
+}
+
+// writeChecksumFile writes entries to path in the canonical "checksum  filename"
+// format (two spaces, sorted by filename to match generate_checksums.py) via a
+// temp file + rename so a concurrent reader never sees a partial CHECKSUM.
+func writeChecksumFile(path string, entries map[string]string) error {
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&b, "%s  %s\n", entries[name], name)
+	}
+
+	tempPath := path + ".merge.tmp"
+	if err := os.WriteFile(tempPath, []byte(b.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write temp CHECKSUM %s: %w", tempPath, err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("failed to rename temp CHECKSUM to %s: %w", path, err)
+	}
+	return nil
+}
+
+// mergeReleaseChecksum downloads the release CHECKSUM to a distinct temp path
+// (never dir/CHECKSUM, so the shared local manifest is not clobbered mid-merge),
+// parses it, and merges its entries into dir/CHECKSUM: local-only entries (e.g.
+// locally generated squads keys) are preserved and release entries override
+// same-filename local entries. The merged file is written atomically.
+func mergeReleaseChecksum(assets []releaseAsset, dir string) error {
+	localPath := filepath.Join(dir, "CHECKSUM")
+	local, err := parseChecksumFile(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to read local CHECKSUM %s: %w", localPath, err)
+	}
+
+	// downloadMatchingAssets writes to <passed-dir>/<asset name>, i.e. it would
+	// clobber dir/CHECKSUM. Download into a temp subdirectory instead so the
+	// shared local CHECKSUM is never overwritten by the raw release manifest --
+	// even if the merge below fails partway through.
+	stageDir, err := os.MkdirTemp(dir, "checksum-release-")
+	if err != nil {
+		return fmt.Errorf("failed to create release CHECKSUM staging dir: %w", err)
+	}
+	defer os.RemoveAll(stageDir)
+
+	if err := downloadMatchingAssets(assets, "CHECKSUM", stageDir); err != nil {
+		return fmt.Errorf("failed to download release CHECKSUM: %w", err)
+	}
+	releasePath := filepath.Join(stageDir, "CHECKSUM")
+
+	release, err := parseChecksumFile(releasePath)
+	if err != nil {
+		return fmt.Errorf("failed to read release CHECKSUM: %w", err)
+	}
+
+	// Union: start from local, let release entries override same-filename ones.
+	merged := make(map[string]string, len(local)+len(release))
+	for name, sum := range local {
+		merged[name] = sum
+	}
+	for name, sum := range release {
+		merged[name] = sum
+	}
+	return writeChecksumFile(localPath, merged)
+}
+
+// ensureReleaseChecksum fetches and merges the release CHECKSUM into dir/CHECKSUM
+// exactly once per release tag for the lifetime of the process, regardless of
+// how many keys are being preloaded and whether they are handled sequentially or
+// concurrently. mergeReleaseChecksum reuses the already-fetched asset list.
+func ensureReleaseChecksum(assets []releaseAsset, dir string) error {
+	tag := releaseTag()
+	checksumMergeMu.Lock()
+	state, ok := checksumMergeOnce[tag]
+	if !ok {
+		state = &checksumMergeState{}
+		checksumMergeOnce[tag] = state
+	}
+	checksumMergeMu.Unlock()
+
+	state.once.Do(func() {
+		state.err = mergeReleaseChecksum(assets, dir)
+	})
+	return state.err
+}
+
 func verifyChecksum(filepath string, expectedChecksum string) (bool, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -137,7 +272,7 @@ func listReleaseAssets() ([]releaseAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := metadataHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query release %s@%s: %w", ProvingKeysRepo, tag, err)
 	}
@@ -159,14 +294,11 @@ func listReleaseAssets() ([]releaseAsset, error) {
 	return release.Assets, nil
 }
 
-// downloadReleaseAsset downloads every asset whose name matches pattern (a
-// filepath.Match glob) into dir via the GitHub REST API. Errors if nothing
-// matches. Replaces the `gh` CLI so downloads work in the distroless image.
-func downloadReleaseAsset(pattern string, dir string) error {
-	assets, err := listReleaseAssets()
-	if err != nil {
-		return err
-	}
+// downloadMatchingAssets downloads every asset in assets whose name matches
+// pattern (a filepath.Match glob) into dir via the GitHub REST API. Errors if
+// nothing matches. Callers pass a pre-fetched asset list so a single
+// listReleaseAssets result can serve several patterns.
+func downloadMatchingAssets(assets []releaseAsset, pattern string, dir string) error {
 	matched := 0
 	for _, asset := range assets {
 		ok, err := filepath.Match(pattern, asset.Name)
@@ -185,6 +317,17 @@ func downloadReleaseAsset(pattern string, dir string) error {
 		return fmt.Errorf("no asset matches %q in release %s@%s", pattern, ProvingKeysRepo, releaseTag())
 	}
 	return nil
+}
+
+// downloadReleaseAsset downloads every asset whose name matches pattern (a
+// filepath.Match glob) into dir via the GitHub REST API. Errors if nothing
+// matches. Replaces the `gh` CLI so downloads work in the distroless image.
+func downloadReleaseAsset(pattern string, dir string) error {
+	assets, err := listReleaseAssets()
+	if err != nil {
+		return err
+	}
+	return downloadMatchingAssets(assets, pattern, dir)
 }
 
 // downloadAssetByID streams a release asset (by numeric id) to outputPath,
@@ -219,6 +362,12 @@ func downloadAssetByID(id int64, outputPath string) error {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			// Permanent client errors (401/403/404, ...) will never succeed on
+			// retry -- fail fast instead of burning every retry with backoff.
+			// Rate limiting (429) and server errors (5xx) stay retryable.
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+				return lastErr
+			}
 			continue
 		}
 		file, err := os.Create(tempPath)
@@ -284,16 +433,25 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 		Str("tag", releaseTag()).
 		Msg("Downloading proving key from GitHub release via REST API")
 
-	if err := downloadReleaseAsset("CHECKSUM", dir); err != nil {
-		return fmt.Errorf("failed to download release CHECKSUM: %w", err)
+	// Fetch the asset list once and reuse it for both the CHECKSUM merge and the
+	// key/parts download, so preloading N keys does not make ~2N list calls.
+	assets, err := listReleaseAssets()
+	if err != nil {
+		return err
 	}
 
-	if err := downloadReleaseAsset(filename, dir); err != nil {
+	// Merge the release CHECKSUM into dir/CHECKSUM once per process (across all
+	// EnsureProvingKeyFromRelease calls), preserving locally generated entries.
+	if err := ensureReleaseChecksum(assets, dir); err != nil {
+		return err
+	}
+
+	if err := downloadMatchingAssets(assets, filename, dir); err != nil {
 		logging.Logger().Info().
 			Err(err).
 			Str("file", filename).
 			Msg("Exact release asset unavailable; trying split asset parts")
-		if partsErr := downloadReleaseAsset(filename+".part-*", dir); partsErr != nil {
+		if partsErr := downloadMatchingAssets(assets, filename+".part-*", dir); partsErr != nil {
 			return fmt.Errorf("failed to download release asset %s or split parts: exact: %w; parts: %w", filename, err, partsErr)
 		}
 		if err := assembleReleaseAssetParts(dir, filename, keyPath); err != nil {
