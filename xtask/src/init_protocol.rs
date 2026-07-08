@@ -46,7 +46,8 @@ pub mod authorities {
         pubkey!("E8Dmx8zP1E9xdcCJCZjzSUuFo61LPxSbvmg8a3NQKwMB"),
     ];
 
-    pub const TREE_ACCOUNT: Pubkey = pubkey!("treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8");
+    pub const TREE_ACCOUNT: Pubkey =
+        Pubkey::from_str_const(zolana_interface::DEFAULT_POOL_TREE_ADDRESS);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
