@@ -21,8 +21,9 @@ use zolana_transaction::{owner_utxo_hash, utxo_hash, Wallet, SOL_MINT};
 use crate::{error::ClientError, rpc::Rpc, wallet_sync::sync_wallet};
 
 /// Compute-unit ceiling [`deposit`] is submitted with. Benchmarked deposits run
-/// ~34k CU (`program-tests/shielded-pool/CU_BENCHMARK.md`).
-pub const DEFAULT_DEPOSIT_CU_LIMIT: u32 = 40_000;
+/// ~34k CU (`program-tests/shielded-pool/CU_BENCHMARK.md`), but a live devnet
+/// SPL deposit was observed exceeding 40k, so the ceiling leaves headroom.
+pub const DEFAULT_DEPOSIT_CU_LIMIT: u32 = 80_000;
 
 /// How long [`Deposit::wait_until_synced`] waits for the indexer to pick up
 /// the deposited UTXO before giving up.
