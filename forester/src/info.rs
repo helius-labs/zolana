@@ -79,7 +79,7 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
             ready_total += ready;
             infos.push(BatchInfo {
                 index,
-                state: state_name(batch.get_state()),
+                state: batch.try_get_state().map(state_name).unwrap_or("unknown"),
                 queued: batch.get_num_inserted_elements(),
                 ready_zkps: ready,
                 inserted_zkps: batch.get_num_inserted_zkps(),
@@ -111,7 +111,7 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
             "state_tree": {
                 "height": height,
                 "leaves": leaves,
-                "root": hex(&state_root),
+                "root": hex::encode(state_root),
             },
             "nullifier_queue": {
                 "zkp_batch_size": zkp_batch_size,
@@ -133,7 +133,7 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
                 "ready_to_forest_nullifiers_approx": ready_nullifiers,
                 "pending_batch_index": pending_batch_index,
                 "currently_processing_batch_index": currently_processing_batch_index,
-                "root": nullifier_root.map(|root| hex(&root)),
+                "root": nullifier_root.map(hex::encode),
             },
             "forester": forester.as_ref().map(|(pubkey, lamports)| json!({
                 "pubkey": pubkey.to_string(),
@@ -147,7 +147,7 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
     }
 
     println!("tree {tree} (state height {height}, {leaves} leaves)");
-    println!("  state root: {}", hex(&state_root));
+    println!("  state root: {}", hex::encode(state_root));
     println!("nullifier queue (batched):");
     println!("  zkp_batch_size={zkp_batch_size}  batch_size={batch_size}  batches={num_batches}");
     for batch in &batch_infos {
@@ -169,7 +169,7 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
          currently_processing_batch_index={currently_processing_batch_index}"
     );
     match nullifier_root {
-        Some(root) => println!("  nullifier root: {}", hex(&root)),
+        Some(root) => println!("  nullifier root: {}", hex::encode(root)),
         None => println!("  nullifier root: <none>"),
     }
     match &forester {
@@ -216,12 +216,4 @@ fn lamports_to_sol(lamports: u64) -> String {
         lamports / LAMPORTS_PER_SOL,
         lamports % LAMPORTS_PER_SOL
     )
-}
-
-fn hex(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
 }

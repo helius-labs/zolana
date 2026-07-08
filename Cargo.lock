@@ -2058,6 +2058,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dotenvy",
+ "hex",
  "serde_json",
  "solana-commitment-config",
  "solana-keypair",

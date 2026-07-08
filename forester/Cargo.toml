@@ -10,6 +10,7 @@ default = []
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+hex = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
