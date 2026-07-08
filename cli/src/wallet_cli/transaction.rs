@@ -30,7 +30,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         authority: &ctx.material,
         owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient_owner,
+        recipient: recipient_owner,
         asset,
         amount: opts.amount,
     })?;

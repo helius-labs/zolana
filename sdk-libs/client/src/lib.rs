@@ -18,6 +18,7 @@ pub use actions::{
     create_withdrawal, create_withdrawal_sync, fetch_asset_id, register_spl_interface,
     sign_transaction, sign_transaction_sync, CreateDeposit, CreateTransfer, CreateWithdrawal,
     CreatedTransfer, CreatedWithdrawal, Deposit, ResolvedAddress, TransferRecipient,
+    DEFAULT_DEPOSIT_CU_LIMIT,
 };
 #[cfg(feature = "indexer-api")]
 pub use actions::{Submit, DEFAULT_TRANSACT_CU_LIMIT};

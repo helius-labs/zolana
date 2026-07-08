@@ -6,6 +6,7 @@ use std::{
 };
 
 use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -19,6 +20,10 @@ use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{owner_utxo_hash, utxo_hash, Wallet, SOL_MINT};
 
 use crate::{error::ClientError, rpc::Rpc, wallet_sync::sync_wallet};
+
+/// Compute-unit ceiling [`deposit`] is submitted with. Benchmarked deposits run
+/// ~34k CU (`program-tests/shielded-pool/CU_BENCHMARK.md`).
+pub const DEFAULT_DEPOSIT_CU_LIMIT: u32 = 40_000;
 
 /// How long [`Deposit::send_and_sync`] waits for the indexer to pick up the
 /// deposited UTXO before giving up.
@@ -194,13 +199,14 @@ pub fn deposit<R: Rpc>(
     spl: Option<DepositSplAccounts>,
     data: &DepositIxData,
 ) -> Result<Signature, ClientError> {
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(DEFAULT_DEPOSIT_CU_LIMIT);
     let ix = deposit_instruction(tree, depositor.pubkey(), spl, data);
     let mut signers: Vec<&Keypair> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
     }
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    rpc.create_and_send_transaction(&[ix], payer_address, &signers)
+    rpc.create_and_send_transaction(&[cu_ix, ix], payer_address, &signers)
 }
 
 fn deposit_instruction(
@@ -299,8 +305,11 @@ mod tests {
             memo: data.memo.clone(),
         }
         .instruction();
-        assert_eq!(sent.message.instructions.len(), 1);
-        assert_eq!(sent.message.instructions[0].data, expected.data);
+        let cu_expected =
+            ComputeBudgetInstruction::set_compute_unit_limit(DEFAULT_DEPOSIT_CU_LIMIT);
+        assert_eq!(sent.message.instructions.len(), 2);
+        assert_eq!(sent.message.instructions[0].data, cu_expected.data);
+        assert_eq!(sent.message.instructions[1].data, expected.data);
         assert!(sent.message.account_keys.contains(&payer.pubkey()));
         assert!(sent.message.account_keys.contains(&depositor.pubkey()));
     }

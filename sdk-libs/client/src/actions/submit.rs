@@ -34,9 +34,9 @@ use crate::{
 };
 
 /// Compute-unit ceiling a private transaction is submitted with unless the
-/// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
-/// which does not fit inside the default per-instruction budget.
-pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 1_400_000;
+/// caller overrides it. Benchmarked transfers and withdrawals run ~148k-152k CU
+/// (`program-tests/shielded-pool/CU_BENCHMARK.md`).
+pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 200_000;
 
 /// How long [`Submit::execute`] waits for the indexer to pick up the sent
 /// transaction before giving up.

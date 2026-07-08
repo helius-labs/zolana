@@ -77,7 +77,7 @@ pub struct CreateTransfer<'a, R: Rpc, A: ?Sized> {
     pub authority: &'a A,
     pub owner_pubkey: Pubkey,
     pub payer: Address,
-    pub recipient_owner: Pubkey,
+    pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
 }
@@ -95,14 +95,13 @@ pub struct CreateWithdrawal<'a, A: ?Sized> {
 pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     request: CreateTransfer<'_, R, A>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient_owner)?
-    else {
+    let Some(recipient) = try_resolve_registered_address(request.rpc, request.recipient)? else {
         let withdrawal = create_withdrawal(CreateWithdrawal {
             wallet: request.wallet,
             authority: request.authority,
             owner_pubkey: request.owner_pubkey,
             payer: request.payer,
-            recipient: request.recipient_owner,
+            recipient: request.recipient,
             asset: request.asset,
             amount: request.amount,
         })
@@ -111,7 +110,7 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
             signed: withdrawal.signed,
             wait_tag: withdrawal.wait_tag,
             recipient: TransferRecipient::PublicWithdrawal {
-                recipient: request.recipient_owner,
+                recipient: request.recipient,
                 withdrawal: withdrawal.withdrawal,
             },
         });
@@ -140,7 +139,7 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         &request.wallet.registry,
         format!(
             "private transfer of {} to {}",
-            request.amount, request.recipient_owner
+            request.amount, request.recipient
         ),
     )
     .await?;
@@ -459,7 +458,7 @@ mod tests {
             authority: &sender,
             owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: owner,
+            recipient: owner,
             asset: SOL_MINT,
             amount: 1,
         })
@@ -485,7 +484,7 @@ mod tests {
             authority: &sender,
             owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: recipient,
+            recipient,
             asset: SOL_MINT,
             amount: 1,
         })
@@ -516,7 +515,7 @@ mod tests {
             authority: &sender,
             owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient_owner: recipient,
+            recipient,
             asset,
             amount: 1,
         })
