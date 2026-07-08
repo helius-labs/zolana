@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{args::CreateTreeOptions, cli_config::CliConfigFile};
 
-pub(super) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
+pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let material = load_sender_from_resolved_sync(&sync)?;
     let mut rpc = SolanaRpc::new(sync.rpc_url);

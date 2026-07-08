@@ -8,7 +8,7 @@ use super::{
 };
 use crate::args::BalanceOptions;
 
-pub(super) fn run_balance(opts: BalanceOptions) -> Result<()> {
+pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
     let ctx = sync_context(&opts.sync)?;
     let balances = ctx.wallet.balances(true)?;
 

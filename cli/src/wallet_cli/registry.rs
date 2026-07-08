@@ -24,7 +24,7 @@ pub(super) fn register_wallet_on_chain(
     )?)
 }
 
-pub(super) fn run_merge(opts: MergeOptions) -> Result<()> {
+pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
     let sync = resolve_sync(&opts.sync)?;
     let rpc = SolanaRpc::new(sync.rpc_url.clone());
     let material = load_sender_from_resolved_sync(&sync)?;

@@ -14,15 +14,6 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum CliCommand {
-    #[command(
-        name = "test-validator",
-        about = "Start the local Zolana test validator"
-    )]
-    TestValidator(Box<TestValidatorOptions>),
-
-    #[command(name = "start-prover", about = "Start the local prover server")]
-    StartProver(StartProverOptions),
-
     #[command(name = "config", about = "Show or update CLI configuration")]
     Config {
         #[command(subcommand)]
@@ -34,6 +25,78 @@ pub(crate) enum CliCommand {
         #[command(subcommand)]
         command: WalletCommand,
     },
+
+    #[command(name = "dev", about = "Local development environment commands")]
+    Dev {
+        #[command(subcommand)]
+        command: DevCommand,
+    },
+
+    #[command(
+        name = "test-env",
+        about = "Start the local Zolana test validator (alias for `dev start`)"
+    )]
+    TestEnv(Box<TestValidatorOptions>),
+
+    #[command(
+        name = "sync",
+        about = "Sync private wallet state. Transfers run sync automatically."
+    )]
+    Sync(SyncOptions),
+
+    #[command(name = "balance", about = "Show private wallet balances")]
+    Balance(BalanceOptions),
+
+    #[command(name = "deposit", about = "Deposit into private wallet")]
+    Deposit(DepositOptions),
+
+    #[command(name = "transfer", about = "Send a private transfer")]
+    Transfer(TransferOptions),
+
+    #[command(name = "withdraw", about = "Withdraw to public address")]
+    Withdraw(WithdrawOptions),
+
+    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
+    Merge(MergeOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum DevCommand {
+    #[command(name = "start", about = "Start the local Zolana test validator")]
+    Start(Box<TestValidatorOptions>),
+
+    #[command(name = "prover", about = "Local prover server commands")]
+    Prover {
+        #[command(subcommand)]
+        command: DevProverCommand,
+    },
+
+    #[command(name = "pool", about = "Local pool setup commands")]
+    Pool {
+        #[command(subcommand)]
+        command: DevPoolCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum DevProverCommand {
+    #[command(name = "start", about = "Start the local prover server")]
+    Start(StartProverOptions),
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub(crate) enum DevPoolCommand {
+    #[command(
+        name = "create-tree",
+        about = "Initialize protocol config and a pool tree on the configured RPC"
+    )]
+    CreateTree(CreateTreeOptions),
+
+    #[command(
+        name = "test-mint",
+        about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
+    )]
+    TestMint(TestMintOptions),
 }
 
 #[derive(Debug, Subcommand, Clone)]
@@ -44,11 +107,23 @@ pub(crate) enum ConfigCommand {
     #[command(name = "set", about = "Update the CLI configuration file")]
     Set(ConfigSetOptions),
 
-    #[command(name = "asset-registry", about = "Show locally configured assets")]
-    AssetRegistry,
+    #[command(name = "asset", about = "Manage the local SPL asset registry")]
+    Asset {
+        #[command(subcommand)]
+        command: ConfigAssetCommand,
+    },
+}
 
-    #[command(name = "add-asset", about = "Add or update a local SPL asset mapping")]
-    AddAsset(ConfigAddAssetOptions),
+#[derive(Debug, Subcommand, Clone)]
+pub(crate) enum ConfigAssetCommand {
+    #[command(name = "list", about = "Show locally configured assets")]
+    List,
+
+    #[command(name = "add", about = "Add or update a local SPL asset mapping")]
+    Add(ConfigAddAssetOptions),
+
+    #[command(name = "path", about = "Print the CLI config file path")]
+    Path,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -95,39 +170,6 @@ pub(crate) enum WalletCommand {
         about = "Create a filesystem private keypair and register it on-chain"
     )]
     Init(InitOptions),
-
-    #[command(
-        name = "create-tree",
-        about = "Initialize protocol config and a pool tree on the configured RPC"
-    )]
-    CreateTree(CreateTreeOptions),
-
-    #[command(
-        name = "test-mint",
-        about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
-    )]
-    TestMint(TestMintOptions),
-
-    #[command(
-        name = "sync",
-        about = "Sync private wallet state. Transfers run sync automatically."
-    )]
-    Sync(SyncOptions),
-
-    #[command(name = "balance", about = "Show private wallet balances")]
-    Balance(BalanceOptions),
-
-    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
-    Merge(MergeOptions),
-
-    #[command(name = "deposit", about = "Deposit into private wallet")]
-    Deposit(DepositOptions),
-
-    #[command(name = "transfer", about = "Send a private transfer")]
-    Transfer(TransferOptions),
-
-    #[command(name = "withdraw", about = "Withdraw to public address")]
-    Withdraw(WithdrawOptions),
 }
 
 #[derive(Debug)]
@@ -556,15 +598,36 @@ pub(crate) fn parse_cli(values: &[&str]) -> Cli {
 #[cfg(test)]
 pub(crate) fn parse_validator(values: &[&str]) -> TestValidatorOptions {
     match parse_cli(
-        &std::iter::once("test-validator")
+        &std::iter::once("dev")
+            .chain(std::iter::once("start"))
             .chain(values.iter().copied())
             .collect::<Vec<_>>(),
     )
     .command
     .expect("command")
     {
-        CliCommand::TestValidator(opts) => *opts,
-        _ => panic!("expected test-validator command"),
+        CliCommand::Dev {
+            command: DevCommand::Start(opts),
+        } => *opts,
+        _ => panic!("expected dev start command"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn parse_dev_pool(values: &[&str]) -> DevPoolCommand {
+    match parse_cli(
+        &["dev", "pool"]
+            .into_iter()
+            .chain(values.iter().copied())
+            .collect::<Vec<_>>(),
+    )
+    .command
+    .expect("command")
+    {
+        CliCommand::Dev {
+            command: DevCommand::Pool { command },
+        } => command,
+        _ => panic!("expected dev pool command"),
     }
 }
 
@@ -590,11 +653,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_validator_help_documents_localnet_flags() {
+    fn dev_start_help_documents_localnet_flags() {
         let mut command = Cli::command();
         let help = command
-            .find_subcommand_mut("test-validator")
-            .expect("test-validator subcommand")
+            .find_subcommand_mut("dev")
+            .expect("dev subcommand")
+            .find_subcommand_mut("start")
+            .expect("dev start subcommand")
             .render_long_help()
             .to_string();
 
@@ -613,19 +678,27 @@ mod tests {
     fn clap_accepts_top_level_and_command_help() {
         for args in [
             ["zolana", "--help"].as_slice(),
-            ["zolana", "test-validator", "--help"].as_slice(),
-            ["zolana", "start-prover", "--help"].as_slice(),
-            ["zolana", "config", "asset-registry", "--help"].as_slice(),
-            ["zolana", "config", "add-asset", "--help"].as_slice(),
+            ["zolana", "dev", "--help"].as_slice(),
+            ["zolana", "dev", "start", "--help"].as_slice(),
+            ["zolana", "dev", "prover", "--help"].as_slice(),
+            ["zolana", "dev", "prover", "start", "--help"].as_slice(),
+            ["zolana", "dev", "pool", "--help"].as_slice(),
+            ["zolana", "dev", "pool", "create-tree", "--help"].as_slice(),
+            ["zolana", "dev", "pool", "test-mint", "--help"].as_slice(),
+            ["zolana", "test-env", "--help"].as_slice(),
+            ["zolana", "config", "--help"].as_slice(),
+            ["zolana", "config", "asset", "--help"].as_slice(),
+            ["zolana", "config", "asset", "list", "--help"].as_slice(),
+            ["zolana", "config", "asset", "add", "--help"].as_slice(),
+            ["zolana", "config", "asset", "path", "--help"].as_slice(),
             ["zolana", "wallet", "--help"].as_slice(),
             ["zolana", "wallet", "init", "--help"].as_slice(),
-            ["zolana", "wallet", "create-tree", "--help"].as_slice(),
-            ["zolana", "wallet", "test-mint", "--help"].as_slice(),
-            ["zolana", "wallet", "sync", "--help"].as_slice(),
-            ["zolana", "wallet", "balance", "--help"].as_slice(),
-            ["zolana", "wallet", "deposit", "--help"].as_slice(),
-            ["zolana", "wallet", "transfer", "--help"].as_slice(),
-            ["zolana", "wallet", "withdraw", "--help"].as_slice(),
+            ["zolana", "sync", "--help"].as_slice(),
+            ["zolana", "balance", "--help"].as_slice(),
+            ["zolana", "deposit", "--help"].as_slice(),
+            ["zolana", "transfer", "--help"].as_slice(),
+            ["zolana", "withdraw", "--help"].as_slice(),
+            ["zolana", "merge", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -688,9 +761,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_start_prover_options() {
+    fn parses_dev_prover_start_options() {
         let command = parse_cli(&[
-            "start-prover",
+            "dev",
+            "prover",
+            "start",
             "--port",
             "3002",
             "--redis-url",
@@ -698,8 +773,14 @@ mod tests {
         ])
         .command
         .expect("command");
-        let CliCommand::StartProver(opts) = command else {
-            panic!("expected start-prover command");
+        let CliCommand::Dev {
+            command:
+                DevCommand::Prover {
+                    command: DevProverCommand::Start(opts),
+                },
+        } = command
+        else {
+            panic!("expected dev prover start command");
         };
 
         assert_eq!(opts.prover_port, 3002);
@@ -707,12 +788,18 @@ mod tests {
     }
 
     #[test]
-    fn parses_start_prover_auto_download_option() {
-        let command = parse_cli(&["start-prover", "--auto-download", "off"])
+    fn parses_dev_prover_start_auto_download_option() {
+        let command = parse_cli(&["dev", "prover", "start", "--auto-download", "off"])
             .command
             .expect("command");
-        let CliCommand::StartProver(opts) = command else {
-            panic!("expected start-prover command");
+        let CliCommand::Dev {
+            command:
+                DevCommand::Prover {
+                    command: DevProverCommand::Start(opts),
+                },
+        } = command
+        else {
+            panic!("expected dev prover start command");
         };
 
         assert!(!opts.auto_download);
@@ -735,17 +822,15 @@ mod tests {
             "http://127.0.0.1:8900",
             "--airdrop-lamports",
             "1000000000",
-        ]) else {
-            panic!("expected wallet init command");
-        };
+        ]);
         assert_eq!(opts.path.as_deref(), Some("/tmp/alice.pid.json"));
         assert_eq!(opts.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
         assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
     }
 
     #[test]
-    fn parses_wallet_create_tree_options() {
-        let WalletCommand::CreateTree(opts) = parse_wallet(&[
+    fn parses_dev_pool_create_tree_options() {
+        let DevPoolCommand::CreateTree(opts) = parse_dev_pool(&[
             "create-tree",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -758,7 +843,7 @@ mod tests {
             "--airdrop-lamports",
             "1000000000",
         ]) else {
-            panic!("expected wallet create-tree command");
+            panic!("expected dev pool create-tree command");
         };
         assert_eq!(
             opts.sync.keypair.keypair.as_deref(),
@@ -777,7 +862,8 @@ mod tests {
     fn parses_config_asset_commands() {
         let Some(CliCommand::Config { command }) = parse_cli(&[
             "config",
-            "add-asset",
+            "asset",
+            "add",
             "--mint",
             "Mint111111111111111111111111111111111111111",
             "--asset-id",
@@ -789,8 +875,11 @@ mod tests {
         else {
             panic!("expected config command");
         };
-        let ConfigCommand::AddAsset(opts) = command else {
-            panic!("expected add-asset command");
+        let ConfigCommand::Asset {
+            command: ConfigAssetCommand::Add(opts),
+        } = command
+        else {
+            panic!("expected config asset add command");
         };
         assert_eq!(opts.asset_id, 2);
         assert_eq!(opts.mint, "Mint111111111111111111111111111111111111111");
@@ -801,8 +890,31 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_test_mint_options() {
-        let WalletCommand::TestMint(opts) = parse_wallet(&[
+    fn parses_config_asset_list_and_path() {
+        let Some(CliCommand::Config {
+            command:
+                ConfigCommand::Asset {
+                    command: ConfigAssetCommand::List,
+                },
+        }) = parse_cli(&["config", "asset", "list"]).command
+        else {
+            panic!("expected config asset list command");
+        };
+
+        let Some(CliCommand::Config {
+            command:
+                ConfigCommand::Asset {
+                    command: ConfigAssetCommand::Path,
+                },
+        }) = parse_cli(&["config", "asset", "path"]).command
+        else {
+            panic!("expected config asset path command");
+        };
+    }
+
+    #[test]
+    fn parses_dev_pool_test_mint_options() {
+        let DevPoolCommand::TestMint(opts) = parse_dev_pool(&[
             "test-mint",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -813,7 +925,7 @@ mod tests {
             "--airdrop-lamports",
             "1000000000",
         ]) else {
-            panic!("expected wallet test-mint command");
+            panic!("expected dev pool test-mint command");
         };
         assert_eq!(
             opts.sync.keypair.keypair.as_deref(),
@@ -825,8 +937,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_sync_and_balance_options() {
-        let WalletCommand::Sync(sync) = parse_wallet(&[
+    fn parses_sync_and_balance_options() {
+        let Some(CliCommand::Sync(sync)) = parse_cli(&[
             "sync",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -834,28 +946,32 @@ mod tests {
             "http://127.0.0.1:8900",
             "--indexer-url",
             "http://127.0.0.1:8785",
-        ]) else {
-            panic!("expected wallet sync command");
+        ])
+        .command
+        else {
+            panic!("expected sync command");
         };
         assert_eq!(sync.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
         assert_eq!(sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
         assert_eq!(sync.indexer_url.as_deref(), Some("http://127.0.0.1:8785"));
 
-        let WalletCommand::Balance(balance) = parse_wallet(&[
+        let Some(CliCommand::Balance(balance)) = parse_cli(&[
             "balance",
             "--keypair",
             "/tmp/alice.pid.json",
             "--mint",
             "SOL",
-        ]) else {
-            panic!("expected wallet balance command");
+        ])
+        .command
+        else {
+            panic!("expected balance command");
         };
         assert_eq!(balance.mint.as_deref(), Some("SOL"));
     }
 
     #[test]
-    fn parses_wallet_merge_options() {
-        let WalletCommand::Merge(opts) = parse_wallet(&[
+    fn parses_merge_options() {
+        let Some(CliCommand::Merge(opts)) = parse_cli(&[
             "merge",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -864,8 +980,10 @@ mod tests {
             "--indexer-url",
             "http://127.0.0.1:8785",
             "--enable",
-        ]) else {
-            panic!("expected wallet merge command");
+        ])
+        .command
+        else {
+            panic!("expected merge command");
         };
 
         assert_eq!(
@@ -880,10 +998,10 @@ mod tests {
         assert!(opts.enable);
         assert!(!opts.disable);
 
-        let WalletCommand::Merge(opts) =
-            parse_wallet(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"])
+        let Some(CliCommand::Merge(opts)) =
+            parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"]).command
         else {
-            panic!("expected wallet merge command");
+            panic!("expected merge command");
         };
 
         assert!(!opts.enable);
@@ -891,8 +1009,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_deposit_transfer_and_withdraw_options() {
-        let WalletCommand::Deposit(deposit) = parse_wallet(&[
+    fn parses_deposit_transfer_and_withdraw_options() {
+        let Some(CliCommand::Deposit(deposit)) = parse_cli(&[
             "deposit",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -910,8 +1028,10 @@ mod tests {
             "http://127.0.0.1:8785",
             "--airdrop-lamports",
             "2000000000",
-        ]) else {
-            panic!("expected wallet deposit command");
+        ])
+        .command
+        else {
+            panic!("expected deposit command");
         };
         assert_eq!(
             deposit.network.tree.as_deref(),
@@ -924,7 +1044,7 @@ mod tests {
         assert_eq!(deposit.amount, 1_000_000_000);
         assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
 
-        let WalletCommand::Deposit(self_deposit) = parse_wallet(&[
+        let Some(CliCommand::Deposit(self_deposit)) = parse_cli(&[
             "deposit",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -932,12 +1052,14 @@ mod tests {
             "Tree111111111111111111111111111111111111111",
             "--amount",
             "1000000000",
-        ]) else {
-            panic!("expected wallet self-deposit command");
+        ])
+        .command
+        else {
+            panic!("expected self-deposit command");
         };
         assert_eq!(self_deposit.to, None);
 
-        let WalletCommand::Transfer(transfer) = parse_wallet(&[
+        let Some(CliCommand::Transfer(transfer)) = parse_cli(&[
             "transfer",
             "--keypair",
             "/tmp/bob.pid.json",
@@ -951,8 +1073,10 @@ mod tests {
             "SOL",
             "--prover-url",
             "http://127.0.0.1:3002",
-        ]) else {
-            panic!("expected wallet transfer command");
+        ])
+        .command
+        else {
+            panic!("expected transfer command");
         };
         assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
         assert_eq!(transfer.amount, 400_000_000);
@@ -961,7 +1085,7 @@ mod tests {
             Some("http://127.0.0.1:3002")
         );
 
-        let WalletCommand::Withdraw(withdraw) = parse_wallet(&[
+        let Some(CliCommand::Withdraw(withdraw)) = parse_cli(&[
             "withdraw",
             "--keypair",
             "/tmp/alice.pid.json",
@@ -973,8 +1097,10 @@ mod tests {
             "200000000",
             "--mint",
             "SOL",
-        ]) else {
-            panic!("expected wallet withdraw command");
+        ])
+        .command
+        else {
+            panic!("expected withdraw command");
         };
         assert_eq!(withdraw.to, "Dest1111111111111111111111111111111111111111");
         assert_eq!(withdraw.amount, 200_000_000);

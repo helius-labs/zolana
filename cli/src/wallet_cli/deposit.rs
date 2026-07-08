@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
 
-pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
+pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
     let config = CliConfigFile::load()?;

@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{args::TestMintOptions, cli_config::CliConfigFile};
 
-pub(super) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
+pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let sync = resolve_sync(&opts.sync)?;
     let material = load_sender_from_resolved_sync(&sync)?;
