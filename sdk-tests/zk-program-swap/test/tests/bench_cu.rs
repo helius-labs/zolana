@@ -13,7 +13,7 @@ use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
@@ -21,24 +21,25 @@ use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_prover::{preload, CircuitId};
 use swap_sdk::{
-    cancel, create_swap, escrow_authority_pda, fill, fill_verifiable_encryption,
     instructions::{
-        cancel::{CancelSharedInputs, EscrowCancel},
-        create_swap::{CreateSwapProofInputs, EscrowCreate},
-        fill::{EscrowFill, FillSharedInputs},
+        cancel::{Cancel, CancelSharedInputs, EscrowCancel},
+        create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
+        fill::{EscrowFill, Fill, FillSharedInputs},
         fill_verifiable_encryption::{
-            EscrowFillVerifiableEncryption, FillVerifiableEncryptionSharedInputs,
+            EscrowFillVerifiableEncryption, FillVerifiableEncryption,
+            FillVerifiableEncryptionSharedInputs,
         },
     },
     order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
-    prover::pack_transact_proof,
+    prover::{prove_transact, SwapProverClient},
 };
 use zolana_client::{
-    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
-    SpendProof, Transaction as TxBuilder, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof,
+    Transaction as TxBuilder, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
+    instruction::instruction_data::transact::TransactIxData,
     state::{
         address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size,
         STATE_HEIGHT,
@@ -66,11 +67,6 @@ const PROVER_KEYS_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../prover/server/proving-keys"
 );
-// The escrow-authority PDA the swap program signs for is never assigned this
-// index by the SDK builders (they run against the real program); the bench
-// mirrors `Fill`/`Cancel::instruction`, which stamp signer index 2 on the escrow
-// input so SPP selects the escrow-authority account as its eddsa signer.
-const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
 
 fn to_mollusk_pubkey(key: &Pubkey) -> MolluskPubkey {
     MolluskPubkey::new_from_array(key.to_bytes())
@@ -265,34 +261,20 @@ fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
     ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("keypair from payer")
 }
 
-fn spp_program_meta() -> AccountMeta {
-    AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false)
-}
-
 // Prove the SPP transfer, timing steady-state proving rather than the prover
-// server's first-request per-shape key load: assemble once, prove once to warm the
-// shape, then time a second prove. `preload` only warms the in-process swap gnark
-// circuits, not the SPP server's transfer keys, so this warm-up is what makes the
-// SPP column deterministic across runs.
+// server's first-request per-shape key load: prove once to warm the shape, then
+// time a second prove. `preload` only warms the in-process swap gnark circuits,
+// not the SPP server's transfer keys, so this warm-up is what makes the SPP
+// column deterministic across runs.
 fn prove_transact_timed(
     signed: SignedTransaction,
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
-) -> (
-    zolana_interface::instruction::instruction_data::transact::TransactIxData,
-    Duration,
-) {
-    let assembled = assemble(signed, spend_proofs).expect("assemble transfer");
-    let inputs = match &assembled.prover_inputs {
-        ProverInputs::Eddsa(inputs) => inputs,
-        ProverInputs::P256(_) => panic!("swap lifecycle uses the eddsa rail"),
-    };
-    prover.prove_transfer(inputs).expect("warm prove transfer");
+) -> (TransactIxData, Duration) {
+    prove_transact(signed.clone(), spend_proofs, prover).expect("warm prove transact");
     let start = Instant::now();
-    let proof = prover.prove_transfer(inputs).expect("prove transfer");
-    let dur = start.elapsed();
-    let transact = assembled.with_proof(pack_transact_proof(&proof).expect("pack proof"));
-    (transact, dur)
+    let transact = prove_transact(signed, spend_proofs, prover).expect("prove transact");
+    (transact, start.elapsed())
 }
 
 fn start_prover() {
@@ -525,26 +507,22 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
 
     let prover = ProverClient::local();
+    let swap_prover_client = SwapProverClient::new_ffi();
     let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let create_result = create_inputs
-        .create_proof_inputs()
-        .expect("create proof inputs")
-        .prove()
+    let create_result = swap_prover_client
+        .prove_create_swap(&create_inputs)
         .expect("swap create prove");
     let swap_dur = t1.elapsed();
 
-    let spp_accounts = vec![
-        AccountMeta::new(payer.pubkey(), true),
-        AccountMeta::new(tree, false),
-        spp_program_meta(),
-    ];
-    let ix = create_swap(
-        payer.pubkey(),
-        spp_accounts,
-        create_result.proof.into(),
-        transact,
-    );
+    let ix = CreateSwap {
+        payer: payer.pubkey(),
+        tree,
+        create_swap_proof: create_result.proof.into(),
+        spp_proof: transact,
+    }
+    .instruction()
+    .expect("create swap instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -606,16 +584,14 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         mint: SOL_MINT,
     }
     .output();
-    let build_shared = |external_data_hash: [u8; 32]| FillSharedInputs {
+    let fill_shared = FillSharedInputs {
         escrow: escrow.clone(),
-        taker_in: taker_in.clone(),
+        taker_in,
         source_output_blinding,
-        external_data_hash,
+        external_data_hash: [0u8; 32],
         maker_recipient,
         taker_recipient,
     };
-
-    let fill_shared = build_shared([0u8; 32]);
     let source_output = fill_shared.source_output();
     let destination_output = fill_shared
         .destination_output()
@@ -666,33 +642,28 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let fill_shared = build_shared(external_data_hash);
+    let fill_shared = FillSharedInputs {
+        external_data_hash,
+        ..fill_shared
+    };
 
     let prover = ProverClient::local();
-    let (mut transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
-    if let Some(escrow_input) = transact.inputs.get_mut(0) {
-        escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
-    }
+    let swap_prover_client = SwapProverClient::new_ffi();
+    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let fill_result = fill_shared
-        .fill_proof_inputs()
-        .expect("fill proof inputs")
-        .prove()
+    let fill_result = swap_prover_client
+        .prove_fill(&fill_shared)
         .expect("swap fill prove");
     let swap_dur = t1.elapsed();
 
-    let spp_accounts = vec![
-        AccountMeta::new(taker_payer.pubkey(), true),
-        AccountMeta::new(tree, false),
-        AccountMeta::new_readonly(escrow_authority_pda(), false),
-        spp_program_meta(),
-    ];
-    let ix = fill(
-        taker_payer.pubkey(),
-        spp_accounts,
-        fill_result.proof.into(),
-        transact,
-    );
+    let ix = Fill {
+        payer: taker_payer.pubkey(),
+        tree,
+        fill_proof: fill_result.proof.into(),
+        spp_proof: transact,
+    }
+    .instruction()
+    .expect("fill instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -744,17 +715,15 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let destination_output_blinding: Blinding = [21u8; 31];
     let source_output_blinding: Blinding = [31u8; 31];
 
-    let build_shared = |external_data_hash: [u8; 32]| FillVerifiableEncryptionSharedInputs {
+    let fill_shared = FillVerifiableEncryptionSharedInputs {
         escrow: escrow.clone(),
         taker_in_blinding,
         destination_output_blinding,
         source_output_blinding,
-        external_data_hash,
+        external_data_hash: [0u8; 32],
         maker_recipient,
         taker_recipient,
     };
-
-    let fill_shared = build_shared([0u8; 32]);
     let destination_ciphertext = fill_shared
         .fill_proof_inputs()
         .expect("fill proof inputs")
@@ -814,33 +783,28 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let fill_shared = build_shared(external_data_hash);
+    let fill_shared = FillVerifiableEncryptionSharedInputs {
+        external_data_hash,
+        ..fill_shared
+    };
 
     let prover = ProverClient::local();
-    let (mut transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
-    if let Some(escrow_input) = transact.inputs.get_mut(0) {
-        escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
-    }
+    let swap_prover_client = SwapProverClient::new_ffi();
+    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let fill_result = fill_shared
-        .fill_proof_inputs()
-        .expect("fill proof inputs")
-        .prove()
+    let fill_result = swap_prover_client
+        .prove_fill_verifiable_encryption(&fill_shared)
         .expect("swap fill prove");
     let swap_dur = t1.elapsed();
 
-    let spp_accounts = vec![
-        AccountMeta::new(taker_payer.pubkey(), true),
-        AccountMeta::new(tree, false),
-        AccountMeta::new_readonly(escrow_authority_pda(), false),
-        spp_program_meta(),
-    ];
-    let ix = fill_verifiable_encryption(
-        taker_payer.pubkey(),
-        spp_accounts,
-        fill_result.proof.into(),
-        transact,
-    );
+    let ix = FillVerifiableEncryption {
+        payer: taker_payer.pubkey(),
+        tree,
+        fill_proof: fill_result.proof.into(),
+        spp_proof: transact,
+    }
+    .instruction()
+    .expect("fill_verifiable_encryption instruction");
 
     let fixtures = vec![
         (tree, tree_account),
@@ -900,14 +864,13 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let source_output_blinding: Blinding = [19u8; 31];
 
-    let build_inputs = |external_data_hash: [u8; 32]| CancelSharedInputs {
+    let cancel_inputs = CancelSharedInputs {
         escrow: escrow.clone(),
         taker_viewing_pk,
         source_output_blinding,
-        external_data_hash,
+        external_data_hash: [0u8; 32],
         maker_recipient,
     };
-    let cancel_inputs = build_inputs([0u8; 32]);
     let source_output = cancel_inputs.source_output();
 
     let escrow_input = escrow.into_input_utxo().expect("escrow spend");
@@ -938,18 +901,17 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let cancel_inputs = build_inputs(external_data_hash);
+    let cancel_inputs = CancelSharedInputs {
+        external_data_hash,
+        ..cancel_inputs
+    };
 
     let prover = ProverClient::local();
-    let (mut transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
-    if let Some(escrow_input) = transact.inputs.get_mut(0) {
-        escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
-    }
+    let swap_prover_client = SwapProverClient::new_ffi();
+    let (transact, spp_dur) = prove_transact_timed(signed, &spend_proofs, &prover);
     let t1 = Instant::now();
-    let cancel_result = cancel_inputs
-        .cancel_proof_inputs()
-        .expect("cancel proof inputs")
-        .prove()
+    let cancel_result = swap_prover_client
+        .prove_cancel(&cancel_inputs)
         .expect("swap cancel prove");
     let swap_dur = t1.elapsed();
 
@@ -960,20 +922,16 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
             .as_ed25519()
             .expect("maker ed25519"),
     );
-    let spp_accounts = vec![
-        AccountMeta::new(maker_payer.pubkey(), true),
-        AccountMeta::new(tree, false),
-        AccountMeta::new_readonly(escrow_authority_pda(), false),
-        spp_program_meta(),
-    ];
-    let ix = cancel(
-        maker_payer.pubkey(),
-        maker_signer,
-        spp_accounts,
-        cancel_result.proof.into(),
-        escrow.terms.expiry,
-        transact,
-    );
+    let ix = Cancel {
+        maker: maker_signer,
+        payer: maker_payer.pubkey(),
+        tree,
+        cancel_proof: cancel_result.proof.into(),
+        order_expiry: escrow.terms.expiry,
+        spp_proof: transact,
+    }
+    .instruction()
+    .expect("cancel instruction");
 
     // The swap program requires `now > order_expiry`; SPP requires its own
     // relayer deadline (u64::MAX) to be in the future. Sit the clock between them.

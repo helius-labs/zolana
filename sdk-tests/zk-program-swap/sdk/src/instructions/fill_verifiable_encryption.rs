@@ -2,8 +2,7 @@ use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_prover::{FillVerifiableEncryptionProofInputs, FillVerifiableEncryptionProofResult};
-use zolana_client::{ProverClient, SpendProof};
+use swap_prover::FillVerifiableEncryptionProofInputs;
 use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
@@ -16,9 +15,8 @@ use zolana_transaction::{
 };
 
 use crate::{
-    check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
+    err, escrow_authority_pda, lifecycle_instruction,
     order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
-    prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, FillVerifiableEncryptionProof,
 };
 
@@ -201,10 +199,10 @@ fn asset_id(assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionE
 }
 
 pub struct FillVerifiableEncryption {
-    pub inputs: FillVerifiableEncryptionSharedInputs,
-    pub signed: SignedTransaction,
     pub payer: Pubkey,
     pub tree: Pubkey,
+    pub fill_proof: FillVerifiableEncryptionProof,
+    pub spp_proof: TransactIxData,
 }
 
 /// The escrow (input 0) is owned by the escrow-authority PDA appended readonly
@@ -216,34 +214,27 @@ pub struct FillVerifiableEncryption {
 const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
 
 impl FillVerifiableEncryption {
-    pub fn instruction(
-        self,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-        swap_prover: &SwapProverClient,
-    ) -> Result<(Instruction, FillVerifiableEncryptionProofResult)> {
+    pub fn instruction(self) -> Result<Instruction> {
         let Self {
-            inputs,
-            signed,
             payer,
             tree,
+            fill_proof,
+            mut spp_proof,
         } = self;
-        let expected = inputs.sdk_private_tx_hash()?;
-        let mut transact = prove_transact(signed, spend_proofs, prover)?;
-        if let Some(escrow_input) = transact.inputs.get_mut(0) {
+        if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let fill_result = swap_prover.prove_fill_verifiable_encryption(&inputs)?;
-        check_private_tx_hash("fill proof", fill_result.private_tx_hash, expected)?;
         let spp_accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             spp_program_meta(),
         ];
-        let ix =
-            fill_verifiable_encryption(payer, spp_accounts, fill_result.proof.into(), transact);
-        Ok((ix, fill_result))
+        Ok(fill_verifiable_encryption(
+            payer,
+            spp_accounts,
+            fill_proof,
+            spp_proof,
+        ))
     }
 }
