@@ -221,8 +221,11 @@ func (w *BaseQueueWorker) processJobs() {
 
 		queueWaitTime := jobAge.Seconds()
 		circuitType := "unknown"
-		if w.queueName == "zk_address_append_queue" {
+		switch w.queueName {
+		case "zk_address_append_queue":
 			circuitType = "address-append"
+		case "zk_transfer_queue":
+			circuitType = "transfer"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
 	}
@@ -331,6 +334,43 @@ func (w *BaseQueueWorker) processJobs() {
 
 	go func(job *ProofJob, inputHash string) {
 		defer func() {
+			if r := recover(); r != nil {
+				circuitType := "unknown"
+				if meta, parseErr := common.ParseProofRequestMeta(job.Payload); parseErr != nil {
+					logging.Logger().Warn().
+						Err(parseErr).
+						Str("job_id", job.ID).
+						Msg("Failed to parse proof request meta while recovering panic")
+				} else {
+					circuitType = string(meta.CircuitType)
+				}
+				ProofPanicsTotal.WithLabelValues(circuitType).Inc()
+
+				panicErr := fmt.Errorf("panic: %v", r)
+				logging.Logger().Error().
+					Interface("panic", r).
+					Str("job_id", job.ID).
+					Str("queue", w.queueName).
+					Str("circuit_type", circuitType).
+					Msg("Panic recovered in proof processing")
+
+				w.removeFromProcessingQueue(job.ID)
+				w.addToFailedQueue(job, inputHash, panicErr)
+
+				if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
+					logging.Logger().Warn().
+						Err(delErr).
+						Str("job_id", job.ID).
+						Str("input_hash", inputHash).
+						Msg("Failed to delete in-flight job marker (non-critical)")
+				}
+				if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
+					logging.Logger().Warn().
+						Err(delErr).
+						Str("job_id", job.ID).
+						Msg("Failed to delete job metadata (non-critical)")
+				}
+			}
 			<-w.semaphore
 		}()
 

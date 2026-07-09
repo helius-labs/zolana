@@ -614,7 +614,7 @@ func runCli() {
 							workersStarted = append(workersStarted, "address-append")
 						}
 
-						if startAll || enabledCircuitsMap["transfer"] {
+						if startAll || enabledCircuitsMap["transfer"] || enableServer {
 							transferWorker := server.NewTransferQueueWorker(redisQueue, keyManager)
 							workers = append(workers, transferWorker)
 							go transferWorker.Start()
