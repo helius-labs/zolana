@@ -339,6 +339,12 @@ func TestEnsureProvingKeySplitAssetDownload(t *testing.T) {
 	if got := server.requestsForAsset(3); got != 1 {
 		t.Fatalf("part 001 requests = %d, want 1", got)
 	}
+	for _, partName := range []string{"split.key.part-000", "split.key.part-001"} {
+		partPath := filepath.Join(dir, partName)
+		if _, statErr := os.Stat(partPath); !os.IsNotExist(statErr) {
+			t.Fatalf("split part %s still exists or stat failed with unexpected error: %v", partName, statErr)
+		}
+	}
 }
 
 func TestEnsureProvingKeyChecksumMismatchRemovesFile(t *testing.T) {
@@ -486,6 +492,7 @@ func TestProvingKeysReleaseTagOverride(t *testing.T) {
 	server := newTestReleaseServer(t, assets, bodies)
 	useTestGitHub(t, server)
 	t.Setenv(provingKeysReleaseTagEnvVar, "custom-tag")
+	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "test-token")
 
 	if err := EnsureProvingKeyFromRelease(keyPath, true, testDownloadConfig(1)); err != nil {

@@ -631,6 +631,14 @@ func assembleReleaseAssetParts(dir string, filename string, outputPath string) e
 	if err := os.Rename(tempPath, outputPath); err != nil {
 		return cleanupTempFile(tempPath, fmt.Errorf("failed to move assembled key to %s: %w", outputPath, err))
 	}
+	for _, part := range parts {
+		if err := removeFileIfExists(part); err != nil {
+			logging.Logger().Warn().
+				Err(err).
+				Str("file", filepath.Base(part)).
+				Msg("Failed to remove split release asset part")
+		}
+	}
 	return nil
 }
 
