@@ -21,7 +21,7 @@ services:
     profiles:
       - build-photon
     build:
-      context: ${PHOTON_BUILD_CONTEXT:-../photon}
+      context: ${PHOTON_BUILD_CONTEXT:-../../photon}
       additional_contexts:
         # program-libs/{event,interface,tree} for the [patch] below.
         zolana: ..
@@ -113,7 +113,7 @@ services:
         RUN mkdir -p /keys-out && cd proving-keys && \
             case "$$KEY_PROFILE" in \
               spp)      set -- 'transfer_*.key' 'merge_*.key' ;; \
-              forester) set -- 'batch_*.key' '*inclusion*.key' 'comb_*.key' ;; \
+              forester) set -- 'batch_*.key' '*inclusion*.key' '*combined*.key' ;; \
               all)      set -- '*.key' ;; \
               *)        echo "unknown KEY_PROFILE: $$KEY_PROFILE" >&2; exit 1 ;; \
             esac; \
@@ -127,9 +127,8 @@ services:
         CMD ["start"]
     restart: unless-stopped
     environment:
-      # Cap concurrent transfer proofs; empty -> PROVER_MAX_CONCURRENCY -> default.
-      TRANSFER_WORKER_CONCURRENCY: ${TRANSFER_WORKER_CONCURRENCY:-}
       PROVER_MAX_CONCURRENCY: ${PROVER_MAX_CONCURRENCY:-}
+      PROVER_TOTAL_MEMORY_GB: ${PROVER_TOTAL_MEMORY_GB:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -194,7 +193,7 @@ services:
         RUN mkdir -p /keys-out && cd proving-keys && \
             case "$$KEY_PROFILE" in \
               spp)      set -- 'transfer_*.key' 'merge_*.key' ;; \
-              forester) set -- 'batch_*.key' '*inclusion*.key' 'comb_*.key' ;; \
+              forester) set -- 'batch_*.key' '*inclusion*.key' '*combined*.key' ;; \
               all)      set -- '*.key' ;; \
               *)        echo "unknown KEY_PROFILE: $$KEY_PROFILE" >&2; exit 1 ;; \
             esac; \

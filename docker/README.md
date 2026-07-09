@@ -1,8 +1,8 @@
 # Zolana stack (docker)
 
 Photon (Rings indexer) + Postgres + Redis + Prover, plus an optional forester.
-One compose file for local dev and remote servers. Build contexts are
-repo-root-relative, so run everything from the repo root.
+One compose file for local dev and remote servers. Run the commands below from
+the repo root; build contexts in the compose file are relative to `docker/`.
 
 ## Run
 
@@ -23,10 +23,12 @@ Photon indexes an external host Solana RPC (default `host.docker.internal:8899`)
 
 The default path pulls the published photon image. Building photon from source
 is opt-in via the `build-photon` profile; `PHOTON_BUILD_CONTEXT` must point at a
-local photon (Rust) checkout current with this repo.
+local photon (Rust) checkout current with this repo. Because compose resolves
+build contexts relative to `docker/`, a checkout beside this repo is
+`../../photon`.
 
 ```bash
-PHOTON_BUILD_CONTEXT=../photon PHOTON_IMAGE=zolana-photon:local \
+PHOTON_BUILD_CONTEXT=../../photon PHOTON_IMAGE=zolana-photon:local \
   docker compose -f docker/docker-compose.yml --profile build-photon build photon-build
 PHOTON_IMAGE=zolana-photon:local docker compose -f docker/docker-compose.yml up -d
 ```
