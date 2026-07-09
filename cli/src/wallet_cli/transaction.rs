@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_merge_sync, create_split_sync, create_transfer_sync, fetch_user_record_checked,
+    create_merge, create_split_sync, create_transfer_sync, fetch_user_record_checked,
     prover::merge::MergeProver, prover::transact::assemble, ClientError, CreateMerge, CreateSplit,
     CreateTransfer, InputCommitment, InputSelection, MergeWitness, PreparedMerge, ProofCompressed,
     ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, SpendableUtxo,
@@ -41,7 +41,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
-    let recipient_owner = resolve_recipient_pubkey(&opts.to, &config)?;
+    let recipient_owner = resolve_recipient_pubkey(&opts.to)?;
     let tree = network.tree;
 
     // First attempt over the freshly synced wallet. A balance spread over more
@@ -66,13 +66,10 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             );
             let (selection, reservations) =
                 resolve_merge_selection(&opts.network.sync, &config, &ctx, asset, &[])?;
-            let merge = create_merge_sync(CreateMerge {
+            let merge = create_merge(CreateMerge {
                 wallet: &ctx.wallet,
                 keypair: &ctx.material.keypair,
-                owner_pubkey: ctx.material.owner_pubkey(),
-                payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
                 asset,
-                assets: &ctx.wallet.registry,
                 selection,
             })?;
             let (signature, _output_hash, outcome) = submit_merge_transaction(
@@ -683,13 +680,10 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
     let (selection, reservations) =
         resolve_merge_selection(&opts.network.sync, &config, &ctx, asset, &explicit_hashes)?;
 
-    let merge = create_merge_sync(CreateMerge {
+    let merge = create_merge(CreateMerge {
         wallet: &ctx.wallet,
         keypair: &ctx.material.keypair,
-        owner_pubkey: ctx.material.owner_pubkey(),
-        payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
         asset,
-        assets: &ctx.wallet.registry,
         selection,
     })?;
     let num_inputs = merge.num_inputs;
@@ -781,6 +775,48 @@ mod tests {
                 max_inputs: MAX_TRANSFER_INPUTS,
             })
         ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reserve_transfer_inputs_holds_multi_note_selection_largest_first() {
+        let dir = temp_dir("zolana-transfer-selection", "multi-note");
+        let notes = vec![note(10, 1), note(35, 2), note(30, 3), note(40, 4)];
+
+        let (selection, reservations) =
+            reserve_transfer_inputs(&dir, &notes, 100).expect("multi-note reservation");
+
+        assert_eq!(
+            selection,
+            InputSelection::Explicit(vec![[4u8; 32], [2u8; 32], [3u8; 32]])
+        );
+        assert_eq!(reservations.len(), 3);
+        for hash in [[4u8; 32], [2u8; 32], [3u8; 32]] {
+            assert!(dir.join(hex::encode(hash)).exists());
+        }
+        drop(reservations);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reserve_transfer_inputs_skips_note_held_by_another_reservation() {
+        let dir = temp_dir("zolana-transfer-selection", "skip-held");
+        let notes = vec![note(50, 5), note(45, 4), note(30, 3)];
+        let held = reserve_hash(&dir, [5u8; 32]).unwrap().expect("pre-claim");
+
+        let (selection, reservations) =
+            reserve_transfer_inputs(&dir, &notes, 70).expect("skip held note");
+
+        assert_eq!(
+            selection,
+            InputSelection::Explicit(vec![[4u8; 32], [3u8; 32]])
+        );
+        assert!(dir.join(hex::encode([5u8; 32])).exists());
+        for hash in [[4u8; 32], [3u8; 32]] {
+            assert!(dir.join(hex::encode(hash)).exists());
+        }
+        drop(reservations);
+        drop(held);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

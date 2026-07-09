@@ -26,6 +26,9 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("amount must be greater than zero")]
+    ZeroAmount,
+
     #[error("balance is too fragmented: covering {requested} needs {notes} notes but a transfer spends at most {max_inputs}; consolidate (merge) first")]
     FragmentedBalance {
         requested: u64,

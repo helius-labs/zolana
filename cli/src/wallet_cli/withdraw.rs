@@ -27,7 +27,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
-    let recipient = resolve_recipient_pubkey(&opts.to, &config)?;
+    let recipient = resolve_recipient_pubkey(&opts.to)?;
 
     let (selection, reservations) =
         resolve_auto_spend_selection(&opts.network.sync, &config, &ctx, asset, amount)?;

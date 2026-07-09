@@ -11,12 +11,12 @@ pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_associated_token_account, create_deposit, create_merge, create_merge_sync, create_split,
-    create_split_sync, create_transfer, create_transfer_sync, create_withdrawal,
-    create_withdrawal_sync, select_inputs, sign_transaction, sign_transaction_sync, CreateDeposit,
-    CreateMerge, CreateSplit, CreateTransfer, CreateWithdrawal, CreatedMerge, CreatedSplit,
-    CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection, ResolvedAddress,
-    TransferRecipient, MAX_TRANSFER_INPUTS,
+    create_associated_token_account, create_deposit, create_merge, create_split, create_split_sync,
+    create_transfer, create_transfer_sync, create_withdrawal, create_withdrawal_sync,
+    sign_transaction, sign_transaction_sync, CreateDeposit, CreateMerge, CreateSplit,
+    CreateTransfer, CreateWithdrawal, CreatedMerge, CreatedSplit, CreatedTransfer,
+    CreatedWithdrawal, Deposit, InputSelection, ResolvedAddress, TransferRecipient,
+    MAX_TRANSFER_INPUTS,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
@@ -59,7 +59,7 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{PreparedSplit, SignedTransaction, Transaction, WithdrawalTarget},
+        transact::{SignedTransaction, Transaction, WithdrawalTarget},
         types::{InputCommitment, SpendUtxo},
         zone_authority::PreparedZoneAuthority,
     },

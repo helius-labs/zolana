@@ -79,6 +79,12 @@ pub enum TransactionError {
     #[error("a split must produce at least one output")]
     SplitWithoutOutputs,
 
+    #[error("no split was configured")]
+    SplitNotConfigured,
+
+    #[error("split asset mismatch: input has {input}, split requested {requested}")]
+    SplitAssetMismatch { input: Address, requested: Address },
+
     #[error("split output amounts sum to {requested} but the selected input holds {available}")]
     SplitAmountMismatch { requested: u64, available: u64 },
 

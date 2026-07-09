@@ -76,7 +76,6 @@ fn reject_duplicate_hashes(hashes: &[[u8; 32]]) -> Result<(), ClientError> {
 #[derive(Clone)]
 pub struct CreatedTransfer {
     pub signed: SignedTransaction,
-    pub wait_tag: ViewTag,
     /// Committed hash of a real output note this transaction appends. The CLI
     /// waits for this hash to be indexed, which is robust under a shared view tag
     /// that has more than a page of outputs. See
@@ -117,7 +116,6 @@ impl TransferRecipient {
 #[derive(Clone)]
 pub struct CreatedWithdrawal {
     pub signed: SignedTransaction,
-    pub wait_tag: ViewTag,
     /// Committed hash of the sender's change output note this withdrawal appends.
     pub wait_output_hash: [u8; 32],
     pub withdrawal: TransactWithdrawal,
@@ -126,7 +124,6 @@ pub struct CreatedWithdrawal {
 #[derive(Clone)]
 pub struct CreatedSplit {
     pub signed: SignedTransaction,
-    pub wait_tag: ViewTag,
     /// Committed hash of one real self-split output note this split appends.
     pub wait_output_hash: [u8; 32],
     /// Number of self-owned notes the split produces.
@@ -156,10 +153,7 @@ pub struct CreatedMerge {
 pub struct CreateMerge<'a> {
     pub wallet: &'a Wallet,
     pub keypair: &'a ShieldedKeypair,
-    pub owner_pubkey: Pubkey,
-    pub payer: Address,
     pub asset: Address,
-    pub assets: &'a AssetRegistry,
     /// Which notes to consolidate. Defaults to [`InputSelection::Auto`], which
     /// picks up to [`MERGE_INPUTS`] unspent notes of `asset` smallest-first (so it
     /// sweeps dust and leaves large notes whole). `Explicit` consolidates exactly
@@ -227,7 +221,6 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         .await?;
         return Ok(CreatedTransfer {
             signed: withdrawal.signed,
-            wait_tag: withdrawal.wait_tag,
             wait_output_hash: withdrawal.wait_output_hash,
             recipient: TransferRecipient::PublicWithdrawal {
                 recipient: request.recipient_owner,
@@ -248,7 +241,6 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         .authority
         .shielded_address(request.owner_pubkey)
         .await?;
-    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.send(&recipient.address, request.asset, request.amount)?;
     let prepared = tx.prepare(request.assets)?;
@@ -267,7 +259,6 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
     .await?;
     Ok(CreatedTransfer {
         signed,
-        wait_tag,
         wait_output_hash,
         recipient: TransferRecipient::Registered(recipient),
     })
@@ -298,7 +289,6 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
         .authority
         .shielded_address(request.owner_pubkey)
         .await?;
-    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.withdraw(request.asset, request.amount, target)?;
     let prepared = tx.prepare(request.assets)?;
@@ -314,7 +304,6 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
     .await?;
     Ok(CreatedWithdrawal {
         signed,
-        wait_tag,
         wait_output_hash,
         withdrawal,
     })
@@ -356,7 +345,6 @@ pub async fn create_split<A: WalletAuthority + ?Sized>(
         .authority
         .shielded_address(request.owner_pubkey)
         .await?;
-    let wait_tag = address.signing_pubkey.confidential_view_tag()?;
 
     let mut tx = Transaction::new(address, inputs, request.payer);
     tx.split(
@@ -380,7 +368,6 @@ pub async fn create_split<A: WalletAuthority + ?Sized>(
     .await?;
     Ok(CreatedSplit {
         signed,
-        wait_tag,
         wait_output_hash,
         num_outputs: request.num_outputs,
         per_output_amount: request.per_output_amount,
@@ -418,12 +405,6 @@ pub fn create_merge(request: CreateMerge<'_>) -> Result<CreatedMerge, ClientErro
         num_inputs,
         merged_amount,
     })
-}
-
-/// Alias for [`create_merge`]; merge is already synchronous but the `_sync`
-/// suffix matches the transfer/split/withdrawal CLI-facing surface.
-pub fn create_merge_sync(request: CreateMerge<'_>) -> Result<CreatedMerge, ClientError> {
-    create_merge(request)
 }
 
 /// Select the notes a merge consolidates.
@@ -504,7 +485,7 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
     approval_summary: String,
 ) -> Result<SignedTransaction, ClientError> {
     let view_tag = prepared.view_tag()?;
-    let bundle = prepared.bundle_plaintext();
+    let bundle = prepared.bundle_plaintext()?;
     let encrypted = authority
         .encrypt_split(owner_pubkey, &prepared.first_nullifier, view_tag, &bundle)
         .await?;
@@ -520,14 +501,7 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
         encrypted.bundle,
         assets,
     )?;
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = signed.message_hash()?;
-        let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        signed.p256_owner = Some(bytes);
-    }
+    sign_p256_owner_if_needed(&mut signed, address, owner_pubkey, authority).await?;
     Ok(signed)
 }
 
@@ -605,6 +579,16 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         encrypted.slots,
         assets,
     )?;
+    sign_p256_owner_if_needed(&mut signed, address, owner_pubkey, authority).await?;
+    Ok(signed)
+}
+
+async fn sign_p256_owner_if_needed<A: WalletAuthority + ?Sized>(
+    signed: &mut SignedTransaction,
+    address: &ShieldedAddress,
+    owner_pubkey: Pubkey,
+    authority: &A,
+) -> Result<(), ClientError> {
     if address.signing_pubkey.signature_type()? == SignatureType::P256 {
         let message_hash = signed.message_hash()?;
         let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
@@ -613,7 +597,7 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
         bytes[32..].copy_from_slice(&sig.sig_s);
         signed.p256_owner = Some(bytes);
     }
-    Ok(signed)
+    Ok(())
 }
 
 fn withdrawal_target(
@@ -662,7 +646,7 @@ pub const MAX_TRANSFER_INPUTS: usize = 5;
 /// order: each hash must name an unspent note of `asset` (else
 /// [`ClientError::InputNoteUnavailable`]), and their total must cover `amount`
 /// (else [`ClientError::InsufficientBalance`]).
-pub async fn select_inputs<A: WalletAuthority + ?Sized>(
+async fn select_inputs<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
     owner_pubkey: Pubkey,
@@ -670,6 +654,9 @@ pub async fn select_inputs<A: WalletAuthority + ?Sized>(
     amount: u64,
     selection: &InputSelection,
 ) -> Result<Vec<SpendUtxo>, ClientError> {
+    if amount == 0 {
+        return Err(ClientError::ZeroAmount);
+    }
     let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
     let spend = |utxo: zolana_transaction::Utxo| SpendUtxo {
         utxo,
@@ -1063,8 +1050,8 @@ mod tests {
         let wallet = wallet_with_notes(keypair, &[(30, [1u8; 31]), (70, [2u8; 31])]);
         let spendable = wallet.spendable_utxos(SOL_MINT);
         assert_eq!(spendable.len(), 2);
-        assert_eq!(spendable[0].amount, 30);
-        assert_eq!(spendable[1].amount, 70);
+        let amounts: Vec<_> = spendable.iter().map(|note| note.amount).collect();
+        assert_eq!(amounts, vec![30, 70]);
         // The exposed hash equals the note's commitment and is what Explicit matches.
         for (spendable, entry) in spendable.iter().zip(wallet.utxos.iter()) {
             assert_eq!(spendable.hash, entry.output_context.hash);
@@ -1075,7 +1062,11 @@ mod tests {
     fn explicit_selection_picks_named_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31]), (70, [2u8; 31])]);
-        let target = wallet.spendable_utxos(SOL_MINT)[1];
+        let target = wallet
+            .spendable_utxos(SOL_MINT)
+            .get(1)
+            .copied()
+            .expect("target note");
 
         let selected = match futures::executor::block_on(select_inputs(
             &wallet,
@@ -1089,8 +1080,9 @@ mod tests {
             Err(err) => panic!("explicit selection failed: {err}"),
         };
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].utxo.amount, 70);
-        assert_eq!(selected[0].utxo.blinding, [2u8; 31]);
+        let selected = selected.first().expect("selected note");
+        assert_eq!(selected.utxo.amount, 70);
+        assert_eq!(selected.utxo.blinding, [2u8; 31]);
     }
 
     #[test]
@@ -1115,7 +1107,11 @@ mod tests {
     fn explicit_selection_rejects_duplicate_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
         let err = match futures::executor::block_on(select_inputs(
             &wallet,
             &sender,
@@ -1134,8 +1130,12 @@ mod tests {
     fn explicit_selection_rejects_spent_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
-        wallet.utxos[0].spent = true;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
+        wallet.utxos.first_mut().expect("wallet note").spent = true;
         let err = match futures::executor::block_on(select_inputs(
             &wallet,
             &sender,
@@ -1154,7 +1154,11 @@ mod tests {
     fn explicit_selection_rejects_insufficient_total() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
         let err = match futures::executor::block_on(select_inputs(
             &wallet,
             &sender,
@@ -1194,7 +1198,7 @@ mod tests {
         ))
         .expect("auto selection");
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].utxo.amount, 70);
+        assert_eq!(selected.first().expect("selected note").utxo.amount, 70);
     }
 
     #[test]
@@ -1303,6 +1307,24 @@ mod tests {
     }
 
     #[test]
+    fn selection_rejects_zero_amount() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(10, [1u8; 31])]);
+        let err = match futures::executor::block_on(select_inputs(
+            &wallet,
+            &sender,
+            Pubkey::default(),
+            SOL_MINT,
+            0,
+            &InputSelection::Auto,
+        )) {
+            Ok(_) => panic!("zero amount must error"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::ZeroAmount));
+    }
+
+    #[test]
     fn create_split_produces_split_bundle() {
         use borsh::BorshDeserialize;
         use zolana_event::OutputData;
@@ -1337,7 +1359,11 @@ mod tests {
         // One Split bundle at slot 0 plus one aligned dummy ciphertext per padding
         // output (not four confidential recipient slots).
         assert_eq!(external.output_ciphertexts.len(), 1 + (8 - 4));
-        let blob = match OutputData::try_from_slice(&external.output_ciphertexts[0].data).unwrap() {
+        let bundle = external
+            .output_ciphertexts
+            .first()
+            .expect("split bundle ciphertext");
+        let blob = match OutputData::try_from_slice(&bundle.data).unwrap() {
             OutputData::Encrypted(blob) => blob,
             other => panic!("split bundle must be Encrypted, got {other:?}"),
         };
@@ -1351,7 +1377,11 @@ mod tests {
     fn create_split_explicit_input_selects_that_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(50, [4u8; 31]), (400, [5u8; 31])]);
-        let target = wallet.spendable_utxos(SOL_MINT)[1];
+        let target = wallet
+            .spendable_utxos(SOL_MINT)
+            .get(1)
+            .copied()
+            .expect("target note");
 
         let split = match create_split_sync(CreateSplit {
             wallet: &wallet,
@@ -1505,7 +1535,10 @@ mod tests {
             &[(30, [1u8; 31]), (70, [2u8; 31]), (50, [3u8; 31])],
         );
         let spendable = wallet.spendable_utxos(SOL_MINT);
-        let hashes = vec![spendable[0].hash, spendable[2].hash];
+        let hashes = vec![
+            spendable.first().expect("first note").hash,
+            spendable.get(2).expect("third note").hash,
+        ];
 
         let selected = match select_merge_inputs(
             &wallet,
@@ -1525,7 +1558,11 @@ mod tests {
     fn merge_explicit_selection_rejects_missing_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31]), (70, [2u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
 
         let err = match select_merge_inputs(
             &wallet,
@@ -1543,7 +1580,11 @@ mod tests {
     fn merge_explicit_selection_rejects_duplicate_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31]), (70, [2u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
 
         let err = match select_merge_inputs(
             &wallet,
@@ -1600,7 +1641,11 @@ mod tests {
     fn merge_explicit_selection_rejects_single_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31]), (70, [2u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
 
         let err = match select_merge_inputs(
             &wallet,
@@ -1622,13 +1667,10 @@ mod tests {
             &[(30, [1u8; 31]), (70, [2u8; 31]), (20, [3u8; 31])],
         );
 
-        let merged = match create_merge_sync(CreateMerge {
+        let merged = match create_merge(CreateMerge {
             wallet: &wallet,
             keypair: &sender,
-            owner_pubkey: Pubkey::default(),
-            payer: Address::default(),
             asset: SOL_MINT,
-            assets: &AssetRegistry::default(),
             selection: InputSelection::Auto,
         }) {
             Ok(merged) => merged,
@@ -1652,7 +1694,11 @@ mod tests {
         let sender = ShieldedKeypair::new().unwrap();
         // 400-lamport note but requesting 4 x 90 = 360 != 400.
         let wallet = wallet_with_notes(sender.clone(), &[(400, [6u8; 31])]);
-        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let hash = wallet
+            .spendable_utxos(SOL_MINT)
+            .first()
+            .expect("spendable note")
+            .hash;
         let err = match create_split_sync(CreateSplit {
             wallet: &wallet,
             authority: &sender,

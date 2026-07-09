@@ -61,12 +61,12 @@ pub const SUPPORTED_SHAPES: [Shape; 4] = [
 /// self-owned notes. A split into more than eight outputs is an unsupported
 /// shape. Kept separate from [`SUPPORTED_SHAPES`] because the split rides its own
 /// 1xN circuit, not the 2x3 confidential-transfer shape.
-pub const SUPPORTED_SPLIT_SHAPES: [Shape; 1] = [Shape::new(1, 8)];
+const SUPPORTED_SPLIT_SHAPES: [Shape; 1] = [Shape::new(1, 8)];
 
 /// Smallest supported split shape holding `n_out` self-owned outputs from a single
 /// input. Errors with [`TransactionError::UnsupportedShape`] when no shape fits
 /// (e.g. more than eight outputs).
-pub fn canonical_split_shape(n_out: usize) -> Result<Shape, TransactionError> {
+fn canonical_split_shape(n_out: usize) -> Result<Shape, TransactionError> {
     SUPPORTED_SPLIT_SHAPES
         .iter()
         .copied()
@@ -563,7 +563,7 @@ impl Transaction {
         let intent = self
             .split
             .as_ref()
-            .ok_or(TransactionError::SplitWithoutOutputs)?;
+            .ok_or(TransactionError::SplitNotConfigured)?;
         if !self.recipients.is_empty()
             || !self.custom_outputs.is_empty()
             || self.withdrawal.is_some()
@@ -580,8 +580,14 @@ impl Transaction {
         let requested = u64::from(num_outputs)
             .checked_mul(intent.per_output_amount)
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
+        if input.asset != intent.asset {
+            return Err(TransactionError::SplitAssetMismatch {
+                input: input.asset,
+                requested: intent.asset,
+            });
+        }
         let available = self.input_sum(&intent.asset);
-        if input.asset != intent.asset || i128::from(requested) != available {
+        if i128::from(requested) != available {
             return Err(TransactionError::SplitAmountMismatch {
                 requested,
                 available: available.max(0) as u64,
@@ -605,7 +611,6 @@ impl Transaction {
             outputs,
             owner: self.owner,
             asset_id,
-            num_outputs,
             blinding_seed: self.blinding_seed,
             first_nullifier,
             shape,
@@ -840,8 +845,8 @@ impl PreparedTransaction {
     }
 }
 
-/// A split prepared for encoding: the single real input, the `num_outputs`
-/// self-owned output notes (already blinded from `blinding_seed`), and the bundle
+/// A split prepared for encoding: the single real input, the self-owned output
+/// notes (already blinded from `blinding_seed`), and the bundle
 /// metadata a [`Split`] ciphertext needs. Unlike a transfer there are no dummy
 /// ciphertexts: one bundle at slot 0 carries every output note, so
 /// `output_ciphertexts.len() == 1` and the program's `sender_slot_count` maps every
@@ -851,7 +856,6 @@ pub struct PreparedSplit {
     pub outputs: Vec<OutputUtxo>,
     pub owner: ShieldedAddress,
     pub asset_id: u64,
-    pub num_outputs: u8,
     pub blinding_seed: [u8; BLINDING_LEN],
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
@@ -863,15 +867,17 @@ impl PreparedSplit {
     /// The `SplitBundlePlaintext` describing every self-owned output note. Its
     /// `into_utxos` reconstructs exactly `outputs` (same owner, asset, amount, and
     /// per-index blinding), so what `sync` decodes matches what the proof commits.
-    pub fn bundle_plaintext(&self) -> SplitBundlePlaintext {
-        SplitBundlePlaintext {
+    pub fn bundle_plaintext(&self) -> Result<SplitBundlePlaintext, TransactionError> {
+        let num_outputs =
+            u8::try_from(self.outputs.len()).map_err(|_| TransactionError::TooManyOutputs)?;
+        Ok(SplitBundlePlaintext {
             owner_pubkey: self.owner.signing_pubkey,
-            num_outputs: self.num_outputs,
+            num_outputs,
             asset_id: self.asset_id,
             asset_amount: self.outputs.first().map(|o| o.amount).unwrap_or(0),
             blinding_seed: self.blinding_seed,
             data: Data::default(),
-        }
+        })
     }
 
     /// Committed hash of one real self-split output note this transaction appends
@@ -922,7 +928,7 @@ impl PreparedSplit {
     }
 
     fn output_utxos(&self, assets: &AssetRegistry) -> Result<Vec<Utxo>, TransactionError> {
-        self.bundle_plaintext().into_utxos(assets, None)
+        self.bundle_plaintext()?.into_utxos(assets, None)
     }
 
     /// Fold the encoded bundle (slot 0) into a [`SignedTransaction`], padding to

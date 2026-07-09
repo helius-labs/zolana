@@ -11,11 +11,12 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     instructions::{
         transact::{
-            OutputContext, OutputSlot, ShieldedTransaction, SignedTransaction, Transaction,
-            WithdrawalTarget,
+            OutputContext, OutputSlot, OutputUtxo, ShieldedTransaction, SignedTransaction,
+            Transaction, WithdrawalTarget,
         },
         types::SpendUtxo,
     },
+    serialization::{split::Split, DecodeCx, UtxoSerialization},
     wallet::{PrivateTransactionDirection, PrivateTransactionKind, Wallet, WalletUtxo},
     Address, AssetRegistry, Data, TransactionError, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -176,7 +177,11 @@ fn assert_shape_and_bundle(signed: &SignedTransaction, num_real: usize) {
         sender_slot_count(8, external.output_ciphertexts.len()),
         num_real
     );
-    let blob = match OutputData::try_from_slice(&external.output_ciphertexts[0].data).unwrap() {
+    let bundle = external
+        .output_ciphertexts
+        .first()
+        .expect("split bundle ciphertext");
+    let blob = match OutputData::try_from_slice(&bundle.data).unwrap() {
         OutputData::Encrypted(blob) => blob,
         other => panic!("split bundle must be Encrypted, got {other:?}"),
     };
@@ -261,6 +266,43 @@ fn split_rejects_withdrawal_and_send_after_split() {
     split_tx.split(SOL_MINT, 2, 50).unwrap();
     let err = match split_tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 10) {
         Ok(_) => panic!("send after split must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
+}
+
+#[test]
+fn split_rejects_custom_output_and_custom_output_after_split() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let output = || OutputUtxo {
+        owner_address: Some(recipient.shielded_address().unwrap()),
+        asset: SOL_MINT,
+        amount: 10,
+        ..Default::default()
+    };
+    let input = sol_utxo(&keypair, 100);
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    tx.add_output(output()).unwrap();
+    let err = match tx.split(SOL_MINT, 2, 50) {
+        Ok(_) => panic!("split after add_output must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
+
+    let input = sol_utxo(&keypair, 100);
+    let mut split_tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    split_tx.split(SOL_MINT, 2, 50).unwrap();
+    let err = match split_tx.add_output(output()) {
+        Ok(_) => panic!("add_output after split must error"),
         Err(err) => err,
     };
     assert_eq!(err, TransactionError::SplitWithOtherActions);
@@ -392,10 +434,34 @@ fn recovered_note_hashes_are_a_subset_of_committed_outputs() {
 
 #[test]
 fn split_asset_id_is_sol() {
-    let (_, signed) = build_and_recover(3, 20);
+    let (wallet, signed) = build_and_recover(3, 20);
     // 3 real + 5 padding => 1 bundle + 5 dummy ciphertexts.
     assert_eq!(signed.external_data.output_ciphertexts.len(), 1 + (8 - 3));
-    assert_eq!(SOL_ASSET_ID, 1, "SOL uses reserved asset id 1");
+    let external = &signed.external_data;
+    let bundle = external
+        .output_ciphertexts
+        .first()
+        .expect("split bundle ciphertext");
+    let output_data = OutputData::try_from_slice(&bundle.data).unwrap();
+    let blob = match output_data {
+        OutputData::Encrypted(blob) => blob,
+        other => panic!("split bundle must be Encrypted, got {other:?}"),
+    };
+    let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
+    let tx_viewing_pk =
+        zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk).expect("tx viewing pk");
+    let plaintext = Split::decode(
+        body,
+        &DecodeCx {
+            viewing_key: &wallet.keypair.viewing_key,
+            tx_viewing_pk: Some(tx_viewing_pk),
+            salt: Some(external.salt),
+            slot_index: 0,
+            first_nullifier: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(plaintext.asset_id, SOL_ASSET_ID);
 }
 
 #[test]
@@ -423,6 +489,46 @@ fn split_rejects_value_mismatch() {
             }
         ),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn prepare_split_requires_configured_split() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let input = sol_utxo(&keypair, 100);
+    let tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    let err = match tx.prepare_split(&AssetRegistry::default()) {
+        Ok(_) => panic!("prepare_split without split must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitNotConfigured);
+}
+
+#[test]
+fn split_rejects_asset_mismatch() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let input = sol_utxo(&keypair, 100);
+    let requested = Address::new_from_array([2u8; 32]);
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    tx.split(requested, 2, 50).unwrap();
+    let err = match tx.prepare_split(&AssetRegistry::default()) {
+        Ok(_) => panic!("asset mismatch must error"),
+        Err(err) => err,
+    };
+    assert_eq!(
+        err,
+        TransactionError::SplitAssetMismatch {
+            input: SOL_MINT,
+            requested,
+        }
     );
 }
 

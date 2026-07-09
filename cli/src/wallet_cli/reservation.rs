@@ -14,7 +14,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{bail, Result};
@@ -68,6 +68,20 @@ fn is_stale(modified: SystemTime, now: SystemTime, ttl: Duration) -> bool {
     }
 }
 
+fn reclaim_lockfile(path: &Path) {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let reclaimed = path.with_file_name(format!("{name}.reclaim-{}-{nanos}", std::process::id()));
+    if fs::rename(path, &reclaimed).is_ok() {
+        let _ = fs::remove_file(reclaimed);
+    }
+}
+
 /// True if `path` names a live (non-stale) lockfile. A file whose mtime is older
 /// than the TTL is stale and is removed so it can be reclaimed.
 fn is_live_lock(path: &Path) -> bool {
@@ -76,13 +90,14 @@ fn is_live_lock(path: &Path) -> bool {
     };
     let Ok(modified) = metadata.modified() else {
         // No mtime: reclaim rather than wedge the note.
-        let _ = fs::remove_file(path);
+        reclaim_lockfile(path);
         return false;
     };
     if is_stale(modified, SystemTime::now(), RESERVATION_TTL) {
-        // Reclaim it. Racing with another reclaimer is fine: we then fail the
-        // O_EXCL create below and move on.
-        let _ = fs::remove_file(path);
+        // Reclaim by renaming first. If another process already reclaimed and
+        // recreated this hash, our rename fails or moves only the old file; a
+        // fresh lock at `path` is never removed by this process.
+        reclaim_lockfile(path);
         return false;
     }
     true
@@ -270,6 +285,24 @@ mod tests {
         // A future mtime (clock skew) is treated as stale, never wedging a note.
         let future = now + Duration::from_secs(30);
         assert!(is_stale(future, now, RESERVATION_TTL));
+    }
+
+    #[test]
+    fn reclaim_lockfile_removes_only_the_renamed_file() {
+        let dir = temp_dir("zolana-inflight", "reclaim-rename");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(lockfile_name(&[4u8; 32]));
+        fs::write(&path, b"stale").unwrap();
+
+        reclaim_lockfile(&path);
+
+        assert!(!path.exists());
+        let leftovers = fs::read_dir(&dir)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(leftovers.is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

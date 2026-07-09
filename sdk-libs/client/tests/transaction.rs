@@ -351,7 +351,12 @@ fn transfer_round_trip_outputs_and_bundle() {
         }
     );
     assert_eq!(
-        prover.external_data.output_ciphertexts[0].view_tag,
+        prover
+            .external_data
+            .output_ciphertexts
+            .first()
+            .expect("sender bundle")
+            .view_tag,
         sender.signing_pubkey().confidential_view_tag().unwrap()
     );
 
@@ -503,7 +508,11 @@ fn every_transfer_shape_fits_the_packet_limit() {
             data: ix,
         }
         .instruction();
-        let message = Message::new(&[instruction], Some(&payer));
+        let compute_budget =
+            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                1_400_000,
+            );
+        let message = Message::new(&[compute_budget, instruction], Some(&payer));
         let sigs = message.header.num_required_signatures as usize;
         let tx_size = 1 + sigs * 64 + message.serialize().len();
 

@@ -54,6 +54,7 @@ zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 
 [[test]]
 name = "transaction_proving"

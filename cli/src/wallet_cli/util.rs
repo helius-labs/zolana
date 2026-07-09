@@ -92,7 +92,7 @@ pub(super) fn parse_amount_for_asset(amount: &str, asset: Address) -> Result<u64
 
 /// Resolve a `<to>` recipient argument to a pubkey. A local wallet name resolves
 /// to that wallet's owner pubkey; anything else is parsed as a Solana pubkey.
-pub(super) fn resolve_recipient_pubkey(value: &str, _config: &CliConfigFile) -> Result<Pubkey> {
+pub(super) fn resolve_recipient_pubkey(value: &str) -> Result<Pubkey> {
     if let Ok(pubkey) = value.parse::<Pubkey>() {
         return Ok(pubkey);
     }

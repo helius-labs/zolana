@@ -282,6 +282,7 @@ mod tests {
             err.to_string().contains("failed on-chain"),
             "unexpected error: {err}"
         );
+        assert!(status.calls.get() >= 1, "status must be checked");
     }
 
     #[test]

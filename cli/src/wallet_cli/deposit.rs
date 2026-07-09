@@ -37,7 +37,7 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
             material.keypair.shielded_address()?,
         ),
         Some(to) => {
-            let pubkey = resolve_recipient_pubkey(to, &config)?;
+            let pubkey = resolve_recipient_pubkey(to)?;
             (pubkey, resolve_registered_address(&rpc, pubkey)?.address)
         }
     };

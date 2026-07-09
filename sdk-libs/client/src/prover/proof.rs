@@ -117,6 +117,47 @@ fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {
         .map_err(|e| ClientError::ProofParse(format!("failed to compress {name}: {e:?}")))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_proof_layout_is_fixed_192_bytes() {
+        let proof = ProofCompressed {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: Some(CompressedCommitments {
+                commitment: [4u8; 32],
+                commitment_pok: [5u8; 32],
+            }),
+        }
+        .to_merge_proof()
+        .expect("merge proof");
+
+        assert_eq!(proof.len(), 192);
+        assert_eq!(proof.get(0..32), Some(&[1u8; 32][..]));
+        assert_eq!(proof.get(32..96), Some(&[2u8; 64][..]));
+        assert_eq!(proof.get(96..128), Some(&[3u8; 32][..]));
+        assert_eq!(proof.get(128..160), Some(&[4u8; 32][..]));
+        assert_eq!(proof.get(160..192), Some(&[5u8; 32][..]));
+    }
+
+    #[test]
+    fn merge_proof_requires_commitment() {
+        let err = ProofCompressed {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: None,
+        }
+        .to_merge_proof()
+        .expect_err("merge proof without commitment must error");
+
+        assert!(matches!(err, ClientError::ProofParse(message) if message.contains("commitment")));
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct GnarkProofJson {
     pub ar: Vec<String>,
