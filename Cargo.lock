@@ -8240,6 +8240,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
  "swap-program",
  "swap-prover",
  "wincode",

@@ -1,3 +1,4 @@
+pub mod discover;
 pub mod instructions;
 pub mod order;
 pub mod prover;

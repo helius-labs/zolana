@@ -50,7 +50,7 @@ impl DataHash for Address {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderTerms {
     pub source_asset_id: u64,
     pub source_amount: u64,
@@ -92,6 +92,7 @@ impl OrderTerms {
             destination_amount: self.destination_amount,
             expiry: self.expiry,
             taker: self.taker,
+            fill_mode: self.fill_mode,
         }
     }
 }
@@ -102,6 +103,7 @@ pub struct PlainTextData {
     pub destination_amount: u64,
     pub expiry: u64,
     pub taker: Address,
+    pub fill_mode: u64,
 }
 
 impl PlainTextData {

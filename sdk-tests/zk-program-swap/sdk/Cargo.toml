@@ -17,3 +17,6 @@ zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+solana-signature = { workspace = true }
