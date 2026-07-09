@@ -301,7 +301,20 @@ pub fn setup() -> Result<TestEnv> {
 // address lookup table: create + extend the ALT (waiting a slot for each to root),
 // then compile and send. Prepends a 1.4M CU budget; `payer` signs and pays. The
 // swap lifecycle account lists only fit within the 1232-byte tx limit via an ALT.
-pub fn send_v0_with_lookup_table(rpc: &SolanaRpc, payer: &Keypair, ix: Instruction) -> Result<()> {
+// Used by swap.rs only; the cancel test binary compiles shared.rs too.
+#[allow(dead_code)]
+pub fn explorer_tx_url(signature: &str) -> String {
+    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
+    let encoded_rpc_url = rpc_url.replace(':', "%3A").replace('/', "%2F");
+    format!("https://explorer.solana.com/tx/{signature}?cluster=custom&customUrl={encoded_rpc_url}")
+}
+
+pub fn send_v0_with_lookup_table(
+    rpc: &SolanaRpc,
+    payer: &Keypair,
+    ix: Instruction,
+) -> Result<(String, u64)> {
     let alt_addresses: Vec<Pubkey> = ix
         .accounts
         .iter()
@@ -363,8 +376,15 @@ pub fn send_v0_with_lookup_table(rpc: &SolanaRpc, payer: &Keypair, ix: Instructi
     .map_err(|e| anyhow!("compile v0: {e}"))?;
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
         .map_err(|e| anyhow!("sign v0: {e}"))?;
-    client
+    let signature = client
         .send_and_confirm_transaction(&tx)
         .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(())
+    let compute_units = rpc
+        .fetch_confirmed_transaction(&signature)
+        .map_err(|e| anyhow!("fetch confirmed tx: {e}"))?
+        .transaction
+        .meta
+        .and_then(|meta| Option::<u64>::from(meta.compute_units_consumed))
+        .ok_or_else(|| anyhow!("transaction meta missing compute units"))?;
+    Ok((signature.to_string(), compute_units))
 }

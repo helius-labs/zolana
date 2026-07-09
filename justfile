@@ -431,7 +431,7 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
 # pool, the user registry, and the Squads smart account loaded together, plus
 # Photon and the persistent SPP prover -- mirroring test-spp-validator. Cargo
 # runs the test binaries serially, so the second boots a fresh validator.
-test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-swap-validator tests="--test swap --test cancel": ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -447,7 +447,13 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
+      cargo test -p swap-test-validator {{tests}} -- --nocapture
+
+# Create+fill swap flow only (tests/swap.rs), with step, proving-time, and CU
+# prints -- for demoing in a terminal. Keeps the validator alive after the flow
+# so the printed explorer links stay clickable; press Enter to shut it down.
+demo-swap:
+    ZOLANA_DEMO_PAUSE=1 just test-swap-validator "--test swap"
 
 install-surfpool:
     #!/usr/bin/env bash
