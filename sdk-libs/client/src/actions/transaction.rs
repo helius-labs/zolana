@@ -766,16 +766,16 @@ async fn select_split_inputs<A: WalletAuthority + ?Sized>(
                     break;
                 }
             }
-            let utxo = exact.ok_or_else(|| {
-                if available < amount {
-                    ClientError::InsufficientBalance {
+            let utxo = match exact {
+                Some(utxo) => utxo,
+                None if available < amount => {
+                    return Err(ClientError::InsufficientBalance {
                         requested: amount,
                         available,
-                    }
-                } else {
-                    ClientError::SplitInputUnavailable { requested: amount }
+                    })
                 }
-            })?;
+                None => return Err(ClientError::SplitInputUnavailable { requested: amount }),
+            };
             Ok(vec![SpendUtxo {
                 utxo,
                 nullifier_key,
