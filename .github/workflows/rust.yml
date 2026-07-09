@@ -99,8 +99,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches transfer proving keys from this repo's
-      # release via `gh`; expose the workflow token to that child process.
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -140,8 +140,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.0.2
-      # The spawned prover lazily fetches transfer proving keys from this repo's
-      # release via `gh`; expose the workflow token to that child process.
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -257,9 +257,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # The spawned prover lazily fetches Zolana-specific proving keys from the
-      # transfer-keys-v10 release via `gh`. The release lives in this repo, so the
-      # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
+      # The spawned prover lazily fetches proving keys from the transfer-keys-v10
+      # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4

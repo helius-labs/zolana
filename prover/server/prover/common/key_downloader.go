@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,22 +22,23 @@ import (
 // GET, so a short bounded timeout keeps a stalled connection from hanging the
 // whole key-download path forever.
 var metadataHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var assetHTTPClient = &http.Client{Timeout: 60 * time.Minute}
+var githubAPIBaseURL = "https://api.github.com"
 
-// checksumMergeOnce serializes the once-per-release CHECKSUM merge. Preloading N
+// checksumMergeStates serializes the once-per-release-dir CHECKSUM merge. Preloading N
 // keys (see EnsureKeysExist) would otherwise re-download and re-merge the
-// identical release CHECKSUM N times, racing on dir/CHECKSUM. A sync.Once per
-// release tag (keyed under checksumMergeMu) makes the merge run exactly once per
-// process regardless of whether EnsureKeysExist iterates sequentially or
-// concurrently. The stored error is memoized so later callers see the same
-// outcome without retrying.
+// identical release CHECKSUM N times, racing on dir/CHECKSUM. A state per
+// release tag and destination dir (keyed under checksumMergeMu) makes the merge
+// run once per process after it succeeds, while transient failures remain
+// retryable by later callers.
 var (
-	checksumMergeMu   sync.Mutex
-	checksumMergeOnce = map[string]*checksumMergeState{}
+	checksumMergeMu     sync.Mutex
+	checksumMergeStates = map[string]*checksumMergeState{}
 )
 
 type checksumMergeState struct {
-	once sync.Once
-	err  error
+	mu   sync.Mutex
+	done bool
 }
 
 const (
@@ -72,6 +74,13 @@ func DefaultDownloadConfig() *DownloadConfig {
 	}
 }
 
+func normalizeDownloadConfig(config *DownloadConfig) *DownloadConfig {
+	if config == nil {
+		return DefaultDownloadConfig()
+	}
+	return config
+}
+
 // releaseTag returns the release tag to fetch keys from, honoring the
 // PROVING_KEYS_RELEASE_TAG override.
 func releaseTag() string {
@@ -82,7 +91,7 @@ func releaseTag() string {
 }
 
 // githubToken returns the bearer token used to reach the private proving-keys
-// release, honoring the env names the `gh` CLI also reads.
+// release, honoring both token env names used locally and in CI.
 func githubToken() string {
 	for _, env := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
 		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
@@ -142,7 +151,9 @@ func writeChecksumFile(path string, entries map[string]string) error {
 
 	var b strings.Builder
 	for _, name := range names {
-		fmt.Fprintf(&b, "%s  %s\n", entries[name], name)
+		if _, err := fmt.Fprintf(&b, "%s  %s\n", entries[name], name); err != nil {
+			return fmt.Errorf("failed to format CHECKSUM entry %s: %w", name, err)
+		}
 	}
 
 	tempPath := path + ".merge.tmp"
@@ -150,8 +161,11 @@ func writeChecksumFile(path string, entries map[string]string) error {
 		return fmt.Errorf("failed to write temp CHECKSUM %s: %w", tempPath, err)
 	}
 	if err := os.Rename(tempPath, path); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to rename temp CHECKSUM to %s: %w", path, err)
+		removeErr := removeFileIfExists(tempPath)
+		return errors.Join(
+			fmt.Errorf("failed to rename temp CHECKSUM to %s: %w", path, err),
+			wrapCleanupError("failed to remove temp CHECKSUM", tempPath, removeErr),
+		)
 	}
 	return nil
 }
@@ -161,7 +175,7 @@ func writeChecksumFile(path string, entries map[string]string) error {
 // parses it, and merges its entries into dir/CHECKSUM: local-only entries (e.g.
 // locally generated squads keys) are preserved and release entries override
 // same-filename local entries. The merged file is written atomically.
-func mergeReleaseChecksum(assets []releaseAsset, dir string) error {
+func mergeReleaseChecksum(assets []releaseAsset, dir string, config *DownloadConfig) error {
 	localPath := filepath.Join(dir, "CHECKSUM")
 	local, err := parseChecksumFile(localPath)
 	if err != nil {
@@ -176,16 +190,29 @@ func mergeReleaseChecksum(assets []releaseAsset, dir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create release CHECKSUM staging dir: %w", err)
 	}
-	defer os.RemoveAll(stageDir)
 
-	if err := downloadMatchingAssets(assets, "CHECKSUM", stageDir); err != nil {
-		return fmt.Errorf("failed to download release CHECKSUM: %w", err)
+	if err := downloadMatchingAssets(assets, "CHECKSUM", stageDir, config); err != nil {
+		cleanupErr := os.RemoveAll(stageDir)
+		if cleanupErr != nil {
+			cleanupErr = fmt.Errorf("failed to remove release CHECKSUM staging dir %s: %w", stageDir, cleanupErr)
+		}
+		return errors.Join(
+			fmt.Errorf("failed to download release CHECKSUM: %w", err),
+			cleanupErr,
+		)
 	}
 	releasePath := filepath.Join(stageDir, "CHECKSUM")
 
 	release, err := parseChecksumFile(releasePath)
 	if err != nil {
-		return fmt.Errorf("failed to read release CHECKSUM: %w", err)
+		cleanupErr := os.RemoveAll(stageDir)
+		if cleanupErr != nil {
+			cleanupErr = fmt.Errorf("failed to remove release CHECKSUM staging dir %s: %w", stageDir, cleanupErr)
+		}
+		return errors.Join(fmt.Errorf("failed to read release CHECKSUM: %w", err), cleanupErr)
+	}
+	if err := os.RemoveAll(stageDir); err != nil {
+		return fmt.Errorf("failed to remove release CHECKSUM staging dir %s: %w", stageDir, err)
 	}
 
 	// Union: start from local, let release entries override same-filename ones.
@@ -200,39 +227,107 @@ func mergeReleaseChecksum(assets []releaseAsset, dir string) error {
 }
 
 // ensureReleaseChecksum fetches and merges the release CHECKSUM into dir/CHECKSUM
-// exactly once per release tag for the lifetime of the process, regardless of
-// how many keys are being preloaded and whether they are handled sequentially or
-// concurrently. mergeReleaseChecksum reuses the already-fetched asset list.
-func ensureReleaseChecksum(assets []releaseAsset, dir string) error {
-	tag := releaseTag()
+// once per release tag and destination dir for the lifetime of the process,
+// after a successful merge. mergeReleaseChecksum reuses the already-fetched
+// asset list.
+func ensureReleaseChecksum(assets []releaseAsset, dir string, config *DownloadConfig) error {
+	key := releaseTag() + "\x00" + dir
 	checksumMergeMu.Lock()
-	state, ok := checksumMergeOnce[tag]
+	state, ok := checksumMergeStates[key]
 	if !ok {
 		state = &checksumMergeState{}
-		checksumMergeOnce[tag] = state
+		checksumMergeStates[key] = state
 	}
 	checksumMergeMu.Unlock()
 
-	state.once.Do(func() {
-		state.err = mergeReleaseChecksum(assets, dir)
-	})
-	return state.err
+	state.mu.Lock()
+	if state.done {
+		state.mu.Unlock()
+		return nil
+	}
+	if err := mergeReleaseChecksum(assets, dir, config); err != nil {
+		state.mu.Unlock()
+		return err
+	}
+	state.done = true
+	state.mu.Unlock()
+	return nil
 }
 
-func verifyChecksum(filepath string, expectedChecksum string) (bool, error) {
-	file, err := os.Open(filepath)
+func verifyChecksum(filePath string, expectedChecksum string) (bool, error) {
+	file, err := os.Open(filePath)
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
 
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return false, err
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return false, copyErr
 	}
-
+	if closeErr != nil {
+		return false, closeErr
+	}
 	actualChecksum := hex.EncodeToString(hash.Sum(nil))
 	return actualChecksum == expectedChecksum, nil
+}
+
+func removeFileIfExists(path string) error {
+	err := os.Remove(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func wrapCleanupError(msg string, path string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s %s: %w", msg, path, err)
+}
+
+func cleanupTempFile(path string, originalErr error) error {
+	if removeErr := removeFileIfExists(path); removeErr != nil {
+		return errors.Join(originalErr, fmt.Errorf("failed to remove temp file %s: %w", path, removeErr))
+	}
+	return originalErr
+}
+
+func cleanupOpenTempFile(file *os.File, path string, originalErr error) error {
+	closeErr := file.Close()
+	err := cleanupTempFile(path, originalErr)
+	if closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("failed to close temp file %s: %w", path, closeErr))
+	}
+	return err
+}
+
+func readResponseSnippet(resp *http.Response) (string, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(body)), nil
+}
+
+func closeResponse(resp *http.Response, originalErr error) error {
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		return errors.Join(originalErr, fmt.Errorf("failed to close response body for %s: %w", resp.Request.URL.String(), closeErr))
+	}
+	return originalErr
+}
+
+func githubAPIURL(path string) string {
+	return strings.TrimRight(githubAPIBaseURL, "/") + path
+}
+
+func maxDownloadAttempts(config *DownloadConfig) int {
+	if config.MaxRetries < 1 {
+		return 1
+	}
+	return config.MaxRetries
 }
 
 func calculateBackoff(attempt int, initialDelay, maxDelay time.Duration) time.Duration {
@@ -267,7 +362,7 @@ func githubAPIRequest(method, url, accept string) (*http.Request, error) {
 // proving-keys repo is private, so the request carries a bearer token.
 func listReleaseAssets() ([]releaseAsset, error) {
 	tag := releaseTag()
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", ProvingKeysRepo, tag)
+	url := githubAPIURL(fmt.Sprintf("/repos/%s/releases/tags/%s", ProvingKeysRepo, tag))
 	req, err := githubAPIRequest(http.MethodGet, url, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
@@ -276,20 +371,28 @@ func listReleaseAssets() ([]releaseAsset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query release %s@%s: %w", ProvingKeysRepo, tag, err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		body, readErr := readResponseSnippet(resp)
+		if readErr != nil {
+			return nil, closeResponse(resp, fmt.Errorf("failed to read release %s@%s error response: %w", ProvingKeysRepo, tag, readErr))
+		}
 		hint := ""
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			hint = " (set GITHUB_TOKEN/GH_TOKEN with read access to the private proving-keys repo)"
 		}
-		return nil, fmt.Errorf("failed to query release %s@%s: HTTP %d%s: %s", ProvingKeysRepo, tag, resp.StatusCode, hint, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("failed to query release %s@%s: HTTP %d%s: %s", ProvingKeysRepo, tag, resp.StatusCode, hint, body)
+		return nil, closeResponse(resp, err)
 	}
 	var release struct {
 		Assets []releaseAsset `json:"assets"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("failed to decode release metadata: %w", err)
+	decodeErr := json.NewDecoder(resp.Body).Decode(&release)
+	closeErr := closeResponse(resp, nil)
+	if decodeErr != nil {
+		return nil, fmt.Errorf("failed to decode release metadata: %w", errors.Join(decodeErr, closeErr))
+	}
+	if closeErr != nil {
+		return nil, closeErr
 	}
 	return release.Assets, nil
 }
@@ -298,7 +401,7 @@ func listReleaseAssets() ([]releaseAsset, error) {
 // pattern (a filepath.Match glob) into dir via the GitHub REST API. Errors if
 // nothing matches. Callers pass a pre-fetched asset list so a single
 // listReleaseAssets result can serve several patterns.
-func downloadMatchingAssets(assets []releaseAsset, pattern string, dir string) error {
+func downloadMatchingAssets(assets []releaseAsset, pattern string, dir string, config *DownloadConfig) error {
 	matched := 0
 	for _, asset := range assets {
 		ok, err := filepath.Match(pattern, asset.Name)
@@ -308,7 +411,7 @@ func downloadMatchingAssets(assets []releaseAsset, pattern string, dir string) e
 		if !ok {
 			continue
 		}
-		if err := downloadAssetByID(asset.ID, filepath.Join(dir, asset.Name)); err != nil {
+		if err := downloadAssetByID(asset.ID, filepath.Join(dir, asset.Name), config); err != nil {
 			return fmt.Errorf("failed to download asset %s: %w", asset.Name, err)
 		}
 		matched++
@@ -319,28 +422,19 @@ func downloadMatchingAssets(assets []releaseAsset, pattern string, dir string) e
 	return nil
 }
 
-// downloadReleaseAsset downloads every asset whose name matches pattern (a
-// filepath.Match glob) into dir via the GitHub REST API. Errors if nothing
-// matches. Replaces the `gh` CLI so downloads work in the distroless image.
-func downloadReleaseAsset(pattern string, dir string) error {
-	assets, err := listReleaseAssets()
-	if err != nil {
-		return err
-	}
-	return downloadMatchingAssets(assets, pattern, dir)
-}
-
 // downloadAssetByID streams a release asset (by numeric id) to outputPath,
 // retrying with backoff. With Accept: application/octet-stream GitHub redirects
 // to signed storage on a different host; the default client follows it and drops
 // the bearer token on that hop (the redirect URL is already signed).
-func downloadAssetByID(id int64, outputPath string) error {
-	assetURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/assets/%d", ProvingKeysRepo, id)
+func downloadAssetByID(id int64, outputPath string, config *DownloadConfig) error {
+	config = normalizeDownloadConfig(config)
+	assetURL := githubAPIURL(fmt.Sprintf("/repos/%s/releases/assets/%d", ProvingKeysRepo, id))
 	tempPath := outputPath + ".tmp"
 	var lastErr error
-	for attempt := 1; attempt <= DefaultMaxRetries; attempt++ {
+	attempts := maxDownloadAttempts(config)
+	for attempt := 1; attempt <= attempts; attempt++ {
 		if attempt > 1 {
-			delay := calculateBackoff(attempt-1, DefaultRetryDelay, DefaultMaxRetryDelay)
+			delay := calculateBackoff(attempt-1, config.RetryDelay, config.MaxRetryDelay)
 			logging.Logger().Warn().
 				Err(lastErr).
 				Dur("retry_delay", delay).
@@ -352,16 +446,19 @@ func downloadAssetByID(id int64, outputPath string) error {
 		if err != nil {
 			return err
 		}
-		client := &http.Client{Timeout: 60 * time.Minute}
-		resp, err := client.Do(req)
+		resp, err := assetHTTPClient.Do(req)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			body, readErr := readResponseSnippet(resp)
+			if readErr != nil {
+				lastErr = fmt.Errorf("HTTP %d; failed to read error body: %w", resp.StatusCode, readErr)
+			} else {
+				lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
+			}
+			lastErr = closeResponse(resp, lastErr)
 			// Permanent client errors (401/403/404, ...) will never succeed on
 			// retry -- fail fast instead of burning every retry with backoff.
 			// Rate limiting (429) and server errors (5xx) stay retryable.
@@ -372,28 +469,26 @@ func downloadAssetByID(id int64, outputPath string) error {
 		}
 		file, err := os.Create(tempPath)
 		if err != nil {
-			resp.Body.Close()
-			return fmt.Errorf("failed to create temp file %s: %w", tempPath, err)
+			return closeResponse(resp, fmt.Errorf("failed to create temp file %s: %w", tempPath, err))
 		}
 		_, copyErr := io.Copy(file, resp.Body)
-		resp.Body.Close()
-		if closeErr := file.Close(); closeErr != nil && copyErr == nil {
-			copyErr = closeErr
+		copyErr = closeResponse(resp, copyErr)
+		if closeErr := file.Close(); closeErr != nil {
+			copyErr = errors.Join(copyErr, closeErr)
 		}
 		if copyErr != nil {
-			os.Remove(tempPath)
-			lastErr = copyErr
+			lastErr = cleanupTempFile(tempPath, copyErr)
 			continue
 		}
 		if err := os.Rename(tempPath, outputPath); err != nil {
-			return fmt.Errorf("failed to rename temp file to %s: %w", outputPath, err)
+			return cleanupTempFile(tempPath, fmt.Errorf("failed to rename temp file to %s: %w", outputPath, err))
 		}
 		logging.Logger().Info().
 			Str("file", filepath.Base(outputPath)).
 			Msg("Release asset downloaded")
 		return nil
 	}
-	return fmt.Errorf("failed to download asset after %d attempts: %w", DefaultMaxRetries, lastErr)
+	return fmt.Errorf("failed to download asset after %d attempts: %w", attempts, lastErr)
 }
 
 // EnsureProvingKeyFromRelease makes a Zolana proving key available at keyPath,
@@ -401,24 +496,42 @@ func downloadAssetByID(id int64, outputPath string) error {
 // REST API with a bearer token (GITHUB_TOKEN / GH_TOKEN). If the file is already
 // present and verifies against the local CHECKSUM, no download happens. When
 // autoDownload is false, a missing file is an error.
-func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
+func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool, config *DownloadConfig) error {
+	config = normalizeDownloadConfig(config)
 	filename := filepath.Base(keyPath)
 	dir := filepath.Dir(keyPath)
 
+	hadLocalChecksum := false
+	localChecksumVerified := false
+	var localChecksumErr error
 	if localChecksum, ok := readLocalChecksum(dir, filename); ok {
+		hadLocalChecksum = true
 		if _, err := os.Stat(keyPath); err == nil {
-			if valid, verr := verifyChecksum(keyPath, localChecksum); verr == nil && valid {
+			valid, verr := verifyChecksum(keyPath, localChecksum)
+			localChecksumErr = verr
+			localChecksumVerified = valid && verr == nil
+			if localChecksumVerified {
 				logging.Logger().Info().
 					Str("file", filename).
 					Msg("Proving key verified against local CHECKSUM, skipping download")
 				return nil
 			}
+		} else if !os.IsNotExist(err) {
+			localChecksumErr = err
 		}
 	}
 
 	if !autoDownload {
 		if _, err := os.Stat(keyPath); err == nil {
+			if hadLocalChecksum && !localChecksumVerified {
+				if localChecksumErr != nil {
+					return fmt.Errorf("key file %s exists but failed checksum verification (auto-download disabled): %w", filename, localChecksumErr)
+				}
+				return fmt.Errorf("key file %s exists but failed checksum verification (auto-download disabled)", filename)
+			}
 			return nil
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to stat key file %s: %w", filename, err)
 		}
 		return fmt.Errorf("required key file not found: %s (auto-download disabled)", filename)
 	}
@@ -442,16 +555,16 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 
 	// Merge the release CHECKSUM into dir/CHECKSUM once per process (across all
 	// EnsureProvingKeyFromRelease calls), preserving locally generated entries.
-	if err := ensureReleaseChecksum(assets, dir); err != nil {
+	if err := ensureReleaseChecksum(assets, dir, config); err != nil {
 		return err
 	}
 
-	if err := downloadMatchingAssets(assets, filename, dir); err != nil {
+	if err := downloadMatchingAssets(assets, filename, dir, config); err != nil {
 		logging.Logger().Info().
 			Err(err).
 			Str("file", filename).
 			Msg("Exact release asset unavailable; trying split asset parts")
-		if partsErr := downloadMatchingAssets(assets, filename+".part-*", dir); partsErr != nil {
+		if partsErr := downloadMatchingAssets(assets, filename+".part-*", dir, config); partsErr != nil {
 			return fmt.Errorf("failed to download release asset %s or split parts: exact: %w; parts: %w", filename, err, partsErr)
 		}
 		if err := assembleReleaseAssetParts(dir, filename, keyPath); err != nil {
@@ -468,8 +581,7 @@ func EnsureProvingKeyFromRelease(keyPath string, autoDownload bool) error {
 		return fmt.Errorf("failed to verify downloaded file %s: %w", filename, err)
 	}
 	if !valid {
-		os.Remove(keyPath)
-		return fmt.Errorf("downloaded file %s checksum mismatch", filename)
+		return cleanupTempFile(keyPath, fmt.Errorf("downloaded file %s checksum mismatch", filename))
 	}
 
 	logging.Logger().Info().
@@ -494,46 +606,40 @@ func assembleReleaseAssetParts(dir string, filename string, outputPath string) e
 	if err != nil {
 		return fmt.Errorf("failed to create assembled key %s: %w", tempPath, err)
 	}
-	defer out.Close()
 
 	for _, part := range parts {
 		in, err := os.Open(part)
 		if err != nil {
-			os.Remove(tempPath)
-			return fmt.Errorf("failed to open split asset %s: %w", part, err)
+			return cleanupOpenTempFile(out, tempPath, fmt.Errorf("failed to open split asset %s: %w", part, err))
 		}
-		if _, err := io.Copy(out, in); err != nil {
-			in.Close()
-			os.Remove(tempPath)
-			return fmt.Errorf("failed to append split asset %s: %w", part, err)
-		}
-		if err := in.Close(); err != nil {
-			os.Remove(tempPath)
-			return fmt.Errorf("failed to close split asset %s: %w", part, err)
+		_, copyErr := io.Copy(out, in)
+		closeErr := in.Close()
+		if copyErr != nil || closeErr != nil {
+			err := copyErr
+			if closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("failed to close split asset %s: %w", part, closeErr))
+			}
+			if copyErr != nil {
+				err = fmt.Errorf("failed to append split asset %s: %w", part, err)
+			}
+			return cleanupOpenTempFile(out, tempPath, err)
 		}
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to close assembled key %s: %w", tempPath, err)
+		return cleanupTempFile(tempPath, fmt.Errorf("failed to close assembled key %s: %w", tempPath, err))
 	}
 	if err := os.Rename(tempPath, outputPath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to move assembled key to %s: %w", outputPath, err)
+		return cleanupTempFile(tempPath, fmt.Errorf("failed to move assembled key to %s: %w", outputPath, err))
 	}
 	return nil
 }
 
-// EnsureTransferKeyFromRelease is kept for call sites and tests that still use
-// the old transfer-specific name.
-func EnsureTransferKeyFromRelease(keyPath string, autoDownload bool) error {
-	return EnsureProvingKeyFromRelease(keyPath, autoDownload)
-}
-
 func EnsureKeysExist(keys []string, config *DownloadConfig) error {
+	config = normalizeDownloadConfig(config)
 	if !config.AutoDownload {
 		for _, key := range keys {
-			if _, err := os.Stat(key); os.IsNotExist(err) {
-				return fmt.Errorf("required key file not found: %s (auto-download disabled)", key)
+			if err := EnsureProvingKeyFromRelease(key, false, config); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -541,8 +647,12 @@ func EnsureKeysExist(keys []string, config *DownloadConfig) error {
 
 	var missingKeys []string
 	for _, key := range keys {
-		if _, err := os.Stat(key); os.IsNotExist(err) {
-			missingKeys = append(missingKeys, key)
+		if _, err := os.Stat(key); err != nil {
+			if os.IsNotExist(err) {
+				missingKeys = append(missingKeys, key)
+				continue
+			}
+			return fmt.Errorf("failed to stat key file %s: %w", key, err)
 		}
 	}
 
@@ -559,7 +669,7 @@ func EnsureKeysExist(keys []string, config *DownloadConfig) error {
 				Str("file", filepath.Base(key)).
 				Msg("Downloading missing key")
 
-			if err := EnsureProvingKeyFromRelease(key, config.AutoDownload); err != nil {
+			if err := EnsureProvingKeyFromRelease(key, config.AutoDownload, config); err != nil {
 				return fmt.Errorf("failed to download key %s: %w", filepath.Base(key), err)
 			}
 		}
