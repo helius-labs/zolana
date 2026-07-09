@@ -126,17 +126,19 @@ impl SwapWorld {
             ..fill_shared_inputs
         };
 
-        let (ix, _fill_result) = Fill {
-            inputs: fill_shared_inputs,
+        let (fill_proof, spp_proof) = fill_shared_inputs.prove(
             signed,
-            payer: taker_solana.pubkey(),
-            tree: self.tree,
-        }
-        .instruction(
             &spend_proofs,
             &ProverClient::local(),
             &SwapProverClient::new_ffi(),
         )?;
+        let ix = Fill {
+            payer: taker_solana.pubkey(),
+            tree: self.tree,
+            fill_proof,
+            spp_proof,
+        }
+        .instruction()?;
 
         let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let alt_addresses: Vec<Pubkey> = ix

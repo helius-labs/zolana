@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_prover::{FillProofInputs, FillProofResult};
+use swap_prover::FillProofInputs;
 use zolana_client::{ProverClient, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypairTrait, ViewingKeyTrait};
@@ -18,6 +18,7 @@ use zolana_transaction::{
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
     order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
+    program_id_pubkey,
     prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, FillProof,
 };
@@ -142,6 +143,21 @@ impl FillSharedInputs {
             &self.external_data_hash,
         )
     }
+
+    pub fn prove(
+        &self,
+        signed: SignedTransaction,
+        spend_proofs: &[SpendProof],
+        prover: &ProverClient,
+        swap_prover: &SwapProverClient,
+    ) -> Result<(FillProof, TransactIxData)> {
+        let expected = self.sdk_private_tx_hash()?;
+        let transact = prove_transact(signed, spend_proofs, prover)?;
+        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
+        let fill_result = swap_prover.prove_fill(self)?;
+        check_private_tx_hash("fill proof", fill_result.private_tx_hash, expected)?;
+        Ok((fill_result.proof.into(), transact))
+    }
 }
 
 pub struct EscrowFill {
@@ -206,47 +222,45 @@ fn asset_id(assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionE
 }
 
 pub struct Fill {
-    pub inputs: FillSharedInputs,
-    pub signed: SignedTransaction,
     pub payer: Pubkey,
     pub tree: Pubkey,
+    pub fill_proof: FillProof,
+    pub spp_proof: TransactIxData,
 }
 
 const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
 
 impl Fill {
-    pub fn instruction(
-        self,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-        swap_prover: &SwapProverClient,
-    ) -> Result<(Instruction, FillProofResult)> {
+    pub fn instruction(self) -> Result<Instruction> {
         let Self {
-            inputs,
-            signed,
             payer,
             tree,
+            fill_proof,
+            mut spp_proof,
         } = self;
-        let expected = inputs.sdk_private_tx_hash()?;
-        let mut transact = prove_transact(signed, spend_proofs, prover)?;
-        if let Some(escrow_input) = transact.inputs.get_mut(0) {
+        if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let fill_result = swap_prover.prove_fill(&inputs)?;
-        check_private_tx_hash("fill proof", fill_result.private_tx_hash, expected)?;
-        let spp_accounts = vec![
+
+        let data = FillIxData {
+            proof: fill_proof,
+            transact: spp_proof,
+        }
+        .serialize();
+
+        let accounts = vec![
+            AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             spp_program_meta(),
         ];
-        let ix = fill(
-            payer,
-            spp_accounts,
-            fill_result.proof.into(),
-            transact,
-        );
-        Ok((ix, fill_result))
+        let mut instruction_data = vec![tag::FILL];
+        instruction_data.extend_from_slice(&data);
+        Ok(Instruction {
+            program_id: program_id_pubkey(),
+            accounts,
+            data: instruction_data,
+        })
     }
 }

@@ -272,8 +272,8 @@ fn input_sum(tx: &Transaction, asset: &Address) -> i128 {
 pub struct CreateSwap {
     pub payer: Pubkey,
     pub tree: Pubkey,
-    pub proof: CreateProof,
-    pub transact: TransactIxData,
+    pub create_swap_proof: CreateProof,
+    pub spp_proof: TransactIxData,
 }
 
 impl CreateSwap {
@@ -281,15 +281,19 @@ impl CreateSwap {
         let Self {
             payer,
             tree,
-            proof,
-            mut transact,
+            create_swap_proof,
+            mut spp_proof,
         } = self;
 
-        if let Some(marker) = transact.output_ciphertexts.last_mut() {
+        if let Some(marker) = spp_proof.output_ciphertexts.last_mut() {
             marker.data = Vec::new();
         }
 
-        let data = CreateSwapIxData { proof, transact }.serialize();
+        let data = CreateSwapIxData {
+            proof: create_swap_proof,
+            transact: spp_proof,
+        }
+        .serialize();
 
         let accounts = vec![
             AccountMeta::new(payer, true),

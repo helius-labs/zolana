@@ -22,8 +22,8 @@ use swap_sdk::{
     prover::SwapProverClient,
 };
 use zolana_client::{
-    ensure_registered, spawn_prover, sync_wallet, CreateDeposit, Deposit, ProverClient, Rpc,
-    SolanaRpc, SpendProof, Transaction as TxBuilder, ZolanaIndexer,
+    ensure_registered, spawn_prover, sync_wallet, CreateDeposit, Deposit, Rpc, SolanaRpc,
+    Transaction as TxBuilder, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
@@ -200,8 +200,8 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let create_swap_ix = CreateSwap {
             payer: maker_address.solana_address()?,
             tree,
-            proof: create_swap_proof.proof.into(),
-            transact: spp_proof,
+            create_swap_proof: create_swap_proof.proof.into(),
+            spp_proof,
         }
         .instruction()?;
 
@@ -270,23 +270,6 @@ fn create_and_fill_swap_inline() -> Result<()> {
         .sign(&taker.keypair, &taker.registry)
         .map_err(|e| anyhow!("escrow fill sign: {e:?}"))?;
 
-        let fill_commitments = fill_signed
-            .input_utxo_hashes()
-            .map_err(|e| anyhow!("fill input commitments: {e:?}"))?;
-        let fill_states = indexer
-            .get_merkle_proofs(tree, fill_commitments.iter().map(|c| c.utxo_hash).collect())
-            .map_err(|e| anyhow!("fill merkle proofs: {e}"))?
-            .proofs;
-        let fill_nullifier_proofs = indexer
-            .get_non_inclusion_proofs(tree, fill_commitments.iter().map(|c| c.nullifier).collect())
-            .map_err(|e| anyhow!("fill non-inclusion proofs: {e}"))?
-            .proofs;
-        let fill_spend_proofs: Vec<SpendProof> = fill_states
-            .into_iter()
-            .zip(fill_nullifier_proofs)
-            .map(|(state, nullifier)| SpendProof { state, nullifier })
-            .collect();
-
         let fill_external_data_hash = fill_signed
             .external_data
             .hash()
@@ -296,17 +279,21 @@ fn create_and_fill_swap_inline() -> Result<()> {
             ..fill_inputs
         };
 
-        let (fill_ix, _fill_result) = Fill {
-            inputs: fill_inputs,
-            signed: fill_signed,
+        let spp_proof = indexer
+            .prove_transact(tree, fill_signed)
+            .map_err(|e| anyhow!("fill transact proof: {e:?}"))?;
+
+        let fill_proof = swap_prover_client
+            .prove_fill(&fill_inputs)
+            .map_err(|e| anyhow!("fill proof: {e:?}"))?;
+
+        let fill_ix = Fill {
             payer: taker_address.solana_address()?,
             tree,
+            fill_proof: fill_proof.proof.into(),
+            spp_proof,
         }
-        .instruction(
-            &fill_spend_proofs,
-            &ProverClient::local(),
-            &swap_prover_client,
-        )?;
+        .instruction()?;
 
         send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, fill_ix)?;
 
