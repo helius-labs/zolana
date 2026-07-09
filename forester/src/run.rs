@@ -15,7 +15,7 @@
 //! checks `old_root == current root`, so submission is strictly sequential;
 //! proving could be parallelised (see PR #89) as a follow-up.
 
-use std::{env, thread, time::Duration};
+use std::{env, fmt, thread, time::Duration};
 
 use anyhow::{anyhow, bail, Context, Result};
 use num_bigint::BigUint;
@@ -78,6 +78,51 @@ struct TreeSnapshot {
     hash_chains: Vec<[u8; 32]>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct PhotonIndexNotReady {
+    returned: usize,
+    needed: u64,
+    detail: String,
+}
+
+impl PhotonIndexNotReady {
+    fn new(returned: usize, needed: u64, detail: impl Into<String>) -> Self {
+        Self {
+            returned,
+            needed,
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for PhotonIndexNotReady {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "photon returned {} queued nullifiers, need at least {} ({})",
+            self.returned, self.needed, self.detail
+        )
+    }
+}
+
+impl std::error::Error for PhotonIndexNotReady {}
+
+enum DrainOutcome {
+    Drained(u64),
+    NotReady(PhotonIndexNotReady),
+}
+
+fn indexed_value_shortage(
+    returned: usize,
+    needed: u64,
+    detail: impl Into<String>,
+) -> Option<PhotonIndexNotReady> {
+    match u64::try_from(returned) {
+        Ok(returned) if returned >= needed => None,
+        _ => Some(PhotonIndexNotReady::new(returned, needed, detail)),
+    }
+}
+
 /// Drain ready nullifier zkp-batches for `opts.tree`. Reads `RPC_URL`,
 /// `PROVER_URL`, `PHOTON_URL`, and `PAYER` (forester keypair) from the
 /// environment. Must run on a thread with no Tokio runtime — the prover and
@@ -110,7 +155,7 @@ pub fn run(opts: RunOptions) -> Result<()> {
             break;
         }
 
-        let submitted = drain_once(
+        let outcome = drain_once(
             &rpc_url,
             &prover,
             &photon,
@@ -120,6 +165,21 @@ pub fn run(opts: RunOptions) -> Result<()> {
             opts.tree,
             remaining,
         )?;
+        let submitted = match outcome {
+            DrainOutcome::Drained(submitted) => submitted,
+            DrainOutcome::NotReady(not_ready) => {
+                if opts.watch {
+                    tracing::warn!(
+                        %not_ready,
+                        poll_secs = opts.poll_secs,
+                        "photon has not indexed enough nullifier queue elements; retrying"
+                    );
+                    thread::sleep(Duration::from_secs(opts.poll_secs));
+                    continue;
+                }
+                bail!("{not_ready}");
+            }
+        };
         submitted_total += submitted;
 
         if !opts.watch {
@@ -209,12 +269,12 @@ fn reconstruct_and_verify(
         .get_nullifier_queue_elements(tree_account, Some(0), fetch_total)
         .map_err(|err| anyhow!("fetch queued nullifiers from photon: {err}"))?
         .elements;
-    if (elements.len() as u64) < applied {
-        bail!(
-            "photon returned {} queued nullifiers, need at least the {} already-applied to reconstruct",
-            elements.len(),
-            applied
-        );
+    if let Some(not_ready) = indexed_value_shortage(
+        elements.len(),
+        applied,
+        format!("the {applied} already-applied nullifiers required to reconstruct"),
+    ) {
+        return Err(not_ready.into());
     }
     let mut values = Vec::with_capacity(elements.len());
     for (index, element) in elements.into_iter().enumerate() {
@@ -267,11 +327,11 @@ fn drain_once(
     account_index: u8,
     tree: Pubkey,
     limit: Option<u64>,
-) -> Result<u64> {
+) -> Result<DrainOutcome> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
         tracing::info!("no ready zkp-batches to forest");
-        return Ok(0);
+        return Ok(DrainOutcome::Drained(0));
     }
     tracing::info!(
         ready = snapshot.ready,
@@ -281,15 +341,19 @@ fn drain_once(
 
     let applied = applied_count(&snapshot)?;
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
-    let (mut reference, values) = reconstruct_and_verify(photon, tree, &snapshot, needed)?;
-    if (values.len() as u64) < needed {
-        bail!(
-            "photon returned {} queued nullifiers, need {} (applied {} + {} ready zkp-batches)",
-            values.len(),
-            needed,
-            applied,
-            snapshot.ready
-        );
+    let (mut reference, values) = match reconstruct_and_verify(photon, tree, &snapshot, needed) {
+        Ok(reconstructed) => reconstructed,
+        Err(err) => match err.downcast::<PhotonIndexNotReady>() {
+            Ok(not_ready) => return Ok(DrainOutcome::NotReady(not_ready)),
+            Err(err) => return Err(err),
+        },
+    };
+    if let Some(not_ready) = indexed_value_shortage(
+        values.len(),
+        needed,
+        format!("applied {applied} + {} ready zkp-batch(es)", snapshot.ready),
+    ) {
+        return Ok(DrainOutcome::NotReady(not_ready));
     }
 
     let cap = limit
@@ -361,7 +425,7 @@ fn drain_once(
         submitted += 1;
     }
 
-    Ok(submitted)
+    Ok(DrainOutcome::Drained(submitted))
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -515,6 +579,16 @@ mod tests {
         // reproduce the on-chain initial root, or every run would (safely) bail.
         let reference = reference_nullifier_tree(40).unwrap();
         assert_eq!(reference.root(), NULLIFIER_TREE_INIT_ROOT_40);
+    }
+
+    #[test]
+    fn indexed_value_shortage_is_typed_not_ready() {
+        let Some(not_ready) = indexed_value_shortage(1, 2, "ready zkp-batch") else {
+            panic!("short queue must be classified as not ready");
+        };
+
+        assert_eq!(not_ready, PhotonIndexNotReady::new(1, 2, "ready zkp-batch"));
+        assert!(indexed_value_shortage(2, 2, "ready zkp-batch").is_none());
     }
 
     #[test]

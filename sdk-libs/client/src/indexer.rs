@@ -60,7 +60,7 @@ impl Rpc for ZolanaIndexer {
             .map_err(indexer_error)?;
 
         Ok(GetEncryptedUtxosByTagsResponse {
-            context: convert_context(response.context),
+            context: convert_context(response.context)?,
             matches: response
                 .matches
                 .into_iter()
@@ -87,7 +87,7 @@ impl Rpc for ZolanaIndexer {
             .map_err(indexer_error)?;
 
         Ok(GetShieldedTransactionsByTagsResponse {
-            context: convert_context(response.context),
+            context: convert_context(response.context)?,
             transactions: response
                 .transactions
                 .into_iter()
@@ -112,7 +112,7 @@ impl Rpc for ZolanaIndexer {
             .map_err(indexer_error)?;
 
         Ok(GetMerkleProofsResponse {
-            context: convert_context(response.context),
+            context: convert_context(response.context)?,
             proofs: response
                 .proofs
                 .into_iter()
@@ -136,7 +136,7 @@ impl Rpc for ZolanaIndexer {
             .map_err(indexer_error)?;
 
         Ok(GetNonInclusionProofsResponse {
-            context: convert_context(response.context),
+            context: convert_context(response.context)?,
             proofs: response
                 .proofs
                 .into_iter()
@@ -151,10 +151,10 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     ClientError::Rpc(format!("indexer API: {error}"))
 }
 
-fn convert_context(context: zolana_api::Context) -> Context {
-    Context {
-        slot: context.slot as u64,
-    }
+fn convert_context(context: zolana_api::Context) -> Result<Context, ClientError> {
+    Ok(Context {
+        slot: checked_u64(context.slot, "context.slot")?,
+    })
 }
 
 fn convert_encrypted_utxo_match(
@@ -263,7 +263,7 @@ fn convert_merkle_proof(
         leaf_index: proof.leaf_index,
         root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
         root_seq: proof.root_seq,
-        root_index: proof.root_index as u16,
+        root_index: checked_u16(proof.root_index, &format!("proofs[{index}].root_index"))?,
     })
 }
 
@@ -294,7 +294,7 @@ fn convert_non_inclusion_proof(
         high_element_index: proof.high_element_index,
         root: decode_hash(&proof.root, &format!("proofs[{index}].root"))?,
         root_seq: proof.root_seq,
-        root_index: proof.root_index as u16,
+        root_index: checked_u16(proof.root_index, &format!("proofs[{index}].root_index"))?,
     })
 }
 
@@ -303,7 +303,7 @@ fn convert_merkle_context(
     field: &str,
 ) -> Result<MerkleContext, ClientError> {
     Ok(MerkleContext {
-        tree_type: context.tree_type as u16,
+        tree_type: checked_u16(context.tree_type, &format!("{field}.tree_type"))?,
         tree: decode_pubkey(&context.tree, &format!("{field}.tree"))?,
     })
 }
@@ -388,6 +388,30 @@ fn fixed_bytes<const N: usize>(
     bytes.try_into().map_err(|_| {
         ClientError::Rpc(format!(
             "invalid indexer field {field}: expected {expected_len} bytes, got {actual_len}"
+        ))
+    })
+}
+
+fn checked_u16<T>(value: T, field: &str) -> Result<u16, ClientError>
+where
+    T: Copy + std::fmt::Display,
+    u16: TryFrom<T>,
+{
+    u16::try_from(value).map_err(|_| {
+        ClientError::Rpc(format!(
+            "invalid indexer field {field}: value {value} exceeds u16"
+        ))
+    })
+}
+
+fn checked_u64<T>(value: T, field: &str) -> Result<u64, ClientError>
+where
+    T: Copy + std::fmt::Display,
+    u64: TryFrom<T>,
+{
+    u64::try_from(value).map_err(|_| {
+        ClientError::Rpc(format!(
+            "invalid indexer field {field}: value {value} exceeds u64"
         ))
     })
 }

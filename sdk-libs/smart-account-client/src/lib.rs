@@ -205,60 +205,58 @@ fn compile_instructions_to_payload(
     instructions: &[Instruction],
     vault_pda: &Pubkey,
 ) -> (Vec<u8>, Vec<AccountMeta>) {
-    let mut account_keys: Vec<Pubkey> = Vec::new();
     let mut account_metas: Vec<AccountMeta> = Vec::new();
-
-    let mut ensure_key = |key: &Pubkey, is_writable: bool, is_signer: bool| -> u8 {
-        if let Some(pos) = account_keys.iter().position(|k| k == key) {
-            if is_writable {
-                account_metas[pos] = AccountMeta::new(
-                    account_metas[pos].pubkey,
-                    account_metas[pos].is_signer || is_signer,
-                );
-            } else if is_signer && !account_metas[pos].is_signer {
-                account_metas[pos].is_signer = true;
-            }
-            pos as u8
-        } else {
-            let idx = account_keys.len();
-            account_keys.push(*key);
-            if is_writable {
-                account_metas.push(AccountMeta::new(*key, is_signer));
-            } else {
-                account_metas.push(AccountMeta::new_readonly(*key, is_signer));
-            }
-            idx as u8
-        }
-    };
-
-    ensure_key(vault_pda, true, false);
-
-    for ix in instructions {
-        ensure_key(&ix.program_id, false, false);
-        for meta in &ix.accounts {
-            ensure_key(&meta.pubkey, meta.is_writable, meta.is_signer);
-        }
-    }
-
     let mut payload = Vec::new();
-    payload.push(instructions.len() as u8);
 
-    for ix in instructions {
-        let program_id_index = account_keys
-            .iter()
-            .position(|k| k == &ix.program_id)
-            .unwrap() as u8;
-        payload.push(program_id_index);
+    {
+        let mut ensure_key = |key: &Pubkey, is_writable: bool, is_signer: bool| -> u8 {
+            if let Some((pos, meta)) = account_metas
+                .iter_mut()
+                .enumerate()
+                .find(|(_, meta)| meta.pubkey == *key)
+            {
+                if is_writable && !meta.is_writable {
+                    *meta = AccountMeta::new(meta.pubkey, meta.is_signer || is_signer);
+                } else if is_signer && !meta.is_signer {
+                    meta.is_signer = true;
+                }
+                pos as u8
+            } else {
+                let idx = account_metas.len();
+                if is_writable {
+                    account_metas.push(AccountMeta::new(*key, is_signer));
+                } else {
+                    account_metas.push(AccountMeta::new_readonly(*key, is_signer));
+                }
+                idx as u8
+            }
+        };
 
-        payload.push(ix.accounts.len() as u8);
-        for meta in &ix.accounts {
-            let idx = account_keys.iter().position(|k| k == &meta.pubkey).unwrap() as u8;
-            payload.push(idx);
+        ensure_key(vault_pda, true, false);
+
+        for ix in instructions {
+            ensure_key(&ix.program_id, false, false);
+            for meta in &ix.accounts {
+                ensure_key(&meta.pubkey, meta.is_writable, meta.is_signer);
+            }
         }
 
-        let data_len = ix.data.len() as u16;
-        payload.extend_from_slice(&data_len.to_le_bytes());
-        payload.extend_from_slice(&ix.data);
+        payload.push(instructions.len() as u8);
+
+        for ix in instructions {
+            let program_id_index = ensure_key(&ix.program_id, false, false);
+            payload.push(program_id_index);
+
+            payload.push(ix.accounts.len() as u8);
+            for meta in &ix.accounts {
+                let idx = ensure_key(&meta.pubkey, meta.is_writable, meta.is_signer);
+                payload.push(idx);
+            }
+
+            let data_len = ix.data.len() as u16;
+            payload.extend_from_slice(&data_len.to_le_bytes());
+            payload.extend_from_slice(&ix.data);
+        }
     }
 
     for meta in &mut account_metas {
