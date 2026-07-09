@@ -2,9 +2,8 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use tinyvec::ArrayVec;
-use zolana_hasher::{Hasher, Sha256};
-use zolana_interface::{
+use rings_hasher::{Hasher, Sha256};
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{TransactIxDataRef, TransactProof as ProofData},
     verifying_keys::{
@@ -25,6 +24,7 @@ use zolana_interface::{
         transfer_zone_authority_3_3, transfer_zone_authority_4_4,
     },
 };
+use tinyvec::ArrayVec;
 
 use crate::instructions::verifier;
 

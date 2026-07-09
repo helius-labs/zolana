@@ -1,4 +1,4 @@
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use rings_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 pub const STATE_HEIGHT: usize = 32;
 
@@ -25,7 +25,7 @@ pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
     }
 }
 
-/// Total tree-account byte length. Delegates to the canonical `zolana-tree`
+/// Total tree-account byte length. Delegates to the canonical `rings-tree`
 /// layout so the account allocator and `TreeAccount::init` agree exactly.
 pub fn tree_account_size() -> usize {
     TreeAccount::account_size()

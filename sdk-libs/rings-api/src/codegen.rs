@@ -7253,9 +7253,9 @@ output view tag and includes all of its output slots.*/
     }
 }
 #[derive(Clone, Debug)]
-/**Client for zolana-indexer-api
+/**Client for rings-indexer-api
 
-Zolana indexer API
+Rings indexer API
 
 Version: 0.51.2*/
 pub struct Client {

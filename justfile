@@ -1,29 +1,29 @@
-# Zolana workspace
+# Rings workspace
 set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
-# Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
+# Per-clone port isolation: set RINGS_PORT_OFFSET in a local (gitignored) .env
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
 # checkouts never contend. Each individual port/URL var can still be overridden
 # explicitly. See .env.example.
-port-offset := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
-localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", shell('echo $((8899 + ${1:-0}))', port-offset))
-localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", shell('echo $((8784 + ${1:-0}))', port-offset))
-localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", shell('echo $((3001 + ${1:-0}))', port-offset))
-localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
-localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
-localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
-photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/bin/photon")
-spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
+port-offset := env_var_or_default("RINGS_PORT_OFFSET", "0")
+localnet-rpc-port := env_var_or_default("RINGS_LOCALNET_RPC_PORT", shell('echo $((8899 + ${1:-0}))', port-offset))
+localnet-photon-port := env_var_or_default("RINGS_LOCALNET_PHOTON_PORT", shell('echo $((8784 + ${1:-0}))', port-offset))
+localnet-prover-port := env_var_or_default("RINGS_LOCALNET_PROVER_PORT", shell('echo $((3001 + ${1:-0}))', port-offset))
+localnet-rpc-url := env_var_or_default("RINGS_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
+localnet-photon-url := env_var_or_default("RINGS_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
+localnet-prover-url := env_var_or_default("RINGS_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
+photon-bin := env_var_or_default("RINGS_PHOTON_BIN", "target/bin/photon")
+spp-keys-dir := env_var_or_default("RINGS_SPP_KEYS_DIR", "prover/server/proving-keys")
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
 # the per-clone prover address without each recipe wiring it explicitly. The
 # client both connects here and starts the spawned server on this URL's port, so
 # this single var is the source of truth for the prover.
-export ZOLANA_PROVER_URL := localnet-prover-url
+export RINGS_PROVER_URL := localnet-prover-url
 
 mod forester 'forester'
 mod prover 'prover/server'
@@ -54,12 +54,12 @@ test: test-shielded-pool test-sdk-libs
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
 # run (without it `program_test()` finds no .so and the suite skips). Builds
-# the prover server and zolana CLI because transact tests spawn a local prover.
+# the prover server and rings CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo test -p zolana-interface --features solana
+    cargo test -p rings-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo test -p shielded-pool-tests
-    cargo test -p zolana-user-registry --tests
+    cargo test -p rings-user-registry --tests
     cargo test -p user-registry-tests --test wire_layout
 
 # User-registry litesvm tests only (no Light fixture bundle required).
@@ -68,22 +68,22 @@ test-user-registry-litesvm: build-programs
 
 # Unit, BDD, and property tests for the client-side SDK crates.
 test-sdk-libs:
-    cargo test -p zolana-keypair
-    cargo test -p zolana-transaction
-    cargo test -p zolana-client --lib actions::transaction
-    cargo test -p zolana-client --test transaction
+    cargo test -p rings-keypair
+    cargo test -p rings-transaction
+    cargo test -p rings-client --lib actions::transaction
+    cargo test -p rings-client --test transaction
 
-# All zolana-client tests (lib unit tests, the `transaction` integration test,
+# All rings-client tests (lib unit tests, the `transaction` integration test,
 # and the `transfer_2_3` BDD suite). The BDD scenario spawns the prover server
-# (via the zolana CLI), which lazily downloads transfer proving keys from the
+# (via the rings CLI), which lazily downloads transfer proving keys from the
 # transfer-keys-v1 GitHub release using `gh` -- so this needs `gh` on PATH with
 # auth (local `gh auth login`, or GH_TOKEN in CI). Builds the go prover binary
-# and the zolana CLI the spawned server/test rely on.
+# and the rings CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
-    cargo test -p zolana-client
+    cargo test -p rings-client
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
-# through the zolana CLI.
+# through the rings CLI.
 test-programs: build-programs build-prover-server build-cli
     cargo test -p shielded-pool-tests
 
@@ -99,13 +99,13 @@ verify: verify-rust prover-server-test
 # === CLI ===
 
 cli *args:
-    cargo run -p zolana-cli -- {{args}}
+    cargo run -p rings-cli -- {{args}}
 
 build-cli:
-    cargo build -p zolana-cli --target-dir target
+    cargo build -p rings-cli --target-dir target
 
 test-cli:
-    cargo test -p zolana-cli
+    cargo test -p rings-cli
 
 # === Bench ===
 
@@ -117,7 +117,7 @@ bench-bloom-filter:
     cargo test -p bloom-filter-bench --test bench_cu -- --ignored --nocapture
 
 # Build the tree bench program with profiling enabled, then run the mollusk
-# harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
+# harness that profiles rings-tree init/deserialize/append/nullifier-insert.
 bench-tree:
     cargo build-sbf --manifest-path bench/tree/Cargo.toml --features bench
     cargo test -p tree-bench --test bench_cu -- --ignored --nocapture
@@ -144,12 +144,12 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- test-validator --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
+    cargo run -p rings-cli -- test-validator --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/rings_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
-# Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
-# `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
+# Local-validator SOL cycle backed by a real Photon Rings indexer. Each
+# `#[serial]` test restarts a fresh validator + Photon via the `rings` CLI,
 # so the protocol-config singleton never collides across tests.
 test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
@@ -163,12 +163,12 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
     export USER_REGISTRY_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_wallet_cli_e2e -- --nocapture
 
 # Regenerate the photon-indexer rings_e2e parser fixtures from the localnet
@@ -200,16 +200,16 @@ regenerate-photon-fixtures: build-programs build-prover-server build-cli ensure-
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
     export USER_REGISTRY_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     export RINGS_FIXTURE_DIR
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e -- --nocapture
 
 # BDD decrypt-and-spend lifecycle scenarios over a fresh validator + Photon per
 # scenario (program-tests/spp-test-validator). The prover server persists; each
-# cucumber scenario restarts the validator + Photon via the `zolana` CLI.
+# cucumber scenario restarts the validator + Photon via the `rings` CLI.
 test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -221,10 +221,10 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle
 
 # Run only the decode scenario from test-spp-validator, which prints the parsed
@@ -241,10 +241,10 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "instruction data and accounts decode"
 
 # Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
@@ -261,10 +261,10 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Merge service"
 
 # Run only the randomized 500-transaction workload from test-spp-validator. This is
@@ -280,10 +280,10 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Fifty randomized eddsa transactions"
 
 # Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
@@ -299,10 +299,10 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|instruction data and accounts decode"
 
 # Run only the mixed-lifecycle scenario from test-spp-validator (deposits,
@@ -319,10 +319,10 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Fifty mixed transactions"
 
 # BDD zone lifecycle scenarios over a fresh validator + Photon per scenario
@@ -333,7 +333,7 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
 # flow reads the user-registry record so that program must be co-loaded, and the
 # zone deposits use the Squads smart account binary (ensure-smart-account). The
 # prover server persists; each cucumber scenario restarts the validator + Photon
-# via the `zolana` CLI.
+# via the `rings` CLI.
 test-zone-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
@@ -347,10 +347,10 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     export SHIELDED_POOL_PROGRAM_ID
     export USER_REGISTRY_PROGRAM_ID
     export ZONE_TEST_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+    export RINGS_PHOTON_BIN="{{photon-bin}}"
+    export RINGS_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export RINGS_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env RINGS_LOCALNET_URL="{{localnet-rpc-url}}" RINGS_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
 
 install-surfpool:
@@ -388,7 +388,7 @@ build-programs:
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
 # Requires `just build-programs` first and that the local config keypair is
-# the current upgrade authority. Set ZOLANA_DEVNET_KEYS_DIR to a
+# the current upgrade authority. Set RINGS_DEVNET_KEYS_DIR to a
 # `<dir>/program-id/<pubkey>.json` keys checkout for a program's first-ever
 # deploy (only needed once per program's fixed address; upgrades work without
 # it since only the pubkey is required after the account exists on-chain).
@@ -441,8 +441,8 @@ ensure-photon:
       echo "Using Photon binary at {{photon-bin}}"
       exit 0
     fi
-    if [[ -n "${ZOLANA_PHOTON_BIN:-}" ]]; then
-      echo "ZOLANA_PHOTON_BIN is set to ${ZOLANA_PHOTON_BIN}, but it is not executable" >&2
+    if [[ -n "${RINGS_PHOTON_BIN:-}" ]]; then
+      echo "RINGS_PHOTON_BIN is set to ${RINGS_PHOTON_BIN}, but it is not executable" >&2
       exit 1
     fi
     just build-photon

@@ -1,6 +1,6 @@
+use rings_client::{ClientError, Rpc};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
 
 use super::{state_root_from, to_address, wait_for_merkle_proof, wait_for_nullifier_present};
 

@@ -1,3 +1,4 @@
+use rings_client::{ClientError, Rpc};
 use solana_account::{Account, ReadableAccount};
 use solana_address::Address;
 use solana_hash::Hash;
@@ -7,11 +8,10 @@ use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
-use zolana_client::{ClientError, Rpc};
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
-    ProgramTestError, ZolanaProgramTest,
+    ProgramTestError, RingsProgramTest,
 };
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ pub struct IndexedTransaction {
     pub events: Vec<IndexedEvent>,
 }
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     /// Build, sign, send, and index a transaction against the litesvm backend.
     pub fn create_and_send_transaction(
         &mut self,
@@ -63,7 +63,7 @@ impl ZolanaProgramTest {
     }
 }
 
-impl Rpc for ZolanaProgramTest {
+impl Rpc for RingsProgramTest {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = Pubkey::new_from_array(address.to_bytes());
         Ok(self.svm.get_account(&pubkey))

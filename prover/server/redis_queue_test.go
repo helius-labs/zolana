@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"zolana/prover/prover/common"
-	"zolana/prover/server"
+	"rings/prover/prover/common"
+	"rings/prover/server"
 
 	"github.com/google/uuid"
 )

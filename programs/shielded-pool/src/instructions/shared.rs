@@ -4,7 +4,7 @@ use pinocchio::{
     sysvars::clock::Clock,
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::error::ShieldedPoolError;
+use rings_interface::error::ShieldedPoolError;
 
 /// Reject a transaction whose `expiry_unix_ts` has passed (or a negative clock).
 /// Shared by every instruction that carries an `expiry_unix_ts`.
@@ -80,7 +80,7 @@ pub fn verify_pda(
     program_id: &Address,
 ) -> Result<u8, ProgramError> {
     use pinocchio::address::address_eq;
-    use zolana_interface::error::ShieldedPoolError;
+    use rings_interface::error::ShieldedPoolError;
 
     let (derived, bump) = Address::find_program_address(seeds, program_id);
     if !address_eq(account_key, &derived) {

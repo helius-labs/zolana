@@ -3,8 +3,8 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use rings_account_checks::AccountIterator;
+use rings_interface::{
     error::ShieldedPoolError, state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY,
     SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
 };

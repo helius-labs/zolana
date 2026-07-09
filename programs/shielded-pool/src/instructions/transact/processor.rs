@@ -4,9 +4,9 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_account_checks::checks::check_signer;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::{
+use rings_account_checks::checks::check_signer;
+use rings_hasher::{sha256::Sha256BE, Hasher};
+use rings_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::{
@@ -15,7 +15,7 @@ use zolana_interface::{
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
-use zolana_tree::{TreeAccount, TreeError};
+use rings_tree::{TreeAccount, TreeError};
 
 use super::{
     account::TransactAccounts,

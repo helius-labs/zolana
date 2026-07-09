@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use zolana_keypair::hash::poseidon;
+use rings_keypair::hash::poseidon;
 
 use crate::error::ClientError;
 

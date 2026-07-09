@@ -5,9 +5,9 @@ import (
 	"math/big"
 	"testing"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	txcircuit "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

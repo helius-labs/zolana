@@ -18,7 +18,7 @@ pub use actions::{
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
-pub use indexer::ZolanaIndexer;
+pub use indexer::RingsIndexer;
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
@@ -31,6 +31,17 @@ pub use prover::{
     TransferProver, TransferSpendInput, UtxoInputs, ZoneAuthorityProofResult, ZoneAuthorityProver,
     ZoneAuthorityWitness, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
     ZoneTransferProofResult, ZoneTransferProver, SUPPORTED_SHAPES,
+};
+pub use rings_transaction::{
+    instructions::{
+        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge_zone::{MergeZone, PreparedMergeZone},
+        transact::{SignedTransaction, Transaction, WithdrawalTarget},
+        types::{InputCommitment, SpendUtxo},
+        zone_authority::PreparedZoneAuthority,
+    },
+    AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    PrivateTransactionKind, PrivateTransactionStatus,
 };
 pub use rpc::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
@@ -52,15 +63,4 @@ pub use wallet_authority::{
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
     SyncWalletConfig,
-};
-pub use zolana_transaction::{
-    instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
-        merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{SignedTransaction, Transaction, WithdrawalTarget},
-        types::{InputCommitment, SpendUtxo},
-        zone_authority::PreparedZoneAuthority,
-    },
-    AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus,
 };

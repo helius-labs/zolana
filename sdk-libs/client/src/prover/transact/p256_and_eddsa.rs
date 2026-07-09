@@ -1,10 +1,10 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use zolana_keypair::{
+use rings_keypair::{
     hash::{hash_field, owner_hash, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     ExternalData, OutputUtxo, Utxo,
 };
@@ -48,7 +48,7 @@ impl PublicAmounts {
     }
 }
 /// The P256 ownership signature, computed once over the finalized transaction in
-/// [`zolana_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
+/// [`rings_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
 /// into witness coordinates; it never signs.
 #[derive(Clone)]
 pub struct P256Owner {

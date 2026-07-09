@@ -1,16 +1,16 @@
-use solana_pubkey::Pubkey;
-use zolana_interface::{
+use rings_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
-use zolana_transaction::{
+use rings_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
+use rings_transaction::{
     instructions::{
         transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
         types::SpendUtxo,
     },
     Address, AssetRegistry, Wallet, SOL_MINT,
 };
+use solana_pubkey::Pubkey;
 
 use crate::{
     error::ClientError,
@@ -358,10 +358,10 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
+    use rings_keypair::ShieldedKeypair;
+    use rings_transaction::{Data, Utxo, WalletUtxo};
+    use rings_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
     use solana_account::Account;
-    use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, Utxo, WalletUtxo};
-    use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
 
@@ -412,7 +412,7 @@ mod tests {
             .expect("nullifier");
         wallet.utxos.push(WalletUtxo {
             utxo,
-            output_context: zolana_transaction::instructions::transact::types::OutputContext {
+            output_context: rings_transaction::instructions::transact::types::OutputContext {
                 hash,
                 tree: Address::default(),
                 leaf_index: 0,

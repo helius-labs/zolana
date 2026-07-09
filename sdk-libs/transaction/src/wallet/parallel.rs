@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use rayon::prelude::*;
-use zolana_keypair::{viewing_key::ViewTag, KeypairError, P256Pubkey, ViewingKey};
+use rings_keypair::{viewing_key::ViewTag, KeypairError, P256Pubkey, ViewingKey};
 
 use super::{
     state::{SyncReport, ViewingKeyEntry, Wallet},

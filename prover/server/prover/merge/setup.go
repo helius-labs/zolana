@@ -3,8 +3,8 @@ package merge
 import (
 	"fmt"
 
-	mergecircuit "zolana/prover/circuits/spp_merge"
-	"zolana/prover/prover/common"
+	mergecircuit "rings/prover/circuits/spp_merge"
+	"rings/prover/prover/common"
 
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"

@@ -3,6 +3,7 @@
 //! Proof generation lives in `prover/client`; this module handles the on-chain
 //! submission path once a compressed proof and proposed root are available.
 
+use rings_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use solana_commitment_config::CommitmentConfig;
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -11,7 +12,6 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ForestError {
@@ -58,7 +58,7 @@ pub fn batch_update_nullifier_tree_once(
 
 #[cfg(test)]
 mod tests {
-    use zolana_interface::{instruction::tag, pda, SHIELDED_POOL_PROGRAM_ID};
+    use rings_interface::{instruction::tag, pda, SHIELDED_POOL_PROGRAM_ID};
 
     use super::*;
 

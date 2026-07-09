@@ -1,7 +1,7 @@
 use pinocchio::{address::Address, error::ProgramError, AccountView};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_pk_field_compressed};
-use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
+use rings_account_checks::AccountIterator;
+use rings_interface::{error::ShieldedPoolError, merge_utils::owner_pk_field_compressed};
+use rings_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
 
 use crate::instructions::hash::solana_pk_hash;
 

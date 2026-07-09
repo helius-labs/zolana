@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover/common"
+	"rings/prover/prover/common"
 )
 
 // TestReadMergeKeyDispatch validates the server key-load path: ReadSystemFromFile

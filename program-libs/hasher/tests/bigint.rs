@@ -1,6 +1,6 @@
 use num_bigint::{BigUint, RandBigInt, ToBigUint};
 use rand::thread_rng;
-use zolana_hasher::{
+use rings_hasher::{
     bigint::{bigint_to_be_bytes_array, bigint_to_le_bytes_array},
     HasherError,
 };

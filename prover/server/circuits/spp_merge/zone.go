@@ -3,7 +3,7 @@ package merge
 import (
 	"github.com/consensys/gnark/frontend"
 
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "rings/prover/circuits/spp_transaction"
 )
 
 type ZoneCircuit struct {

@@ -3,8 +3,8 @@ package nullifiertreetest
 import (
 	"math/big"
 	"testing"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover/nullifier_tree"
+	"rings/prover/prover-test/spp/protocol"
+	"rings/prover/prover/nullifier_tree"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

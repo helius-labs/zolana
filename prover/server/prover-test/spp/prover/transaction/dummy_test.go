@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 // proveTestOwner builds the Solana-signer owner material shared by the dummy

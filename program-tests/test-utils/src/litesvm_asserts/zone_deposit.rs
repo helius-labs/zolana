@@ -1,9 +1,9 @@
 //! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
+use rings_interface::instruction::ZoneDepositIxData;
+use rings_program_test::{DepositOutput, RingsProgramTest};
+use rings_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::ZoneDepositIxData;
-use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `zone_deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -17,7 +17,7 @@ use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_zone_deposit(
-    program_test: &mut ZolanaProgramTest,
+    program_test: &mut RingsProgramTest,
     tree: &Pubkey,
     event: &DepositOutput,
     data: &ZoneDepositIxData,

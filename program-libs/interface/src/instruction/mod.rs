@@ -12,7 +12,7 @@ pub use instruction_data::{
     TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData,
     UtxoData, ZoneDepositIxData,
 };
-pub use zolana_event::{tag, tag::InstructionTag};
+pub use rings_event::{tag, tag::InstructionTag};
 
 pub fn encode_instruction<T: BorshSerialize>(tag: u8, payload: &T) -> Vec<u8> {
     let mut data = vec![tag];

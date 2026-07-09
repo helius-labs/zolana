@@ -1,4 +1,4 @@
-use zolana_interface::{
+use rings_interface::{
     event::{DepositWithdraw, GeneralEvent, Input},
     instruction::{
         instruction_data::transact::{OutputCiphertextRef, TransactIxDataRef},

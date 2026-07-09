@@ -1,4 +1,4 @@
-# Zolana Contributor Notes
+# Rings Contributor Notes
 
 ## Source Of Truth
 
@@ -75,7 +75,7 @@ sdk-libs/
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 
-cli/                   -- root Zolana developer/operator CLI
+cli/                   -- root Rings developer/operator CLI
 forester/              -- forester skeleton
 prover/                -- Rust prover client and Go prover server
 xtask/                 -- workspace maintenance tools
@@ -100,7 +100,7 @@ Program tests that load real SBF binaries need the local builds:
 just build-programs
 ```
 
-### Per-clone port isolation (`ZOLANA_PORT_OFFSET`)
+### Per-clone port isolation (`RINGS_PORT_OFFSET`)
 
 Localnet/prover-backed tests bind fixed ports (RPC 8899, photon 8784, prover
 3001), so two clones running them at once contend. To isolate a clone, set a
@@ -109,18 +109,18 @@ dotenv-load`); the justfile shifts every service port by it and derives the
 matching URLs:
 
 ```bash
-cp .env.example .env        # then set e.g. ZOLANA_PORT_OFFSET=100
+cp .env.example .env        # then set e.g. RINGS_PORT_OFFSET=100
 ```
 
 Offset 100 -> RPC 8999, photon 8884, prover 3101. Use 0 / 100 / 200 / ... per
-clone (stay below ~900). The justfile exports `ZOLANA_PROVER_URL`, and the
-tests read `ZOLANA_LOCALNET_URL` / `ZOLANA_INDEXER_URL` / `ZOLANA_PROVER_URL`,
+clone (stay below ~900). The justfile exports `RINGS_PROVER_URL`, and the
+tests read `RINGS_LOCALNET_URL` / `RINGS_INDEXER_URL` / `RINGS_PROVER_URL`,
 so the offset flows into every `just test-*` recipe. Individual
-`ZOLANA_LOCALNET_RPC_PORT` / `ZOLANA_LOCALNET_PHOTON_PORT` /
-`ZOLANA_LOCALNET_PROVER_PORT` (and the URL vars) still override the derived
+`RINGS_LOCALNET_RPC_PORT` / `RINGS_LOCALNET_PHOTON_PORT` /
+`RINGS_LOCALNET_PROVER_PORT` (and the URL vars) still override the derived
 value when set explicitly.
 
-`ZOLANA_PROVER_URL` is the single source of truth for the prover: the client
+`RINGS_PROVER_URL` is the single source of truth for the prover: the client
 connects there and `spawn_prover()` starts the spawned server on that URL's
 port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 -- export the vars yourself (`set -a; source .env; set +a`) or use `direnv`.
@@ -207,7 +207,7 @@ Add discriminator constant to `program-libs/interface/src/state/discriminator.rs
 All program errors must be defined in the interface crate
 (`program-libs/interface/src/error.rs`), including the `From<...> for
 ProgramError` conversion. The program crate does not define its own error enum;
-it imports `zolana_interface::error::ShieldedPoolError`, and clients import the
+it imports `rings_interface::error::ShieldedPoolError`, and clients import the
 same definition.
 
 ```rust
@@ -275,7 +275,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
 - Add `pub mod <name>;` + `pub use <name>::<item>;` to `program-libs/interface/src/instruction/builders/mod.rs`
-- Builders are imported in tests as `zolana_interface::instruction::<builder>`
+- Builders are imported in tests as `rings_interface::instruction::<builder>`
 
 ### Instruction data
 
@@ -283,7 +283,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 1. default light-zero-copy
 3. if not hot path can use borsh
 
-### wincode length prefixes (zolana-transaction)
+### wincode length prefixes (rings-transaction)
 
 When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..>>`:
 - `Vec<u8>` (byte vectors: ciphertexts, program/zone data, can exceed 255 bytes) use `FixIntLen<u16>`.
@@ -380,7 +380,7 @@ calls `groth16_solana::gnark_vk_parser::generate_bsb22_vk_file` to emit a
 `pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
 regenerated. The codegen lives in the `xtask` crate, which depends on the
 `groth16-solana` fork (`../groth16-solana`, `features = ["bsb22"]`).
-`zolana-interface` depends on the same fork only to compile the committed
+`rings-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
 
 ### BSB22 commitments (the two rails differ on purpose)
@@ -415,13 +415,13 @@ publish workflow; releases are cut manually with `gh`. Two assets per release:
 `photon-zolana-linux-x86_64.tar.gz` (CI) and `photon-zolana-macos-aarch64.tar.gz`
 (local dev), each `tar -czf` of the single `photon` binary.
 
-Photon must be built against the zolana commit whose program id AND on-chain
+Photon must be built against the rings commit whose program id AND on-chain
 event/instruction layout (e.g. `BatchUpdateNullifierTreeData`) it parses. Pin its
-`rings-event`/`rings-interface`/`rings-tree` deps (package names `zolana-*`) to
-that commit. Two ways to point them at local zolana while building:
+`rings-event`/`rings-interface`/`rings-tree` deps (package names `rings-*`) to
+that commit. Two ways to point them at local rings while building:
 - `[patch."ssh://git@github.com/helius-labs/zolana.git"]` to local paths -- works
   for the macOS build (the patched crates resolve `workspace = true` deps via the
-  intact on-disk zolana workspace), but NOT inside Docker (the whole workspace
+  intact on-disk rings workspace), but NOT inside Docker (the whole workspace
   would need copying in).
 - HTTPS git dep + a `gh` token -- used for the Docker/Linux build below.
 

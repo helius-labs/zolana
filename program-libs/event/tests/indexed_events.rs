@@ -1,11 +1,11 @@
 //! Indexed-event discovery for every SPP instruction that emits a `GeneralEvent`.
 
-use solana_pubkey::Pubkey;
-use zolana_event::{
+use rings_event::{
     decode_event_instruction, encode_event_instruction, event_kind_from_indexed,
     indexed_events_from_instruction_groups, instruction_may_emit_events, tag, EventKind,
     GeneralEvent, IndexedEvent, InstructionGroup, ParsedInstruction,
 };
+use solana_pubkey::Pubkey;
 
 #[test]
 fn event_kind_comes_from_payload_not_instruction_tag() {

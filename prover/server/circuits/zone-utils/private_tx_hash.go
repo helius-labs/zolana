@@ -7,7 +7,7 @@ package zoneutils
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/spp_transaction"
+	"rings/prover/circuits/spp_transaction"
 )
 
 // NumInputs and NumOutputs fix the circuit shape. The HashChain folds exactly
@@ -19,7 +19,7 @@ const (
 
 // Utxo is the witness of one UTXO. It carries the precomputed owner_hash and the
 // data and zone-program hashes; the circuit hashes the UTXO, matching
-// zolana_transaction's Utxo::hash.
+// rings_transaction's Utxo::hash.
 type Utxo struct {
 	OwnerHash       frontend.Variable
 	Asset           frontend.Variable

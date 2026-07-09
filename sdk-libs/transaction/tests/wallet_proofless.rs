@@ -1,6 +1,6 @@
-use zolana_event::{encode_output_data, ProoflessOutput};
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_transaction::{
+use rings_event::{encode_output_data, ProoflessOutput};
+use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use rings_transaction::{
     owner_utxo_hash, utxo_hash, Address, AssetRegistry, OutputContext, OutputSlot,
     ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };

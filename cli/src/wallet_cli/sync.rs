@@ -1,9 +1,9 @@
 use std::{thread::sleep, time::SystemTime};
 
 use anyhow::{bail, Result};
+use rings_client::{sync_wallet as client_sync_wallet, RingsIndexer, Rpc};
+use rings_transaction::Wallet;
 use solana_signature::Signature;
-use zolana_client::{sync_wallet as client_sync_wallet, Rpc, ZolanaIndexer};
-use zolana_transaction::Wallet;
 
 use super::{
     material::{clone_keypair, load_sender_from_resolved_sync, WalletMaterial},
@@ -19,7 +19,7 @@ pub(super) struct SyncContext {
     pub(super) material: WalletMaterial,
     pub(super) wallet: Wallet,
     pub(super) local_assets: Vec<LocalAssetConfig>,
-    pub(super) report: zolana_transaction::SyncReport,
+    pub(super) report: rings_transaction::SyncReport,
 }
 
 pub(super) fn run_sync(opts: SyncOptions) -> Result<()> {
@@ -37,7 +37,7 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let config = CliConfigFile::load()?;
     let sync = resolve_sync_with_config(opts, &config)?;
     let material = load_sender_from_resolved_sync(&sync)?;
-    let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
+    let indexer = RingsIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let mut wallet = Wallet::new(clone_keypair(&material.keypair)?, assets)?;
     let report = client_sync_wallet(&mut wallet, &indexer)?;
@@ -50,7 +50,7 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
 }
 
 pub(super) fn wait_for_indexed_utxo(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<()> {
@@ -72,7 +72,7 @@ pub(super) fn wait_for_indexed_utxo(
 }
 
 pub(super) fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<()> {

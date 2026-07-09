@@ -1,5 +1,5 @@
 [package]
-name = "zolana-client"
+name = "rings-client"
 version = "0.1.0"
 description = "Host-side Groth16 witness builder for SPP transaction circuits (transfer / transfer-eddsa)."
 license = "Apache-2.0"
@@ -8,16 +8,16 @@ autotests = false
 
 [features]
 default = []
-indexer-api = ["dep:base64", "dep:bs58", "dep:zolana-api"]
+indexer-api = ["dep:base64", "dep:bs58", "dep:rings-api"]
 solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 
 [dependencies]
-zolana-interface = { workspace = true, features = ["solana"] }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
-zolana-event = { workspace = true, features = ["program-test"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-api = { workspace = true, optional = true }
+rings-interface = { workspace = true, features = ["solana"] }
+rings-user-registry-interface = { workspace = true, features = ["solana"] }
+rings-event = { workspace = true, features = ["program-test"] }
+rings-keypair = { workspace = true }
+rings-transaction = { workspace = true }
+rings-api = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 borsh = { workspace = true }
 num-bigint = { workspace = true }
@@ -49,8 +49,8 @@ solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-status-client-types = { workspace = true }
 
 [dev-dependencies]
-zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
-zolana-merkle-tree = { workspace = true }
+rings-hasher = { workspace = true, features = ["poseidon", "std"] }
+rings-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }

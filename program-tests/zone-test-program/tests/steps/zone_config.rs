@@ -3,18 +3,18 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{given, then, when};
-use solana_address::Address;
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::Rpc;
-use zolana_interface::{
+use rings_client::Rpc;
+use rings_interface::{
     instruction::{CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner},
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use rings_program_test::ZONE_TEST_PROGRAM_ID;
+use solana_address::Address;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::{localnet::send_transaction, ZoneLifecycleWorld};
 

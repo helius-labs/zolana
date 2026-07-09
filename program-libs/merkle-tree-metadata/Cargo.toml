@@ -1,5 +1,5 @@
 [package]
-name = "zolana-merkle-tree-metadata"
+name = "rings-merkle-tree-metadata"
 version = "0.11.0"
 description = "Merkle tree metadata for light-batched-merkle-tree."
 readme = "README.md"

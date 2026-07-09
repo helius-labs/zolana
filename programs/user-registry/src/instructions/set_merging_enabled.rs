@@ -1,5 +1,5 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::instruction::SetMergingEnabledData;
+use rings_user_registry_interface::instruction::SetMergingEnabledData;
 
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};

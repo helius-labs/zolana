@@ -17,7 +17,7 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+rings-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 cucumber = { workspace = true }

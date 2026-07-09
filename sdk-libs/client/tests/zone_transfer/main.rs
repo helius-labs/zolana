@@ -8,7 +8,7 @@
 //! `transfer_zone_<shape>.key` and `transfer_p256_zone_<shape>.key` proving keys
 //! available.
 //!
-//! Run with: `cargo test -p zolana-client --test zone_transfer_proving`
+//! Run with: `cargo test -p rings-client --test zone_transfer_proving`
 
 mod steps;
 mod world;

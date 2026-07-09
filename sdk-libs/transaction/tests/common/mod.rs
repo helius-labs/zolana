@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use zolana_event::OutputData;
-use zolana_keypair::{
+use rings_event::OutputData;
+use rings_keypair::{
     constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,
 };
-use zolana_transaction::{
+use rings_transaction::{
     serialization::anonymous::{
         AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
         AnonymousTransferSenderPlaintext,

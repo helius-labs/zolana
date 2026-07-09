@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"zolana/prover/logging"
+	"rings/prover/logging"
 )
 
 type authMiddleware struct {

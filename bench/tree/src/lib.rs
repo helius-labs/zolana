@@ -1,10 +1,10 @@
 use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_batched_merkle_tree::merkle_tree::{
+use rings_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
 };
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use rings_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {

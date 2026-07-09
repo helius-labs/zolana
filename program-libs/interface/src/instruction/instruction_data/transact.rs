@@ -1,6 +1,6 @@
+pub use rings_event::OutputUtxo;
+use rings_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-pub use zolana_event::OutputUtxo;
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 /// The Groth16 proof carried by a `transact` instruction. The two proving rails
 /// have different proof sizes, so the proof is a tagged enum instead of a padded

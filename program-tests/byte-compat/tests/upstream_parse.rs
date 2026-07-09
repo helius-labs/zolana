@@ -7,13 +7,13 @@
 //! fields match. One case uses a small valid config, the other the production
 //! address-tree config.
 
-use solana_address::Address as Pubkey;
-use zolana_batched::constants::{
+use rings_batched::constants::{
     ADDRESS_TREE_DEFAULT_BLOOM, ADDRESS_TREE_DEFAULT_NUM_ITERS, ADDRESS_TREE_DEFAULT_RH,
     ADDRESS_TREE_DEFAULT_ZKP, ADDRESS_TREE_INIT_ROOT_40, DEFAULT_ADDRESS_BATCH_SIZE,
     DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
 };
-use zolana_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
+use rings_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
+use solana_address::Address as Pubkey;
 
 const ADDRESS_HEIGHT: u32 = 40;
 
@@ -43,7 +43,7 @@ fn assert_upstream_parses<
     batch_size: u64,
     zkp_batch_size: u64,
 ) {
-    use zolana_batched::merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount};
+    use rings_batched::merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount};
 
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<RH, NUM_ITERS, BLOOM, ZKP>()];
     let pubkey = Pubkey::new_unique();

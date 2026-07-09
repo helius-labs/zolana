@@ -9,9 +9,9 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover-test/spp/protocol"
+	merge "rings/prover/circuits/spp_merge"
+	transaction "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 func TestMergeZoneCircuitProves(t *testing.T) {

@@ -3,7 +3,7 @@ mod steps;
 use std::collections::HashMap;
 
 use cucumber::World;
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
+use rings_keypair::{P256Pubkey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 
 #[derive(Default, World)]
 pub struct KeypairWorld {

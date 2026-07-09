@@ -1,5 +1,5 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
-use zolana_account_checks::AccountIterator;
+use rings_account_checks::AccountIterator;
 
 use crate::instructions::zone_config::loader::load_zone_config;
 

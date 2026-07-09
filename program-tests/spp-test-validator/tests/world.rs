@@ -7,18 +7,18 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use rings_client::{RingsIndexer, Rpc, SolanaRpc};
+use rings_interface::{
+    instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
+};
+use rings_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
+use rings_transaction::{AssetRegistry, ShieldedTransaction};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
-use zolana_interface::{
-    instruction::CreateProtocolConfig, pda, state::tree_account_size, SHIELDED_POOL_PROGRAM_ID,
-};
-use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
     actor::Actor,
@@ -49,7 +49,7 @@ pub(crate) enum Rail {
 #[world(init = Self::new)]
 pub struct LifecycleWorld {
     pub(crate) rpc: SolanaRpc,
-    pub(crate) indexer: ZolanaIndexer,
+    pub(crate) indexer: RingsIndexer,
     pub(crate) assets: AssetRegistry,
     pub(crate) payer: Keypair,
     pub(crate) authority: Keypair,
@@ -90,11 +90,11 @@ impl LifecycleWorld {
         prover.join().expect("prover startup thread panicked")?;
 
         let rpc_url =
-            std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+            std::env::var("RINGS_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
         let indexer_url =
-            std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
+            std::env::var("RINGS_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
         let mut rpc = SolanaRpc::new(rpc_url);
-        let indexer = ZolanaIndexer::new(indexer_url);
+        let indexer = RingsIndexer::new(indexer_url);
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         rpc.assert_executable(&program_id)?;
 
@@ -157,14 +157,14 @@ impl LifecycleWorld {
         let rent = rpc
             .get_minimum_balance_for_rent_exemption(tree_account_size())
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let alloc_ix = zolana_program_test::system_create_account_ix(
+        let alloc_ix = rings_program_test::system_create_account_ix(
             &payer.pubkey(),
             &tree.pubkey(),
             rent,
             tree_account_size() as u64,
             &pda::shielded_pool_program_id(),
         );
-        let create_tree_ix = zolana_interface::instruction::CreateTree {
+        let create_tree_ix = rings_interface::instruction::CreateTree {
             authority: accounts.tree_vault,
             tree: tree.pubkey(),
             owner: accounts.tree_vault,

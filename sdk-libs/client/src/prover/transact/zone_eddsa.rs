@@ -13,13 +13,13 @@
 //! chain INCLUDING `input_owner_pk_hashes`, EXCLUDING the output-owner chain and
 //! `p256_signing_pk_field`.
 
-use solana_address::Address;
-use zolana_keypair::hash::hash_field;
-use zolana_transaction::{
+use rings_keypair::hash::hash_field;
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     utxo::program_id_field,
     ExternalData, OutputUtxo,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,

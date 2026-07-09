@@ -1,12 +1,12 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_account_checks::{checks::check_owner, AccountIterator};
-use zolana_interface::{
+use rings_account_checks::{checks::check_owner, AccountIterator};
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::CreateTreeData,
     state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, STATE_HEIGHT},
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
 
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
@@ -54,7 +54,7 @@ fn parse_create_tree_data(
 ) -> Result<
     (
         CreateTreeData,
-        zolana_tree::InitAddressTreeAccountsInstructionData,
+        rings_tree::InitAddressTreeAccountsInstructionData,
     ),
     ProgramError,
 > {
@@ -63,7 +63,7 @@ fn parse_create_tree_data(
     let nullifier_params = if data.is_empty() {
         address_tree_params()
     } else {
-        let params = zolana_tree::InitAddressTreeAccountsInstructionData::deserialize(&mut data)
+        let params = rings_tree::InitAddressTreeAccountsInstructionData::deserialize(&mut data)
             .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
         if !data.is_empty() {
             return Err(ShieldedPoolError::InvalidInstructionData.into());

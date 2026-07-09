@@ -6,23 +6,23 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
-use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_signature::Signature;
-use solana_signer::Signer;
-use zolana_client::{
+use rings_client::{
     assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
 };
-use zolana_interface::instruction::Transact;
-use zolana_keypair::PublicKey;
-use zolana_test_utils::test_validator_asserts::{
+use rings_interface::instruction::Transact;
+use rings_keypair::PublicKey;
+use rings_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{
+use rings_transaction::{
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
     Data, ShieldedTransaction, Utxo, WalletUtxo, SOL_MINT,
 };
+use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_signature::Signature;
+use solana_signer::Signer;
 
 use crate::{
     localnet::{
@@ -348,7 +348,7 @@ impl LifecycleWorld {
 }
 
 pub(crate) fn decode_sender_seed(
-    viewing_key: &zolana_keypair::ViewingKey,
+    viewing_key: &rings_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
 ) -> Result<[u8; 31]> {
     let cx = DecodeCx::for_slot(viewing_key, indexed, 0);
@@ -360,7 +360,7 @@ pub(crate) fn decode_sender_seed(
         .output_data()
         .ok_or_else(|| anyhow!("sender slot undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputData::Encrypted(blob) => blob
+        rings_event::OutputData::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty sender blob"))?,

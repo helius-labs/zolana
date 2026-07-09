@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"zolana/prover/logging"
+	"rings/prover/logging"
 )
 
 const (

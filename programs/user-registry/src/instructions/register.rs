@@ -1,5 +1,5 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::{instruction::RegisterData, UserRecord};
+use rings_user_registry_interface::{instruction::RegisterData, UserRecord};
 
 use super::common::{check_record_pda, check_system_program, create_record_account, write_record};
 use crate::error::{fail, UserRegistryError};

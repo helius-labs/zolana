@@ -1,7 +1,7 @@
 use anyhow::Result;
+use rings_client::{create_withdrawal_sync, CreateWithdrawal, RingsIndexer, SolanaRpc};
+use rings_transaction::Address;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
-use zolana_transaction::Address;
 
 use super::{
     resolve::get_network,
@@ -16,7 +16,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let indexer = RingsIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;

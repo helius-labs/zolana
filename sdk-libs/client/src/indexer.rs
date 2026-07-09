@@ -1,12 +1,12 @@
-//! Blocking RPC adapter for the Zolana indexer API.
+//! Blocking RPC adapter for the Rings indexer API.
 
+use rings_api::{
+    types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
+    BlockingRingsApi,
+};
+use rings_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_api::{
-    types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
-    BlockingZolanaApi,
-};
-use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
 use crate::{
     error::ClientError,
@@ -18,18 +18,18 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct ZolanaIndexer {
-    api: BlockingZolanaApi,
+pub struct RingsIndexer {
+    api: BlockingRingsApi,
 }
 
-impl ZolanaIndexer {
+impl RingsIndexer {
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
-            api: BlockingZolanaApi::new(url),
+            api: BlockingRingsApi::new(url),
         }
     }
 
-    pub fn with_api(api: BlockingZolanaApi) -> Self {
+    pub fn with_api(api: BlockingRingsApi) -> Self {
         Self { api }
     }
 
@@ -38,12 +38,12 @@ impl ZolanaIndexer {
         self
     }
 
-    pub fn api(&self) -> &BlockingZolanaApi {
+    pub fn api(&self) -> &BlockingRingsApi {
         &self.api
     }
 }
 
-impl Rpc for ZolanaIndexer {
+impl Rpc for RingsIndexer {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -147,11 +147,11 @@ impl Rpc for ZolanaIndexer {
     }
 }
 
-fn indexer_error(error: zolana_api::ApiError) -> ClientError {
+fn indexer_error(error: rings_api::ApiError) -> ClientError {
     ClientError::Rpc(format!("indexer API: {error}"))
 }
 
-fn convert_context(context: zolana_api::Context) -> Context {
+fn convert_context(context: rings_api::Context) -> Context {
     Context {
         slot: context.slot as u64,
     }
@@ -159,7 +159,7 @@ fn convert_context(context: zolana_api::Context) -> Context {
 
 fn convert_encrypted_utxo_match(
     index: usize,
-    item: zolana_api::EncryptedUtxoMatch,
+    item: rings_api::EncryptedUtxoMatch,
 ) -> Result<EncryptedUtxoMatch, ClientError> {
     Ok(EncryptedUtxoMatch {
         slot: item.slot,
@@ -181,7 +181,7 @@ fn convert_encrypted_utxo_match(
 
 fn convert_shielded_transaction(
     index: usize,
-    item: zolana_api::ShieldedTransaction,
+    item: rings_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
     Ok(ShieldedTransaction {
         slot: item.slot,
@@ -232,7 +232,7 @@ fn convert_output_slot(slot: ApiOutputSlot, field: &str) -> Result<OutputSlot, C
 }
 
 fn convert_output_context(
-    context: zolana_api::RingsOutputContext,
+    context: rings_api::RingsOutputContext,
     field: &str,
 ) -> Result<OutputContext, ClientError> {
     Ok(OutputContext {
@@ -244,7 +244,7 @@ fn convert_output_context(
 
 fn convert_merkle_proof(
     index: usize,
-    proof: zolana_api::MerkleProof,
+    proof: rings_api::MerkleProof,
 ) -> Result<MerkleProof, ClientError> {
     Ok(MerkleProof {
         leaf: decode_hash(&proof.leaf, &format!("proofs[{index}].leaf"))?,
@@ -269,7 +269,7 @@ fn convert_merkle_proof(
 
 fn convert_non_inclusion_proof(
     index: usize,
-    proof: zolana_api::NonInclusionProof,
+    proof: rings_api::NonInclusionProof,
 ) -> Result<NonInclusionProof, ClientError> {
     Ok(NonInclusionProof {
         leaf: decode_hash(&proof.leaf, &format!("proofs[{index}].leaf"))?,
@@ -299,7 +299,7 @@ fn convert_non_inclusion_proof(
 }
 
 fn convert_merkle_context(
-    context: zolana_api::MerkleContext,
+    context: rings_api::MerkleContext,
     field: &str,
 ) -> Result<MerkleContext, ClientError> {
     Ok(MerkleContext {
@@ -327,7 +327,7 @@ fn decode_optional_cursor(cursor: Option<Base64String>) -> Result<Option<Vec<u8>
 }
 
 fn decode_signature(
-    signature: &zolana_api::SerializableSignature,
+    signature: &rings_api::SerializableSignature,
     field: &str,
 ) -> Result<Signature, ClientError> {
     signature
@@ -337,7 +337,7 @@ fn decode_signature(
 }
 
 fn decode_pubkey(
-    pubkey: &zolana_api::SerializablePubkey,
+    pubkey: &rings_api::SerializablePubkey,
     field: &str,
 ) -> Result<Address, ClientError> {
     Ok(Address::new_from_array(decode_base58_32(&pubkey.0, field)?))
@@ -471,7 +471,7 @@ mod tests {
             "next_cursor": base64::encode([5, 6]),
         }));
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let got = indexer
             .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(vec![1, 2, 3]), Some(7))
@@ -540,7 +540,7 @@ mod tests {
             "next_cursor": base64::encode([23]),
         }));
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let got = indexer
             .get_shielded_transactions_by_tags(vec![tag], None, Some(1))
@@ -605,7 +605,7 @@ mod tests {
             }],
         }));
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let got = indexer
             .get_merkle_proofs(tree, vec![leaf_a, leaf_b])
@@ -665,7 +665,7 @@ mod tests {
             }],
         }));
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let got = indexer
             .get_non_inclusion_proofs(tree, vec![leaf])
@@ -712,7 +712,7 @@ mod tests {
             },
         });
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let err = indexer
             .get_encrypted_utxos_by_tags(vec![bytes32(1)], None, None)
@@ -747,7 +747,7 @@ mod tests {
             "next_cursor": null,
         }));
         let server = MockServer::respond_once(response);
-        let indexer = ZolanaIndexer::new(server.url());
+        let indexer = RingsIndexer::new(server.url());
 
         let err = indexer
             .get_shielded_transactions_by_tags(vec![tag], None, None)

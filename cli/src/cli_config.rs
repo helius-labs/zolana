@@ -6,9 +6,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use rings_transaction::{Address, AssetRegistry};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
-use zolana_transaction::{Address, AssetRegistry};
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
@@ -19,7 +19,7 @@ const CONFIG_VERSION: u8 = 1;
 #[cfg(test)]
 pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Persistent CLI settings stored at `~/.config/zolana/config.json`.
+/// Persistent CLI settings stored at `~/.config/rings/config.json`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CliConfigFile {
     pub version: u8,
@@ -132,18 +132,18 @@ impl CliConfigFile {
 }
 
 pub(crate) fn config_dir() -> PathBuf {
-    if let Ok(path) = env::var("ZOLANA_CONFIG_DIR") {
+    if let Ok(path) = env::var("RINGS_CONFIG_DIR") {
         return PathBuf::from(path);
     }
     if let Some(home) = env::var_os("HOME") {
-        PathBuf::from(home).join(".config").join("zolana")
+        PathBuf::from(home).join(".config").join("rings")
     } else {
-        PathBuf::from(".zolana")
+        PathBuf::from(".rings")
     }
 }
 
 pub(crate) fn config_file_path() -> PathBuf {
-    if let Ok(path) = env::var("ZOLANA_CONFIG") {
+    if let Ok(path) = env::var("RINGS_CONFIG") {
         return PathBuf::from(path);
     }
     config_dir().join("config.json")
@@ -206,7 +206,7 @@ mod tests {
             .expect("time")
             .as_nanos();
         let path = env::temp_dir().join(format!(
-            "zolana-cli-config-{}-{stamp}.json",
+            "rings-cli-config-{}-{stamp}.json",
             std::process::id()
         ));
         (path.clone(), path.display().to_string())
@@ -216,7 +216,7 @@ mod tests {
     fn save_and_load_round_trips_config() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let (path, path_str) = temp_config();
-        unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
+        unsafe { env::set_var("RINGS_CONFIG", &path_str) };
         let config = CliConfigFile {
             version: CONFIG_VERSION,
             keypair: Some("/tmp/alice.pid.json".to_string()),

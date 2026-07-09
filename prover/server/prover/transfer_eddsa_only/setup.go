@@ -3,7 +3,7 @@ package transfereddsaonly
 import (
 	"fmt"
 
-	"zolana/prover/prover/common"
+	"rings/prover/prover/common"
 
 	"github.com/consensys/gnark/backend/groth16"
 )

@@ -2,7 +2,7 @@ pub mod instructions;
 
 use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_interface::instruction::tag::InstructionTag;
+use rings_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     batch_update_nullifier_tree::process_batch_update_nullifier_tree,

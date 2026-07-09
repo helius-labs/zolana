@@ -78,7 +78,7 @@ mod tests {
             .expect("time")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "zolana-cli-resolve-{}-{stamp}.json",
+            "rings-cli-resolve-{}-{stamp}.json",
             std::process::id()
         ));
         let config = CliConfigFile {
@@ -97,7 +97,7 @@ mod tests {
     fn write_commands_use_default_tree_when_unset() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(None);
-        unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
+        unsafe { std::env::set_var("RINGS_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions { keypair: None },
@@ -119,7 +119,7 @@ mod tests {
     fn write_commands_use_config_tree_when_flag_omitted() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(Some("Tree111111111111111111111111111111111111111"));
-        unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
+        unsafe { std::env::set_var("RINGS_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions { keypair: None },
@@ -141,7 +141,7 @@ mod tests {
     fn write_commands_prefer_flag_tree_over_config() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(Some("Tree111111111111111111111111111111111111111"));
-        unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
+        unsafe { std::env::set_var("RINGS_CONFIG", &path) };
         let resolved = get_network(&NetworkWalletOptions {
             sync: SyncOptions {
                 keypair: WalletKeypairOptions { keypair: None },

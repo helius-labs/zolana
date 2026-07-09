@@ -8,9 +8,9 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/spp/internal/p256key"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/internal/p256key"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 func BenchmarkProveByShape(b *testing.B) {

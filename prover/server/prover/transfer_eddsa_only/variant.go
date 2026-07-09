@@ -1,8 +1,8 @@
 package transfereddsaonly
 
 import (
-	txcircuit "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover/common"
+	txcircuit "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover/common"
 )
 
 // Variant selects which Solana-only spp_transaction instantiation to build. The

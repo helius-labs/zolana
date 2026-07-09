@@ -1,4 +1,4 @@
-//! Typed client for Photon's Zolana-only indexer API.
+//! Typed client for Photon's Rings-only indexer API.
 //!
 //! Types are generated from `src/openapi/specs/zolana.yaml` in the Photon
 //! checkout and checked in as `src/codegen.rs`.
@@ -40,7 +40,7 @@ pub type RingsOutputContext = types::RingsOutputContext;
 pub type RingsOutputSlot = types::RingsOutputSlot;
 
 #[derive(Clone, Debug)]
-pub struct ZolanaApi {
+pub struct RingsApi {
     base_path: String,
     api_key: Option<String>,
     client: reqwest::Client,
@@ -48,7 +48,7 @@ pub struct ZolanaApi {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockingZolanaApi {
+pub struct BlockingRingsApi {
     base_path: String,
     api_key: Option<String>,
     client: reqwest::blocking::Client,
@@ -107,7 +107,7 @@ impl From<reqwest::Error> for ApiError {
     }
 }
 
-impl ZolanaApi {
+impl RingsApi {
     pub fn new(url: impl AsRef<str>) -> Self {
         ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
@@ -311,7 +311,7 @@ impl ZolanaApi {
     }
 }
 
-impl BlockingZolanaApi {
+impl BlockingRingsApi {
     pub fn new(url: impl AsRef<str>) -> Self {
         ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn extracts_api_key_from_url() {
-        let api = ZolanaApi::new("https://rpc.example.test?api-key=secret");
+        let api = RingsApi::new("https://rpc.example.test?api-key=secret");
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn leaves_plain_urls_unchanged() {
-        let api = ZolanaApi::new("http://127.0.0.1:8784");
+        let api = RingsApi::new("http://127.0.0.1:8784");
         assert_eq!(api.base_path(), "http://127.0.0.1:8784");
         assert_eq!(api.api_key(), None);
         assert_eq!(
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn blocking_client_uses_same_url_shape() {
-        let api = BlockingZolanaApi::new("https://rpc.example.test?api-key=secret");
+        let api = BlockingRingsApi::new("https://rpc.example.test?api-key=secret");
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(

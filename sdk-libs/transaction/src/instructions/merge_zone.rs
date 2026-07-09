@@ -7,8 +7,8 @@
 //! merged output) is bound to a shared `zone_program_id`.
 
 use p256::SecretKey;
+use rings_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
 use solana_address::Address;
-use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,

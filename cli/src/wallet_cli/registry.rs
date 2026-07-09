@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
+use rings_client::{Rpc, SolanaRpc};
+use rings_transaction::Address;
+use rings_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_transaction::Address;
-use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -17,7 +17,7 @@ pub(super) fn register_wallet_on_chain(
 ) -> Result<Option<Signature>> {
     // Idempotent register-or-update lives in the SDK; the CLI just supplies its
     // keypair + funding key.
-    Ok(zolana_client::ensure_registered(
+    Ok(rings_client::ensure_registered(
         rpc,
         &material.funding,
         &material.keypair,

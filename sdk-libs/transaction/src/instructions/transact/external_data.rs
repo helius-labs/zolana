@@ -1,7 +1,7 @@
-use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::{
+use rings_interface::instruction::instruction_data::transact::{
     ExternalDataHash, OutputCiphertext,
 };
+use solana_address::Address;
 
 use crate::error::TransactionError;
 

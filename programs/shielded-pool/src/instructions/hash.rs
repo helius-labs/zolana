@@ -1,6 +1,6 @@
 use pinocchio::error::ProgramError;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::error::ShieldedPoolError;
+use rings_hasher::{Hasher, Poseidon};
+use rings_interface::error::ShieldedPoolError;
 
 /// Encodes a u64 as a big-endian BN254 field element (value in the low 8 bytes).
 #[inline(always)]

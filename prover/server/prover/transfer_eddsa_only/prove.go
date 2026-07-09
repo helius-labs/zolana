@@ -3,8 +3,8 @@ package transfereddsaonly
 import (
 	"fmt"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover/common"
+	txcircuit "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"

@@ -6,7 +6,7 @@
 #
 # A program's first-ever deploy to its fixed address needs that address's
 # private keypair (not just the pubkey), since the account has to be created
-# at that exact address. Set ZOLANA_DEVNET_KEYS_DIR to a directory laid out
+# at that exact address. Set RINGS_DEVNET_KEYS_DIR to a directory laid out
 # as `<dir>/program-id/<pubkey>.json` to supply it; otherwise the script
 # falls back to the pubkey alone, which only works once the program already
 # exists on-chain (upgrade, not initial deploy).
@@ -22,7 +22,7 @@ known_programs="shielded-pool user-registry"
 program_so() {
     case "$1" in
         shielded-pool) echo "target/deploy/shielded_pool_program.so" ;;
-        user-registry) echo "target/deploy/zolana_user_registry.so" ;;
+        user-registry) echo "target/deploy/rings_user_registry.so" ;;
         *) return 1 ;;
     esac
 }
@@ -41,8 +41,8 @@ program_id() {
 program_id_arg() {
     local pid
     pid=$(program_id "$1")
-    local keypair_path="${ZOLANA_DEVNET_KEYS_DIR:-}/program-id/$pid.json"
-    if [[ -n "${ZOLANA_DEVNET_KEYS_DIR:-}" && -f "$keypair_path" ]]; then
+    local keypair_path="${RINGS_DEVNET_KEYS_DIR:-}/program-id/$pid.json"
+    if [[ -n "${RINGS_DEVNET_KEYS_DIR:-}" && -f "$keypair_path" ]]; then
         echo "$keypair_path"
     else
         echo "$pid"

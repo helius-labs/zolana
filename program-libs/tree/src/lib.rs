@@ -4,14 +4,8 @@ pub mod smt;
 use core::mem::{size_of, MaybeUninit};
 
 use pinocchio::{AccountView, Address};
-pub use smt::{TreeError, UtxoTreeLayout};
-use wincode::{
-    config::{ConfigCore, ZeroCopy},
-    io::Reader,
-    ReadResult, SchemaRead, TypeMeta,
-};
-pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
-use zolana_batched_merkle_tree::{
+pub use rings_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use rings_batched_merkle_tree::{
     constants::{
         ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
         DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
@@ -20,6 +14,12 @@ use zolana_batched_merkle_tree::{
     initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout,
     merkle_tree::BatchedMerkleTreeAccount,
     zero_copy::TreeAccountLayout as NullifierLayout,
+};
+pub use smt::{TreeError, UtxoTreeLayout};
+use wincode::{
+    config::{ConfigCore, ZeroCopy},
+    io::Reader,
+    ReadResult, SchemaRead, TypeMeta,
 };
 
 const POOL_UTXO_HEIGHT: usize = 32;

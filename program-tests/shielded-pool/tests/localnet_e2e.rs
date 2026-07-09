@@ -8,17 +8,10 @@ mod transact_common;
 
 use anyhow::anyhow;
 use num_bigint::BigUint;
-use solana_address::Address;
-use solana_keypair::Keypair;
-use solana_message::Message;
-use solana_pubkey::Pubkey;
-use solana_signature::Signature;
-use solana_signer::Signer;
-use solana_transaction::Transaction;
-use zolana_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
-use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use zolana_interface::{
+use rings_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
+use rings_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use rings_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use rings_interface::{
     instruction::{
         tag, CreateProtocolConfig, Deposit, Transact, TransactSolWithdrawal, TransactWithdrawal,
     },
@@ -26,17 +19,24 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{
+use rings_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use rings_merkle_tree::MerkleTree;
+use rings_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_deposit_view, IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest,
+    single_deposit_view, IndexedEvent, IndexedTransaction, RingsProgramTest, TestIndexer,
 };
-use zolana_transaction::{
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     Data, Utxo, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
+use solana_address::Address;
+use solana_keypair::Keypair;
+use solana_message::Message;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
+use solana_transaction::Transaction;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -46,7 +46,7 @@ use crate::transact_common::{
     TransferProverInputsArgs,
 };
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
+const RPC_URL_ENV: &str = "RINGS_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
@@ -138,7 +138,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let payer_owner_pk_hash = payer_utxo.owner.hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_data = RingsProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
@@ -512,7 +512,7 @@ fn send_indexed(
     ixs: &[solana_instruction::Instruction],
     payer: &Pubkey,
     signers: &[&Keypair],
-) -> TestResult<zolana_program_test::IndexedTransaction> {
+) -> TestResult<rings_program_test::IndexedTransaction> {
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     let message = Message::new(ixs, Some(payer));
     let produces_events = produces_shielded_events(program_id, &message);

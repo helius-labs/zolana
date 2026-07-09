@@ -19,23 +19,23 @@ mod common;
 mod transact_common;
 
 use num_bigint::BigUint;
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use zolana_interface::{
+use rings_client::{TransferOutput, STATE_TREE_HEIGHT};
+use rings_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use rings_interface::{
     instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal},
     pda,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{
+use rings_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use rings_merkle_tree::MerkleTree;
+use rings_program_test::RingsProgramTest;
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     Data, Utxo, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -49,7 +49,7 @@ const AMOUNT: u64 = 1_000_000_000;
 
 /// Read on-chain tree roots: the UTXO root at `utxo_index` and the nullifier
 /// root at history index 0, exactly as the program reads them in `apply_tree`.
-fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
+fn on_chain_roots(rpc: &RingsProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -59,7 +59,7 @@ fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
 }
 
 struct TransactEnv {
-    rpc: ZolanaProgramTest,
+    rpc: RingsProgramTest,
     tree: Keypair,
 }
 

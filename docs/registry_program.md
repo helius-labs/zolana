@@ -13,7 +13,7 @@ Maps a Solana pubkey to a [ShieldedAddress](#shielded-address) and the current s
 
 | Account | Description |
 | --- | --- |
-| User record | Per-owner PDA, seeds = `["zolana/registry/v0", owner]`. Owned by the user-registry program. The owner Solana signer can write `register`, `set_sync_delegate`, and `revoke_sync_delegate`. The active sync delegate Solana signer can write `rotate_sync_delegate_key` and `revoke_sync_delegate`. Append-only entry history. Permanent once created. |
+| User record | Per-owner PDA, seeds = `["rings/registry/v0", owner]`. Owned by the user-registry program. The owner Solana signer can write `register`, `set_sync_delegate`, and `revoke_sync_delegate`. The active sync delegate Solana signer can write `rotate_sync_delegate_key` and `revoke_sync_delegate`. Append-only entry history. Permanent once created. |
 
 Account data is prefixed with discriminator byte `1`, followed by a borsh-encoded `UserRecord`. The canonical PDA bump is stored in `UserRecord.bump`.
 
@@ -192,7 +192,7 @@ After `revoke_sync_delegate`, `sender_viewing_pubkey()` returns the static `view
 
 Senders translating a Solana address to a shielded viewing pubkey:
 
-1. Read the user-record PDA at `["zolana/registry/v0", owner]`. Absent → registry miss; fall back to no-registry behaviour.
+1. Read the user-record PDA at `["rings/registry/v0", owner]`. Absent → registry miss; fall back to no-registry behaviour.
 2. Use `UserRecord::sender_viewing_pubkey()` together with the owner's shielded identity hash from `owner_p256` / `owner`.
 
 Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using historical `entries` and the static `viewing_pubkey` after revoke.
@@ -201,5 +201,6 @@ Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using hist
 
 1. Wallets SHOULD register even without a sync delegate. Without a record, senders holding only the wallet's Solana address fall back to unshield / SPL transfer.
 2. `get_record` is an RPC account fetch, not an on-chain instruction.
+3. The user-record PDA seed is workspace-owned and intentionally follows the pre-launch Rings rebrand.
 
 ## Indexer

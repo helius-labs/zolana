@@ -3,7 +3,7 @@ package transfer
 import (
 	"math/big"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "rings/prover/circuits/spp_transaction"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"

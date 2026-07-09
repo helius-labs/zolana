@@ -39,7 +39,7 @@ pub(crate) fn start_prover_service(
     stop_port(metrics_port);
 
     let prover = find_binary(
-        &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
+        &["PROVER_BIN", "RINGS_PROVER_BIN"],
         &["target/prover-server"],
         &["prover-server"],
     )?;
@@ -97,12 +97,12 @@ fn prover_start_args(
 }
 
 fn prover_keys_dir() -> Result<std::path::PathBuf> {
-    if let Ok(path) = env::var("ZOLANA_PROVER_KEYS_DIR") {
+    if let Ok(path) = env::var("RINGS_PROVER_KEYS_DIR") {
         return Ok(path.into());
     }
 
     let home = env::var("HOME").context("HOME is not set")?;
-    Ok(Path::new(&home).join(".config/zolana/proving-keys"))
+    Ok(Path::new(&home).join(".config/rings/proving-keys"))
 }
 
 #[cfg(test)]
@@ -118,7 +118,7 @@ mod tests {
             9999,
             Some("redis://localhost:6379/15"),
             false,
-            Path::new("/tmp/zolana-keys"),
+            Path::new("/tmp/rings-keys"),
         )
         .expect("build prover args");
 
@@ -127,7 +127,7 @@ mod tests {
             vec![
                 "start",
                 "--keys-dir",
-                "/tmp/zolana-keys/",
+                "/tmp/rings-keys/",
                 "--prover-address",
                 "0.0.0.0:3002",
                 "--metrics-address",

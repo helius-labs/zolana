@@ -1,23 +1,23 @@
 //! Proofless SOL deposit steps.
 
 use cucumber::{given, then, when};
-use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::{tag, DepositIxData},
     pda,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
-use zolana_transaction::{AssetRegistry, Wallet};
+use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use rings_program_test::RingsProgramTest;
+use rings_test_utils::litesvm_asserts::litesvm_assert_deposit;
+use rings_transaction::{AssetRegistry, Wallet};
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::{common::assert_pool_error, ShieldedPoolWorld};
 
 fn sol_accounts(
-    program_test: &ZolanaProgramTest,
+    program_test: &RingsProgramTest,
     tree: &Pubkey,
     depositor: &Pubkey,
 ) -> Vec<AccountMeta> {
@@ -36,7 +36,7 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
     let program_id = world.rpc().program_id;
     let mut data = vec![tag::DEPOSIT];
     data.extend_from_slice(
-        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 31])
+        &RingsProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 31])
             .serialize()
             .expect("proofless ix data serialization is infallible"),
     );
@@ -70,7 +70,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
     )
     .expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let mut data = RingsProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet deposit data");
     // Exercise the proofless memo end-to-end: instruction data -> emitted event
     // -> recipient wallet discovery.
@@ -115,14 +115,14 @@ fn record_indexer(world: &mut ShieldedPoolWorld) {
 
 #[when(expr = "the depositor shields with no public amount")]
 fn shield_no_amount(world: &mut ShieldedPoolWorld) {
-    let mut none = ZolanaProgramTest::sol_shield_data(1_000, [1u8; 32], [1u8; 31]);
+    let mut none = RingsProgramTest::sol_shield_data(1_000, [1u8; 32], [1u8; 31]);
     none.public_amount = None;
     assert_invalid_amount_shape(world, &none);
 }
 
 #[when(expr = "the depositor shields zero lamports")]
 fn shield_zero_sol(world: &mut ShieldedPoolWorld) {
-    let zero = ZolanaProgramTest::sol_shield_data(0, [1u8; 32], [1u8; 31]);
+    let zero = RingsProgramTest::sol_shield_data(0, [1u8; 32], [1u8; 31]);
     assert_invalid_amount_shape(world, &zero);
 }
 
@@ -135,7 +135,7 @@ fn shield_zero_spl(world: &mut ShieldedPoolWorld) {
     let depositor = world.depositor().insecure_clone();
     let mint = Pubkey::new_unique();
     let user_token = Pubkey::new_unique();
-    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [1u8; 32], [1u8; 31]);
+    let zero_spl = RingsProgramTest::spl_shield_data(0, [1u8; 32], [1u8; 31]);
     let err = world
         .rpc()
         .deposit_spl(&tree, &depositor, &user_token, &mint, &zero_spl)
@@ -275,7 +275,7 @@ fn rejected_insufficient(world: &mut ShieldedPoolWorld) {
 fn repeat_deposits(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let depositor = world.depositor().insecure_clone();
-    let data = ZolanaProgramTest::sol_shield_data(amount, [4u8; 32], [4u8; 31]);
+    let data = RingsProgramTest::sol_shield_data(amount, [4u8; 32], [4u8; 31]);
     let root0 = world.rpc().state_root(&tree).expect("root");
     world.rpc().deposit(&tree, &depositor, &data).expect("d1");
     let root1 = world.rpc().state_root(&tree).expect("root");

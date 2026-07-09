@@ -1,8 +1,8 @@
+use rings_client::{ClientError, Rpc};
+use rings_interface::instruction::TransactIxData;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::TransactIxData;
 
 use super::{
     state_root_from, to_address, wait_for_indexed_transaction, wait_for_merkle_proof,

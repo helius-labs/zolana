@@ -1,5 +1,5 @@
 [package]
-name = "zolana-indexed-array"
+name = "rings-indexed-array"
 version = "0.3.0"
 description = "Implementation of indexed (and concurrent) Merkle tree in Rust"
 readme = "README.md"
@@ -8,12 +8,12 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-zolana-hasher = { workspace = true, features = ["poseidon"]}
+rings-hasher = { workspace = true, features = ["poseidon"]}
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-zolana-hasher = { workspace = true, features = ["keccak", "sha256", "poseidon"] }
+rings-hasher = { workspace = true, features = ["keccak", "sha256", "poseidon"] }
 rand = { workspace = true }
 num-bigint = { workspace = true, features = ["rand"] }

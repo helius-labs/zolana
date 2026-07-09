@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, instruction::UpdateZoneConfigData};
+use rings_account_checks::AccountIterator;
+use rings_interface::{error::ShieldedPoolError, instruction::UpdateZoneConfigData};
 
 use crate::instructions::zone_config::loader::load_and_validate_zone_authority_mut;
 

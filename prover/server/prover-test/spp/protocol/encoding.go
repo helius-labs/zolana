@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"rings/prover/prover-test/poseidon"
 )
 
 // Sha256BEField hashes bytes, clears the most significant byte, and returns a BN254 field value.

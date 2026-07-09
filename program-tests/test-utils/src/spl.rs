@@ -1,19 +1,19 @@
 //! SPL mint / token-account / interface setup against the client `Rpc` trait, so
 //! tests on a real validator can build the SPL state a deposit needs. Mirrors the
-//! litesvm helpers on `ZolanaProgramTest`, but sends through `Rpc`.
+//! litesvm helpers on `RingsProgramTest`, but sends through `Rpc`.
 
-use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
+use rings_client::{ClientError, Rpc};
+use rings_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
     SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
+use solana_address::Address;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 fn token_program_id() -> Pubkey {
     Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)

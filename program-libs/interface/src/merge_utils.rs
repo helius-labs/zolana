@@ -1,9 +1,9 @@
 //! Canonical `no_std`-compatible merge field math, used by the on-chain
 //! `merge_transact` instruction. Every function mirrors the merge circuit
 //! (`prover/server/circuits/spp_merge`) byte-for-byte; the client cross-checks the
-//! same vectors via `zolana-keypair`, so byte order is load-bearing.
+//! same vectors via `rings-keypair`, so byte order is load-bearing.
 
-use zolana_hasher::{Hasher, HasherError, Poseidon};
+use rings_hasher::{Hasher, HasherError, Poseidon};
 
 const P256_PUBKEY_LEN: usize = 33;
 

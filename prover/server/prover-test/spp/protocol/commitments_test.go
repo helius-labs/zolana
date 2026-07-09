@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/internal/p256key"
+	"rings/prover/prover-test/poseidon"
+	"rings/prover/prover-test/spp/internal/p256key"
 )
 
 func fe(v int64) *big.Int {

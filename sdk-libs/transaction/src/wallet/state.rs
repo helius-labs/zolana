@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
+use rings_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
 use solana_address::Address;
-use zolana_keypair::{P256Pubkey, ShieldedKeypair, ViewingKey};
 
 use crate::{
     error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,

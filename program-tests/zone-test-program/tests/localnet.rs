@@ -1,20 +1,20 @@
 //! Localnet orchestration and proof helpers shared by the World. Indexer polling
-//! lives in `zolana_test_utils::test_validator_asserts`.
+//! lives in `rings_test_utils::test_validator_asserts`.
 
 #![allow(dead_code)]
 
 use anyhow::Result;
+use rings_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
+use rings_interface::instruction::instruction_data::transact::TransactProof;
+use rings_program_test::ZONE_TEST_PROGRAM_ID;
+use rings_test_utils::smart_account;
+use rings_user_registry_interface::user_registry_program_id;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
-use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::smart_account;
-use zolana_user_registry_interface::user_registry_program_id;
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
@@ -50,7 +50,7 @@ pub(crate) fn transact_proof(proof: &Proof) -> Result<TransactProof> {
 /// proving keys.
 pub(crate) fn start_prover() -> Result<()> {
     std::env::set_var(
-        "ZOLANA_PROVER_KEYS_DIR",
+        "RINGS_PROVER_KEYS_DIR",
         concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../prover/server/proving-keys"
@@ -60,24 +60,24 @@ pub(crate) fn start_prover() -> Result<()> {
     Ok(())
 }
 
-/// Restart a fresh validator + Photon via the `zolana` CLI (the single source of
+/// Restart a fresh validator + Photon via the `rings` CLI (the single source of
 /// truth for localnet orchestration and readiness). `--skip-prover` leaves the
 /// persistent prover server untouched so its proving keys stay loaded.
 pub(crate) fn restart_localnet() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
+        std::env::var("RINGS_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/rings"));
     let program_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
+    let rpc_port = std::env::var("RINGS_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
+        std::env::var("RINGS_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
 
     // The merge_transact flow reads the sender's user-registry record, so the
     // user-registry program must live in the same validator as the shielded pool.
     let user_registry_id = user_registry_program_id().to_string();
-    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
+    let user_registry_so = format!("{root}/target/deploy/rings_user_registry.so");
 
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
@@ -89,7 +89,7 @@ pub(crate) fn restart_localnet() {
 
     // Inject a pre-initialised ProgramConfig so the standard smart-account
     // seeds are deterministic.
-    let account_dir = "/tmp/zolana-smart-account-accounts";
+    let account_dir = "/tmp/rings-smart-account-accounts";
     smart_account::write_program_config_fixture(account_dir);
 
     let status = std::process::Command::new(&cli)
@@ -104,7 +104,7 @@ pub(crate) fn restart_localnet() {
             "--photon-port",
             &photon_port,
             "--ledger",
-            "/tmp/zolana-photon-test-ledger",
+            "/tmp/rings-photon-test-ledger",
             "--sbf-program",
             &program_id,
             &program_so,
@@ -121,8 +121,8 @@ pub(crate) fn restart_localnet() {
             account_dir,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run rings test-validator");
+    assert!(status.success(), "rings test-validator restart failed");
 }
 
 pub(crate) fn send_transaction(

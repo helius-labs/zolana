@@ -1,5 +1,5 @@
 [package]
-name = "zolana-user-registry-interface"
+name = "rings-user-registry-interface"
 version = "0.1.0"
 edition.workspace = true
 publish = false

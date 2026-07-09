@@ -7,7 +7,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	merge "zolana/prover/circuits/spp_merge"
+	merge "rings/prover/circuits/spp_merge"
 )
 
 // TestMergeCircuitCompiles is a smoke test: it confirms the 8-in / 1-out merge

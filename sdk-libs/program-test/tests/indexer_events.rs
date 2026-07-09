@@ -1,6 +1,6 @@
+use rings_event::{encode_event_instruction, EventKind, GeneralEvent, Input};
+use rings_program_test::TestIndexer;
 use solana_signature::Signature;
-use zolana_event::{encode_event_instruction, EventKind, GeneralEvent, Input};
-use zolana_program_test::TestIndexer;
 
 fn sample_transact_event() -> GeneralEvent {
     GeneralEvent {
@@ -14,7 +14,7 @@ fn sample_transact_event() -> GeneralEvent {
             },
         }],
         outputs: vec![
-            zolana_event::OutputUtxo {
+            rings_event::OutputUtxo {
                 view_tag: [0x11; 32],
                 utxo_hash: {
                     let mut h = [0u8; 32];
@@ -23,7 +23,7 @@ fn sample_transact_event() -> GeneralEvent {
                 },
                 data: vec![1, 2, 3],
             },
-            zolana_event::OutputUtxo {
+            rings_event::OutputUtxo {
                 view_tag: [0x33; 32],
                 utxo_hash: {
                     let mut h = [0u8; 32];
@@ -78,11 +78,11 @@ fn test_indexer_transact_leaf_indices_must_be_contiguous() {
 
 #[test]
 fn indexed_emit_event_round_trip_through_index_events() {
-    use solana_pubkey::Pubkey;
-    use zolana_event::{
+    use rings_event::{
         indexed_events_from_instruction_groups, tag, InstructionGroup, ParsedInstruction,
     };
-    use zolana_program_test::index_events;
+    use rings_program_test::index_events;
+    use solana_pubkey::Pubkey;
 
     let spp = Pubkey::new_unique();
     let emit_data = encode_event_instruction(EventKind::Transact, sample_transact_event());

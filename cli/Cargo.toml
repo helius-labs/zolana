@@ -1,11 +1,11 @@
 [package]
-name = "zolana-cli"
+name = "rings-cli"
 version = "0.1.0"
 edition.workspace = true
 publish = false
 
 [[bin]]
-name = "zolana"
+name = "rings"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,8 +20,8 @@ solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-interface = { workspace = true, features = ["solana"] }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
+rings-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+rings-interface = { workspace = true, features = ["solana"] }
+rings-user-registry-interface = { workspace = true, features = ["solana"] }
+rings-keypair = { workspace = true }
+rings-transaction = { workspace = true }

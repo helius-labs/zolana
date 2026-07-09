@@ -26,4 +26,4 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 
 # Shielded-pool interface for instruction-data shapes and builders.
-zolana-interface = { workspace = true, features = ["solana"] }
+rings-interface = { workspace = true, features = ["solana"] }

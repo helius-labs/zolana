@@ -1,7 +1,7 @@
 package transfer
 
 import (
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "rings/prover/circuits/spp_transaction"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"

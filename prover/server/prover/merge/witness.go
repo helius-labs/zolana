@@ -1,9 +1,9 @@
 package merge
 
 import (
-	mergecircuit "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover/common"
+	mergecircuit "rings/prover/circuits/spp_merge"
+	transaction "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"

@@ -5,7 +5,7 @@
 //! Requires a reachable prover server (started via `spawn_prover`) with the
 //! `merge_8_1.key` proving key available.
 //!
-//! Run with: `cargo test -p zolana-client --test merge_proving`
+//! Run with: `cargo test -p rings-client --test merge_proving`
 
 mod steps;
 mod world;

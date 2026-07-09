@@ -1,7 +1,7 @@
+use rings_event::OutputData;
+use rings_interface::instruction::instruction_data::transact::OutputCiphertext;
+use rings_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 use solana_address::Address;
-use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
 use crate::{
     error::TransactionError, instructions::transact::ShieldedTransaction, utxo::Utxo,

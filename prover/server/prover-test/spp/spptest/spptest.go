@@ -11,10 +11,10 @@ import (
 	mrand "math/rand"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/internal/p256key"
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/poseidon"
+	"rings/prover/prover-test/spp/internal/p256key"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/emulated"

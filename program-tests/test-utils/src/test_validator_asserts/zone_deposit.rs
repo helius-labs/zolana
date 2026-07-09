@@ -1,11 +1,11 @@
+use rings_client::{ClientError, Rpc};
+use rings_interface::instruction::ZoneDepositIxData;
+use rings_program_test::DepositOutput;
+use rings_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::ZoneDepositIxData;
-use zolana_program_test::DepositOutput;
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
     assert_indexed_deposit_utxo, fetch_account, state_root_from, to_address, wait_for_indexed_utxo,
@@ -46,7 +46,7 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc>(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::ProoflessOutput {
+        output: rings_event::ProoflessOutput {
             owner: data.owner,
             blinding: data.blinding,
             asset: expected_asset.to_bytes(),

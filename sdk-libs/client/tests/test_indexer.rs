@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
 use num_bigint::BigUint;
-use solana_address::Address;
-use zolana_client::{
+use rings_client::{
     ClientError, InputCommitment, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed,
     ProveResult, ProverClient, ProverInputs, Rpc, SignedTransaction, SpendProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
+use rings_hasher::Poseidon;
+use rings_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use rings_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
+use solana_address::Address;
 
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {
@@ -118,7 +118,7 @@ impl Rpc for TestIndexer {
     fn prove(&self, transaction: SignedTransaction) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_commitments()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments)?;
-        let assembled = zolana_client::assemble(transaction, &input_merkle_proofs)?;
+        let assembled = rings_client::assemble(transaction, &input_merkle_proofs)?;
         // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
         let (proof, circuit_id) = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => (ProverClient::local().prove_transfer_p256(inputs)?, 1),

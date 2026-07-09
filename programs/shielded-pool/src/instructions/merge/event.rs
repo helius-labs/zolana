@@ -1,4 +1,4 @@
-use zolana_interface::{
+use rings_interface::{
     event::{GeneralEvent, Input},
     instruction::{instruction_data::merge_transact::MergeTransactIxDataRef, OutputUtxo},
 };

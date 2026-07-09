@@ -1,4 +1,4 @@
-module zolana/prover
+module rings/prover
 
 go 1.25.5
 

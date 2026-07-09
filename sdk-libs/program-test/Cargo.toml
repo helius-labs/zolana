@@ -1,7 +1,7 @@
 [package]
-name = "zolana-program-test"
+name = "rings-program-test"
 version = "0.23.0"
-description = "Reusable LiteSVM program-test environment for Zolana development."
+description = "Reusable LiteSVM program-test environment for Rings development."
 license = "Apache-2.0"
 edition.workspace = true
 
@@ -24,13 +24,13 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 thiserror = { workspace = true }
-zolana-client = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
-zolana-event = { workspace = true, features = ["program-test"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
-zolana-merkle-tree = { workspace = true }
+rings-client = { workspace = true }
+rings-interface = { workspace = true, features = ["solana"] }
+rings-event = { workspace = true, features = ["program-test"] }
+rings-keypair = { workspace = true }
+rings-transaction = { workspace = true }
+rings-hasher = { workspace = true, features = ["poseidon"] }
+rings-merkle-tree = { workspace = true }
 
 [[test]]
 name = "indexer_events"

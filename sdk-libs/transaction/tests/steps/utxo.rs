@@ -1,9 +1,9 @@
 use cucumber::then;
-use zolana_keypair::{
+use rings_keypair::{
     constants::BLINDING_LEN,
     hash::{hash_field, owner_hash, poseidon},
 };
-use zolana_transaction::{
+use rings_transaction::{
     data::Data,
     utxo::{utxo_hash, Utxo, UTXO_DOMAIN},
     Address,

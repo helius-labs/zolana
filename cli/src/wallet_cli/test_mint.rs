@@ -1,12 +1,8 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{
+use rings_client::{Rpc, SolanaRpc};
+use rings_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
     state::SplAssetRegistry,
@@ -14,7 +10,11 @@ use zolana_interface::{
     SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_transaction::Address;
+use rings_transaction::Address;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use super::{
     material::{load_existing_wallet, load_sender_from_resolved_sync},
@@ -217,7 +217,7 @@ fn fetch_asset_id(rpc: &SolanaRpc, mint: &Pubkey) -> Result<u64> {
             SplAssetRegistry::SIZE
         );
     }
-    if account.data[0] != zolana_interface::state::discriminator::SPL_ASSET_REGISTRY {
+    if account.data[0] != rings_interface::state::discriminator::SPL_ASSET_REGISTRY {
         bail!("SPL asset registry {registry} has invalid discriminator");
     }
     if account.data[8..40] != mint.to_bytes() {

@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-	"zolana/prover/logging"
-	"zolana/prover/prover/common"
+	"rings/prover/logging"
+	"rings/prover/prover/common"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"

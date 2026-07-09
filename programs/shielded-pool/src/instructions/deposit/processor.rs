@@ -1,13 +1,13 @@
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::{
+use rings_hasher::{Hasher, Poseidon};
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::{DepositIxData, UtxoData, ZoneDepositIxData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     UTXO_DOMAIN,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
 
 use super::{
     account::DepositAccounts,

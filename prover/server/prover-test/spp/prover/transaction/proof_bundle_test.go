@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {

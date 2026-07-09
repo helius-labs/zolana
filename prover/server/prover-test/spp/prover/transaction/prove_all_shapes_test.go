@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 // TestProveAndVerifyEveryShape exercises the full compile -> setup -> witness ->

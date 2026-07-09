@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use cucumber::{then, when};
-use zolana_transaction::{Utxo, DEFAULT_TAG_WINDOW};
+use rings_transaction::{Utxo, DEFAULT_TAG_WINDOW};
 
 use crate::{localnet::ZERO, LifecycleWorld};
 

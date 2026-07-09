@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, ShieldedKeypair};
-use zolana_transaction::{
+use rings_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, ShieldedKeypair};
+use rings_transaction::{
     data::{Data, DataRecord},
     serialization::{
         anonymous::{
@@ -60,16 +60,16 @@ pub(crate) fn build_anonymous_transfer(
             owner: sender_plaintext.owner_pubkey,
             asset: registry.resolve(sender_plaintext.spl_asset_id).unwrap(),
             amount: sender_plaintext.spl_amount,
-            blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 0),
+            blinding: rings_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 0),
             zone_program_id: None,
             data: sender_plaintext.spl_data.clone(),
         });
     }
     encode_change.push(Utxo {
         owner: sender_plaintext.owner_pubkey,
-        asset: zolana_transaction::SOL_MINT,
+        asset: rings_transaction::SOL_MINT,
         amount: sender_plaintext.sol_amount,
-        blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 1),
+        blinding: rings_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 1),
         zone_program_id: None,
         data: sender_plaintext.sol_data.clone(),
     });
@@ -293,7 +293,7 @@ fn decode_recipient(
     world: &TransactionWorld,
     name: &str,
     slot: usize,
-) -> Result<AnonymousTransferRecipientPlaintext, zolana_transaction::TransactionError> {
+) -> Result<AnonymousTransferRecipientPlaintext, rings_transaction::TransactionError> {
     let tx = world.transfer_tx.as_ref().unwrap();
     let slot_index = slot + 1;
     let payload = &tx
@@ -301,11 +301,11 @@ fn decode_recipient(
         .get(slot_index)
         .expect("slot present")
         .payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = rings_event::OutputData::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        rings_event::OutputData::Encrypted(blob)
+        | rings_event::OutputData::VerifiablyEncrypted(blob)
+        | rings_event::OutputData::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(name).viewing_key, tx, slot_index as u32);
@@ -316,7 +316,7 @@ fn decode_recipient(
 fn blob_round_trips(world: &mut TransactionWorld) {
     let tx = world.transfer_tx.as_ref().unwrap();
     for slot in &tx.output_slots {
-        let parsed = zolana_event::OutputData::try_from_slice(&slot.payload).unwrap();
+        let parsed = rings_event::OutputData::try_from_slice(&slot.payload).unwrap();
         assert_eq!(borsh::to_vec(&parsed).unwrap(), slot.payload);
     }
 }
@@ -325,11 +325,11 @@ fn blob_round_trips(world: &mut TransactionWorld) {
 fn sender_recovers(world: &mut TransactionWorld, sender: String) {
     let tx = world.transfer_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("sender slot").payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = rings_event::OutputData::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        rings_event::OutputData::Encrypted(blob)
+        | rings_event::OutputData::VerifiablyEncrypted(blob)
+        | rings_event::OutputData::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(&sender).viewing_key, tx, 0);
@@ -371,11 +371,11 @@ fn stranger_cannot(world: &mut TransactionWorld, name: String) {
         .get(slot_index)
         .expect("slot present")
         .payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = rings_event::OutputData::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        rings_event::OutputData::Encrypted(blob)
+        | rings_event::OutputData::VerifiablyEncrypted(blob)
+        | rings_event::OutputData::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let stranger = ShieldedKeypair::new().unwrap();

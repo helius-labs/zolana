@@ -1,5 +1,5 @@
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     merge_utils::{ciphertext_hash, pack33, pk_field_compressed},

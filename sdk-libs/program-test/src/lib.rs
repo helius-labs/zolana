@@ -1,15 +1,15 @@
-//! Litesvm-based program-test environment for Zolana protocol programs.
+//! Litesvm-based program-test environment for Rings protocol programs.
 //!
 //! Boots a LiteSVM instance, loads the shielded-pool program, and exposes the
 //! helpers used by integration tests.
 //!
 //! Usage:
 //! ```ignore
-//! use zolana_program_test::ZolanaProgramTest;
-//! use zolana_interface::state::tree_account_size;
+//! use rings_program_test::RingsProgramTest;
+//! use rings_interface::state::tree_account_size;
 //! use solana_keypair::Keypair;
 //!
-//! let mut test = ZolanaProgramTest::new()?;
+//! let mut test = RingsProgramTest::new()?;
 //! let authority = Keypair::new();
 //! test.create_protocol_config(&authority)?;
 //! let tree = test.create_tree(tree_account_size() as u64, &authority)?;
@@ -19,13 +19,13 @@
 use std::path::{Path, PathBuf};
 
 use litesvm::LiteSVM;
+use rings_client::ClientError;
+use rings_interface::{state::state_root_offset, SHIELDED_POOL_PROGRAM_ID};
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::ClientError;
-use zolana_interface::{state::state_root_offset, SHIELDED_POOL_PROGRAM_ID};
 
 mod admin;
 pub mod events;
@@ -47,8 +47,8 @@ mod paths;
 use paths::default_program_path;
 mod proofless;
 pub mod rpc;
+pub use rings_client::Rpc;
 pub use rpc::IndexedTransaction;
-pub use zolana_client::Rpc;
 mod spl;
 mod wallet_data;
 mod zone;
@@ -62,7 +62,7 @@ pub enum ProgramTestError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
-    Transaction(#[from] zolana_transaction::TransactionError),
+    Transaction(#[from] rings_transaction::TransactionError),
     #[error("indexer: {0}")]
     Indexer(#[from] IndexerError),
     #[error("event: {0}")]
@@ -79,7 +79,7 @@ impl From<ClientError> for ProgramTestError {
     }
 }
 
-pub struct ZolanaProgramTest {
+pub struct RingsProgramTest {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
@@ -89,7 +89,7 @@ pub struct ZolanaProgramTest {
     tree_counter: u64,
 }
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     /// Boot a litesvm instance, fund a payer, and load the shielded-pool
     /// program from the default workspace `target/deploy/` location (or the
     /// `SHIELDED_POOL_PROGRAM_PATH` env override).
@@ -126,7 +126,7 @@ impl ZolanaProgramTest {
     /// Deterministic signer for a new tree account.
     pub(crate) fn next_tree_keypair(&mut self) -> Keypair {
         let mut seed = [0u8; 32];
-        seed[..16].copy_from_slice(b"zolana_pool_tree");
+        seed[..15].copy_from_slice(b"rings_pool_tree");
         seed[24..].copy_from_slice(&self.tree_counter.to_le_bytes());
         self.tree_counter += 1;
         Keypair::new_from_array(seed)

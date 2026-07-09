@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use rings_account_checks::AccountIterator;
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::CreateZoneConfigData,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
@@ -74,7 +74,7 @@ pub fn process_create_zone_config(accounts: &mut [AccountView], data: &[u8]) -> 
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 fn derive_zone_auth(program_id: &Address) -> (Address, u8) {
-    Address::find_program_address(&[zolana_interface::ZONE_AUTH_PDA_SEED], program_id)
+    Address::find_program_address(&[rings_interface::ZONE_AUTH_PDA_SEED], program_id)
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]

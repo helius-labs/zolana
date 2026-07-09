@@ -4,7 +4,7 @@ use pinocchio::{
     ProgramResult,
 };
 use pinocchio_system::instructions::Transfer;
-use zolana_interface::{DEFAULT_SOL_INTERFACE_INDEX_SEED, SOL_INTERFACE_PDA_SEED};
+use rings_interface::{DEFAULT_SOL_INTERFACE_INDEX_SEED, SOL_INTERFACE_PDA_SEED};
 
 use super::account::SettlementAccountsSol;
 

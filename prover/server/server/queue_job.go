@@ -7,9 +7,9 @@ import (
 	"os"
 	"strconv"
 	"time"
-	"zolana/prover/logging"
-	"zolana/prover/prover/common"
-	"zolana/prover/prover/nullifier_tree"
+	"rings/prover/logging"
+	"rings/prover/prover/common"
+	"rings/prover/prover/nullifier_tree"
 )
 
 const (

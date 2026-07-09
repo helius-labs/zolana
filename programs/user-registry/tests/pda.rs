@@ -1,5 +1,5 @@
 use pinocchio::Address;
-use zolana_user_registry_interface::{USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID};
+use rings_user_registry_interface::{USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID};
 
 #[test]
 fn stored_bump_derivation_matches_canonical_search() {

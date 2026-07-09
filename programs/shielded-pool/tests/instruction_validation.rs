@@ -1,5 +1,5 @@
+use rings_interface::instruction::tag;
 use shielded_pool_program::process_instruction;
-use zolana_interface::instruction::tag;
 
 fn program_id() -> pinocchio::Address {
     pinocchio::Address::new_from_array([0u8; 32])

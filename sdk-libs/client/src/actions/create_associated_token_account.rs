@@ -1,11 +1,11 @@
 //! Idempotent associated-token-account creation action.
 
+use rings_interface::instruction::CreateAssociatedTokenAccount;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::instruction::CreateAssociatedTokenAccount;
 
 use crate::{error::ClientError, rpc::Rpc};
 
@@ -37,9 +37,9 @@ pub fn create_associated_token_account<R: Rpc>(
 mod tests {
     use std::cell::RefCell;
 
+    use rings_interface::pda;
     use solana_hash::Hash;
     use solana_transaction::Transaction;
-    use zolana_interface::pda;
 
     use super::*;
 

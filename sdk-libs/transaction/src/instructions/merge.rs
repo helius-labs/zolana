@@ -4,7 +4,7 @@
 //! in-circuit from the nullifier secret, so there is no signing step.
 
 use p256::SecretKey;
-use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use rings_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,

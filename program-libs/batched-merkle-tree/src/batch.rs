@@ -1,6 +1,6 @@
+use rings_bloom_filter::BloomFilter;
+use rings_hasher::{Hasher, Poseidon};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
-use zolana_bloom_filter::BloomFilter;
-use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{errors::BatchedMerkleTreeError, BorshDeserialize, BorshSerialize};
 

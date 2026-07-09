@@ -4,7 +4,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError, state::SplAssetRegistry, SHIELDED_POOL_CPI_AUTHORITY,
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
 };

@@ -6,7 +6,7 @@ publish = false
 
 [features]
 default = []
-localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
+localnet = ["rings-client/indexer-api", "rings-client/solana-rpc"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -20,12 +20,12 @@ solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
-zolana-keypair = { workspace = true }
-zolana-client = { workspace = true }
-zolana-program-test = { workspace = true }
-zolana-transaction = { workspace = true }
+rings-interface = { workspace = true }
+rings-event = { workspace = true, features = ["program-test"] }
+rings-keypair = { workspace = true }
+rings-client = { workspace = true }
+rings-program-test = { workspace = true }
+rings-transaction = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
@@ -34,12 +34,12 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 cucumber = { workspace = true }
 groth16-solana = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-merkle-tree = { workspace = true }
+rings-hasher = { workspace = true }
+rings-merkle-tree = { workspace = true }
 num-bigint = { workspace = true }
 tokio = { workspace = true }
-zolana-test-utils = { workspace = true }
-zolana-tree = { workspace = true }
+rings-test-utils = { workspace = true }
+rings-tree = { workspace = true }
 mollusk-svm = "0.3.0"
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-solana-account = { package = "solana-account", version = "2.2" }

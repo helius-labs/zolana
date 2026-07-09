@@ -1,5 +1,5 @@
-use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
-use zolana_tree::{smt::ROOT_HISTORY_CAPACITY, TreeAccount};
+use rings_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use rings_tree::{smt::ROOT_HISTORY_CAPACITY, TreeAccount};
 
 const HEIGHT: u8 = 26;
 const DISCRIMINATOR: u8 = 7;

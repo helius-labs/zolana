@@ -4,7 +4,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_interface::instruction::{
+use rings_interface::instruction::{
     instruction_data::transact::TransactIxDataRef, tag::ZONE_AUTHORITY_TRANSACT,
 };
 

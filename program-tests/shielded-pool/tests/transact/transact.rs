@@ -18,16 +18,16 @@ mod common;
 #[path = "../common/transact_core.rs"]
 mod transact_common;
 
+use rings_client::TransferOutput;
+use rings_hasher::{sha256::Sha256BE, Hasher};
+use rings_interface::instruction::{instruction_data::transact::TransactIxData, Transact};
+use rings_keypair::hash::hash_field;
+use rings_program_test::RingsProgramTest;
+use rings_transaction::instructions::transact::{no_address_hashes, private_tx_hash};
+use rings_tree::TreeAccount;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::TransferOutput;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::{instruction_data::transact::TransactIxData, Transact};
-use zolana_keypair::hash::hash_field;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::instructions::transact::{no_address_hashes, private_tx_hash};
-use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -38,7 +38,7 @@ use crate::transact_common::{
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
 /// reads them during `apply_tree`.
-fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> ([u8; 32], [u8; 32]) {
+fn tree_roots(rpc: &RingsProgramTest, tree: &Pubkey) -> ([u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -50,7 +50,7 @@ fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> ([u8; 32], [u8; 32]) {
 /// Boot a program-test environment with a protocol config and one pool tree,
 /// the shared precondition for every `transact` scenario.
 struct TransactEnv {
-    rpc: ZolanaProgramTest,
+    rpc: RingsProgramTest,
     tree: Keypair,
 }
 

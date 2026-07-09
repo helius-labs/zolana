@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
+use rings_event::ProoflessOutput;
 use solana_address::Address;
-use zolana_event::ProoflessOutput;
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
@@ -84,7 +84,7 @@ impl UtxoSerialization for Proofless {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::PublicKey;
+    use rings_keypair::PublicKey;
 
     use super::*;
     use crate::{AssetRegistry, SOL_MINT};

@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use zolana_transaction::{
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     ExternalData, OutputUtxo,
 };

@@ -12,10 +12,10 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
-	transaction "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/circuits/verifiable-encryption/aes"
-	"zolana/prover/circuits/verifiable-encryption/p256"
+	"rings/prover/circuits/gadget"
+	transaction "rings/prover/circuits/spp_transaction"
+	"rings/prover/circuits/verifiable-encryption/aes"
+	"rings/prover/circuits/verifiable-encryption/p256"
 )
 
 // MergeShape is the single supported merge shape: 8 inputs, 1 output. Fewer than

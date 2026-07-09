@@ -1,14 +1,14 @@
 //! Policy-zone proofless deposit steps.
 
 use cucumber::when;
+use rings_interface::{instruction::ZoneDeposit, pda};
+use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use rings_program_test::{RingsProgramTest, ZONE_TEST_PROGRAM_ID};
+use rings_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
+use rings_transaction::{AssetRegistry, Wallet};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{instruction::ZoneDeposit, pda};
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
-use zolana_transaction::{AssetRegistry, Wallet};
 
 use crate::ShieldedPoolWorld;
 
@@ -39,7 +39,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     .expect("wallet");
 
     let seed = [5u8; BLINDING_LEN];
-    let mut data = ZolanaProgramTest::wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
+    let mut data = RingsProgramTest::wallet_zone_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone deposit data");
     data.zone_data_hash = [5u8; 32];
 
@@ -89,7 +89,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     .expect("wallet");
 
     let seed = [9u8; BLINDING_LEN];
-    let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
+    let mut data = RingsProgramTest::wallet_zone_spl_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet zone SPL deposit data");
     data.zone_data_hash = [9u8; 32];
 

@@ -1,17 +1,17 @@
 //! Proofless shield action.
 
+use rings_interface::{
+    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
+    pda, SPL_TOKEN_PROGRAM_ID,
+};
+use rings_keypair::{random_blinding, ShieldedAddress};
+use rings_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::{
-    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
-    pda, SPL_TOKEN_PROGRAM_ID,
-};
-use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{owner_utxo_hash, utxo_hash, SOL_MINT};
 
 use crate::{error::ClientError, rpc::Rpc};
 
@@ -156,9 +156,9 @@ fn spl_accounts(
 mod tests {
     use std::cell::RefCell;
 
+    use rings_keypair::ShieldedKeypair;
     use solana_hash::Hash;
     use solana_transaction::Transaction;
-    use zolana_keypair::ShieldedKeypair;
 
     use super::*;
 

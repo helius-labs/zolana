@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"zolana/prover/logging"
+	"rings/prover/logging"
 )
 
 type LazyKeyManager struct {

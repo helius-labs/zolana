@@ -1,4 +1,4 @@
-//! Local-validator SOL cycle backed by a real Photon Zolana indexer.
+//! Local-validator SOL cycle backed by a real Photon Rings indexer.
 //!
 //! Run with `just test-localnet-e2e-photon`.
 
@@ -18,24 +18,16 @@ use std::{
 
 use anyhow::anyhow;
 use nullifier_test_forester::{ForesterAuthority, NullifierTestForester};
-use serial_test::serial;
-use solana_address::Address;
-use solana_keypair::Keypair;
-use solana_message::Message;
-use solana_pubkey::Pubkey;
-use solana_signature::Signature;
-use solana_signer::Signer;
-use solana_transaction::Transaction;
-use zolana_client::{
+use rings_client::{
     prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
-    NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, Rpc,
+    NonInclusionProof as IndexedNonInclusionProof, ProverClient, ProverInputs, RingsIndexer, Rpc,
     ShieldedTransaction, SolanaRpc, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-    TransferInput, TransferOutput, UtxoInputs, ZolanaIndexer,
+    TransferInput, TransferOutput, UtxoInputs,
 };
-use zolana_event::OutputData;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::{
+use rings_event::OutputData;
+use rings_hasher::{sha256::Sha256BE, Hasher};
+use rings_interface::{
     instruction::{
         CreateProtocolConfig, CreateTree, Deposit, Transact, TransactSolWithdrawal,
         TransactWithdrawal,
@@ -47,20 +39,28 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{
+use rings_keypair::{
     hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey, ViewingKey,
 };
-use zolana_program_test::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
+use rings_program_test::{
+    create_tree_instructions, rpc_state_root, system_create_account_ix, RingsProgramTest,
 };
-use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
-use zolana_transaction::{
+use rings_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     utxo::derive_blinding,
     AssetRegistry, Data, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
+use serial_test::serial;
+use solana_address::Address;
+use solana_keypair::Keypair;
+use solana_message::Message;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
+use solana_transaction::Transaction;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -69,11 +69,11 @@ use crate::transact_common::{
     set_output_owner_tags, start_prover, transfer_output, TransferProverInputsArgs,
 };
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
+const RPC_URL_ENV: &str = "RINGS_LOCALNET_URL";
+const INDEXER_URL_ENV: &str = "RINGS_INDEXER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
-const PHOTON_SNAPSHOT_FIXTURE_DIR_ENV: &str = "ZOLANA_PHOTON_SNAPSHOT_FIXTURE_DIR";
+const PHOTON_SNAPSHOT_FIXTURE_DIR_ENV: &str = "RINGS_PHOTON_SNAPSHOT_FIXTURE_DIR";
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const AMOUNT: u64 = 1_000_000_000;
 const TRANSFER_AMOUNT: u64 = 400_000_000;
@@ -139,7 +139,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
+    let indexer = RingsIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
     let unknown_transactions =
         indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10))?;
@@ -218,7 +218,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let payer_owner_pk_hash = payer_utxo.owner.hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_data = RingsProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
     let shield_ix = Deposit {
         tree: tree_pubkey,
         depositor: payer.pubkey(),
@@ -628,7 +628,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
+    let indexer = RingsIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
 
     let payer = Keypair::new();
@@ -746,7 +746,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             zone_program_id: None,
             data: Data::default(),
         };
-        let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
+        let shield_data = RingsProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
@@ -841,7 +841,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         assert_eq!(commitments[0].nullifier, first_note.nullifier);
         assert_eq!(commitments[1].nullifier, second_note.nullifier);
 
-        let assembled = zolana_client::assemble(
+        let assembled = rings_client::assemble(
             signed,
             &[
                 SpendProof {
@@ -1180,7 +1180,7 @@ fn latest_tree_roots(rpc: &SolanaRpc, tree: &Pubkey) -> TestResult<LatestTreeRoo
     })
 }
 
-fn localnet_nullifier_params() -> zolana_tree::InitAddressTreeAccountsInstructionData {
+fn localnet_nullifier_params() -> rings_tree::InitAddressTreeAccountsInstructionData {
     let mut params = address_tree_params();
     let zkp_batch_count =
         ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
@@ -1195,7 +1195,7 @@ fn create_tree_instructions_with_nullifier_params(
     authority: &Pubkey,
     tree: &Pubkey,
     account_size: u64,
-    nullifier_params: zolana_tree::InitAddressTreeAccountsInstructionData,
+    nullifier_params: rings_tree::InitAddressTreeAccountsInstructionData,
 ) -> TestResult<Vec<solana_instruction::Instruction>> {
     let rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
     Ok(vec![
@@ -1297,7 +1297,7 @@ fn send_transaction(
 }
 
 fn wait_for_indexed_utxo(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> TestResult<EncryptedUtxoMatch> {
@@ -1311,7 +1311,7 @@ fn wait_for_indexed_utxo(
 }
 
 fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> TestResult<ShieldedTransaction> {
@@ -1325,7 +1325,7 @@ fn wait_for_indexed_transaction(
 }
 
 fn wait_for_merkle_proof(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tree: Address,
     leaf: [u8; 32],
 ) -> TestResult<IndexedMerkleProof> {
@@ -1336,7 +1336,7 @@ fn wait_for_merkle_proof(
 }
 
 fn wait_for_non_inclusion_proof(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tree: Address,
     leaf: [u8; 32],
 ) -> TestResult<IndexedNonInclusionProof> {
@@ -1348,7 +1348,7 @@ fn wait_for_non_inclusion_proof(
 
 fn wait_for<T>(
     label: impl AsRef<str>,
-    mut poll: impl FnMut() -> Result<Option<T>, zolana_client::ClientError>,
+    mut poll: impl FnMut() -> Result<Option<T>, rings_client::ClientError>,
 ) -> TestResult<T> {
     let label = label.as_ref();
     let started = Instant::now();
@@ -1404,22 +1404,22 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
 /// a validator; combined with `#[serial]` this gives every test an isolated
 /// localnet.
 ///
-/// Drives the `zolana` CLI (the single source of truth for localnet
+/// Drives the `rings` CLI (the single source of truth for localnet
 /// orchestration, including readiness checks). `--skip-prover` leaves the
 /// persistent prover server untouched so its proving keys stay loaded.
 fn restart_localnet() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
+        std::env::var("RINGS_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/rings"));
     let program_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
+    let rpc_port = std::env::var("RINGS_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
+        std::env::var("RINGS_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
-    let smart_account_account_dir = "/tmp/zolana-photon-smart-account-accounts";
+    let smart_account_account_dir = "/tmp/rings-photon-smart-account-accounts";
     smart_account::write_program_config_fixture(smart_account_account_dir);
 
     let status = std::process::Command::new(&cli)
@@ -1434,7 +1434,7 @@ fn restart_localnet() {
             "--photon-port",
             &photon_port,
             "--ledger",
-            "/tmp/zolana-photon-test-ledger",
+            "/tmp/rings-photon-test-ledger",
             "--sbf-program",
             &program_id,
             &program_so,
@@ -1445,8 +1445,8 @@ fn restart_localnet() {
             smart_account_account_dir,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run rings test-validator");
+    assert!(status.success(), "rings test-validator restart failed");
 }
 
 /// End-to-end encrypted transfer: shield two sender UTXOs, transfer one private
@@ -1479,7 +1479,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone());
+    let indexer = RingsIndexer::new(indexer_url.clone());
     rpc.assert_executable(&program_id)?;
 
     let payer = Keypair::new();
@@ -1552,7 +1552,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             data: Data::default(),
         };
         let owner_field = owner_hash(&utxo.owner, &sender_nullifier_pk)?;
-        let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_field, blinding);
+        let shield_data = RingsProgramTest::sol_shield_data(half, owner_field, blinding);
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
@@ -1585,7 +1585,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
-    let assembled = zolana_client::assemble(signed, &spend_proofs)?;
+    let assembled = rings_client::assemble(signed, &spend_proofs)?;
     let proof = match (&assembled.prover_inputs, expected_rail) {
         (ProverInputs::P256(inputs), SpendRail::P256) => {
             ProverClient::local().prove_transfer_p256(inputs)?

@@ -1,5 +1,14 @@
 use anyhow::{anyhow, Context, Result};
 use num_bigint::BigUint;
+use rings_client::{
+    BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
+};
+use rings_hasher::hash_chain::create_hash_chain_from_array;
+use rings_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
+use rings_merkle_tree::indexed::IndexedMerkleTree;
+use rings_test_utils::smart_account;
+use rings_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
+use rings_tree::TreeAccount;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_message::Message;
@@ -7,17 +16,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{
-    BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
-};
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_test_utils::smart_account;
-use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
-use zolana_tree::TreeAccount;
 
-type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
+type NullifierTree = IndexedMerkleTree<rings_hasher::Poseidon, usize>;
 
 #[derive(Default)]
 pub struct NullifierTestForester {
@@ -83,7 +83,7 @@ impl NullifierTestForester {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            compressed_proof: rings_interface::instruction::CompressedProof {
                 a: compressed.a,
                 b: compressed.b,
                 c: compressed.c,
@@ -241,7 +241,7 @@ fn reference_nullifier_tree() -> Result<NullifierTree> {
         .context("parse bn254 modulus")?
         - 1u32;
     Ok(
-        IndexedMerkleTree::<zolana_hasher::Poseidon, usize>::new_with_next_value(
+        IndexedMerkleTree::<rings_hasher::Poseidon, usize>::new_with_next_value(
             NULLIFIER_TREE_HEIGHT,
             0,
             modulus_minus_one,
