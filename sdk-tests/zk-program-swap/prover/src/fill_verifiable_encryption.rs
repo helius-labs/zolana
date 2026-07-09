@@ -286,7 +286,7 @@ impl FillVerifiableEncryptionProofInputs {
     fn witness_map(
         &self,
         derived: &FillVerifiableEncryptionDerivation,
-    ) -> Result<HashMap<String, Vec<String>>, FillVerifiableEncryptionError> {
+    ) -> Result<ffi::WitnessMap, FillVerifiableEncryptionError> {
         let mut map = HashMap::new();
         for utxo_entries in [
             derived.utxos.escrow.witness_entries("Core_Escrow"),

@@ -174,7 +174,7 @@ impl CreateProofInputs {
     }
 
     /// The create circuit's sole public input is the private_tx_hash itself.
-    fn witness(&self) -> Result<(HashMap<String, Vec<String>>, [u8; 32]), CreateError> {
+    fn witness(&self) -> Result<(ffi::WitnessMap, [u8; 32]), CreateError> {
         let escrow = self.escrow()?;
         let change = self.change()?;
         let marker = self.marker()?;

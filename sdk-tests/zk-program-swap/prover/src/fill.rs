@@ -236,10 +236,7 @@ impl FillProofInputs {
             .public_input_hash)
     }
 
-    fn witness_map(
-        &self,
-        derived: &FillDerivation,
-    ) -> Result<HashMap<String, Vec<String>>, FillError> {
+    fn witness_map(&self, derived: &FillDerivation) -> Result<ffi::WitnessMap, FillError> {
         let mut map = HashMap::new();
         for utxo_entries in [
             derived.utxos.escrow.witness_entries("Core_Escrow"),

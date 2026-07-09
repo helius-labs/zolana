@@ -72,7 +72,7 @@ pub struct CancelProofInputs {
 }
 
 struct CancelBuild {
-    witness: HashMap<String, Vec<String>>,
+    witness: ffi::WitnessMap,
     public_input_hash: [u8; 32],
     private_tx_hash: [u8; 32],
 }
@@ -164,7 +164,7 @@ impl CancelProofInputs {
         source_output: &UtxoFieldElements,
         public_input_hash: &[u8; 32],
         private_tx_hash: &[u8; 32],
-    ) -> Result<HashMap<String, Vec<String>>, CancelError> {
+    ) -> Result<ffi::WitnessMap, CancelError> {
         let scalars: [(&str, [u8; 32]); 11] = [
             ("Public_PublicInputHash", *public_input_hash),
             ("Public_PrivateTxHash", *private_tx_hash),

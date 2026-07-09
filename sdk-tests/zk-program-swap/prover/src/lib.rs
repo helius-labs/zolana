@@ -8,7 +8,7 @@ pub mod utxo;
 
 pub use cancel::{CancelError, CancelProofInputs, CancelProofResult};
 pub use create::{CreateError, CreateProofInputs, CreateProofResult, OrderProof};
-pub use ffi::{preload, prove, setup, CircuitId, Error, ProveOutput, Result};
+pub use ffi::{preload, prove, setup, CircuitId, Error, ProveOutput, Result, WitnessMap};
 pub use fill::{derive_destination_blinding, FillError, FillProofInputs, FillProofResult};
 pub use fill_verifiable_encryption::{
     FillVerifiableEncryptionError, FillVerifiableEncryptionProofInputs,

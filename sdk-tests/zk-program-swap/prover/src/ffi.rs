@@ -10,6 +10,8 @@ mod bind {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
+pub type WitnessMap = HashMap<String, Vec<String>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CircuitId {
@@ -98,7 +100,7 @@ pub fn preload(circuit: CircuitId) -> Result<()> {
     Ok(())
 }
 
-pub fn prove(circuit: CircuitId, witness: &HashMap<String, Vec<String>>) -> Result<ProveOutput> {
+pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
     ensure_keys_loaded(circuit);
 
     let json = serde_json::to_string(witness)?;
