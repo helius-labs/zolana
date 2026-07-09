@@ -1,7 +1,7 @@
 package transaction
 
 import (
-	gadgetlib "zolana/prover/circuits/gadget"
+	gadgetlib "rings/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"

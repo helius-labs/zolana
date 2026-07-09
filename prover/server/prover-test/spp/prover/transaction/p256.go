@@ -8,9 +8,9 @@ import (
 	"math/big"
 	"strings"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover-test/spp/internal/p256key"
-	"zolana/prover/prover-test/spp/parse"
+	txcircuit "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover-test/spp/internal/p256key"
+	"rings/prover/prover-test/spp/parse"
 
 	"github.com/consensys/gnark/std/math/emulated"
 )

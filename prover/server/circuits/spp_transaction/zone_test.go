@@ -4,9 +4,9 @@ import (
 	"math/big"
 	"testing"
 
-	. "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	. "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/test"

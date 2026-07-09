@@ -3,12 +3,12 @@ package transaction_test
 import (
 	"math/big"
 	"testing"
-	"zolana/prover/circuits/gadget"
-	. "zolana/prover/circuits/spp_transaction"
+	"rings/prover/circuits/gadget"
+	. "rings/prover/circuits/spp_transaction"
 
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/protocol"
-	"zolana/prover/prover-test/spp/spptest"
+	"rings/prover/prover-test/poseidon"
+	"rings/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint/solver"

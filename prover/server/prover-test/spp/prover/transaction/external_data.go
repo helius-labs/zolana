@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/spp/parse"
-	"zolana/prover/prover-test/spp/protocol"
+	"rings/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 type externalDataPreimage struct {

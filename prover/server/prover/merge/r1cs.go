@@ -1,7 +1,7 @@
 package merge
 
 import (
-	mergecircuit "zolana/prover/circuits/spp_merge"
+	mergecircuit "rings/prover/circuits/spp_merge"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"

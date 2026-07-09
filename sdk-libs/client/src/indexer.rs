@@ -2,7 +2,7 @@
 
 use rings_api::{
     types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
-    BlockingZolanaApi,
+    BlockingRingsApi,
 };
 use rings_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use solana_address::Address;
@@ -19,17 +19,17 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct RingsIndexer {
-    api: BlockingZolanaApi,
+    api: BlockingRingsApi,
 }
 
 impl RingsIndexer {
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
-            api: BlockingZolanaApi::new(url),
+            api: BlockingRingsApi::new(url),
         }
     }
 
-    pub fn with_api(api: BlockingZolanaApi) -> Self {
+    pub fn with_api(api: BlockingRingsApi) -> Self {
         Self { api }
     }
 
@@ -38,7 +38,7 @@ impl RingsIndexer {
         self
     }
 
-    pub fn api(&self) -> &BlockingZolanaApi {
+    pub fn api(&self) -> &BlockingRingsApi {
         &self.api
     }
 }

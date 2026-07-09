@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/big"
 
-	merkletree "zolana/prover/merkle-tree"
-	"zolana/prover/prover/nullifier_tree"
+	merkletree "rings/prover/merkle-tree"
+	"rings/prover/prover/nullifier_tree"
 
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )

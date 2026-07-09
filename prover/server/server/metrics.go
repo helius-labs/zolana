@@ -6,7 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"zolana/prover/logging"
+	"rings/prover/logging"
 )
 
 var (

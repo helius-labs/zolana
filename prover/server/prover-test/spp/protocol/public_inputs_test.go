@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"zolana/prover/prover-test/spp/parse"
+	"rings/prover/prover-test/spp/parse"
 )
 
 type publicInputHashVector struct {

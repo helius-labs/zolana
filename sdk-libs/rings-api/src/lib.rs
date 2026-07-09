@@ -48,7 +48,7 @@ pub struct RingsApi {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockingZolanaApi {
+pub struct BlockingRingsApi {
     base_path: String,
     api_key: Option<String>,
     client: reqwest::blocking::Client,
@@ -311,7 +311,7 @@ impl RingsApi {
     }
 }
 
-impl BlockingZolanaApi {
+impl BlockingRingsApi {
     pub fn new(url: impl AsRef<str>) -> Self {
         ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn blocking_client_uses_same_url_shape() {
-        let api = BlockingZolanaApi::new("https://rpc.example.test?api-key=secret");
+        let api = BlockingRingsApi::new("https://rpc.example.test?api-key=secret");
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(

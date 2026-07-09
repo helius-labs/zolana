@@ -3,10 +3,10 @@ package merge
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/gadget"
-	ve "zolana/prover/circuits/verifiable-encryption"
-	"zolana/prover/circuits/verifiable-encryption/aes"
-	"zolana/prover/circuits/verifiable-encryption/p256"
+	"rings/prover/circuits/gadget"
+	ve "rings/prover/circuits/verifiable-encryption"
+	"rings/prover/circuits/verifiable-encryption/aes"
+	"rings/prover/circuits/verifiable-encryption/p256"
 )
 
 // mergeInfo is the HPKE-style key-schedule info string bound into the KDF

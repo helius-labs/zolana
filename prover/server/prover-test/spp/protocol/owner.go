@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"rings/prover/prover-test/poseidon"
 )
 
 func NullifierPk(nullifierSecret *big.Int) (*big.Int, error) {

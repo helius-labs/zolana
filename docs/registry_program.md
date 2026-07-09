@@ -201,5 +201,6 @@ Recipients restoring from mnemonic decrypt ciphertexts epoch by epoch using hist
 
 1. Wallets SHOULD register even without a sync delegate. Without a record, senders holding only the wallet's Solana address fall back to unshield / SPL transfer.
 2. `get_record` is an RPC account fetch, not an on-chain instruction.
+3. The user-record PDA seed is workspace-owned and intentionally follows the pre-launch Rings rebrand.
 
 ## Indexer

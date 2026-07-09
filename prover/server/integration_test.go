@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"zolana/prover/logging"
-	nullifiertreetest "zolana/prover/prover-test/nullifier_tree"
-	"zolana/prover/prover/common"
-	"zolana/prover/server"
+	"rings/prover/logging"
+	nullifiertreetest "rings/prover/prover-test/nullifier_tree"
+	"rings/prover/prover/common"
+	"rings/prover/server"
 
 	gnarkLogger "github.com/consensys/gnark/logger"
 )

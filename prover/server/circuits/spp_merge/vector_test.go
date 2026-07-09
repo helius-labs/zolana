@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
+	"rings/prover/prover-test/poseidon"
 )
 
 // TestPrintMergeVector emits a fixed cross-language fixture for the Rust host

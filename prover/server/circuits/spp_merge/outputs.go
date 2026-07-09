@@ -4,7 +4,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "rings/prover/circuits/spp_transaction"
 )
 
 // constrainOutput verifies the single merged output: it is a bare UTXO owned by

@@ -12,10 +12,10 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 	"github.com/consensys/gnark/test"
 
-	merge "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
-	"zolana/prover/prover-test/poseidon"
-	"zolana/prover/prover-test/spp/protocol"
+	merge "rings/prover/circuits/spp_merge"
+	transaction "rings/prover/circuits/spp_transaction"
+	"rings/prover/prover-test/poseidon"
+	"rings/prover/prover-test/spp/protocol"
 )
 
 // Domain separators, mirroring circuits/verifiable-encryption/poseidon_kdf.go.

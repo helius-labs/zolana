@@ -3,8 +3,8 @@ package circuits
 import (
 	"math/big"
 
-	"zolana/prover/circuits/gadget"
-	merkletree "zolana/prover/merkle-tree"
+	"rings/prover/circuits/gadget"
+	merkletree "rings/prover/merkle-tree"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"

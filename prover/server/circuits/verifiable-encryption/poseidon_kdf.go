@@ -6,7 +6,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/bits"
 
-	"zolana/prover/circuits/gadget"
+	"rings/prover/circuits/gadget"
 )
 
 // Domain separators packed into a field element ("32-bit ASCII tags packed into

@@ -6,7 +6,7 @@ pub use state::{SyncDelegateEntry, UserRecord};
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
     pubkey_array!("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
 
-pub const USER_RECORD_SEED: &[u8] = b"zolana/registry/v0";
+pub const USER_RECORD_SEED: &[u8] = b"rings/registry/v0";
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.
 #[macro_export]

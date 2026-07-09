@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"zolana/prover/prover-test/poseidon"
+	"rings/prover/prover-test/poseidon"
 )
 
 func stateNodeHash(left, right *big.Int) (*big.Int, error) {

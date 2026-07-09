@@ -3,7 +3,7 @@ package merge
 import (
 	"math/big"
 
-	"zolana/prover/prover/common"
+	"rings/prover/prover/common"
 )
 
 // UtxoParams mirrors transaction.UtxoCircuitFields as already-computed field

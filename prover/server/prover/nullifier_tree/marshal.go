@@ -3,7 +3,7 @@ package nullifiertree
 import (
 	"encoding/json"
 	"math/big"
-	"zolana/prover/prover/common"
+	"rings/prover/prover/common"
 )
 
 type BatchAddressAppendParametersJSON struct {
