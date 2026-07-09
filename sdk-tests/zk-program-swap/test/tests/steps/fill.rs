@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use swap_sdk::{
     instructions::fill::{EscrowFill, Fill, FillSharedInputs},
-    order::{Escrow, SOL_ASSET_ID},
+    order::{Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
@@ -23,14 +23,15 @@ impl SwapWorld {
             .iter()
             .position(|o| o.maker_name == maker_name)
             .ok_or_else(|| anyhow!("no open order for {maker_name}"))?;
-        let (terms, escrow_blinding) = {
+        let escrow = {
             let order = self
                 .open_orders
                 .get(order_index)
                 .ok_or_else(|| anyhow!("order gone"))?;
-            (order.terms.clone(), order.escrow_blinding)
+            order.escrow.clone()
         };
-        if terms.destination_asset_id != SOL_ASSET_ID {
+        let terms = escrow.terms.clone();
+        if escrow.destination_asset_id != SOL_ASSET_ID {
             return Err(anyhow!("fill step supports the SOL destination rail only"));
         }
 
@@ -44,10 +45,6 @@ impl SwapWorld {
         let taker_recipient = taker_keypair
             .shielded_address()
             .map_err(|e| anyhow!("taker addr: {e:?}"))?;
-        let taker_address = taker_keypair
-            .owner_hash()
-            .map_err(|e| anyhow!("taker hash: {e:?}"))?;
-
         let taker_utxo = taker
             .spendable
             .iter()
@@ -60,16 +57,18 @@ impl SwapWorld {
                 )
             })?;
 
-        let taker_in_blinding = taker_utxo.blinding;
         let source_output_blinding = random_blinding();
 
+        let taker_in = Recipient {
+            address: taker_recipient,
+            amount: terms.destination_amount,
+            blinding: taker_utxo.blinding,
+            mint: SOL_MINT,
+        }
+        .output();
         let fill_shared_inputs = FillSharedInputs {
-            terms: terms.clone(),
-            source_mint: SOL_MINT,
-            destination_mint: SOL_MINT,
-            escrow_blinding,
-            taker_address,
-            taker_in_blinding,
+            escrow: escrow.clone(),
+            taker_in,
             source_output_blinding,
             external_data_hash: [0u8; 32],
             maker_recipient,
@@ -83,13 +82,9 @@ impl SwapWorld {
             .destination_output()
             .map_err(|e| anyhow!("destination output: {e:?}"))?;
 
-        let escrow_input = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint: SOL_MINT,
-        }
-        .spend()
-        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        let escrow_input = escrow
+            .into_input_utxo()
+            .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
         let taker_spend = SpendUtxo::from_keypair(taker_utxo.clone(), &taker_keypair);
 
         let payer_address = Address::new_from_array(taker_solana.pubkey().to_bytes());
@@ -165,7 +160,7 @@ impl SwapWorld {
         taker_mut.spendable.push(Utxo {
             owner: taker_keypair.signing_pubkey(),
             asset: SOL_MINT,
-            amount: terms.source_amount,
+            amount: escrow.source_amount,
             blinding: source_output_blinding,
             zone_program_id: None,
             data: Data::default(),

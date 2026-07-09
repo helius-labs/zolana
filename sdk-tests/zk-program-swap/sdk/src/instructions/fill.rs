@@ -17,7 +17,7 @@ use zolana_transaction::{
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
+    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
     program_id_pubkey,
     prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, FillProof,
@@ -53,12 +53,8 @@ pub fn fill(
 }
 
 pub struct FillSharedInputs {
-    pub terms: OrderTerms,
-    pub source_mint: Address,
-    pub destination_mint: Address,
-    pub escrow_blinding: Blinding,
-    pub taker_address: [u8; 32],
-    pub taker_in_blinding: Blinding,
+    pub escrow: Escrow,
+    pub taker_in: OutputUtxo,
     pub source_output_blinding: Blinding,
     pub external_data_hash: [u8; 32],
     pub maker_recipient: zolana_keypair::ShieldedAddress,
@@ -67,7 +63,7 @@ pub struct FillSharedInputs {
 
 impl FillSharedInputs {
     pub fn destination_output_blinding(&self) -> Result<Blinding> {
-        let field = swap_prover::derive_destination_blinding(&self.escrow_blinding.to_field())
+        let field = swap_prover::derive_destination_blinding(&self.escrow.blinding.to_field())
             .map_err(err)?;
         let mut blinding = [0u8; BLINDING_LEN];
         blinding.copy_from_slice(field.get(1..32).ok_or_else(|| err("blinding tail"))?);
@@ -75,49 +71,40 @@ impl FillSharedInputs {
     }
 
     pub fn fill_proof_inputs(&self) -> Result<FillProofInputs> {
+        let terms = &self.escrow.terms;
         Ok(FillProofInputs {
-            source_mint: *self.source_mint.as_array(),
-            source_amount: self.terms.source_amount,
+            source_mint: *self.escrow.source_mint.as_array(),
+            source_amount: self.escrow.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow_blinding.to_field(),
-            destination_mint: *self.destination_mint.as_array(),
-            destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
-            expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker.data_hash()?,
-            taker_address: self.taker_address,
-            taker_in_blinding: self.taker_in_blinding.to_field(),
+            escrow_blinding: self.escrow.blinding.to_field(),
+            destination_mint: *terms.destination_mint.as_array(),
+            destination_amount: terms.destination_amount,
+            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+            expiry: terms.expiry,
+            taker_pk_fe: terms.taker.data_hash()?,
+            taker_address: self
+                .taker_in
+                .owner_address
+                .ok_or_else(|| err("taker_in owner address"))?
+                .owner_hash()
+                .map_err(err)?,
+            taker_in_blinding: self.taker_in.blinding.to_field(),
             source_output_blinding: self.source_output_blinding.to_field(),
             external_data_hash: self.external_data_hash,
         })
     }
 
     pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        Escrow {
-            terms: self.terms.clone(),
-            blinding: self.escrow_blinding,
-            source_mint: self.source_mint,
-        }
-        .output_utxo(self.taker_recipient.viewing_pubkey)
-    }
-
-    pub fn taker_utxo(&self) -> OutputUtxo {
-        Recipient {
-            address: self.taker_recipient,
-            amount: self.terms.destination_amount,
-            blinding: self.taker_in_blinding,
-            mint: self.destination_mint,
-        }
-        .output()
+        self.escrow.output_utxo(self.taker_recipient.viewing_pubkey)
     }
 
     pub fn destination_output(&self) -> Result<OutputUtxo> {
         Ok(Recipient {
             address: self.maker_recipient,
-            amount: self.terms.destination_amount,
+            amount: self.escrow.terms.destination_amount,
             blinding: self.destination_output_blinding()?,
-            mint: self.destination_mint,
+            mint: self.escrow.terms.destination_mint,
         }
         .output())
     }
@@ -125,20 +112,20 @@ impl FillSharedInputs {
     pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.taker_recipient,
-            amount: self.terms.source_amount,
+            amount: self.escrow.source_amount,
             blinding: self.source_output_blinding,
-            mint: self.source_mint,
+            mint: self.escrow.source_mint,
         }
         .output()
     }
 
     pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
-        let taker_utxo_hash = self.taker_utxo().hash().map_err(err)?;
+        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
+        let taker_utxo_hash = self.taker_in.hash().map_err(err)?;
         let destination_output_hash = self.destination_output()?.hash().map_err(err)?;
         let source_output_hash = self.source_output().hash().map_err(err)?;
         sdk_private_tx_hash(
-            &[escrow_hash, taker_utxo_hash],
+            &[escrow_utxo_hash, taker_utxo_hash],
             &[source_output_hash, destination_output_hash],
             &self.external_data_hash,
         )

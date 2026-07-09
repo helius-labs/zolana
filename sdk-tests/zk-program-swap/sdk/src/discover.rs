@@ -21,14 +21,11 @@ use crate::{
 
 #[derive(Debug)]
 pub struct DiscoveredOrder {
-    pub terms: OrderTerms,
-    pub escrow_blinding: Blinding,
-    pub source_mint: Address,
+    pub escrow: Escrow,
     pub maker_pubkey: Pubkey,
 }
 
 pub struct OrderCandidate {
-    pub source_asset_id: u64,
     pub source_amount: u64,
     pub source_mint: Address,
     pub destination_mint: Address,
@@ -96,7 +93,6 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
         .ok_or_else(|| anyhow!("escrow plaintext carries no utxo data record"))?;
     let order_data = PlainTextData::deserialize(order_bytes)?;
     Ok(Some(OrderCandidate {
-        source_asset_id: escrow_plaintext.asset_id,
         source_amount: escrow_plaintext.amount,
         source_mint: resolve_mint(&wallet.registry, escrow_plaintext.asset_id)?,
         destination_mint: resolve_mint(&wallet.registry, order_data.destination_asset_id)?,
@@ -114,9 +110,6 @@ impl OrderCandidate {
         taker_viewing_pubkey: P256Pubkey,
     ) -> Result<DiscoveredOrder> {
         let terms = OrderTerms {
-            source_asset_id: self.source_asset_id,
-            source_amount: self.source_amount,
-            destination_asset_id: self.order_data.destination_asset_id,
             destination_mint: self.destination_mint,
             destination_amount: self.order_data.destination_amount,
             destination,
@@ -124,21 +117,22 @@ impl OrderCandidate {
             expiry: self.order_data.expiry,
             fill_mode: self.order_data.fill_mode,
         };
-        let escrow_utxo_hash = Escrow {
-            terms: terms.clone(),
+        let escrow = Escrow {
+            terms,
             blinding: self.escrow_blinding,
             source_mint: self.source_mint,
-        }
-        .output_utxo(taker_viewing_pubkey)?
-        .hash()
-        .map_err(err)?;
+            source_amount: self.source_amount,
+            destination_asset_id: self.order_data.destination_asset_id,
+        };
+        let escrow_utxo_hash = escrow
+            .output_utxo(taker_viewing_pubkey)?
+            .hash()
+            .map_err(err)?;
         if escrow_utxo_hash != self.escrow_utxo_hash {
             bail!("reconstructed escrow utxo hash does not match the committed leaf");
         }
         Ok(DiscoveredOrder {
-            terms,
-            escrow_blinding: self.escrow_blinding,
-            source_mint: self.source_mint,
+            escrow,
             maker_pubkey: self.maker_pubkey,
         })
     }
@@ -217,9 +211,7 @@ mod tests {
     struct OrderFixture {
         tx: ShieldedTransaction,
         wallet: Wallet,
-        terms: OrderTerms,
-        escrow_blinding: Blinding,
-        source_mint: Address,
+        escrow: Escrow,
         maker_address: ShieldedAddress,
         maker_pubkey: Pubkey,
     }
@@ -263,9 +255,6 @@ mod tests {
         registry.insert(2, source_mint).expect("register mint");
 
         let terms = OrderTerms {
-            source_asset_id: 2,
-            source_amount: 400_000,
-            destination_asset_id: SOL_ASSET_ID,
             destination_mint: SOL_MINT,
             destination_amount: 250_000,
             destination: maker_address,
@@ -273,14 +262,16 @@ mod tests {
             expiry: 2_000_000_000,
             fill_mode: FILL_MODE_DERIVED,
         };
-        let escrow_blinding = [11u8; BLINDING_LEN];
         let escrow = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
+            terms,
+            blinding: [11u8; BLINDING_LEN],
             source_mint,
-        }
-        .output_utxo(taker_address.viewing_pubkey)
-        .expect("escrow output");
+            source_amount: 400_000,
+            destination_asset_id: SOL_ASSET_ID,
+        };
+        let escrow_output = escrow
+            .output_utxo(taker_address.viewing_pubkey)
+            .expect("escrow output");
         let marker = marker_output_utxo(taker_address);
         let maker_pubkey = Pubkey::new_from_array(
             *maker_address
@@ -300,7 +291,7 @@ mod tests {
         let spend = SpendUtxo::from_keypair(input_utxo, &maker_keypair);
         let signed = EscrowCreate {
             tx: Transaction::new(maker_address, vec![spend], Address::default()),
-            escrow,
+            escrow: escrow_output,
             marker,
             payer: maker_pubkey,
         }
@@ -310,9 +301,7 @@ mod tests {
         OrderFixture {
             tx: shielded_transaction(&signed),
             wallet: Wallet::new(taker_keypair, registry).expect("taker wallet"),
-            terms,
-            escrow_blinding,
-            source_mint,
+            escrow,
             maker_address,
             maker_pubkey,
         }
@@ -328,18 +317,8 @@ mod tests {
             .into_order(fixture.maker_address, fixture.wallet.keypair.viewing_pubkey())
             .expect("order");
         assert_eq!(
-            (
-                order.terms,
-                order.escrow_blinding,
-                order.source_mint,
-                order.maker_pubkey
-            ),
-            (
-                fixture.terms,
-                fixture.escrow_blinding,
-                fixture.source_mint,
-                fixture.maker_pubkey
-            )
+            (order.escrow, order.maker_pubkey),
+            (fixture.escrow, fixture.maker_pubkey)
         );
     }
 

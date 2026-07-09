@@ -17,7 +17,7 @@ use zolana_transaction::{
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
+    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
     prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, FillVerifiableEncryptionProof,
 };
@@ -53,10 +53,7 @@ pub fn fill_verifiable_encryption(
 }
 
 pub struct FillVerifiableEncryptionSharedInputs {
-    pub terms: OrderTerms,
-    pub source_mint: Address,
-    pub destination_mint: Address,
-    pub escrow_blinding: Blinding,
+    pub escrow: Escrow,
     pub taker_in_blinding: Blinding,
     pub destination_output_blinding: Blinding,
     pub source_output_blinding: Blinding,
@@ -67,18 +64,18 @@ pub struct FillVerifiableEncryptionSharedInputs {
 
 impl FillVerifiableEncryptionSharedInputs {
     pub fn fill_proof_inputs(&self) -> Result<FillVerifiableEncryptionProofInputs> {
+        let terms = &self.escrow.terms;
         Ok(FillVerifiableEncryptionProofInputs {
-            source_asset_id: self.terms.source_asset_id,
-            source_mint: *self.source_mint.as_array(),
-            destination_mint: *self.destination_mint.as_array(),
-            source_amount: self.terms.source_amount,
+            source_mint: *self.escrow.source_mint.as_array(),
+            destination_mint: *terms.destination_mint.as_array(),
+            source_amount: self.escrow.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow_blinding.to_field(),
-            destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
-            expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker.data_hash()?,
+            escrow_blinding: self.escrow.blinding.to_field(),
+            destination_amount: terms.destination_amount,
+            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+            expiry: terms.expiry,
+            taker_pk_fe: terms.taker.data_hash()?,
             taker_nullifier_pk: self.taker_recipient.nullifier_pubkey,
             taker_in_blinding: self.taker_in_blinding.to_field(),
             destination_output_blinding: self.destination_output_blinding.to_field(),
@@ -88,20 +85,15 @@ impl FillVerifiableEncryptionSharedInputs {
     }
 
     pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        Escrow {
-            terms: self.terms.clone(),
-            blinding: self.escrow_blinding,
-            source_mint: self.source_mint,
-        }
-        .output_utxo(self.taker_recipient.viewing_pubkey)
+        self.escrow.output_utxo(self.taker_recipient.viewing_pubkey)
     }
 
     pub fn taker_utxo(&self) -> OutputUtxo {
         Recipient {
             address: self.taker_recipient,
-            amount: self.terms.destination_amount,
+            amount: self.escrow.terms.destination_amount,
             blinding: self.taker_in_blinding,
-            mint: self.destination_mint,
+            mint: self.escrow.terms.destination_mint,
         }
         .output()
     }
@@ -109,9 +101,9 @@ impl FillVerifiableEncryptionSharedInputs {
     pub fn destination_output(&self) -> OutputUtxo {
         Recipient {
             address: self.maker_recipient,
-            amount: self.terms.destination_amount,
+            amount: self.escrow.terms.destination_amount,
             blinding: self.destination_output_blinding,
-            mint: self.destination_mint,
+            mint: self.escrow.terms.destination_mint,
         }
         .output()
     }
@@ -119,20 +111,20 @@ impl FillVerifiableEncryptionSharedInputs {
     pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.taker_recipient,
-            amount: self.terms.source_amount,
+            amount: self.escrow.source_amount,
             blinding: self.source_output_blinding,
-            mint: self.source_mint,
+            mint: self.escrow.source_mint,
         }
         .output()
     }
 
     pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
+        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
         let taker_utxo_hash = self.taker_utxo().hash().map_err(err)?;
         let destination_output_hash = self.destination_output().hash().map_err(err)?;
         let source_output_hash = self.source_output().hash().map_err(err)?;
         sdk_private_tx_hash(
-            &[escrow_hash, taker_utxo_hash],
+            &[escrow_utxo_hash, taker_utxo_hash],
             &[source_output_hash, destination_output_hash],
             &self.external_data_hash,
         )
@@ -250,12 +242,8 @@ impl FillVerifiableEncryption {
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             spp_program_meta(),
         ];
-        let ix = fill_verifiable_encryption(
-            payer,
-            spp_accounts,
-            fill_result.proof.into(),
-            transact,
-        );
+        let ix =
+            fill_verifiable_encryption(payer, spp_accounts, fill_result.proof.into(), transact);
         Ok((ix, fill_result))
     }
 }

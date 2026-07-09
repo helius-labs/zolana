@@ -9,7 +9,7 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_sdk::{
     escrow_authority_pda,
     instructions::fill::{fill, EscrowFill, FillIxData, FillSharedInputs},
-    order::{Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
     FillProof,
 };
 use zolana_client::Transaction as TxBuilder;
@@ -34,9 +34,6 @@ fn fe(byte: u8) -> [u8; 32] {
 
 fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: 1_000,
-        destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: 250,
         destination,
@@ -53,7 +50,6 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
     let maker_recipient = maker.shielded_address().expect("maker address");
     let taker = ShieldedKeypair::from_seed_ed25519(&fe(0x4d)).expect("taker keypair");
     let taker_recipient = taker.shielded_address().expect("taker address");
-    let taker_address = taker.owner_hash().expect("taker owner hash");
 
     let terms = sample_terms(
         maker_recipient,
@@ -68,13 +64,23 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
     let taker_in_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
-    let fill_shared_inputs = FillSharedInputs {
+    let taker_in = Recipient {
+        address: taker_recipient,
+        amount: terms.destination_amount,
+        blinding: taker_in_blinding,
+        mint: SOL_MINT,
+    }
+    .output();
+    let escrow = Escrow {
         terms: terms.clone(),
+        blinding: escrow_blinding,
         source_mint: SOL_MINT,
-        destination_mint: SOL_MINT,
-        escrow_blinding,
-        taker_address,
-        taker_in_blinding,
+        source_amount: 1_000,
+        destination_asset_id: SOL_ASSET_ID,
+    };
+    let fill_shared_inputs = FillSharedInputs {
+        escrow: escrow.clone(),
+        taker_in,
         source_output_blinding,
         external_data_hash: [0u8; 32],
         maker_recipient,
@@ -85,13 +91,7 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
         .destination_output()
         .expect("destination output");
 
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .spend()
-    .expect("escrow spend");
+    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,

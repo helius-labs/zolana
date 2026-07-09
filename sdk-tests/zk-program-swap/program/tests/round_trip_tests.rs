@@ -142,7 +142,6 @@ fn cancel_inputs() -> CancelProofInputs {
     external_data_hash[31] = 8;
 
     CancelProofInputs {
-        source_asset_id: 1,
         source_mint: [1u8; 32],
         source_amount: 1_000,
         escrow_authority,
@@ -185,7 +184,6 @@ fn fill_inputs() -> FillVerifiableEncryptionProofInputs {
     external_data_hash[31] = 8;
 
     FillVerifiableEncryptionProofInputs {
-        source_asset_id: 1,
         source_mint: [1u8; 32],
         destination_mint: [2u8; 32],
         source_amount: 1_000,

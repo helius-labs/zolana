@@ -16,13 +16,12 @@ use zolana_transaction::{
         types::SpendUtxo,
     },
     serialization::confidential::TransferSenderPlaintext,
-    utxo::Blinding,
     AssetRegistry, Data, TransactionError, SOL_MINT,
 };
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda,
-    order::{marker_output_utxo, sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms},
+    order::{marker_output_utxo, sdk_private_tx_hash, BlindingField, DataHash, Escrow},
     program_id_pubkey,
     prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, CreateProof, MarkerData,
@@ -69,49 +68,44 @@ pub fn create_swap(
 }
 
 pub struct CreateSwapProofInputs {
-    pub terms: OrderTerms,
-    pub source_mint: Address,
-    pub escrow_blinding: Blinding,
+    pub escrow: Escrow,
     pub taker_address: ShieldedAddress,
     pub source_input_hash: [u8; 32],
-    pub change_amount: u64,
-    pub change_blinding: [u8; 32],
+    pub change_output_utxo: OutputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
 impl CreateSwapProofInputs {
     pub fn create_proof_inputs(&self) -> Result<CreateProofInputs> {
+        let terms = &self.escrow.terms;
         Ok(CreateProofInputs {
-            source_mint: *self.source_mint.as_array(),
-            source_amount: self.terms.source_amount,
+            source_mint: *self.escrow.source_mint.as_array(),
+            source_amount: self.escrow.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow_blinding.to_field(),
-            destination_mint: *self.terms.destination_mint.as_array(),
-            destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
-            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
-            expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker.data_hash()?,
-            fill_mode: self.terms.fill_mode,
+            escrow_blinding: self.escrow.blinding.to_field(),
+            destination_mint: *terms.destination_mint.as_array(),
+            destination_amount: terms.destination_amount,
+            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+            expiry: terms.expiry,
+            taker_pk_fe: terms.taker.data_hash()?,
+            fill_mode: terms.fill_mode,
             external_data_hash: self.external_data_hash,
             source_input_hash: self.source_input_hash,
-            change_amount: self.change_amount,
-            change_blinding: self.change_blinding,
+            change_amount: self.change_output_utxo.amount,
+            change_blinding: self.change_output_utxo.blinding.to_field(),
             marker_owner_hash: self.taker_address.owner_hash().map_err(err)?,
         })
     }
 
     pub fn change_output_hash(&self) -> Result<[u8; 32]> {
-        self.create_proof_inputs()?.change_output_hash().map_err(err)
+        self.create_proof_inputs()?
+            .change_output_hash()
+            .map_err(err)
     }
 
     pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        Escrow {
-            terms: self.terms.clone(),
-            blinding: self.escrow_blinding,
-            source_mint: self.source_mint,
-        }
-        .output_utxo(self.taker_address.viewing_pubkey)
+        self.escrow.output_utxo(self.taker_address.viewing_pubkey)
     }
 
     pub fn marker_output_utxo(&self) -> OutputUtxo {
@@ -123,14 +117,14 @@ impl CreateSwapProofInputs {
     }
 
     pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
+        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
         let marker_hash = self.marker_output_hash()?;
         let change_hash = self.change_output_hash()?;
         // Padded 2x3 chains: one dummy input contributes 0; outputs are
         // [change, escrow, marker]; addresses are two zeros.
         sdk_private_tx_hash(
             &[self.source_input_hash, [0u8; 32]],
-            &[change_hash, escrow_hash, marker_hash],
+            &[change_hash, escrow_utxo_hash, marker_hash],
             &self.external_data_hash,
         )
     }
@@ -240,7 +234,7 @@ impl EscrowCreate {
             },
             output: change,
         };
-        let escrow_hash = escrow.hash()?;
+        let escrow_utxo_hash = escrow.hash()?;
         let escrow_slot = RecipientSlot::new(escrow, assets)?;
 
         let marker_slot = OutputCiphertextSlot {
@@ -248,7 +242,7 @@ impl EscrowCreate {
             ciphertext: OutputCiphertext {
                 view_tag: marker_address.signing_pubkey.confidential_view_tag()?,
                 data: borsh::to_vec(&MarkerData {
-                    escrow_utxo_hash: escrow_hash,
+                    escrow_utxo_hash,
                     maker_pubkey: payer.to_bytes(),
                 })
                 .expect("MarkerData serialization is infallible"),
@@ -378,7 +372,7 @@ mod tests {
             Address::default(),
         );
 
-        let escrow_hash = escrow.hash().expect("escrow hash");
+        let escrow_utxo_hash = escrow.hash().expect("escrow hash");
         let marker_hash = marker.hash().expect("marker hash");
         let signed = EscrowCreate {
             tx,
@@ -404,7 +398,7 @@ mod tests {
         let change_hash = change.hash().expect("change hash");
         assert_eq!(
             signed.external_data.output_utxo_hashes,
-            vec![change_hash, escrow_hash, marker_hash]
+            vec![change_hash, escrow_utxo_hash, marker_hash]
         );
 
         assert_eq!(signed.inputs.len(), 2);
@@ -424,7 +418,7 @@ mod tests {
         let external_data_hash = signed.external_data.hash().expect("external data hash");
         let expected = private_tx_hash(
             &[source_input_hash, [0u8; 32]],
-            &[change_hash, escrow_hash, marker_hash],
+            &[change_hash, escrow_utxo_hash, marker_hash],
             &no_address_hashes(2),
             &external_data_hash,
         )

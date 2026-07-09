@@ -3,9 +3,9 @@ use solana_address::Address;
 use swap_prover::order_terms::maker_address_fe;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::BLINDING_LEN, hash::hash_field, NullifierKey, P256Pubkey, PublicKey,
-    ShieldedAddress,
+    constants::BLINDING_LEN, hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
 };
+pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
     instructions::{
         transact::{no_address_hashes, private_tx_hash, OutputUtxo},
@@ -14,7 +14,6 @@ use zolana_transaction::{
     utxo::{Blinding, Utxo},
     Data, SOL_MINT,
 };
-pub use zolana_transaction::SOL_ASSET_ID;
 
 use crate::err;
 
@@ -52,10 +51,6 @@ impl DataHash for Address {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderTerms {
-    pub source_asset_id: u64,
-    pub source_amount: u64,
-
-    pub destination_asset_id: u64,
     pub destination_mint: Address,
     pub destination_amount: u64,
 
@@ -86,9 +81,9 @@ impl OrderTerms {
         .map_err(err)
     }
 
-    pub fn plaintext(&self) -> PlainTextData {
+    pub fn into_plaintext(&self, destination_asset_id: u64) -> PlainTextData {
         PlainTextData {
-            destination_asset_id: self.destination_asset_id,
+            destination_asset_id,
             destination_amount: self.destination_amount,
             expiry: self.expiry,
             taker: self.taker,
@@ -121,11 +116,13 @@ impl PlainTextData {
 /// as the ed25519 owner key and the zero-secret nullifier key -- the synthetic
 /// shielded address that the swap program signs for via `invoke_signed` -- so
 /// their utxo hashes are byte-identical.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Escrow {
     pub terms: OrderTerms,
     pub blinding: Blinding,
     pub source_mint: Address,
+    pub source_amount: u64,
+    pub destination_asset_id: u64,
 }
 
 impl Escrow {
@@ -151,21 +148,26 @@ impl Escrow {
         };
         Ok(OutputUtxo {
             asset: self.source_mint,
-            amount: self.terms.source_amount,
+            amount: self.source_amount,
             blinding: self.blinding,
             owner_address: Some(owner_address),
             ..Default::default()
         }
-        .with_utxo_data(self.terms.plaintext().serialize()?, data_hash))
+        .with_utxo_data(
+            self.terms
+                .into_plaintext(self.destination_asset_id)
+                .serialize()?,
+            data_hash,
+        ))
     }
 
     /// The escrow input spend: the opening (terms + blinding) is the full spend
     /// capability; the swap program signs for the PDA via `invoke_signed`.
-    pub fn spend(&self) -> Result<SpendUtxo> {
+    pub fn into_input_utxo(&self) -> Result<SpendUtxo> {
         let utxo = Utxo {
             owner: Self::pda_owner(),
             asset: self.source_mint,
-            amount: self.terms.source_amount,
+            amount: self.source_amount,
             blinding: self.blinding,
             zone_program_id: None,
             data: Data::default(),

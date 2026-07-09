@@ -1,5 +1,4 @@
 use anyhow::Result;
-use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CancelProofInputs;
@@ -14,7 +13,7 @@ use zolana_transaction::{
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
+    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
     program_id_pubkey,
     prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, CancelProof,
@@ -79,9 +78,7 @@ pub fn cancel(
 }
 
 pub struct CancelSharedInputs {
-    pub terms: OrderTerms,
-    pub source_mint: Address,
-    pub escrow_blinding: Blinding,
+    pub escrow: Escrow,
     pub taker_viewing_pk: P256Pubkey,
     pub source_output_blinding: Blinding,
     pub external_data_hash: [u8; 32],
@@ -90,54 +87,49 @@ pub struct CancelSharedInputs {
 
 impl CancelSharedInputs {
     pub fn cancel_proof_inputs(&self) -> Result<CancelProofInputs> {
+        let terms = &self.escrow.terms;
         Ok(CancelProofInputs {
-            source_asset_id: self.terms.source_asset_id,
-            source_mint: *self.source_mint.as_array(),
-            source_amount: self.terms.source_amount,
+            source_mint: *self.escrow.source_mint.as_array(),
+            source_amount: self.escrow.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
-            escrow_blinding: self.escrow_blinding.to_field(),
-            destination_mint: *self.terms.destination_mint.as_array(),
-            destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
+            escrow_blinding: self.escrow.blinding.to_field(),
+            destination_mint: *terms.destination_mint.as_array(),
+            destination_amount: terms.destination_amount,
+            maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
             maker_owner_pk_field: self
                 .maker_recipient
                 .signing_pubkey
                 .owner_pk_field()
                 .map_err(err)?,
             maker_nullifier_pk: self.maker_recipient.nullifier_pubkey,
-            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
-            expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker.data_hash()?,
-            fill_mode: self.terms.fill_mode,
+            maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
+            expiry: terms.expiry,
+            taker_pk_fe: terms.taker.data_hash()?,
+            fill_mode: terms.fill_mode,
             source_output_blinding: self.source_output_blinding.to_field(),
             external_data_hash: self.external_data_hash,
         })
     }
 
     pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        Escrow {
-            terms: self.terms.clone(),
-            blinding: self.escrow_blinding,
-            source_mint: self.source_mint,
-        }
-        .output_utxo(self.taker_viewing_pk)
+        self.escrow.output_utxo(self.taker_viewing_pk)
     }
 
     pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.maker_recipient,
-            amount: self.terms.source_amount,
+            amount: self.escrow.source_amount,
             blinding: self.source_output_blinding,
-            mint: self.source_mint,
+            mint: self.escrow.source_mint,
         }
         .output()
     }
 
     pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
+        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
         let source_output_hash = self.source_output().hash().map_err(err)?;
         sdk_private_tx_hash(
-            &[escrow_hash],
+            &[escrow_utxo_hash],
             &[source_output_hash],
             &self.external_data_hash,
         )
@@ -220,7 +212,7 @@ impl Cancel {
             maker_signer,
             spp_accounts,
             cancel_result.proof.into(),
-            inputs.terms.expiry,
+            inputs.escrow.terms.expiry,
             transact,
         ))
     }

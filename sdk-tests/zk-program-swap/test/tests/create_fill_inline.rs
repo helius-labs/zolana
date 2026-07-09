@@ -18,7 +18,7 @@ use swap_sdk::{
         create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
         fill::{EscrowFill, Fill, FillSharedInputs},
     },
-    order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{
@@ -93,10 +93,6 @@ fn create_and_fill_swap_inline() -> Result<()> {
     {
         ensure_registered(&rpc, &maker.keypair.to_solana_keypair()?, &maker.keypair)
             .map_err(|e| anyhow!("register maker: {e:?}"))?;
-        let source_asset_id = maker
-            .registry
-            .asset_id(&spl_mint)
-            .map_err(|e| anyhow!("source asset id: {e}"))?;
 
         let taker_address = taker.keypair.shielded_address()?;
         // The taker's ed25519 authorization identity: the fill's taker input UTXO
@@ -106,9 +102,6 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .map_err(|e| anyhow!("taker solana address: {e:?}"))?;
         // The order opening (terms + escrow blinding) both parties hold off-chain.
         let terms = OrderTerms {
-            source_asset_id,
-            source_amount: SOURCE_AMOUNT,
-            destination_asset_id: SOL_ASSET_ID,
             destination_mint: SOL_MINT,
             destination_amount: DESTINATION_AMOUNT,
             // The swap settlement goes to the maker's shielded address.
@@ -117,21 +110,18 @@ fn create_and_fill_swap_inline() -> Result<()> {
             expiry: EXPIRY,
             fill_mode: swap_prover::FILL_MODE_DERIVED,
         };
-        let escrow_blinding = random_blinding();
 
         let maker_address = maker.keypair.shielded_address()?;
-        let escrow_output_utxo = Escrow {
+        let escrow = Escrow {
             // TODO: rename to OrderUtxo
-            terms: terms.clone(),
-            blinding: escrow_blinding,
+            terms,
+            blinding: random_blinding(),
             source_mint: spl_mint,
-        }
-        .output_utxo(taker_address.viewing_pubkey)?;
+            source_amount: SOURCE_AMOUNT,
+            destination_asset_id: SOL_ASSET_ID,
+        };
+        let escrow_output_utxo = escrow.output_utxo(taker_address.viewing_pubkey)?;
         let marker_output_utxo = marker_output_utxo(taker_address);
-
-        // We got all utxos
-
-        // Build Prover inputs
 
         let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
         let create_spend = SpendUtxo::from_keypair(maker_input_utxo, &maker.keypair);
@@ -171,25 +161,21 @@ fn create_and_fill_swap_inline() -> Result<()> {
                 &first_input_utxo.zone_data_hash.unwrap_or([0u8; 32]),
             )
             .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-        let change_output = signed_private_transaction
+        let change_output_utxo = signed_private_transaction
             .outputs
             .first()
+            .cloned()
             .ok_or_else(|| anyhow!("no create change output"))?;
-        let change_amount = change_output.amount;
-        let change_blinding = change_output.blinding.to_field();
         let external_data_hash = signed_private_transaction
             .external_data
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
 
         let create_swap_proof_inputs = CreateSwapProofInputs {
-            terms: terms.clone(),
-            source_mint: spl_mint,
-            escrow_blinding,
+            escrow,
             taker_address,
             source_input_hash,
-            change_amount,
-            change_blinding,
+            change_output_utxo,
             external_data_hash,
         };
 
@@ -213,28 +199,26 @@ fn create_and_fill_swap_inline() -> Result<()> {
         let order = discover_orders(&mut taker, &indexer, &rpc, Duration::from_secs(60))?
             .pop()
             .ok_or_else(|| anyhow!("no swap order discovered"))?;
-        let terms = order.terms;
-        let escrow_blinding = order.escrow_blinding;
-        let source_mint = order.source_mint;
+        let escrow = order.escrow;
+        let terms = escrow.terms.clone();
 
-        let taker_owner_hash = taker
-            .keypair
-            .owner_hash()
-            .map_err(|e| anyhow!("taker owner hash: {e:?}"))?;
         let taker_input_utxo =
             spendable_utxo(&taker, terms.destination_mint, terms.destination_amount)?;
         let source_output_blinding = random_blinding();
+        let taker_in = Recipient {
+            address: taker_address,
+            amount: terms.destination_amount,
+            blinding: taker_input_utxo.blinding,
+            mint: terms.destination_mint,
+        }
+        .output();
         let fill_inputs = FillSharedInputs {
-            terms: terms.clone(),
-            source_mint,
-            destination_mint: terms.destination_mint,
-            escrow_blinding,
-            taker_address: taker_owner_hash,
-            taker_in_blinding: taker_input_utxo.blinding,
+            escrow: escrow.clone(),
+            taker_in,
             source_output_blinding,
             external_data_hash: [0u8; 32],
             maker_recipient: terms.destination,
-            taker_recipient: taker.keypair.shielded_address()?,
+            taker_recipient: taker_address,
         };
         let source_output = fill_inputs.source_output();
         let destination_output = fill_inputs
@@ -247,13 +231,9 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
 
-        let escrow_input = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint,
-        }
-        .spend()
-        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        let escrow_input = escrow
+            .into_input_utxo()
+            .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
         let taker_spend = SpendUtxo::from_keypair(taker_input_utxo, &taker.keypair);
 
         let fill_tx = TxBuilder::new(
@@ -262,6 +242,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             taker_address.solana_address()?,
         )
         .with_expiry(terms.expiry);
+
         let fill_signed = EscrowFill {
             tx: fill_tx,
             source_output,
@@ -274,6 +255,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .external_data
             .hash()
             .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
+
         let fill_inputs = FillSharedInputs {
             external_data_hash: fill_external_data_hash,
             ..fill_inputs

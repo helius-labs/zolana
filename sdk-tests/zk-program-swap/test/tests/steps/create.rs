@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use swap_sdk::{
     instructions::create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
-    order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
     prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
@@ -18,20 +18,17 @@ use zolana_transaction::{
         transact::{OutputUtxo, SignedTransaction},
         types::SpendUtxo,
     },
-    utxo::Blinding,
     Utxo, SOL_MINT,
 };
 
 use crate::{localnet::send_v0_with_lookup_table, SwapWorld};
 
-/// A live order the harness tracks across create -> fill / cancel. The opening
-/// (terms and `escrow_blinding`) is the full spend capability. `taker_address`
-/// lets the fill side rebuild the taker recipient.
+/// A live order the harness tracks across create -> fill / cancel. The escrow
+/// opening is the full spend capability. `taker_address` lets the fill side
+/// rebuild the taker recipient.
 pub(crate) struct OpenOrder {
     pub(crate) maker_name: String,
-    pub(crate) terms: OrderTerms,
-    pub(crate) escrow_blinding: Blinding,
-    pub(crate) source_mint: Address,
+    pub(crate) escrow: Escrow,
     pub(crate) taker_address: ShieldedAddress,
 }
 
@@ -70,13 +67,18 @@ impl SwapWorld {
         // 2. Create the output UTXOs: escrow + marker (both taker-owned), and the
         //    maker change UTXO produced by signing the spend.
         let (terms, taker_address) = self.build_order_terms(&input.keypair, taker_name, &params)?;
-        let escrow_blinding = random_blinding();
-        let outputs = build_order_outputs(&terms, escrow_blinding, taker_address)?;
+        let escrow = Escrow {
+            terms,
+            blinding: random_blinding(),
+            source_mint: SOL_MINT,
+            source_amount: params.source_amount,
+            destination_asset_id: params.destination_asset,
+        };
+        let outputs = build_order_outputs(&escrow, taker_address)?;
         let signed = self.sign_spend(&input, outputs)?;
 
         // 3. Build the proof inputs shared by the create proof and the SPP transact.
-        let create_inputs =
-            shared_inputs_from_signed(&terms, escrow_blinding, taker_address, &signed)?;
+        let create_inputs = shared_inputs_from_signed(&escrow, taker_address, &signed)?;
 
         // 4. Prove (outside the instruction), then assemble the create instruction.
         let spend_proofs = self.resolve_spend_proofs(&signed)?;
@@ -97,13 +99,7 @@ impl SwapWorld {
         // 5. Build and send the transaction (mechanical).
         self.send_create_ix(ix, &input.solana)?;
 
-        self.record_open_order(
-            maker_name,
-            &input.utxo,
-            terms,
-            escrow_blinding,
-            taker_address,
-        );
+        self.record_open_order(maker_name, &input.utxo, escrow, taker_address);
         Ok(())
     }
 
@@ -150,9 +146,6 @@ impl SwapWorld {
             .map_err(|e| anyhow!("maker address: {e:?}"))?;
 
         let terms = OrderTerms {
-            source_asset_id: SOL_ASSET_ID,
-            source_amount: params.source_amount,
-            destination_asset_id: params.destination_asset,
             destination_mint,
             destination_amount: params.destination_amount,
             destination,
@@ -220,8 +213,7 @@ impl SwapWorld {
         &mut self,
         maker_name: &str,
         spent: &Utxo,
-        terms: OrderTerms,
-        escrow_blinding: Blinding,
+        escrow: Escrow,
         taker_address: ShieldedAddress,
     ) {
         let maker_mut = self.actor_mut(maker_name);
@@ -230,20 +222,15 @@ impl SwapWorld {
         });
         self.open_orders.push(OpenOrder {
             maker_name: maker_name.to_string(),
-            terms,
-            escrow_blinding,
-            source_mint: SOL_MINT,
+            escrow,
             taker_address,
         });
     }
 
     fn escrow_utxo_hash(&self, order: &OpenOrder) -> Result<[u8; 32]> {
-        let escrow = Escrow {
-            terms: order.terms.clone(),
-            blinding: order.escrow_blinding,
-            source_mint: order.source_mint,
-        }
-        .output_utxo(order.taker_address.viewing_pubkey)?;
+        let escrow = order
+            .escrow
+            .output_utxo(order.taker_address.viewing_pubkey)?;
         escrow.hash().map_err(|e| anyhow!("escrow hash: {e:?}"))
     }
 
@@ -268,17 +255,8 @@ impl SwapWorld {
     }
 }
 
-fn build_order_outputs(
-    terms: &OrderTerms,
-    escrow_blinding: Blinding,
-    taker_address: ShieldedAddress,
-) -> Result<OrderOutputs> {
-    let escrow = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .output_utxo(taker_address.viewing_pubkey)?;
+fn build_order_outputs(escrow: &Escrow, taker_address: ShieldedAddress) -> Result<OrderOutputs> {
+    let escrow = escrow.output_utxo(taker_address.viewing_pubkey)?;
     let marker = marker_output_utxo(taker_address);
     Ok(OrderOutputs { escrow, marker })
 }
@@ -286,8 +264,7 @@ fn build_order_outputs(
 // Recover the create-input fields from the signed transaction so the create proof
 // commits the exact same private_tx_hash the SPP transact does.
 fn shared_inputs_from_signed(
-    terms: &OrderTerms,
-    escrow_blinding: Blinding,
+    escrow: &Escrow,
     taker_address: ShieldedAddress,
     signed: &SignedTransaction,
 ) -> Result<CreateSwapProofInputs> {
@@ -314,13 +291,10 @@ fn shared_inputs_from_signed(
         .map_err(|e| anyhow!("external data hash: {e:?}"))?;
 
     Ok(CreateSwapProofInputs {
-        terms: terms.clone(),
-        source_mint: SOL_MINT,
-        escrow_blinding,
+        escrow: escrow.clone(),
         taker_address,
         source_input_hash,
-        change_amount: change_output.amount,
-        change_blinding: change_output.blinding.to_field(),
+        change_output_utxo: change_output.clone(),
         external_data_hash,
     })
 }
@@ -386,8 +360,8 @@ fn escrow_indexed(world: &mut SwapWorld, maker_name: String) {
         .iter()
         .find(|o| o.maker_name == maker_name)
         .expect("open order exists");
-    let escrow_hash = world.escrow_utxo_hash(order).expect("escrow hash");
+    let escrow_utxo_hash = world.escrow_utxo_hash(order).expect("escrow hash");
     world
-        .wait_for_merkle_proof(escrow_hash)
+        .wait_for_merkle_proof(escrow_utxo_hash)
         .expect("escrow UTXO indexed in the SPP tree");
 }

@@ -10,7 +10,7 @@ use swap_sdk::{
         EscrowFillVerifiableEncryption, FillVerifiableEncryption,
         FillVerifiableEncryptionSharedInputs,
     },
-    order::{Escrow, SOL_ASSET_ID},
+    order::SOL_ASSET_ID,
     prover::SwapProverClient,
     MarkerData,
 };
@@ -28,14 +28,15 @@ impl SwapWorld {
             .iter()
             .position(|o| o.maker_name == maker_name)
             .ok_or_else(|| anyhow!("no open order for {maker_name}"))?;
-        let (terms, escrow_blinding) = {
+        let escrow = {
             let order = self
                 .open_orders
                 .get(order_index)
                 .ok_or_else(|| anyhow!("order gone"))?;
-            (order.terms.clone(), order.escrow_blinding)
+            order.escrow.clone()
         };
-        if terms.destination_asset_id != SOL_ASSET_ID {
+        let terms = escrow.terms.clone();
+        if escrow.destination_asset_id != SOL_ASSET_ID {
             return Err(anyhow!("fill step supports the SOL destination rail only"));
         }
 
@@ -59,14 +60,10 @@ impl SwapWorld {
             .signing_pubkey()
             .confidential_view_tag()
             .map_err(|e| anyhow!("taker view tag: {e:?}"))?;
-        let expected_escrow_hash = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint: SOL_MINT,
-        }
-        .output_utxo(taker_recipient.viewing_pubkey)?
-        .hash()
-        .map_err(|e| anyhow!("escrow hash: {e:?}"))?;
+        let expected_escrow_hash = escrow
+            .output_utxo(taker_recipient.viewing_pubkey)?
+            .hash()
+            .map_err(|e| anyhow!("escrow hash: {e:?}"))?;
         let marker = self.discover_marker(taker_view_tag)?;
         assert_eq!(
             marker.escrow_utxo_hash, expected_escrow_hash,
@@ -91,10 +88,7 @@ impl SwapWorld {
         let source_output_blinding = random_blinding();
 
         let fill_shared_inputs = FillVerifiableEncryptionSharedInputs {
-            terms: terms.clone(),
-            source_mint: SOL_MINT,
-            destination_mint: SOL_MINT,
-            escrow_blinding,
+            escrow: escrow.clone(),
             taker_in_blinding,
             destination_output_blinding,
             source_output_blinding,
@@ -117,13 +111,9 @@ impl SwapWorld {
         // Escrow input: PDA-owned, spent via the opening (terms + blinding); the swap
         // program signs for the escrow authority via invoke_signed. Taker input
         // is signed by the SPP payer (the taker's Solana key).
-        let escrow_input = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint: SOL_MINT,
-        }
-        .spend()
-        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        let escrow_input = escrow
+            .into_input_utxo()
+            .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
         let taker_spend = SpendUtxo::from_keypair(taker_utxo.clone(), &taker_keypair);
 
         let payer_address = Address::new_from_array(taker_solana.pubkey().to_bytes());
@@ -209,7 +199,7 @@ impl SwapWorld {
         taker_mut.spendable.push(Utxo {
             owner: taker_keypair.signing_pubkey(),
             asset: SOL_MINT,
-            amount: terms.source_amount,
+            amount: escrow.source_amount,
             blinding: source_output_blinding,
             zone_program_id: None,
             data: Data::default(),

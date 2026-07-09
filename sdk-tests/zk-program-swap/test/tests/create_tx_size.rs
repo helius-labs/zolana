@@ -39,9 +39,6 @@ fn build_create_transact() -> (TransactIxData, CreateProof) {
     let taker_recipient = taker.shielded_address().expect("taker address");
 
     let terms = OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: 400_000_000,
-        destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: 250_000_000,
         destination: maker.shielded_address().expect("maker address"),
@@ -56,9 +53,11 @@ fn build_create_transact() -> (TransactIxData, CreateProof) {
         b
     };
     let escrow = Escrow {
-        terms: terms.clone(),
+        terms,
         blinding: escrow_blinding,
         source_mint: SOL_MINT,
+        source_amount: 400_000_000,
+        destination_asset_id: SOL_ASSET_ID,
     }
     .output_utxo(taker_recipient.viewing_pubkey)
     .expect("escrow output");

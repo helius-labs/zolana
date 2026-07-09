@@ -37,9 +37,6 @@ fn fe(byte: u8) -> [u8; 32] {
 
 fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: 1_000,
-        destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: 250,
         destination,
@@ -62,20 +59,23 @@ fn build_fill_transact() -> (TransactIxData, FillVerifiableEncryptionProof) {
         Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
     );
 
-    let escrow_blinding = {
-        let mut b = [0u8; 31];
-        b[30] = 7;
-        b
+    let escrow = Escrow {
+        terms: terms.clone(),
+        blinding: {
+            let mut b = [0u8; 31];
+            b[30] = 7;
+            b
+        },
+        source_mint: SOL_MINT,
+        source_amount: 1_000,
+        destination_asset_id: SOL_ASSET_ID,
     };
     let taker_in_blinding = random_blinding();
     let destination_output_blinding = random_blinding();
     let source_output_blinding = random_blinding();
 
     let fill_shared_inputs = FillVerifiableEncryptionSharedInputs {
-        terms: terms.clone(),
-        source_mint: SOL_MINT,
-        destination_mint: SOL_MINT,
-        escrow_blinding,
+        escrow: escrow.clone(),
         taker_in_blinding,
         destination_output_blinding,
         source_output_blinding,
@@ -91,13 +91,7 @@ fn build_fill_transact() -> (TransactIxData, FillVerifiableEncryptionProof) {
     let source_output = fill_shared_inputs.source_output();
     let destination_output = fill_shared_inputs.destination_output();
 
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .spend()
-    .expect("escrow spend");
+    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,

@@ -9,9 +9,10 @@ use swap_sdk::{
         cancel::CancelSharedInputs, create_swap::CreateSwapProofInputs,
         fill_verifiable_encryption::FillVerifiableEncryptionSharedInputs,
     },
-    order::{BlindingField, OrderTerms, SOL_ASSET_ID},
+    order::{BlindingField, Escrow, OrderTerms},
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
+use zolana_transaction::instructions::transact::OutputUtxo;
 
 const SOL_MINT: Address = Address::new_from_array([0u8; 32]);
 
@@ -21,15 +22,22 @@ fn destination_mint() -> Address {
 
 fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: 1_000,
-        destination_asset_id: 2,
         destination_mint: destination_mint(),
         destination_amount: 250,
         destination,
         taker,
         expiry: 1_700_000_000,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
+    }
+}
+
+fn sample_escrow(destination: ShieldedAddress, taker: Address) -> Escrow {
+    Escrow {
+        terms: sample_terms(destination, taker),
+        blinding: blinding_from_byte(7),
+        source_mint: SOL_MINT,
+        source_amount: 1_000,
+        destination_asset_id: 2,
     }
 }
 
@@ -122,16 +130,19 @@ fn create_two_proof_private_tx_hash_matches() {
     let taker_address = taker.shielded_address().expect("taker address");
 
     let create_inputs = CreateSwapProofInputs {
-        terms: sample_terms(
+        escrow: sample_escrow(
             maker.shielded_address().expect("maker address"),
             taker_authorization_address(&taker),
         ),
-        source_mint: SOL_MINT,
-        escrow_blinding: blinding_from_byte(7),
         taker_address,
         source_input_hash: fe(5),
-        change_amount: 750,
-        change_blinding: fe(6),
+        change_output_utxo: OutputUtxo {
+            owner_address: Some(maker.shielded_address().expect("maker address")),
+            asset: SOL_MINT,
+            amount: 750,
+            blinding: blinding_from_byte(6),
+            ..Default::default()
+        },
         external_data_hash: fe(8),
     };
 
@@ -151,7 +162,7 @@ fn create_two_proof_private_tx_hash_matches() {
         .expect("swap create prove");
 
     assert_eq!(
-        escrow_output_hash, create_proof_output.escrow_hash,
+        escrow_output_hash, create_proof_output.escrow_utxo_hash,
         "SDK escrow output hash must equal the swap create circuit's escrow hash"
     );
     assert_eq!(
@@ -179,13 +190,8 @@ fn fill_two_proof_private_tx_hash_matches() {
     let taker_recipient = taker.shielded_address().expect("taker address");
     let taker_address = taker.owner_hash().expect("taker owner hash");
 
-    let terms = sample_terms(maker_recipient, taker_authorization_address(&taker));
-
     let fill_inputs = FillVerifiableEncryptionSharedInputs {
-        terms,
-        source_mint: SOL_MINT,
-        destination_mint: destination_mint(),
-        escrow_blinding: blinding_from_byte(7),
+        escrow: sample_escrow(maker_recipient, taker_authorization_address(&taker)),
         taker_in_blinding: blinding_from_byte(13),
         destination_output_blinding: blinding_from_byte(21),
         source_output_blinding: blinding_from_byte(31),
@@ -204,6 +210,7 @@ fn fill_two_proof_private_tx_hash_matches() {
             .owner_hash()
             .expect("owner hash"),
         fill_inputs
+            .escrow
             .terms
             .destination
             .owner_hash()
@@ -228,7 +235,7 @@ fn fill_two_proof_private_tx_hash_matches() {
             .expect("escrow")
             .hash()
             .expect("h"),
-        fill_proof_output.escrow_hash,
+        fill_proof_output.escrow_utxo_hash,
         "escrow hash"
     );
     assert_eq!(
@@ -279,11 +286,12 @@ fn fill_two_proof_private_tx_hash_matches() {
     let (asset, amount) = inputs
         .decrypt_destination(&fill_proof_output.ciphertext)
         .expect("maker decrypts destination ciphertext");
-    let expected_asset = swap_prover::asset_field(fill_inputs.terms.destination_mint.as_array())
-        .expect("destination asset field");
+    let expected_asset =
+        swap_prover::asset_field(fill_inputs.escrow.terms.destination_mint.as_array())
+            .expect("destination asset field");
     assert_eq!(
         (asset, amount),
-        (expected_asset, fill_inputs.terms.destination_amount),
+        (expected_asset, fill_inputs.escrow.terms.destination_amount),
         "maker must recover (destination_asset, destination_amount) from the verifiable encryption"
     );
 }
@@ -297,12 +305,8 @@ fn cancel_two_proof_private_tx_hash_matches() {
         .shielded_address()
         .expect("taker address")
         .viewing_pubkey;
-    let terms = sample_terms(maker_recipient, taker_authorization_address(&taker));
-
     let cancel_inputs = CancelSharedInputs {
-        terms,
-        source_mint: SOL_MINT,
-        escrow_blinding: blinding_from_byte(7),
+        escrow: sample_escrow(maker_recipient, taker_authorization_address(&taker)),
         taker_viewing_pk,
         source_output_blinding: blinding_from_byte(19),
         external_data_hash: fe(8),
@@ -315,6 +319,7 @@ fn cancel_two_proof_private_tx_hash_matches() {
             .owner_hash()
             .expect("owner hash"),
         cancel_inputs
+            .escrow
             .terms
             .destination
             .owner_hash()

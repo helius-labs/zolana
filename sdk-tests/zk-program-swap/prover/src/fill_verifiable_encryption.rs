@@ -70,7 +70,7 @@ pub struct FillVerifiableEncryptionProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_hash: [u8; 32],
+    pub escrow_utxo_hash: [u8; 32],
     pub taker_utxo_hash: [u8; 32],
     pub destination_output_hash: [u8; 32],
     pub source_output_hash: [u8; 32],
@@ -80,7 +80,6 @@ pub struct FillVerifiableEncryptionProofResult {
 
 #[derive(Debug, Clone)]
 pub struct FillVerifiableEncryptionProofInputs {
-    pub source_asset_id: u64,
     pub source_mint: [u8; 32],
     pub destination_mint: [u8; 32],
     pub source_amount: u64,
@@ -132,7 +131,7 @@ struct FillVerifiableEncryptionUtxos {
 
 struct FillVerifiableEncryptionDerivation {
     utxos: FillVerifiableEncryptionUtxos,
-    escrow_hash: [u8; 32],
+    escrow_utxo_hash: [u8; 32],
     taker_utxo_hash: [u8; 32],
     destination_output_hash: [u8; 32],
     source_output_hash: [u8; 32],
@@ -254,12 +253,12 @@ impl FillVerifiableEncryptionProofInputs {
         overrides: &FillVerifiableEncryptionOverrides,
     ) -> Result<FillVerifiableEncryptionDerivation, FillVerifiableEncryptionError> {
         let utxos = self.utxos(overrides)?;
-        let escrow_hash = utxos.escrow.hash()?;
+        let escrow_utxo_hash = utxos.escrow.hash()?;
         let taker_utxo_hash = utxos.taker_in.hash()?;
         let source_output_hash = utxos.source_output.hash()?;
         let destination_output_hash = utxos.destination_output.hash()?;
 
-        let input_chain = hash_chain(&[escrow_hash, taker_utxo_hash])?;
+        let input_chain = hash_chain(&[escrow_utxo_hash, taker_utxo_hash])?;
         let output_chain = hash_chain(&[source_output_hash, destination_output_hash])?;
         let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
         let private_tx_hash = poseidon(&[
@@ -275,7 +274,7 @@ impl FillVerifiableEncryptionProofInputs {
 
         Ok(FillVerifiableEncryptionDerivation {
             utxos,
-            escrow_hash,
+            escrow_utxo_hash,
             taker_utxo_hash,
             destination_output_hash,
             source_output_hash,
@@ -304,7 +303,10 @@ impl FillVerifiableEncryptionProofInputs {
         for utxo_entries in [
             derived.utxos.escrow.witness_entries("Core_Escrow"),
             derived.utxos.taker_in.witness_entries("Core_TakerIn"),
-            derived.utxos.source_output.witness_entries("Core_SourceOutput"),
+            derived
+                .utxos
+                .source_output
+                .witness_entries("Core_SourceOutput"),
             derived
                 .utxos
                 .destination_output
@@ -326,10 +328,7 @@ impl FillVerifiableEncryptionProofInputs {
             ("Core_Order_MakerOwnerHash", self.maker_owner_hash),
             ("Core_Order_Expiry", u64_to_field(self.expiry)),
             ("Core_Order_TakerPkFe", self.taker_pk_fe),
-            (
-                "Core_Order_FillMode",
-                u64_to_field(FILL_MODE_VERIFIABLE),
-            ),
+            ("Core_Order_FillMode", u64_to_field(FILL_MODE_VERIFIABLE)),
             ("Core_ExternalDataHash", self.external_data_hash),
             ("TakerNullifierPk", self.taker_nullifier_pk),
         ];
@@ -338,7 +337,10 @@ impl FillVerifiableEncryptionProofInputs {
         }
         map.insert(
             "Core_Order_MakerViewingPk".to_string(),
-            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
+            self.maker_viewing_pk
+                .iter()
+                .map(|b| b.to_string())
+                .collect(),
         );
 
         Ok(map)
@@ -392,7 +394,7 @@ impl FillVerifiableEncryptionProofInputs {
             proof,
             public_input_hash: derived.public_input_hash,
             private_tx_hash: derived.private_tx_hash,
-            escrow_hash: derived.escrow_hash,
+            escrow_utxo_hash: derived.escrow_utxo_hash,
             taker_utxo_hash: derived.taker_utxo_hash,
             destination_output_hash: derived.destination_output_hash,
             source_output_hash: derived.source_output_hash,

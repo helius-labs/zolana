@@ -48,7 +48,7 @@ pub struct CreateProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_hash: [u8; 32],
+    pub escrow_utxo_hash: [u8; 32],
 }
 
 #[derive(Debug, Clone)]
@@ -153,11 +153,12 @@ impl CreateProofInputs {
 
     fn private_tx_hash(
         &self,
-        escrow_hash: &[u8; 32],
+        escrow_utxo_hash: &[u8; 32],
         marker_hash: &[u8; 32],
     ) -> Result<[u8; 32], CreateError> {
         let input_chain = hash_chain(&[self.source_input_hash, [0u8; 32]])?;
-        let output_chain = hash_chain(&[self.change_output_hash()?, *escrow_hash, *marker_hash])?;
+        let output_chain =
+            hash_chain(&[self.change_output_hash()?, *escrow_utxo_hash, *marker_hash])?;
         let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
         poseidon(&[
             &input_chain,
@@ -168,23 +169,26 @@ impl CreateProofInputs {
     }
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], CreateError> {
-        let escrow_hash = self.escrow()?.hash()?;
+        let escrow_utxo_hash = self.escrow()?.hash()?;
         let marker_hash = self.marker()?.hash()?;
-        self.private_tx_hash(&escrow_hash, &marker_hash)
+        self.private_tx_hash(&escrow_utxo_hash, &marker_hash)
     }
 
     fn witness(&self) -> Result<WitnessBundle, CreateError> {
         let escrow = self.escrow()?;
         let change = self.change()?;
         let marker = self.marker()?;
-        let escrow_hash = escrow.hash()?;
+        let escrow_utxo_hash = escrow.hash()?;
         let marker_hash = marker.hash()?;
-        let private_tx_hash = self.private_tx_hash(&escrow_hash, &marker_hash)?;
+        let private_tx_hash = self.private_tx_hash(&escrow_utxo_hash, &marker_hash)?;
 
         let scalars: [(&str, [u8; 32]); 9] = [
             ("PrivateTxHash", private_tx_hash),
             ("Order_DestinationAsset", self.destination_asset()?),
-            ("Order_DestinationAmount", u64_to_field(self.destination_amount)),
+            (
+                "Order_DestinationAmount",
+                u64_to_field(self.destination_amount),
+            ),
             ("Order_MakerOwnerHash", self.maker_owner_hash),
             ("Order_Expiry", u64_to_field(self.expiry)),
             ("Order_TakerPkFe", self.taker_pk_fe),
@@ -207,7 +211,10 @@ impl CreateProofInputs {
         }
         map.insert(
             "Order_MakerViewingPk".to_string(),
-            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
+            self.maker_viewing_pk
+                .iter()
+                .map(|b| b.to_string())
+                .collect(),
         );
 
         Ok(WitnessBundle {
@@ -218,7 +225,7 @@ impl CreateProofInputs {
     }
 
     pub fn prove(&self) -> Result<CreateProofResult, CreateError> {
-        let escrow_hash = self.escrow()?.hash()?;
+        let escrow_utxo_hash = self.escrow()?.hash()?;
         let WitnessBundle {
             witness,
             public_input_hash,
@@ -230,7 +237,7 @@ impl CreateProofInputs {
             proof,
             public_input_hash,
             private_tx_hash,
-            escrow_hash,
+            escrow_utxo_hash,
         })
     }
 }

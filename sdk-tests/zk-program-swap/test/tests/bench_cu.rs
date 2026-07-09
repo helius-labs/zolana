@@ -30,7 +30,7 @@ use swap_sdk::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryptionSharedInputs,
         },
     },
-    order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
     prover::pack_transact_proof,
 };
 use zolana_client::{
@@ -450,9 +450,6 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let taker = ShieldedKeypair::from_seed_ed25519(&[0x4d; 32]).expect("taker keypair");
     let taker_address = taker.shielded_address().expect("taker address");
     let terms = OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: SOURCE_AMOUNT,
-        destination_asset_id: 2,
         destination_mint: Address::new_from_array([7u8; 32]),
         destination_amount: 250,
         destination: maker.shielded_address().expect("maker address"),
@@ -460,14 +457,16 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow_blinding: Blinding = [7u8; 31];
-    let escrow = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
+    let escrow_utxo_hash = Escrow {
+        terms,
+        blinding: [7u8; 31],
         source_mint: SOL_MINT,
-    }
-    .output_utxo(taker_address.viewing_pubkey)
-    .expect("escrow output");
+        source_amount: SOURCE_AMOUNT,
+        destination_asset_id: 2,
+    };
+    let escrow = escrow_utxo_hash
+        .output_utxo(taker_address.viewing_pubkey)
+        .expect("escrow output");
     let marker = marker_output_utxo(taker_address);
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
@@ -514,19 +513,14 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
             &spend.zone_data_hash.unwrap_or([0u8; 32]),
         )
         .expect("source input hash");
-    let change_output = signed.outputs.first().expect("change output");
-    let change_amount = change_output.amount;
-    let change_blinding = change_output.blinding.to_field();
+    let change_output_utxo = signed.outputs.first().cloned().expect("change output");
     let external_data_hash = signed.external_data.hash().expect("external data hash");
 
     let create_inputs = CreateSwapProofInputs {
-        terms,
-        source_mint: SOL_MINT,
-        escrow_blinding,
+        escrow: escrow_utxo_hash,
         taker_address,
         source_input_hash,
-        change_amount,
-        change_blinding,
+        change_output_utxo,
         external_data_hash,
     };
 
@@ -583,14 +577,10 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     let taker_payer = Keypair::new();
     let taker = keypair_from_payer(&taker_payer);
     let taker_recipient = taker.shielded_address().expect("taker address");
-    let taker_address = taker.owner_hash().expect("taker owner hash");
     let maker = ShieldedKeypair::from_seed_ed25519(&[0x51; 32]).expect("maker keypair");
     let maker_recipient = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: SOURCE_AMOUNT,
-        destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: DESTINATION_AMOUNT,
         destination: maker_recipient,
@@ -598,18 +588,27 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     };
+    let escrow = Escrow {
+        terms,
+        blinding: [7u8; 31],
+        source_mint: SOL_MINT,
+        source_amount: SOURCE_AMOUNT,
+        destination_asset_id: SOL_ASSET_ID,
+    };
 
-    let escrow_blinding: Blinding = [7u8; 31];
     let taker_in_blinding: Blinding = [13u8; 31];
     let source_output_blinding: Blinding = [31u8; 31];
 
+    let taker_in = Recipient {
+        address: taker_recipient,
+        amount: DESTINATION_AMOUNT,
+        blinding: taker_in_blinding,
+        mint: SOL_MINT,
+    }
+    .output();
     let build_shared = |external_data_hash: [u8; 32]| FillSharedInputs {
-        terms: terms.clone(),
-        source_mint: SOL_MINT,
-        destination_mint: SOL_MINT,
-        escrow_blinding,
-        taker_address,
-        taker_in_blinding,
+        escrow: escrow.clone(),
+        taker_in: taker_in.clone(),
         source_output_blinding,
         external_data_hash,
         maker_recipient,
@@ -622,13 +621,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         .destination_output()
         .expect("destination output");
 
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .spend()
-    .expect("escrow spend");
+    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -645,7 +638,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         vec![escrow_input, taker_spend],
         payer_address,
     )
-    .with_expiry(terms.expiry);
+    .with_expiry(escrow.terms.expiry);
     let assets = AssetRegistry::default();
     let signed = EscrowFill {
         tx,
@@ -732,9 +725,6 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let maker_recipient = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: SOURCE_AMOUNT,
-        destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: DESTINATION_AMOUNT,
         destination: maker_recipient,
@@ -742,17 +732,20 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         expiry: EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
+    let escrow = Escrow {
+        terms,
+        blinding: [7u8; 31],
+        source_mint: SOL_MINT,
+        source_amount: SOURCE_AMOUNT,
+        destination_asset_id: SOL_ASSET_ID,
+    };
 
-    let escrow_blinding: Blinding = [7u8; 31];
     let taker_in_blinding: Blinding = [13u8; 31];
     let destination_output_blinding: Blinding = [21u8; 31];
     let source_output_blinding: Blinding = [31u8; 31];
 
     let build_shared = |external_data_hash: [u8; 32]| FillVerifiableEncryptionSharedInputs {
-        terms: terms.clone(),
-        source_mint: SOL_MINT,
-        destination_mint: SOL_MINT,
-        escrow_blinding,
+        escrow: escrow.clone(),
         taker_in_blinding,
         destination_output_blinding,
         source_output_blinding,
@@ -770,13 +763,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let source_output = fill_shared.source_output();
     let destination_output = fill_shared.destination_output();
 
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .spend()
-    .expect("escrow spend");
+    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -793,7 +780,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         vec![escrow_input, taker_spend],
         payer_address,
     )
-    .with_expiry(terms.expiry);
+    .with_expiry(escrow.terms.expiry);
     let assets = AssetRegistry::default();
     let signed = EscrowFillVerifiableEncryption {
         tx,
@@ -897,9 +884,6 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         .expect("taker address")
         .viewing_pubkey;
     let terms = OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: SOURCE_AMOUNT,
-        destination_asset_id: 2,
         destination_mint: Address::new_from_array([7u8; 32]),
         destination_amount: 250,
         destination: maker_recipient,
@@ -907,13 +891,17 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         expiry: ORDER_EXPIRY,
         fill_mode: swap_prover::FILL_MODE_VERIFIABLE,
     };
-    let escrow_blinding: Blinding = [7u8; 31];
+    let escrow = Escrow {
+        terms,
+        blinding: [7u8; 31],
+        source_mint: SOL_MINT,
+        source_amount: SOURCE_AMOUNT,
+        destination_asset_id: 2,
+    };
     let source_output_blinding: Blinding = [19u8; 31];
 
     let build_inputs = |external_data_hash: [u8; 32]| CancelSharedInputs {
-        terms: terms.clone(),
-        source_mint: SOL_MINT,
-        escrow_blinding,
+        escrow: escrow.clone(),
         taker_viewing_pk,
         source_output_blinding,
         external_data_hash,
@@ -922,13 +910,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let cancel_inputs = build_inputs([0u8; 32]);
     let source_output = cancel_inputs.source_output();
 
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: SOL_MINT,
-    }
-    .spend()
-    .expect("escrow spend");
+    let escrow_input = escrow.into_input_utxo().expect("escrow spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let tx = TxBuilder::new(maker_recipient, vec![escrow_input], payer_address)
@@ -989,7 +971,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         maker_signer,
         spp_accounts,
         cancel_result.proof.into(),
-        terms.expiry,
+        escrow.terms.expiry,
         transact,
     );
 

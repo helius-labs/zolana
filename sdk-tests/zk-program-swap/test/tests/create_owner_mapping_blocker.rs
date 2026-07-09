@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use swap_sdk::{
     escrow_authority_pda,
     instructions::create_swap::EscrowCreate,
-    order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
+    order::{marker_output_utxo, Escrow, OrderTerms},
 };
 use zolana_keypair::{hash::hash_field, ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
@@ -14,11 +14,10 @@ use zolana_transaction::{
 
 const SENDER_SLOT_SHARED_INDEX: usize = 0;
 
+const SOURCE_AMOUNT: u64 = 1_000;
+
 fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
-        source_asset_id: SOL_ASSET_ID,
-        source_amount: 1_000,
-        destination_asset_id: 2,
         destination_mint: Address::new_from_array([7u8; 32]),
         destination_amount: 250,
         destination,
@@ -109,9 +108,11 @@ fn create_change_first_owner_tag_mapping_matches() {
     let mut escrow_blinding: Blinding = [0u8; 31];
     escrow_blinding[30] = 7;
     let escrow = Escrow {
-        terms: terms.clone(),
+        terms,
         blinding: escrow_blinding,
         source_mint: SOL_MINT,
+        source_amount: SOURCE_AMOUNT,
+        destination_asset_id: 2,
     }
     .output_utxo(taker_address.viewing_pubkey)
     .expect("escrow output");
@@ -119,7 +120,7 @@ fn create_change_first_owner_tag_mapping_matches() {
 
     let assets = AssetRegistry::default();
     let payer = Address::new_from_array(maker.signing_pubkey().hash().expect("hash"));
-    let input = maker_input(&maker, terms.source_amount);
+    let input = maker_input(&maker, SOURCE_AMOUNT);
     let signed = EscrowCreate {
         tx: TxBuilder::new(
             maker.shielded_address().expect("maker address"),

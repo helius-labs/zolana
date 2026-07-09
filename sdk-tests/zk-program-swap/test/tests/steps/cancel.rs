@@ -5,7 +5,6 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use swap_sdk::{
     instructions::cancel::{Cancel, CancelSharedInputs, EscrowCancel},
-    order::Escrow,
     prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
@@ -21,16 +20,12 @@ impl SwapWorld {
             .iter()
             .position(|o| o.maker_name == maker_name)
             .ok_or_else(|| anyhow!("no open order for {maker_name}"))?;
-        let (terms, escrow_blinding, taker_viewing_pk) = {
+        let (escrow, taker_viewing_pk) = {
             let order = self
                 .open_orders
                 .get(order_index)
                 .ok_or_else(|| anyhow!("order gone"))?;
-            (
-                order.terms.clone(),
-                order.escrow_blinding,
-                order.taker_address.viewing_pubkey,
-            )
+            (order.escrow.clone(), order.taker_address.viewing_pubkey)
         };
 
         let maker = self.actor(maker_name);
@@ -45,18 +40,12 @@ impl SwapWorld {
         // The escrow input is PDA-owned and spent via the opening (terms +
         // blinding); the swap program signs for the escrow authority via
         // invoke_signed. Any opening holder can cancel after expiry.
-        let escrow_input = Escrow {
-            terms: terms.clone(),
-            blinding: escrow_blinding,
-            source_mint: SOL_MINT,
-        }
-        .spend()
-        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        let escrow_input = escrow
+            .into_input_utxo()
+            .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
 
         let cancel_inputs = CancelSharedInputs {
-            terms: terms.clone(),
-            source_mint: SOL_MINT,
-            escrow_blinding,
+            escrow: escrow.clone(),
             taker_viewing_pk,
             source_output_blinding,
             external_data_hash: [0u8; 32],
@@ -117,7 +106,7 @@ impl SwapWorld {
         self.actor_mut(maker_name).spendable.push(Utxo {
             owner: maker_keypair.signing_pubkey(),
             asset: SOL_MINT,
-            amount: terms.source_amount,
+            amount: escrow.source_amount,
             blinding: source_output_blinding,
             zone_program_id: None,
             data: Data::default(),

@@ -63,7 +63,7 @@ pub struct FillProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_hash: [u8; 32],
+    pub escrow_utxo_hash: [u8; 32],
     pub taker_utxo_hash: [u8; 32],
     pub destination_output_hash: [u8; 32],
     pub source_output_hash: [u8; 32],
@@ -115,7 +115,7 @@ struct FillUtxos {
 
 struct FillDerivation {
     utxos: FillUtxos,
-    escrow_hash: [u8; 32],
+    escrow_utxo_hash: [u8; 32],
     taker_utxo_hash: [u8; 32],
     source_output_hash: [u8; 32],
     destination_output_hash: [u8; 32],
@@ -200,12 +200,12 @@ impl FillProofInputs {
 
     fn private_tx_hash(
         &self,
-        escrow_hash: &[u8; 32],
+        escrow_utxo_hash: &[u8; 32],
         taker_utxo_hash: &[u8; 32],
         source_output_hash: &[u8; 32],
         destination_output_hash: &[u8; 32],
     ) -> Result<[u8; 32], FillError> {
-        let input_chain = hash_chain(&[*escrow_hash, *taker_utxo_hash])?;
+        let input_chain = hash_chain(&[*escrow_utxo_hash, *taker_utxo_hash])?;
         let output_chain = hash_chain(&[*source_output_hash, *destination_output_hash])?;
         let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
         poseidon(&[
@@ -218,12 +218,12 @@ impl FillProofInputs {
 
     fn derive(&self, destination_output_blinding: &[u8; 32]) -> Result<FillDerivation, FillError> {
         let utxos = self.utxos(destination_output_blinding)?;
-        let escrow_hash = utxos.escrow.hash()?;
+        let escrow_utxo_hash = utxos.escrow.hash()?;
         let taker_utxo_hash = utxos.taker_in.hash()?;
         let source_output_hash = utxos.source_output.hash()?;
         let destination_output_hash = utxos.destination_output.hash()?;
         let private_tx_hash = self.private_tx_hash(
-            &escrow_hash,
+            &escrow_utxo_hash,
             &taker_utxo_hash,
             &source_output_hash,
             &destination_output_hash,
@@ -232,7 +232,7 @@ impl FillProofInputs {
         let public_input_hash = poseidon(&[&private_tx_hash, &expiry])?;
         Ok(FillDerivation {
             utxos,
-            escrow_hash,
+            escrow_utxo_hash,
             taker_utxo_hash,
             source_output_hash,
             destination_output_hash,
@@ -243,7 +243,9 @@ impl FillProofInputs {
     }
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], FillError> {
-        Ok(self.derive(&self.destination_output_blinding()?)?.public_input_hash)
+        Ok(self
+            .derive(&self.destination_output_blinding()?)?
+            .public_input_hash)
     }
 
     fn witness_map(
@@ -254,7 +256,10 @@ impl FillProofInputs {
         for utxo_entries in [
             derived.utxos.escrow.witness_entries("Core_Escrow"),
             derived.utxos.taker_in.witness_entries("Core_TakerIn"),
-            derived.utxos.source_output.witness_entries("Core_SourceOutput"),
+            derived
+                .utxos
+                .source_output
+                .witness_entries("Core_SourceOutput"),
             derived
                 .utxos
                 .destination_output
@@ -287,7 +292,10 @@ impl FillProofInputs {
         }
         map.insert(
             "Core_Order_MakerViewingPk".to_string(),
-            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
+            self.maker_viewing_pk
+                .iter()
+                .map(|b| b.to_string())
+                .collect(),
         );
 
         Ok(map)
@@ -304,7 +312,7 @@ impl FillProofInputs {
             proof,
             public_input_hash: derived.public_input_hash,
             private_tx_hash: derived.private_tx_hash,
-            escrow_hash: derived.escrow_hash,
+            escrow_utxo_hash: derived.escrow_utxo_hash,
             taker_utxo_hash: derived.taker_utxo_hash,
             destination_output_hash: derived.destination_output_hash,
             source_output_hash: derived.source_output_hash,

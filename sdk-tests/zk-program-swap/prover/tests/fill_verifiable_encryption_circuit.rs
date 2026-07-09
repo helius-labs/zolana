@@ -48,7 +48,6 @@ fn sample_inputs() -> FillVerifiableEncryptionProofInputs {
     external_data_hash[31] = 8;
 
     FillVerifiableEncryptionProofInputs {
-        source_asset_id: 1,
         source_mint: [1u8; 32],
         destination_mint: [2u8; 32],
         source_amount: 1_000,

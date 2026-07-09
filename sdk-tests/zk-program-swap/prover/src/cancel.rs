@@ -50,13 +50,12 @@ pub struct CancelProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_hash: [u8; 32],
+    pub escrow_utxo_hash: [u8; 32],
     pub source_output_hash: [u8; 32],
 }
 
 #[derive(Debug, Clone)]
 pub struct CancelProofInputs {
-    pub source_asset_id: u64,
     pub source_mint: [u8; 32],
     pub source_amount: u64,
     pub escrow_authority: [u8; 32],
@@ -78,7 +77,7 @@ struct CancelBuild {
     witness: HashMap<String, Vec<String>>,
     public_input_hash: [u8; 32],
     private_tx_hash: [u8; 32],
-    escrow_hash: [u8; 32],
+    escrow_utxo_hash: [u8; 32],
     source_output_hash: [u8; 32],
 }
 
@@ -149,10 +148,10 @@ impl CancelProofInputs {
 
     fn private_tx_hash(
         &self,
-        escrow_hash: &[u8; 32],
+        escrow_utxo_hash: &[u8; 32],
         source_output_hash: &[u8; 32],
     ) -> Result<[u8; 32], CancelError> {
-        let input_chain = hash_chain(&[*escrow_hash])?;
+        let input_chain = hash_chain(&[*escrow_utxo_hash])?;
         let output_chain = hash_chain(&[*source_output_hash])?;
         let address_chain = hash_chain(&[[0u8; 32]])?;
         poseidon(&[
@@ -174,7 +173,10 @@ impl CancelProofInputs {
             ("Public_PublicInputHash", *public_input_hash),
             ("Public_PrivateTxHash", *private_tx_hash),
             ("Order_DestinationAsset", self.destination_asset()?),
-            ("Order_DestinationAmount", u64_to_field(self.destination_amount)),
+            (
+                "Order_DestinationAmount",
+                u64_to_field(self.destination_amount),
+            ),
             ("Order_MakerOwnerHash", self.maker_owner_hash),
             ("Order_Expiry", u64_to_field(self.expiry)),
             ("Order_TakerPkFe", self.taker_pk_fe),
@@ -207,17 +209,22 @@ impl CancelProofInputs {
     fn build(&self, source_output_owner: &[u8; 32]) -> Result<CancelBuild, CancelError> {
         let escrow = self.escrow_utxo()?;
         let source_output = self.source_output_utxo(source_output_owner)?;
-        let escrow_hash = escrow.hash()?;
+        let escrow_utxo_hash = escrow.hash()?;
         let source_output_hash = source_output.hash()?;
-        let private_tx_hash = self.private_tx_hash(&escrow_hash, &source_output_hash)?;
+        let private_tx_hash = self.private_tx_hash(&escrow_utxo_hash, &source_output_hash)?;
         let expiry = u64_to_field(self.expiry);
         let public_input_hash = poseidon(&[&private_tx_hash, &expiry, &self.maker_owner_pk_field])?;
-        let witness = self.witness_map(&escrow, &source_output, &public_input_hash, &private_tx_hash)?;
+        let witness = self.witness_map(
+            &escrow,
+            &source_output,
+            &public_input_hash,
+            &private_tx_hash,
+        )?;
         Ok(CancelBuild {
             witness,
             public_input_hash,
             private_tx_hash,
-            escrow_hash,
+            escrow_utxo_hash,
             source_output_hash,
         })
     }
@@ -242,7 +249,7 @@ impl CancelProofInputs {
             witness,
             public_input_hash,
             private_tx_hash,
-            escrow_hash,
+            escrow_utxo_hash,
             source_output_hash,
         } = build;
         let out = ffi::prove(CircuitId::Cancel, &witness)?;
@@ -251,7 +258,7 @@ impl CancelProofInputs {
             proof,
             public_input_hash,
             private_tx_hash,
-            escrow_hash,
+            escrow_utxo_hash,
             source_output_hash,
         })
     }
