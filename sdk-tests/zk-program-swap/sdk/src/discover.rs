@@ -255,9 +255,12 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
             let Ok(plaintext) = TransferRecipientPlaintext::deserialize(&bytes) else {
                 continue;
             };
-            let Some(order) =
-                own_order_candidate(&wallet.registry, maker_address, plaintext, *taker_viewing_pk)
-            else {
+            let Some(order) = own_order_candidate(
+                &wallet.registry,
+                maker_address,
+                plaintext,
+                *taker_viewing_pk,
+            ) else {
                 continue;
             };
             let Ok(escrow_utxo_hash) = order
@@ -276,7 +279,10 @@ pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Optio
     Ok(None)
 }
 
-fn decode_sender_bundle(tx: &ShieldedTransaction, wallet: &Wallet) -> Option<TransferSenderPlaintext> {
+fn decode_sender_bundle(
+    tx: &ShieldedTransaction,
+    wallet: &Wallet,
+) -> Option<TransferSenderPlaintext> {
     for (position, slot) in tx.output_slots.iter().enumerate() {
         let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
             continue;
@@ -284,7 +290,8 @@ fn decode_sender_bundle(tx: &ShieldedTransaction, wallet: &Wallet) -> Option<Tra
         let Some((scheme_byte, body)) = blob.split_first() else {
             continue;
         };
-        if EncryptedScheme::from_byte(*scheme_byte).ok() != Some(EncryptedScheme::ConfidentialSender)
+        if EncryptedScheme::from_byte(*scheme_byte).ok()
+            != Some(EncryptedScheme::ConfidentialSender)
         {
             continue;
         }
@@ -306,10 +313,14 @@ fn own_order_candidate(
     plaintext: TransferRecipientPlaintext,
     taker_viewing_pk: P256Pubkey,
 ) -> Option<OwnOrder> {
-    let order_bytes = plaintext.data.records.iter().find_map(|record| match record {
-        DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
-        _ => None,
-    })?;
+    let order_bytes = plaintext
+        .data
+        .records
+        .iter()
+        .find_map(|record| match record {
+            DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        })?;
     let order_data = PlainTextData::deserialize(order_bytes).ok()?;
     let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
     let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
@@ -437,8 +448,7 @@ mod tests {
 
     fn order_fixture() -> OrderFixture {
         let maker_keypair = ShieldedKeypair::from_seed_ed25519(&[7u8; 32]).expect("maker keypair");
-        let taker_keypair =
-            ShieldedKeypair::from_seed_ed25519(&[13u8; 32]).expect("taker keypair");
+        let taker_keypair = ShieldedKeypair::from_seed_ed25519(&[13u8; 32]).expect("taker keypair");
         let maker_address = maker_keypair.shielded_address().expect("maker address");
         let taker_address = taker_keypair.shielded_address().expect("taker address");
         let source_mint = Address::new_from_array([9u8; 32]);
@@ -449,7 +459,9 @@ mod tests {
             destination_mint: SOL_MINT,
             destination_amount: 250_000,
             destination: maker_address,
-            taker: taker_address.solana_address().expect("taker solana address"),
+            taker: taker_address
+                .solana_address()
+                .expect("taker solana address"),
             expiry: 2_000_000_000,
             fill_mode: FILL_MODE_DERIVED,
         };
@@ -506,7 +518,10 @@ mod tests {
             .expect("scan")
             .expect("order candidate");
         let order = candidate
-            .into_order(fixture.maker_address, fixture.wallet.keypair.viewing_pubkey())
+            .into_order(
+                fixture.maker_address,
+                fixture.wallet.keypair.viewing_pubkey(),
+            )
             .expect("order");
         assert_eq!(
             (order.escrow, order.maker_pubkey),
@@ -528,7 +543,9 @@ mod tests {
         let error = candidate
             .into_order(taker_address, fixture.wallet.keypair.viewing_pubkey())
             .expect_err("wrong maker address must fail the hash check");
-        assert!(error.to_string().contains("does not match the committed leaf"));
+        assert!(error
+            .to_string()
+            .contains("does not match the committed leaf"));
     }
 
     #[test]
@@ -554,8 +571,7 @@ mod tests {
     #[test]
     fn scan_order_ignores_transactions_for_other_takers() {
         let fixture = order_fixture();
-        let other_keypair =
-            ShieldedKeypair::from_seed_ed25519(&[21u8; 32]).expect("other keypair");
+        let other_keypair = ShieldedKeypair::from_seed_ed25519(&[21u8; 32]).expect("other keypair");
         let other_wallet =
             Wallet::new(other_keypair, fixture.wallet.registry.clone()).expect("other wallet");
         assert!(scan_order(&fixture.tx, &other_wallet)

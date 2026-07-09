@@ -23,9 +23,11 @@ use zolana_interface::{
 };
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_program_test::system_create_account_ix;
-use zolana_test_utils::localnet::LocalnetValidator;
-use zolana_test_utils::smart_account::{self, StandardSigners};
-use zolana_test_utils::spl::{create_mint, create_token_account, mint_to};
+use zolana_test_utils::{
+    localnet::LocalnetValidator,
+    smart_account::{self, StandardSigners},
+    spl::{create_mint, create_token_account, mint_to},
+};
 use zolana_transaction::{AssetRegistry, Utxo, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 

@@ -101,7 +101,6 @@ impl FillProofInputParams {
         }
         .output()
     }
-
 }
 
 pub struct EscrowFill {

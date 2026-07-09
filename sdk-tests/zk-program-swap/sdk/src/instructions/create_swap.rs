@@ -73,7 +73,6 @@ impl CreateSwapProofInputParams {
             marker_owner_hash: self.taker_address.owner_hash().map_err(err)?,
         })
     }
-
 }
 
 const CHANGE_POSITION: u8 = 1;
