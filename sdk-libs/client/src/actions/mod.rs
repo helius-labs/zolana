@@ -13,5 +13,5 @@ pub use transaction::{
     create_transfer_sync, create_withdrawal, create_withdrawal_sync, select_inputs,
     sign_transaction, sign_transaction_sync, CreateMerge, CreateSplit, CreateTransfer,
     CreateWithdrawal, CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal,
-    InputSelection, ResolvedAddress, TransferRecipient,
+    InputSelection, ResolvedAddress, TransferRecipient, MAX_TRANSFER_INPUTS,
 };

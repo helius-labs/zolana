@@ -660,7 +660,7 @@ fn withdrawal_target(
 /// selection caps at this; a spend that would need more notes must be
 /// consolidated (via `merge`) first, so it fails with
 /// [`ClientError::FragmentedBalance`] instead of building an unsupported shape.
-const MAX_TRANSFER_INPUTS: usize = 5;
+pub const MAX_TRANSFER_INPUTS: usize = 5;
 
 pub async fn select_inputs<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,

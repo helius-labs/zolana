@@ -16,7 +16,7 @@ pub use actions::{
     create_withdrawal_sync, select_inputs, sign_transaction, sign_transaction_sync, CreateDeposit,
     CreateMerge, CreateSplit, CreateTransfer, CreateWithdrawal, CreatedMerge, CreatedSplit,
     CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection, ResolvedAddress,
-    TransferRecipient,
+    TransferRecipient, MAX_TRANSFER_INPUTS,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]

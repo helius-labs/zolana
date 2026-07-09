@@ -201,7 +201,7 @@ where
             };
         }
         ticks = ticks.wrapping_add(1);
-        refresh()?;
+        let _ = refresh();
         sleep(poll);
     }
 }
@@ -292,6 +292,25 @@ mod tests {
         // timeout branch, which reads Confirmed and reports success.
         let outcome =
             wait(&index, &status, Duration::from_millis(0)).expect("confirmed pending index");
+        assert_eq!(outcome, WaitOutcome::ConfirmedPendingIndex);
+    }
+
+    #[test]
+    fn refresh_errors_do_not_fail_wait() {
+        let index = MockIndex { indexed: false };
+        let status = MockStatus::new(SignatureState::Confirmed);
+        let outcome = wait_for_indexed_output_with(
+            &index,
+            &status,
+            Address::default(),
+            [7u8; 32],
+            &Signature::default(),
+            Duration::from_millis(2),
+            Duration::from_millis(1),
+            1,
+            || Err(anyhow::anyhow!("lockfile disappeared")),
+        )
+        .expect("refresh failure should be best-effort");
         assert_eq!(outcome, WaitOutcome::ConfirmedPendingIndex);
     }
 

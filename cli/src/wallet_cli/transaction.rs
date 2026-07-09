@@ -7,7 +7,7 @@ use zolana_client::{
     prover::merge::MergeProver, prover::transact::assemble, ClientError, CreateMerge, CreateSplit,
     CreateTransfer, InputCommitment, InputSelection, MergeWitness, PreparedMerge, ProofCompressed,
     ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, SpendableUtxo,
-    ZolanaIndexer, MERGE_INPUTS,
+    ZolanaIndexer, MAX_TRANSFER_INPUTS, MERGE_INPUTS,
 };
 use zolana_interface::instruction::{MergeTransact, Transact, TransactWithdrawal};
 use zolana_transaction::{Address, SOL_MINT};
@@ -30,8 +30,6 @@ use crate::{
     args::{ConsolidateOptions, SplitOptions, SyncOptions, TransferOptions, UtxosOptions},
     cli_config::CliConfigFile,
 };
-
-const CLI_MAX_TRANSFER_INPUTS: usize = 5;
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
@@ -191,7 +189,7 @@ fn try_transfer(
 /// Decide the transfer's [`InputSelection`], returning any held [`Reservation`]
 /// the caller must keep alive until submission completes.
 ///
-/// - `--input <hash>` -> spend exactly that note (`Explicit`), no reservation.
+/// - `--input <hash>` -> reserve and spend exactly that note (`Explicit`).
 /// - otherwise, reserve the selected unspent note set under the wallet's
 ///   `.inflight` lock dir and spend it (`Explicit`), holding the locks.
 /// - if no reservation dir is usable, fall back to SDK `Auto` selection.
@@ -204,7 +202,12 @@ fn resolve_transfer_selection(
 ) -> Result<(InputSelection, Vec<Reservation>)> {
     if let Some(input) = &opts.input {
         let hash = parse_hex_array::<32>(input)?;
-        return Ok((InputSelection::Explicit(vec![hash]), Vec::new()));
+        let sync = resolve_sync_with_config(&opts.network.sync, config)?;
+        let reservations = match inflight_dir(&sync.keypair_path) {
+            Some(dir) => reserve_hashes(&dir, &[hash])?,
+            None => Vec::new(),
+        };
+        return Ok((InputSelection::Explicit(vec![hash]), reservations));
     }
 
     resolve_auto_spend_selection(&opts.network.sync, config, ctx, asset, amount)
@@ -249,19 +252,28 @@ fn reserve_transfer_inputs(
 
     let mut reservations = Vec::new();
     let mut total = 0u64;
-    for note in candidates {
+    for (index, note) in candidates.iter().copied().enumerate() {
         if total >= amount {
             break;
         }
-        if reservations.len() >= CLI_MAX_TRANSFER_INPUTS {
-            return Err(ClientError::FragmentedBalance {
-                requested: amount,
-                notes: CLI_MAX_TRANSFER_INPUTS + 1,
-                max_inputs: CLI_MAX_TRANSFER_INPUTS,
-            }
-            .into());
-        }
         if let Some(reservation) = reserve_hash(dir, note.hash)? {
+            if reservations.len() >= MAX_TRANSFER_INPUTS {
+                drop(reservation);
+                let (notes, available) = greedy_note_count(total, &candidates[index..], amount);
+                if available < amount {
+                    return Err(ClientError::InsufficientBalance {
+                        requested: amount,
+                        available,
+                    }
+                    .into());
+                }
+                return Err(ClientError::FragmentedBalance {
+                    requested: amount,
+                    notes,
+                    max_inputs: MAX_TRANSFER_INPUTS,
+                }
+                .into());
+            }
             total = total
                 .checked_add(note.amount)
                 .ok_or(ClientError::SelectedBalanceOverflow)?;
@@ -280,6 +292,18 @@ fn reserve_transfer_inputs(
         .map(|reservation| reservation.hash)
         .collect();
     Ok((InputSelection::Explicit(hashes), reservations))
+}
+
+fn greedy_note_count(mut total: u64, notes: &[SpendableUtxo], amount: u64) -> (usize, u64) {
+    let mut count = MAX_TRANSFER_INPUTS;
+    for note in notes {
+        count += 1;
+        total = total.saturating_add(note.amount);
+        if total >= amount {
+            break;
+        }
+    }
+    (count, total)
 }
 
 fn resolve_merge_selection(
@@ -554,7 +578,7 @@ pub(super) fn submit_private_transaction(
         Address::new_from_array(request.material.funding.pubkey().to_bytes()),
         &[&request.material.funding],
     )?;
-    refresh_all(request.reservations)?;
+    let _ = refresh_all(request.reservations);
     let outcome = wait_for_indexed_output_refreshing(
         request.indexer,
         request.rpc,
@@ -628,7 +652,7 @@ pub(super) fn submit_merge_transaction(
         Address::new_from_array(owner.to_bytes()),
         &[&request.material.funding],
     )?;
-    refresh_all(request.reservations)?;
+    let _ = refresh_all(request.reservations);
     let outcome = wait_for_indexed_output_refreshing(
         request.indexer,
         request.rpc,
@@ -733,4 +757,51 @@ pub(super) fn maybe_airdrop(
     let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
     println!("ok airdrop signature={signature}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+
+    fn note(amount: u64, tag: u8) -> SpendableUtxo {
+        SpendableUtxo {
+            hash: [tag; 32],
+            amount,
+        }
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "zolana-transfer-selection-{name}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn fragmented_balance_reports_actual_greedy_note_count() {
+        let dir = temp_dir("fragmented-count");
+        let notes = (0..7).map(|tag| note(10, tag)).collect::<Vec<_>>();
+        let err = match reserve_transfer_inputs(&dir, &notes, 65) {
+            Ok(_) => panic!("seven notes should exceed transfer cap"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err.downcast_ref::<ClientError>(),
+            Some(ClientError::FragmentedBalance {
+                requested: 65,
+                notes: 7,
+                max_inputs: MAX_TRANSFER_INPUTS,
+            })
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

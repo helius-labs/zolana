@@ -245,6 +245,38 @@ mod tests {
     }
 
     #[test]
+    fn reserve_hashes_rejects_duplicates() {
+        let dir = temp_dir("duplicates");
+        let err = match reserve_hashes(&dir, &[[8u8; 32], [8u8; 32]]) {
+            Ok(_) => panic!("duplicate hash must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("duplicate input note"),
+            "unexpected error: {err}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reserve_hashes_respects_live_locks() {
+        let dir = temp_dir("explicit-held");
+        let held = reserve_hash(&dir, [9u8; 32])
+            .unwrap()
+            .expect("initial claim");
+        let err = match reserve_hashes(&dir, &[[9u8; 32]]) {
+            Ok(_) => panic!("held hash must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("reserved by another process"),
+            "unexpected error: {err}"
+        );
+        drop(held);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn ttl_classifies_stale_and_live_lockfiles() {
         let now = SystemTime::now();
         // A fresh lockfile (just created) is live.
