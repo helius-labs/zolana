@@ -490,8 +490,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":        stats,
-		"total_pending": stats["zk_address_append_queue"],
-		"total_active":  stats["zk_address_append_processing_queue"],
+		"total_pending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
+		"total_active":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
 		"total_failed":  stats["zk_failed_queue"],
 		"timestamp":     time.Now().Unix(),
 	}

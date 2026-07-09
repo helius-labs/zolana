@@ -434,8 +434,8 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 	health["queue_lengths"] = stats
 	health["timestamp"] = time.Now().Unix()
 
-	health["total_pending"] = stats["zk_address_append_queue"]
-	health["total_processing"] = stats["zk_address_append_processing_queue"]
+	health["total_pending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"]
+	health["total_processing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"]
 	health["total_failed"] = stats["zk_failed_queue"]
 	health["total_results"] = stats["zk_results_queue"]
 
