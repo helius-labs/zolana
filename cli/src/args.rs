@@ -148,7 +148,7 @@ pub(crate) struct ConfigSetOptions {
     pub(crate) tree: Option<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct ConfigAddAssetOptions {
     #[arg(long, help = "SPL mint pubkey")]
     pub(crate) mint: String,
@@ -355,7 +355,7 @@ pub(crate) struct StartProverOptions {
     pub(crate) auto_download: bool,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct WalletKeypairOptions {
     #[arg(
         long = "keypair",
@@ -365,7 +365,7 @@ pub(crate) struct WalletKeypairOptions {
     pub(crate) keypair: Option<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct InitOptions {
     #[arg(
         long = "path",
@@ -387,7 +387,7 @@ pub(crate) struct InitOptions {
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct SyncOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
@@ -405,7 +405,7 @@ pub(crate) struct SyncOptions {
     pub(crate) indexer_url: Option<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct NetworkWalletOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -429,7 +429,7 @@ pub(crate) struct NetworkWalletOptions {
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct CreateTreeOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -445,7 +445,7 @@ pub(crate) struct CreateTreeOptions {
     pub(crate) airdrop_lamports: u64,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct TestMintOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -467,7 +467,7 @@ pub(crate) struct TestMintOptions {
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct DepositOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -485,7 +485,7 @@ pub(crate) struct DepositOptions {
     pub(crate) amount: u64,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct TransferOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -504,7 +504,7 @@ pub(crate) struct TransferOptions {
     pub(crate) amount: u64,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct WithdrawOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -519,7 +519,7 @@ pub(crate) struct WithdrawOptions {
     pub(crate) amount: u64,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub(crate) struct BalanceOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
@@ -528,7 +528,7 @@ pub(crate) struct BalanceOptions {
     pub(crate) mint: Option<String>,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 #[command(group(
     clap::ArgGroup::new("merge_toggle")
         .required(true)
@@ -561,9 +561,12 @@ impl TestValidatorOptions {
     pub(crate) fn sbf_program_specs(&self) -> Vec<ProgramSpec> {
         self.sbf_programs
             .chunks_exact(2)
-            .map(|chunk| ProgramSpec {
-                address: chunk[0].clone(),
-                path: chunk[1].clone(),
+            .filter_map(|chunk| match chunk {
+                [address, path] => Some(ProgramSpec {
+                    address: address.clone(),
+                    path: path.clone(),
+                }),
+                _ => None,
             })
             .collect()
     }
@@ -571,10 +574,13 @@ impl TestValidatorOptions {
     pub(crate) fn upgradeable_program_specs(&self) -> Vec<UpgradeableProgramSpec> {
         self.upgradeable_programs
             .chunks_exact(3)
-            .map(|chunk| UpgradeableProgramSpec {
-                address: chunk[0].clone(),
-                path: chunk[1].clone(),
-                upgrade_authority: chunk[2].clone(),
+            .filter_map(|chunk| match chunk {
+                [address, path, upgrade_authority] => Some(UpgradeableProgramSpec {
+                    address: address.clone(),
+                    path: path.clone(),
+                    upgrade_authority: upgrade_authority.clone(),
+                }),
+                _ => None,
             })
             .collect()
     }
@@ -748,16 +754,43 @@ mod tests {
         assert_eq!(opts.log_dir, "target/localnet/logs");
         let programs = opts.sbf_program_specs();
         assert_eq!(programs.len(), 2);
+        let mut programs = programs.iter();
+        let Some(pool_program) = programs.next() else {
+            panic!("expected pool program");
+        };
         assert_eq!(
-            programs[0].address,
+            pool_program.address,
             "Pool111111111111111111111111111111111111111"
         );
-        assert_eq!(programs[0].path, "target/deploy/pool.so");
+        assert_eq!(pool_program.path, "target/deploy/pool.so");
+        let Some(zone_program) = programs.next() else {
+            panic!("expected zone program");
+        };
         assert_eq!(
-            programs[1].address,
+            zone_program.address,
             "Zone111111111111111111111111111111111111111"
         );
-        assert_eq!(programs[1].path, "target/deploy/zone.so");
+        assert_eq!(zone_program.path, "target/deploy/zone.so");
+        assert!(programs.next().is_none());
+    }
+
+    #[test]
+    fn parses_test_env_alias_options() {
+        let Some(CliCommand::TestEnv(opts)) = parse_cli(&[
+            "test-env",
+            "--skip-prover",
+            "--skip-reset",
+            "--rpc-port",
+            "8901",
+        ])
+        .command
+        else {
+            panic!("expected test-env command");
+        };
+
+        assert!(opts.skip_prover);
+        assert!(opts.skip_reset);
+        assert_eq!(opts.rpc_port, 8901);
     }
 
     #[test]
@@ -823,9 +856,12 @@ mod tests {
             "--airdrop-lamports",
             "1000000000",
         ]);
-        assert_eq!(opts.path.as_deref(), Some("/tmp/alice.pid.json"));
-        assert_eq!(opts.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
-        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
+        let expected = InitOptions {
+            path: Some("/tmp/alice.pid.json".to_string()),
+            rpc_url: Some("http://127.0.0.1:8900".to_string()),
+            airdrop_lamports: Some(1_000_000_000),
+        };
+        assert_eq!(opts, expected);
     }
 
     #[test]
@@ -845,17 +881,18 @@ mod tests {
         ]) else {
             panic!("expected dev pool create-tree command");
         };
-        assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
-            Some("/tmp/alice.pid.json")
-        );
-        assert_eq!(opts.tree_keypair, "/tmp/tree.json");
-        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
-        assert_eq!(
-            opts.sync.indexer_url.as_deref(),
-            Some("http://127.0.0.1:8785")
-        );
-        assert_eq!(opts.airdrop_lamports, 1_000_000_000);
+        let expected = CreateTreeOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: Some("http://127.0.0.1:8900".to_string()),
+                indexer_url: Some("http://127.0.0.1:8785".to_string()),
+            },
+            tree_keypair: "/tmp/tree.json".to_string(),
+            airdrop_lamports: 1_000_000_000,
+        };
+        assert_eq!(opts, expected);
     }
 
     #[test]
@@ -881,12 +918,12 @@ mod tests {
         else {
             panic!("expected config asset add command");
         };
-        assert_eq!(opts.asset_id, 2);
-        assert_eq!(opts.mint, "Mint111111111111111111111111111111111111111");
-        assert_eq!(
-            opts.token_account.as_deref(),
-            Some("Token11111111111111111111111111111111111111")
-        );
+        let expected = ConfigAddAssetOptions {
+            mint: "Mint111111111111111111111111111111111111111".to_string(),
+            asset_id: 2,
+            token_account: Some("Token11111111111111111111111111111111111111".to_string()),
+        };
+        assert_eq!(opts, expected);
     }
 
     #[test]
@@ -927,13 +964,19 @@ mod tests {
         ]) else {
             panic!("expected dev pool test-mint command");
         };
-        assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
-            Some("/tmp/alice.pid.json")
-        );
-        assert_eq!(opts.amount, 1_000_000);
-        assert_eq!(opts.authority_path.as_deref(), Some("/tmp/admin.pid.json"));
-        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
+        let expected = TestMintOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: None,
+                indexer_url: None,
+            },
+            amount: 1_000_000,
+            authority_path: Some("/tmp/admin.pid.json".to_string()),
+            airdrop_lamports: Some(1_000_000_000),
+        };
+        assert_eq!(opts, expected);
     }
 
     #[test]
@@ -951,9 +994,14 @@ mod tests {
         else {
             panic!("expected sync command");
         };
-        assert_eq!(sync.keypair.keypair.as_deref(), Some("/tmp/alice.pid.json"));
-        assert_eq!(sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
-        assert_eq!(sync.indexer_url.as_deref(), Some("http://127.0.0.1:8785"));
+        let expected = SyncOptions {
+            keypair: WalletKeypairOptions {
+                keypair: Some("/tmp/alice.pid.json".to_string()),
+            },
+            rpc_url: Some("http://127.0.0.1:8900".to_string()),
+            indexer_url: Some("http://127.0.0.1:8785".to_string()),
+        };
+        assert_eq!(sync, expected);
 
         let Some(CliCommand::Balance(balance)) = parse_cli(&[
             "balance",
@@ -966,7 +1014,17 @@ mod tests {
         else {
             panic!("expected balance command");
         };
-        assert_eq!(balance.mint.as_deref(), Some("SOL"));
+        let expected = BalanceOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: None,
+                indexer_url: None,
+            },
+            mint: Some("SOL".to_string()),
+        };
+        assert_eq!(balance, expected);
     }
 
     #[test]
@@ -986,17 +1044,18 @@ mod tests {
             panic!("expected merge command");
         };
 
-        assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
-            Some("/tmp/alice.pid.json")
-        );
-        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
-        assert_eq!(
-            opts.sync.indexer_url.as_deref(),
-            Some("http://127.0.0.1:8785")
-        );
-        assert!(opts.enable);
-        assert!(!opts.disable);
+        let expected = MergeOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: Some("http://127.0.0.1:8900".to_string()),
+                indexer_url: Some("http://127.0.0.1:8785".to_string()),
+            },
+            enable: true,
+            disable: false,
+        };
+        assert_eq!(opts, expected);
 
         let Some(CliCommand::Merge(opts)) =
             parse_cli(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"]).command
@@ -1004,8 +1063,18 @@ mod tests {
             panic!("expected merge command");
         };
 
-        assert!(!opts.enable);
-        assert!(opts.disable);
+        let expected = MergeOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: None,
+                indexer_url: None,
+            },
+            enable: false,
+            disable: true,
+        };
+        assert_eq!(opts, expected);
     }
 
     #[test]
@@ -1033,16 +1102,24 @@ mod tests {
         else {
             panic!("expected deposit command");
         };
-        assert_eq!(
-            deposit.network.tree.as_deref(),
-            Some("Tree111111111111111111111111111111111111111")
-        );
-        assert_eq!(
-            deposit.to.as_deref(),
-            Some("Recipient1111111111111111111111111111111111")
-        );
-        assert_eq!(deposit.amount, 1_000_000_000);
-        assert_eq!(deposit.network.airdrop_lamports, Some(2_000_000_000));
+        let expected = DepositOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: Some("http://127.0.0.1:8900".to_string()),
+                    indexer_url: Some("http://127.0.0.1:8785".to_string()),
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: Some(2_000_000_000),
+            },
+            to: Some("Recipient1111111111111111111111111111111111".to_string()),
+            mint: "SOL".to_string(),
+            amount: 1_000_000_000,
+        };
+        assert_eq!(deposit, expected);
 
         let Some(CliCommand::Deposit(self_deposit)) = parse_cli(&[
             "deposit",
@@ -1057,7 +1134,24 @@ mod tests {
         else {
             panic!("expected self-deposit command");
         };
-        assert_eq!(self_deposit.to, None);
+        let expected = DepositOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            to: None,
+            mint: "SOL".to_string(),
+            amount: 1_000_000_000,
+        };
+        assert_eq!(self_deposit, expected);
 
         let Some(CliCommand::Transfer(transfer)) = parse_cli(&[
             "transfer",
@@ -1078,12 +1172,24 @@ mod tests {
         else {
             panic!("expected transfer command");
         };
-        assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
-        assert_eq!(transfer.amount, 400_000_000);
-        assert_eq!(
-            transfer.network.prover_url.as_deref(),
-            Some("http://127.0.0.1:3002")
-        );
+        let expected = TransferOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/bob.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: Some("http://127.0.0.1:3002".to_string()),
+                airdrop_lamports: None,
+            },
+            to: "Recipient1111111111111111111111111111111111".to_string(),
+            mint: "SOL".to_string(),
+            amount: 400_000_000,
+        };
+        assert_eq!(transfer, expected);
 
         let Some(CliCommand::Withdraw(withdraw)) = parse_cli(&[
             "withdraw",
@@ -1102,7 +1208,23 @@ mod tests {
         else {
             panic!("expected withdraw command");
         };
-        assert_eq!(withdraw.to, "Dest1111111111111111111111111111111111111111");
-        assert_eq!(withdraw.amount, 200_000_000);
+        let expected = WithdrawOptions {
+            network: NetworkWalletOptions {
+                sync: SyncOptions {
+                    keypair: WalletKeypairOptions {
+                        keypair: Some("/tmp/alice.pid.json".to_string()),
+                    },
+                    rpc_url: None,
+                    indexer_url: None,
+                },
+                tree: Some("Tree111111111111111111111111111111111111111".to_string()),
+                prover_url: None,
+                airdrop_lamports: None,
+            },
+            to: "Dest1111111111111111111111111111111111111111".to_string(),
+            mint: "SOL".to_string(),
+            amount: 200_000_000,
+        };
+        assert_eq!(withdraw, expected);
     }
 }

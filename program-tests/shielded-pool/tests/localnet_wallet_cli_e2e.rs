@@ -136,8 +136,8 @@ fn restart_localnet() {
             &user_registry_so,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run zolana dev start");
+    assert!(status.success(), "zolana dev start restart failed");
 }
 
 fn cli_bin() -> PathBuf {

@@ -19,7 +19,7 @@ pub(crate) fn run_config(command: ConfigCommand) -> Result<()> {
 
 fn run_config_asset(command: ConfigAssetCommand) -> Result<()> {
     match command {
-        ConfigAssetCommand::List => run_asset_registry(),
+        ConfigAssetCommand::List => run_asset_list(),
         ConfigAssetCommand::Add(opts) => run_add_asset(opts),
         ConfigAssetCommand::Path => run_asset_path(),
     }
@@ -95,7 +95,7 @@ fn run_config_set(opts: ConfigSetOptions) -> Result<()> {
     Ok(())
 }
 
-fn run_asset_registry() -> Result<()> {
+fn run_asset_list() -> Result<()> {
     let config = CliConfigFile::load()?;
     print_assets(&config);
     Ok(())
