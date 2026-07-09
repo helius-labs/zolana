@@ -17,8 +17,8 @@ use zolana_transaction::{
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
-    order::{sdk_private_tx_hash, BlindingField, Escrow, OrderTerms, Recipient},
-    prover::prove_transact,
+    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
+    prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, FillProof,
 };
 
@@ -53,6 +53,8 @@ pub fn fill(
 
 pub struct FillSharedInputs {
     pub terms: OrderTerms,
+    pub source_mint: Address,
+    pub destination_mint: Address,
     pub escrow_blinding: Blinding,
     pub taker_address: [u8; 32],
     pub taker_in_blinding: Blinding,
@@ -71,80 +73,69 @@ impl FillSharedInputs {
         Ok(blinding)
     }
 
-    pub fn fill_proof_inputs(
-        &self,
-        source_mint: Address,
-        destination_mint: Address,
-    ) -> FillProofInputs {
-        FillProofInputs {
-            source_mint: *source_mint.as_array(),
+    pub fn fill_proof_inputs(&self) -> Result<FillProofInputs> {
+        Ok(FillProofInputs {
+            source_mint: *self.source_mint.as_array(),
             source_amount: self.terms.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
             escrow_blinding: self.escrow_blinding.to_field(),
-            destination_mint: *destination_mint.as_array(),
+            destination_mint: *self.destination_mint.as_array(),
             destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.maker_owner_hash,
-            maker_viewing_pk: self.terms.maker_viewing_pk,
+            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
             expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker_pk_fe,
+            taker_pk_fe: self.terms.taker.data_hash()?,
             taker_address: self.taker_address,
             taker_in_blinding: self.taker_in_blinding.to_field(),
             source_output_blinding: self.source_output_blinding.to_field(),
             external_data_hash: self.external_data_hash,
-        }
+        })
     }
 
-    pub fn escrow_output(&self, source_mint: Address) -> Result<OutputUtxo> {
+    pub fn escrow_output(&self) -> Result<OutputUtxo> {
         Escrow {
             terms: self.terms.clone(),
             blinding: self.escrow_blinding,
-            source_mint,
+            source_mint: self.source_mint,
         }
-        .output(self.taker_recipient.viewing_pubkey)
+        .output_utxo(self.taker_recipient.viewing_pubkey)
     }
 
-    pub fn taker_utxo(&self, destination_mint: Address) -> OutputUtxo {
+    pub fn taker_utxo(&self) -> OutputUtxo {
         Recipient {
             address: self.taker_recipient,
             amount: self.terms.destination_amount,
             blinding: self.taker_in_blinding,
-            mint: destination_mint,
+            mint: self.destination_mint,
         }
         .output()
     }
 
-    pub fn destination_output(&self, destination_mint: Address) -> Result<OutputUtxo> {
+    pub fn destination_output(&self) -> Result<OutputUtxo> {
         Ok(Recipient {
             address: self.maker_recipient,
             amount: self.terms.destination_amount,
             blinding: self.destination_output_blinding()?,
-            mint: destination_mint,
+            mint: self.destination_mint,
         }
         .output())
     }
 
-    pub fn source_output(&self, source_mint: Address) -> OutputUtxo {
+    pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.taker_recipient,
             amount: self.terms.source_amount,
             blinding: self.source_output_blinding,
-            mint: source_mint,
+            mint: self.source_mint,
         }
         .output()
     }
 
-    pub fn sdk_private_tx_hash(
-        &self,
-        source_mint: Address,
-        destination_mint: Address,
-    ) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output(source_mint)?.hash().map_err(err)?;
-        let taker_utxo_hash = self.taker_utxo(destination_mint).hash().map_err(err)?;
-        let destination_output_hash = self
-            .destination_output(destination_mint)?
-            .hash()
-            .map_err(err)?;
-        let source_output_hash = self.source_output(source_mint).hash().map_err(err)?;
+    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
+        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
+        let taker_utxo_hash = self.taker_utxo().hash().map_err(err)?;
+        let destination_output_hash = self.destination_output()?.hash().map_err(err)?;
+        let source_output_hash = self.source_output().hash().map_err(err)?;
         sdk_private_tx_hash(
             &[escrow_hash, taker_utxo_hash],
             &[source_output_hash, destination_output_hash],
@@ -217,8 +208,6 @@ fn asset_id(assets: &AssetRegistry, asset: &Address) -> Result<u64, TransactionE
 pub struct Fill {
     pub inputs: FillSharedInputs,
     pub signed: SignedTransaction,
-    pub source_mint: Address,
-    pub destination_mint: Address,
     pub payer: Pubkey,
     pub tree: Pubkey,
 }
@@ -230,25 +219,21 @@ impl Fill {
         self,
         spend_proofs: &[SpendProof],
         prover: &ProverClient,
+        swap_prover: &SwapProverClient,
     ) -> Result<(Instruction, FillProofResult)> {
         let Self {
             inputs,
             signed,
-            source_mint,
-            destination_mint,
             payer,
             tree,
         } = self;
-        let expected = inputs.sdk_private_tx_hash(source_mint, destination_mint)?;
+        let expected = inputs.sdk_private_tx_hash()?;
         let mut transact = prove_transact(signed, spend_proofs, prover)?;
         if let Some(escrow_input) = transact.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
         check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let fill_result = inputs
-            .fill_proof_inputs(source_mint, destination_mint)
-            .prove()
-            .map_err(err)?;
+        let fill_result = swap_prover.prove_fill(&inputs)?;
         check_private_tx_hash("fill proof", fill_result.private_tx_hash, expected)?;
         let spp_accounts = vec![
             AccountMeta::new(payer, true),

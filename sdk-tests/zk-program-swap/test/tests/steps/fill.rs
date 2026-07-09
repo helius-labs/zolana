@@ -7,6 +7,7 @@ use solana_signer::Signer;
 use swap_sdk::{
     instructions::fill::{EscrowFill, Fill, FillSharedInputs},
     order::{Escrow, SOL_ASSET_ID},
+    prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
 use zolana_keypair::random_blinding;
@@ -64,6 +65,8 @@ impl SwapWorld {
 
         let fill_shared_inputs = FillSharedInputs {
             terms: terms.clone(),
+            source_mint: SOL_MINT,
+            destination_mint: SOL_MINT,
             escrow_blinding,
             taker_address,
             taker_in_blinding,
@@ -75,9 +78,9 @@ impl SwapWorld {
         let destination_output_blinding = fill_shared_inputs
             .destination_output_blinding()
             .map_err(|e| anyhow!("destination blinding: {e:?}"))?;
-        let source_output = fill_shared_inputs.source_output(SOL_MINT);
+        let source_output = fill_shared_inputs.source_output();
         let destination_output = fill_shared_inputs
-            .destination_output(SOL_MINT)
+            .destination_output()
             .map_err(|e| anyhow!("destination output: {e:?}"))?;
 
         let escrow_input = Escrow {
@@ -126,12 +129,14 @@ impl SwapWorld {
         let (ix, _fill_result) = Fill {
             inputs: fill_shared_inputs,
             signed,
-            source_mint: SOL_MINT,
-            destination_mint: SOL_MINT,
             payer: taker_solana.pubkey(),
             tree: self.tree,
         }
-        .instruction(&spend_proofs, &ProverClient::local())?;
+        .instruction(
+            &spend_proofs,
+            &ProverClient::local(),
+            &SwapProverClient::new_ffi(),
+        )?;
 
         let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let alt_addresses: Vec<Pubkey> = ix

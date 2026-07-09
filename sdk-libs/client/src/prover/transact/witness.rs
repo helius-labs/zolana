@@ -12,7 +12,7 @@ use crate::{
             eddsa::TransferProver,
             p256_and_eddsa::{P256Owner, PublicAmounts, TransferP256Prover, TransferSpendInput},
         },
-        TransferInputs, TransferP256Inputs,
+        ProofCompressed, ProverClient, TransferInputs, TransferP256Inputs,
     },
     rpc::{MerkleProof, NonInclusionProof},
 };
@@ -67,6 +67,21 @@ impl AssembledTransfer {
     pub fn with_proof(mut self, proof: TransactProof) -> TransactIxData {
         self.ix.proof = proof;
         self.ix
+    }
+}
+
+impl ProverClient {
+    pub fn prove_transact(
+        &self,
+        tx: SignedTransaction,
+        input_proofs: &[SpendProof],
+    ) -> Result<TransactIxData, ClientError> {
+        let assembled = assemble(tx, input_proofs)?;
+        let proof = match &assembled.prover_inputs {
+            ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
+            ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
+        };
+        Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
     }
 }
 

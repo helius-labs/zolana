@@ -7,8 +7,9 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use swap_sdk::{
-    instructions::create_swap::{CreateSharedInputs, CreateSwap, EscrowCreate},
+    instructions::create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
     order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
+    prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
 use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair};
@@ -81,7 +82,12 @@ impl SwapWorld {
         let spend_proofs = self.resolve_spend_proofs(&signed)?;
         let source_asset_id = create_inputs.terms.source_asset_id;
         let (proof, transact) =
-            create_inputs.prove(signed, SOL_MINT, &spend_proofs, &ProverClient::local())?;
+            create_inputs.prove(
+                signed,
+                &spend_proofs,
+                &ProverClient::local(),
+                &SwapProverClient::new_ffi(),
+            )?;
         let ix = CreateSwap {
             inputs: create_inputs,
             payer: input.solana.pubkey(),
@@ -90,7 +96,7 @@ impl SwapWorld {
             transact,
             source_asset_id,
         }
-        .instruction();
+        .instruction()?;
 
         // 5. Build and send the transaction (mechanical).
         self.send_create_ix(ix, &input.solana)?;
@@ -133,19 +139,19 @@ impl SwapWorld {
             .shielded_address()
             .map_err(|e| anyhow!("taker address: {e:?}"))?;
 
-        // The taker's ed25519 authorization identity (taker_pk_fe): the
-        // owner_pk_field of its shielded signing key, so the fill's taker input
-        // UTXO owner matches the order-committed taker.
-        let taker_pk_fe = taker_shielded
-            .signing_pubkey()
-            .owner_pk_field()
-            .map_err(|e| anyhow!("taker pk_fe: {e:?}"))?;
+        // The taker's ed25519 authorization identity: the fill's taker input
+        // UTXO owner must match the order-committed taker.
+        let taker = Address::new_from_array(
+            taker_shielded
+                .signing_pubkey()
+                .as_ed25519()
+                .map_err(|e| anyhow!("taker signing pubkey: {e:?}"))?,
+        );
 
         let destination_mint = self.destination_mint(params.destination_asset)?;
-        let maker_owner_hash = maker_keypair
-            .owner_hash()
-            .map_err(|e| anyhow!("owner hash: {e:?}"))?;
-        let maker_viewing_pk = *maker_keypair.viewing_pubkey().as_bytes();
+        let destination = maker_keypair
+            .shielded_address()
+            .map_err(|e| anyhow!("maker address: {e:?}"))?;
 
         let terms = OrderTerms {
             source_asset_id: SOL_ASSET_ID,
@@ -153,10 +159,9 @@ impl SwapWorld {
             destination_asset_id: params.destination_asset,
             destination_mint,
             destination_amount: params.destination_amount,
-            maker_owner_hash,
-            maker_viewing_pk,
+            destination,
+            taker,
             expiry: params.expiry,
-            taker_pk_fe,
             fill_mode: params.fill_mode,
         };
         Ok((terms, taker_address))
@@ -242,7 +247,7 @@ impl SwapWorld {
             blinding: order.escrow_blinding,
             source_mint: order.source_mint,
         }
-        .output(order.taker_address.viewing_pubkey)?;
+        .output_utxo(order.taker_address.viewing_pubkey)?;
         escrow.hash().map_err(|e| anyhow!("escrow hash: {e:?}"))
     }
 
@@ -277,7 +282,7 @@ fn build_order_outputs(
         blinding: escrow_blinding,
         source_mint: SOL_MINT,
     }
-    .output(taker_address.viewing_pubkey)?;
+    .output_utxo(taker_address.viewing_pubkey)?;
     let marker = marker_output_utxo(taker_address);
     Ok(OrderOutputs { escrow, marker })
 }
@@ -289,7 +294,7 @@ fn shared_inputs_from_signed(
     escrow_blinding: Blinding,
     taker_address: ShieldedAddress,
     signed: &SignedTransaction,
-) -> Result<CreateSharedInputs> {
+) -> Result<CreateSwapProofInputs> {
     let spend = signed.inputs.first().ok_or_else(|| anyhow!("no input"))?;
     let nullifier_pubkey = spend
         .nullifier_key
@@ -312,8 +317,9 @@ fn shared_inputs_from_signed(
         .hash()
         .map_err(|e| anyhow!("external data hash: {e:?}"))?;
 
-    Ok(CreateSharedInputs {
+    Ok(CreateSwapProofInputs {
         terms: terms.clone(),
+        source_mint: SOL_MINT,
         escrow_blinding,
         taker_address,
         source_input_hash,

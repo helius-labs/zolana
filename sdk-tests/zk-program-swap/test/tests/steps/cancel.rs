@@ -6,6 +6,7 @@ use solana_signer::Signer;
 use swap_sdk::{
     instructions::cancel::{Cancel, CancelSharedInputs, EscrowCancel},
     order::Escrow,
+    prover::SwapProverClient,
 };
 use zolana_client::{ProverClient, SpendProof, Transaction as TxBuilder};
 use zolana_keypair::random_blinding;
@@ -54,13 +55,14 @@ impl SwapWorld {
 
         let cancel_inputs = CancelSharedInputs {
             terms: terms.clone(),
+            source_mint: SOL_MINT,
             escrow_blinding,
             taker_viewing_pk,
             source_output_blinding,
             external_data_hash: [0u8; 32],
             maker_recipient,
         };
-        let source_output = cancel_inputs.source_output(SOL_MINT);
+        let source_output = cancel_inputs.source_output();
 
         // The SPP transact carries a FUTURE relayer deadline (SPP rejects an
         // expired transact); the committed order expiry (in the past) rides the
@@ -95,11 +97,14 @@ impl SwapWorld {
         let ix = Cancel {
             inputs: cancel_inputs,
             signed,
-            source_mint: SOL_MINT,
             payer: maker_solana.pubkey(),
             tree: self.tree,
         }
-        .instruction(&spend_proofs, &ProverClient::local())?;
+        .instruction(
+            &spend_proofs,
+            &ProverClient::local(),
+            &SwapProverClient::new_ffi(),
+        )?;
         let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         send_transaction(
             &mut self.rpc,

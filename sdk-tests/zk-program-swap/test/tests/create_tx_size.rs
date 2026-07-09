@@ -43,20 +43,15 @@ fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
     let taker = ShieldedKeypair::from_seed_ed25519(&fe(0x4d)).expect("taker keypair");
     let taker_recipient = taker.shielded_address().expect("taker address");
 
-    let taker_pk_fe = taker
-        .signing_pubkey()
-        .owner_pk_field()
-        .expect("taker pk_fe");
     let terms = OrderTerms {
         source_asset_id: SOL_ASSET_ID,
         source_amount: 400_000_000,
         destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: 250_000_000,
-        maker_owner_hash,
-        maker_viewing_pk,
+        destination: maker.shielded_address().expect("maker address"),
+        taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
         expiry: 1_700_000_000,
-        taker_pk_fe,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     };
 
@@ -70,7 +65,7 @@ fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
         blinding: escrow_blinding,
         source_mint: SOL_MINT,
     }
-    .output(taker_recipient.viewing_pubkey)
+    .output_utxo(taker_recipient.viewing_pubkey)
     .expect("escrow output");
     let marker = marker_output_utxo(taker_recipient);
 

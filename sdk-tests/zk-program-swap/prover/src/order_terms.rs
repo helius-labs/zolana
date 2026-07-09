@@ -31,10 +31,9 @@ pub fn maker_address_fe(
 pub struct OrderTerms {
     pub destination_asset: Address,
     pub destination_amount: u64,
-    pub maker_owner_hash: [u8; 32],
-    pub maker_viewing_pk: [u8; 33],
+    pub destination: [u8; 32],
     pub expiry: u64,
-    pub taker_pk_fe: [u8; 32],
+    pub taker: [u8; 32],
     pub fill_mode: u64,
 }
 
@@ -43,13 +42,12 @@ impl OrderTerms {
         let destination_asset = hash_field(self.destination_asset.as_array())?;
         let destination_amount = u64_to_field(self.destination_amount);
         let expiry = u64_to_field(self.expiry);
-        let maker_address = maker_address_fe(&self.maker_owner_hash, &self.maker_viewing_pk)?;
         poseidon(&[
             &destination_asset,
             &destination_amount,
-            &maker_address,
+            &self.destination,
             &expiry,
-            &self.taker_pk_fe,
+            &self.taker,
             &u64_to_field(self.fill_mode),
         ])
     }
@@ -79,10 +77,9 @@ mod tests {
         OrderTerms {
             destination_asset: Address::new_from_array([2u8; 32]),
             destination_amount: 250,
-            maker_owner_hash: [7u8; 32],
-            maker_viewing_pk: viewing_pk,
+            destination: maker_address_fe(&[7u8; 32], &viewing_pk).expect("destination fe"),
             expiry: 1_700_000_000,
-            taker_pk_fe: [11u8; 32],
+            taker: [11u8; 32],
             fill_mode,
         }
     }

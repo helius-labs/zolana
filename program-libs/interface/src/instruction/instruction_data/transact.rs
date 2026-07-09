@@ -55,6 +55,7 @@ pub struct InputUtxo {
 /// separately in `output_utxo_hashes`.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct OutputCiphertext {
+    // TODO: rename to OutputData
     pub view_tag: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub data: Vec<u8>,
@@ -97,7 +98,7 @@ pub struct TransactIxData {
     /// into the proof's output hash chain. Dummy outputs carry real-looking
     /// hashes, so the vector does not reveal the recipient count.
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
-    pub output_utxo_hashes: Vec<[u8; 32]>,
+    pub output_utxo_hashes: Vec<[u8; 32]>, // TODO: unify with output_ciphertexts into a single struct, add another vec for additional msgs
     /// Fixed length `1 + (M - SENDER_SLOT_COUNT)`. `[0]` is the sender bundle
     /// (covers the change positions); `[1..]` are recipient slots, each a real
     /// ciphertext or a same-length dummy, so the real recipient count is hidden.

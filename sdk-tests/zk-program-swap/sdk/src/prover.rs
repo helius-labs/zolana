@@ -1,9 +1,45 @@
 use anyhow::{bail, Result};
+use swap_prover::{
+    CancelProofResult, CreateProofResult, FillProofResult, FillVerifiableEncryptionProofResult,
+};
 use zolana_client::{assemble, Proof, ProofCompressed, ProverClient, ProverInputs, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::{TransactIxData, TransactProof};
 use zolana_transaction::instructions::transact::SignedTransaction;
 
-use crate::err;
+use crate::{
+    err,
+    instructions::{
+        cancel::CancelSharedInputs, create_swap::CreateSwapProofInputs, fill::FillSharedInputs,
+        fill_verifiable_encryption::FillVerifiableEncryptionSharedInputs,
+    },
+};
+
+pub struct SwapProverClient;
+
+impl SwapProverClient {
+    pub fn new_ffi() -> Self {
+        Self
+    }
+
+    pub fn prove_create_swap(&self, inputs: &CreateSwapProofInputs) -> Result<CreateProofResult> {
+        inputs.create_proof_inputs()?.prove().map_err(err)
+    }
+
+    pub fn prove_fill(&self, inputs: &FillSharedInputs) -> Result<FillProofResult> {
+        inputs.fill_proof_inputs()?.prove().map_err(err)
+    }
+
+    pub fn prove_cancel(&self, inputs: &CancelSharedInputs) -> Result<CancelProofResult> {
+        inputs.cancel_proof_inputs()?.prove().map_err(err)
+    }
+
+    pub fn prove_fill_verifiable_encryption(
+        &self,
+        inputs: &FillVerifiableEncryptionSharedInputs,
+    ) -> Result<FillVerifiableEncryptionProofResult> {
+        inputs.fill_proof_inputs()?.prove().map_err(err)
+    }
+}
 
 pub fn pack_transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)

@@ -19,7 +19,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair};
+use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     instructions::types::SpendUtxo, utxo::Utxo, AssetRegistry, Data, SOL_MINT,
 };
@@ -32,21 +32,16 @@ fn fe(byte: u8) -> [u8; 32] {
     out
 }
 
-fn sample_terms(
-    taker_pk_fe: [u8; 32],
-    maker_owner_hash: [u8; 32],
-    maker_viewing_pk: [u8; 33],
-) -> OrderTerms {
+fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
         source_asset_id: SOL_ASSET_ID,
         source_amount: 1_000,
         destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: 250,
-        maker_owner_hash,
-        maker_viewing_pk,
+        destination,
+        taker,
         expiry: 1_700_000_000,
-        taker_pk_fe,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     }
 }
@@ -60,14 +55,9 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
     let taker_recipient = taker.shielded_address().expect("taker address");
     let taker_address = taker.owner_hash().expect("taker owner hash");
 
-    let taker_pk_fe = taker
-        .signing_pubkey()
-        .owner_pk_field()
-        .expect("taker pk_fe");
     let terms = sample_terms(
-        taker_pk_fe,
-        maker.owner_hash().expect("maker owner hash"),
-        *maker.viewing_pubkey().as_bytes(),
+        maker_recipient,
+        Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
     );
 
     let escrow_blinding = {
@@ -80,6 +70,8 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
 
     let fill_shared_inputs = FillSharedInputs {
         terms: terms.clone(),
+        source_mint: SOL_MINT,
+        destination_mint: SOL_MINT,
         escrow_blinding,
         taker_address,
         taker_in_blinding,
@@ -88,9 +80,9 @@ fn build_fill_transact() -> (TransactIxData, FillProof) {
         maker_recipient,
         taker_recipient,
     };
-    let source_output = fill_shared_inputs.source_output(SOL_MINT);
+    let source_output = fill_shared_inputs.source_output();
     let destination_output = fill_shared_inputs
-        .destination_output(SOL_MINT)
+        .destination_output()
         .expect("destination output");
 
     let escrow_input = Escrow {

@@ -14,11 +14,11 @@ use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_sdk::{
     instructions::{
-        create_swap::{CreateSharedInputs, CreateSwap, EscrowCreate},
+        create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
         fill::{EscrowFill, Fill, FillSharedInputs},
     },
     order::{marker_output_utxo, BlindingField, Escrow, OrderTerms, SOL_ASSET_ID},
-    prover::prove_transact,
+    prover::SwapProverClient,
 };
 use zolana_client::{
     spawn_prover, sync_wallet, CreateDeposit, Deposit, ProverClient, Rpc, SolanaRpc, SpendProof,
@@ -44,21 +44,26 @@ const SOURCE_AMOUNT: u64 = 400_000_000;
 const DESTINATION_AMOUNT: u64 = 250_000_000;
 const EXPIRY: u64 = 2_000_000_000;
 
+// Each actor is one ed25519 identity: the wallet's signing key doubles as the
+// Solana fee payer (`to_solana_keypair`), and the wallet carries the asset
+// registry and the synced spendable notes.
 struct TestEnv {
     rpc: SolanaRpc,
     indexer: ZolanaIndexer,
     tree: Pubkey,
-    maker_solana: Keypair,
-    maker_shielded: ShieldedKeypair,
-    taker_solana: Keypair,
-    taker_shielded: ShieldedKeypair,
-    // Input notes each party spends in the swap, discovered by syncing its wallet
-    // from the indexer: the maker's shielded SPL and the taker's shielded SOL.
-    maker_input_utxo: Utxo,
-    taker_input_utxo: Utxo,
-    // `assets` maps the escrowed SPL mint to its on-chain asset id.
-    assets: AssetRegistry,
+    maker: Wallet,
+    taker: Wallet,
     spl_mint: Address,
+}
+
+fn spendable_utxo(wallet: &Wallet, mint: Address, min_amount: u64) -> Result<Utxo> {
+    wallet
+        .balances(false)
+        .map_err(|e| anyhow!("balances: {e:?}"))?
+        .into_iter()
+        .find(|b| b.mint == mint)
+        .and_then(|b| b.utxos.into_iter().find(|u| u.amount >= min_amount))
+        .ok_or_else(|| anyhow!("no spendable utxo of {mint} >= {min_amount}"))
 }
 
 fn setup() -> Result<TestEnv> {
@@ -130,7 +135,7 @@ fn setup() -> Result<TestEnv> {
     rpc.airdrop(&tree_creation_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&zone_creation_authority.pubkey(), 1_000_000_000)?;
 
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+    let payer_address = payer.pubkey();
 
     let accounts = smart_account::standard_accounts();
     for ix in accounts.create_ixs(
@@ -202,10 +207,7 @@ fn setup() -> Result<TestEnv> {
     // CreateAssetCounter and CreateSplInterface check the protocol authority (the
     // Squads protocol vault), so each is wrapped in execute_sync_ix.
     let spl_mint = create_mint(&rpc, &payer)?;
-    if rpc
-        .get_account(Address::new_from_array(pda::spl_asset_counter().to_bytes()))?
-        .is_none()
-    {
+    if rpc.get_account(pda::spl_asset_counter())?.is_none() {
         let counter_ix = CreateAssetCounter {
             authority: accounts.protocol_vault,
         }
@@ -233,13 +235,11 @@ fn setup() -> Result<TestEnv> {
 
     // SOL occupies asset id 1; the first registered SPL mint gets id 2.
     let spl_asset_id = 2u64;
-    let spl_mint = Address::new_from_array(spl_mint.to_bytes());
     let mut assets = AssetRegistry::default();
     assets.insert(spl_asset_id, spl_mint)?;
 
-    let spl_mint_pubkey = Pubkey::new_from_array(*spl_mint.as_array());
-    let spl_funding = create_token_account(&rpc, &payer, &spl_mint_pubkey, &payer.pubkey())?;
-    mint_to(&rpc, &payer, &spl_mint_pubkey, &spl_funding, 1_000_000_000)?;
+    let spl_funding = create_token_account(&rpc, &payer, &spl_mint, &payer.pubkey())?;
+    mint_to(&rpc, &payer, &spl_mint, &spl_funding, 1_000_000_000)?;
 
     let maker_solana = Keypair::new();
     let maker_seed: [u8; 32] = maker_solana.to_bytes()[..32]
@@ -281,41 +281,26 @@ fn setup() -> Result<TestEnv> {
     let mut taker_wallet = Wallet::new(taker_shielded.clone(), assets.clone())
         .map_err(|e| anyhow!("taker wallet: {e:?}"))?;
     let deadline = Instant::now() + Duration::from_secs(60);
-    let (maker_input_utxo, taker_input_utxo) = loop {
+    loop {
         sync_wallet(&mut maker_wallet, &indexer)?;
         sync_wallet(&mut taker_wallet, &indexer)?;
-        let maker_utxo = maker_wallet
-            .balances(false)
-            .map_err(|e| anyhow!("maker balances: {e:?}"))?
-            .into_iter()
-            .find(|b| b.mint == spl_mint)
-            .and_then(|b| b.utxos.into_iter().find(|u| u.amount >= SOURCE_AMOUNT));
-        let taker_utxo = taker_wallet
-            .balances(false)
-            .map_err(|e| anyhow!("taker balances: {e:?}"))?
-            .into_iter()
-            .find(|b| b.mint == SOL_MINT)
-            .and_then(|b| b.utxos.into_iter().find(|u| u.amount >= DESTINATION_AMOUNT));
-        if let (Some(maker_utxo), Some(taker_utxo)) = (maker_utxo, taker_utxo) {
-            break (maker_utxo, taker_utxo);
+        if spendable_utxo(&maker_wallet, spl_mint, SOURCE_AMOUNT).is_ok()
+            && spendable_utxo(&taker_wallet, SOL_MINT, DESTINATION_AMOUNT).is_ok()
+        {
+            break;
         }
         if Instant::now() >= deadline {
             return Err(anyhow!("timed out syncing shielded deposits"));
         }
         std::thread::sleep(Duration::from_millis(500));
-    };
+    }
 
     Ok(TestEnv {
         rpc,
         indexer,
         tree,
-        maker_solana,
-        maker_shielded,
-        taker_solana,
-        taker_shielded,
-        maker_input_utxo,
-        taker_input_utxo,
-        assets,
+        maker: maker_wallet,
+        taker: taker_wallet,
         spl_mint,
     })
 }
@@ -371,11 +356,8 @@ fn send_v0_with_lookup_table(rpc: &SolanaRpc, payer: &Keypair, ix: Instruction) 
         std::thread::sleep(Duration::from_millis(100));
     }
     let alt = AddressLookupTableAccount {
-        key: Address::new_from_array(table_address.to_bytes()),
-        addresses: alt_addresses
-            .iter()
-            .map(|p| Address::new_from_array(p.to_bytes()))
-            .collect(),
+        key: table_address,
+        addresses: alt_addresses.clone(),
     };
     let blockhash = client
         .get_latest_blockhash()
@@ -423,236 +405,226 @@ fn create_and_fill_swap_inline() -> Result<()> {
         rpc,
         indexer,
         tree,
-        maker_solana,
-        maker_shielded,
-        taker_solana,
-        taker_shielded,
-        maker_input_utxo,
-        taker_input_utxo,
-        assets,
+        maker,
+        taker,
         spl_mint,
     } = setup()?;
+    let swap_prover_client = SwapProverClient::new_ffi();
 
-    let maker_recipient = maker_shielded.shielded_address()?;
-    let taker_recipient_address = taker_shielded.shielded_address()?;
-
-    let source_asset_id = assets
+    let source_asset_id = maker
+        .registry
         .asset_id(&spl_mint)
         .map_err(|e| anyhow!("source asset id: {e}"))?;
 
-    let taker_address = taker_shielded.shielded_address()?;
-    let taker_pk_fe = taker_shielded
-        .signing_pubkey()
-        .owner_pk_field()
-        .map_err(|e| anyhow!("taker pk_fe: {e:?}"))?;
-    let maker_owner_hash = maker_shielded
-        .owner_hash()
-        .map_err(|e| anyhow!("owner hash: {e:?}"))?;
-    let maker_viewing_pk = *maker_shielded.viewing_pubkey().as_bytes();
+    let taker_address = taker.keypair.shielded_address()?;
+    // The taker's ed25519 authorization identity: the fill's taker input UTXO
+    // owner must match the order-committed taker.
+    let taker_authorization_address = taker_address
+        .solana_address()
+        .map_err(|e| anyhow!("taker solana address: {e:?}"))?;
+    // The order opening (terms + escrow blinding) both parties hold off-chain.
     let terms = OrderTerms {
         source_asset_id,
         source_amount: SOURCE_AMOUNT,
         destination_asset_id: SOL_ASSET_ID,
         destination_mint: SOL_MINT,
         destination_amount: DESTINATION_AMOUNT,
-        maker_owner_hash,
-        maker_viewing_pk,
+        // The swap settlement goes to the maker's shielded address.
+        destination: maker.keypair.shielded_address()?,
+        taker: taker_authorization_address,
         expiry: EXPIRY,
-        taker_pk_fe,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     };
-
     let escrow_blinding = random_blinding();
-    let escrow = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: spl_mint,
-    }
-    .output(taker_address.viewing_pubkey)?;
-    let marker = marker_output_utxo(taker_address);
+    {
+        let maker_address = maker.keypair.shielded_address()?;
+        let escrow_output_utxo = Escrow {
+            // TODO: rename to OrderUtxo
+            terms: terms.clone(),
+            blinding: escrow_blinding,
+            source_mint: spl_mint,
+        }
+        .output_utxo(taker_address.viewing_pubkey)?;
+        let marker_output_utxo = marker_output_utxo(taker_address);
 
-    let create_payer_address = Address::new_from_array(maker_solana.pubkey().to_bytes());
-    let create_spend = SpendUtxo::from_keypair(maker_input_utxo.clone(), &maker_shielded);
-    let create_tx = TxBuilder::new(
-        maker_shielded.shielded_address()?,
-        vec![create_spend],
-        create_payer_address,
-    );
-    let create_signed = EscrowCreate {
-        tx: create_tx,
-        escrow,
-        marker,
-        payer: maker_solana.pubkey(),
-    }
-    .sign(&maker_shielded, &assets)
-    .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
+        // We got all utxos
 
-    let create_commitments = create_signed
-        .input_utxo_hashes()
-        .map_err(|e| anyhow!("create input commitments: {e:?}"))?;
-    let create_states = indexer
-        .get_merkle_proofs(
+        // Build Prover inputs
+
+        let maker_input_utxo = spendable_utxo(&maker, spl_mint, SOURCE_AMOUNT)?;
+        let create_spend = SpendUtxo::from_keypair(maker_input_utxo, &maker.keypair);
+        let create_tx = TxBuilder::new(
+            maker_address,
+            vec![create_spend],
+            maker_address.solana_address()?,
+        );
+
+        let signed_private_transaction = EscrowCreate {
+            tx: create_tx,
+            escrow: escrow_output_utxo,
+            marker: marker_output_utxo,
+            payer: maker_address.solana_address()?,
+        }
+        .sign(&maker.keypair, &maker.registry)
+        .map_err(|e| anyhow!("escrow create sign: {e:?}"))?;
+
+        let spp_proof = indexer
+            .prove_transact(tree, signed_private_transaction.clone())
+            .map_err(|e| anyhow!("create transact proof: {e:?}"))?;
+
+        // Custom proof
+        let first_input_utxo = signed_private_transaction
+            .inputs
+            .first()
+            .ok_or_else(|| anyhow!("no create input"))?;
+        let create_nullifier_pubkey = first_input_utxo
+            .nullifier_key
+            .pubkey()
+            .map_err(|e| anyhow!("create nullifier pubkey: {e:?}"))?;
+        let source_input_hash = first_input_utxo
+            .utxo
+            .hash(
+                &create_nullifier_pubkey,
+                &first_input_utxo.data_hash.unwrap_or([0u8; 32]),
+                &first_input_utxo.zone_data_hash.unwrap_or([0u8; 32]),
+            )
+            .map_err(|e| anyhow!("source input hash: {e:?}"))?;
+        let change_output = signed_private_transaction
+            .outputs
+            .first()
+            .ok_or_else(|| anyhow!("no create change output"))?;
+        let change_amount = change_output.amount;
+        let change_blinding = change_output.blinding.to_field();
+        let external_data_hash = signed_private_transaction
+            .external_data
+            .hash()
+            .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
+
+        let create_swap_proof_inputs = CreateSwapProofInputs {
+            terms: terms.clone(),
+            source_mint: spl_mint,
+            escrow_blinding,
+            taker_address,
+            source_input_hash,
+            change_amount,
+            change_blinding,
+            external_data_hash,
+        };
+
+        let create_swap_proof = swap_prover_client
+            .prove_create_swap(&create_swap_proof_inputs)
+            .map_err(|e| anyhow!("create proof: {e:?}"))?;
+
+        let create_swap_ix = CreateSwap {
+            inputs: create_swap_proof_inputs,
+            payer: maker_address.solana_address()?,
             tree,
-            create_commitments.iter().map(|c| c.utxo_hash).collect(),
+            proof: create_swap_proof.proof.into(),
+            transact: spp_proof,
+            source_asset_id,
+        }
+        .instruction()?;
+
+        send_v0_with_lookup_table(&rpc, &maker.keypair.to_solana_keypair()?, create_swap_ix)?;
+    }
+
+    {
+        // TODO: sync taker wallet and deserialize terms from the utxo data, use the marker data to fetch it
+        let taker_owner_hash = taker
+            .keypair
+            .owner_hash()
+            .map_err(|e| anyhow!("taker owner hash: {e:?}"))?;
+        let taker_input_utxo = spendable_utxo(&taker, SOL_MINT, DESTINATION_AMOUNT)?;
+        let source_output_blinding = random_blinding();
+        let fill_inputs = FillSharedInputs {
+            terms: terms.clone(),
+            source_mint: spl_mint,
+            destination_mint: SOL_MINT,
+            escrow_blinding,
+            taker_address: taker_owner_hash,
+            taker_in_blinding: taker_input_utxo.blinding,
+            source_output_blinding,
+            external_data_hash: [0u8; 32],
+            maker_recipient: maker.keypair.shielded_address()?,
+            taker_recipient: taker.keypair.shielded_address()?,
+        };
+        let source_output = fill_inputs.source_output();
+        let destination_output = fill_inputs
+            .destination_output()
+            .map_err(|e| anyhow!("destination output: {e:?}"))?;
+        let source_output_hash = source_output
+            .hash()
+            .map_err(|e| anyhow!("source output hash: {e:?}"))?;
+        let destination_output_hash = destination_output
+            .hash()
+            .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
+
+        let escrow_input = Escrow {
+            terms: terms.clone(),
+            blinding: escrow_blinding,
+            source_mint: spl_mint,
+        }
+        .spend()
+        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        let taker_spend = SpendUtxo::from_keypair(taker_input_utxo, &taker.keypair);
+
+        let fill_tx = TxBuilder::new(
+            taker_address,
+            vec![escrow_input, taker_spend],
+            taker_address.solana_address()?,
         )
-        .map_err(|e| anyhow!("create merkle proofs: {e}"))?
-        .proofs;
-    let create_nullifier_proofs = indexer
-        .get_non_inclusion_proofs(
+        .with_expiry(terms.expiry);
+        let fill_signed = EscrowFill {
+            tx: fill_tx,
+            source_output,
+            destination_output,
+        }
+        .sign(&taker.keypair, &taker.registry)
+        .map_err(|e| anyhow!("escrow fill sign: {e:?}"))?;
+
+        let fill_commitments = fill_signed
+            .input_utxo_hashes()
+            .map_err(|e| anyhow!("fill input commitments: {e:?}"))?;
+        let fill_states = indexer
+            .get_merkle_proofs(tree, fill_commitments.iter().map(|c| c.utxo_hash).collect())
+            .map_err(|e| anyhow!("fill merkle proofs: {e}"))?
+            .proofs;
+        let fill_nullifier_proofs = indexer
+            .get_non_inclusion_proofs(tree, fill_commitments.iter().map(|c| c.nullifier).collect())
+            .map_err(|e| anyhow!("fill non-inclusion proofs: {e}"))?
+            .proofs;
+        let fill_spend_proofs: Vec<SpendProof> = fill_states
+            .into_iter()
+            .zip(fill_nullifier_proofs)
+            .map(|(state, nullifier)| SpendProof { state, nullifier })
+            .collect();
+
+        let fill_external_data_hash = fill_signed
+            .external_data
+            .hash()
+            .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
+        let fill_inputs = FillSharedInputs {
+            external_data_hash: fill_external_data_hash,
+            ..fill_inputs
+        };
+
+        let (fill_ix, _fill_result) = Fill {
+            inputs: fill_inputs,
+            signed: fill_signed,
+            payer: taker_address.solana_address()?,
             tree,
-            create_commitments.iter().map(|c| c.nullifier).collect(),
-        )
-        .map_err(|e| anyhow!("create non-inclusion proofs: {e}"))?
-        .proofs;
-    let create_spend_proofs: Vec<SpendProof> = create_states
-        .into_iter()
-        .zip(create_nullifier_proofs)
-        .map(|(state, nullifier)| SpendProof { state, nullifier })
-        .collect();
+        }
+        .instruction(
+            &fill_spend_proofs,
+            &ProverClient::local(),
+            &swap_prover_client,
+        )?;
 
-    let create_spend = create_signed
-        .inputs
-        .first()
-        .ok_or_else(|| anyhow!("no create input"))?;
-    let create_nullifier_pubkey = create_spend
-        .nullifier_key
-        .pubkey()
-        .map_err(|e| anyhow!("create nullifier pubkey: {e:?}"))?;
-    let source_input_hash = create_spend
-        .utxo
-        .hash(
-            &create_nullifier_pubkey,
-            &create_spend.data_hash.unwrap_or([0u8; 32]),
-            &create_spend.zone_data_hash.unwrap_or([0u8; 32]),
-        )
-        .map_err(|e| anyhow!("source input hash: {e:?}"))?;
-    let create_change_output = create_signed
-        .outputs
-        .first()
-        .ok_or_else(|| anyhow!("no create change output"))?;
-    let change_amount = create_change_output.amount;
-    let change_blinding = create_change_output.blinding.to_field();
-    let create_external_data_hash = create_signed
-        .external_data
-        .hash()
-        .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
+        send_v0_with_lookup_table(&rpc, &taker.keypair.to_solana_keypair()?, fill_ix)?;
 
-    let create_inputs = CreateSharedInputs {
-        terms: terms.clone(),
-        escrow_blinding,
-        taker_address,
-        source_input_hash,
-        change_amount,
-        change_blinding,
-        external_data_hash: create_external_data_hash,
-    };
-    let transact = prove_transact(create_signed, &create_spend_proofs, &ProverClient::local())?;
-    let create_result = create_inputs
-        .create_proof_inputs(spl_mint)?
-        .prove()
-        .map_err(|e| anyhow!("create proof: {e:?}"))?;
-    let create_ix = CreateSwap {
-        inputs: create_inputs,
-        payer: maker_solana.pubkey(),
-        tree,
-        proof: create_result.proof.into(),
-        transact,
-        source_asset_id,
+        indexer
+            .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash])
+            .map_err(|e| anyhow!("fill outputs index: {e}"))?;
     }
-    .instruction();
-
-    send_v0_with_lookup_table(&rpc, &maker_solana, create_ix)?;
-
-    let taker_owner_hash = taker_shielded
-        .owner_hash()
-        .map_err(|e| anyhow!("taker owner hash: {e:?}"))?;
-    let source_output_blinding = random_blinding();
-    let fill_inputs = FillSharedInputs {
-        terms: terms.clone(),
-        escrow_blinding,
-        taker_address: taker_owner_hash,
-        taker_in_blinding: taker_input_utxo.blinding,
-        source_output_blinding,
-        external_data_hash: [0u8; 32],
-        maker_recipient,
-        taker_recipient: taker_recipient_address,
-    };
-    let source_output = fill_inputs.source_output(spl_mint);
-    let destination_output = fill_inputs
-        .destination_output(SOL_MINT)
-        .map_err(|e| anyhow!("destination output: {e:?}"))?;
-    let source_output_hash = source_output
-        .hash()
-        .map_err(|e| anyhow!("source output hash: {e:?}"))?;
-    let destination_output_hash = destination_output
-        .hash()
-        .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
-
-    let escrow_input = Escrow {
-        terms: terms.clone(),
-        blinding: escrow_blinding,
-        source_mint: spl_mint,
-    }
-    .spend()
-    .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
-    let taker_spend = SpendUtxo::from_keypair(taker_input_utxo.clone(), &taker_shielded);
-
-    let fill_payer_address = Address::new_from_array(taker_solana.pubkey().to_bytes());
-    let fill_tx = TxBuilder::new(
-        taker_recipient_address,
-        vec![escrow_input, taker_spend],
-        fill_payer_address,
-    )
-    .with_expiry(terms.expiry);
-    let fill_signed = EscrowFill {
-        tx: fill_tx,
-        source_output,
-        destination_output,
-    }
-    .sign(&taker_shielded, &assets)
-    .map_err(|e| anyhow!("escrow fill sign: {e:?}"))?;
-
-    let fill_commitments = fill_signed
-        .input_utxo_hashes()
-        .map_err(|e| anyhow!("fill input commitments: {e:?}"))?;
-    let fill_states = indexer
-        .get_merkle_proofs(tree, fill_commitments.iter().map(|c| c.utxo_hash).collect())
-        .map_err(|e| anyhow!("fill merkle proofs: {e}"))?
-        .proofs;
-    let fill_nullifier_proofs = indexer
-        .get_non_inclusion_proofs(tree, fill_commitments.iter().map(|c| c.nullifier).collect())
-        .map_err(|e| anyhow!("fill non-inclusion proofs: {e}"))?
-        .proofs;
-    let fill_spend_proofs: Vec<SpendProof> = fill_states
-        .into_iter()
-        .zip(fill_nullifier_proofs)
-        .map(|(state, nullifier)| SpendProof { state, nullifier })
-        .collect();
-
-    let fill_external_data_hash = fill_signed
-        .external_data
-        .hash()
-        .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
-    let fill_inputs = FillSharedInputs {
-        external_data_hash: fill_external_data_hash,
-        ..fill_inputs
-    };
-
-    let (fill_ix, _fill_result) = Fill {
-        inputs: fill_inputs,
-        signed: fill_signed,
-        source_mint: spl_mint,
-        destination_mint: SOL_MINT,
-        payer: taker_solana.pubkey(),
-        tree,
-    }
-    .instruction(&fill_spend_proofs, &ProverClient::local())?;
-
-    send_v0_with_lookup_table(&rpc, &taker_solana, fill_ix)?;
-
-    indexer
-        .get_merkle_proofs(tree, vec![source_output_hash, destination_output_hash])
-        .map_err(|e| anyhow!("fill outputs index: {e}"))?;
-
     Ok(())
 }

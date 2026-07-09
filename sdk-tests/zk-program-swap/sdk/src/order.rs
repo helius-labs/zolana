@@ -1,7 +1,10 @@
 use anyhow::Result;
 use solana_address::Address;
+use swap_prover::order_terms::maker_address_fe;
+use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::BLINDING_LEN, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, hash::hash_field, NullifierKey, P256Pubkey, PublicKey,
+    ShieldedAddress,
 };
 use zolana_transaction::{
     instructions::{
@@ -11,10 +14,9 @@ use zolana_transaction::{
     utxo::{Blinding, Utxo},
     Data, SOL_MINT,
 };
+pub use zolana_transaction::SOL_ASSET_ID;
 
 use crate::err;
-
-pub const SOL_ASSET_ID: u64 = 1;
 
 pub trait BlindingField {
     fn to_field(&self) -> [u8; 32];
@@ -28,42 +30,87 @@ impl BlindingField for Blinding {
     }
 }
 
+pub trait DataHash {
+    fn data_hash(&self) -> Result<[u8; 32]>;
+}
+
+impl DataHash for ShieldedAddress {
+    fn data_hash(&self) -> Result<[u8; 32]> {
+        maker_address_fe(
+            &self.owner_hash().map_err(err)?,
+            self.viewing_pubkey.as_bytes(),
+        )
+        .map_err(err)
+    }
+}
+
+impl DataHash for Address {
+    fn data_hash(&self) -> Result<[u8; 32]> {
+        hash_field(self.as_array()).map_err(err)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct OrderTerms {
     pub source_asset_id: u64,
     pub source_amount: u64,
+
     pub destination_asset_id: u64,
     pub destination_mint: Address,
     pub destination_amount: u64,
-    pub maker_owner_hash: [u8; 32],
-    pub maker_viewing_pk: [u8; 33],
+
+    pub destination: ShieldedAddress,
+    pub taker: Address,
+
     pub expiry: u64,
-    pub taker_pk_fe: [u8; 32],
+    // With or without verifiable encryption.
     pub fill_mode: u64,
 }
 
 impl OrderTerms {
+    // The utxo itself commits source amount and mint.
+    // The data hash constrains:
+    // 1. the mint we want to swap into
+    // 2. how many tokens of the mint we want to swap into
+    // 3. which shielded pubkey the swap settlement will go to
     pub fn data_hash(&self) -> Result<[u8; 32]> {
         swap_prover::OrderTerms {
             destination_asset: self.destination_mint,
             destination_amount: self.destination_amount,
-            maker_owner_hash: self.maker_owner_hash,
-            maker_viewing_pk: self.maker_viewing_pk,
+            destination: self.destination.data_hash()?,
+            taker: self.taker.data_hash()?,
             expiry: self.expiry,
-            taker_pk_fe: self.taker_pk_fe,
             fill_mode: self.fill_mode,
         }
         .data_hash()
         .map_err(err)
     }
 
-    pub fn utxo_data_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(8 + 8 + 8 + 32);
-        out.extend_from_slice(&self.destination_asset_id.to_be_bytes());
-        out.extend_from_slice(&self.destination_amount.to_be_bytes());
-        out.extend_from_slice(&self.expiry.to_be_bytes());
-        out.extend_from_slice(&self.taker_pk_fe);
-        out
+    pub fn plaintext(&self) -> PlainTextData {
+        PlainTextData {
+            destination_asset_id: self.destination_asset_id,
+            destination_amount: self.destination_amount,
+            expiry: self.expiry,
+            taker: self.taker,
+        }
+    }
+}
+
+#[derive(SchemaWrite, SchemaRead, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlainTextData {
+    pub destination_asset_id: u64,
+    pub destination_amount: u64,
+    pub expiry: u64,
+    pub taker: Address,
+}
+
+impl PlainTextData {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        wincode::serialize(self).map_err(err)
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        wincode::deserialize_exact(bytes).map_err(err)
     }
 }
 
@@ -92,7 +139,7 @@ impl Escrow {
     /// The taker's viewing pubkey makes the escrow slot ciphertext
     /// readable by the taker; its `owner_hash` is a constant across
     /// orders and matches the prover's `escrow_owner_hash(pda)`.
-    pub fn output(&self, taker_viewing_pk: P256Pubkey) -> Result<OutputUtxo> {
+    pub fn output_utxo(&self, taker_viewing_pk: P256Pubkey) -> Result<OutputUtxo> {
         let data_hash = self.terms.data_hash()?;
         let nullifier_pubkey = Self::nullifier_key().pubkey().map_err(err)?;
         let owner_address = ShieldedAddress {
@@ -107,7 +154,7 @@ impl Escrow {
             owner_address: Some(owner_address),
             ..Default::default()
         }
-        .with_utxo_data(self.terms.utxo_data_bytes(), data_hash))
+        .with_utxo_data(self.terms.plaintext().serialize()?, data_hash))
     }
 
     /// The escrow input spend: the opening (terms + blinding) is the full spend

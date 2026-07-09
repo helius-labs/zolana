@@ -14,9 +14,9 @@ use zolana_transaction::{
 
 use crate::{
     check_private_tx_hash, err, escrow_authority_pda,
-    order::{sdk_private_tx_hash, BlindingField, Escrow, OrderTerms, Recipient},
+    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms, Recipient},
     program_id_pubkey,
-    prover::prove_transact,
+    prover::{prove_transact, SwapProverClient},
     spp_program_meta, tag, CancelProof,
 };
 
@@ -80,6 +80,7 @@ pub fn cancel(
 
 pub struct CancelSharedInputs {
     pub terms: OrderTerms,
+    pub source_mint: Address,
     pub escrow_blinding: Blinding,
     pub taker_viewing_pk: P256Pubkey,
     pub source_output_blinding: Blinding,
@@ -88,53 +89,53 @@ pub struct CancelSharedInputs {
 }
 
 impl CancelSharedInputs {
-    pub fn cancel_proof_inputs(&self, source_mint: Address) -> Result<CancelProofInputs> {
+    pub fn cancel_proof_inputs(&self) -> Result<CancelProofInputs> {
         Ok(CancelProofInputs {
             source_asset_id: self.terms.source_asset_id,
-            source_mint: *source_mint.as_array(),
+            source_mint: *self.source_mint.as_array(),
             source_amount: self.terms.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
             escrow_blinding: self.escrow_blinding.to_field(),
             destination_mint: *self.terms.destination_mint.as_array(),
             destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.maker_owner_hash,
+            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
             maker_owner_pk_field: self
                 .maker_recipient
                 .signing_pubkey
                 .owner_pk_field()
                 .map_err(err)?,
             maker_nullifier_pk: self.maker_recipient.nullifier_pubkey,
-            maker_viewing_pk: self.terms.maker_viewing_pk,
+            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
             expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker_pk_fe,
+            taker_pk_fe: self.terms.taker.data_hash()?,
             fill_mode: self.terms.fill_mode,
             source_output_blinding: self.source_output_blinding.to_field(),
             external_data_hash: self.external_data_hash,
         })
     }
 
-    pub fn escrow_output(&self, source_mint: Address) -> Result<OutputUtxo> {
+    pub fn escrow_output(&self) -> Result<OutputUtxo> {
         Escrow {
             terms: self.terms.clone(),
             blinding: self.escrow_blinding,
-            source_mint,
+            source_mint: self.source_mint,
         }
-        .output(self.taker_viewing_pk)
+        .output_utxo(self.taker_viewing_pk)
     }
 
-    pub fn source_output(&self, source_mint: Address) -> OutputUtxo {
+    pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.maker_recipient,
             amount: self.terms.source_amount,
             blinding: self.source_output_blinding,
-            mint: source_mint,
+            mint: self.source_mint,
         }
         .output()
     }
 
-    pub fn sdk_private_tx_hash(&self, source_mint: Address) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output(source_mint)?.hash().map_err(err)?;
-        let source_output_hash = self.source_output(source_mint).hash().map_err(err)?;
+    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
+        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
+        let source_output_hash = self.source_output().hash().map_err(err)?;
         sdk_private_tx_hash(
             &[escrow_hash],
             &[source_output_hash],
@@ -169,7 +170,6 @@ impl EscrowCancel {
 pub struct Cancel {
     pub inputs: CancelSharedInputs,
     pub signed: SignedTransaction,
-    pub source_mint: Address,
     pub payer: Pubkey,
     pub tree: Pubkey,
 }
@@ -186,15 +186,15 @@ impl Cancel {
         self,
         spend_proofs: &[SpendProof],
         prover: &ProverClient,
+        swap_prover: &SwapProverClient,
     ) -> Result<Instruction> {
         let Self {
             inputs,
             signed,
-            source_mint,
             payer,
             tree,
         } = self;
-        let expected = inputs.sdk_private_tx_hash(source_mint)?;
+        let expected = inputs.sdk_private_tx_hash()?;
         let maker_signer = Pubkey::new_from_array(
             inputs
                 .maker_recipient
@@ -207,10 +207,7 @@ impl Cancel {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
         check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let cancel_result = inputs
-            .cancel_proof_inputs(source_mint)?
-            .prove()
-            .map_err(err)?;
+        let cancel_result = swap_prover.prove_cancel(&inputs)?;
         check_private_tx_hash("cancel proof", cancel_result.private_tx_hash, expected)?;
         let spp_accounts = vec![
             AccountMeta::new(payer, true),

@@ -11,6 +11,7 @@ use swap_sdk::{
         FillVerifiableEncryptionSharedInputs,
     },
     order::{Escrow, SOL_ASSET_ID},
+    prover::SwapProverClient,
     MarkerData,
 };
 use zolana_client::{ProverClient, Rpc, SpendProof, Transaction as TxBuilder};
@@ -63,7 +64,7 @@ impl SwapWorld {
             blinding: escrow_blinding,
             source_mint: SOL_MINT,
         }
-        .output(taker_recipient.viewing_pubkey)?
+        .output_utxo(taker_recipient.viewing_pubkey)?
         .hash()
         .map_err(|e| anyhow!("escrow hash: {e:?}"))?;
         let marker = self.discover_marker(taker_view_tag)?;
@@ -91,6 +92,8 @@ impl SwapWorld {
 
         let fill_shared_inputs = FillVerifiableEncryptionSharedInputs {
             terms: terms.clone(),
+            source_mint: SOL_MINT,
+            destination_mint: SOL_MINT,
             escrow_blinding,
             taker_in_blinding,
             destination_output_blinding,
@@ -100,7 +103,7 @@ impl SwapWorld {
             taker_recipient,
         };
         let fill_inputs = fill_shared_inputs
-            .fill_proof_inputs(SOL_MINT, SOL_MINT)
+            .fill_proof_inputs()
             .map_err(|e| anyhow!("fill proof inputs: {e:?}"))?;
 
         // Derive the destination verifiable-encryption ciphertext before building the SPP
@@ -108,8 +111,8 @@ impl SwapWorld {
         let destination_ciphertext = fill_inputs
             .destination_ciphertext()
             .map_err(|e| anyhow!("destination ciphertext: {e:?}"))?;
-        let source_output = fill_shared_inputs.source_output(SOL_MINT);
-        let destination_output = fill_shared_inputs.destination_output(SOL_MINT);
+        let source_output = fill_shared_inputs.source_output();
+        let destination_output = fill_shared_inputs.destination_output();
 
         // Escrow input: PDA-owned, spent via the opening (terms + blinding); the swap
         // program signs for the escrow authority via invoke_signed. Taker input
@@ -170,12 +173,14 @@ impl SwapWorld {
         let (ix, fill_result) = FillVerifiableEncryption {
             inputs: fill_shared_inputs,
             signed,
-            source_mint: SOL_MINT,
-            destination_mint: SOL_MINT,
             payer: taker_solana.pubkey(),
             tree: self.tree,
         }
-        .instruction(&spend_proofs, &ProverClient::local())?;
+        .instruction(
+            &spend_proofs,
+            &ProverClient::local(),
+            &SwapProverClient::new_ffi(),
+        )?;
 
         let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let alt_addresses: Vec<Pubkey> = ix

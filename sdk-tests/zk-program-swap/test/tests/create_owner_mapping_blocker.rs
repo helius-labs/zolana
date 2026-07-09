@@ -5,7 +5,7 @@ use swap_sdk::{
     instructions::create_swap::EscrowCreate,
     order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
 };
-use zolana_keypair::{hash::hash_field, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{hash::hash_field, ShieldedAddress, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     instructions::{transact::Transaction as TxBuilder, types::SpendUtxo},
     utxo::{Blinding, Utxo},
@@ -14,21 +14,16 @@ use zolana_transaction::{
 
 const SENDER_SLOT_SHARED_INDEX: usize = 0;
 
-fn sample_terms(maker_owner_hash: [u8; 32]) -> OrderTerms {
-    let mut taker_pk_fe = [0u8; 32];
-    taker_pk_fe[31] = 123;
-    let mut maker_viewing_pk = [0u8; 33];
-    maker_viewing_pk[0] = 2;
+fn sample_terms(destination: ShieldedAddress, taker: Address) -> OrderTerms {
     OrderTerms {
         source_asset_id: SOL_ASSET_ID,
         source_amount: 1_000,
         destination_asset_id: 2,
         destination_mint: Address::new_from_array([7u8; 32]),
         destination_amount: 250,
-        maker_owner_hash,
-        maker_viewing_pk,
+        destination,
+        taker,
         expiry: 1_700_000_000,
-        taker_pk_fe,
         fill_mode: swap_prover::FILL_MODE_DERIVED,
     }
 }
@@ -106,9 +101,10 @@ fn create_change_first_owner_tag_mapping_matches() {
     let taker = taker_keypair();
     let taker_address = taker.shielded_address().expect("taker address");
 
-    let mut maker_owner_hash = [0u8; 32];
-    maker_owner_hash[31] = 99;
-    let terms = sample_terms(maker_owner_hash);
+    let terms = sample_terms(
+        maker.shielded_address().expect("maker address"),
+        Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pubkey")),
+    );
 
     let mut escrow_blinding: Blinding = [0u8; 31];
     escrow_blinding[30] = 7;
@@ -117,7 +113,7 @@ fn create_change_first_owner_tag_mapping_matches() {
         blinding: escrow_blinding,
         source_mint: SOL_MINT,
     }
-    .output(taker_address.viewing_pubkey)
+    .output_utxo(taker_address.viewing_pubkey)
     .expect("escrow output");
     let marker = marker_output_utxo(taker_address);
 

@@ -130,16 +130,18 @@ fn plain_utxo_hash(
 }
 
 impl FillProofInputs {
-    fn order_terms(&self) -> OrderTerms {
-        OrderTerms {
+    fn order_terms(&self) -> Result<OrderTerms, FillError> {
+        Ok(OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            maker_owner_hash: self.maker_owner_hash,
-            maker_viewing_pk: self.maker_viewing_pk,
+            destination: crate::order_terms::maker_address_fe(
+                &self.maker_owner_hash,
+                &self.maker_viewing_pk,
+            )?,
             expiry: self.expiry,
-            taker_pk_fe: self.taker_pk_fe,
+            taker: self.taker_pk_fe,
             fill_mode: crate::order_terms::FILL_MODE_DERIVED,
-        }
+        })
     }
 
     fn source_asset(&self) -> Result<[u8; 32], FillError> {
@@ -164,7 +166,7 @@ impl FillProofInputs {
             &domain,
             &self.source_asset()?,
             &u64_to_field(self.source_amount),
-            &self.order_terms().data_hash()?,
+            &self.order_terms()?.data_hash()?,
             &self.escrow_owner()?,
             &self.escrow_blinding,
         )

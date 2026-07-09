@@ -204,10 +204,12 @@ impl FillVerifiableEncryptionProofInputs {
         let data_hash = OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            maker_owner_hash: self.maker_owner_hash,
-            maker_viewing_pk: self.maker_viewing_pk,
+            destination: crate::order_terms::maker_address_fe(
+                &self.maker_owner_hash,
+                &self.maker_viewing_pk,
+            )?,
             expiry: self.expiry,
-            taker_pk_fe: self.taker_pk_fe,
+            taker: self.taker_pk_fe,
             fill_mode: FILL_MODE_VERIFIABLE,
         }
         .data_hash()?;

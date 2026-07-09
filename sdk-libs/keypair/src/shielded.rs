@@ -19,6 +19,12 @@ impl ShieldedAddress {
     pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
         owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
     }
+
+    pub fn solana_address(&self) -> Result<solana_address::Address, KeypairError> {
+        Ok(solana_address::Address::new_from_array(
+            self.signing_pubkey.as_ed25519()?,
+        ))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,6 +101,15 @@ impl ShieldedKeypair {
 
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
+    }
+
+    pub fn to_solana_keypair(&self) -> Result<solana_keypair::Keypair, KeypairError> {
+        if !self.signing_key.is_ed25519() {
+            return Err(KeypairError::NotEd25519);
+        }
+        Ok(solana_keypair::Keypair::new_from_array(
+            *self.signing_key.secret_bytes(),
+        ))
     }
 
     pub fn viewing_pubkey(&self) -> P256Pubkey {

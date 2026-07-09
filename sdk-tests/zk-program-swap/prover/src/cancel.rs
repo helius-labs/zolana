@@ -95,16 +95,18 @@ fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], CancelError> {
 }
 
 impl CancelProofInputs {
-    fn order_terms(&self) -> OrderTerms {
-        OrderTerms {
+    fn order_terms(&self) -> Result<OrderTerms, CancelError> {
+        Ok(OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            maker_owner_hash: self.maker_owner_hash,
-            maker_viewing_pk: self.maker_viewing_pk,
+            destination: crate::order_terms::maker_address_fe(
+                &self.maker_owner_hash,
+                &self.maker_viewing_pk,
+            )?,
             expiry: self.expiry,
-            taker_pk_fe: self.taker_pk_fe,
+            taker: self.taker_pk_fe,
             fill_mode: self.fill_mode,
-        }
+        })
     }
 
     fn source_asset(&self) -> Result<[u8; 32], CancelError> {
@@ -123,7 +125,7 @@ impl CancelProofInputs {
         let domain = u64_to_field(UTXO_DOMAIN);
         let asset = self.source_asset()?;
         let amount = u64_to_field(self.source_amount);
-        let data_hash = self.order_terms().data_hash()?;
+        let data_hash = self.order_terms()?.data_hash()?;
         let owner = self.escrow_owner()?;
 
         let zero = [0u8; 32];

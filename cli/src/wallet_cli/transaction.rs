@@ -3,9 +3,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputUtxoContext,
-    ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
-    ZolanaIndexer,
+    create_transfer_sync, CreateTransfer, InputUtxoContext, ProverClient, Rpc, SignedTransaction,
+    SolanaRpc, SpendProof, ZolanaIndexer,
 };
 use zolana_interface::instruction::{Transact, TransactWithdrawal};
 use zolana_transaction::Address;
@@ -83,17 +82,7 @@ pub(super) fn submit_private_transaction(
 ) -> Result<Signature> {
     let commitments = signed.input_utxo_hashes()?;
     let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
-    // `assemble` runs the witness build once: the per-input nullifiers, root
-    // indices, and dummy padding come out of the prover, so the instruction data
-    // and the proof commit to identical values by construction.
-    let assembled = assemble(signed, &proofs)?;
-    let prover = ProverClient::new(request.prover_url.to_string());
-    let proof = match &assembled.prover_inputs {
-        ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
-        ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
-    };
-    let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-    let data = assembled.with_proof(proof);
+    let data = ProverClient::new(request.prover_url.to_string()).prove_transact(signed, &proofs)?;
     let ix = Transact {
         payer: request.material.funding.pubkey(),
         tree: request.tree,

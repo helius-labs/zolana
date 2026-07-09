@@ -11,10 +11,13 @@ use zolana_api::{
     types::{Base64String, Hash as ApiHash, SerializablePubkey, ZolanaOutputSlot as ApiOutputSlot},
     BlockingZolanaApi,
 };
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
+use zolana_transaction::instructions::transact::SignedTransaction;
 
 use crate::{
     error::ClientError,
+    prover::{transact::SpendProof, ProverClient},
     rpc::{
         Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, MerkleContext,
@@ -48,6 +51,42 @@ impl ZolanaIndexer {
 
     pub fn api(&self) -> &BlockingZolanaApi {
         &self.api
+    }
+
+    pub fn prove_transact(
+        &self,
+        tree: Address,
+        signed: SignedTransaction,
+    ) -> Result<TransactIxData, ClientError> {
+        let spend_proofs = self.spend_proofs(tree, &signed)?;
+        ProverClient::local().prove_transact(signed, &spend_proofs)
+    }
+
+    fn spend_proofs(
+        &self,
+        tree: Address,
+        signed: &SignedTransaction,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        let inputs = signed.input_utxo_hashes()?;
+        let state_proofs = self
+            .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect())?
+            .proofs;
+        let nullifier_proofs = self
+            .get_non_inclusion_proofs(tree, inputs.iter().map(|c| c.nullifier).collect())?
+            .proofs;
+        if state_proofs.len() != inputs.len() || nullifier_proofs.len() != inputs.len() {
+            return Err(ClientError::Rpc(format!(
+                "indexer returned {} state and {} nullifier proofs for {} inputs",
+                state_proofs.len(),
+                nullifier_proofs.len(),
+                inputs.len()
+            )));
+        }
+        Ok(state_proofs
+            .into_iter()
+            .zip(nullifier_proofs)
+            .map(|(state, nullifier)| SpendProof { state, nullifier })
+            .collect())
     }
 
     fn get_merkle_proofs_once(

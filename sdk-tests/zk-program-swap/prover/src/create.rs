@@ -92,16 +92,15 @@ fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], CreateError> {
 }
 
 impl CreateProofInputs {
-    fn order_terms(&self) -> OrderTerms {
-        OrderTerms {
+    fn order_terms(&self) -> Result<OrderTerms, CreateError> {
+        Ok(OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
             destination_amount: self.destination_amount,
-            maker_owner_hash: self.maker_owner_hash,
-            maker_viewing_pk: self.maker_viewing_pk,
+            destination: self.maker_address_fe()?,
             expiry: self.expiry,
-            taker_pk_fe: self.taker_pk_fe,
+            taker: self.taker_pk_fe,
             fill_mode: self.fill_mode,
-        }
+        })
     }
 
     fn source_asset(&self) -> Result<[u8; 32], CreateError> {
@@ -120,7 +119,7 @@ impl CreateProofInputs {
         let domain = u64_to_field(UTXO_DOMAIN);
         let asset = self.source_asset()?;
         let amount = u64_to_field(self.source_amount);
-        let data_hash = self.order_terms().data_hash()?;
+        let data_hash = self.order_terms()?.data_hash()?;
         let owner = self.escrow_owner()?;
 
         let zero = [0u8; 32];

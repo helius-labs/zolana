@@ -21,7 +21,11 @@ use zolana_transaction::{
 };
 
 use crate::{
-    CreateProof, MarkerData, check_private_tx_hash, err, escrow_authority_pda, order::{BlindingField, Escrow, OrderTerms, marker_output_utxo, sdk_private_tx_hash}, program_id_pubkey, prover::prove_transact, spp_program_meta, tag
+    check_private_tx_hash, err, escrow_authority_pda,
+    order::{marker_output_utxo, sdk_private_tx_hash, BlindingField, DataHash, Escrow, OrderTerms},
+    program_id_pubkey,
+    prover::{prove_transact, SwapProverClient},
+    spp_program_meta, tag, CreateProof, MarkerData,
 };
 
 /// Wire layout for an order-lifecycle instruction's body: a Borsh proof-struct
@@ -87,8 +91,9 @@ pub fn create_swap(
     }
 }
 
-pub struct CreateSharedInputs {
+pub struct CreateSwapProofInputs {
     pub terms: OrderTerms,
+    pub source_mint: Address,
     pub escrow_blinding: Blinding,
     pub taker_address: ShieldedAddress,
     pub source_input_hash: [u8; 32],
@@ -97,20 +102,20 @@ pub struct CreateSharedInputs {
     pub external_data_hash: [u8; 32],
 }
 
-impl CreateSharedInputs {
-    pub fn create_proof_inputs(&self, source_mint: Address) -> Result<CreateProofInputs> {
+impl CreateSwapProofInputs {
+    pub fn create_proof_inputs(&self) -> Result<CreateProofInputs> {
         Ok(CreateProofInputs {
             source_asset_id: self.terms.source_asset_id,
-            source_mint: *source_mint.as_array(),
+            source_mint: *self.source_mint.as_array(),
             source_amount: self.terms.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
             escrow_blinding: self.escrow_blinding.to_field(),
             destination_mint: *self.terms.destination_mint.as_array(),
             destination_amount: self.terms.destination_amount,
-            maker_owner_hash: self.terms.maker_owner_hash,
-            maker_viewing_pk: self.terms.maker_viewing_pk,
+            maker_owner_hash: self.terms.destination.owner_hash().map_err(err)?,
+            maker_viewing_pk: *self.terms.destination.viewing_pubkey.as_bytes(),
             expiry: self.terms.expiry,
-            taker_pk_fe: self.terms.taker_pk_fe,
+            taker_pk_fe: self.terms.taker.data_hash()?,
             fill_mode: self.terms.fill_mode,
             external_data_hash: self.external_data_hash,
             source_input_hash: self.source_input_hash,
@@ -120,19 +125,17 @@ impl CreateSharedInputs {
         })
     }
 
-    pub fn change_output_hash(&self, source_mint: Address) -> Result<[u8; 32]> {
-        self.create_proof_inputs(source_mint)?
-            .change_output_hash()
-            .map_err(err)
+    pub fn change_output_hash(&self) -> Result<[u8; 32]> {
+        self.create_proof_inputs()?.change_output_hash().map_err(err)
     }
 
-    pub fn escrow_output(&self, source_mint: Address) -> Result<OutputUtxo> {
+    pub fn escrow_output(&self) -> Result<OutputUtxo> {
         Escrow {
             terms: self.terms.clone(),
             blinding: self.escrow_blinding,
-            source_mint,
+            source_mint: self.source_mint,
         }
-        .output(self.taker_address.viewing_pubkey)
+        .output_utxo(self.taker_address.viewing_pubkey)
     }
 
     pub fn marker_output_utxo(&self) -> OutputUtxo {
@@ -143,10 +146,10 @@ impl CreateSharedInputs {
         self.marker_output_utxo().hash().map_err(err)
     }
 
-    pub fn sdk_private_tx_hash(&self, source_mint: Address) -> Result<[u8; 32]> {
-        let escrow_hash = self.escrow_output(source_mint)?.hash().map_err(err)?;
+    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
+        let escrow_hash = self.escrow_output()?.hash().map_err(err)?;
         let marker_hash = self.marker_output_hash()?;
-        let change_hash = self.change_output_hash(source_mint)?;
+        let change_hash = self.change_output_hash()?;
         // Padded 2x3 chains: one dummy input contributes 0; outputs are
         // [change, escrow, marker]; addresses are two zeros.
         sdk_private_tx_hash(
@@ -162,17 +165,14 @@ impl CreateSharedInputs {
     pub fn prove(
         &self,
         signed: SignedTransaction,
-        source_mint: Address,
         spend_proofs: &[SpendProof],
         prover: &ProverClient,
+        swap_prover: &SwapProverClient,
     ) -> Result<(CreateProof, TransactIxData)> {
-        let expected = self.sdk_private_tx_hash(source_mint)?;
+        let expected = self.sdk_private_tx_hash()?;
         let transact = prove_transact(signed, spend_proofs, prover)?;
         check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let create_result = self
-            .create_proof_inputs(source_mint)?
-            .prove()
-            .map_err(err)?;
+        let create_result = swap_prover.prove_create_swap(self)?;
         check_private_tx_hash("create proof", create_result.private_tx_hash, expected)?;
         Ok((create_result.proof.into(), transact))
     }
@@ -294,7 +294,7 @@ fn input_sum(tx: &Transaction, asset: &Address) -> i128 {
 }
 
 pub struct CreateSwap {
-    pub inputs: CreateSharedInputs,
+    pub inputs: CreateSwapProofInputs,
     pub payer: Pubkey,
     pub tree: Pubkey,
     pub proof: CreateProof,
@@ -303,7 +303,7 @@ pub struct CreateSwap {
 }
 
 impl CreateSwap {
-    pub fn instruction(self) -> Instruction {
+    pub fn instruction(self) -> Result<Instruction> {
         let Self {
             inputs,
             payer,
@@ -319,8 +319,8 @@ impl CreateSwap {
         }
 
         let mut maker_address = [0u8; 65]; // TODO: refactor this it doesnt make sense
-        maker_address[0..32].copy_from_slice(&inputs.terms.maker_owner_hash);
-        maker_address[32..65].copy_from_slice(&inputs.terms.maker_viewing_pk);
+        maker_address[0..32].copy_from_slice(&inputs.terms.destination.owner_hash().map_err(err)?);
+        maker_address[32..65].copy_from_slice(inputs.terms.destination.viewing_pubkey.as_bytes());
         let data = CreateSwapIxData {
             proof,
             source_asset_id,
@@ -337,11 +337,11 @@ impl CreateSwap {
         ];
         let mut instruction_data = vec![tag::CREATE_SWAP];
         instruction_data.extend_from_slice(&data);
-        Instruction {
+        Ok(Instruction {
             program_id: program_id_pubkey(),
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }
 
@@ -421,7 +421,7 @@ mod tests {
             payer: Pubkey::default(),
         }
         .sign(&owner_keypair, &assets)
-            .expect("escrow create");
+        .expect("escrow create");
 
         assert_eq!(signed.shape, Shape::new(2, 3));
         assert_eq!(signed.outputs.len(), 3);
@@ -523,7 +523,7 @@ mod tests {
             payer: Pubkey::default(),
         }
         .sign(&owner_keypair, &assets)
-            .expect("escrow create");
+        .expect("escrow create");
 
         let change = signed.outputs.first().expect("change output");
         assert!(change.is_dummy());
