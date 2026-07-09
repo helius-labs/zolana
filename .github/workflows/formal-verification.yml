@@ -56,5 +56,5 @@ jobs:
       - name: Build Lean project (checks all theorems)
         run: |
           cd prover/server/formal-verification
-          lake exe cache get
+          lake exe cache get || true
           lake build

@@ -24,20 +24,12 @@ def hashLevel (d : Bool) (s h : F): F := match d with
 | false => poseidon₂ vec![h,s]
 | true => poseidon₂ vec![s,h]
 
-theorem hashLevel_def (d : Bool) (s h : F):
-  hashLevel d s h = match d with
-  | false => poseidon₂ vec![h,s]
-  | true => poseidon₂ vec![s,h] := by rfl
-
 @[simp]
 lemma ProveParentHash_rw {d : Bool} {h s : F} {k : F → Prop}:
   ZolanaProver.ProveParentHash d.toZMod h s k ↔
     (k $ hashLevel d s h)
   := by
   cases d <;> simp [ZolanaProver.ProveParentHash, Gates, GatesGnark12, GatesGnark9, GatesGnark8, hashLevel]
-
-lemma MerkleTree.recover_succ' {ix : List.Vector Bool (Nat.succ N)} {proof : List.Vector F (Nat.succ N)} :
-  MerkleTree.recover poseidon₂ ix proof item = hashLevel ix.head proof.head (MerkleTree.recover poseidon₂ ix.tail proof.tail item) := Eq.refl _
 
 theorem StateMerkleRootGadget_rw {h : F} {i : List.Vector Bool SD} {p : List.Vector F SD} {k : F → Prop}:
     StateMerkleRootGadget h (i.map Bool.toZMod) p k ↔ k (MerkleTree.recover poseidon₂ i.reverse p.reverse h) := by

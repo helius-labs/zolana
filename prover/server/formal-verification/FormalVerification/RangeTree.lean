@@ -30,19 +30,6 @@ instance : Membership Nat (Option Range) where
 
 def Range.disjoint (r₁ r₂ : Range) : Prop := r₁.hi.val ≤ r₂.lo.val ∨ r₂.hi.val ≤ r₁.lo.val
 
-lemma isSome_of_mem {v : Nat} {r : Option Range} (h: v ∈ r): r.isSome := by
-  cases r
-  simp [Membership.mem] at h
-  rfl
-
-lemma mem_of_mem {v : Nat} {r : Range}: v ∈ some r → v ∈ r := by
-  simp [Membership.mem]
-
-lemma hi_ne_zero_of_mem {v : Nat} {r : Range} : v ∈ r → r.hi ≠ 0 := by
-  rintro ⟨_, hlt⟩ heq
-  rw [heq] at hlt
-  simp [ZMod.val_zero] at hlt
-
 structure RangeVector (l : ℕ) : Type where
   ranges : Fin l → Option Range
   rangesDisjoint : ∀ (i j : Fin l), i ≠ j → match ranges i with
