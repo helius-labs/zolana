@@ -45,35 +45,9 @@ mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
 mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
 
 [[test]]
-name = "lifecycle"
-path = "tests/lifecycle.rs"
-harness = false
-
-[[test]]
-name = "two_proof_consistency"
-path = "tests/two_proof_consistency.rs"
-
-[[test]]
-name = "create_owner_mapping_blocker"
-path = "tests/create_owner_mapping_blocker.rs"
-
-[[test]]
-name = "fill_tx_size"
-path = "tests/fill_tx_size.rs"
-
-[[test]]
-name = "fill_verifiable_encryption_tx_size"
-path = "tests/fill_verifiable_encryption_tx_size.rs"
-
-[[test]]
-name = "create_tx_size"
-path = "tests/create_tx_size.rs"
-
-[[test]]
 name = "bench_cu"
 path = "tests/bench_cu.rs"
 
 [[test]]
-name = "create_fill_inline"
-path = "tests/create_fill_inline.rs"
-harness = true
+name = "swap"
+path = "tests/swap.rs"
