@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publishes Zolana-specific proving keys as assets on a GitHub release so the
+# Publishes Rings-specific proving keys as assets on a GitHub release so the
 # prover server can download them at startup.
 #
 # The tag MUST match common.ProvingKeysReleaseTag in
@@ -82,8 +82,8 @@ else
     echo "Creating release $tag"
     gh release create "$tag" "${assets[@]}" \
         --repo "$repo" \
-        --title "Zolana proving keys ($tag)" \
-        --notes "Groth16 proving keys generated from Zolana circuits. Downloaded by the prover server at startup."
+        --title "Rings proving keys ($tag)" \
+        --notes "Groth16 proving keys generated from Rings circuits. Downloaded by the prover server at startup."
 fi
 
 echo "Done. Assets published to https://github.com/${repo}/releases/tag/${tag}"

@@ -1,7 +1,7 @@
+use rings_client::{ClientError, Rpc};
+use rings_interface::state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig};
 
 use super::fetch_state;
 

@@ -1,5 +1,5 @@
 [package]
-name = "zolana-event"
+name = "rings-event"
 version = "0.1.0"
 edition.workspace = true
 publish = false

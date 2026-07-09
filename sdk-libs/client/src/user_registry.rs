@@ -1,13 +1,13 @@
+use rings_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType};
+use rings_user_registry_interface::{
+    instruction::{register, update_keys, RegisterData, UpdateKeysData},
+    user_record_pda, user_registry_program_id, UserRecord,
+};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType};
-use zolana_user_registry_interface::{
-    instruction::{register, update_keys, RegisterData, UpdateKeysData},
-    user_record_pda, user_registry_program_id, UserRecord,
-};
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
 
@@ -209,10 +209,10 @@ pub fn resolved_address_from_record(
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
+    use rings_keypair::{ShieldedKeypair, ViewingKey};
+    use rings_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
     use solana_account::Account;
     use solana_signer::Signer;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
-    use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
 
     use super::*;
 
@@ -525,7 +525,7 @@ mod tests {
         // Tag 0 = register (first user-registry instruction tag).
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
-            zolana_user_registry_interface::instruction::discriminator::REGISTER
+            rings_user_registry_interface::instruction::discriminator::REGISTER
         );
     }
 
@@ -564,7 +564,7 @@ mod tests {
         );
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
-            zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
+            rings_user_registry_interface::instruction::discriminator::UPDATE_KEYS
         );
     }
 }

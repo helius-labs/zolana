@@ -35,11 +35,11 @@ impl From<ZeroCopyError> for ProgramError {
 
 use core::mem::MaybeUninit;
 
+use rings_bloom_filter::BloomFilter;
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_bloom_filter::BloomFilter;
 
 use crate::merkle_tree_metadata::BatchedMerkleTreeMetadata;
 

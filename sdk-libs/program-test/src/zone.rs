@@ -1,23 +1,23 @@
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
+use rings_interface::{
     instruction::{
         encode_instruction, tag, CreateZoneConfigData, DepositSplAccounts, UpdateZoneConfig,
         UpdateZoneConfigOwner, ZoneDeposit, ZoneDepositIxData,
     },
     pda,
 };
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::Wallet;
+use rings_keypair::constants::BLINDING_LEN;
+use rings_transaction::Wallet;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::{
     instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path, single_deposit_view,
-    wallet_data::wallet_shield_fields, DepositOutput, ProgramTestError, ZolanaProgramTest,
+    wallet_data::wallet_shield_fields, DepositOutput, ProgramTestError, RingsProgramTest,
 };
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     fn zone_test_program_id() -> Pubkey {
         Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)
     }

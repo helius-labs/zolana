@@ -1,16 +1,16 @@
 //! Zone-config admin steps.
 
 use cucumber::{given, then, when};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::CreateZoneConfig,
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use rings_program_test::ZONE_TEST_PROGRAM_ID;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::{common::assert_pool_error, ShieldedPoolWorld};
 

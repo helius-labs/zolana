@@ -1,8 +1,8 @@
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
+pub use rings_interface::UTXO_DOMAIN;
+use rings_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 use solana_address::Address;
-pub use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::TransferRecipientPlaintext,
@@ -67,7 +67,7 @@ pub fn zone_program_id_field(
 
 pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
     match program_id {
-        Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
+        Some(id) => rings_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
         None => Ok([0u8; 32]),
     }
 }
@@ -90,7 +90,7 @@ pub fn utxo_hash(
 ) -> Result<[u8; 32], TransactionError> {
     let domain = right_align(&UTXO_DOMAIN.to_be_bytes());
     let asset =
-        zolana_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
+        rings_keypair::hash::hash_field(asset.as_array()).map_err(TransactionError::from)?;
     let amount = right_align(&amount.to_be_bytes());
     let zone_hash = poseidon(&[zone_data_hash, &program_id_field(&zone_program_id)?])?;
     poseidon(&[
@@ -105,7 +105,7 @@ pub fn utxo_hash(
 
 impl Utxo {
     pub fn owner_utxo_hash(&self, nullifier_pk: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
-        let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
+        let owner_hash = rings_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
         owner_utxo_hash(&owner_hash, &self.blinding)
     }
 

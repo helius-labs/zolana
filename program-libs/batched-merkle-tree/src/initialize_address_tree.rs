@@ -1,9 +1,9 @@
-use solana_address::Address as Pubkey;
-use zolana_account_checks::AccountView;
-use zolana_merkle_tree_metadata::{
+use rings_account_checks::AccountView;
+use rings_merkle_tree_metadata::{
     access::AccessMetadata, fee::compute_rollover_fee, merkle_tree::MerkleTreeMetadata,
     rollover::RolloverMetadata, TreeType,
 };
+use solana_address::Address as Pubkey;
 
 use crate::{
     constants::{

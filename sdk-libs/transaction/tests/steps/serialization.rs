@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
 use cucumber::then;
-use zolana_keypair::{
+use rings_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     ViewingKey,
 };
-use zolana_transaction::{
+use rings_transaction::{
     data::{Data, DataRecord},
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,

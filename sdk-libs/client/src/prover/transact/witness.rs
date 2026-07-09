@@ -1,8 +1,8 @@
-use zolana_interface::instruction::instruction_data::transact::{
+use rings_interface::instruction::instruction_data::transact::{
     InputUtxo, TransactIxData, TransactProof,
 };
-use zolana_keypair::SignatureType;
-use zolana_transaction::instructions::transact::{builder::inputs_require_p256, SignedTransaction};
+use rings_keypair::SignatureType;
+use rings_transaction::instructions::transact::{builder::inputs_require_p256, SignedTransaction};
 
 use crate::{
     error::ClientError,
@@ -70,12 +70,12 @@ impl AssembledTransfer {
     }
 }
 
-fn client_shape(shape: zolana_transaction::instructions::transact::Shape) -> Shape {
+fn client_shape(shape: rings_transaction::instructions::transact::Shape) -> Shape {
     Shape::new(shape.n_inputs, shape.n_outputs)
 }
 
 fn client_public_amounts(
-    amounts: zolana_transaction::instructions::transact::PublicAmounts,
+    amounts: rings_transaction::instructions::transact::PublicAmounts,
 ) -> PublicAmounts {
     PublicAmounts {
         sol: amounts.sol,
@@ -209,7 +209,7 @@ pub fn assemble(
         real_signer_indices.push(signer);
     }
 
-    let zolana_transaction::ExternalData {
+    let rings_transaction::ExternalData {
         expiry_unix_ts,
         relayer_fee,
         public_sol_amount,

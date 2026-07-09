@@ -28,7 +28,7 @@ pub const ADDRESS_TREE_INIT_ROOT_40: [u8; 32] = [
 /// Init root of a height-40 indexed Merkle tree seeded with the BN254 `p-1`
 /// sentinel (the highest valid field element). Used to initialize nullifier
 /// trees, whose values are full BN254 field elements rather than 248-bit
-/// addresses. Generated from `zolana-merkle-tree`; see
+/// addresses. Generated from `rings-merkle-tree`; see
 /// `tests/init_roots.rs`.
 pub const NULLIFIER_TREE_INIT_ROOT_40: [u8; 32] = [
     29, 142, 113, 166, 1, 179, 232, 222, 187, 186, 155, 85, 123, 131, 105, 199, 244, 4, 174, 87,

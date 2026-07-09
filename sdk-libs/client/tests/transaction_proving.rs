@@ -7,7 +7,7 @@
 //! Requires a reachable prover server (started via `spawn_prover`) with the
 //! `transfer_2_3.key` and `transfer_p256_2_3.key` proving keys available.
 //!
-//! Run with: `cargo test -p zolana-client --test transaction_proving`
+//! Run with: `cargo test -p rings-client --test transaction_proving`
 
 mod prover;
 mod steps;

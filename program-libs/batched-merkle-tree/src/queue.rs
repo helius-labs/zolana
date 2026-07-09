@@ -1,4 +1,4 @@
-use zolana_bloom_filter::BloomFilter;
+use rings_bloom_filter::BloomFilter;
 
 use super::batch::BatchState;
 use crate::{

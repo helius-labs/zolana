@@ -16,7 +16,7 @@ Feature: Randomized mixed-asset eddsa workload
   again, and an on-chain conservation invariant ties the pool's SOL custody and SPL
   vault balances to the net deposited minus withdrawn.
 
-  The seed is random each run and printed at the start; set ZOLANA_RANDOM_SEED to
+  The seed is random each run and printed at the start; set RINGS_RANDOM_SEED to
   reproduce a specific run.
 
   Background:

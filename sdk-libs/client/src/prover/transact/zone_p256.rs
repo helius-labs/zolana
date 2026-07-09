@@ -6,16 +6,16 @@
 //! no output-owner chain, and the shared `p256_signing_pk_field` is not folded
 //! into the hash.
 
-use solana_address::Address;
-use zolana_keypair::{
+use rings_keypair::{
     hash::{hash_field, sha256, split_be_128},
     PublicKey,
 };
-use zolana_transaction::{
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     utxo::program_id_field,
     ExternalData, OutputUtxo,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,

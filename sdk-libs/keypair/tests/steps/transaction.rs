@@ -1,5 +1,5 @@
 use cucumber::then;
-use zolana_keypair::random_salt;
+use rings_keypair::random_salt;
 
 use crate::KeypairWorld;
 

@@ -1,24 +1,24 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
+use rings_client::{Rpc, SolanaRpc};
+use rings_interface::{
+    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
+    pda,
+    state::{tree_account_size, ProtocolConfig, SplAssetCounter},
+    SHIELDED_POOL_PROGRAM_ID,
+};
+use rings_test_utils::smart_account::{
+    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
+    Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
+    SMART_ACCOUNT_PROGRAM_ID,
+};
 use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
-    pda,
-    state::{tree_account_size, ProtocolConfig, SplAssetCounter},
-    SHIELDED_POOL_PROGRAM_ID,
-};
-use zolana_test_utils::smart_account::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
-    Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
-    SMART_ACCOUNT_PROGRAM_ID,
-};
 
 const VAULT_FUNDING_BUFFER_LAMPORTS: u64 = 10_000_000;
 
@@ -545,7 +545,7 @@ fn create_tree(
     let rent = rpc
         .get_minimum_balance_for_rent_exemption(size)
         .context("rent for tree account")?;
-    let alloc_ix = zolana_program_test::system_create_account_ix(
+    let alloc_ix = rings_program_test::system_create_account_ix(
         &payer.pubkey(),
         &tree_keypair.pubkey(),
         rent,

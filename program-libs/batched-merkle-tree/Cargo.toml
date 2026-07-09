@@ -1,5 +1,5 @@
 [package]
-name = "zolana-batched-merkle-tree"
+name = "rings-batched-merkle-tree"
 version = "0.11.0"
 description = "Batch Merkle tree implementation."
 readme = "README.md"
@@ -16,22 +16,22 @@ ignored = [
 [features]
 default = []
 test-only = []
-log = ["dep:solana-msg", "zolana-merkle-tree-metadata/log"]
+log = ["dep:solana-msg", "rings-merkle-tree-metadata/log"]
 profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
 
 [dependencies]
-zolana-account-checks = { workspace = true }
+rings-account-checks = { workspace = true }
 aligned-sized = { workspace = true }
 solana-program-error = { workspace = true }
 solana-sysvar = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 solana-address = { workspace = true }
 wincode = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
-zolana-bloom-filter = { workspace = true }
+rings-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+rings-bloom-filter = { workspace = true }
 groth16-solana = { workspace = true }
 thiserror = { workspace = true }
-zolana-merkle-tree-metadata = { workspace = true }
+rings-merkle-tree-metadata = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 zerocopy = { workspace = true }
@@ -39,12 +39,12 @@ light-program-profiler = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-account-checks = { workspace = true, features = ["test-only"] }
-zolana-hasher = { workspace = true, features = ["keccak"] }
-zolana-client = { workspace = true }
-zolana-indexed-array = { workspace = true }
-zolana-merkle-tree-metadata = { workspace = true }
+rings-merkle-tree = { workspace = true }
+rings-account-checks = { workspace = true, features = ["test-only"] }
+rings-hasher = { workspace = true, features = ["keccak"] }
+rings-client = { workspace = true }
+rings-indexed-array = { workspace = true }
+rings-merkle-tree-metadata = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

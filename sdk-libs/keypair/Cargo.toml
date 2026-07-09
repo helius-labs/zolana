@@ -1,5 +1,5 @@
 [package]
-name = "zolana-keypair"
+name = "rings-keypair"
 version = "0.1.0"
 description = "TSPP client keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ ctr = { workspace = true }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+rings-hasher = { workspace = true, features = ["poseidon", "std"] }
 rand = { workspace = true }
 thiserror = { workspace = true }
 

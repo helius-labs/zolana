@@ -9,8 +9,8 @@ use groth16_solana::{
 };
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::error::ShieldedPoolError;
+use rings_hasher::{Hasher, Poseidon};
+use rings_interface::error::ShieldedPoolError;
 
 /// `Poseidon(a, b)` of two field elements; maps a hasher failure to `verify_err`.
 pub fn poseidon2(

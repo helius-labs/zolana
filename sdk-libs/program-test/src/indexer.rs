@@ -3,16 +3,16 @@
 //! Replays emitted events into an in-memory reference tree and records the
 //! wallet-facing outputs that tests query.
 
-use thiserror::Error;
-use zolana_event::{proofless_output, GeneralEvent};
-use zolana_hasher::Poseidon;
-use zolana_interface::state::STATE_HEIGHT;
-use zolana_keypair::P256Pubkey;
-use zolana_merkle_tree::MerkleTree;
-use zolana_transaction::{
+use rings_event::{proofless_output, GeneralEvent};
+use rings_hasher::Poseidon;
+use rings_interface::state::STATE_HEIGHT;
+use rings_keypair::P256Pubkey;
+use rings_merkle_tree::MerkleTree;
+use rings_transaction::{
     owner_utxo_hash, utxo_hash, Address, OutputContext, OutputSlot, ShieldedTransaction,
     TransactionError,
 };
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum IndexerError {

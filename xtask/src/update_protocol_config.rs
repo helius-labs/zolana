@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{
+use rings_client::{Rpc, SolanaRpc};
+use rings_interface::{
     instruction::{UpdateProtocolConfig, UpdateProtocolConfigData},
     pda,
     state::ProtocolConfig,
 };
-use zolana_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
+use rings_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::init_protocol::{authorities, load_keypair, read_program_config, to_address, Cluster};
 

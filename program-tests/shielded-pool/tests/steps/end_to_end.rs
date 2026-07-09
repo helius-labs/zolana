@@ -1,13 +1,13 @@
 //! End-to-end happy-path steps.
 
 use cucumber::{then, when};
+use rings_interface::pda;
+use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use rings_program_test::RingsProgramTest;
+use rings_transaction::{owner_utxo_hash, AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_interface::pda;
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{owner_utxo_hash, AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
 use crate::{ShieldedPoolWorld, SolDepositObservation};
 
@@ -37,7 +37,7 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
     .expect("wallet");
 
     let seed = [42u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
+    let data = RingsProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, 0)
         .expect("wallet deposit data");
     world
         .rpc()
@@ -99,7 +99,7 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
     for (i, amount) in E2E_AMOUNTS.into_iter().enumerate() {
         let mut seed = [0xA0; BLINDING_LEN];
         seed[30] = i as u8;
-        let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
+        let data = RingsProgramTest::wallet_sol_shield_data(amount, &recipient, &seed, i as u8)
             .expect("wallet deposit data");
         let event = world
             .rpc()

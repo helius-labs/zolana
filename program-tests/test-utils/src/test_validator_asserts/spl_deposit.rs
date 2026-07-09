@@ -1,10 +1,10 @@
+use rings_client::{ClientError, Rpc};
+use rings_interface::instruction::DepositIxData;
+use rings_program_test::DepositOutput;
+use rings_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::instruction::DepositIxData;
-use zolana_program_test::DepositOutput;
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 use super::{
     assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,

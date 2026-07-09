@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
-use zolana_transaction::{
+use rings_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
+use rings_transaction::{
     data::{Data, DataRecord},
     serialization::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
@@ -22,7 +22,7 @@ fn registry() -> AssetRegistry {
 }
 
 fn build_split_tx(
-    owner_kp: &zolana_keypair::ShieldedKeypair,
+    owner_kp: &rings_keypair::ShieldedKeypair,
     bundle: &SplitBundlePlaintext,
     first_nullifier: [u8; 32],
 ) -> ShieldedTransaction {
@@ -79,11 +79,11 @@ fn decode_split(
 ) -> Result<SplitBundlePlaintext, TransactionError> {
     let tx = world.split_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("split slot").payload;
-    let output_data = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let output_data = rings_event::OutputData::try_from_slice(payload).unwrap();
     let blob = match output_data {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob,
+        rings_event::OutputData::Encrypted(blob)
+        | rings_event::OutputData::VerifiablyEncrypted(blob)
+        | rings_event::OutputData::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
     let cx = DecodeCx::for_slot(&world.kp(owner).viewing_key, tx, 0);
@@ -111,7 +111,7 @@ fn build_split(world: &mut TransactionWorld, owner: String, num_outputs: u8, amo
 fn split_round_trips(world: &mut TransactionWorld) {
     let tx = world.split_tx.as_ref().unwrap();
     let payload = &tx.output_slots.first().expect("split slot").payload;
-    let parsed = zolana_event::OutputData::try_from_slice(payload).unwrap();
+    let parsed = rings_event::OutputData::try_from_slice(payload).unwrap();
     assert_eq!(&borsh::to_vec(&parsed).unwrap(), payload);
 }
 

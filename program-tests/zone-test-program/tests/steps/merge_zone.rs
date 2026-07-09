@@ -19,21 +19,21 @@
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
 use p256::SecretKey;
-use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_signer::Signer;
-use zolana_client::{
+use rings_client::{
     prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
-use zolana_interface::instruction::{
+use rings_interface::instruction::{
     instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone,
 };
-use zolana_keypair::random_blinding;
-use zolana_test_utils::test_validator_asserts::{
+use rings_keypair::random_blinding;
+use rings_test_utils::test_validator_asserts::{
     assert_merge_zone, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, MergeZoneAssertArgs,
 };
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use rings_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_signer::Signer;
 
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},

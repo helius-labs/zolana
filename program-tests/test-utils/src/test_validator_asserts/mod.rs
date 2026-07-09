@@ -12,16 +12,16 @@ pub use create_spl_interface::assert_create_spl_interface;
 pub use deposit::{assert_deposit, DepositAssertArgs};
 pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
 pub use protocol_config::assert_protocol_config;
+use rings_client::{
+    ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
+};
+use rings_interface::{instruction::DepositIxData, state::state_root_offset};
+use rings_program_test::DepositOutput;
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
-use zolana_client::{
-    ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
-};
-use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
-use zolana_program_test::DepositOutput;
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
@@ -46,7 +46,7 @@ pub fn expected_deposit_view(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::ProoflessOutput {
+        output: rings_event::ProoflessOutput {
             owner: data.owner,
             blinding: data.blinding,
             asset: expected_asset.to_bytes(),

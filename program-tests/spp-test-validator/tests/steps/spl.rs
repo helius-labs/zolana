@@ -3,18 +3,18 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::given;
-use solana_address::Address;
-use solana_signer::Signer;
-use zolana_client::Rpc;
-use zolana_interface::{
+use rings_client::Rpc;
+use rings_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
 };
-use zolana_test_utils::{
+use rings_test_utils::{
     smart_account::execute_sync_ix,
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };
+use solana_address::Address;
+use solana_signer::Signer;
 
 use crate::{localnet::send_transaction, world::SplAsset, LifecycleWorld};
 

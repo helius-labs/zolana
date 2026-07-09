@@ -1,15 +1,15 @@
+use rings_interface::{
+    instruction::{Deposit, DepositIxData, DepositSplAccounts},
+    pda,
+};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    instruction::{Deposit, DepositIxData, DepositSplAccounts},
-    pda,
-};
 
-use crate::{single_deposit_view, DepositOutput, ProgramTestError, ZolanaProgramTest};
+use crate::{single_deposit_view, DepositOutput, ProgramTestError, RingsProgramTest};
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     pub fn deposit(
         &mut self,
         tree: &Pubkey,

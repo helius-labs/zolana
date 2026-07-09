@@ -1,7 +1,7 @@
+#[cfg(feature = "tree")]
+use rings_tree::TreeError;
 use solana_program_error::ProgramError;
 use thiserror::Error;
-#[cfg(feature = "tree")]
-use zolana_tree::TreeError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceError {

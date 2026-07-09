@@ -2,7 +2,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{

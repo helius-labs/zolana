@@ -6,23 +6,23 @@ use std::sync::Once;
 
 use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
-use solana_address::Address;
-use zolana_client::{
+use rings_client::{
     spawn_prover, InputCommitment, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
     SpendUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
-use zolana_interface::{
+use rings_interface::{
     instruction::{instruction_data::transact::OutputCiphertext, tag::ZONE_AUTHORITY_TRANSACT},
     verifying_keys::{
         transfer_zone_authority_1_1, transfer_zone_authority_2_2, transfer_zone_authority_3_3,
         transfer_zone_authority_4_4,
     },
 };
-use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
-use zolana_transaction::{
+use rings_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
+use rings_transaction::{
     instructions::transact::{builder::Shape as TxShape, PublicAmounts as TxPublicAmounts},
     Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
 };
+use solana_address::Address;
 
 use crate::{
     test_indexer::TestIndexer,
@@ -368,7 +368,7 @@ fn start_prover() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

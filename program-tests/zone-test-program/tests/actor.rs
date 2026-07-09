@@ -3,13 +3,13 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use rings_interface::instruction::ZoneDepositIxData;
+use rings_keypair::{ShieldedKeypair, ViewingKey};
+use rings_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_interface::instruction::ZoneDepositIxData;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
 /// What a zone deposit's action recorded, so the separate assert step can verify
 /// it with `assert_zone_deposit` (which needs the sent data and the pre-deposit

@@ -1,4 +1,4 @@
-//! # zolana-batched-merkle-tree
+//! # rings-batched-merkle-tree
 //!
 //! Batched indexed Merkle tree implementation for the trees that the shielded
 //! pool maintains off the hot path: **address trees** (address registration)
@@ -79,15 +79,15 @@
 //!
 //! ## Dependencies
 //!
-//! - **`zolana-bloom-filter`** - Bloom filter for non-inclusion proofs
-//! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
+//! - **`rings-bloom-filter`** - Bloom filter for non-inclusion proofs
+//! - **`rings-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
-//! - **`zolana-merkle-tree-metadata`** - Shared metadata structures for Merkle trees
-//! - **`zolana-account-checks`** - Account validation and discriminator checks
+//! - **`rings-merkle-tree-metadata`** - Shared metadata structures for Merkle trees
+//! - **`rings-account-checks`** - Account validation and discriminator checks
 //!
 //! ## Testing and reference implementations
 //!
-//! - **`zolana-merkle-tree`** - Reference indexed Merkle tree implementation
+//! - **`rings-merkle-tree`** - Reference indexed Merkle tree implementation
 //!   (dev dependency), used to generate the constants
 //!   [`constants::ADDRESS_TREE_INIT_ROOT_40`] and
 //!   [`constants::NULLIFIER_TREE_INIT_ROOT_40`] (see `tests/init_roots.rs`).

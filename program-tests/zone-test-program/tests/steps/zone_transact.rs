@@ -26,6 +26,22 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
+use rings_client::{
+    P256Owner, ProverClient, PublicAmounts, Rpc, Shape, SignedTransaction, SpendProof, SpendUtxo,
+    Transaction as ClientTransaction, TransferSpendInput, WithdrawalTarget, ZoneTransferP256Prover,
+    ZoneTransferProver,
+};
+use rings_interface::instruction::{
+    instruction_data::transact::{InputUtxo, TransactIxData, TransactProof},
+    tag::ZONE_TRANSACT,
+    TransactSolWithdrawal, TransactWithdrawal, ZoneTransact,
+};
+use rings_keypair::{hash::sha256, ShieldedKeypair, SignatureType};
+use rings_test_utils::test_validator_asserts::{
+    assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
+    wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
+};
+use rings_transaction::{utxo::derive_blinding, ShieldedTransaction, Utxo, SOL_MINT};
 use solana_account::Account;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -33,22 +49,6 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    P256Owner, ProverClient, PublicAmounts, Rpc, Shape, SignedTransaction, SpendProof, SpendUtxo,
-    Transaction as ClientTransaction, TransferSpendInput, WithdrawalTarget, ZoneTransferP256Prover,
-    ZoneTransferProver,
-};
-use zolana_interface::instruction::{
-    instruction_data::transact::{InputUtxo, TransactIxData, TransactProof},
-    tag::ZONE_TRANSACT,
-    TransactSolWithdrawal, TransactWithdrawal, ZoneTransact,
-};
-use zolana_keypair::{hash::sha256, ShieldedKeypair, SignatureType};
-use zolana_test_utils::test_validator_asserts::{
-    assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
-    wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
-};
-use zolana_transaction::{utxo::derive_blinding, ShieldedTransaction, Utxo, SOL_MINT};
 
 use crate::{
     localnet::{
@@ -710,7 +710,7 @@ impl ZoneLifecycleWorld {
 /// Convert the transaction crate's `PublicAmounts` into the prover client's
 /// identically-shaped type (both are `{ sol, spl, asset }: [u8; 32]`).
 fn client_public_amounts(
-    amounts: zolana_transaction::instructions::transact::PublicAmounts,
+    amounts: rings_transaction::instructions::transact::PublicAmounts,
 ) -> PublicAmounts {
     PublicAmounts {
         sol: amounts.sol,

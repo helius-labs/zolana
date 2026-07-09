@@ -1,15 +1,15 @@
 [package]
-name = "zolana-api"
+name = "rings-api"
 version = "0.1.0"
-description = "Typed client for the Zolana indexer API."
+description = "Typed client for the Rings indexer API."
 license = "Apache-2.0"
 edition.workspace = true
 
 [features]
 default = []
-# Regenerate src/codegen.rs from Photon's Zolana-only OpenAPI spec.
+# Regenerate src/codegen.rs from Photon's Rings-only OpenAPI spec.
 # Usage:
-#   ZOLANA_OPENAPI_SPEC=/path/to/zolana.yaml cargo build -p zolana-api --features generate
+#   RINGS_OPENAPI_SPEC=/path/to/zolana.yaml cargo build -p rings-api --features generate
 generate = [
     "dep:progenitor",
     "dep:openapiv3",

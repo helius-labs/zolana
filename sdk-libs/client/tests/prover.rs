@@ -3,8 +3,8 @@
 //! once it has built a rail-specific proof result.
 
 use groth16_solana::groth16::Groth16Verifier;
-use zolana_client::{spawn_prover, ProverClient, TransferP256ProofResult, TransferProofResult};
-use zolana_interface::verifying_keys::{transfer_confidential_2_3, transfer_p256_confidential_2_3};
+use rings_client::{spawn_prover, ProverClient, TransferP256ProofResult, TransferProofResult};
+use rings_interface::verifying_keys::{transfer_confidential_2_3, transfer_p256_confidential_2_3};
 
 pub(crate) fn start_prover() {
     // Point the prover at the in-repo proving keys (once, to avoid a concurrent
@@ -12,7 +12,7 @@ pub(crate) fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

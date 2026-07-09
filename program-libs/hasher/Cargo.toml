@@ -1,5 +1,5 @@
 [package]
-name = "zolana-hasher"
+name = "rings-hasher"
 version = "5.0.0"
 description = "Trait for generic usage of hash functions on Solana"
 readme = "README.md"

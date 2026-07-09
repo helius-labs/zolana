@@ -1,6 +1,6 @@
 use anyhow::Result;
+use rings_transaction::SOL_MINT;
 use solana_pubkey::Pubkey;
-use zolana_transaction::SOL_MINT;
 
 use super::{
     sync::sync_context,
@@ -42,7 +42,7 @@ pub(super) fn run_balance(opts: BalanceOptions) -> Result<()> {
     }
     for asset in &ctx.local_assets {
         let mint = asset.mint.parse::<Pubkey>()?;
-        let mint = zolana_transaction::Address::new_from_array(mint.to_bytes());
+        let mint = rings_transaction::Address::new_from_array(mint.to_bytes());
         if !printed_spl.contains(&mint) {
             println!("ok balance mint={} amount=0", format_address(mint));
         }

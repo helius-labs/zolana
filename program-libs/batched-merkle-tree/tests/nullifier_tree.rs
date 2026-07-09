@@ -4,8 +4,7 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use solana_address::Address;
-use zolana_batched_merkle_tree::{
+use rings_batched_merkle_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     errors::BatchedMerkleTreeError,
     initialize_address_tree::InitAddressTreeAccountsInstructionData,
@@ -14,10 +13,11 @@ use zolana_batched_merkle_tree::{
     },
     verify::CompressedProof,
 };
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
+use rings_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use rings_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use rings_merkle_tree::indexed::IndexedMerkleTree;
+use rings_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
+use solana_address::Address;
 
 const HEIGHT: u32 = 40;
 const NUM_ITERS: usize = 10;

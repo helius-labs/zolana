@@ -1,8 +1,8 @@
+use rings_account_checks::error::AccountError;
+use rings_bloom_filter::BloomFilterError;
+use rings_hasher::HasherError;
+use rings_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 use thiserror::Error;
-use zolana_account_checks::error::AccountError;
-use zolana_bloom_filter::BloomFilterError;
-use zolana_hasher::HasherError;
-use zolana_merkle_tree_metadata::errors::MerkleTreeMetadataError;
 
 use crate::{verify::VerifierError, zero_copy::ZeroCopyError};
 

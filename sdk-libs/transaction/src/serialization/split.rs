@@ -1,9 +1,9 @@
-use solana_address::Address;
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{
+use rings_keypair::{
     constants::{BLINDING_LEN, SALT_LEN},
     P256Pubkey, PublicKey, ViewingKey,
 };
+use solana_address::Address;
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{

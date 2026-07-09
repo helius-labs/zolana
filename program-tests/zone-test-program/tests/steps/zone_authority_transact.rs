@@ -22,27 +22,27 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
-use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_signature::Signature;
-use solana_signer::Signer;
-use zolana_client::{
+use rings_client::{
     ProverClient, PublicAmounts, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
-use zolana_interface::instruction::{
+use rings_interface::instruction::{
     instruction_data::transact::{InputUtxo, TransactProof},
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
-use zolana_test_utils::test_validator_asserts::{
+use rings_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
+use rings_test_utils::test_validator_asserts::{
     assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
 };
-use zolana_transaction::{
+use rings_transaction::{
     serialization::confidential::{ConfidentialRecipient, ConfidentialRecipientEncode},
     Data, ExternalData, OutputUtxo, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
 };
+use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_signature::Signature;
+use solana_signer::Signer;
 
 use crate::{
     localnet::{send_transaction, transact_proof, ZERO},

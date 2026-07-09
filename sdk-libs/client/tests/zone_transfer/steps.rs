@@ -10,12 +10,11 @@ use std::sync::Once;
 
 use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
-use solana_address::Address;
-use zolana_client::{
+use rings_client::{
     spawn_prover, InputCommitment, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
     TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
-use zolana_interface::{
+use rings_interface::{
     instruction::{instruction_data::transact::OutputCiphertext, tag::ZONE_TRANSACT},
     verifying_keys::{
         transfer_p256_zone_1_1, transfer_p256_zone_1_2, transfer_p256_zone_1_8,
@@ -26,10 +25,11 @@ use zolana_interface::{
         transfer_zone_4_4, transfer_zone_5_3, transfer_zone_5_4,
     },
 };
-use zolana_keypair::{
+use rings_keypair::{
     hash::sha256, random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use rings_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use solana_address::Address;
 
 use crate::{
     test_indexer::TestIndexer,
@@ -473,7 +473,7 @@ fn start_prover() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

@@ -1,4 +1,4 @@
-use zolana_keypair::{
+use rings_keypair::{
     constants::{BLINDING_LEN, P256_PUBKEY_LEN},
     P256Pubkey, ViewingKey,
 };
@@ -101,7 +101,7 @@ impl UtxoSerialization for Merge {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
         Ok(MergePlaintext {
             amount: first.amount,
-            asset_field: zolana_keypair::hash::hash_field(first.asset.as_array())?,
+            asset_field: rings_keypair::hash::hash_field(first.asset.as_array())?,
             blinding: first.blinding,
         })
     }

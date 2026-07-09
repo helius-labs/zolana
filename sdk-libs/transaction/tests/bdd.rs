@@ -3,8 +3,8 @@ mod steps;
 use std::collections::HashMap;
 
 use cucumber::World;
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::{
+use rings_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use rings_transaction::{
     serialization::{
         anonymous::{AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext},
         plaintext::TransferPlaintextUtxos,

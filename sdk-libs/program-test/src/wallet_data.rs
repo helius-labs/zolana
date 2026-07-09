@@ -1,8 +1,8 @@
-use zolana_interface::instruction::DepositIxData;
-use zolana_keypair::constants::BLINDING_LEN;
-use zolana_transaction::{derive_blinding, TransactionError, Wallet};
+use rings_interface::instruction::DepositIxData;
+use rings_keypair::constants::BLINDING_LEN;
+use rings_transaction::{derive_blinding, TransactionError, Wallet};
 
-use crate::{ProgramTestError, ZolanaProgramTest};
+use crate::{ProgramTestError, RingsProgramTest};
 
 pub(crate) struct WalletShieldFields {
     pub view_tag: [u8; 32],
@@ -27,7 +27,7 @@ pub(crate) fn wallet_shield_fields(
     })
 }
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     pub fn sol_shield_data(
         lamports: u64,
         owner: [u8; 32],

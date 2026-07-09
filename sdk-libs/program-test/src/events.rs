@@ -1,13 +1,13 @@
 use litesvm::types::TransactionMetadata;
-use solana_message::compiled_instruction::CompiledInstruction;
-use solana_pubkey::Pubkey;
-use solana_signature::Signature;
-use zolana_event::{
+use rings_event::{
     event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
     proofless_output, EventKind, GeneralEvent, ProoflessOutput,
 };
-pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
-use zolana_transaction::ShieldedTransaction;
+pub use rings_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use rings_transaction::ShieldedTransaction;
+use solana_message::compiled_instruction::CompiledInstruction;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
 
@@ -34,17 +34,17 @@ impl DepositOutput {
     fn to_general_event(&self) -> GeneralEvent {
         GeneralEvent {
             inputs: Vec::new(),
-            outputs: vec![zolana_event::OutputUtxo {
+            outputs: vec![rings_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
-                data: zolana_event::encode_output_data(self.output.clone()),
+                data: rings_event::encode_output_data(self.output.clone()),
             }],
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,
             output_tree: self.output_tree,
             relay_fee: None,
-            deposit_withdraw: Some(zolana_event::DepositWithdraw {
+            deposit_withdraw: Some(rings_event::DepositWithdraw {
                 is_deposit: true,
                 amount: self.output.amount,
                 asset: Some(self.output.asset),

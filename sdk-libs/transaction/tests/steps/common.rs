@@ -1,5 +1,5 @@
 use cucumber::given;
-use zolana_keypair::ShieldedKeypair;
+use rings_keypair::ShieldedKeypair;
 
 use crate::TransactionWorld;
 

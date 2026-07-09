@@ -5,14 +5,14 @@
 
 use num_bigint::BigUint;
 use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
-use zolana_interface::instruction::instruction_data::merge_transact::{
+use rings_interface::instruction::instruction_data::merge_transact::{
     MergeExternalDataHash, MergeTransactIxData,
 };
-use zolana_keypair::{
+use rings_keypair::{
     merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{
+use rings_transaction::{
     instructions::{
         merge::PreparedMerge,
         transact::{no_address_hashes, private_tx_hash, signed_transaction::asset_field},
@@ -134,7 +134,7 @@ impl MergeProver {
         // proof; merge_transact recomputes it identically from the instruction.
         let encrypted_utxo = merge_encrypted_utxo(&tx_viewing_pk, &ciphertext);
         let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator: zolana_interface::instruction::tag::MERGE_TRANSACT,
+            spp_instruction_discriminator: rings_interface::instruction::tag::MERGE_TRANSACT,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
             encrypted_utxo: &encrypted_utxo,
@@ -238,7 +238,7 @@ pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Ve
     blob.push(EncryptedScheme::Merge.as_byte());
     blob.extend_from_slice(tx_viewing_pk.as_bytes());
     blob.extend_from_slice(ciphertext);
-    zolana_event::encode_verifiably_encrypted(blob)
+    rings_event::encode_verifiably_encrypted(blob)
 }
 
 /// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE

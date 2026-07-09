@@ -1,11 +1,11 @@
 //! Post-instruction checks for `create_spl_interface` (registry + vault).
 
-use solana_pubkey::Pubkey;
-use zolana_interface::{
+use rings_interface::{
     pda,
     state::{discriminator::SPL_ASSET_REGISTRY, SplAssetCounter, SplAssetRegistry},
 };
-use zolana_program_test::ZolanaProgramTest;
+use rings_program_test::RingsProgramTest;
+use solana_pubkey::Pubkey;
 
 const TOKEN_ACCOUNT_MINT_OFFSET: usize = 0;
 const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;
@@ -18,7 +18,7 @@ const TOKEN_ACCOUNT_OWNER_END: usize = 64;
 /// token account for the mint owned by the SPL vault authority.
 #[track_caller]
 pub fn litesvm_assert_create_spl_interface(
-    program_test: &ZolanaProgramTest,
+    program_test: &RingsProgramTest,
     registry: &Pubkey,
     vault: &Pubkey,
     mint: &Pubkey,

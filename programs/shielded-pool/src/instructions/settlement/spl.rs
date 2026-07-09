@@ -4,7 +4,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, ProgramResult,
 };
-use zolana_interface::{
+use rings_interface::{
     SHIELDED_POOL_CPI_AUTHORITY_BUMP, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED,
     SPL_TOKEN_TRANSFER_DISCRIMINATOR,
 };

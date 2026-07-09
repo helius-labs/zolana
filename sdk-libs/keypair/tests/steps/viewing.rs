@@ -1,5 +1,5 @@
 use cucumber::then;
-use zolana_keypair::ViewingKey;
+use rings_keypair::ViewingKey;
 
 use crate::KeypairWorld;
 
@@ -113,8 +113,8 @@ fn p_const_matches(_world: &mut KeypairWorld) {
         },
         NistP256,
     };
+    use rings_keypair::constants::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
     use sha2::Sha256;
-    use zolana_keypair::constants::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
 
     let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_VIEW_ROOT_P_CONST])
         .unwrap();

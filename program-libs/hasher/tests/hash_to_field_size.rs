@@ -3,7 +3,7 @@
 use ark_ff::PrimeField;
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_bigint::{BigUint, ToBigUint};
-use zolana_hasher::{
+use rings_hasher::{
     bigint::bigint_to_be_bytes_array,
     hash_to_field_size::{
         hash_to_bn254_field_size_be, hashv_to_bn254_field_size_be,

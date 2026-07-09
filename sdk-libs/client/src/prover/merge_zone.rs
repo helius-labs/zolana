@@ -8,16 +8,15 @@
 
 use num_bigint::BigUint;
 use p256::SecretKey;
-use solana_address::Address;
-use zolana_interface::instruction::instruction_data::{
+use rings_interface::instruction::instruction_data::{
     merge_transact::{MergeExternalDataHash, MergeTransactIxData},
     merge_zone::MergeZoneIxData,
 };
-use zolana_keypair::{
+use rings_keypair::{
     merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
-use zolana_transaction::{
+use rings_transaction::{
     instructions::{
         merge_zone::PreparedMergeZone,
         transact::{no_address_hashes, private_tx_hash},
@@ -26,6 +25,7 @@ use zolana_transaction::{
     utxo::program_id_field,
     OutputUtxo,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,
@@ -160,7 +160,7 @@ impl MergeZoneProver {
         // proof; merge_zone recomputes it identically from the instruction.
         let encrypted_utxo = merge_encrypted_utxo(&tx_viewing_pk, &ciphertext);
         let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator: zolana_interface::instruction::tag::ZONE_MERGE_TRANSACT,
+            spp_instruction_discriminator: rings_interface::instruction::tag::ZONE_MERGE_TRANSACT,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
             encrypted_utxo: &encrypted_utxo,

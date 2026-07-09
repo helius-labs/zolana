@@ -1,5 +1,5 @@
 use cucumber::given;
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use rings_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
 use crate::{scalar_bytes, KeypairWorld};
 

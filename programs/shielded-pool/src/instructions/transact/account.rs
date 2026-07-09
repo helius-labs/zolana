@@ -1,6 +1,6 @@
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::instruction_data::transact::TransactIxDataRef;
+use rings_account_checks::AccountIterator;
+use rings_interface::instruction::instruction_data::transact::TransactIxDataRef;
 
 use crate::instructions::settlement::{
     validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,

@@ -1,5 +1,5 @@
 [package]
-name = "zolana-account-checks"
+name = "rings-account-checks"
 version = "0.8.0"
 description = "Checks for solana accounts."
 readme = "README.md"

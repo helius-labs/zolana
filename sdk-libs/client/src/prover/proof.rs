@@ -1,8 +1,8 @@
 use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
+use rings_interface::instruction::instruction_data::transact::TransactProof;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
 
 use crate::error::ClientError;
 

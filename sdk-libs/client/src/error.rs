@@ -1,7 +1,7 @@
+use rings_keypair::KeypairError;
+use rings_transaction::TransactionError;
 use solana_pubkey::Pubkey;
 use thiserror::Error;
-use zolana_keypair::KeypairError;
-use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {

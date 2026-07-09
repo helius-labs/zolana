@@ -1,5 +1,5 @@
 use pinocchio::ProgramResult;
-use zolana_interface::{
+use rings_interface::{
     event::{encode_output_data, DepositWithdraw, EventKind, GeneralEvent, ProoflessOutput},
     instruction::OutputUtxo,
 };

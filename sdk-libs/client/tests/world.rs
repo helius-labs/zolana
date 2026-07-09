@@ -5,8 +5,8 @@
 //! fixture helpers here are `pub(crate)` so the step modules can drive the World.
 
 use rand::{rngs::ThreadRng, RngCore};
+use rings_transaction::SOL_MINT;
 use solana_address::Address;
-use zolana_transaction::SOL_MINT;
 
 /// Registry id for the single test SPL mint (SOL is the reserved id 1).
 pub(crate) const SPL_ASSET_ID: u64 = 2;

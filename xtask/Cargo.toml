@@ -19,9 +19,9 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-test-utils = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
-zolana-program-test = { workspace = true }
+rings-client = { workspace = true, features = ["solana-rpc"] }
+rings-interface = { workspace = true }
+rings-transaction = { workspace = true }
+rings-test-utils = { workspace = true }
+rings-user-registry-interface = { workspace = true }
+rings-program-test = { workspace = true }

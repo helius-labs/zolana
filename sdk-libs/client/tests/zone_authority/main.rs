@@ -6,7 +6,7 @@
 //! Requires a reachable prover server (started via `spawn_prover`) with the
 //! `transfer_zone_authority_{1_1,2_2,3_3,4_4}.key` proving keys available.
 //!
-//! Run with: `cargo test -p zolana-client --test zone_authority_proving`
+//! Run with: `cargo test -p rings-client --test zone_authority_proving`
 
 mod steps;
 mod world;

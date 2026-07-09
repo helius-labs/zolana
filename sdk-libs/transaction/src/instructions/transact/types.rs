@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
+use rings_event::OutputData;
+use rings_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 use solana_address::Address;
-use zolana_event::OutputData;
-use zolana_keypair::{hash::poseidon, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
 use crate::{

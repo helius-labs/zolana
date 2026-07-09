@@ -1,14 +1,14 @@
 use core::mem::MaybeUninit;
 
+use rings_keypair::{
+    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
+    P256Pubkey, PublicKey,
+};
 use wincode::{
     config::ConfigCore,
     error::{ReadError, ReadResult, WriteResult},
     io::{Reader, Writer},
     SchemaRead, SchemaWrite,
-};
-use zolana_keypair::{
-    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
-    P256Pubkey, PublicKey,
 };
 
 pub mod data;
@@ -24,6 +24,7 @@ pub use instructions::transact::{
     EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, OutputUtxo,
     ShieldedTransaction,
 };
+pub use rings_keypair::constants::VIEW_TAG_LEN;
 pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, utxo_hash, Blinding, Utxo};
@@ -33,7 +34,6 @@ pub use wallet::{
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW,
 };
-pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
 pub const TRANSFER: u8 = 1;
 pub const SPLIT: u8 = 2;

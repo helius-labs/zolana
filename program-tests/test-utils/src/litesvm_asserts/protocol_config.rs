@@ -1,14 +1,14 @@
 //! Post-instruction checks for the protocol config account.
 
+use rings_interface::state::ProtocolConfig;
+use rings_program_test::RingsProgramTest;
 use solana_pubkey::Pubkey;
-use zolana_interface::state::ProtocolConfig;
-use zolana_program_test::ZolanaProgramTest;
 
 /// Verify the protocol config account at `config`: canonical length, every role
 /// authority equals `authority`, and both permissionless flags are off.
 #[track_caller]
 pub fn litesvm_assert_protocol_config(
-    program_test: &ZolanaProgramTest,
+    program_test: &RingsProgramTest,
     config: &Pubkey,
     authority: &Pubkey,
 ) {

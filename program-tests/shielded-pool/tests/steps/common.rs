@@ -1,9 +1,9 @@
 //! Shared setup and assertion steps.
 
 use cucumber::{given, then};
+use rings_interface::error::ShieldedPoolError;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::error::ShieldedPoolError;
 
 use crate::{
     common::{assert_custom, assert_pool_error, program_test, tree_account_size},

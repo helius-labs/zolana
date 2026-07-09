@@ -1,9 +1,9 @@
 #![cfg(feature = "solana-rpc")]
 
+use rings_client::{Rpc, SolanaRpc};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
-use zolana_client::{Rpc, SolanaRpc};
 
 #[test]
 fn get_account_returns_none_for_missing_account() {

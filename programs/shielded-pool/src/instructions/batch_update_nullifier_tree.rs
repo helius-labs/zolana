@@ -1,11 +1,11 @@
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use rings_account_checks::AccountIterator;
+use rings_interface::{
     error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
 
 use crate::instructions::{
     event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,

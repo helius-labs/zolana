@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::{error::ShieldedPoolError, state::ProtocolConfig};
+use rings_interface::{error::ShieldedPoolError, state::ProtocolConfig};
 
 // ---------------------------------------------------------------------------
 // Protocol config

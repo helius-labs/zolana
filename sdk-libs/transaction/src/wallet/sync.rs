@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use solana_address::Address;
-use zolana_event::OutputData;
-use zolana_keypair::{
+use rings_event::OutputData;
+use rings_keypair::{
     viewing_key::ViewTag, KeypairError, P256Pubkey, PublicKey, ShieldedKeypair, ViewingKey,
 };
+use solana_address::Address;
 
 use super::state::{
     PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,

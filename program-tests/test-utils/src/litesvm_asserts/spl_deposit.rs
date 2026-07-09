@@ -1,9 +1,9 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
+use rings_interface::instruction::DepositIxData;
+use rings_program_test::{DepositOutput, RingsProgramTest};
+use rings_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::DepositIxData;
-use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -16,7 +16,7 @@ use zolana_transaction::{Wallet, DEFAULT_TAG_WINDOW};
 #[track_caller]
 #[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_spl_deposit(
-    program_test: &mut ZolanaProgramTest,
+    program_test: &mut RingsProgramTest,
     tree: &Pubkey,
     mint: &Pubkey,
     vault: &Pubkey,

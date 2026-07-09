@@ -6,7 +6,7 @@ use crate::config::{
 };
 
 #[derive(Debug, Parser)]
-#[command(name = "zolana", about = "Local Zolana developer tooling")]
+#[command(name = "rings", about = "Local Rings developer tooling")]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<CliCommand>,
@@ -16,7 +16,7 @@ pub(crate) struct Cli {
 pub(crate) enum CliCommand {
     #[command(
         name = "test-validator",
-        about = "Start the local Zolana test validator"
+        about = "Start the local Rings test validator"
     )]
     TestValidator(Box<TestValidatorOptions>),
 
@@ -190,7 +190,7 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long = "prover-auto-download",
-        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        env = "RINGS_PROVER_AUTO_DOWNLOAD",
         default_value_t = true,
         action = ArgAction::Set,
         value_parser = clap::builder::FalseyValueParser::new(),
@@ -304,7 +304,7 @@ pub(crate) struct StartProverOptions {
 
     #[arg(
         long = "auto-download",
-        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        env = "RINGS_PROVER_AUTO_DOWNLOAD",
         default_value_t = true,
         action = ArgAction::Set,
         value_parser = clap::builder::FalseyValueParser::new(),
@@ -317,7 +317,7 @@ pub(crate) struct StartProverOptions {
 pub(crate) struct WalletKeypairOptions {
     #[arg(
         long = "keypair",
-        help = "Path to private keypair file (default: ~/.config/zolana/pid.json)",
+        help = "Path to private keypair file (default: ~/.config/rings/pid.json)",
         value_name = "PATH"
     )]
     pub(crate) keypair: Option<String>,
@@ -327,7 +327,7 @@ pub(crate) struct WalletKeypairOptions {
 pub(crate) struct InitOptions {
     #[arg(
         long = "path",
-        help = "Output path for generated keypair (default: ~/.config/zolana/pid.json)",
+        help = "Output path for generated keypair (default: ~/.config/rings/pid.json)",
         value_name = "PATH"
     )]
     pub(crate) path: Option<String>,
@@ -370,7 +370,7 @@ pub(crate) struct NetworkWalletOptions {
 
     #[arg(
         long,
-        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+        help = "Shielded-pool tree account (default: configured tree from `rings config`)"
     )]
     pub(crate) tree: Option<String>,
 
@@ -550,7 +550,7 @@ impl TestValidatorOptions {
 
 #[cfg(test)]
 pub(crate) fn parse_cli(values: &[&str]) -> Cli {
-    Cli::try_parse_from(std::iter::once("zolana").chain(values.iter().copied())).expect("parse cli")
+    Cli::try_parse_from(std::iter::once("rings").chain(values.iter().copied())).expect("parse cli")
 }
 
 #[cfg(test)]
@@ -612,20 +612,20 @@ mod tests {
     #[test]
     fn clap_accepts_top_level_and_command_help() {
         for args in [
-            ["zolana", "--help"].as_slice(),
-            ["zolana", "test-validator", "--help"].as_slice(),
-            ["zolana", "start-prover", "--help"].as_slice(),
-            ["zolana", "config", "asset-registry", "--help"].as_slice(),
-            ["zolana", "config", "add-asset", "--help"].as_slice(),
-            ["zolana", "wallet", "--help"].as_slice(),
-            ["zolana", "wallet", "init", "--help"].as_slice(),
-            ["zolana", "wallet", "create-tree", "--help"].as_slice(),
-            ["zolana", "wallet", "test-mint", "--help"].as_slice(),
-            ["zolana", "wallet", "sync", "--help"].as_slice(),
-            ["zolana", "wallet", "balance", "--help"].as_slice(),
-            ["zolana", "wallet", "deposit", "--help"].as_slice(),
-            ["zolana", "wallet", "transfer", "--help"].as_slice(),
-            ["zolana", "wallet", "withdraw", "--help"].as_slice(),
+            ["rings", "--help"].as_slice(),
+            ["rings", "test-validator", "--help"].as_slice(),
+            ["rings", "start-prover", "--help"].as_slice(),
+            ["rings", "config", "asset-registry", "--help"].as_slice(),
+            ["rings", "config", "add-asset", "--help"].as_slice(),
+            ["rings", "wallet", "--help"].as_slice(),
+            ["rings", "wallet", "init", "--help"].as_slice(),
+            ["rings", "wallet", "create-tree", "--help"].as_slice(),
+            ["rings", "wallet", "test-mint", "--help"].as_slice(),
+            ["rings", "wallet", "sync", "--help"].as_slice(),
+            ["rings", "wallet", "balance", "--help"].as_slice(),
+            ["rings", "wallet", "deposit", "--help"].as_slice(),
+            ["rings", "wallet", "transfer", "--help"].as_slice(),
+            ["rings", "wallet", "withdraw", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -645,7 +645,7 @@ mod tests {
             "--photon-port",
             "8785",
             "--photon-db-url",
-            "sqlite:///tmp/zolana-photon-test.db",
+            "sqlite:///tmp/rings-photon-test.db",
             "--photon-start-slot",
             "latest",
             "--ledger",
@@ -668,7 +668,7 @@ mod tests {
         assert_eq!(opts.photon_port, 8785);
         assert_eq!(
             opts.photon_db_url.as_deref(),
-            Some("sqlite:///tmp/zolana-photon-test.db")
+            Some("sqlite:///tmp/rings-photon-test.db")
         );
         assert_eq!(opts.photon_start_slot, "latest");
         assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));

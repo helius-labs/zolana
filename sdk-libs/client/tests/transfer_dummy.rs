@@ -13,18 +13,17 @@
 //! Requires a reachable prover server (started via `spawn_prover`) with the
 //! `transfer_confidential_2_3.key` proving key available.
 //!
-//! Run with: `cargo test -p zolana-client --test transfer_dummy`
+//! Run with: `cargo test -p rings-client --test transfer_dummy`
 
 mod test_indexer;
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
-use solana_address::Address;
-use zolana_client::{
+use rings_client::{
     spawn_prover, InputCommitment, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
-use zolana_interface::{
+use rings_interface::{
     instruction::instruction_data::transact::OutputCiphertext,
     verifying_keys::{
         transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
@@ -33,8 +32,9 @@ use zolana_interface::{
         transfer_confidential_5_4,
     },
 };
-use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use rings_keypair::{NullifierKey, PublicKey};
+use rings_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
+use solana_address::Address;
 
 use crate::test_indexer::TestIndexer;
 
@@ -42,7 +42,7 @@ fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

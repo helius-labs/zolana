@@ -1,5 +1,5 @@
 use cucumber::then;
-use zolana_keypair::{
+use rings_keypair::{
     constants::BLINDING_LEN, hash::owner_hash, random_salt, CompressedShieldedAddress,
     NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
 };

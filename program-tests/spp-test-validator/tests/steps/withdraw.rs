@@ -7,20 +7,20 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::when;
+use rings_client::{
+    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
+    WithdrawalTarget,
+};
+use rings_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
+use rings_test_utils::test_validator_asserts::{
+    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+};
+use rings_transaction::{utxo::derive_blinding, Utxo, SOL_MINT};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    assemble, ProverClient, ProverInputs, SpendProof, SpendUtxo, Transaction as ClientTransaction,
-    WithdrawalTarget,
-};
-use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
-use zolana_test_utils::test_validator_asserts::{
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-};
-use zolana_transaction::{utxo::derive_blinding, Utxo, SOL_MINT};
 
 use crate::{
     localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},

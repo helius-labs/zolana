@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use proptest::{prelude::*, test_runner::TestCaseError};
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use rings_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 #[cfg(feature = "parallel")]
-use zolana_transaction::wallet::SyncReport;
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet};
+use rings_transaction::wallet::SyncReport;
+use rings_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet};
 
 const NUM_CPS: usize = 3;
 const WINDOW: u64 = 8;

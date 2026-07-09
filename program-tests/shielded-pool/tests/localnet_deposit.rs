@@ -1,27 +1,27 @@
 //! Local-validator proofless deposit test.
 
+use rings_client::{Rpc, SolanaRpc};
+use rings_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use rings_interface::{
+    instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
+    state::tree_account_size,
+    SHIELDED_POOL_PROGRAM_ID,
+};
+use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use rings_program_test::{
+    create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
+    single_deposit_view, DepositOutput, IndexedEvent, IndexedTransaction, RingsProgramTest,
+    TestIndexer, ZONE_TEST_PROGRAM_ID,
+};
+use rings_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
-use zolana_interface::{
-    instruction::{tag, CreateProtocolConfig, Deposit, ZoneDeposit},
-    state::tree_account_size,
-    SHIELDED_POOL_PROGRAM_ID,
-};
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::{
-    create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
-    single_deposit_view, DepositOutput, IndexedEvent, IndexedTransaction, TestIndexer,
-    ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
-};
-use zolana_transaction::{AssetRegistry, Wallet, DEFAULT_TAG_WINDOW};
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
+const RPC_URL_ENV: &str = "RINGS_LOCALNET_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEPOSIT_LAMPORTS: u64 = 750_000_000;
 
@@ -95,7 +95,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     print_signature("create_tree", &create_tree_tx.signature);
 
     let mut direct_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
-    let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
+    let direct_data = RingsProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_recipient,
         &[3u8; BLINDING_LEN],
@@ -130,7 +130,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(&mut direct_recipient, &direct_view)?;
 
     let mut zone_recipient = Wallet::new(ShieldedKeypair::new()?, AssetRegistry::default())?;
-    let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
+    let mut zone_data = RingsProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_recipient,
         &[5u8; BLINDING_LEN],
@@ -179,7 +179,7 @@ fn send_indexed(
     ixs: &[solana_instruction::Instruction],
     payer: &Pubkey,
     signers: &[&Keypair],
-) -> TestResult<zolana_program_test::IndexedTransaction> {
+) -> TestResult<rings_program_test::IndexedTransaction> {
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     let message = Message::new(ixs, Some(payer));
     let produces_events = produces_shielded_events(program_id, &message);

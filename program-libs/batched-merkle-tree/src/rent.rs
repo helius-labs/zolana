@@ -10,7 +10,7 @@
 //! - `check_account_balance_is_rent_exempt` enforces the rent minimum
 //!   on-chain and returns the account's lamports off-chain (check skipped).
 
-use zolana_account_checks::AccountView;
+use rings_account_checks::AccountView;
 
 use crate::errors::BatchedMerkleTreeError;
 
@@ -23,7 +23,7 @@ pub(crate) fn get_min_rent_balance(size: usize) -> Result<u64, BatchedMerkleTree
         .map(|rent| rent.minimum_balance(size))
         .map_err(|_| {
             BatchedMerkleTreeError::AccountError(
-                zolana_account_checks::error::AccountError::InvalidAccountBalance,
+                rings_account_checks::error::AccountError::InvalidAccountBalance,
             )
         })
 }
@@ -35,7 +35,7 @@ pub(crate) fn check_account_balance_is_rent_exempt(
     let account_size = account_info.data_len();
     if account_size != expected_size {
         return Err(BatchedMerkleTreeError::AccountError(
-            zolana_account_checks::error::AccountError::InvalidAccountSize,
+            rings_account_checks::error::AccountError::InvalidAccountSize,
         ));
     }
     let lamports = account_info.lamports();
@@ -44,7 +44,7 @@ pub(crate) fn check_account_balance_is_rent_exempt(
         let rent_exemption = get_min_rent_balance(expected_size)?;
         if lamports < rent_exemption {
             return Err(BatchedMerkleTreeError::AccountError(
-                zolana_account_checks::error::AccountError::InvalidAccountBalance,
+                rings_account_checks::error::AccountError::InvalidAccountBalance,
             ));
         }
         Ok(rent_exemption)

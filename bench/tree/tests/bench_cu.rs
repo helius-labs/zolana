@@ -8,11 +8,7 @@ use light_program_profiler::{
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use solana_account::Account;
-use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
-use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::{
+use rings_batched_merkle_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     merkle_tree::{
         get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
@@ -20,11 +16,15 @@ use zolana_batched_merkle_tree::{
     verify::CompressedProof,
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
 };
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use rings_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use rings_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use rings_merkle_tree::indexed::IndexedMerkleTree;
+use rings_merkle_tree_metadata::{merkle_tree::MerkleTreeMetadata, TreeType};
+use rings_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use solana_account::Account;
+use solana_address::Address;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
 
 const HEIGHT: u8 = 26;
 const DISCRIMINATOR: u8 = 7;
@@ -358,7 +358,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
+            "Compute unit profiling for rings-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),

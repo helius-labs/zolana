@@ -79,15 +79,15 @@ fn main() {
 fn print_program_ids() {
     println!(
         "SHIELDED_POOL_PROGRAM_ID={}",
-        bs58::encode(zolana_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
+        bs58::encode(rings_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
     );
     println!(
         "USER_REGISTRY_PROGRAM_ID={}",
-        bs58::encode(zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
+        bs58::encode(rings_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
     );
     println!(
         "ZONE_TEST_PROGRAM_ID={}",
-        bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
+        bs58::encode(rings_program_test::ZONE_TEST_PROGRAM_ID).into_string()
     );
 }
 
@@ -101,10 +101,10 @@ struct CreateVerifyingKeysOptions {
 impl CreateVerifyingKeysOptions {
     fn parse(args: Vec<String>) -> Self {
         let mut keys_dir = PathBuf::from("prover/server/proving-keys");
-        let mut out_dir = env::var("ZOLANA_VERIFYING_KEYS_DIR")
+        let mut out_dir = env::var("RINGS_VERIFYING_KEYS_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("target/verifying-keys"));
-        let mut limit = env::var("ZOLANA_VERIFYING_KEYS_LIMIT")
+        let mut limit = env::var("RINGS_VERIFYING_KEYS_LIMIT")
             .ok()
             .map(|value| parse_limit(&value));
 
@@ -326,11 +326,16 @@ fn print_create_verifying_keys_help() {
     println!();
     println!("Defaults:");
     println!("  --keys-dir prover/server/proving-keys");
-    println!("  --out-dir  $ZOLANA_VERIFYING_KEYS_DIR or target/verifying-keys");
+    println!("  --out-dir  $RINGS_VERIFYING_KEYS_DIR or target/verifying-keys");
 }
 
 fn tx_size(args: Vec<String>) {
     use bincode;
+    use rings_interface::{
+        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
+        SHIELDED_POOL_PROGRAM_ID,
+    };
+    use rings_transaction::instructions::transact::SENDER_SLOT_COUNT;
     use solana_hash::Hash;
     use solana_instruction::Instruction;
     use solana_keypair::Keypair;
@@ -338,11 +343,6 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
-    use zolana_interface::{
-        instruction::{tag, InputUtxo, OutputCiphertext, TransactIxData, TransactProof},
-        SHIELDED_POOL_PROGRAM_ID,
-    };
-    use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
 
     // Pre-spec sender: owner_pk(34)+amounts(24)+blinding(31)+viewing_pks(1+33R)+data(2) = 92+33R
     // sender_slot_data(R) = type_prefix(1) + plaintext + GCM-tag(16) = 109 + 33R

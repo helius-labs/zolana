@@ -1,5 +1,5 @@
 use cucumber::{given, then, when};
-use zolana_keypair::{
+use rings_keypair::{
     constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
     P256Pubkey, PublicKey, SignatureType, ViewingKey,
 };

@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
-use solana_pubkey::Pubkey;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_keypair::{
+use rings_interface::instruction::instruction_data::transact::OutputCiphertext;
+use rings_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
     NullifierKey, P256Pubkey,
 };
-use zolana_transaction::{
+use rings_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -21,6 +20,7 @@ use zolana_transaction::{
     },
     UtxoSerialization,
 };
+use solana_pubkey::Pubkey;
 
 use crate::error::ClientError;
 

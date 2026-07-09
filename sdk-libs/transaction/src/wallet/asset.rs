@@ -51,7 +51,7 @@ impl AssetRegistry {
 
     pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
         for mint in self.0.values() {
-            let mint_field = zolana_keypair::hash::hash_field(mint.as_array())?;
+            let mint_field = rings_keypair::hash::hash_field(mint.as_array())?;
             if &mint_field == field {
                 return Ok(Some(*mint));
             }

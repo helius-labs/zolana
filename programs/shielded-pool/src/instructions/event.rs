@@ -1,6 +1,6 @@
 use borsh::BorshSerialize;
 use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, ProgramResult};
-use zolana_interface::event::{
+use rings_interface::event::{
     encode_event_instruction, encode_event_instruction_with, EventKind, GeneralEvent,
 };
 

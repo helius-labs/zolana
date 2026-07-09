@@ -1,15 +1,15 @@
 use std::path::Path;
 
 use anyhow::Result;
-use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{
+use rings_client::{Rpc, SolanaRpc};
+use rings_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
     state::tree_account_size,
     PROGRAM_ID_PUBKEY,
 };
-use zolana_transaction::Address;
+use rings_transaction::Address;
+use solana_signer::Signer;
 
 use super::{
     material::{load_or_create_solana_keypair, load_sender_from_resolved_sync},

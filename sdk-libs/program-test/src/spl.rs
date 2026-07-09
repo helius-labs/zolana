@@ -1,17 +1,17 @@
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
+use rings_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
     SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
-use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProgramTest};
+use crate::{instructions::system_create_account_ix, ProgramTestError, RingsProgramTest};
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     pub fn token_program_id() -> Pubkey {
         Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
     }

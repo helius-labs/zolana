@@ -2,12 +2,12 @@
 
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
-use zolana_client::{
+use rings_client::{
     prover::field::{be, hash_chain},
     spawn_prover, Proof, ProofCompressed, ProverClient, TransferInput, TransferInputs,
     TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_interface::{
+use rings_interface::{
     instruction::{
         instruction_data::{
             transact as transact_ix,
@@ -17,14 +17,14 @@ use zolana_interface::{
     },
     verifying_keys::transfer_confidential_2_3,
 };
-use zolana_keypair::hash::hash_field;
-use zolana_transaction::OutputUtxo;
+use rings_keypair::hash::hash_field;
+use rings_transaction::OutputUtxo;
 
 pub fn start_prover() -> Result<()> {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

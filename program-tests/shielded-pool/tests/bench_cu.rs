@@ -11,13 +11,9 @@ use mollusk_solana_instruction::{
 use mollusk_solana_pubkey::Pubkey as MolluskPubkey;
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
-use solana_instruction::Instruction;
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
-use zolana_interface::{
+use rings_client::{TransferOutput, STATE_TREE_HEIGHT};
+use rings_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use rings_interface::{
     instruction::{
         Deposit, DepositSplAccounts, Transact, TransactSolWithdrawal, TransactSplWithdrawal,
         TransactWithdrawal,
@@ -25,19 +21,23 @@ use zolana_interface::{
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
+use rings_keypair::{
     constants::BLINDING_LEN,
     hash::{hash_field, owner_hash},
     pubkey::PublicKey,
     NullifierKey, ShieldedKeypair,
 };
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{
+use rings_merkle_tree::MerkleTree;
+use rings_program_test::RingsProgramTest;
+use rings_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     AssetRegistry, Data, Utxo, Wallet, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use rings_tree::TreeAccount;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 mod common;
 
@@ -85,7 +85,7 @@ fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
     }
 }
 
-fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (MolluskPubkey, MolluskAccount) {
+fn snapshot_account(pt: &RingsProgramTest, key: &Pubkey) -> (MolluskPubkey, MolluskAccount) {
     let mollusk_key = to_mollusk_pubkey(key);
     let account = match pt.svm.get_account(key) {
         Some(acc) => MolluskAccount {
@@ -106,7 +106,7 @@ fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (MolluskPubkey, Mol
     (mollusk_key, account)
 }
 
-fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey) {
+fn bench_setup() -> (RingsProgramTest, Keypair, Pubkey) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pt = common::program_test().expect("plain shielded-pool program built for litesvm");
     let authority = Keypair::new();
@@ -119,7 +119,7 @@ fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey) {
 }
 
 fn deposit_sol_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &RingsProgramTest,
     ix: &Instruction,
     program_id: &MolluskPubkey,
 ) -> Vec<(MolluskPubkey, MolluskAccount)> {
@@ -137,7 +137,7 @@ fn deposit_sol_accounts(
 }
 
 fn deposit_spl_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &RingsProgramTest,
     ix: &Instruction,
     program_id: &MolluskPubkey,
     token_program_account: &(MolluskPubkey, MolluskAccount),
@@ -213,7 +213,7 @@ fn bench_cu_deposit() {
 // program to their mollusk fixtures while snapshotting all PDAs/data accounts
 // from the litesvm pre-instruction state the proof is bound to.
 fn transact_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &RingsProgramTest,
     ix: &Instruction,
     program_id: &MolluskPubkey,
     token_program_account: Option<&(MolluskPubkey, MolluskAccount)>,
@@ -240,7 +240,7 @@ fn transact_accounts(
 
 /// On-chain (utxo, nullifier) tree roots at history index `utxo_index` / 0, as
 /// the program reads them in `apply_tree`.
-fn tree_roots(pt: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
+fn tree_roots(pt: &RingsProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
     let mut data = pt.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -261,7 +261,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
     )
     .expect("wallet");
     let seed = [3u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
+    let data = RingsProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
     let _ = &mut recipient;
 
@@ -319,7 +319,7 @@ fn bench_deposit_spl(
     )
     .expect("wallet");
     let seed = [7u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0)
+    let data = RingsProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
     let _ = &mut recipient;
 
@@ -330,7 +330,7 @@ fn bench_deposit_spl(
             user_token,
             spl_token_interface: pda::spl_asset_vault(&mint),
             registry: pda::spl_asset_registry(&mint),
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: RingsProgramTest::token_program_id(),
         }),
         view_tag: data.view_tag,
         owner: data.owner,
@@ -647,7 +647,7 @@ fn bench_withdrawal_spl(
     let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
-    let data = ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding);
+    let data = RingsProgramTest::spl_shield_data(AMOUNT, owner_field, blinding);
     let event = pt
         .deposit_spl(&tree, &payer, &user_token, &mint, &data)
         .expect("proofless spl deposit");
@@ -772,7 +772,7 @@ fn bench_withdrawal_spl(
             spl_token_interface: vault,
             recipient: payer.pubkey(),
             user_token_account: user_token,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: RingsProgramTest::token_program_id(),
         })),
         data: transact_ix_data,
     }

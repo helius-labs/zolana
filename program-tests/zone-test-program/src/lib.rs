@@ -14,7 +14,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED};
+use rings_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {

@@ -6,6 +6,23 @@ mod transact_core;
 // `pack_proof`), so suppress unused-import noise here rather than per binary.
 use anyhow::{Context, Result};
 use num_bigint::BigUint;
+use rings_client::{
+    prover::field::{be, hash_chain, right_align_slice},
+    TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
+};
+use rings_hasher::Poseidon;
+use rings_interface::instruction::{
+    instruction_data::transact::{ExternalDataHash, TransactIxData},
+    tag,
+};
+use rings_keypair::{
+    hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
+};
+use rings_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
+use rings_transaction::{
+    instructions::transact::signed_transaction::{signed_to_field, BN254_MODULUS_DEC},
+    OutputUtxo, Utxo,
+};
 use solana_address::Address;
 #[allow(unused_imports)]
 pub use transact_core::{
@@ -13,23 +30,6 @@ pub use transact_core::{
     external_data_hash, fe, ix_output_ciphertext, new_transact_ix_data, output_owner_pk_hashes,
     pack_proof, prove_and_verify_transfer, public_input_hash, set_output_owner_tags, start_prover,
     TransferProverInputsArgs,
-};
-use zolana_client::{
-    prover::field::{be, hash_chain, right_align_slice},
-    TransferInput, TransferInputs, TransferOutput, UtxoInputs, NULLIFIER_TREE_HEIGHT,
-};
-use zolana_hasher::Poseidon;
-use zolana_interface::instruction::{
-    instruction_data::transact::{ExternalDataHash, TransactIxData},
-    tag,
-};
-use zolana_keypair::{
-    hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
-};
-use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
-use zolana_transaction::{
-    instructions::transact::signed_transaction::{signed_to_field, BN254_MODULUS_DEC},
-    OutputUtxo, Utxo,
 };
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math

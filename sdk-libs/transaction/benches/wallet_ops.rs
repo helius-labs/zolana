@@ -5,8 +5,8 @@ use std::hint::black_box;
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
+use rings_keypair::ShieldedKeypair;
+use rings_transaction::{
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
         split::{Split, SplitEncode},
@@ -184,9 +184,9 @@ fn decrypt(c: &mut Criterion) {
         .get(SENDER_SLOT_COUNT)
         .expect("recipient slot");
     let recipient_body = match recipient_slot.output_data().expect("recipient output data") {
-        zolana_event::OutputData::Encrypted(blob)
-        | zolana_event::OutputData::VerifiablyEncrypted(blob)
-        | zolana_event::OutputData::Plaintext(blob) => blob
+        rings_event::OutputData::Encrypted(blob)
+        | rings_event::OutputData::VerifiablyEncrypted(blob)
+        | rings_event::OutputData::Plaintext(blob) => blob
             .get(1..)
             .map(<[u8]>::to_vec)
             .expect("recipient ciphertext body"),
@@ -212,7 +212,7 @@ fn decrypt(c: &mut Criterion) {
             owner: alice.signing_pubkey(),
             asset: SOL_MINT,
             amount: 100,
-            blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
+            blinding: rings_transaction::derive_blinding(&split_blinding_seed, i),
             zone_program_id: None,
             data: Data::default(),
         })

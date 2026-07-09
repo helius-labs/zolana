@@ -7,21 +7,21 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use rings_client::{
+    AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
+    EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
+};
+use rings_keypair::{
+    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
+    ViewingKey,
+};
+use rings_transaction::serialization::{
+    anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+};
 use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
-};
-use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
-    ViewingKey,
-};
-use zolana_transaction::serialization::{
-    anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
-};
 
 use super::{
     registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
@@ -174,7 +174,7 @@ pub(super) fn run_init(opts: InitOptions) -> Result<()> {
 pub(super) fn load_sender_from_resolved_sync(sync: &ResolvedSyncOptions) -> Result<WalletMaterial> {
     if !sync.keypair_path.exists() {
         bail!(
-            "keypair not found at {}; run `zolana wallet init` first",
+            "keypair not found at {}; run `rings wallet init` first",
             sync.keypair_path.display()
         );
     }
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn wallet_file_round_trips_real_keys() {
-        let root = temp_root("zolana-cli-wallet-real");
+        let root = temp_root("rings-cli-wallet-real");
         let wallet = root.join("alice.pid.json");
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let funding = Keypair::new();

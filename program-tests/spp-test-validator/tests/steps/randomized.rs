@@ -24,13 +24,13 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, Result};
 use cucumber::when;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use rings_interface::pda;
+use rings_test_utils::test_validator_asserts::{fetch_account, token_amount};
+use rings_transaction::SOL_MINT;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::pda;
-use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
-use zolana_transaction::SOL_MINT;
 
 use crate::{actor::Actor, LifecycleWorld};
 
@@ -410,7 +410,7 @@ impl LifecycleWorld {
 
 #[when(expr = "a randomized workload of {int} transactions runs")]
 fn randomized_workload(world: &mut LifecycleWorld, target_txs: i64) {
-    let seed = std::env::var("ZOLANA_RANDOM_SEED")
+    let seed = std::env::var("RINGS_RANDOM_SEED")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or_else(rand::random);

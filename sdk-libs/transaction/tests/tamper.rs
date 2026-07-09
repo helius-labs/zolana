@@ -1,8 +1,8 @@
 mod common;
 
 use common::{build_transfer, keypair_from_index, TransferSpec};
-use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, DEFAULT_TAG_WINDOW};
+use rings_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
+use rings_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, DEFAULT_TAG_WINDOW};
 
 const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;

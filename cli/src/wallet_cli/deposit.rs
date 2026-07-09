@@ -1,8 +1,8 @@
 use anyhow::Result;
-use solana_signer::Signer;
-use zolana_client::{
-    create_deposit, resolve_registered_address, CreateDeposit, SolanaRpc, ZolanaIndexer,
+use rings_client::{
+    create_deposit, resolve_registered_address, CreateDeposit, RingsIndexer, SolanaRpc,
 };
+use solana_signer::Signer;
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -22,7 +22,7 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let spl_token_account = configured_spl_token_account(&config, asset)?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let indexer = RingsIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
     maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let tree = network.tree;

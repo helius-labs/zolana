@@ -1,7 +1,7 @@
 mod common;
 
 use common::{build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec};
-use zolana_transaction::{
+use rings_transaction::{
     AssetRegistry, PrivateTransactionDirection, PrivateTransactionKind, Wallet, SOL_MINT,
 };
 

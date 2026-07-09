@@ -1,5 +1,5 @@
 [package]
-name = "zolana-user-registry"
+name = "rings-user-registry"
 version = "0.1.0"
 description = "On-chain user registry: Solana pubkey to shielded payment keys and sync delegate"
 edition.workspace = true
@@ -7,7 +7,7 @@ publish = false
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "zolana_user_registry"
+name = "rings_user_registry"
 
 [features]
 default = []
@@ -22,7 +22,7 @@ pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
+rings-user-registry-interface = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["solana-address"]

@@ -16,20 +16,17 @@ use p256::{
     elliptic_curve::sec1::ToEncodedPoint,
 };
 use rand::{rngs::ThreadRng, RngCore};
-use solana_address::Address;
-use solana_pubkey::Pubkey;
-use test_indexer::TestIndexer;
-use zolana_client::{
+use rings_client::{
     sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
     ConfidentialRecipientSlot, MerkleContext, MerkleProof, NonInclusionProof, P256Signature,
     PublicAmounts, Rpc, SignedTransaction, SpendProof, SpendUtxo, SyncWalletAuthority, Transaction,
     TransferP256Prover, WalletAuthority, WithdrawalTarget, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
-use zolana_event::OutputData;
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
-use zolana_transaction::{
+use rings_event::OutputData;
+use rings_interface::instruction::instruction_data::transact::TransactProof;
+use rings_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use rings_transaction::{
     instructions::transact::signed_transaction::signed_to_field,
     serialization::{
         confidential::{
@@ -42,6 +39,9 @@ use zolana_transaction::{
     AssetRegistry, Data, ExternalData, OutputUtxo, TransactionError, Utxo, Wallet, SOL_ASSET_ID,
     SOL_MINT,
 };
+use solana_address::Address;
+use solana_pubkey::Pubkey;
+use test_indexer::TestIndexer;
 
 fn blinding(rng: &mut ThreadRng) -> [u8; 31] {
     let mut b = [0u8; 31];
@@ -76,7 +76,7 @@ impl WalletAuthority for AsyncTestAuthority {
     async fn shielded_address(
         &self,
         owner_pubkey: Pubkey,
-    ) -> Result<zolana_keypair::shielded::ShieldedAddress, ClientError> {
+    ) -> Result<rings_keypair::shielded::ShieldedAddress, ClientError> {
         SyncWalletAuthority::shielded_address(&self.keypair, owner_pubkey)
     }
 
@@ -87,7 +87,7 @@ impl WalletAuthority for AsyncTestAuthority {
         sender_tag: [u8; 32],
         sender: &TransferSenderPlaintext,
         recipients: &[ConfidentialRecipientSlot],
-    ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
+    ) -> Result<rings_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
             &self.keypair,
             owner_pubkey,
@@ -103,9 +103,9 @@ impl WalletAuthority for AsyncTestAuthority {
         owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: [u8; 32],
-        sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
+        sender: &rings_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
+    ) -> Result<rings_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             &self.keypair,
             owner_pubkey,
@@ -150,7 +150,7 @@ fn prover_of(signed: SignedTransaction) -> TransferP256Prover {
     let input_merkle_proofs = indexer
         .get_input_merkle_proofs(&commitments)
         .expect("input merkle proofs");
-    match zolana_client::into_prover(signed, &input_merkle_proofs)
+    match rings_client::into_prover(signed, &input_merkle_proofs)
         .expect("into prover")
         .circuit
     {
@@ -391,7 +391,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
         let signed = sign(tx, &sender).unwrap();
         let commitments = signed.input_commitments().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
-        zolana_client::assemble(signed, &proofs)
+        rings_client::assemble(signed, &proofs)
             .unwrap()
             .with_proof(TransactProof::zeroed_eddsa())
     };
@@ -447,7 +447,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let first_nullifier = commitments.first().unwrap().nullifier;
     let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
 
-    let assembled = zolana_client::assemble(signed, &proofs).unwrap();
+    let assembled = rings_client::assemble(signed, &proofs).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed_eddsa());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
@@ -650,7 +650,7 @@ fn rail_follows_input_owner_type() {
     }
     let input_merkle_proofs = indexer.get_input_merkle_proofs(&commitments).unwrap();
     assert!(matches!(
-        zolana_client::into_prover(signed, &input_merkle_proofs)
+        rings_client::into_prover(signed, &input_merkle_proofs)
             .unwrap()
             .circuit,
         CircuitType::Eddsa(_)
@@ -673,7 +673,7 @@ fn p256_owner_signature_matches_built_private_tx_hash() {
     let prover = prover_of(signed);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
-    let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
+    let message_hash = rings_keypair::hash::sha256(&built.private_tx_hash);
     let public_key = owner.pubkey.to_p256().unwrap();
     let point = public_key.to_encoded_point(false);
     let verifying_key = EcdsaVerifyingKey::from_encoded_point(&point).unwrap();
@@ -714,7 +714,7 @@ fn async_authority_signs_p256_and_invokes_approval() {
     let prover = prover_of(signed);
     let owner = prover.p256_owner.clone();
     let built = prover.build().unwrap();
-    let message_hash = zolana_keypair::hash::sha256(&built.private_tx_hash);
+    let message_hash = rings_keypair::hash::sha256(&built.private_tx_hash);
     let public_key = owner.pubkey.to_p256().unwrap();
     let point = public_key.to_encoded_point(false);
     let verifying_key = EcdsaVerifyingKey::from_encoded_point(&point).unwrap();

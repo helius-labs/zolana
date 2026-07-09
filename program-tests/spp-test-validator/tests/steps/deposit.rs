@@ -3,18 +3,18 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{given, then};
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_event::indexed_events_from_instruction_groups;
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_program_test::deposit_output_from_event;
-use zolana_test_utils::{
+use rings_event::indexed_events_from_instruction_groups;
+use rings_interface::SHIELDED_POOL_PROGRAM_ID;
+use rings_program_test::deposit_output_from_event;
+use rings_test_utils::{
     spl::mint_to,
     test_validator_asserts::{
         assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
     },
 };
-use zolana_transaction::{Wallet, SOL_MINT};
+use rings_transaction::{Wallet, SOL_MINT};
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
 use crate::{
     actor::{DepositRecord, SplDepositAccounts},

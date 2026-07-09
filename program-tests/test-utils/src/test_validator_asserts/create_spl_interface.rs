@@ -1,13 +1,13 @@
-use solana_address::Address;
-use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
+use rings_client::{ClientError, Rpc};
+use rings_interface::{
     pda,
     state::{
         discriminator::{SPL_ASSET_COUNTER, SPL_ASSET_REGISTRY},
         SplAssetCounter, SplAssetRegistry,
     },
 };
+use solana_address::Address;
+use solana_pubkey::Pubkey;
 
 use super::{fetch_account, fetch_state, token_amount};
 

@@ -1,5 +1,5 @@
 use borsh::to_vec;
-use zolana_user_registry_interface::{SyncDelegateEntry, UserRecord};
+use rings_user_registry_interface::{SyncDelegateEntry, UserRecord};
 
 #[test]
 fn entry_serializes_delegate_before_keys() {

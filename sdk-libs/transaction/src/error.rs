@@ -1,6 +1,6 @@
+use rings_keypair::KeypairError;
 use solana_address::Address;
 use thiserror::Error;
-use zolana_keypair::KeypairError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransactionError {

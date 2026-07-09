@@ -1,6 +1,6 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_account_checks::{checks::check_data_is_zeroed, AccountIterator};
-use zolana_interface::{
+use rings_account_checks::{checks::check_data_is_zeroed, AccountIterator};
+use rings_interface::{
     error::ShieldedPoolError,
     instruction::CreateProtocolConfigData,
     state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig},

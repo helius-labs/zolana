@@ -6,9 +6,8 @@
 //! element set differs (input owner pk_fields stay private, no confidential
 //! appendix).
 
-use solana_address::Address;
-use zolana_keypair::hash::hash_field;
-use zolana_transaction::{
+use rings_keypair::hash::hash_field;
+use rings_transaction::{
     instructions::{
         transact::{no_address_hashes, private_tx_hash},
         zone_authority::PreparedZoneAuthority,
@@ -16,6 +15,7 @@ use zolana_transaction::{
     utxo::program_id_field,
     ExternalData, OutputUtxo,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,

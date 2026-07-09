@@ -10,14 +10,14 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use rings_client::{Rpc, SolanaRpc};
+use rings_interface::{SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use rings_transaction::Address;
 use serde::Deserialize;
 use serial_test::serial;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
-use zolana_transaction::Address;
 
 #[path = "common/transact.rs"]
 #[allow(dead_code)]
@@ -25,9 +25,9 @@ mod transact_common;
 
 use transact_common::start_prover;
 
-const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
-const INDEXER_URL_ENV: &str = "ZOLANA_INDEXER_URL";
-const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
+const RPC_URL_ENV: &str = "RINGS_LOCALNET_URL";
+const INDEXER_URL_ENV: &str = "RINGS_INDEXER_URL";
+const PROVER_URL_ENV: &str = "RINGS_PROVER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
@@ -91,11 +91,11 @@ fn ensure_associated_token_account(
     mint: &Pubkey,
 ) -> Result<Pubkey> {
     let rpc = SolanaRpc::new(rpc_url);
-    let (_sig, ata) = zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
+    let (_sig, ata) = rings_client::create_associated_token_account(&rpc, payer, owner, mint)?;
     Ok(ata)
 }
 
-/// Restart a fresh local validator + Photon through the `zolana` CLI (the same
+/// Restart a fresh local validator + Photon through the `rings` CLI (the same
 /// launcher the other photon e2e tests use; it owns the validator/photon
 /// orchestration and readiness checks). Deploys the shielded-pool and
 /// user-registry programs the wallet CLI needs; `--skip-prover` leaves the
@@ -103,16 +103,16 @@ fn ensure_associated_token_account(
 fn restart_localnet() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
+        std::env::var("RINGS_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/rings"));
     let program_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
     let user_registry_program_id =
         std::env::var("USER_REGISTRY_PROGRAM_ID").expect("USER_REGISTRY_PROGRAM_ID must be set");
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
+    let rpc_port = std::env::var("RINGS_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
+        std::env::var("RINGS_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
-    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
+    let user_registry_so = format!("{root}/target/deploy/rings_user_registry.so");
 
     let status = Command::new(&cli)
         .current_dir(root)
@@ -126,7 +126,7 @@ fn restart_localnet() {
             "--photon-port",
             &photon_port,
             "--ledger",
-            "/tmp/zolana-photon-test-ledger",
+            "/tmp/rings-photon-test-ledger",
             "--sbf-program",
             &program_id,
             &program_so,
@@ -135,17 +135,17 @@ fn restart_localnet() {
             &user_registry_so,
         ])
         .status()
-        .expect("run zolana test-validator");
-    assert!(status.success(), "zolana test-validator restart failed");
+        .expect("run rings test-validator");
+    assert!(status.success(), "rings test-validator restart failed");
 }
 
 fn cli_bin() -> PathBuf {
-    std::env::var("ZOLANA_CLI_BIN")
+    std::env::var("RINGS_CLI_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             PathBuf::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../target/debug/zolana"
+                "/../../target/debug/rings"
             ))
         })
 }
@@ -158,12 +158,12 @@ fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let output = command
         .args(args)
         .output()
-        .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
+        .with_context(|| format!("spawn rings {}", args.join(" ")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if !output.status.success() {
         bail!(
-            "zolana {} failed (status={}):\nstdout:{stdout}\nstderr:{stderr}",
+            "rings {} failed (status={}):\nstdout:{stdout}\nstderr:{stderr}",
             args.join(" "),
             output.status
         );
@@ -200,7 +200,7 @@ fn temp_wallet_dir() -> Result<PathBuf> {
         .context("time")?
         .as_nanos();
     let dir = env::temp_dir().join(format!(
-        "zolana-wallet-cli-e2e-{}-{stamp}",
+        "rings-wallet-cli-e2e-{}-{stamp}",
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
@@ -242,7 +242,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let tree_keypair = root.join("tree.json");
     let config_path = root.join("config.json");
     let config_path_str = config_path.to_string_lossy().into_owned();
-    let cli_env = [("ZOLANA_CONFIG", config_path_str.as_str())];
+    let cli_env = [("RINGS_CONFIG", config_path_str.as_str())];
 
     wallet_init(&alice, &rpc_url, &cli_env)?;
     wallet_init(&bob, &rpc_url, &cli_env)?;

@@ -2,8 +2,8 @@
 
 Benchmarks of the wallet sync primitives, composed decrypt operations, and
 a full first-time sync scenario. Regenerate the operation benches with
-`cargo bench -p zolana-transaction --bench wallet_ops` and the scenario with
-`cargo test --release -p zolana-transaction --test bench_scenarios --features parallel -- --ignored --nocapture`.
+`cargo bench -p rings-transaction --bench wallet_ops` and the scenario with
+`cargo test --release -p rings-transaction --test bench_scenarios --features parallel -- --ignored --nocapture`.
 
 Operation times are criterion medians (bench profile). The scenario times are
 single measured `Wallet::sync` / `Wallet::sync_parallel` calls over a pre-built

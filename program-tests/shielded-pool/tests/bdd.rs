@@ -4,14 +4,14 @@ mod common;
 mod steps;
 
 use cucumber::World;
+use rings_program_test::{DepositOutput, ProgramTestError, RingsProgramTest};
+use rings_transaction::Wallet;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_program_test::{DepositOutput, ProgramTestError, ZolanaProgramTest};
-use zolana_transaction::Wallet;
 
 #[derive(Default, World)]
 pub struct ShieldedPoolWorld {
-    rpc: Option<ZolanaProgramTest>,
+    rpc: Option<RingsProgramTest>,
     authority: Option<Keypair>,
     tree: Option<Keypair>,
     depositor: Option<Keypair>,
@@ -47,11 +47,11 @@ impl std::fmt::Debug for ShieldedPoolWorld {
 }
 
 impl ShieldedPoolWorld {
-    pub fn rpc(&mut self) -> &mut ZolanaProgramTest {
+    pub fn rpc(&mut self) -> &mut RingsProgramTest {
         self.rpc.as_mut().expect("pool booted")
     }
 
-    pub fn rpc_ref(&self) -> &ZolanaProgramTest {
+    pub fn rpc_ref(&self) -> &RingsProgramTest {
         self.rpc.as_ref().expect("pool booted")
     }
 

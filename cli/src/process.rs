@@ -44,7 +44,7 @@ pub(crate) fn remove_launchd_validators() {
         return;
     }
 
-    for label in ["com.zolana.localnet", "com.zolana.localnet-proofless"] {
+    for label in ["com.rings.localnet", "com.rings.localnet-proofless"] {
         let _ = Command::new("launchctl")
             .args(["remove", label])
             .stdout(Stdio::null())

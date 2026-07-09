@@ -2,7 +2,7 @@ use std::{cmp::Ordering, fmt::Debug, marker::PhantomData};
 
 use num_bigint::BigUint;
 use num_traits::{CheckedAdd, CheckedSub, ToBytes, Unsigned, Zero};
-use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher};
+use rings_hasher::{bigint::bigint_to_be_bytes_array, Hasher};
 
 use crate::{changelog::RawIndexedElement, errors::IndexedArrayError};
 

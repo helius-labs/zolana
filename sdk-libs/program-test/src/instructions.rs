@@ -1,8 +1,8 @@
+use rings_client::Rpc;
+use rings_interface::{instruction::CreateTree, pda, state::state_root_offset};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_client::Rpc;
-use zolana_interface::{instruction::CreateTree, pda, state::state_root_offset};
 
 use crate::ProgramTestError;
 

@@ -4,18 +4,18 @@
 //! crate keeps the higher-level sender-driven `Deposit` (which detects SOL vs
 //! SPL from the funding account) local to the tests that exercise it.
 
+use rings_client::{ClientError, Rpc};
+use rings_interface::{
+    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
+    pda,
+};
+use rings_keypair::{random_blinding, ShieldedAddress};
+use rings_transaction::{Data, Utxo, SOL_MINT};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
-    instruction::{Deposit as DepositInstruction, DepositIxData, DepositSplAccounts},
-    pda,
-};
-use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{Data, Utxo, SOL_MINT};
 
 /// Outcome of a shield: the on-chain signature and the created note, ready to
 /// spend (and re-discoverable by `Wallet::sync` from the deposit's `owner`).

@@ -11,7 +11,7 @@
 #         FUNDER, RPC, MIN_FUNDING, REFUND, MAX_RETRIES, RETRY_DELAY
 #
 # Prereqs: both wallets registered, merging enabled once per wallet
-# (`zolana wallet merge --enable -w <wallet>`), and the PAIR funded with
+# (`rings wallet merge --enable -w <wallet>`), and the PAIR funded with
 # >= 2*WIDTH*amount shielded SOL total. The script then self-heals before every
 # batch:
 #   - ensure_balance: if the sender is below WIDTH*amount, pull value from the other
@@ -21,14 +21,14 @@
 #     instead of colliding on one (7002 double-spend).
 
 set -uo pipefail
-BIN="${ZOLANA_BIN:-$(cd "$(dirname "$0")" && pwd)/target/release/zolana}"
+BIN="${RINGS_BIN:-$(cd "$(dirname "$0")" && pwd)/target/release/rings}"
 ALICE="${ALICE_WALLET:-alice}"; BOB="${BOB_WALLET:-bob}"
 # WIDTH default 4: ~8 concurrent Groth16 proofs (both directions) overwhelm a
 # single local prover (~1.5GB heap each) and stall. Raise only with a beefier /
 # horizontally-scaled prover.
 WIDTH="${WIDTH:-4}"; ROUNDS="${1:-5}"; AMOUNT="${2:-0.006}"
 FUNDER="${FUNDER:-$HOME/.config/solana/id.json}"
-RPC="${RPC:-$(python3 -c "import json;print(json.load(open('$HOME/.config/zolana/config.json')).get('rpc_url') or '')" 2>/dev/null)}"
+RPC="${RPC:-$(python3 -c "import json;print(json.load(open('$HOME/.config/rings/config.json')).get('rpc_url') or '')" 2>/dev/null)}"
 MIN_FUNDING="${MIN_FUNDING:-0.02}"; REFUND="${REFUND:-0.1}"
 MAX_RETRIES="${MAX_RETRIES:-6}"; RETRY_DELAY="${RETRY_DELAY:-2}"
 CLUSTER="${CLUSTER:-devnet}"          # Solana Explorer cluster for tx links
@@ -130,7 +130,7 @@ batch(){ # fire WIDTH concurrent transfers <to> <from>; echo success count
   echo "$ok"
 }
 
-for w in "$ALICE" "$BOB"; do [ -f "$HOME/.config/zolana/wallets/$w.json" ] || { log "missing wallet $w"; exit 1; }; done
+for w in "$ALICE" "$BOB"; do [ -f "$HOME/.config/rings/wallets/$w.json" ] || { log "missing wallet $w"; exit 1; }; done
 log "parallel ping-pong: width=$WIDTH rounds=$ROUNDS amount=$AMOUNT SOL"
 log "start: $ALICE=$(sol "$ALICE") $BOB=$(sol "$BOB")"
 start=$(date +%s); tot=0

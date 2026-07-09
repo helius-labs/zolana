@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Ping-pong shielded transfers between two local zolana wallets, with
+# Ping-pong shielded transfers between two local rings wallets, with
 # auto-refuel of the funding (public) keys and per-hop tx logging.
 # One "round" = alice -> bob, then bob -> alice.
 #
@@ -9,9 +9,9 @@
 #   amount_sol  SOL bounced each hop    (default 0.001)
 #
 # Env overrides:
-#   ZOLANA_BIN ALICE_WALLET BOB_WALLET
+#   RINGS_BIN ALICE_WALLET BOB_WALLET
 #   FUNDER (keypair that tops up funding keys, default ~/.config/solana/id.json)
-#   RPC (default: rpc_url from ~/.config/zolana/config.json)
+#   RPC (default: rpc_url from ~/.config/rings/config.json)
 #   MIN_FUNDING (SOL; refuel when a funding key drops below this, default 0.01)
 #   REFUND (SOL added per refuel, default 0.05)
 #   MAX_RETRIES RETRY_DELAY HOP_DELAY PROGRESS_EVERY
@@ -22,13 +22,13 @@
 
 set -uo pipefail
 
-BIN="${ZOLANA_BIN:-$(cd "$(dirname "$0")" && pwd)/target/release/zolana}"
+BIN="${RINGS_BIN:-$(cd "$(dirname "$0")" && pwd)/target/release/rings}"
 ALICE="${ALICE_WALLET:-alice}"
 BOB="${BOB_WALLET:-bob}"
 ROUNDS="${1:-1000000}"
 AMOUNT="${2:-0.001}"
 FUNDER="${FUNDER:-$HOME/.config/solana/id.json}"
-RPC="${RPC:-$(python3 -c "import json;print(json.load(open('$HOME/.config/zolana/config.json')).get('rpc_url') or '')" 2>/dev/null)}"
+RPC="${RPC:-$(python3 -c "import json;print(json.load(open('$HOME/.config/rings/config.json')).get('rpc_url') or '')" 2>/dev/null)}"
 MIN_FUNDING="${MIN_FUNDING:-0.01}"
 REFUND="${REFUND:-0.05}"
 MAX_RETRIES="${MAX_RETRIES:-5}"
@@ -93,7 +93,7 @@ transfer() {
 # --- preflight ---------------------------------------------------------------
 [[ -x "$BIN" ]] || { log "binary not found/executable: $BIN"; exit 1; }
 command -v solana >/dev/null || { log "solana CLI not found (needed for refuel)"; exit 1; }
-[[ -n "$RPC" ]] || { log "no RPC url (set RPC=... or 'zolana config set --rpc-url ...')"; exit 1; }
+[[ -n "$RPC" ]] || { log "no RPC url (set RPC=... or 'rings config set --rpc-url ...')"; exit 1; }
 [[ -f "$FUNDER" ]] || { log "FUNDER keypair not found: $FUNDER"; exit 1; }
 ALICE_ADDR="$("$BIN" wallet address -w "$ALICE" 2>/dev/null)" || { log "wallet '$ALICE' not found"; exit 1; }
 BOB_ADDR="$("$BIN" wallet address -w "$BOB" 2>/dev/null)"     || { log "wallet '$BOB' not found"; exit 1; }

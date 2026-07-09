@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rings_event::{InstructionGroup, ParsedInstruction};
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
@@ -23,7 +24,6 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
     UiTransactionEncoding,
 };
-use zolana_event::{InstructionGroup, ParsedInstruction};
 
 use crate::{error::ClientError, rpc::Rpc};
 

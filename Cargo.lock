@@ -925,10 +925,10 @@ dependencies = [
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
  "pinocchio 0.11.2",
+ "rings-bloom-filter",
  "solana-account 2.2.1",
  "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
- "zolana-bloom-filter",
 ]
 
 [[package]]
@@ -2057,6 +2057,7 @@ version = "1.1.0"
 dependencies = [
  "clap",
  "dotenvy",
+ "rings-interface",
  "solana-commitment-config",
  "solana-keypair",
  "solana-message 3.1.0",
@@ -2069,7 +2070,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "zolana-interface",
 ]
 
 [[package]]
@@ -4471,6 +4471,358 @@ dependencies = [
 ]
 
 [[package]]
+name = "rings-account-checks"
+version = "0.8.0"
+dependencies = [
+ "rand 0.8.6",
+ "solana-account-view 2.0.0",
+ "solana-address 2.6.1",
+ "solana-msg 3.1.0",
+ "solana-program-error 3.0.1",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-api"
+version = "0.1.0"
+dependencies = [
+ "openapiv3",
+ "prettyplease",
+ "progenitor",
+ "progenitor-client",
+ "reqwest 0.13.4",
+ "rustls",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "rings-batched-merkle-tree"
+version = "0.11.0"
+dependencies = [
+ "aligned-sized",
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh 1.6.1",
+ "bytemuck",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "rand 0.8.6",
+ "rings-account-checks",
+ "rings-bloom-filter",
+ "rings-client",
+ "rings-hasher",
+ "rings-indexed-array",
+ "rings-merkle-tree",
+ "rings-merkle-tree-metadata",
+ "solana-address 2.6.1",
+ "solana-msg 3.1.0",
+ "solana-program-error 3.0.1",
+ "solana-sysvar 4.0.0",
+ "thiserror 2.0.18",
+ "wincode",
+ "zerocopy",
+]
+
+[[package]]
+name = "rings-bloom-filter"
+version = "0.6.0"
+dependencies = [
+ "bytemuck",
+ "num-bigint 0.4.6",
+ "rand 0.8.6",
+ "rings-hasher",
+ "solana-nostd-keccak",
+ "solana-program-error 3.0.1",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-byte-compat"
+version = "0.1.0"
+dependencies = [
+ "light-batched-merkle-tree",
+ "light-compressed-account",
+ "rings-batched-merkle-tree",
+ "rings-merkle-tree-metadata",
+ "solana-address 2.6.1",
+]
+
+[[package]]
+name = "rings-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "rings-client",
+ "rings-interface",
+ "rings-keypair",
+ "rings-transaction",
+ "rings-user-registry-interface",
+ "serde",
+ "serde_json",
+ "solana-compute-budget-interface",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
+ "solana-signer",
+]
+
+[[package]]
+name = "rings-client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.13.1",
+ "borsh 1.6.1",
+ "bs58",
+ "cucumber",
+ "futures",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "p256",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "rings-api",
+ "rings-event",
+ "rings-hasher",
+ "rings-interface",
+ "rings-keypair",
+ "rings-merkle-tree",
+ "rings-transaction",
+ "rings-user-registry-interface",
+ "serde",
+ "serde_json",
+ "solana-account 3.4.0",
+ "solana-address 2.6.1",
+ "solana-bn254 3.2.1",
+ "solana-clock 3.1.0",
+ "solana-commitment-config",
+ "solana-hash 4.4.0",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-signature 3.4.1",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-status-client-types",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-event"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.1",
+ "solana-pubkey 4.2.0",
+ "wincode",
+]
+
+[[package]]
+name = "rings-hasher"
+version = "5.0.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh 1.6.1",
+ "light-poseidon 0.4.0",
+ "num-bigint 0.4.6",
+ "rand 0.8.6",
+ "sha2 0.10.9",
+ "sha3",
+ "solana-program-error 3.0.1",
+ "solana-pubkey 4.2.0",
+ "thiserror 2.0.18",
+ "tinyvec",
+]
+
+[[package]]
+name = "rings-indexed-array"
+version = "0.3.0"
+dependencies = [
+ "num-bigint 0.4.6",
+ "num-traits",
+ "rand 0.8.6",
+ "rings-hasher",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-interface"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.1",
+ "bytemuck",
+ "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "rings-batched-merkle-tree",
+ "rings-event",
+ "rings-hasher",
+ "rings-tree",
+ "solana-address 2.6.1",
+ "solana-instruction 3.4.0",
+ "solana-program-error 3.0.1",
+ "solana-pubkey 4.2.0",
+ "thiserror 2.0.18",
+ "wincode",
+]
+
+[[package]]
+name = "rings-keypair"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "ctr",
+ "cucumber",
+ "ed25519-dalek 2.2.0",
+ "hex",
+ "hkdf",
+ "p256",
+ "rand 0.8.6",
+ "rings-hasher",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "rings-merkle-tree"
+version = "4.0.0"
+dependencies = [
+ "num-bigint 0.4.6",
+ "num-traits",
+ "rand 0.8.6",
+ "rings-hasher",
+ "rings-indexed-array",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-merkle-tree-metadata"
+version = "0.11.0"
+dependencies = [
+ "anchor-lang",
+ "borsh 1.6.1",
+ "bytemuck",
+ "solana-address 2.6.1",
+ "solana-msg 3.1.0",
+ "solana-program-error 3.0.1",
+ "solana-sysvar 4.0.0",
+ "thiserror 2.0.18",
+ "zerocopy",
+]
+
+[[package]]
+name = "rings-program-test"
+version = "0.23.0"
+dependencies = [
+ "litesvm",
+ "rings-client",
+ "rings-event",
+ "rings-hasher",
+ "rings-interface",
+ "rings-keypair",
+ "rings-merkle-tree",
+ "rings-transaction",
+ "solana-account 3.4.0",
+ "solana-address 2.6.1",
+ "solana-hash 4.4.0",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
+ "solana-signer",
+ "solana-transaction",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-test-utils"
+version = "0.1.0"
+dependencies = [
+ "base64 0.13.1",
+ "borsh 1.6.1",
+ "bytemuck",
+ "rings-client",
+ "rings-event",
+ "rings-interface",
+ "rings-program-test",
+ "rings-transaction",
+ "solana-account 3.4.0",
+ "solana-address 2.6.1",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-pubkey 4.2.0",
+ "solana-signature 3.4.1",
+ "solana-signer",
+]
+
+[[package]]
+name = "rings-transaction"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "borsh 1.6.1",
+ "criterion",
+ "cucumber",
+ "light-poseidon 0.4.0",
+ "num-bigint 0.4.6",
+ "p256",
+ "proptest",
+ "rayon",
+ "rings-event",
+ "rings-interface",
+ "rings-keypair",
+ "solana-address 2.6.1",
+ "solana-signature 3.4.1",
+ "thiserror 2.0.18",
+ "tokio",
+ "wincode",
+]
+
+[[package]]
+name = "rings-tree"
+version = "0.1.0"
+dependencies = [
+ "pinocchio 0.11.2",
+ "rings-batched-merkle-tree",
+ "rings-hasher",
+ "wincode",
+]
+
+[[package]]
+name = "rings-user-registry"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.1",
+ "pinocchio 0.11.2",
+ "rings-user-registry-interface",
+ "solana-address 2.6.1",
+ "solana-msg 3.1.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rings-user-registry-interface"
+version = "0.1.0"
+dependencies = [
+ "borsh 1.6.1",
+ "solana-instruction 3.4.0",
+ "solana-pubkey 4.2.0",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4937,12 +5289,12 @@ dependencies = [
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "pinocchio 0.11.2",
  "pinocchio-system",
+ "rings-account-checks",
+ "rings-hasher",
+ "rings-interface",
+ "rings-tree",
+ "rings-user-registry-interface",
  "tinyvec",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -4957,6 +5309,16 @@ dependencies = [
  "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
  "mollusk-svm",
  "num-bigint 0.4.6",
+ "rings-client",
+ "rings-event",
+ "rings-hasher",
+ "rings-interface",
+ "rings-keypair",
+ "rings-merkle-tree",
+ "rings-program-test",
+ "rings-test-utils",
+ "rings-transaction",
+ "rings-tree",
  "serde",
  "serde_json",
  "serial_test",
@@ -4973,16 +5335,6 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "tokio",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
 ]
 
 [[package]]
@@ -8074,6 +8426,14 @@ dependencies = [
  "futures",
  "p256",
  "rand 0.8.6",
+ "rings-client",
+ "rings-event",
+ "rings-interface",
+ "rings-keypair",
+ "rings-program-test",
+ "rings-test-utils",
+ "rings-transaction",
+ "rings-user-registry-interface",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
@@ -8084,14 +8444,6 @@ dependencies = [
  "solana-signature 3.4.1",
  "solana-signer",
  "solana-transaction",
- "zolana-client",
- "zolana-event",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -8588,17 +8940,17 @@ dependencies = [
  "num-bigint 0.4.6",
  "pinocchio 0.11.2",
  "rand 0.8.6",
+ "rings-batched-merkle-tree",
+ "rings-client",
+ "rings-hasher",
+ "rings-merkle-tree",
+ "rings-merkle-tree-metadata",
+ "rings-tree",
  "solana-account 2.2.1",
  "solana-address 2.6.1",
  "solana-instruction 2.3.3",
  "solana-pubkey 2.4.0",
  "wincode",
- "zolana-batched-merkle-tree",
- "zolana-client",
- "zolana-hasher",
- "zolana-merkle-tree",
- "zolana-merkle-tree-metadata",
- "zolana-tree",
 ]
 
 [[package]]
@@ -8782,6 +9134,7 @@ dependencies = [
  "borsh 1.6.1",
  "cucumber",
  "litesvm",
+ "rings-user-registry-interface",
  "solana-instruction 3.4.0",
  "solana-keypair",
  "solana-message 3.1.0",
@@ -8789,7 +9142,6 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "tokio",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -9385,6 +9737,12 @@ dependencies = [
  "bincode",
  "bs58",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "rings-client",
+ "rings-interface",
+ "rings-program-test",
+ "rings-test-utils",
+ "rings-transaction",
+ "rings-user-registry-interface",
  "sha2 0.10.9",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
@@ -9395,12 +9753,6 @@ dependencies = [
  "solana-pubkey 4.2.0",
  "solana-signer",
  "solana-transaction",
- "zolana-client",
- "zolana-interface",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -9527,358 +9879,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 
 [[package]]
-name = "zolana-account-checks"
-version = "0.8.0"
-dependencies = [
- "rand 0.8.6",
- "solana-account-view 2.0.0",
- "solana-address 2.6.1",
- "solana-msg 3.1.0",
- "solana-program-error 3.0.1",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "zolana-api"
-version = "0.1.0"
-dependencies = [
- "openapiv3",
- "prettyplease",
- "progenitor",
- "progenitor-client",
- "reqwest 0.13.4",
- "rustls",
- "serde",
- "serde_json",
- "serde_yaml",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "zolana-batched-merkle-tree"
-version = "0.11.0"
-dependencies = [
- "aligned-sized",
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh 1.6.1",
- "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "light-program-profiler 0.1.1 (git+https://github.com/Lightprotocol/light-program-profiler?rev=b3155b505ce7c8a5718cb155326baef27d311d8f)",
- "num-bigint 0.4.6",
- "num-traits",
- "rand 0.8.6",
- "solana-address 2.6.1",
- "solana-msg 3.1.0",
- "solana-program-error 3.0.1",
- "solana-sysvar 4.0.0",
- "thiserror 2.0.18",
- "wincode",
- "zerocopy",
- "zolana-account-checks",
- "zolana-bloom-filter",
- "zolana-client",
- "zolana-hasher",
- "zolana-indexed-array",
- "zolana-merkle-tree",
- "zolana-merkle-tree-metadata",
-]
-
-[[package]]
-name = "zolana-bloom-filter"
-version = "0.6.0"
-dependencies = [
- "bytemuck",
- "num-bigint 0.4.6",
- "rand 0.8.6",
- "solana-nostd-keccak",
- "solana-program-error 3.0.1",
- "thiserror 2.0.18",
- "zolana-hasher",
-]
-
-[[package]]
-name = "zolana-byte-compat"
-version = "0.1.0"
-dependencies = [
- "light-batched-merkle-tree",
- "light-compressed-account",
- "solana-address 2.6.1",
- "zolana-batched-merkle-tree",
- "zolana-merkle-tree-metadata",
-]
-
-[[package]]
-name = "zolana-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "hex",
- "serde",
- "serde_json",
- "solana-compute-budget-interface",
- "solana-instruction 3.4.0",
- "solana-keypair",
- "solana-pubkey 4.2.0",
- "solana-signature 3.4.1",
- "solana-signer",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-client"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.13.1",
- "borsh 1.6.1",
- "bs58",
- "cucumber",
- "futures",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "num-bigint 0.4.6",
- "num-traits",
- "p256",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "solana-account 3.4.0",
- "solana-address 2.6.1",
- "solana-bn254 3.2.1",
- "solana-clock 3.1.0",
- "solana-commitment-config",
- "solana-hash 4.4.0",
- "solana-instruction 3.4.0",
- "solana-keypair",
- "solana-message 3.1.0",
- "solana-pubkey 4.2.0",
- "solana-rpc-client",
- "solana-rpc-client-api",
- "solana-signature 3.4.1",
- "solana-signer",
- "solana-transaction",
- "solana-transaction-status-client-types",
- "thiserror 2.0.18",
- "zolana-api",
- "zolana-event",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-transaction",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-event"
-version = "0.1.0"
-dependencies = [
- "borsh 1.6.1",
- "solana-pubkey 4.2.0",
- "wincode",
-]
-
-[[package]]
-name = "zolana-hasher"
-version = "5.0.0"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh 1.6.1",
- "light-poseidon 0.4.0",
- "num-bigint 0.4.6",
- "rand 0.8.6",
- "sha2 0.10.9",
- "sha3",
- "solana-program-error 3.0.1",
- "solana-pubkey 4.2.0",
- "thiserror 2.0.18",
- "tinyvec",
-]
-
-[[package]]
-name = "zolana-indexed-array"
-version = "0.3.0"
-dependencies = [
- "num-bigint 0.4.6",
- "num-traits",
- "rand 0.8.6",
- "thiserror 2.0.18",
- "zolana-hasher",
-]
-
-[[package]]
-name = "zolana-interface"
-version = "0.1.0"
-dependencies = [
- "borsh 1.6.1",
- "bytemuck",
- "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
- "solana-address 2.6.1",
- "solana-instruction 3.4.0",
- "solana-program-error 3.0.1",
- "solana-pubkey 4.2.0",
- "thiserror 2.0.18",
- "wincode",
- "zolana-batched-merkle-tree",
- "zolana-event",
- "zolana-hasher",
- "zolana-tree",
-]
-
-[[package]]
-name = "zolana-keypair"
-version = "0.1.0"
-dependencies = [
- "aes",
- "ctr",
- "cucumber",
- "ed25519-dalek 2.2.0",
- "hex",
- "hkdf",
- "p256",
- "rand 0.8.6",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
- "zeroize",
- "zolana-hasher",
-]
-
-[[package]]
-name = "zolana-merkle-tree"
-version = "4.0.0"
-dependencies = [
- "num-bigint 0.4.6",
- "num-traits",
- "rand 0.8.6",
- "thiserror 2.0.18",
- "zolana-hasher",
- "zolana-indexed-array",
-]
-
-[[package]]
-name = "zolana-merkle-tree-metadata"
-version = "0.11.0"
-dependencies = [
- "anchor-lang",
- "borsh 1.6.1",
- "bytemuck",
- "solana-address 2.6.1",
- "solana-msg 3.1.0",
- "solana-program-error 3.0.1",
- "solana-sysvar 4.0.0",
- "thiserror 2.0.18",
- "zerocopy",
-]
-
-[[package]]
-name = "zolana-program-test"
-version = "0.23.0"
-dependencies = [
- "litesvm",
- "solana-account 3.4.0",
- "solana-address 2.6.1",
- "solana-hash 4.4.0",
- "solana-instruction 3.4.0",
- "solana-keypair",
- "solana-message 3.1.0",
- "solana-pubkey 4.2.0",
- "solana-signature 3.4.1",
- "solana-signer",
- "solana-transaction",
- "thiserror 2.0.18",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-test-utils"
-version = "0.1.0"
-dependencies = [
- "base64 0.13.1",
- "borsh 1.6.1",
- "bytemuck",
- "solana-account 3.4.0",
- "solana-address 2.6.1",
- "solana-instruction 3.4.0",
- "solana-keypair",
- "solana-pubkey 4.2.0",
- "solana-signature 3.4.1",
- "solana-signer",
- "zolana-client",
- "zolana-event",
- "zolana-interface",
- "zolana-program-test",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-transaction"
-version = "0.1.0"
-dependencies = [
- "ark-bn254 0.5.0",
- "borsh 1.6.1",
- "criterion",
- "cucumber",
- "light-poseidon 0.4.0",
- "num-bigint 0.4.6",
- "p256",
- "proptest",
- "rayon",
- "solana-address 2.6.1",
- "solana-signature 3.4.1",
- "thiserror 2.0.18",
- "tokio",
- "wincode",
- "zolana-event",
- "zolana-interface",
- "zolana-keypair",
-]
-
-[[package]]
-name = "zolana-tree"
-version = "0.1.0"
-dependencies = [
- "pinocchio 0.11.2",
- "wincode",
- "zolana-batched-merkle-tree",
- "zolana-hasher",
-]
-
-[[package]]
-name = "zolana-user-registry"
-version = "0.1.0"
-dependencies = [
- "borsh 1.6.1",
- "pinocchio 0.11.2",
- "solana-address 2.6.1",
- "solana-msg 3.1.0",
- "thiserror 2.0.18",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-user-registry-interface"
-version = "0.1.0"
-dependencies = [
- "borsh 1.6.1",
- "solana-instruction 3.4.0",
- "solana-pubkey 4.2.0",
-]
-
-[[package]]
 name = "zone-test-program"
 version = "0.1.0"
 dependencies = [
@@ -9889,6 +9889,14 @@ dependencies = [
  "p256",
  "pinocchio 0.11.2",
  "rand 0.8.6",
+ "rings-client",
+ "rings-event",
+ "rings-interface",
+ "rings-keypair",
+ "rings-program-test",
+ "rings-test-utils",
+ "rings-transaction",
+ "rings-user-registry-interface",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
@@ -9899,14 +9907,6 @@ dependencies = [
  "solana-signature 3.4.1",
  "solana-signer",
  "solana-transaction",
- "zolana-client",
- "zolana-event",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-user-registry-interface",
 ]
 
 [[package]]

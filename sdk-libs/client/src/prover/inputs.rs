@@ -1,11 +1,11 @@
 use num_bigint::BigUint;
-use solana_address::Address;
-use zolana_keypair::hash::poseidon;
-use zolana_transaction::{
+use rings_keypair::hash::poseidon;
+use rings_transaction::{
     instructions::transact::signed_transaction::asset_field,
     utxo::{program_id_field, UTXO_DOMAIN},
     OutputUtxo,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,

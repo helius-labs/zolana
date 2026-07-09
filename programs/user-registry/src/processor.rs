@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::instruction::{
+use rings_user_registry_interface::instruction::{
     discriminator, RegisterData, RotateSyncDelegateKeyData, SetMergingEnabledData,
     SetSyncDelegateData, UpdateKeysData,
 };

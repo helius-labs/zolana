@@ -1,8 +1,8 @@
-use solana_address::Address;
-use zolana_keypair::{
+use rings_keypair::{
     constants::BLINDING_LEN, shielded::ShieldedKeypair, viewing_key::random_blinding, NullifierKey,
     PublicKey,
 };
+use solana_address::Address;
 
 use crate::{data::Data, utxo::Utxo};
 

@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::{error::ShieldedPoolError, state::ZoneConfig};
+use rings_interface::{error::ShieldedPoolError, state::ZoneConfig};
 
 /// Load a zone config read-only: owned by SPP, correct size and discriminator.
 /// The create-time `zone_auth` derivation already bound the account to its

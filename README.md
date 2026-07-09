@@ -1,4 +1,4 @@
-# Zolana
+# Rings
 
 ## In scope
 
@@ -8,7 +8,7 @@
 | `program-libs/` | Shared Rust interface crate |
 | `program-tests/` | Internal test crates and test-only SBF programs |
 | `sdk-libs/` | Rust SDK crates (`keypair`, `program-test`, `transaction`) |
-| `cli/` | Zolana developer and operator CLI |
+| `cli/` | Rings developer and operator CLI |
 | `forester/` | Off-chain nullifier-tree maintenance skeleton |
 | `prover/` | Go prover server + Rust prover client |
 | `xtask/` | Workspace dev tooling |

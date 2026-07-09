@@ -1,12 +1,12 @@
-use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::OutputCiphertext;
-use zolana_keypair::{
+use rings_interface::instruction::instruction_data::transact::OutputCiphertext;
+use rings_keypair::{
     constants::{BLINDING_LEN, VIEW_TAG_LEN},
     hash::sha256_be,
     shielded::ShieldedAddress,
     viewing_key::{random_blinding, ViewTag},
     P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
+use solana_address::Address;
 
 use super::{
     signed_transaction::{asset_field, signed_to_field, PublicAmounts, SignedTransaction},
@@ -264,7 +264,7 @@ impl Transaction {
     ) -> Result<SignedTransaction, TransactionError> {
         let prepared = self.prepare(assets)?;
         let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
-        let salt = zolana_keypair::random_salt();
+        let salt = rings_keypair::random_salt();
         let tx_viewing_pk = tx.pubkey();
 
         let sender_view_tag = prepared
@@ -555,7 +555,7 @@ impl PreparedTransaction {
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
-        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        salt: [u8; rings_keypair::constants::SALT_LEN],
         slots: Vec<OutputCiphertext>,
         assets: &AssetRegistry,
     ) -> Result<SignedTransaction, TransactionError> {
@@ -603,7 +603,7 @@ impl PreparedTransaction {
 
         let mut output_ciphertexts = slots;
         if output_ciphertexts.len() < 1 + max_recipients {
-            let throwaway = zolana_keypair::ViewingKey::new();
+            let throwaway = rings_keypair::ViewingKey::new();
             let dummy_len = dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt, assets)?;
             let mut tags = dummy_tags.iter();
             while output_ciphertexts.len() < 1 + max_recipients {
@@ -657,7 +657,7 @@ impl PreparedTransaction {
 fn random_view_tag() -> Result<[u8; VIEW_TAG_LEN], TransactionError> {
     let mut input = [0u8; 32];
     input[1..].copy_from_slice(&random_blinding());
-    Ok(zolana_keypair::hash::poseidon(&[&input])?)
+    Ok(rings_keypair::hash::poseidon(&[&input])?)
 }
 
 /// Random `len` bytes for a dummy output slot.
@@ -675,9 +675,9 @@ fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
 /// by encoding a throwaway recipient through the same path. This keeps dummy slots
 /// byte-length-indistinguishable from real ones without pinning a brittle constant.
 fn dummy_ciphertext_len(
-    tx: &zolana_keypair::ViewingKey,
+    tx: &rings_keypair::ViewingKey,
     throwaway_pubkey: P256Pubkey,
-    salt: [u8; zolana_keypair::constants::SALT_LEN],
+    salt: [u8; rings_keypair::constants::SALT_LEN],
     assets: &AssetRegistry,
 ) -> Result<usize, TransactionError> {
     let utxo = Utxo {

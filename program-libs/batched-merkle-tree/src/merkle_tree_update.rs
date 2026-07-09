@@ -1,5 +1,5 @@
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
-use zolana_merkle_tree_metadata::{
+use rings_hasher::hash_chain::create_hash_chain_from_array;
+use rings_merkle_tree_metadata::{
     errors::MerkleTreeMetadataError, events::batch::BatchAddressAppendEvent, TreeType,
 };
 

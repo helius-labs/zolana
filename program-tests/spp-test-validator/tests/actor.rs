@@ -1,13 +1,13 @@
 //! A shielded participant in a lifecycle scenario.
 
 use anyhow::Result;
+use rings_interface::instruction::DepositIxData;
+use rings_keypair::{ShieldedKeypair, ViewingKey};
+use rings_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_interface::instruction::DepositIxData;
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
 /// What a deposit's action recorded, so the separate assert step can verify it
 /// with `assert_deposit`/`assert_spl_deposit` (which need the sent data and the

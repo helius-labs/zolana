@@ -188,7 +188,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PHOTON_ZOLANA_RELEASE_TAG: photon-zolana-313fadb92be0
       PHOTON_ZOLANA_SHA256: f922fd14cf59381fca3212c6f31952607a25d2eb276226524e0aff91c9cc8969
-      ZOLANA_PHOTON_BIN: target/bin/photon
+      RINGS_PHOTON_BIN: target/bin/photon
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -257,7 +257,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # The spawned prover lazily fetches Zolana-specific proving keys from the
+      # The spawned prover lazily fetches Rings-specific proving keys from the
       # transfer-keys-v10 release via `gh`. The release lives in this repo, so the
       # workflow-issued GITHUB_TOKEN (contents:read) is sufficient -- no PAT.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,9 +3,9 @@
 //! emitted on chain.
 
 use cucumber::then;
+use rings_event::decode_event_instruction;
+use rings_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
 use solana_pubkey::Pubkey;
-use zolana_event::decode_event_instruction;
-use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::LifecycleWorld;
 

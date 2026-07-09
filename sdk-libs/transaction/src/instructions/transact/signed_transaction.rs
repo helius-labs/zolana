@@ -1,6 +1,6 @@
 use num_bigint::{BigInt, BigUint, Sign};
+use rings_keypair::hash::{hash_field, sha256};
 use solana_address::Address;
-use zolana_keypair::hash::{hash_field, sha256};
 
 use super::{
     builder::Shape,

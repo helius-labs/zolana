@@ -1,9 +1,9 @@
 //! Shared setup for shielded-pool program tests.
 mod setup;
 
+use rings_interface::error::ShieldedPoolError;
+use rings_program_test::ProgramTestError;
 pub use setup::{program_test, tree_account_size};
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::ProgramTestError;
 
 // This helper module is `#[path]`-included into several test binaries; not every
 // binary uses every helper, so suppress dead-code noise rather than per binary.

@@ -9,7 +9,7 @@ fn generate() {
 
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
-    let spec_path = env::var("ZOLANA_OPENAPI_SPEC")
+    let spec_path = env::var("RINGS_OPENAPI_SPEC")
         .or_else(|_| env::var("PHOTON_ZOLANA_OPENAPI_SPEC"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| manifest_dir.join("../../../photon/src/openapi/specs/zolana.yaml"));
@@ -23,7 +23,7 @@ fn generate() {
         Ok(content) => content,
         Err(err) => {
             println!(
-                "cargo::warning=zolana-api: skipping codegen, cannot read OpenAPI spec at {}: {err}",
+                "cargo::warning=rings-api: skipping codegen, cannot read OpenAPI spec at {}: {err}",
                 spec_path.display()
             );
             return;
@@ -47,11 +47,11 @@ fn generate() {
     if let Some(info) = spec.get_mut("info").and_then(|info| info.as_mapping_mut()) {
         info.insert(
             serde_yaml::Value::String("title".to_string()),
-            serde_yaml::Value::String("zolana-indexer-api".to_string()),
+            serde_yaml::Value::String("rings-indexer-api".to_string()),
         );
         info.insert(
             serde_yaml::Value::String("description".to_string()),
-            serde_yaml::Value::String("Zolana indexer API".to_string()),
+            serde_yaml::Value::String("Rings indexer API".to_string()),
         );
     }
 
@@ -97,7 +97,7 @@ fn generate() {
     fs::write(manifest_dir.join("src/codegen.rs"), content)
         .expect("Failed to write generated code");
 
-    eprintln!("zolana-api: regenerated src/codegen.rs from OpenAPI spec");
+    eprintln!("rings-api: regenerated src/codegen.rs from OpenAPI spec");
 }
 
 #[cfg(feature = "generate")]

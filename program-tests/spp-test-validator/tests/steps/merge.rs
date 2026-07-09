@@ -15,26 +15,26 @@
 use anyhow::{anyhow, Result};
 use cucumber::{given, then, when};
 use p256::SecretKey;
-use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_keypair::Keypair;
-use solana_signer::Signer;
-use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
-use zolana_interface::instruction::{
+use rings_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
+use rings_interface::instruction::{
     instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
 };
-use zolana_keypair::{random_blinding, SignatureType};
-use zolana_test_utils::{
+use rings_keypair::{random_blinding, SignatureType};
+use rings_test_utils::{
     smart_account,
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
 };
-use zolana_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
-use zolana_user_registry_interface::{
+use rings_transaction::{Data, OutputUtxo, Utxo, SOL_MINT};
+use rings_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
 };
+use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 
 use crate::{
     localnet::{pack_proof, send_transaction, ZERO},

@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use cucumber::{given, then, when, World};
 use litesvm::LiteSVM;
+use rings_user_registry_interface::user_record_pda;
 use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
@@ -12,7 +13,6 @@ use user_registry_tests::{
     build_set_merging_enabled_ix, build_set_sync_delegate_ix, build_update_keys_ix,
     fetch_user_record, user_registry_program_id,
 };
-use zolana_user_registry_interface::user_record_pda;
 
 #[derive(Default, World)]
 pub struct UserRegistryWorld {
@@ -81,7 +81,7 @@ fn default_program_path() -> PathBuf {
         .join("..")
         .join("target")
         .join("deploy")
-        .join("zolana_user_registry.so")
+        .join("rings_user_registry.so")
 }
 
 fn test_p256_pubkey(tag: u8) -> [u8; 33] {
@@ -98,10 +98,10 @@ fn raw_set_sync_delegate_ix(
     owner: Pubkey,
     sync_delegate: Pubkey,
 ) -> solana_instruction::Instruction {
-    zolana_user_registry_interface::instruction::set_sync_delegate(
+    rings_user_registry_interface::instruction::set_sync_delegate(
         user_record,
         owner,
-        zolana_user_registry_interface::instruction::SetSyncDelegateData {
+        rings_user_registry_interface::instruction::SetSyncDelegateData {
             sync_delegate: sync_delegate.to_bytes(),
             sync_pubkey: test_p256_pubkey(0xEE),
             viewing_pubkey: test_p256_pubkey(0xEF),

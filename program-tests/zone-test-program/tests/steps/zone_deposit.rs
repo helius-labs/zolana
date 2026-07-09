@@ -5,22 +5,22 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
+use rings_event::indexed_events_from_instruction_groups;
+use rings_interface::{
+    instruction::{DepositSplAccounts, ZoneDeposit, ZoneDepositIxData},
+    pda, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+};
+use rings_keypair::random_blinding;
+use rings_program_test::{deposit_output_from_event, ZONE_TEST_PROGRAM_ID};
+use rings_test_utils::{
+    spl::mint_to,
+    test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
+};
+use rings_transaction::{Data, Utxo, Wallet, SOL_MINT};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::indexed_events_from_instruction_groups;
-use zolana_interface::{
-    instruction::{DepositSplAccounts, ZoneDeposit, ZoneDepositIxData},
-    pda, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
-};
-use zolana_keypair::random_blinding;
-use zolana_program_test::{deposit_output_from_event, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::{
-    spl::mint_to,
-    test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
-};
-use zolana_transaction::{Data, Utxo, Wallet, SOL_MINT};
 
 use crate::{
     actor::{SplZoneDepositAccounts, ZoneDepositRecord},

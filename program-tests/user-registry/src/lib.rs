@@ -1,15 +1,15 @@
 //! LiteSVM test helpers for the user-registry program.
 
-use solana_instruction::Instruction;
-use solana_pubkey::Pubkey;
-use zolana_user_registry_interface::{
+use rings_user_registry_interface::{
     instruction::{
         self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData,
         SetSyncDelegateData, UpdateKeysData,
     },
     user_record_pda,
 };
-pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
+pub use rings_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
+use solana_instruction::Instruction;
+use solana_pubkey::Pubkey;
 
 pub fn build_register_ix(
     owner: &Pubkey,

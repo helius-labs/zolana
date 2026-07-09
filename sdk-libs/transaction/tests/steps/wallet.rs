@@ -1,6 +1,6 @@
 use cucumber::{given, then, when};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
-use zolana_transaction::{
+use rings_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
+use rings_transaction::{
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
         split::{Split, SplitBundlePlaintext, SplitEncode},

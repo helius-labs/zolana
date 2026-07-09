@@ -173,7 +173,7 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
     stop_port(opts.photon_port);
 
     let photon = find_binary(
-        &["PHOTON_BIN", "ZOLANA_PHOTON_BIN"],
+        &["PHOTON_BIN", "RINGS_PHOTON_BIN"],
         &[
             "../photon/target/debug/photon",
             "../photon/target/release/photon",
@@ -184,7 +184,7 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
     let mut args = Vec::new();
     if photon_supports_mode(&photon) {
         args.push("--mode".to_string());
-        args.push("zolana".to_string());
+        args.push("rings".to_string());
     }
     args.extend([
         "--rpc-url".to_string(),

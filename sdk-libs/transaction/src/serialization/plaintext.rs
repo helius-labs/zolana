@@ -1,6 +1,6 @@
+use rings_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{

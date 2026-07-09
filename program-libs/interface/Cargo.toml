@@ -1,5 +1,5 @@
 [package]
-name = "zolana-interface"
+name = "rings-interface"
 version = "0.1.0"
 edition.workspace = true
 publish = false
@@ -9,7 +9,7 @@ default = ["verifying-keys", "tree"]
 solana = ["dep:solana-instruction"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
-tree = ["dep:zolana-tree"]
+tree = ["dep:rings-tree"]
 
 [dependencies]
 borsh = { workspace = true }
@@ -18,10 +18,10 @@ solana-address = { workspace = true, features = ["bytemuck", "borsh"] }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
-zolana-batched-merkle-tree = { workspace = true }
-zolana-hasher = { workspace = true, features = ["sha256"] }
+rings-batched-merkle-tree = { workspace = true }
+rings-hasher = { workspace = true, features = ["sha256"] }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-event = { workspace = true }
-zolana-tree = { workspace = true, optional = true }
+rings-event = { workspace = true }
+rings-tree = { workspace = true, optional = true }

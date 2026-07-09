@@ -1,9 +1,9 @@
 use borsh::to_vec;
-use user_registry_tests::build_register_ix;
-use zolana_user_registry_interface::{
+use rings_user_registry_interface::{
     instruction::{discriminator, RegisterData},
     SyncDelegateEntry, UserRecord,
 };
+use user_registry_tests::build_register_ix;
 
 fn sample(
     sync_delegate: Option<[u8; 32]>,

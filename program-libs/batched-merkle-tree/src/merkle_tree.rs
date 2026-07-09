@@ -3,15 +3,13 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use solana_address::Address as Pubkey;
-use zolana_account_checks::{
-    checks::check_account_info, discriminator::Discriminator, AccountView,
-};
-use zolana_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
-use zolana_merkle_tree_metadata::{
+use rings_account_checks::{checks::check_account_info, discriminator::Discriminator, AccountView};
+use rings_hasher::hash_to_field_size::hash_to_bn254_field_size_be;
+use rings_merkle_tree_metadata::{
     errors::MerkleTreeMetadataError, merkle_tree::MerkleTreeMetadata, TreeType,
     ADDRESS_MERKLE_TREE_TYPE_V2,
 };
+use solana_address::Address as Pubkey;
 
 use super::batch::Batch;
 use crate::{

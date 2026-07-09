@@ -1,6 +1,6 @@
 use cucumber::{then, when};
-use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
-use zolana_transaction::{
+use rings_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
+use rings_transaction::{
     data::{Data, DataRecord},
     serialization::plaintext::{
         TransferPlaintextRecipient, TransferPlaintextSender, TransferPlaintextSplChange,

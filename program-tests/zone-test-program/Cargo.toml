@@ -26,7 +26,7 @@ test-sbf = []
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
-zolana-interface = { workspace = true, features = ["solana"] }
+rings-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -43,13 +43,13 @@ solana-message = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-event = { workspace = true, features = ["program-test"] }
-zolana-keypair = { workspace = true }
-zolana-program-test = { workspace = true }
-zolana-test-utils = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+rings-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+rings-event = { workspace = true, features = ["program-test"] }
+rings-keypair = { workspace = true }
+rings-program-test = { workspace = true }
+rings-test-utils = { workspace = true }
+rings-transaction = { workspace = true }
+rings-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [[test]]
 name = "zone_lifecycle"

@@ -1,5 +1,5 @@
+use rings_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 /// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
 /// carry distinct, in-window nullifiers and valid root indices.

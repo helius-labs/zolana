@@ -7,16 +7,16 @@ use std::sync::Once;
 
 use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
-use solana_address::Address;
-use zolana_client::{
+use rings_client::{
     prover::merge_zone::MergeZoneProver, spawn_prover, MergeZone, MergeZoneWitness, ProverClient,
     Rpc, SpendUtxo, MERGE_INPUTS,
 };
-use zolana_interface::verifying_keys::merge_zone_8_1;
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
-use zolana_transaction::{
+use rings_interface::verifying_keys::merge_zone_8_1;
+use rings_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use rings_transaction::{
     instructions::transact::signed_transaction::asset_field, Data, OutputUtxo, Utxo,
 };
+use solana_address::Address;
 
 use crate::{test_indexer::TestIndexer, world::MergeZoneWorld};
 
@@ -161,7 +161,7 @@ fn start_prover() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "RINGS_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

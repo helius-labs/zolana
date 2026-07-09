@@ -3,7 +3,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::{
+use rings_interface::{
     error::ShieldedPoolError, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
     SOL_INTERFACE_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED,
     SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID,

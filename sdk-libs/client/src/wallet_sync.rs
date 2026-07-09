@@ -3,15 +3,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use solana_address::Address;
-use zolana_interface::{
+use rings_interface::{
     event::decode_output_data, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_transaction::{
+use rings_keypair::viewing_key::ViewTag;
+use rings_transaction::{
     AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
     ShieldedTransaction, SyncReport, Wallet, DEFAULT_TAG_WINDOW,
 };
+use solana_address::Address;
 
 use crate::{
     error::ClientError,
@@ -224,13 +224,13 @@ fn fetch_shielded_transactions<I: Rpc>(
 
 fn has_merge_ciphertext(tx: &RpcShieldedTransaction) -> bool {
     tx.output_slots.iter().any(|slot| {
-        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputData>(&slot.payload) else {
+        let Ok(output_data) = borsh::from_slice::<rings_event::OutputData>(&slot.payload) else {
             return false;
         };
         let blob = match output_data {
-            zolana_event::OutputData::Encrypted(blob)
-            | zolana_event::OutputData::VerifiablyEncrypted(blob)
-            | zolana_event::OutputData::Plaintext(blob) => blob,
+            rings_event::OutputData::Encrypted(blob)
+            | rings_event::OutputData::VerifiablyEncrypted(blob)
+            | rings_event::OutputData::Plaintext(blob) => blob,
         };
         blob.first()
             .and_then(|b| EncryptedScheme::from_byte(*b).ok())
@@ -346,10 +346,9 @@ fn now_unix_ts() -> i64 {
 mod tests {
     use std::collections::HashMap;
 
-    use solana_signature::Signature;
-    use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair, ViewingKey};
-    use zolana_transaction::{
+    use rings_interface::event::{encode_output_data, ProoflessOutput};
+    use rings_keypair::{constants::BLINDING_LEN, ShieldedKeypair, ViewingKey};
+    use rings_transaction::{
         instructions::{
             merge::Merge as MergePlan,
             transact::{SignedTransaction, Transaction, WithdrawalTarget},
@@ -362,6 +361,7 @@ mod tests {
         Address, AssetRegistry, Data, OwnerCx, PrivateTransactionDirection, PrivateTransactionKind,
         Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
+    use solana_signature::Signature;
 
     use super::*;
     use crate::rpc::{
@@ -661,10 +661,10 @@ mod tests {
         assert!(!wallet.utxos[0].spent);
         assert_eq!(wallet.private_transactions().len(), 1);
         let tx = &wallet.private_transactions()[0];
-        assert_eq!(tx.kind, zolana_transaction::PrivateTransactionKind::Deposit);
+        assert_eq!(tx.kind, rings_transaction::PrivateTransactionKind::Deposit);
         assert_eq!(
             tx.direction,
-            zolana_transaction::PrivateTransactionDirection::Inbound
+            rings_transaction::PrivateTransactionDirection::Inbound
         );
         assert_eq!(tx.amount, 42);
         assert_eq!(tx.id.slot, 1);
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(txs.len(), 1);
         assert_eq!(
             txs[0].kind,
-            zolana_transaction::PrivateTransactionKind::Deposit
+            rings_transaction::PrivateTransactionKind::Deposit
         );
         assert_eq!(txs[0].amount, 7);
     }
@@ -872,7 +872,7 @@ mod tests {
             slot,
             tx_signature: signature_for_slot(slot),
             tx_viewing_pk: Some(
-                zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
+                rings_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
             ),
             salt: Some(external.salt),

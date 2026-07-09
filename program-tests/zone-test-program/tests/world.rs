@@ -9,14 +9,8 @@
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
-use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signature::Signature;
-use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
-use zolana_interface::{
+use rings_client::{RingsIndexer, Rpc, SolanaRpc};
+use rings_interface::{
     instruction::{
         encode_instruction, tag, CreateAssetCounter, CreateSplInterface, CreateZoneConfigData,
     },
@@ -24,17 +18,23 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::PublicKey;
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::{
+use rings_keypair::PublicKey;
+use rings_program_test::ZONE_TEST_PROGRAM_ID;
+use rings_test_utils::{
     smart_account::{self, execute_sync_ix, StandardSigners},
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };
-use zolana_transaction::{
+use rings_transaction::{
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
     AssetRegistry, Data, ShieldedTransaction, Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
+use solana_address::Address;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
 
 use crate::{
     actor::Actor,
@@ -52,7 +52,7 @@ const FIRST_SPL_ASSET_ID: u64 = 2;
 #[world(init = Self::new)]
 pub struct ZoneLifecycleWorld {
     pub(crate) rpc: SolanaRpc,
-    pub(crate) indexer: ZolanaIndexer,
+    pub(crate) indexer: RingsIndexer,
     pub(crate) assets: AssetRegistry,
     pub(crate) payer: Keypair,
     pub(crate) authority: Keypair,
@@ -97,11 +97,11 @@ impl ZoneLifecycleWorld {
         prover.join().expect("prover startup thread panicked")?;
 
         let rpc_url =
-            std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+            std::env::var("RINGS_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
         let indexer_url =
-            std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
+            std::env::var("RINGS_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
         let mut rpc = SolanaRpc::new(rpc_url);
-        let indexer = ZolanaIndexer::new(indexer_url);
+        let indexer = RingsIndexer::new(indexer_url);
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         rpc.assert_executable(&program_id)?;
 
@@ -138,7 +138,7 @@ impl ZoneLifecycleWorld {
 
         // Permissionless zone creation lets the fixture's payer create the zone
         // config without the zone smart-account signing.
-        let create_config_ix = zolana_interface::instruction::CreateProtocolConfig {
+        let create_config_ix = rings_interface::instruction::CreateProtocolConfig {
             authority: accounts.protocol_vault,
             protocol_authority: accounts.protocol_vault.to_bytes().into(),
             tree_creation_authority: accounts.tree_vault.to_bytes().into(),
@@ -166,14 +166,14 @@ impl ZoneLifecycleWorld {
         let rent = rpc
             .get_minimum_balance_for_rent_exemption(tree_account_size())
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let alloc_ix = zolana_program_test::system_create_account_ix(
+        let alloc_ix = rings_program_test::system_create_account_ix(
             &payer.pubkey(),
             &tree.pubkey(),
             rent,
             tree_account_size() as u64,
             &pda::shielded_pool_program_id(),
         );
-        let create_tree_ix = zolana_interface::instruction::CreateTree {
+        let create_tree_ix = rings_interface::instruction::CreateTree {
             authority: accounts.tree_vault,
             tree: tree.pubkey(),
             owner: accounts.tree_vault,
@@ -439,7 +439,7 @@ impl ZoneLifecycleWorld {
 /// indexed transaction, so the expected change/recipient set can be rebuilt
 /// independently of `Wallet::sync`.
 pub(crate) fn decode_sender_seed(
-    viewing_key: &zolana_keypair::ViewingKey,
+    viewing_key: &rings_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
 ) -> Result<[u8; 31]> {
     let cx = DecodeCx::for_slot(viewing_key, indexed, 0);
@@ -451,7 +451,7 @@ pub(crate) fn decode_sender_seed(
         .output_data()
         .ok_or_else(|| anyhow!("sender slot undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputData::Encrypted(blob) => blob
+        rings_event::OutputData::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty sender blob"))?,

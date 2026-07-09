@@ -1,9 +1,9 @@
 use cucumber::then;
-use sha2::{Digest, Sha256};
-use zolana_keypair::{
+use rings_keypair::{
     hash::{owner_hash, sha256, sha256_be, split_be_128},
     PublicKey, SigningKey,
 };
+use sha2::{Digest, Sha256};
 
 use crate::KeypairWorld;
 

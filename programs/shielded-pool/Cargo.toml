@@ -21,15 +21,15 @@ ark-ff = { version = "0.5", default-features = false }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
-zolana-account-checks = { workspace = true }
-zolana-hasher = { workspace = true }
+rings-account-checks = { workspace = true }
+rings-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 tinyvec = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-tree = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
+rings-interface = { workspace = true }
+rings-tree = { workspace = true }
+rings-user-registry-interface = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

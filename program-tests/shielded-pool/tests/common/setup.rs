@@ -1,12 +1,12 @@
-use zolana_interface::state;
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
+use rings_interface::state;
+use rings_program_test::{ProgramTestError, RingsProgramTest};
 
 pub fn tree_account_size() -> u64 {
     state::tree_account_size() as u64
 }
 
-pub fn program_test() -> Option<ZolanaProgramTest> {
-    match ZolanaProgramTest::new() {
+pub fn program_test() -> Option<RingsProgramTest> {
+    match RingsProgramTest::new() {
         Ok(r) => Some(r),
         Err(ProgramTestError::MissingProgram(_)) => {
             eprintln!(

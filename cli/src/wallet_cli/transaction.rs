@@ -1,14 +1,14 @@
 use anyhow::{bail, Result};
+use rings_client::{
+    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
+    ProofCompressed, ProverClient, ProverInputs, RingsIndexer, Rpc, SignedTransaction, SolanaRpc,
+    SpendProof,
+};
+use rings_interface::instruction::{Transact, TransactWithdrawal};
+use rings_transaction::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
-    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
-    ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
-    ZolanaIndexer,
-};
-use zolana_interface::instruction::{Transact, TransactWithdrawal};
-use zolana_transaction::Address;
 
 use super::{
     material::WalletMaterial,
@@ -23,7 +23,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let indexer = RingsIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let recipient_owner = parse_pubkey(&opts.to)?;
@@ -69,7 +69,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
 
 pub(super) struct SubmitPrivateTx<'a> {
     pub(super) rpc: &'a SolanaRpc,
-    pub(super) indexer: &'a ZolanaIndexer,
+    pub(super) indexer: &'a RingsIndexer,
     pub(super) material: &'a WalletMaterial,
     pub(super) tree: Pubkey,
     pub(super) prover_url: &'a str,
@@ -117,7 +117,7 @@ pub(super) fn submit_private_transaction(
 }
 
 fn spend_proofs(
-    indexer: &ZolanaIndexer,
+    indexer: &RingsIndexer,
     tree: Pubkey,
     commitments: &[InputCommitment],
 ) -> Result<Vec<SpendProof>> {

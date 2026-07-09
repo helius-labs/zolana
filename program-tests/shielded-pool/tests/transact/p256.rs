@@ -35,20 +35,20 @@ mod common;
 mod transact_common;
 
 use num_bigint::BigUint;
+use rings_client::{
+    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
+    SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
+};
+use rings_hasher::Poseidon;
+use rings_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
+use rings_merkle_tree::MerkleTree;
+use rings_program_test::RingsProgramTest;
+use rings_transaction::{AssetRegistry, Data, Utxo, SOL_MINT};
+use rings_tree::TreeAccount;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs,
-    SpendProof, SpendUtxo, Transaction as ClientTransaction, WithdrawalTarget, STATE_TREE_HEIGHT,
-};
-use zolana_hasher::Poseidon;
-use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{AssetRegistry, Data, Utxo, SOL_MINT};
-use zolana_tree::TreeAccount;
 
 use crate::transact_common::{nullifier_tree, pack_proof, start_prover};
 
@@ -56,7 +56,7 @@ const AMOUNT: u64 = 1_000_000_000;
 
 /// On-chain tree roots: the UTXO root at `utxo_index` and the nullifier root at
 /// history index 0, exactly as the program reads them in `apply_tree`.
-fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
+fn on_chain_roots(rpc: &RingsProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -66,7 +66,7 @@ fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
 }
 
 struct TransactEnv {
-    rpc: ZolanaProgramTest,
+    rpc: RingsProgramTest,
     tree: Keypair,
 }
 
@@ -144,7 +144,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         vec![spend],
         payer_address,
     )
-    .with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+    .with_shape(rings_transaction::instructions::transact::Shape::new(2, 3));
     tx.withdraw(
         SOL_MINT,
         AMOUNT,
@@ -214,7 +214,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // (`transfer_p256_confidential_2_3`, BSB22 Pedersen-PoK).
     {
         use groth16_solana::groth16::Groth16Verifier;
-        use zolana_interface::verifying_keys::transfer_p256_confidential_2_3;
+        use rings_interface::verifying_keys::transfer_p256_confidential_2_3;
         let commitments = proof.commitment.expect("p256 proof carries a commitment");
         let public_inputs = [expected_pi];
         let mut verifier = Groth16Verifier::new_with_commitment(
@@ -255,11 +255,11 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     // real validator by the `spp-test-validator` suite (litesvm's syscall stubs do
     // not evaluate the Pedersen-PoK pairing).
     {
-        use zolana_client::prover::field::hash_chain;
-        use zolana_hasher::{sha256::Sha256BE, Hasher};
-        use zolana_interface::instruction::{instruction_data::transact::ExternalDataHash, tag};
-        use zolana_keypair::hash::{hash_field, sha256};
-        use zolana_transaction::instructions::transact::signed_transaction::signed_to_field;
+        use rings_client::prover::field::hash_chain;
+        use rings_hasher::{sha256::Sha256BE, Hasher};
+        use rings_interface::instruction::{instruction_data::transact::ExternalDataHash, tag};
+        use rings_keypair::hash::{hash_field, sha256};
+        use rings_transaction::instructions::transact::signed_transaction::signed_to_field;
 
         let p256_field = ix_data.p256_signing_pk_field.expect("p256 field present");
         let n_in = ix_data.inputs.len();

@@ -1,5 +1,5 @@
 [package]
-name = "zolana-merkle-tree"
+name = "rings-merkle-tree"
 version = "4.0.0"
 description = "Non-sparse reference Merkle tree implementation"
 license = "Apache-2.0"
@@ -7,11 +7,11 @@ edition = "2021"
 
 
 [dependencies]
-zolana-hasher = { workspace = true, features = ["poseidon", "sha256", "keccak"] }
+rings-hasher = { workspace = true, features = ["poseidon", "sha256", "keccak"] }
 thiserror = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
-zolana-indexed-array = { workspace = true }
+rings-indexed-array = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

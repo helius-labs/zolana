@@ -8,11 +8,10 @@
 
 use borsh::BorshDeserialize;
 use cucumber::{then, when};
-use solana_address::Address;
-use zolana_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, WithdrawalTarget};
-use zolana_event::OutputData;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
-use zolana_transaction::{
+use rings_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, WithdrawalTarget};
+use rings_event::OutputData;
+use rings_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use rings_transaction::{
     instructions::transact::signed_transaction::{asset_field, signed_to_field},
     serialization::{
         confidential::{
@@ -24,6 +23,7 @@ use zolana_transaction::{
     utxo::derive_blinding,
     AssetRegistry, Data, ExternalData, OutputUtxo, Utxo, SOL_MINT,
 };
+use solana_address::Address;
 
 use crate::{
     prover::{prove_and_verify_eddsa, prove_and_verify_p256},
@@ -105,7 +105,7 @@ impl TransferWorld {
             Address::default(),
         );
         if plan.declared_shape {
-            tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
+            tx = tx.with_shape(rings_transaction::instructions::transact::Shape::new(2, 3));
         }
         for (recipient, send) in recipients.iter().zip(&plan.sends) {
             tx.send(
@@ -141,7 +141,7 @@ impl TransferWorld {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments)
             .expect("input merkle proofs");
-        match zolana_client::into_prover(signed, &input_merkle_proofs)
+        match rings_client::into_prover(signed, &input_merkle_proofs)
             .expect("into prover")
             .circuit
         {
@@ -403,7 +403,7 @@ fn assert_outputs(
         .enumerate()
         .map(|(i, send)| TransferRecipientPlaintext {
             asset_id: match send.asset {
-                Asset::Sol => zolana_transaction::SOL_ASSET_ID,
+                Asset::Sol => rings_transaction::SOL_ASSET_ID,
                 Asset::Spl => SPL_ASSET_ID,
             },
             amount: send.amount,

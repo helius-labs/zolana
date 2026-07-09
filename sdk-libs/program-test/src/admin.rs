@@ -1,17 +1,17 @@
-use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
+use rings_interface::{
     instruction::{
         CreateProtocolConfig, CreateProtocolConfigData, PauseTree, UpdateProtocolConfig,
         UpdateProtocolConfigData,
     },
     pda,
 };
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 
-use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
+use crate::{instructions::create_tree_instructions, ProgramTestError, RingsProgramTest};
 
-impl ZolanaProgramTest {
+impl RingsProgramTest {
     pub fn create_protocol_config(
         &mut self,
         authority: &Keypair,
