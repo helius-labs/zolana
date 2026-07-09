@@ -19,7 +19,7 @@ const (
 
 // Utxo is the witness of one UTXO. It carries the precomputed owner_hash and the
 // data and zone-program hashes; the circuit hashes the UTXO, matching
-// zolana_transaction's Utxo::hash.
+// rings_transaction's Utxo::hash.
 type Utxo struct {
 	OwnerHash       frontend.Variable
 	Asset           frontend.Variable
