@@ -11,6 +11,32 @@ use zolana_user_registry_interface::{
 
 use crate::{actions::ResolvedAddress, error::ClientError, rpc::Rpc};
 
+/// Where a transfer to a Solana pubkey lands, decided by one chain read in
+/// [`resolve_recipient`]: privately, to a registered private wallet, or
+/// publicly, as a withdrawal to the pubkey's public account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferRecipient {
+    /// The recipient has a registered private wallet; the transfer stays
+    /// private end to end.
+    Private(ResolvedAddress),
+    /// The recipient has no private wallet; the transfer degrades to a
+    /// private-to-public withdrawal.
+    Public(Pubkey),
+}
+
+impl TransferRecipient {
+    pub fn pubkey(&self) -> Pubkey {
+        match self {
+            Self::Private(resolved) => resolved.owner,
+            Self::Public(pubkey) => *pubkey,
+        }
+    }
+
+    pub fn is_public(&self) -> bool {
+        matches!(self, Self::Public(_))
+    }
+}
+
 /// Derive the on-chain registry record fields from a shielded keypair: the
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
 /// pubkey. Returns the exact `RegisterData` the register/update instructions take.
@@ -194,6 +220,35 @@ pub fn resolve_registered_address<R: Rpc>(
         .map_err(|err| ClientError::AddressResolution(err.to_string()))?;
     resolved_address_from_record(owner, &record)
         .map_err(|err| ClientError::AddressResolution(err.to_string()))
+}
+
+/// Resolve where a transfer to `recipient` lands: one chain read of the
+/// user-record PDA. This is the network step before building a
+/// `PrivateTransfer`; the builder itself does no RPC.
+///
+/// Returns [`TransferRecipient::Private`] when the recipient has a registered
+/// private wallet and [`TransferRecipient::Public`] when it does not (the
+/// transfer then settles as a public withdrawal); errors only when the read
+/// or record decode fails. Callers that must not degrade to a public
+/// withdrawal use [`try_resolve_recipient`] and branch themselves.
+pub fn resolve_recipient<R: Rpc>(
+    rpc: &R,
+    recipient: Pubkey,
+) -> Result<TransferRecipient, ClientError> {
+    Ok(match try_resolve_registered_address(rpc, recipient)? {
+        Some(resolved) => TransferRecipient::Private(resolved),
+        None => TransferRecipient::Public(recipient),
+    })
+}
+
+/// Like [`resolve_recipient`], but returns `Ok(None)` for an unregistered
+/// recipient instead of a `Public` fallback, so the caller decides whether
+/// the transfer may degrade to a public withdrawal.
+pub fn try_resolve_recipient<R: Rpc>(
+    rpc: &R,
+    recipient: Pubkey,
+) -> Result<Option<ResolvedAddress>, ClientError> {
+    try_resolve_registered_address(rpc, recipient)
 }
 
 pub fn try_resolve_registered_address<R: Rpc>(

@@ -17,6 +17,7 @@ use std::{
 
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -26,6 +27,7 @@ use zolana_interface::instruction::{
 use zolana_transaction::instructions::{transact::SignedTransaction, types::InputCommitment};
 
 use crate::{
+    actions::transaction::{CreatedTransfer, CreatedWithdrawal},
     error::ClientError,
     prover::{
         transact::witness::{assemble, AssembledTransfer, ProverInputs, SpendProof},
@@ -53,9 +55,8 @@ const INDEXER_POLL: Duration = Duration::from_millis(500);
 /// RPC). [`Submit::execute`] then fetches proofs, proves, sends, and waits for
 /// the transaction to be indexed.
 ///
-/// The three per-transaction pieces (`signed`, `withdrawal`, `wait_tag`) are
-/// passed to [`Submit::execute`]; a caller holds them on the `CreatedTransfer` /
-/// `CreatedWithdrawal` returned by `create_transfer` / `create_withdrawal`.
+/// [`Submit::execute`] takes the created transaction directly: any
+/// [`Sendable`], which [`CreatedTransfer`] and [`CreatedWithdrawal`] implement.
 pub struct Submit<'a, R: Rpc, I: Rpc> {
     /// Answers spend-proof lookups (Photon).
     pub indexer: &'a I,
@@ -78,20 +79,62 @@ impl<R: Rpc, I: Rpc> Submit<'_, R, I> {
         assemble(signed, &spend_proofs)
     }
 
-    /// Prove and submit the transaction, then wait for it to be indexed.
+    /// Prove and submit the created transaction, then wait for it to be
+    /// indexed.
     ///
     /// Fetches the input proofs, assembles, proves on the matching rail,
     /// compresses, builds the `Transact` instruction, sends it under a
     /// compute-unit ceiling, and polls the indexer until the transaction is
     /// visible. Returning after indexing means a caller can `sync_wallet`
-    /// immediately without racing Photon. `wait_tag` is the transfer's
-    /// confidential view tag (on `CreatedTransfer` / `CreatedWithdrawal`).
-    pub fn execute(
+    /// immediately without racing Photon.
+    pub fn execute<T: Sendable>(self, tx: &T) -> Result<Signature, ClientError> {
+        self.execute_inner(tx, &[])
+    }
+
+    /// [`Submit::execute`] with extra instructions spliced into the same
+    /// transaction, atomically: all land or none do. The extras run after the
+    /// `Transact` instruction, and the payer signs everything — spend
+    /// authorization travels inside the proof, so no other signature is
+    /// needed.
+    ///
+    /// Two shared budgets to keep in mind: the extras count against the same
+    /// compute-unit ceiling (override `cu_limit` if they are heavy), and the
+    /// `Transact` instruction is large, so the 1232-byte transaction packet
+    /// leaves limited room for extras.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use solana_compute_budget_interface::ComputeBudgetInstruction;
+    /// use solana_signature::Signature;
+    /// use zolana_client::{ClientError, CreatedTransfer, Rpc, Submit};
+    ///
+    /// fn send_with_priority_fee<R: Rpc, I: Rpc>(
+    ///     submit: Submit<'_, R, I>, // e.g. rpc.send(&payer) on ZolanaClient
+    ///     transfer: &CreatedTransfer,
+    /// ) -> Result<Signature, ClientError> {
+    ///     // A public instruction settled atomically with the private
+    ///     // transfer: here, a priority fee.
+    ///     let priority_fee_ix = ComputeBudgetInstruction::set_compute_unit_price(10_000);
+    ///     submit.execute_with(transfer, &[priority_fee_ix])
+    /// }
+    /// ```
+    pub fn execute_with<T: Sendable>(
         self,
-        signed: SignedTransaction,
-        withdrawal: Option<TransactWithdrawal>,
-        wait_tag: [u8; 32],
+        tx: &T,
+        instructions: &[Instruction],
     ) -> Result<Signature, ClientError> {
+        self.execute_inner(tx, instructions)
+    }
+
+    fn execute_inner<T: Sendable>(
+        self,
+        tx: &T,
+        extra_instructions: &[Instruction],
+    ) -> Result<Signature, ClientError> {
+        let signed = tx.signed().clone();
+        let withdrawal = tx.withdrawal().cloned();
+        let wait_tag = tx.wait_tag();
         let assembled = self.prepare(signed)?;
         let data = prove_assembled(self.prover, assembled)?.data;
 
@@ -102,19 +145,68 @@ impl<R: Rpc, I: Rpc> Submit<'_, R, I> {
             data,
         }
         .instruction();
-        let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(
-            self.cu_limit.unwrap_or(DEFAULT_TRANSACT_CU_LIMIT),
-        );
+        let instructions = build_instructions(self.cu_limit, transact_ix, extra_instructions);
 
         let payer_address = Address::new_from_array(self.payer.pubkey().to_bytes());
-        let signature = self.rpc.create_and_send_transaction(
-            &[cu_ix, transact_ix],
-            payer_address,
-            &[self.payer],
-        )?;
+        let signature =
+            self.rpc
+                .create_and_send_transaction(&instructions, payer_address, &[self.payer])?;
 
         wait_for_indexed_transaction(self.indexer, wait_tag, signature)?;
         Ok(signature)
+    }
+}
+
+/// Assemble the instruction list a submit sends: the compute-budget ceiling,
+/// the `Transact` instruction, then any caller extras in order.
+fn build_instructions(
+    cu_limit: Option<u32>,
+    transact_ix: Instruction,
+    extras: &[Instruction],
+) -> Vec<Instruction> {
+    let cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(
+        cu_limit.unwrap_or(DEFAULT_TRANSACT_CU_LIMIT),
+    );
+    let mut instructions = vec![cu_ix, transact_ix];
+    instructions.extend_from_slice(extras);
+    instructions
+}
+
+/// A created private transaction [`Submit::execute`] can prove and send: the
+/// signed payload, its optional public-withdrawal routing, and the view tag
+/// to wait for in the indexer. Implemented by [`CreatedTransfer`] and
+/// [`CreatedWithdrawal`].
+pub trait Sendable {
+    fn signed(&self) -> &SignedTransaction;
+    fn withdrawal(&self) -> Option<&TransactWithdrawal>;
+    fn wait_tag(&self) -> [u8; 32];
+}
+
+impl Sendable for CreatedTransfer {
+    fn signed(&self) -> &SignedTransaction {
+        &self.signed
+    }
+
+    fn withdrawal(&self) -> Option<&TransactWithdrawal> {
+        self.withdrawal.as_ref()
+    }
+
+    fn wait_tag(&self) -> [u8; 32] {
+        self.wait_tag
+    }
+}
+
+impl Sendable for CreatedWithdrawal {
+    fn signed(&self) -> &SignedTransaction {
+        &self.signed
+    }
+
+    fn withdrawal(&self) -> Option<&TransactWithdrawal> {
+        Some(&self.withdrawal)
+    }
+
+    fn wait_tag(&self) -> [u8; 32] {
+        self.wait_tag
     }
 }
 
@@ -217,5 +309,45 @@ fn wait_for_indexed_transaction(
             )));
         }
         sleep(INDEXER_POLL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_ix(marker: u8) -> Instruction {
+        Instruction {
+            program_id: Pubkey::new_unique(),
+            accounts: vec![],
+            data: vec![marker],
+        }
+    }
+
+    #[test]
+    fn execute_orders_cu_transact_then_extras() {
+        let transact_ix = dummy_ix(1);
+        let extras = [dummy_ix(2), dummy_ix(3)];
+
+        let instructions = build_instructions(None, transact_ix.clone(), &extras);
+
+        let cu_expected =
+            ComputeBudgetInstruction::set_compute_unit_limit(DEFAULT_TRANSACT_CU_LIMIT);
+        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions[0].data, cu_expected.data);
+        assert_eq!(instructions[1], transact_ix);
+        assert_eq!(instructions[2..], extras);
+    }
+
+    #[test]
+    fn execute_without_extras_keeps_the_two_instruction_shape() {
+        let transact_ix = dummy_ix(1);
+
+        let instructions = build_instructions(Some(700_000), transact_ix.clone(), &[]);
+
+        let cu_expected = ComputeBudgetInstruction::set_compute_unit_limit(700_000);
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions[0].data, cu_expected.data);
+        assert_eq!(instructions[1], transact_ix);
     }
 }

@@ -25,51 +25,55 @@ use crate::{error::ClientError, rpc::Rpc, wallet_sync::sync_wallet};
 /// SPL deposit was observed exceeding 40k, so the ceiling leaves headroom.
 pub const DEFAULT_DEPOSIT_CU_LIMIT: u32 = 80_000;
 
-/// How long [`Deposit::wait_until_synced`] waits for the indexer to pick up
-/// the deposited UTXO before giving up.
+/// How long [`CreatedDeposit::wait_until_synced`] waits for the indexer to
+/// pick up the deposited UTXO before giving up.
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 /// Delay between indexer polls.
 const INDEXER_POLL: Duration = Duration::from_millis(500);
 
-/// Prepared direct proofless SOL shield.
+/// A prepared deposit, ready to send. Deposits enter the pool without a proof.
 ///
 /// This owns the recipient-derived deposit material so callers do not need to
 /// manually coordinate salt, blinding, owner commitment, and UTXO hash rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Deposit {
+pub struct CreatedDeposit {
     pub data: DepositIxData,
     pub utxo_hash: [u8; 32],
     pub asset: Address,
     pub spl: Option<DepositSplAccounts>,
 }
 
-pub struct CreateDeposit<'a> {
-    pub recipient: &'a ShieldedAddress,
-    pub asset: Address,
+/// A public-to-private deposit into the pool. No proof is needed to enter;
+/// [`create_deposit`] prepares it, then [`CreatedDeposit::send`] submits.
+pub struct Deposit<'a> {
+    pub destination: &'a ShieldedAddress,
+    /// The asset's mint; [`SOL_MINT`](crate::SOL_MINT) for SOL.
+    pub asset: Pubkey,
     pub amount: u64,
     pub spl_token_account: Option<Pubkey>,
     /// Optional free-form memo emitted in the clear with the deposit.
     pub memo: Option<Vec<u8>>,
 }
 
-impl Deposit {
-    pub fn new(request: CreateDeposit<'_>) -> Result<Self, ClientError> {
+impl CreatedDeposit {
+    pub fn new(request: Deposit<'_>) -> Result<Self, ClientError> {
+        let asset = Address::new_from_array(request.asset.to_bytes());
         // Fresh blinding is sent in the clear; the recipient `owner` commitment
         // is derived from public address material, so a third-party depositor
         // needs no shared secret and the recipient spends the note directly.
-        let owner = request.recipient.owner_hash()?;
+        let owner = request.destination.owner_hash()?;
         let blinding = random_blinding();
-        let view_tag = request.recipient.viewing_pubkey.x();
+        let view_tag = request.destination.viewing_pubkey.x();
         let owner_utxo_hash = owner_utxo_hash(&owner, &blinding)?;
         let utxo_hash = utxo_hash(
-            request.asset,
+            asset,
             request.amount,
             &[0u8; 32],
             &[0u8; 32],
             None,
             &owner_utxo_hash,
         )?;
-        let spl = spl_accounts(request.asset, request.spl_token_account)?;
+        let spl = spl_accounts(asset, request.spl_token_account)?;
         Ok(Self {
             data: DepositIxData {
                 view_tag,
@@ -80,7 +84,7 @@ impl Deposit {
                 memo: request.memo,
             },
             utxo_hash,
-            asset: request.asset,
+            asset,
             spl,
         })
     }
@@ -91,7 +95,7 @@ impl Deposit {
 
     /// Send the deposit. The recipient's wallet sees the deposited UTXO only
     /// after a sync; a recipient who needs to block until it is visible calls
-    /// [`Deposit::wait_until_synced`].
+    /// [`CreatedDeposit::wait_until_synced`].
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
@@ -103,8 +107,8 @@ impl Deposit {
     }
 
     /// Sync `wallet` until the deposited UTXO is visible: the recipient-side
-    /// read-your-write step after [`Deposit::send`], for callers that spend or
-    /// display the balance immediately.
+    /// read-your-write step after [`CreatedDeposit::send`], for callers that
+    /// spend or display the balance immediately.
     ///
     /// `wallet` must be the deposit recipient's (a self-deposit, or an
     /// app-held recipient wallet). A wallet that is not the recipient can
@@ -118,9 +122,9 @@ impl Deposit {
     /// ```no_run
     /// use solana_pubkey::Pubkey;
     /// use solana_signer::Signer;
-    /// use zolana_client::{create_deposit, ClientError, CreateDeposit, Rpc};
+    /// use zolana_client::{create_deposit, ClientError, Deposit, Rpc, SOL_MINT};
     /// use zolana_keypair::ShieldedAddress;
-    /// use zolana_transaction::{Wallet, SOL_MINT};
+    /// use zolana_transaction::Wallet;
     ///
     /// fn deposit_sol<R: Rpc, I: Rpc>(
     ///     rpc: &R,
@@ -130,8 +134,8 @@ impl Deposit {
     ///     recipient: &ShieldedAddress,
     ///     wallet: &mut Wallet,
     /// ) -> Result<(), ClientError> {
-    ///     let prepared = create_deposit(CreateDeposit {
-    ///         recipient,
+    ///     let prepared = create_deposit(Deposit {
+    ///         destination: recipient,
     ///         asset: SOL_MINT,
     ///         amount: 1_000_000,
     ///         spl_token_account: None,
@@ -184,8 +188,8 @@ fn wait_for_deposited_utxo<I: Rpc>(
     }
 }
 
-pub fn create_deposit(request: CreateDeposit<'_>) -> Result<Deposit, ClientError> {
-    Deposit::new(request)
+pub fn create_deposit(request: Deposit<'_>) -> Result<CreatedDeposit, ClientError> {
+    CreatedDeposit::new(request)
 }
 
 /// Build and send a direct (non-zone) proofless shield: a public deposit
@@ -322,9 +326,9 @@ mod tests {
     fn prepared_sol_deposit_derives_consistent_material() {
         let recipient = ShieldedKeypair::new().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
-        let prepared = create_deposit(CreateDeposit {
-            recipient: &recipient_address,
-            asset: SOL_MINT,
+        let prepared = create_deposit(Deposit {
+            destination: &recipient_address,
+            asset: crate::SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
             memo: None,
@@ -344,18 +348,17 @@ mod tests {
         let recipient_address = recipient.shielded_address().unwrap();
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();
-        let asset = Address::new_from_array(mint.to_bytes());
 
-        let prepared = create_deposit(CreateDeposit {
-            recipient: &recipient_address,
-            asset,
+        let prepared = create_deposit(Deposit {
+            destination: &recipient_address,
+            asset: mint,
             amount: 1_000,
             memo: None,
             spl_token_account: Some(user_token),
         })
         .expect("prepared deposit");
 
-        assert_eq!(prepared.asset, asset);
+        assert_eq!(prepared.asset, Address::new_from_array(mint.to_bytes()));
         assert_eq!(prepared.data.public_amount, Some(1_000));
         assert_eq!(
             prepared.spl,

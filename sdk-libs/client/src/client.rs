@@ -147,9 +147,10 @@ impl ZolanaClient {
     }
 
     /// A [`Submit`] wired to this client's connections and tree; only the fee
-    /// payer stays caller-owned. Call [`Submit::execute`] on the result, or
+    /// payer stays caller-owned. Call [`Submit::execute`] on the result with a
+    /// created transaction — `rpc.send(&payer).execute(&transfer)` — or
     /// override `cu_limit` first.
-    pub fn submit<'a>(&'a self, payer: &'a dyn Signer) -> Submit<'a, Self, Self> {
+    pub fn send<'a>(&'a self, payer: &'a dyn Signer) -> Submit<'a, Self, Self> {
         Submit {
             indexer: self,
             rpc: self,
@@ -316,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_carries_client_tree_and_default_cu_limit() {
+    fn send_carries_client_tree_and_default_cu_limit() {
         let tree = Pubkey::new_unique();
         let client = ZolanaClient::new(ZolanaClientConfig {
             rpc_url: "http://127.0.0.1:9899".to_string(),
@@ -326,7 +327,7 @@ mod tests {
             commitment: None,
         });
         let payer = solana_keypair::Keypair::new();
-        let submit = client.submit(&payer);
+        let submit = client.send(&payer);
         assert_eq!(submit.tree, tree);
         assert_eq!(submit.cu_limit, None);
         assert_eq!(
