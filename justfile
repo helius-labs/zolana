@@ -144,19 +144,54 @@ bench-shielded-pool: build-programs
 # uninstrumented black box and its functions do not pollute the swap CU table.
 # SOL-only, so no SPL Token clone is needed. Regenerates
 # sdk-tests/zk-program-swap/BENCHMARK.md.
-# Regenerate any swap circuit whose proving keys are missing, writing both the
-# proving key (build/, gitignored) and the committed verifying key. groth16.Setup
-# is non-deterministic, so the keys and the verifying key must be generated
-# together; this keeps a fresh checkout (or CI) self-healing.
+# Fetch the pinned swap proving keys from the swap-keys release and verify them
+# against the committed manifest. groth16.Setup is non-deterministic, so the
+# published keys are the only set matching the committed Rust verifying keys;
+# regenerating locally (regen-swap-keys) requires publishing a new release and
+# updating swap-keys.CHECKSUM plus the committed verifying keys together.
+swap-keys-tag := "swap-keys-v1"
+
 ensure-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
+    base="sdk-tests/zk-program-swap"
     for c in create fill cancel fill_verifiable_encryption; do
-        if [ ! -f "sdk-tests/zk-program-swap/build/gnark/$c/pk.bin" ]; then
-            cargo run --release -p swap-prover --bin swap-prover-setup -- \
-                "$c" "sdk-tests/zk-program-swap/build/gnark/$c" \
-                --rust-vk "sdk-tests/zk-program-swap/program/src/verifying_keys/$c.rs"
-        fi
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                mkdir -p "$dir"
+                gh release download "{{swap-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/swap-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "refresh from the {{swap-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-swap-keys' and publish a new release" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the swap proving keys: regenerate every circuit, rewriting the committed
+# Rust verifying keys and the checksum manifest. Publish the new build/gnark
+# key files to a fresh swap-keys release and bump swap-keys-tag afterwards.
+regen-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="sdk-tests/zk-program-swap"
+    for c in create fill cancel fill_verifiable_encryption; do
+        cargo run --release -p swap-prover --bin swap-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/swap-keys.CHECKSUM"
+    for c in create fill cancel fill_verifiable_encryption; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"
+        done
     done
 
 # The profiling swap build calls a profiler syscall that solana-test-validator

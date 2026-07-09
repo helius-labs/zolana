@@ -68,6 +68,11 @@ fn main() {
         "VERIFYINGKEY",
     )
     .expect("failed to emit Rust verifying key source");
+    let _ = std::process::Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2021")
+        .arg(&rust_vk_path)
+        .status();
     println!("done");
 }
 
