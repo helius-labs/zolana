@@ -66,7 +66,7 @@ pub fn setup(circuit: CircuitId, out_dir: &Path) -> Result<()> {
     }
 }
 
-pub fn load_keys(circuit: CircuitId, pk_path: &Path, vk_path: &Path) -> Result<()> {
+fn load_keys(circuit: CircuitId, pk_path: &Path, vk_path: &Path) -> Result<()> {
     let pk = path_to_cstring(pk_path)?;
     let vk = path_to_cstring(vk_path)?;
     let err = unsafe {
@@ -128,7 +128,7 @@ pub fn prove(circuit: CircuitId, witness: &HashMap<String, Vec<String>>) -> Resu
     Ok(out)
 }
 
-pub fn build_dir(circuit: CircuitId) -> PathBuf {
+fn build_dir(circuit: CircuitId) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark");
     let sub = match circuit {
         CircuitId::Stub => "stub",

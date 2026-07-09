@@ -70,10 +70,6 @@ pub struct FillVerifiableEncryptionProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_utxo_hash: [u8; 32],
-    pub taker_utxo_hash: [u8; 32],
-    pub destination_output_hash: [u8; 32],
-    pub source_output_hash: [u8; 32],
     pub ciphertext: Vec<u8>,
     pub ct_hash: [u8; 32],
 }
@@ -131,10 +127,6 @@ struct FillVerifiableEncryptionUtxos {
 
 struct FillVerifiableEncryptionDerivation {
     utxos: FillVerifiableEncryptionUtxos,
-    escrow_utxo_hash: [u8; 32],
-    taker_utxo_hash: [u8; 32],
-    destination_output_hash: [u8; 32],
-    source_output_hash: [u8; 32],
     private_tx_hash: [u8; 32],
     ciphertext: Vec<u8>,
     ct_hash: [u8; 32],
@@ -274,10 +266,6 @@ impl FillVerifiableEncryptionProofInputs {
 
         Ok(FillVerifiableEncryptionDerivation {
             utxos,
-            escrow_utxo_hash,
-            taker_utxo_hash,
-            destination_output_hash,
-            source_output_hash,
             private_tx_hash,
             ciphertext,
             ct_hash,
@@ -394,10 +382,6 @@ impl FillVerifiableEncryptionProofInputs {
             proof,
             public_input_hash: derived.public_input_hash,
             private_tx_hash: derived.private_tx_hash,
-            escrow_utxo_hash: derived.escrow_utxo_hash,
-            taker_utxo_hash: derived.taker_utxo_hash,
-            destination_output_hash: derived.destination_output_hash,
-            source_output_hash: derived.source_output_hash,
             ciphertext: derived.ciphertext,
             ct_hash: derived.ct_hash,
         })

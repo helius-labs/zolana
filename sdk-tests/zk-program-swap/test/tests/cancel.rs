@@ -9,8 +9,8 @@ use shared::{
 use swap_sdk::{
     discover::discover_own_orders,
     instructions::{
-        cancel::{Cancel, CancelSharedInputs, EscrowCancel},
-        create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
+        cancel::{Cancel, CancelProofInputParams, EscrowCancel},
+        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
     },
     order::{marker_output_utxo, Escrow, OrderTerms, SOL_ASSET_ID},
     prover::SwapProverClient,
@@ -128,7 +128,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
 
-        let create_swap_proof_inputs = CreateSwapProofInputs {
+        let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
             taker_address,
             source_input_hash,
@@ -165,7 +165,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
         let taker_viewing_pk = order.taker_viewing_pk;
 
         let source_output_blinding = random_blinding();
-        let cancel_inputs = CancelSharedInputs {
+        let cancel_inputs = CancelProofInputParams {
             escrow: escrow.clone(),
             taker_viewing_pk,
             source_output_blinding,
@@ -200,7 +200,7 @@ fn create_and_cancel_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?;
 
-        let cancel_inputs = CancelSharedInputs {
+        let cancel_inputs = CancelProofInputParams {
             external_data_hash: cancel_external_data_hash,
             ..cancel_inputs
         };

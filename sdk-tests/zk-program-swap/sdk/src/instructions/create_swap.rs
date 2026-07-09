@@ -3,7 +3,6 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CreateProofInputs;
-use zolana_client::{ProverClient, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::{OutputCiphertext, TransactIxData};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
@@ -20,11 +19,9 @@ use zolana_transaction::{
 };
 
 use crate::{
-    check_private_tx_hash, err, escrow_authority_pda,
-    order::{marker_output_utxo, sdk_private_tx_hash, BlindingField, DataHash, Escrow},
-    program_id_pubkey,
-    prover::{prove_transact, SwapProverClient},
-    spp_program_meta, tag, CreateProof, MarkerData,
+    err, escrow_authority_pda,
+    order::{BlindingField, DataHash, Escrow},
+    program_id_pubkey, spp_program_meta, tag, CreateProof, MarkerData,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,28 +43,7 @@ impl CreateSwapIxData {
     }
 }
 
-pub fn create_swap(
-    payer: Pubkey,
-    spp_accounts: Vec<AccountMeta>,
-    proof: CreateProof,
-    mut transact: TransactIxData,
-) -> Instruction {
-    if let Some(marker) = transact.output_ciphertexts.last_mut() {
-        marker.data = Vec::new();
-    }
-    let data = CreateSwapIxData { proof, transact }.serialize();
-    let mut accounts = vec![AccountMeta::new(payer, true)];
-    accounts.extend(spp_accounts);
-    let mut instruction_data = vec![tag::CREATE_SWAP];
-    instruction_data.extend_from_slice(&data);
-    Instruction {
-        program_id: program_id_pubkey(),
-        accounts,
-        data: instruction_data,
-    }
-}
-
-pub struct CreateSwapProofInputs {
+pub struct CreateSwapProofInputParams {
     pub escrow: Escrow,
     pub taker_address: ShieldedAddress,
     pub source_input_hash: [u8; 32],
@@ -75,8 +51,8 @@ pub struct CreateSwapProofInputs {
     pub external_data_hash: [u8; 32],
 }
 
-impl CreateSwapProofInputs {
-    pub fn create_proof_inputs(&self) -> Result<CreateProofInputs> {
+impl CreateSwapProofInputParams {
+    pub fn into_proof_inputs(&self) -> Result<CreateProofInputs> {
         let terms = &self.escrow.terms;
         Ok(CreateProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
@@ -98,54 +74,6 @@ impl CreateSwapProofInputs {
         })
     }
 
-    pub fn change_output_hash(&self) -> Result<[u8; 32]> {
-        self.create_proof_inputs()?
-            .change_output_hash()
-            .map_err(err)
-    }
-
-    pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        self.escrow.output_utxo(self.taker_address.viewing_pubkey)
-    }
-
-    pub fn marker_output_utxo(&self) -> OutputUtxo {
-        marker_output_utxo(self.taker_address)
-    }
-
-    pub fn marker_output_hash(&self) -> Result<[u8; 32]> {
-        self.marker_output_utxo().hash().map_err(err)
-    }
-
-    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
-        let marker_hash = self.marker_output_hash()?;
-        let change_hash = self.change_output_hash()?;
-        // Padded 2x3 chains: one dummy input contributes 0; outputs are
-        // [change, escrow, marker]; addresses are two zeros.
-        sdk_private_tx_hash(
-            &[self.source_input_hash, [0u8; 32]],
-            &[change_hash, escrow_utxo_hash, marker_hash],
-            &self.external_data_hash,
-        )
-    }
-
-    /// Generate the create proof and the SPP transact proof (the blocking work
-    /// kept out of `CreateSwap::instruction`), validating both against the
-    /// SDK-computed private_tx_hash.
-    pub fn prove(
-        &self,
-        signed: SignedTransaction,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-        swap_prover: &SwapProverClient,
-    ) -> Result<(CreateProof, TransactIxData)> {
-        let expected = self.sdk_private_tx_hash()?;
-        let transact = prove_transact(signed, spend_proofs, prover)?;
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let create_result = swap_prover.prove_create_swap(self)?;
-        check_private_tx_hash("create proof", create_result.private_tx_hash, expected)?;
-        Ok((create_result.proof.into(), transact))
-    }
 }
 
 const CHANGE_POSITION: u8 = 1;

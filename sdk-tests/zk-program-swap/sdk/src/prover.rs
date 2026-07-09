@@ -9,8 +9,9 @@ use zolana_transaction::instructions::transact::SignedTransaction;
 use crate::{
     err,
     instructions::{
-        cancel::CancelSharedInputs, create_swap::CreateSwapProofInputs, fill::FillSharedInputs,
-        fill_verifiable_encryption::FillVerifiableEncryptionSharedInputs,
+        cancel::CancelProofInputParams, create_swap::CreateSwapProofInputParams,
+        fill::FillProofInputParams,
+        fill_verifiable_encryption::FillVerifiableEncryptionProofInputParams,
     },
 };
 
@@ -21,23 +22,26 @@ impl SwapProverClient {
         Self
     }
 
-    pub fn prove_create_swap(&self, inputs: &CreateSwapProofInputs) -> Result<CreateProofResult> {
-        inputs.create_proof_inputs()?.prove().map_err(err)
+    pub fn prove_create_swap(
+        &self,
+        inputs: &CreateSwapProofInputParams,
+    ) -> Result<CreateProofResult> {
+        inputs.into_proof_inputs()?.prove().map_err(err)
     }
 
-    pub fn prove_fill(&self, inputs: &FillSharedInputs) -> Result<FillProofResult> {
-        inputs.fill_proof_inputs()?.prove().map_err(err)
+    pub fn prove_fill(&self, inputs: &FillProofInputParams) -> Result<FillProofResult> {
+        inputs.into_proof_inputs()?.prove().map_err(err)
     }
 
-    pub fn prove_cancel(&self, inputs: &CancelSharedInputs) -> Result<CancelProofResult> {
-        inputs.cancel_proof_inputs()?.prove().map_err(err)
+    pub fn prove_cancel(&self, inputs: &CancelProofInputParams) -> Result<CancelProofResult> {
+        inputs.into_proof_inputs()?.prove().map_err(err)
     }
 
     pub fn prove_fill_verifiable_encryption(
         &self,
-        inputs: &FillVerifiableEncryptionSharedInputs,
+        inputs: &FillVerifiableEncryptionProofInputParams,
     ) -> Result<FillVerifiableEncryptionProofResult> {
-        inputs.fill_proof_inputs()?.prove().map_err(err)
+        inputs.into_proof_inputs()?.prove().map_err(err)
     }
 }
 

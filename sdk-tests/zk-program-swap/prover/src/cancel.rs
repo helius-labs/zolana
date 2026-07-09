@@ -50,8 +50,6 @@ pub struct CancelProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_utxo_hash: [u8; 32],
-    pub source_output_hash: [u8; 32],
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +75,6 @@ struct CancelBuild {
     witness: HashMap<String, Vec<String>>,
     public_input_hash: [u8; 32],
     private_tx_hash: [u8; 32],
-    escrow_utxo_hash: [u8; 32],
-    source_output_hash: [u8; 32],
 }
 
 fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], CancelError> {
@@ -224,8 +220,6 @@ impl CancelProofInputs {
             witness,
             public_input_hash,
             private_tx_hash,
-            escrow_utxo_hash,
-            source_output_hash,
         })
     }
 
@@ -249,8 +243,6 @@ impl CancelProofInputs {
             witness,
             public_input_hash,
             private_tx_hash,
-            escrow_utxo_hash,
-            source_output_hash,
         } = build;
         let out = ffi::prove(CircuitId::Cancel, &witness)?;
         let proof = gnark_proof_to_wire(&out)?;
@@ -258,8 +250,6 @@ impl CancelProofInputs {
             proof,
             public_input_hash,
             private_tx_hash,
-            escrow_utxo_hash,
-            source_output_hash,
         })
     }
 }

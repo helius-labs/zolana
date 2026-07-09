@@ -6,14 +6,9 @@ pub mod fill_verifiable_encryption;
 pub mod order_terms;
 pub mod utxo;
 
-use std::collections::HashMap;
-
 pub use cancel::{CancelError, CancelProofInputs, CancelProofResult};
-pub use create::{
-    gnark_proof_to_wire, gnark_proof_to_wire_committed, CreateError, CreateProofInputs,
-    CreateProofResult, OrderProof,
-};
-pub use ffi::{build_dir, load_keys, preload, prove, setup, CircuitId, Error, ProveOutput, Result};
+pub use create::{CreateError, CreateProofInputs, CreateProofResult, OrderProof};
+pub use ffi::{preload, prove, setup, CircuitId, Error, ProveOutput, Result};
 pub use fill::{derive_destination_blinding, FillError, FillProofInputs, FillProofResult};
 pub use fill_verifiable_encryption::{
     FillVerifiableEncryptionError, FillVerifiableEncryptionProofInputs,
@@ -28,16 +23,10 @@ use zolana_keypair::{
     KeypairError, NullifierKey,
 };
 
-pub(crate) struct WitnessBundle {
-    pub witness: HashMap<String, Vec<String>>,
-    pub public_input_hash: [u8; 32],
-    pub private_tx_hash: [u8; 32],
-}
-
 /// The escrow UTXO's nullifier pubkey is fixed to the zero-secret nullifier key
 /// (`NullifierKey::from_secret([0u8; 31]).pubkey()`), so the opening is the full
 /// spend capability and the escrow needs no per-order secret.
-pub fn zero_nullifier_pk() -> core::result::Result<[u8; 32], KeypairError> {
+fn zero_nullifier_pk() -> core::result::Result<[u8; 32], KeypairError> {
     NullifierKey::from_secret([0u8; BLINDING_LEN]).pubkey()
 }
 

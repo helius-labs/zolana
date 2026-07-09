@@ -7,10 +7,7 @@ use zolana_keypair::{
 };
 pub use zolana_transaction::SOL_ASSET_ID;
 use zolana_transaction::{
-    instructions::{
-        transact::{no_address_hashes, private_tx_hash, OutputUtxo},
-        types::SpendUtxo,
-    },
+    instructions::{transact::OutputUtxo, types::SpendUtxo},
     utxo::{Blinding, Utxo},
     Data, SOL_MINT,
 };
@@ -220,18 +217,4 @@ impl Recipient {
             ..Default::default()
         }
     }
-}
-
-pub fn sdk_private_tx_hash(
-    input_hashes: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    external_data_hash: &[u8; 32],
-) -> Result<[u8; 32]> {
-    private_tx_hash(
-        input_hashes,
-        output_hashes,
-        &no_address_hashes(input_hashes.len()),
-        external_data_hash,
-    )
-    .map_err(err)
 }

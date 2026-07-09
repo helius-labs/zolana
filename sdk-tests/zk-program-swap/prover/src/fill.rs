@@ -63,10 +63,6 @@ pub struct FillProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_utxo_hash: [u8; 32],
-    pub taker_utxo_hash: [u8; 32],
-    pub destination_output_hash: [u8; 32],
-    pub source_output_hash: [u8; 32],
     pub destination_output_blinding: [u8; 32],
 }
 
@@ -115,10 +111,6 @@ struct FillUtxos {
 
 struct FillDerivation {
     utxos: FillUtxos,
-    escrow_utxo_hash: [u8; 32],
-    taker_utxo_hash: [u8; 32],
-    source_output_hash: [u8; 32],
-    destination_output_hash: [u8; 32],
     private_tx_hash: [u8; 32],
     public_input_hash: [u8; 32],
     destination_output_blinding: [u8; 32],
@@ -232,10 +224,6 @@ impl FillProofInputs {
         let public_input_hash = poseidon(&[&private_tx_hash, &expiry])?;
         Ok(FillDerivation {
             utxos,
-            escrow_utxo_hash,
-            taker_utxo_hash,
-            source_output_hash,
-            destination_output_hash,
             private_tx_hash,
             public_input_hash,
             destination_output_blinding: *destination_output_blinding,
@@ -312,10 +300,6 @@ impl FillProofInputs {
             proof,
             public_input_hash: derived.public_input_hash,
             private_tx_hash: derived.private_tx_hash,
-            escrow_utxo_hash: derived.escrow_utxo_hash,
-            taker_utxo_hash: derived.taker_utxo_hash,
-            destination_output_hash: derived.destination_output_hash,
-            source_output_hash: derived.source_output_hash,
             destination_output_blinding: derived.destination_output_blinding,
         })
     }

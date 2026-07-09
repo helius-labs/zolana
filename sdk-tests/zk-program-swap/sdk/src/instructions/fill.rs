@@ -3,7 +3,6 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::FillProofInputs;
-use zolana_client::{ProverClient, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
@@ -16,11 +15,9 @@ use zolana_transaction::{
 };
 
 use crate::{
-    check_private_tx_hash, err, escrow_authority_pda, lifecycle_instruction,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
-    program_id_pubkey,
-    prover::{prove_transact, SwapProverClient},
-    spp_program_meta, tag, FillProof,
+    err, escrow_authority_pda,
+    order::{BlindingField, DataHash, Escrow, Recipient},
+    program_id_pubkey, spp_program_meta, tag, FillProof,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,17 +39,7 @@ impl FillIxData {
     }
 }
 
-pub fn fill(
-    payer: Pubkey,
-    spp_accounts: Vec<AccountMeta>,
-    proof: FillProof,
-    transact: TransactIxData,
-) -> Instruction {
-    let data = FillIxData { proof, transact }.serialize();
-    lifecycle_instruction(tag::FILL, payer, spp_accounts, data)
-}
-
-pub struct FillSharedInputs {
+pub struct FillProofInputParams {
     pub escrow: Escrow,
     pub taker_in: OutputUtxo,
     pub source_output_blinding: Blinding,
@@ -61,7 +48,7 @@ pub struct FillSharedInputs {
     pub taker_recipient: zolana_keypair::ShieldedAddress,
 }
 
-impl FillSharedInputs {
+impl FillProofInputParams {
     pub fn destination_output_blinding(&self) -> Result<Blinding> {
         let field = swap_prover::derive_destination_blinding(&self.escrow.blinding.to_field())
             .map_err(err)?;
@@ -70,7 +57,7 @@ impl FillSharedInputs {
         Ok(blinding)
     }
 
-    pub fn fill_proof_inputs(&self) -> Result<FillProofInputs> {
+    pub fn into_proof_inputs(&self) -> Result<FillProofInputs> {
         let terms = &self.escrow.terms;
         Ok(FillProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
@@ -95,10 +82,6 @@ impl FillSharedInputs {
         })
     }
 
-    pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        self.escrow.output_utxo(self.taker_recipient.viewing_pubkey)
-    }
-
     pub fn destination_output(&self) -> Result<OutputUtxo> {
         Ok(Recipient {
             address: self.maker_recipient,
@@ -119,32 +102,6 @@ impl FillSharedInputs {
         .output()
     }
 
-    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
-        let taker_utxo_hash = self.taker_in.hash().map_err(err)?;
-        let destination_output_hash = self.destination_output()?.hash().map_err(err)?;
-        let source_output_hash = self.source_output().hash().map_err(err)?;
-        sdk_private_tx_hash(
-            &[escrow_utxo_hash, taker_utxo_hash],
-            &[source_output_hash, destination_output_hash],
-            &self.external_data_hash,
-        )
-    }
-
-    pub fn prove(
-        &self,
-        signed: SignedTransaction,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-        swap_prover: &SwapProverClient,
-    ) -> Result<(FillProof, TransactIxData)> {
-        let expected = self.sdk_private_tx_hash()?;
-        let transact = prove_transact(signed, spend_proofs, prover)?;
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let fill_result = swap_prover.prove_fill(self)?;
-        check_private_tx_hash("fill proof", fill_result.private_tx_hash, expected)?;
-        Ok((fill_result.proof.into(), transact))
-    }
 }
 
 pub struct EscrowFill {

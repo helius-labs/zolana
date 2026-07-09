@@ -15,9 +15,9 @@ use zolana_transaction::{
 };
 
 use crate::{
-    err, escrow_authority_pda, lifecycle_instruction,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
-    spp_program_meta, tag, FillVerifiableEncryptionProof,
+    err, escrow_authority_pda,
+    order::{BlindingField, DataHash, Escrow, Recipient},
+    program_id_pubkey, spp_program_meta, tag, FillVerifiableEncryptionProof,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,17 +40,7 @@ impl FillVerifiableEncryptionIxData {
     }
 }
 
-pub fn fill_verifiable_encryption(
-    payer: Pubkey,
-    spp_accounts: Vec<AccountMeta>,
-    proof: FillVerifiableEncryptionProof,
-    transact: TransactIxData,
-) -> Instruction {
-    let data = FillVerifiableEncryptionIxData { proof, transact }.serialize();
-    lifecycle_instruction(tag::FILL_VERIFIABLE_ENCRYPTION, payer, spp_accounts, data)
-}
-
-pub struct FillVerifiableEncryptionSharedInputs {
+pub struct FillVerifiableEncryptionProofInputParams {
     pub escrow: Escrow,
     pub taker_in_blinding: Blinding,
     pub destination_output_blinding: Blinding,
@@ -60,8 +50,8 @@ pub struct FillVerifiableEncryptionSharedInputs {
     pub taker_recipient: ShieldedAddress,
 }
 
-impl FillVerifiableEncryptionSharedInputs {
-    pub fn fill_proof_inputs(&self) -> Result<FillVerifiableEncryptionProofInputs> {
+impl FillVerifiableEncryptionProofInputParams {
+    pub fn into_proof_inputs(&self) -> Result<FillVerifiableEncryptionProofInputs> {
         let terms = &self.escrow.terms;
         Ok(FillVerifiableEncryptionProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
@@ -82,20 +72,6 @@ impl FillVerifiableEncryptionSharedInputs {
         })
     }
 
-    pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        self.escrow.output_utxo(self.taker_recipient.viewing_pubkey)
-    }
-
-    pub fn taker_utxo(&self) -> OutputUtxo {
-        Recipient {
-            address: self.taker_recipient,
-            amount: self.escrow.terms.destination_amount,
-            blinding: self.taker_in_blinding,
-            mint: self.escrow.terms.destination_mint,
-        }
-        .output()
-    }
-
     pub fn destination_output(&self) -> OutputUtxo {
         Recipient {
             address: self.maker_recipient,
@@ -114,18 +90,6 @@ impl FillVerifiableEncryptionSharedInputs {
             mint: self.escrow.source_mint,
         }
         .output()
-    }
-
-    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
-        let taker_utxo_hash = self.taker_utxo().hash().map_err(err)?;
-        let destination_output_hash = self.destination_output().hash().map_err(err)?;
-        let source_output_hash = self.source_output().hash().map_err(err)?;
-        sdk_private_tx_hash(
-            &[escrow_utxo_hash, taker_utxo_hash],
-            &[source_output_hash, destination_output_hash],
-            &self.external_data_hash,
-        )
     }
 }
 
@@ -224,17 +188,26 @@ impl FillVerifiableEncryption {
         if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
-        let spp_accounts = vec![
+
+        let data = FillVerifiableEncryptionIxData {
+            proof: fill_proof,
+            transact: spp_proof,
+        }
+        .serialize();
+
+        let accounts = vec![
+            AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             spp_program_meta(),
         ];
-        Ok(fill_verifiable_encryption(
-            payer,
-            spp_accounts,
-            fill_proof,
-            spp_proof,
-        ))
+        let mut instruction_data = vec![tag::FILL_VERIFIABLE_ENCRYPTION];
+        instruction_data.extend_from_slice(&data);
+        Ok(Instruction {
+            program_id: program_id_pubkey(),
+            accounts,
+            data: instruction_data,
+        })
     }
 }

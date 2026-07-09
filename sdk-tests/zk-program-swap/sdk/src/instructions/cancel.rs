@@ -12,7 +12,7 @@ use zolana_transaction::{
 
 use crate::{
     err, escrow_authority_pda,
-    order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
+    order::{BlindingField, DataHash, Escrow, Recipient},
     program_id_pubkey, spp_program_meta, tag, CancelProof,
 };
 
@@ -44,37 +44,7 @@ impl CancelIxData {
     }
 }
 
-pub fn cancel(
-    payer: Pubkey,
-    maker_signer: Pubkey,
-    spp_accounts: Vec<AccountMeta>,
-    proof: CancelProof,
-    order_expiry: u64,
-    transact: TransactIxData,
-) -> Instruction {
-    let body = CancelIxData {
-        proof,
-        order_expiry,
-        transact,
-    }
-    .serialize();
-    // The maker is a dedicated readonly signer after the fee payer; the swap
-    // program reads its pubkey to bind the cancel proof to the escrow's maker.
-    let mut accounts = vec![
-        AccountMeta::new(payer, true),
-        AccountMeta::new_readonly(maker_signer, true),
-    ];
-    accounts.extend(spp_accounts);
-    let mut data = vec![tag::CANCEL];
-    data.extend_from_slice(&body);
-    Instruction {
-        program_id: program_id_pubkey(),
-        accounts,
-        data,
-    }
-}
-
-pub struct CancelSharedInputs {
+pub struct CancelProofInputParams {
     pub escrow: Escrow,
     pub taker_viewing_pk: P256Pubkey,
     pub source_output_blinding: Blinding,
@@ -82,8 +52,8 @@ pub struct CancelSharedInputs {
     pub maker_recipient: ShieldedAddress,
 }
 
-impl CancelSharedInputs {
-    pub fn cancel_proof_inputs(&self) -> Result<CancelProofInputs> {
+impl CancelProofInputParams {
+    pub fn into_proof_inputs(&self) -> Result<CancelProofInputs> {
         let terms = &self.escrow.terms;
         Ok(CancelProofInputs {
             source_mint: *self.escrow.source_mint.as_array(),
@@ -108,10 +78,6 @@ impl CancelSharedInputs {
         })
     }
 
-    pub fn escrow_output(&self) -> Result<OutputUtxo> {
-        self.escrow.output_utxo(self.taker_viewing_pk)
-    }
-
     pub fn source_output(&self) -> OutputUtxo {
         Recipient {
             address: self.maker_recipient,
@@ -120,16 +86,6 @@ impl CancelSharedInputs {
             mint: self.escrow.source_mint,
         }
         .output()
-    }
-
-    pub fn sdk_private_tx_hash(&self) -> Result<[u8; 32]> {
-        let escrow_utxo_hash = self.escrow_output()?.hash().map_err(err)?;
-        let source_output_hash = self.source_output().hash().map_err(err)?;
-        sdk_private_tx_hash(
-            &[escrow_utxo_hash],
-            &[source_output_hash],
-            &self.external_data_hash,
-        )
     }
 }
 
@@ -187,19 +143,30 @@ impl Cancel {
         if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
-        let spp_accounts = vec![
+
+        let data = CancelIxData {
+            proof: cancel_proof,
+            order_expiry,
+            transact: spp_proof,
+        }
+        .serialize();
+
+        // The maker is a dedicated readonly signer after the fee payer; the swap
+        // program reads its pubkey to bind the cancel proof to the escrow's maker.
+        let accounts = vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(maker, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
             spp_program_meta(),
         ];
-        Ok(cancel(
-            payer,
-            maker,
-            spp_accounts,
-            cancel_proof,
-            order_expiry,
-            spp_proof,
-        ))
+        let mut instruction_data = vec![tag::CANCEL];
+        instruction_data.extend_from_slice(&data);
+        Ok(Instruction {
+            program_id: program_id_pubkey(),
+            accounts,
+            data: instruction_data,
+        })
     }
 }

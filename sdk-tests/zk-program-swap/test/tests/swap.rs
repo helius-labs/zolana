@@ -9,8 +9,8 @@ use shared::{
 use swap_sdk::{
     discover::discover_orders,
     instructions::{
-        create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
-        fill::{EscrowFill, Fill, FillSharedInputs},
+        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
+        fill::{EscrowFill, Fill, FillProofInputParams},
     },
     order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
     prover::SwapProverClient,
@@ -135,7 +135,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("create external data hash: {e:?}"))?;
 
-        let create_swap_proof_inputs = CreateSwapProofInputs {
+        let create_swap_proof_inputs = CreateSwapProofInputParams {
             escrow,
             taker_address,
             source_input_hash,
@@ -176,7 +176,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             mint: terms.destination_mint,
         }
         .output();
-        let fill_inputs = FillSharedInputs {
+        let fill_inputs = FillProofInputParams {
             escrow: escrow.clone(),
             taker_in,
             source_output_blinding,
@@ -220,7 +220,7 @@ fn create_and_fill_swap_inline() -> Result<()> {
             .hash()
             .map_err(|e| anyhow!("fill external data hash: {e:?}"))?;
 
-        let fill_inputs = FillSharedInputs {
+        let fill_inputs = FillProofInputParams {
             external_data_hash: fill_external_data_hash,
             ..fill_inputs
         };

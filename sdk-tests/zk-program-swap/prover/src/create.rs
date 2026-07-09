@@ -8,7 +8,7 @@ use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
     bytes_to_decimal_string, ffi, order_terms::OrderTerms, CircuitId, ProveOutput,
-    UtxoFieldElements, WitnessBundle,
+    UtxoFieldElements,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -48,7 +48,6 @@ pub struct CreateProofResult {
     pub proof: OrderProof,
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub escrow_utxo_hash: [u8; 32],
 }
 
 #[derive(Debug, Clone)]
@@ -174,7 +173,8 @@ impl CreateProofInputs {
         self.private_tx_hash(&escrow_utxo_hash, &marker_hash)
     }
 
-    fn witness(&self) -> Result<WitnessBundle, CreateError> {
+    /// The create circuit's sole public input is the private_tx_hash itself.
+    fn witness(&self) -> Result<(HashMap<String, Vec<String>>, [u8; 32]), CreateError> {
         let escrow = self.escrow()?;
         let change = self.change()?;
         let marker = self.marker()?;
@@ -217,32 +217,22 @@ impl CreateProofInputs {
                 .collect(),
         );
 
-        Ok(WitnessBundle {
-            witness: map,
-            public_input_hash: private_tx_hash,
-            private_tx_hash,
-        })
+        Ok((map, private_tx_hash))
     }
 
     pub fn prove(&self) -> Result<CreateProofResult, CreateError> {
-        let escrow_utxo_hash = self.escrow()?.hash()?;
-        let WitnessBundle {
-            witness,
-            public_input_hash,
-            private_tx_hash,
-        } = self.witness()?;
+        let (witness, private_tx_hash) = self.witness()?;
         let out = ffi::prove(CircuitId::Create, &witness)?;
         let proof = gnark_proof_to_wire(&out)?;
         Ok(CreateProofResult {
             proof,
-            public_input_hash,
+            public_input_hash: private_tx_hash,
             private_tx_hash,
-            escrow_utxo_hash,
         })
     }
 }
 
-pub fn gnark_proof_to_wire(out: &ProveOutput) -> Result<OrderProof, CreateError> {
+pub(crate) fn gnark_proof_to_wire(out: &ProveOutput) -> Result<OrderProof, CreateError> {
     let neg_a = negate_g1_be(&out.proof_a);
 
     let proof_a =
@@ -260,7 +250,7 @@ pub fn gnark_proof_to_wire(out: &ProveOutput) -> Result<OrderProof, CreateError>
     })
 }
 
-pub fn gnark_proof_to_wire_committed(out: &ProveOutput) -> Result<OrderProof, CreateError> {
+pub(crate) fn gnark_proof_to_wire_committed(out: &ProveOutput) -> Result<OrderProof, CreateError> {
     let mut proof = gnark_proof_to_wire(out)?;
     let commitment = alt_bn128_g1_compress_be(&out.proof_commitment)
         .map_err(|e| CreateError::CompressG1(format!("{e:?}")))?;

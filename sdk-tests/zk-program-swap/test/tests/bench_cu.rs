@@ -22,12 +22,12 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use swap_prover::{preload, CircuitId};
 use swap_sdk::{
     instructions::{
-        cancel::{Cancel, CancelSharedInputs, EscrowCancel},
-        create_swap::{CreateSwap, CreateSwapProofInputs, EscrowCreate},
-        fill::{EscrowFill, Fill, FillSharedInputs},
+        cancel::{Cancel, CancelProofInputParams, EscrowCancel},
+        create_swap::{CreateSwap, CreateSwapProofInputParams, EscrowCreate},
+        fill::{EscrowFill, Fill, FillProofInputParams},
         fill_verifiable_encryption::{
             EscrowFillVerifiableEncryption, FillVerifiableEncryption,
-            FillVerifiableEncryptionSharedInputs,
+            FillVerifiableEncryptionProofInputParams,
         },
     },
     order::{marker_output_utxo, Escrow, OrderTerms, Recipient, SOL_ASSET_ID},
@@ -498,7 +498,7 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     let change_output_utxo = signed.outputs.first().cloned().expect("change output");
     let external_data_hash = signed.external_data.hash().expect("external data hash");
 
-    let create_inputs = CreateSwapProofInputs {
+    let create_inputs = CreateSwapProofInputParams {
         escrow: escrow_utxo_hash,
         taker_address,
         source_input_hash,
@@ -584,7 +584,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         mint: SOL_MINT,
     }
     .output();
-    let fill_shared = FillSharedInputs {
+    let fill_shared = FillProofInputParams {
         escrow: escrow.clone(),
         taker_in,
         source_output_blinding,
@@ -642,7 +642,7 @@ fn bench_fill_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let fill_shared = FillSharedInputs {
+    let fill_shared = FillProofInputParams {
         external_data_hash,
         ..fill_shared
     };
@@ -715,7 +715,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     let destination_output_blinding: Blinding = [21u8; 31];
     let source_output_blinding: Blinding = [31u8; 31];
 
-    let fill_shared = FillVerifiableEncryptionSharedInputs {
+    let fill_shared = FillVerifiableEncryptionProofInputParams {
         escrow: escrow.clone(),
         taker_in_blinding,
         destination_output_blinding,
@@ -725,7 +725,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         taker_recipient,
     };
     let destination_ciphertext = fill_shared
-        .fill_proof_inputs()
+        .into_proof_inputs()
         .expect("fill proof inputs")
         .destination_ciphertext()
         .expect("destination ciphertext");
@@ -783,7 +783,7 @@ fn bench_fill(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let fill_shared = FillVerifiableEncryptionSharedInputs {
+    let fill_shared = FillVerifiableEncryptionProofInputParams {
         external_data_hash,
         ..fill_shared
     };
@@ -864,7 +864,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     };
     let source_output_blinding: Blinding = [19u8; 31];
 
-    let cancel_inputs = CancelSharedInputs {
+    let cancel_inputs = CancelProofInputParams {
         escrow: escrow.clone(),
         taker_viewing_pk,
         source_output_blinding,
@@ -901,7 +901,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
     );
 
     let external_data_hash = signed.external_data.hash().expect("external data hash");
-    let cancel_inputs = CancelSharedInputs {
+    let cancel_inputs = CancelProofInputParams {
         external_data_hash,
         ..cancel_inputs
     };
