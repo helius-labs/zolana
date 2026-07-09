@@ -101,6 +101,7 @@ erDiagram
         smallint event_index
         bigint slot
         binary pocket_program_id
+        smallint source_instruction_tag
         binary output_tree
         bigint first_output_leaf_index
         binary tx_viewing_pk
@@ -117,6 +118,7 @@ erDiagram
         binary view_tag
         binary utxo_hash
         smallint output_kind
+        binary tx_viewing_pk
     }
 
     pocket_tx_nullifiers {
@@ -203,7 +205,7 @@ Already typed by:
 
 Reuse for SPP nullifier queue hash chains.
 
-## Generalized Tables
+## Added Tables
 
 ### `transaction_protocols`
 
@@ -222,6 +224,8 @@ Protocol values:
 
 Keeps SPP retention separate from `uses_compression`.
 Supports transactions that touch multiple protocols.
+
+## Generalized Tables
 
 ### `indexed_tree_queue_entries`
 
@@ -250,10 +254,9 @@ indexed_tree_queue_entries
   source_signature binary(64) null references transactions(signature) on delete set null
   primary key (tree, queue_type, queue_index)
   unique (tree, queue_type, value)
-  index (tree, queue_type, value)
 ```
 
-`queue_type` values come from `light_compressed_account::QueueType`.
+`queue_type` values come from `zolana_merkle_tree_metadata::QueueType`.
 Do not hardcode numeric discriminants in runtime code.
 
 AddressV2:
@@ -270,6 +273,8 @@ queue_type = SppNullifier
 value = nullifier
 queue_index = input_queue_seq
 ```
+
+`SppNullifier` is a new `QueueType` variant introduced by this design; it must be added to `zolana_merkle_tree_metadata::QueueType`.
 
 Batch append:
 
@@ -366,7 +371,6 @@ pocket_tx_nullifiers
   nullifier binary(32) not null
   unique (pocket_tx_id, input_index)
   unique (nullifier_tree, nullifier)
-  index (pocket_tx_id, input_index)
   index (slot, nullifier_id)
 ```
 
