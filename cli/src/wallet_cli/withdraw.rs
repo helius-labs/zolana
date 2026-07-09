@@ -1,9 +1,7 @@
 use anyhow::Result;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    create_withdrawal_sync, CreateWithdrawal, ProverClient, SolanaRpc, Submit, ZolanaIndexer,
-};
-use zolana_transaction::Address;
+use zolana_client::{ProverClient, SolanaRpc, Submit, Withdrawal, ZolanaIndexer};
 
 use super::{
     resolve::get_network,
@@ -24,15 +22,15 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let tree = network.tree;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let withdrawal = create_withdrawal_sync(CreateWithdrawal {
-        wallet: &ctx.wallet,
-        authority: &ctx.material,
-        owner_pubkey: ctx.material.owner_pubkey(),
-        payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient,
-        asset,
+    let withdrawal = Withdrawal {
+        source: &ctx.wallet,
+        destination: recipient,
+        asset: Pubkey::new_from_array(asset.to_bytes()),
         amount: opts.amount,
-    })?;
+        authority: &ctx.material,
+        payer: ctx.material.funding.pubkey(),
+    }
+    .instruction()?;
     let prover = ProverClient::new(network.prover_url.clone());
     let signature = Submit {
         indexer: &indexer,
@@ -42,11 +40,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         tree,
         cu_limit: None,
     }
-    .execute(
-        withdrawal.signed,
-        Some(withdrawal.withdrawal),
-        withdrawal.wait_tag,
-    )?;
+    .execute(&withdrawal)?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",
         opts.amount,

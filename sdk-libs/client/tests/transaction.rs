@@ -17,7 +17,6 @@ use p256::{
 };
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
-use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
     sign_transaction, AnonymousRecipientSlot, ApprovalRequest, CircuitType, ClientError,
@@ -75,14 +74,12 @@ struct AsyncTestAuthority {
 impl WalletAuthority for AsyncTestAuthority {
     async fn shielded_address(
         &self,
-        owner_pubkey: Pubkey,
     ) -> Result<zolana_keypair::shielded::ShieldedAddress, ClientError> {
-        SyncWalletAuthority::shielded_address(&self.keypair, owner_pubkey)
+        SyncWalletAuthority::shielded_address(&self.keypair)
     }
 
     async fn encrypt_confidential_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_tag: [u8; 32],
         sender: &TransferSenderPlaintext,
@@ -90,7 +87,6 @@ impl WalletAuthority for AsyncTestAuthority {
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
             &self.keypair,
-            owner_pubkey,
             first_nullifier,
             sender_tag,
             sender,
@@ -100,7 +96,6 @@ impl WalletAuthority for AsyncTestAuthority {
 
     async fn encrypt_anonymous_transfer(
         &self,
-        owner_pubkey: Pubkey,
         first_nullifier: &[u8; 32],
         sender_view_tag: [u8; 32],
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
@@ -108,7 +103,6 @@ impl WalletAuthority for AsyncTestAuthority {
     ) -> Result<zolana_client::EncryptedTransfer, ClientError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             &self.keypair,
-            owner_pubkey,
             first_nullifier,
             sender_view_tag,
             sender,
@@ -117,23 +111,18 @@ impl WalletAuthority for AsyncTestAuthority {
     }
 
     async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
-        assert_eq!(request.owner_pubkey, Pubkey::default());
         assert!(request.summary.contains("private transaction"));
         self.approvals.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    async fn sign_p256(
-        &self,
-        owner_pubkey: Pubkey,
-        message_hash: &[u8; 32],
-    ) -> Result<P256Signature, ClientError> {
+    async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, ClientError> {
         self.p256_signatures.fetch_add(1, Ordering::SeqCst);
-        SyncWalletAuthority::sign_p256(&self.keypair, owner_pubkey, message_hash)
+        SyncWalletAuthority::sign_p256(&self.keypair, message_hash)
     }
 
-    async fn spend_nullifier_key(&self, owner_pubkey: Pubkey) -> Result<NullifierKey, ClientError> {
-        SyncWalletAuthority::spend_nullifier_key(&self.keypair, owner_pubkey)
+    async fn spend_nullifier_key(&self) -> Result<NullifierKey, ClientError> {
+        SyncWalletAuthority::spend_nullifier_key(&self.keypair)
     }
 }
 
@@ -705,9 +694,7 @@ fn async_authority_signs_p256_and_invokes_approval() {
         .unwrap();
 
     let wallet = Wallet::new(sender.clone(), registry()).expect("wallet");
-    let signed =
-        futures::executor::block_on(sign_transaction(tx, &wallet, Pubkey::default(), &authority))
-            .unwrap();
+    let signed = futures::executor::block_on(sign_transaction(tx, &wallet, &authority)).unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 1);

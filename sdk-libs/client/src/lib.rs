@@ -15,14 +15,15 @@ pub mod wallet_sync;
 
 pub use actions::{
     create_associated_token_account, create_deposit, create_transfer, create_transfer_sync,
-    create_withdrawal, create_withdrawal_sync, sign_transaction, sign_transaction_sync,
-    CreateDeposit, CreateTransfer, CreateWithdrawal, CreatedTransfer, CreatedWithdrawal, Deposit,
-    ResolvedAddress, TransferRecipient,
+    create_withdrawal, create_withdrawal_sync, fetch_asset_id, register_spl_interface,
+    sign_transaction, sign_transaction_sync, CreatedDeposit, CreatedTransfer, CreatedWithdrawal,
+    Deposit, PrivateTransfer, ResolvedAddress, TransferRecipient, Withdrawal,
+    DEFAULT_DEPOSIT_CU_LIMIT,
 };
 #[cfg(feature = "indexer-api")]
-pub use actions::{Submit, DEFAULT_TRANSACT_CU_LIMIT};
+pub use actions::{Sendable, Submit, DEFAULT_TRANSACT_CU_LIMIT};
 #[cfg(all(feature = "indexer-api", feature = "solana-rpc"))]
-pub use client::{ZolanaClient, ZolanaClientConfig};
+pub use client::{ZolanaClient, ZolanaClientConfig, DEFAULT_TREE};
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::ZolanaIndexer;
@@ -49,17 +50,24 @@ pub use rpc::{
 pub use solana_rpc::{ConfirmedInstructionGroups, SolanaRpc};
 pub use user_registry::{
     create_private_wallet, decode_user_record_account, ensure_registered,
-    fetch_user_record_checked, fetch_user_record_optional_checked, resolve_registered_address,
-    resolved_address_from_record, try_resolve_registered_address, validate_registered_keypair,
+    fetch_user_record_checked, fetch_user_record_optional_checked, resolve_recipient,
+    resolve_registered_address, resolved_address_from_record, try_resolve_recipient,
+    try_resolve_registered_address, validate_registered_keypair,
 };
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    P256Signature, SyncWalletAuthority, WalletAuthority,
+    MultiWalletAuthority, P256Signature, Scoped, SyncWalletAuthority, WalletAuthority,
 };
 pub use wallet_sync::{
-    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,
-    SyncWalletConfig,
+    get_private_token_balances, get_private_transactions, refresh_registry_from_chain, sync_wallet,
+    sync_wallet_with_config, SyncWalletConfig,
 };
+/// The SOL sentinel mint (all zeros), typed as the [`Pubkey`] the action
+/// structs take for their `asset` field.
+///
+/// [`Pubkey`]: solana_pubkey::Pubkey
+pub const SOL_MINT: solana_pubkey::Pubkey = solana_pubkey::Pubkey::new_from_array([0u8; 32]);
+
 pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},

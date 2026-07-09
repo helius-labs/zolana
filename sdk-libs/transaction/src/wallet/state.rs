@@ -168,4 +168,20 @@ impl Wallet {
         balances.sort_by_key(|b| b.asset_id);
         Ok(balances)
     }
+
+    /// Per-asset balances of the unspent private UTXOs, without the per-UTXO
+    /// detail: the display-oriented shorthand for `balances(true)`.
+    pub fn private_token_balances(&self) -> Result<Vec<AssetBalance>, TransactionError> {
+        self.balances(true)
+    }
+
+    /// The memo on the most recently synced UTXO that carries one, decoded
+    /// lossily as UTF-8. Memos arrive already decrypted by the wallet sync.
+    pub fn last_memo(&self) -> Option<String> {
+        self.utxos
+            .iter()
+            .rev()
+            .find_map(|entry| entry.utxo.data.memo())
+            .map(|memo| String::from_utf8_lossy(memo).into_owned())
+    }
 }

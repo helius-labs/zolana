@@ -67,10 +67,7 @@ impl Actor {
     /// seed (so its shielded signing pubkey equals `signer`'s pubkey) and which
     /// authorizes its own spends with `signer`.
     pub(crate) fn eddsa(signer: Keypair) -> Result<Self> {
-        let seed: [u8; 32] = signer.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes");
-        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+        let keypair = ShieldedKeypair::from_ed25519(&signer, ViewingKey::new())?;
         let mut actor = Self::with_keypair(keypair)?;
         actor.solana_signer = Some(signer);
         Ok(actor)

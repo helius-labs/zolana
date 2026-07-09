@@ -45,7 +45,8 @@ impl MergeWorld {
         let sender = if self.plan.eddsa {
             let mut seed = [0u8; 32];
             seed[1..].copy_from_slice(&random_blinding());
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa sender keypair")
+            let solana = solana_keypair::Keypair::new_from_array(seed);
+            ShieldedKeypair::from_ed25519(&solana, ViewingKey::new()).expect("eddsa sender keypair")
         } else {
             ShieldedKeypair::new().expect("sender keypair")
         };

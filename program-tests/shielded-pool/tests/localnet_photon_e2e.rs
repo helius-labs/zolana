@@ -1393,10 +1393,7 @@ fn capture_fixture(rpc: &SolanaRpc, label: &str, signature: &Signature) {
 }
 
 fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair> {
-    let seed: [u8; 32] = signer.to_bytes()[..32]
-        .try_into()
-        .expect("ed25519 seed is the first 32 bytes");
-    Ok(ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?)
+    Ok(ShieldedKeypair::from_ed25519(signer, ViewingKey::new())?)
 }
 
 /// Restart a fresh validator + Photon indexer so each test runs against clean

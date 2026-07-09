@@ -123,7 +123,7 @@ impl Deposit<'_> {
             memo: data.memo.clone(),
         }
         .instruction();
-        let mut signers: Vec<&Keypair> = vec![payer];
+        let mut signers: Vec<&dyn Signer> = vec![payer];
         if authority.pubkey() != payer.pubkey() {
             signers.push(authority);
         }

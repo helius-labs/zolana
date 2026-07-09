@@ -53,11 +53,15 @@ pub struct ConfirmedInstructionGroups {
 }
 
 impl SolanaRpc {
+    /// Connect with the `confirmed` commitment level.
     pub fn new(url: impl Into<String>) -> Self {
-        Self::with_client(RpcClient::new_with_commitment(
-            url.into(),
-            CommitmentConfig::confirmed(),
-        ))
+        Self::new_with_commitment(url, CommitmentConfig::confirmed())
+    }
+
+    /// Connect with a caller-chosen commitment level. Every read and send on
+    /// this client uses it.
+    pub fn new_with_commitment(url: impl Into<String>, commitment: CommitmentConfig) -> Self {
+        Self::with_client(RpcClient::new_with_commitment(url.into(), commitment))
     }
 
     pub fn local() -> Self {
@@ -195,7 +199,7 @@ impl SolanaRpc {
         loop {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
-                commitment: Some(CommitmentConfig::confirmed()),
+                commitment: Some(self.client.commitment()),
                 max_supported_transaction_version: Some(0),
             };
             match self.client.get_transaction_with_config(signature, config) {
@@ -315,7 +319,7 @@ impl Rpc for SolanaRpc {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = pubkey_from_address(&address);
         self.client
-            .get_account_with_commitment(&pubkey, CommitmentConfig::confirmed())
+            .get_account_with_commitment(&pubkey, self.client.commitment())
             .map(|response| response.value)
             .map_err(|err| ClientError::Rpc(format!("get_account {pubkey}: {err}")))
     }

@@ -1,7 +1,8 @@
 use anyhow::Result;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    create_deposit, resolve_registered_address, CreateDeposit, SolanaRpc, ZolanaIndexer,
+    create_deposit, resolve_registered_address, Deposit, SolanaRpc, ZolanaIndexer,
 };
 
 use super::{
@@ -32,10 +33,12 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .map(parse_pubkey)
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
+    // A deposit needs the registered private wallet; there is no public
+    // fallback for it, so unregistered recipients are an error here.
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let deposit = create_deposit(CreateDeposit {
-        recipient: &recipient.address,
-        asset,
+    let deposit = create_deposit(Deposit {
+        destination: &recipient.address,
+        asset: Pubkey::new_from_array(asset.to_bytes()),
         amount: opts.amount,
         spl_token_account,
         memo: None,

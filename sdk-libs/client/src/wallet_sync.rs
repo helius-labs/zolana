@@ -41,6 +41,18 @@ impl Default for SyncWalletConfig {
     }
 }
 
+/// Sync the wallet's UTXOs and history from the indexer.
+///
+/// Unknown asset ids are resolved best effort: when decode hits ids the
+/// wallet's registry does not know, sync scans the on-chain `SplAssetRegistry`
+/// accounts via `get_program_accounts` and retries once. On backends without
+/// that method the backfill silently resolves nothing — the stock
+/// `ZolanaIndexer` is such a backend (it implements only the indexer queries),
+/// so with Photon as the sync source the
+/// backfill never fires. Backfill eagerly with a `get_program_accounts`-capable
+/// backend via [`refresh_registry_from_chain`], or insert ids directly with
+/// [`fetch_asset_id`](crate::fetch_asset_id) + `wallet.registry.insert` — the
+/// path that works on every backend.
 pub fn sync_wallet<I>(wallet: &mut Wallet, indexer: &I) -> Result<SyncReport, ClientError>
 where
     I: Rpc,
@@ -111,8 +123,15 @@ where
 /// Fetch every `SplAssetRegistry` account owned by the shielded-pool program and
 /// insert any new `asset_id -> mint` pairs into the wallet's registry. Returns
 /// the number of newly inserted ids. `get_program_accounts` being unsupported on
-/// the RPC is treated as zero new ids (soft miss), not an error.
-fn refresh_registry_from_chain<I>(wallet: &mut Wallet, indexer: &I) -> Result<usize, ClientError>
+/// the backend is treated as zero new ids (soft miss), not an error — which is
+/// why this is public: a wallet synced against Photon (no `get_program_accounts`)
+/// can still backfill eagerly through a capable backend such as
+/// `SolanaRpc`. The guaranteed per-mint path is
+/// [`fetch_asset_id`](crate::fetch_asset_id) + `wallet.registry.insert`.
+pub fn refresh_registry_from_chain<I>(
+    wallet: &mut Wallet,
+    indexer: &I,
+) -> Result<usize, ClientError>
 where
     I: Rpc,
 {
@@ -415,6 +434,46 @@ mod tests {
 
     const SPL_ASSET_ID: u64 = 2;
     const SPL_MINT: Address = Address::new_from_array([2u8; 32]);
+
+    #[test]
+    fn transfer_memo_round_trips_to_the_recipient_wallet() {
+        let assets = AssetRegistry::default();
+        let sender = ShieldedKeypair::new().expect("sender");
+        let recipient = ShieldedKeypair::new().expect("recipient");
+
+        let input = SpendUtxo::from_keypair(test_utxo(&sender, SOL_MINT, 100, 1), &sender);
+        let mut tx = Transaction::new(
+            sender.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        );
+        tx.send_with_memo(
+            &recipient.shielded_address().expect("recipient address"),
+            SOL_MINT,
+            40,
+            Some(b"gm".to_vec()),
+        )
+        .expect("send");
+        let transfer = signed_to_shielded_tx(tx.sign(&sender, &assets).expect("sign"), 1);
+
+        let mut wallet = Wallet::new(recipient.clone(), assets).expect("wallet");
+        sync_wallet(
+            &mut wallet,
+            &MockIndexer {
+                transactions: vec![transfer],
+                matches: Vec::new(),
+                program_accounts: Vec::new(),
+            },
+        )
+        .expect("sync");
+
+        let received = wallet
+            .utxos
+            .iter()
+            .find(|entry| entry.utxo.amount == 40)
+            .expect("received utxo");
+        assert_eq!(received.utxo.data.memo(), Some(b"gm".as_slice()));
+    }
 
     #[test]
     fn sync_wallet_records_confidential_transfer_history_without_duplicates() {

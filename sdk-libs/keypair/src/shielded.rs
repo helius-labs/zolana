@@ -87,10 +87,13 @@ impl ShieldedKeypair {
         )
     }
 
+    /// Wallet keys for a Solana keypair: the signing and nullifier keys derive
+    /// from its ed25519 secret; the viewing key is caller-provided.
     pub fn from_ed25519(
-        signing_secret: &[u8; 32],
+        keypair: &solana_keypair::Keypair,
         viewing_key: ViewingKey,
     ) -> Result<Self, KeypairError> {
+        let signing_secret = keypair.secret_bytes();
         let signing_key = SigningKey::from_ed25519(signing_secret);
         let nullifier_key = NullifierKey::from_signing_secret_key_bytes(signing_secret)?;
         Ok(Self {
@@ -202,5 +205,25 @@ impl ShieldedKeypair {
     ) -> Result<ViewingKey, KeypairError> {
         self.viewing_key
             .get_transaction_viewing_key(first_nullifier)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The keypair-taking constructor must derive the same keys as feeding the
+    /// secret bytes to the key constructors directly.
+    #[test]
+    fn from_ed25519_matches_secret_byte_derivation() {
+        let solana = solana_keypair::Keypair::new();
+        let keypair = ShieldedKeypair::from_ed25519(&solana, ViewingKey::new()).unwrap();
+        let signing = SigningKey::from_ed25519(solana.secret_bytes());
+        let nullifier = NullifierKey::from_signing_secret_key_bytes(solana.secret_bytes()).unwrap();
+        assert_eq!(keypair.signing_pubkey(), signing.pubkey());
+        assert_eq!(
+            keypair.nullifier_key.pubkey().unwrap(),
+            nullifier.pubkey().unwrap()
+        );
     }
 }

@@ -45,7 +45,7 @@ fn system_create_account_ix(
 }
 
 /// Create and initialize a fresh SPL mint (9 decimals, mint authority = `payer`).
-pub fn create_mint<R: Rpc>(rpc: &R, payer: &Keypair) -> Result<Pubkey, ClientError> {
+pub fn create_mint<R: Rpc>(rpc: &R, payer: &dyn Signer) -> Result<Pubkey, ClientError> {
     let mint = Keypair::new();
     let rent = rpc.get_minimum_balance_for_rent_exemption(SPL_TOKEN_MINT_ACCOUNT_LEN)?;
     let create_ix = system_create_account_ix(
@@ -74,7 +74,7 @@ pub fn create_mint<R: Rpc>(rpc: &R, payer: &Keypair) -> Result<Pubkey, ClientErr
 /// Create and initialize an SPL token account for `mint` owned by `owner`.
 pub fn create_token_account<R: Rpc>(
     rpc: &R,
-    payer: &Keypair,
+    payer: &dyn Signer,
     mint: &Pubkey,
     owner: &Pubkey,
 ) -> Result<Pubkey, ClientError> {
@@ -108,7 +108,7 @@ pub fn create_token_account<R: Rpc>(
 /// Mint `amount` of `mint` to `account` (authority = `payer`).
 pub fn mint_to<R: Rpc>(
     rpc: &R,
-    payer: &Keypair,
+    payer: &dyn Signer,
     mint: &Pubkey,
     account: &Pubkey,
     amount: u64,
@@ -129,7 +129,7 @@ pub fn mint_to<R: Rpc>(
 }
 
 /// Create the singleton SPL asset counter if it does not exist yet.
-pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), ClientError> {
+pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &dyn Signer) -> Result<(), ClientError> {
     if rpc
         .get_account(to_address(&pda::spl_asset_counter()))?
         .is_none()
@@ -147,7 +147,7 @@ pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), 
 /// Returns `(registry, vault)`.
 pub fn create_spl_interface<R: Rpc>(
     rpc: &R,
-    authority: &Keypair,
+    authority: &dyn Signer,
     mint: &Pubkey,
 ) -> Result<(Pubkey, Pubkey), ClientError> {
     let registry = pda::spl_asset_registry(mint);
