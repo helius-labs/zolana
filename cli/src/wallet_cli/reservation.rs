@@ -170,29 +170,12 @@ pub(super) fn inflight_dir(keypair_path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_helpers::{note, temp_dir};
     use super::*;
-
-    fn note(amount: u64, tag: u8) -> SpendableUtxo {
-        SpendableUtxo {
-            hash: [tag; 32],
-            amount,
-        }
-    }
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "zolana-inflight-{name}-{}-{stamp}",
-            std::process::id()
-        ))
-    }
 
     #[test]
     fn concurrent_reservations_claim_distinct_notes() {
-        let dir = temp_dir("distinct");
+        let dir = temp_dir("zolana-inflight", "distinct");
         let notes = vec![note(100, 1), note(100, 2), note(100, 3)];
 
         // Three "concurrent" reservations must pick three distinct hashes, held
@@ -214,7 +197,7 @@ mod tests {
 
     #[test]
     fn releasing_a_reservation_frees_the_note() {
-        let dir = temp_dir("release");
+        let dir = temp_dir("zolana-inflight", "release");
         let notes = vec![note(100, 7)];
         {
             let held = reserve_covering(&dir, &notes, 10).unwrap().expect("held");
@@ -233,7 +216,7 @@ mod tests {
 
     #[test]
     fn skips_notes_that_do_not_cover_amount() {
-        let dir = temp_dir("cover");
+        let dir = temp_dir("zolana-inflight", "cover");
         let notes = vec![note(10, 1), note(20, 2), note(100, 3)];
         let reservation = reserve_covering(&dir, &notes, 50)
             .unwrap()
@@ -246,7 +229,7 @@ mod tests {
 
     #[test]
     fn reserve_hashes_rejects_duplicates() {
-        let dir = temp_dir("duplicates");
+        let dir = temp_dir("zolana-inflight", "duplicates");
         let err = match reserve_hashes(&dir, &[[8u8; 32], [8u8; 32]]) {
             Ok(_) => panic!("duplicate hash must error"),
             Err(err) => err,
@@ -260,7 +243,7 @@ mod tests {
 
     #[test]
     fn reserve_hashes_respects_live_locks() {
-        let dir = temp_dir("explicit-held");
+        let dir = temp_dir("zolana-inflight", "explicit-held");
         let held = reserve_hash(&dir, [9u8; 32])
             .unwrap()
             .expect("initial claim");

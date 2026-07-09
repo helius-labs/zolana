@@ -259,7 +259,8 @@ fn reserve_transfer_inputs(
         if let Some(reservation) = reserve_hash(dir, note.hash)? {
             if reservations.len() >= MAX_TRANSFER_INPUTS {
                 drop(reservation);
-                let (notes, available) = greedy_note_count(total, &candidates[index..], amount);
+                let (notes, available) =
+                    greedy_note_count(total, candidates.get(index..).unwrap_or(&[]), amount);
                 if available < amount {
                     return Err(ClientError::InsufficientBalance {
                         requested: amount,
@@ -761,34 +762,12 @@ pub(super) fn maybe_airdrop(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
+    use super::super::test_helpers::{note, temp_dir};
     use super::*;
-
-    fn note(amount: u64, tag: u8) -> SpendableUtxo {
-        SpendableUtxo {
-            hash: [tag; 32],
-            amount,
-        }
-    }
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "zolana-transfer-selection-{name}-{}-{stamp}",
-            std::process::id()
-        ))
-    }
 
     #[test]
     fn fragmented_balance_reports_actual_greedy_note_count() {
-        let dir = temp_dir("fragmented-count");
+        let dir = temp_dir("zolana-transfer-selection", "fragmented-count");
         let notes = (0..7).map(|tag| note(10, tag)).collect::<Vec<_>>();
         let err = match reserve_transfer_inputs(&dir, &notes, 65) {
             Ok(_) => panic!("seven notes should exceed transfer cap"),

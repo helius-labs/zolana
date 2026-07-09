@@ -647,13 +647,6 @@ fn withdrawal_target(
     ))
 }
 
-/// Select the notes to spend for `amount` of `asset`, honoring `selection`.
-///
-/// `Auto` scans unspent notes largest-first so the fewest inputs cover the
-/// amount. `Explicit` spends exactly the listed notes (by commitment hash) in
-/// order: each hash must name an unspent note of `asset` (else
-/// [`ClientError::InputNoteUnavailable`]), and their total must cover `amount`
-/// (else [`ClientError::InsufficientBalance`]).
 /// Largest number of input notes a confidential transfer can spend in one
 /// transaction: the `{5,3}` shape, the widest in
 /// [`zolana_transaction::instructions::transact::SUPPORTED_SHAPES`]. Auto input
@@ -662,6 +655,13 @@ fn withdrawal_target(
 /// [`ClientError::FragmentedBalance`] instead of building an unsupported shape.
 pub const MAX_TRANSFER_INPUTS: usize = 5;
 
+/// Select the notes to spend for `amount` of `asset`, honoring `selection`.
+///
+/// `Auto` scans unspent notes largest-first so the fewest inputs cover the
+/// amount. `Explicit` spends exactly the listed notes (by commitment hash) in
+/// order: each hash must name an unspent note of `asset` (else
+/// [`ClientError::InputNoteUnavailable`]), and their total must cover `amount`
+/// (else [`ClientError::InsufficientBalance`]).
 pub async fn select_inputs<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
