@@ -8,9 +8,13 @@ use zolana_client::{resolve_registered_address, sync_wallet, Rpc};
 use zolana_interface::event::OutputData;
 use zolana_keypair::{P256Pubkey, ShieldedAddress};
 use zolana_transaction::{
-    serialization::confidential::ConfidentialRecipient, utxo::Blinding, AssetRegistry, DataRecord,
-    DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization, Wallet, SOL_ASSET_ID,
-    SOL_MINT,
+    serialization::confidential::{
+        ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
+        TransferSenderPlaintext,
+    },
+    utxo::Blinding,
+    AssetRegistry, DataRecord, DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization,
+    Wallet, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -40,6 +44,17 @@ fn resolve_mint(registry: &AssetRegistry, asset_id: u64) -> Result<Address> {
         return Ok(SOL_MINT);
     }
     registry.resolve(asset_id).map_err(err)
+}
+
+/// Decryption slot index of the output slot at `position`: ciphertext slots are
+/// indexed over data-bearing slots only.
+fn encrypted_slot_index(tx: &ShieldedTransaction, position: usize) -> u32 {
+    tx.output_slots
+        .iter()
+        .take(position + 1)
+        .filter(|slot| slot.output_data().is_some())
+        .count()
+        .saturating_sub(1) as u32
 }
 
 pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OrderCandidate>> {
@@ -73,14 +88,11 @@ pub fn scan_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<Or
     {
         bail!("escrow slot is not a recipient ciphertext");
     }
-    let encrypted_slot_index = tx
-        .output_slots
-        .iter()
-        .take(escrow_position + 1)
-        .filter(|slot| slot.output_data().is_some())
-        .count()
-        .saturating_sub(1) as u32;
-    let cx = DecodeCx::for_slot(&wallet.keypair.viewing_key, tx, encrypted_slot_index);
+    let cx = DecodeCx::for_slot(
+        &wallet.keypair.viewing_key,
+        tx,
+        encrypted_slot_index(tx, escrow_position),
+    );
     let escrow_plaintext = ConfidentialRecipient::decode(body, &cx).map_err(err)?;
     let order_bytes = escrow_plaintext
         .data
@@ -191,6 +203,178 @@ fn collect_orders<I: Rpc, R: Rpc>(
     }
 }
 
+/// An order rediscovered by its maker from her own create transaction.
+#[derive(Debug)]
+pub struct OwnOrder {
+    pub escrow: Escrow,
+    pub taker_viewing_pk: P256Pubkey,
+}
+
+/// Maker-side order rediscovery, anchored at the maker's own change: the create
+/// transaction carries her sender bundle, and the per-transaction viewing key
+/// re-derives from her viewing key and the first input's nullifier (a match
+/// against `tx_viewing_pk` proves she authored the transaction). That key
+/// decrypts the taker-addressed escrow slot from the sender side, using the
+/// taker viewing pubkey stored in the sender bundle; the opening is accepted
+/// only if the reconstructed escrow utxo hash matches the slot's committed leaf.
+pub fn scan_own_order(tx: &ShieldedTransaction, wallet: &Wallet) -> Result<Option<OwnOrder>> {
+    let (Some(tx_viewing_pk), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
+        return Ok(None);
+    };
+    let Some(tx_key) = tx.nullifiers.iter().find_map(|nullifier| {
+        wallet
+            .keypair
+            .get_transaction_viewing_key(nullifier)
+            .ok()
+            .filter(|key| key.pubkey() == tx_viewing_pk)
+    }) else {
+        return Ok(None);
+    };
+    let Some(sender_plaintext) = decode_sender_bundle(tx, wallet) else {
+        return Ok(None);
+    };
+    let maker_address = wallet.keypair.shielded_address().map_err(err)?;
+    for (position, slot) in tx.output_slots.iter().enumerate() {
+        let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
+            continue;
+        };
+        let Some((scheme_byte, body)) = blob.split_first() else {
+            continue;
+        };
+        if EncryptedScheme::from_byte(*scheme_byte).ok()
+            != Some(EncryptedScheme::ConfidentialRecipient)
+        {
+            continue;
+        }
+        let slot_index = encrypted_slot_index(tx, position);
+        for taker_viewing_pk in &sender_plaintext.recipient_viewing_pks {
+            let Ok(bytes) = tx_key.decrypt_slot_ephemeral(taker_viewing_pk, body, salt, slot_index)
+            else {
+                continue;
+            };
+            let Ok(plaintext) = TransferRecipientPlaintext::deserialize(&bytes) else {
+                continue;
+            };
+            let Some(order) =
+                own_order_candidate(&wallet.registry, maker_address, plaintext, *taker_viewing_pk)
+            else {
+                continue;
+            };
+            let Ok(escrow_utxo_hash) = order
+                .escrow
+                .output_utxo(*taker_viewing_pk)
+                .and_then(|output| output.hash().map_err(err))
+            else {
+                continue;
+            };
+            if escrow_utxo_hash != slot.output_context.hash {
+                continue;
+            }
+            return Ok(Some(order));
+        }
+    }
+    Ok(None)
+}
+
+fn decode_sender_bundle(tx: &ShieldedTransaction, wallet: &Wallet) -> Option<TransferSenderPlaintext> {
+    for (position, slot) in tx.output_slots.iter().enumerate() {
+        let Some(OutputData::Encrypted(blob)) = slot.output_data() else {
+            continue;
+        };
+        let Some((scheme_byte, body)) = blob.split_first() else {
+            continue;
+        };
+        if EncryptedScheme::from_byte(*scheme_byte).ok() != Some(EncryptedScheme::ConfidentialSender)
+        {
+            continue;
+        }
+        let cx = DecodeCx::for_slot(
+            &wallet.keypair.viewing_key,
+            tx,
+            encrypted_slot_index(tx, position),
+        );
+        if let Ok(plaintext) = ConfidentialSenderBundle::decode(body, &cx) {
+            return Some(plaintext);
+        }
+    }
+    None
+}
+
+fn own_order_candidate(
+    registry: &AssetRegistry,
+    maker_address: ShieldedAddress,
+    plaintext: TransferRecipientPlaintext,
+    taker_viewing_pk: P256Pubkey,
+) -> Option<OwnOrder> {
+    let order_bytes = plaintext.data.records.iter().find_map(|record| match record {
+        DataRecord::UtxoData(bytes) => Some(bytes.as_slice()),
+        _ => None,
+    })?;
+    let order_data = PlainTextData::deserialize(order_bytes).ok()?;
+    let source_mint = resolve_mint(registry, plaintext.asset_id).ok()?;
+    let destination_mint = resolve_mint(registry, order_data.destination_asset_id).ok()?;
+    Some(OwnOrder {
+        escrow: Escrow {
+            terms: OrderTerms {
+                destination_mint,
+                destination_amount: order_data.destination_amount,
+                destination: maker_address,
+                taker: order_data.taker,
+                expiry: order_data.expiry,
+                fill_mode: order_data.fill_mode,
+            },
+            blinding: plaintext.blinding,
+            source_mint,
+            source_amount: plaintext.amount,
+            destination_asset_id: order_data.destination_asset_id,
+        },
+        taker_viewing_pk,
+    })
+}
+
+pub fn discover_own_orders<I: Rpc>(
+    wallet: &mut Wallet,
+    indexer: &I,
+    timeout: Duration,
+) -> Result<Vec<OwnOrder>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        sync_wallet(wallet, indexer).map_err(err)?;
+        let orders = collect_own_orders(wallet, indexer)?;
+        if !orders.is_empty() {
+            return Ok(orders);
+        }
+        if Instant::now() >= deadline {
+            bail!("timed out discovering own orders");
+        }
+        std::thread::sleep(DISCOVER_POLL);
+    }
+}
+
+fn collect_own_orders<I: Rpc>(wallet: &Wallet, indexer: &I) -> Result<Vec<OwnOrder>> {
+    let owner_tag = wallet
+        .keypair
+        .signing_pubkey()
+        .confidential_view_tag()
+        .map_err(err)?;
+    let mut orders = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = indexer
+            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None)
+            .map_err(err)?;
+        for tx in &page.transactions {
+            if let Some(order) = scan_own_order(tx, wallet)? {
+                orders.push(order);
+            }
+        }
+        let Some(next) = page.next_cursor else {
+            return Ok(orders);
+        };
+        cursor = Some(next);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use solana_signature::Signature;
@@ -211,6 +395,7 @@ mod tests {
     struct OrderFixture {
         tx: ShieldedTransaction,
         wallet: Wallet,
+        maker_wallet: Wallet,
         escrow: Escrow,
         maker_address: ShieldedAddress,
         maker_pubkey: Pubkey,
@@ -233,13 +418,19 @@ mod tests {
                 payload: ciphertext.data.clone(),
             })
             .collect();
+        let nullifiers = signed
+            .input_utxo_hashes()
+            .expect("input commitments")
+            .iter()
+            .map(|commitment| commitment.nullifier)
+            .collect();
         ShieldedTransaction {
             slot: 0,
             tx_signature: Signature::default(),
             tx_viewing_pk: P256Pubkey::from_bytes(external.tx_viewing_pk).ok(),
             salt: Some(external.salt),
             output_slots,
-            nullifiers: Vec::new(),
+            nullifiers,
             proofless: false,
         }
     }
@@ -300,7 +491,8 @@ mod tests {
 
         OrderFixture {
             tx: shielded_transaction(&signed),
-            wallet: Wallet::new(taker_keypair, registry).expect("taker wallet"),
+            wallet: Wallet::new(taker_keypair, registry.clone()).expect("taker wallet"),
+            maker_wallet: Wallet::new(maker_keypair, registry).expect("maker wallet"),
             escrow,
             maker_address,
             maker_pubkey,
@@ -337,6 +529,26 @@ mod tests {
             .into_order(taker_address, fixture.wallet.keypair.viewing_pubkey())
             .expect_err("wrong maker address must fail the hash check");
         assert!(error.to_string().contains("does not match the committed leaf"));
+    }
+
+    #[test]
+    fn scan_own_order_reconstructs_the_opening_from_the_makers_side() {
+        let fixture = order_fixture();
+        let order = scan_own_order(&fixture.tx, &fixture.maker_wallet)
+            .expect("scan")
+            .expect("own order");
+        assert_eq!(
+            (order.escrow, order.taker_viewing_pk),
+            (fixture.escrow, fixture.wallet.keypair.viewing_pubkey())
+        );
+    }
+
+    #[test]
+    fn scan_own_order_ignores_transactions_of_other_makers() {
+        let fixture = order_fixture();
+        assert!(scan_own_order(&fixture.tx, &fixture.wallet)
+            .expect("scan")
+            .is_none());
     }
 
     #[test]

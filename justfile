@@ -390,11 +390,12 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p zone-test-program --test zone_lifecycle --release
 
-# Fully-inlined create+fill swap flow over a fresh validator
-# (sdk-tests/zk-program-swap/test/tests/swap.rs). The single #[test] boots
+# Fully-inlined create+fill and create+cancel swap flows over a fresh validator
+# (sdk-tests/zk-program-swap/test/tests/{swap,cancel}.rs). Each test binary boots
 # solana-test-validator via the `zolana` CLI with the swap program, the shielded
 # pool, the user registry, and the Squads smart account loaded together, plus
-# Photon and the persistent SPP prover -- mirroring test-spp-validator.
+# Photon and the persistent SPP prover -- mirroring test-spp-validator. Cargo
+# runs the test binaries serially, so the second boots a fresh validator.
 test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
@@ -411,7 +412,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p swap-test-validator --test swap -- --nocapture
+      cargo test -p swap-test-validator --test swap --test cancel -- --nocapture
 
 install-surfpool:
     #!/usr/bin/env bash

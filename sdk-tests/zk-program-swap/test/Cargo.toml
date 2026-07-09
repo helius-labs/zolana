@@ -51,3 +51,7 @@ path = "tests/bench_cu.rs"
 [[test]]
 name = "swap"
 path = "tests/swap.rs"
+
+[[test]]
+name = "cancel"
+path = "tests/cancel.rs"

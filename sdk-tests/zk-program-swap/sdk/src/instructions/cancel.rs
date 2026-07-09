@@ -2,7 +2,6 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_prover::CancelProofInputs;
-use zolana_client::{ProverClient, SpendProof};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypairTrait, ViewingKeyTrait};
 use zolana_transaction::{
@@ -12,11 +11,9 @@ use zolana_transaction::{
 };
 
 use crate::{
-    check_private_tx_hash, err, escrow_authority_pda,
+    err, escrow_authority_pda,
     order::{sdk_private_tx_hash, BlindingField, DataHash, Escrow, Recipient},
-    program_id_pubkey,
-    prover::{prove_transact, SwapProverClient},
-    spp_program_meta, tag, CancelProof,
+    program_id_pubkey, spp_program_meta, tag, CancelProof,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,10 +157,14 @@ impl EscrowCancel {
 }
 
 pub struct Cancel {
-    pub inputs: CancelSharedInputs,
-    pub signed: SignedTransaction,
+    /// The maker's ed25519 pubkey, a dedicated readonly signer the swap program
+    /// binds the cancel proof's committed maker to.
+    pub maker: Pubkey,
     pub payer: Pubkey,
     pub tree: Pubkey,
+    pub cancel_proof: CancelProof,
+    pub order_expiry: u64,
+    pub spp_proof: TransactIxData,
 }
 
 /// The escrow (input 0) is owned by the escrow-authority PDA appended readonly
@@ -174,33 +175,18 @@ pub struct Cancel {
 const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 2;
 
 impl Cancel {
-    pub fn instruction(
-        self,
-        spend_proofs: &[SpendProof],
-        prover: &ProverClient,
-        swap_prover: &SwapProverClient,
-    ) -> Result<Instruction> {
+    pub fn instruction(self) -> Result<Instruction> {
         let Self {
-            inputs,
-            signed,
+            maker,
             payer,
             tree,
+            cancel_proof,
+            order_expiry,
+            mut spp_proof,
         } = self;
-        let expected = inputs.sdk_private_tx_hash()?;
-        let maker_signer = Pubkey::new_from_array(
-            inputs
-                .maker_recipient
-                .signing_pubkey
-                .as_ed25519()
-                .map_err(err)?,
-        );
-        let mut transact = prove_transact(signed, spend_proofs, prover)?;
-        if let Some(escrow_input) = transact.inputs.get_mut(0) {
+        if let Some(escrow_input) = spp_proof.inputs.get_mut(0) {
             escrow_input.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
         }
-        check_private_tx_hash("transact", transact.private_tx_hash, expected)?;
-        let cancel_result = swap_prover.prove_cancel(&inputs)?;
-        check_private_tx_hash("cancel proof", cancel_result.private_tx_hash, expected)?;
         let spp_accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
@@ -209,11 +195,11 @@ impl Cancel {
         ];
         Ok(cancel(
             payer,
-            maker_signer,
+            maker,
             spp_accounts,
-            cancel_result.proof.into(),
-            inputs.escrow.terms.expiry,
-            transact,
+            cancel_proof,
+            order_expiry,
+            spp_proof,
         ))
     }
 }
