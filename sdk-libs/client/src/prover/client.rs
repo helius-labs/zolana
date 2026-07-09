@@ -241,15 +241,35 @@ impl ProverClient {
         let max_wait = self.async_poll.max_wait_secs;
         let mut waited = 0u64;
         loop {
-            let text = self
-                .http
-                .get(&url)
-                .send()
-                .map_err(|e| ClientError::ProverServer(format!("status poll failed: {e}")))?
-                .text()
-                .map_err(|e| {
-                    ClientError::ProverServer(format!("failed to read status body: {e}"))
-                })?;
+            let response = match self.http.get(&url).send() {
+                Ok(response) => response,
+                Err(_) => {
+                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    continue;
+                }
+            };
+            let status = response.status();
+            if status.is_client_error() {
+                let text = match response.text() {
+                    Ok(text) => text,
+                    Err(e) => format!("failed to read status body: {e}"),
+                };
+                return Err(ClientError::ProverServer(format!(
+                    "status {status}: {text}"
+                )));
+            }
+            if status.is_server_error() {
+                wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                continue;
+            }
+
+            let text = match response.text() {
+                Ok(text) => text,
+                Err(_) => {
+                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    continue;
+                }
+            };
             let value: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 
@@ -257,7 +277,7 @@ impl ProverClient {
                 // The completed result is a `{ proof, proof_duration_ms }` envelope
                 // nested under `result`.
                 Some("completed") => {
-                    let result = value.get("result").unwrap_or(&value);
+                    let result = value.get("result").map_or(&value, |result| result);
                     return Self::proof_from_value(result, &text);
                 }
                 Some("failed") => {
@@ -267,13 +287,7 @@ impl ProverClient {
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
-                    if waited >= max_wait {
-                        return Err(ClientError::ProverServer(format!(
-                            "async proof timed out after {waited}s (job {job_id})"
-                        )));
-                    }
-                    sleep(Duration::from_secs(poll_interval));
-                    waited += poll_interval;
+                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
                 }
             }
         }
@@ -293,6 +307,25 @@ impl ProverClient {
         proof_from_gnark_json(&proof_json)
             .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
     }
+}
+
+fn wait_or_timeout(
+    job_id: &str,
+    waited: &mut u64,
+    max_wait: u64,
+    poll_interval: u64,
+) -> Result<(), ClientError> {
+    if *waited >= max_wait {
+        let waited_secs = *waited;
+        return Err(ClientError::ProverServer(format!(
+            "async proof timed out after {waited_secs}s (job {job_id})"
+        )));
+    }
+    let remaining = max_wait.saturating_sub(*waited);
+    let sleep_secs = poll_interval.min(remaining);
+    sleep(Duration::from_secs(sleep_secs));
+    *waited = (*waited).saturating_add(sleep_secs);
+    Ok(())
 }
 
 /// Block until a prover server is reachable, starting one via the `zolana` CLI if
@@ -429,7 +462,174 @@ fn shell_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        sync::mpsc,
+        thread,
+    };
+
+    use serde_json::{json, Value};
+
     use super::*;
+
+    #[test]
+    fn poll_async_returns_completed_nested_proof() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(
+                202,
+                json!({
+                    "job_id": "job-1",
+                    "status": "queued",
+                    "status_url": "/prove/status?job_id=job-1",
+                }),
+            ),
+            MockResponse::json(200, json!({ "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": {
+                        "proof": gnark_proof(),
+                        "proof_duration_ms": 7,
+                    },
+                }),
+            ),
+        ]);
+        let proof = async_client(server.url())
+            .send("{}".to_string())
+            .expect("queued proof should complete");
+        let requests = server.requests();
+
+        assert_paths(
+            &requests,
+            [
+                "/prove",
+                "/prove/status?job_id=job-1",
+                "/prove/status?job_id=job-1",
+            ],
+        );
+        assert_eq!(proof.a, [0u8; 64]);
+        assert_eq!(proof.b, [0u8; 128]);
+        assert_eq!(proof.c, [0u8; 64]);
+        assert!(proof.commitment.is_none());
+    }
+
+    #[test]
+    fn poll_async_failed_status_errors() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "job-failed" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "failed",
+                    "message": "prover rejected witness",
+                }),
+            ),
+        ]);
+        let err = async_client(server.url())
+            .send("{}".to_string())
+            .expect_err("failed async status should surface");
+        let requests = server.requests();
+
+        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-failed"]);
+        let message = err.to_string();
+        assert!(message.contains("async proof failed"));
+        assert!(message.contains("prover rejected witness"));
+    }
+
+    #[test]
+    fn poll_async_times_out_after_max_wait() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "job-slow" })),
+            MockResponse::json(200, json!({ "status": "queued" })),
+            MockResponse::json(200, json!({ "status": "processing" })),
+        ]);
+        let err = async_client(server.url())
+            .send("{}".to_string())
+            .expect_err("slow async proof should time out");
+        let requests = server.requests();
+
+        assert_paths(
+            &requests,
+            [
+                "/prove",
+                "/prove/status?job_id=job-slow",
+                "/prove/status?job_id=job-slow",
+            ],
+        );
+        assert!(err.to_string().contains("async proof timed out after 1s"));
+    }
+
+    #[test]
+    fn poll_async_rejects_malformed_status_body() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "job-bad-json" })),
+            MockResponse::text(200, "not json"),
+        ]);
+        let err = async_client(server.url())
+            .send("{}".to_string())
+            .expect_err("malformed status body should fail");
+        let requests = server.requests();
+
+        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-bad-json"]);
+        assert!(err.to_string().contains("invalid status JSON"));
+    }
+
+    #[test]
+    fn poll_async_client_error_status_fails_fast() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "missing-job" })),
+            MockResponse::json(
+                404,
+                json!({
+                    "code": "job_not_found",
+                    "message": "unknown job",
+                }),
+            ),
+        ]);
+        let err = async_client(server.url())
+            .send("{}".to_string())
+            .expect_err("404 status should fail immediately");
+        let requests = server.requests();
+
+        assert_paths(&requests, ["/prove", "/prove/status?job_id=missing-job"]);
+        let message = err.to_string();
+        assert!(message.contains("status 404 Not Found"));
+        assert!(message.contains("job_not_found"));
+    }
+
+    #[test]
+    fn poll_async_retries_transient_status_poll_errors() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "job-transient" })),
+            MockResponse::disconnect(),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": {
+                        "proof": gnark_proof(),
+                        "proof_duration_ms": 3,
+                    },
+                }),
+            ),
+        ]);
+        let proof = async_client(server.url())
+            .send("{}".to_string())
+            .expect("transient poll error should be retried");
+        let requests = server.requests();
+
+        assert_paths(
+            &requests,
+            [
+                "/prove",
+                "/prove/status?job_id=job-transient",
+                "/prove/status?job_id=job-transient",
+            ],
+        );
+        assert_eq!(proof.a, [0u8; 64]);
+    }
 
     #[test]
     fn prover_port_parses_url() {
@@ -443,5 +643,190 @@ mod tests {
         assert_eq!(prover_port("garbage"), DEFAULT_PROVER_PORT);
         // The default const and SERVER_ADDRESS stay in agreement.
         assert_eq!(prover_port(SERVER_ADDRESS), DEFAULT_PROVER_PORT);
+    }
+
+    fn async_client(url: &str) -> ProverClient {
+        ProverClient::new(url.to_string()).with_async_poll_config(AsyncPollConfig {
+            poll_interval_secs: 1,
+            max_wait_secs: 1,
+        })
+    }
+
+    fn gnark_proof() -> Value {
+        json!({
+            "ar": [zero_hex(), zero_hex()],
+            "bs": [
+                [zero_hex(), zero_hex()],
+                [zero_hex(), zero_hex()],
+            ],
+            "krs": [zero_hex(), zero_hex()],
+        })
+    }
+
+    fn zero_hex() -> &'static str {
+        "0x0"
+    }
+
+    fn assert_paths<const N: usize>(requests: &[RecordedRequest], expected: [&str; N]) {
+        assert_eq!(requests.len(), expected.len());
+        for (request, expected_path) in requests.iter().zip(expected.iter()) {
+            assert_eq!(request.path, *expected_path);
+        }
+    }
+
+    struct RecordedRequest {
+        path: String,
+    }
+
+    enum MockResponse {
+        Http { status: u16, body: String },
+        Disconnect,
+    }
+
+    impl MockResponse {
+        fn json(status: u16, body: Value) -> Self {
+            Self::Http {
+                status,
+                body: body.to_string(),
+            }
+        }
+
+        fn text(status: u16, body: &str) -> Self {
+            Self::Http {
+                status,
+                body: body.to_string(),
+            }
+        }
+
+        fn disconnect() -> Self {
+            Self::Disconnect
+        }
+    }
+
+    struct MockServer {
+        url: String,
+        request_rx: mpsc::Receiver<RecordedRequest>,
+        handle: thread::JoinHandle<()>,
+    }
+
+    impl MockServer {
+        fn respond_with(responses: Vec<MockResponse>) -> Self {
+            let listener =
+                TcpListener::bind("127.0.0.1:0").expect("mock server should bind to a local port");
+            let url = format!(
+                "http://{}",
+                listener
+                    .local_addr()
+                    .expect("mock server should expose its local address")
+            );
+            let (request_tx, request_rx) = mpsc::channel();
+            let handle = thread::spawn(move || {
+                for response in responses {
+                    let (mut stream, _) = listener
+                        .accept()
+                        .expect("mock server should accept a request");
+                    let request = read_http_request(&mut stream);
+                    request_tx
+                        .send(request)
+                        .expect("mock request receiver should stay open");
+                    if let MockResponse::Http { status, body } = response {
+                        write_http_response(&mut stream, status, &body);
+                    }
+                }
+            });
+            Self {
+                url,
+                request_rx,
+                handle,
+            }
+        }
+
+        fn url(&self) -> &str {
+            &self.url
+        }
+
+        fn requests(self) -> Vec<RecordedRequest> {
+            self.handle
+                .join()
+                .expect("mock server thread should finish");
+            self.request_rx.try_iter().collect()
+        }
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> RecordedRequest {
+        let mut data = Vec::new();
+        let mut buf = [0_u8; 1024];
+        let mut body_start = None;
+        let mut content_len = None;
+        loop {
+            let read = stream
+                .read(&mut buf)
+                .expect("mock server should read request bytes");
+            assert!(read != 0, "HTTP client closed before sending a request");
+            data.extend_from_slice(
+                buf.get(..read)
+                    .expect("read length should stay within the buffer"),
+            );
+            if body_start.is_none() {
+                if let Some(header_end) = data.windows(4).position(|window| window == b"\r\n\r\n") {
+                    body_start = Some(header_end + 4);
+                    let header = String::from_utf8_lossy(
+                        data.get(..header_end)
+                            .expect("header end should be within request data"),
+                    );
+                    content_len = Some(parse_content_length(&header).unwrap_or(0));
+                }
+            }
+            if let (Some(start), Some(len)) = (body_start, content_len) {
+                if data.len() >= start.saturating_add(len) {
+                    break;
+                }
+            }
+        }
+
+        let header_end = body_start.unwrap_or(data.len());
+        let header = String::from_utf8_lossy(
+            data.get(..header_end)
+                .expect("header end should be within request data"),
+        );
+        let path = header
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .expect("request line should include a path")
+            .to_string();
+        RecordedRequest { path }
+    }
+
+    fn parse_content_length(header: &str) -> Option<usize> {
+        header.lines().find_map(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower
+                .strip_prefix("content-length:")
+                .map(str::trim)
+                .and_then(|value| value.parse().ok())
+        })
+    }
+
+    fn write_http_response(stream: &mut TcpStream, status: u16, body: &str) {
+        write!(
+            stream,
+            "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            reason_phrase(status),
+            body.len(),
+            body
+        )
+        .expect("mock server should write response");
+    }
+
+    fn reason_phrase(status: u16) -> &'static str {
+        match status {
+            200 => "OK",
+            202 => "Accepted",
+            400 => "Bad Request",
+            404 => "Not Found",
+            500 => "Internal Server Error",
+            _ => "OK",
+        }
     }
 }
