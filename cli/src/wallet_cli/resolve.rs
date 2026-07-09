@@ -41,7 +41,7 @@ pub(crate) fn resolve_sync_with_config(
             opts.keypair.wallet.as_deref(),
             opts.keypair.keypair.as_deref(),
             config,
-        ),
+        )?,
         rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), config),
         indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), config),
     })

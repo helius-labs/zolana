@@ -20,8 +20,8 @@ use solana_signature::Signature;
 use solana_transaction::Transaction;
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
-    UiTransactionEncoding,
+    EncodedTransaction, TransactionConfirmationStatus, UiCompiledInstruction, UiInstruction,
+    UiLoadedAddresses, UiMessage, UiTransactionEncoding,
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
 
@@ -128,7 +128,11 @@ impl SolanaRpc {
         match statuses.into_iter().next().flatten() {
             Some(status) => match status.err {
                 Some(err) => Ok(SignatureState::Failed(err.to_string())),
-                None => Ok(SignatureState::Confirmed),
+                None => match status.confirmation_status() {
+                    TransactionConfirmationStatus::Confirmed
+                    | TransactionConfirmationStatus::Finalized => Ok(SignatureState::Confirmed),
+                    TransactionConfirmationStatus::Processed => Ok(SignatureState::NotFound),
+                },
             },
             None => Ok(SignatureState::NotFound),
         }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
@@ -46,8 +48,8 @@ pub struct ResolvedAddress {
 
 /// How [`select_inputs`] chooses which wallet notes to spend.
 ///
-/// - [`InputSelection::Auto`] is the default first-fit scan: unspent notes of the
-///   asset in wallet order until the amount is covered.
+/// - [`InputSelection::Auto`] is the default largest-first scan: unspent notes of
+///   the asset in descending amount order until the amount is covered.
 /// - [`InputSelection::Explicit`] spends exactly the notes whose commitment hash
 ///   (see [`zolana_transaction::SpendableUtxo`]) is listed, in the listed order.
 ///   Every hash must name an unspent note of the asset, and the selected total
@@ -59,14 +61,25 @@ pub enum InputSelection {
     Explicit(Vec<[u8; 32]>),
 }
 
+fn reject_duplicate_hashes(hashes: &[[u8; 32]]) -> Result<(), ClientError> {
+    let mut seen = HashSet::with_capacity(hashes.len());
+    for hash in hashes {
+        if !seen.insert(*hash) {
+            return Err(ClientError::DuplicateInputNote {
+                hash: hash_hex(hash),
+            });
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct CreatedTransfer {
     pub signed: SignedTransaction,
     pub wait_tag: ViewTag,
-    /// Committed hash of a real output note this transaction appends (the
-    /// recipient output for a shielded transfer, the sender change for a
-    /// withdrawal). The CLI waits for this hash to be indexed, which is robust
-    /// under a shared view tag that has more than a page of outputs. See
+    /// Committed hash of a real output note this transaction appends. The CLI
+    /// waits for this hash to be indexed, which is robust under a shared view tag
+    /// that has more than a page of outputs. See
     /// [`zolana_transaction::instructions::transact::PreparedTransaction::wait_output_hash`].
     pub wait_output_hash: [u8; 32],
     pub recipient: TransferRecipient,
@@ -245,7 +258,7 @@ pub async fn create_transfer<R: Rpc, A: WalletAuthority + ?Sized>(
         &address,
         request.owner_pubkey,
         request.authority,
-        &request.wallet.registry,
+        request.assets,
         format!(
             "private transfer of {} to {}",
             request.amount, request.recipient_owner
@@ -295,7 +308,7 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
         &address,
         request.owner_pubkey,
         request.authority,
-        &request.wallet.registry,
+        request.assets,
         format!("withdraw {} to {}", request.amount, request.recipient),
     )
     .await?;
@@ -330,7 +343,7 @@ pub async fn create_split<A: WalletAuthority + ?Sized>(
     let total = u64::from(request.num_outputs)
         .checked_mul(request.per_output_amount)
         .ok_or(ClientError::SelectedBalanceOverflow)?;
-    let inputs = select_inputs(
+    let inputs = select_split_inputs(
         request.wallet,
         request.authority,
         request.owner_pubkey,
@@ -446,6 +459,7 @@ fn select_merge_inputs(
                 .collect::<Vec<_>>()
         }
         InputSelection::Explicit(hashes) => {
+            reject_duplicate_hashes(hashes)?;
             let mut selected = Vec::with_capacity(hashes.len());
             for hash in hashes {
                 let entry = wallet
@@ -635,10 +649,11 @@ fn withdrawal_target(
 
 /// Select the notes to spend for `amount` of `asset`, honoring `selection`.
 ///
-/// `Auto` is a first-fit scan over unspent notes in wallet order. `Explicit`
-/// spends exactly the listed notes (by commitment hash) in order: each hash must
-/// name an unspent note of `asset` (else [`ClientError::InputNoteUnavailable`]),
-/// and their total must cover `amount` (else [`ClientError::InsufficientBalance`]).
+/// `Auto` scans unspent notes largest-first so the fewest inputs cover the
+/// amount. `Explicit` spends exactly the listed notes (by commitment hash) in
+/// order: each hash must name an unspent note of `asset` (else
+/// [`ClientError::InputNoteUnavailable`]), and their total must cover `amount`
+/// (else [`ClientError::InsufficientBalance`]).
 /// Largest number of input notes a confidential transfer can spend in one
 /// transaction: the `{5,3}` shape, the widest in
 /// [`zolana_transaction::instructions::transact::SUPPORTED_SHAPES`]. Auto input
@@ -704,6 +719,7 @@ pub async fn select_inputs<A: WalletAuthority + ?Sized>(
             Ok(selected)
         }
         InputSelection::Explicit(hashes) => {
+            reject_duplicate_hashes(hashes)?;
             let mut selected = Vec::with_capacity(hashes.len());
             let mut total = 0u64;
             for hash in hashes {
@@ -730,6 +746,55 @@ pub async fn select_inputs<A: WalletAuthority + ?Sized>(
                 });
             }
             Ok(selected)
+        }
+    }
+}
+
+async fn select_split_inputs<A: WalletAuthority + ?Sized>(
+    wallet: &Wallet,
+    authority: &A,
+    owner_pubkey: Pubkey,
+    asset: Address,
+    amount: u64,
+    selection: &InputSelection,
+) -> Result<Vec<SpendUtxo>, ClientError> {
+    match selection {
+        InputSelection::Explicit(_) => {
+            select_inputs(wallet, authority, owner_pubkey, asset, amount, selection).await
+        }
+        InputSelection::Auto => {
+            let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
+            let mut available = 0u64;
+            let mut exact = None;
+            for entry in wallet
+                .utxos
+                .iter()
+                .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+            {
+                available = available
+                    .checked_add(entry.utxo.amount)
+                    .ok_or(ClientError::SelectedBalanceOverflow)?;
+                if entry.utxo.amount == amount {
+                    exact = Some(entry.utxo.clone());
+                    break;
+                }
+            }
+            let utxo = exact.ok_or_else(|| {
+                if available < amount {
+                    ClientError::InsufficientBalance {
+                        requested: amount,
+                        available,
+                    }
+                } else {
+                    ClientError::SplitInputUnavailable { requested: amount }
+                }
+            })?;
+            Ok(vec![SpendUtxo {
+                utxo,
+                nullifier_key,
+                data_hash: None,
+                zone_data_hash: None,
+            }])
         }
     }
 }
@@ -1047,6 +1112,25 @@ mod tests {
     }
 
     #[test]
+    fn explicit_selection_rejects_duplicate_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31])]);
+        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+        let err = match futures::executor::block_on(select_inputs(
+            &wallet,
+            &sender,
+            Pubkey::default(),
+            SOL_MINT,
+            50,
+            &InputSelection::Explicit(vec![hash, hash]),
+        )) {
+            Ok(_) => panic!("duplicate explicit input must error"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::DuplicateInputNote { .. }));
+    }
+
+    #[test]
     fn explicit_selection_rejects_spent_note() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31])]);
@@ -1289,6 +1373,56 @@ mod tests {
     }
 
     #[test]
+    fn create_split_auto_selects_exact_matching_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(700, [4u8; 31]), (400, [5u8; 31])]);
+
+        let split = match create_split_sync(CreateSplit {
+            wallet: &wallet,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            asset: SOL_MINT,
+            num_outputs: 4,
+            per_output_amount: 100,
+            assets: &AssetRegistry::default(),
+            selection: InputSelection::Auto,
+        }) {
+            Ok(split) => split,
+            Err(err) => panic!("split auto should pick the 400-note: {err}"),
+        };
+
+        assert_eq!(split.num_outputs, 4);
+        assert_eq!(split.per_output_amount, 100);
+    }
+
+    #[test]
+    fn create_split_auto_rejects_when_no_exact_note_matches_total() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(300, [4u8; 31]), (300, [5u8; 31])]);
+
+        let err = match create_split_sync(CreateSplit {
+            wallet: &wallet,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            asset: SOL_MINT,
+            num_outputs: 4,
+            per_output_amount: 100,
+            assets: &AssetRegistry::default(),
+            selection: InputSelection::Auto,
+        }) {
+            Ok(_) => panic!("split auto must require one exact input"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            ClientError::SplitInputUnavailable { requested: 400 }
+        ));
+    }
+
+    #[test]
     fn merge_auto_selection_picks_smallest_first_capped_at_eight() {
         let sender = ShieldedKeypair::new().unwrap();
         // Ten dust notes of distinct amounts; Auto should sweep the eight smallest.
@@ -1406,6 +1540,24 @@ mod tests {
     }
 
     #[test]
+    fn merge_explicit_selection_rejects_duplicate_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(30, [1u8; 31]), (70, [2u8; 31])]);
+        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
+
+        let err = match select_merge_inputs(
+            &wallet,
+            &sender,
+            SOL_MINT,
+            &InputSelection::Explicit(vec![hash, hash]),
+        ) {
+            Ok(_) => panic!("duplicate merge note must error"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ClientError::DuplicateInputNote { .. }));
+    }
+
+    #[test]
     fn merge_explicit_selection_rejects_more_than_eight_notes() {
         let sender = ShieldedKeypair::new().unwrap();
         let notes = [
@@ -1500,6 +1652,7 @@ mod tests {
         let sender = ShieldedKeypair::new().unwrap();
         // 400-lamport note but requesting 4 x 90 = 360 != 400.
         let wallet = wallet_with_notes(sender.clone(), &[(400, [6u8; 31])]);
+        let hash = wallet.spendable_utxos(SOL_MINT)[0].hash;
         let err = match create_split_sync(CreateSplit {
             wallet: &wallet,
             authority: &sender,
@@ -1509,7 +1662,7 @@ mod tests {
             num_outputs: 4,
             per_output_amount: 90,
             assets: &AssetRegistry::default(),
-            selection: InputSelection::Auto,
+            selection: InputSelection::Explicit(vec![hash]),
         }) {
             Ok(_) => panic!("value mismatch must error"),
             Err(err) => err,

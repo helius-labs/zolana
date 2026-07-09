@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use zolana_transaction::{Address, AssetRegistry};
@@ -159,8 +159,26 @@ pub(crate) fn wallets_dir() -> PathBuf {
     config_dir().join("wallets")
 }
 
+pub(crate) fn validate_wallet_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    {
+        bail!("invalid wallet name `{name}`; use only ASCII letters, digits, `_`, and `-`");
+    }
+    Ok(())
+}
+
 pub(crate) fn wallet_file(name: &str) -> PathBuf {
     wallets_dir().join(format!("{name}.json"))
+}
+
+pub(crate) fn checked_wallet_file(name: &str) -> Result<PathBuf> {
+    validate_wallet_name(name)?;
+    Ok(wallet_file(name))
 }
 
 pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfigFile) -> PathBuf {
@@ -183,17 +201,17 @@ pub(crate) fn resolve_wallet_path(
     wallet_name: Option<&str>,
     keypair_path: Option<&str>,
     config: &CliConfigFile,
-) -> PathBuf {
+) -> Result<PathBuf> {
     if let Some(path) = keypair_path {
-        return PathBuf::from(path);
+        return Ok(PathBuf::from(path));
     }
     if let Some(name) = wallet_name {
-        return wallet_file(name);
+        return checked_wallet_file(name);
     }
     if let Some(name) = config.wallet.as_deref() {
-        return wallet_file(name);
+        return checked_wallet_file(name);
     }
-    resolve_keypair_path(None, config)
+    Ok(resolve_keypair_path(None, config))
 }
 
 pub(crate) fn resolve_rpc_url(cli_override: Option<&str>, config: &CliConfigFile) -> String {
@@ -294,17 +312,17 @@ mod tests {
 
         // 1. explicit keypair path wins over everything.
         assert_eq!(
-            resolve_wallet_path(Some("alice"), Some("/tmp/flag.pid.json"), &base),
+            resolve_wallet_path(Some("alice"), Some("/tmp/flag.pid.json"), &base).unwrap(),
             PathBuf::from("/tmp/flag.pid.json")
         );
         // 2. named wallet resolves to wallets/<name>.json.
         assert_eq!(
-            resolve_wallet_path(Some("alice"), None, &base),
+            resolve_wallet_path(Some("alice"), None, &base).unwrap(),
             wallet_file("alice")
         );
         // 3. configured default wallet name resolves to wallets/<name>.json.
         assert_eq!(
-            resolve_wallet_path(None, None, &base),
+            resolve_wallet_path(None, None, &base).unwrap(),
             wallet_file("default")
         );
         // 4. no wallet configured -> legacy keypair fallback.
@@ -313,13 +331,21 @@ mod tests {
             ..CliConfigFile::default()
         };
         assert_eq!(
-            resolve_wallet_path(None, None, &no_wallet),
+            resolve_wallet_path(None, None, &no_wallet).unwrap(),
             PathBuf::from("/tmp/config.pid.json")
         );
         // 4b. nothing set at all -> default pid.json path.
         assert_eq!(
-            resolve_wallet_path(None, None, &CliConfigFile::default()),
+            resolve_wallet_path(None, None, &CliConfigFile::default()).unwrap(),
             default_keypair_path()
         );
+    }
+
+    #[test]
+    fn wallet_names_reject_path_components() {
+        assert!(checked_wallet_file("../pid").is_err());
+        assert!(checked_wallet_file("nested/alice").is_err());
+        assert!(checked_wallet_file("alice").is_ok());
+        assert!(checked_wallet_file("alice-1_ok").is_ok());
     }
 }

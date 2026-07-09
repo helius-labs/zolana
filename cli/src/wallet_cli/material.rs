@@ -35,8 +35,8 @@ use super::{
 use crate::{
     args::{InitOptions, NewWalletOptions, WalletKeypairOptions},
     cli_config::{
-        resolve_keypair_path as config_keypair_path, resolve_rpc_url, resolve_wallet_path,
-        wallet_file, wallets_dir, CliConfigFile,
+        checked_wallet_file, resolve_keypair_path as config_keypair_path, resolve_rpc_url,
+        resolve_wallet_path, wallet_file, wallets_dir, CliConfigFile,
     },
 };
 
@@ -209,7 +209,7 @@ pub(super) fn run_init(opts: InitOptions) -> Result<()> {
 }
 
 pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
-    let path = wallet_file(&opts.name);
+    let path = checked_wallet_file(&opts.name)?;
     if path.exists() {
         bail!(
             "wallet `{}` already exists at {}",
@@ -279,7 +279,7 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
 
 pub(super) fn run_address(opts: WalletKeypairOptions) -> Result<()> {
     let config = CliConfigFile::load()?;
-    let path = resolve_wallet_path(opts.wallet.as_deref(), opts.keypair.as_deref(), &config);
+    let path = resolve_wallet_path(opts.wallet.as_deref(), opts.keypair.as_deref(), &config)?;
     if !path.exists() {
         bail!(
             "wallet not found at {}; run `zolana wallet new <name>` first",
@@ -381,7 +381,14 @@ pub(super) fn load_solana_cli_keypair(path: &Path) -> Result<Keypair> {
         )
     })?;
     let seed: [u8; 32] = match arr.len() {
-        32 | 64 => arr[..32].try_into().expect("checked length"),
+        32 | 64 => {
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(
+                arr.get(..32)
+                    .ok_or_else(|| anyhow::anyhow!("checked keypair length"))?,
+            );
+            seed
+        }
         n => bail!(
             "unexpected Solana keypair length {n} in {} (expected 32 or 64 bytes)",
             path.display()
@@ -389,7 +396,11 @@ pub(super) fn load_solana_cli_keypair(path: &Path) -> Result<Keypair> {
     };
     let keypair = Keypair::new_from_array(seed);
     if arr.len() == 64 {
-        let expected: [u8; 32] = arr[32..].try_into().expect("checked length");
+        let mut expected = [0u8; 32];
+        expected.copy_from_slice(
+            arr.get(32..64)
+                .ok_or_else(|| anyhow::anyhow!("checked keypair length"))?,
+        );
         if keypair.pubkey().to_bytes() != expected {
             bail!(
                 "keypair {} secret does not match its public key",

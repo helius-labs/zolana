@@ -156,9 +156,8 @@ impl Wallet {
         self.utxos.iter().filter(|u| !u.spent)
     }
 
-    /// Unspent notes of `asset` in selection order (wallet insertion order, which
-    /// matches `select_inputs`' first-fit scan), each tagged with its commitment
-    /// hash for explicit input selection.
+    /// Unspent notes of `asset` in wallet insertion order, each tagged with its
+    /// commitment hash for explicit input selection.
     pub fn spendable_utxos(&self, asset: Address) -> Vec<SpendableUtxo> {
         self.unspent()
             .filter(|u| u.utxo.asset == asset)

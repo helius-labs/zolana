@@ -10,18 +10,19 @@
 //! dropped.
 
 use std::{
+    collections::HashSet,
     fs::{self, OpenOptions},
-    io::ErrorKind,
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use zolana_client::SpendableUtxo;
 
 /// A live reservation is reclaimable after this long, so a crashed process cannot
 /// wedge a note forever.
-pub(super) const RESERVATION_TTL: Duration = Duration::from_secs(120);
+pub(super) const RESERVATION_TTL: Duration = Duration::from_secs(10 * 60);
 
 /// An atomically claimed note. Dropping it releases the lockfile.
 pub(super) struct Reservation {
@@ -34,6 +35,23 @@ impl Drop for Reservation {
         // Best effort: a leftover lockfile is reclaimed by the TTL sweep anyway.
         let _ = fs::remove_file(&self.lockfile);
     }
+}
+
+impl Reservation {
+    /// Refresh the lockfile's mtime so a long proof or indexer wait does not make
+    /// a live reservation look stale to another process.
+    pub(super) fn refresh(&self) -> Result<()> {
+        let mut file = OpenOptions::new().append(true).open(&self.lockfile)?;
+        file.write_all(b".")?;
+        Ok(())
+    }
+}
+
+pub(super) fn refresh_all(reservations: &[Reservation]) -> Result<()> {
+    for reservation in reservations {
+        reservation.refresh()?;
+    }
+    Ok(())
 }
 
 fn lockfile_name(hash: &[u8; 32]) -> String {
@@ -84,6 +102,39 @@ fn try_claim(dir: &Path, hash: &[u8; 32]) -> Result<bool> {
     }
 }
 
+/// Try to reserve one exact note hash. Returns `Ok(None)` if another live
+/// process already holds it.
+pub(super) fn reserve_hash(dir: &Path, hash: [u8; 32]) -> Result<Option<Reservation>> {
+    fs::create_dir_all(dir)?;
+    if try_claim(dir, &hash)? {
+        Ok(Some(Reservation {
+            lockfile: dir.join(lockfile_name(&hash)),
+            hash,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Reserve every explicit hash or fail if any is currently held elsewhere.
+pub(super) fn reserve_hashes(dir: &Path, hashes: &[[u8; 32]]) -> Result<Vec<Reservation>> {
+    let mut reservations = Vec::with_capacity(hashes.len());
+    let mut seen = HashSet::with_capacity(hashes.len());
+    for hash in hashes {
+        if !seen.insert(*hash) {
+            bail!("duplicate input note {}", hex::encode(hash));
+        }
+        match reserve_hash(dir, *hash)? {
+            Some(reservation) => reservations.push(reservation),
+            None => bail!(
+                "input note {} is reserved by another process",
+                hex::encode(hash)
+            ),
+        }
+    }
+    Ok(reservations)
+}
+
 /// Reserve the first unreserved note in `candidates` that on its own covers
 /// `amount`. `candidates` should be the wallet's unspent notes in selection
 /// order (spent notes are already excluded by the caller). Returns `Ok(None)`
@@ -101,11 +152,8 @@ pub(super) fn reserve_covering(
         if note.amount < amount {
             continue;
         }
-        if try_claim(dir, &note.hash)? {
-            return Ok(Some(Reservation {
-                lockfile: dir.join(lockfile_name(&note.hash)),
-                hash: note.hash,
-            }));
+        if let Some(reservation) = reserve_hash(dir, note.hash)? {
+            return Ok(Some(reservation));
         }
     }
     Ok(None)

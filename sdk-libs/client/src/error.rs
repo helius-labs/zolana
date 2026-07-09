@@ -42,6 +42,12 @@ pub enum ClientError {
     #[error("explicitly selected note {hash} is not an unspent note of the requested asset")]
     InputNoteUnavailable { hash: String },
 
+    #[error("explicit input list contains duplicate note {hash}")]
+    DuplicateInputNote { hash: String },
+
+    #[error("no unspent note exactly matches split total {requested}")]
+    SplitInputUnavailable { requested: u64 },
+
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 

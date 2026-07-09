@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_transaction::{Address, SOL_MINT};
 
 use super::material::load_existing_wallet;
-use crate::cli_config::{wallet_file, CliConfigFile};
+use crate::cli_config::{checked_wallet_file, CliConfigFile};
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
@@ -93,7 +93,10 @@ pub(super) fn parse_amount_for_asset(amount: &str, asset: Address) -> Result<u64
 /// Resolve a `<to>` recipient argument to a pubkey. A local wallet name resolves
 /// to that wallet's owner pubkey; anything else is parsed as a Solana pubkey.
 pub(super) fn resolve_recipient_pubkey(value: &str, _config: &CliConfigFile) -> Result<Pubkey> {
-    let path = wallet_file(value);
+    if let Ok(pubkey) = value.parse::<Pubkey>() {
+        return Ok(pubkey);
+    }
+    let path = checked_wallet_file(value)?;
     if path.exists() {
         return Ok(load_existing_wallet(&path)?.owner_pubkey());
     }
@@ -155,10 +158,11 @@ pub(super) fn system_create_account_ix(
     space: u64,
     owner: &Pubkey,
 ) -> Instruction {
-    let mut data = vec![0u8; 4 + 8 + 8 + 32];
-    data[4..12].copy_from_slice(&lamports.to_le_bytes());
-    data[12..20].copy_from_slice(&space.to_le_bytes());
-    data[20..52].copy_from_slice(&owner.to_bytes());
+    let mut data = Vec::with_capacity(4 + 8 + 8 + 32);
+    data.extend_from_slice(&0u32.to_le_bytes());
+    data.extend_from_slice(&lamports.to_le_bytes());
+    data.extend_from_slice(&space.to_le_bytes());
+    data.extend_from_slice(&owner.to_bytes());
     Instruction {
         program_id: Pubkey::default(),
         accounts: vec![
@@ -172,9 +176,9 @@ pub(super) fn system_create_account_ix(
 /// System-program `Transfer` instruction (instruction index 2), mirroring the
 /// raw layout used by `system_create_account_ix`.
 pub(super) fn system_transfer_ix(from: &Pubkey, to: &Pubkey, lamports: u64) -> Instruction {
-    let mut data = vec![0u8; 4 + 8];
-    data[0..4].copy_from_slice(&2u32.to_le_bytes());
-    data[4..12].copy_from_slice(&lamports.to_le_bytes());
+    let mut data = Vec::with_capacity(4 + 8);
+    data.extend_from_slice(&2u32.to_le_bytes());
+    data.extend_from_slice(&lamports.to_le_bytes());
     Instruction {
         program_id: Pubkey::default(),
         accounts: vec![AccountMeta::new(*from, true), AccountMeta::new(*to, false)],

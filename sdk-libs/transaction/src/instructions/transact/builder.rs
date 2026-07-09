@@ -236,6 +236,9 @@ impl Transaction {
     /// shape like a [`Self::send`] recipient and is encoded into its own
     /// ciphertext slot. The output must name its recipient via `owner_address`.
     pub fn add_output(&mut self, output: OutputUtxo) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         if output.owner_address.is_none() {
             return Err(TransactionError::MissingOutput);
         }
@@ -263,6 +266,9 @@ impl Transaction {
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
@@ -277,6 +283,9 @@ impl Transaction {
         amount: u64,
         target: WithdrawalTarget,
     ) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         if self.withdrawal.is_some() {
             return Err(TransactionError::WithdrawalAlreadySet);
         }
@@ -303,6 +312,12 @@ impl Transaction {
     ) -> Result<&mut Self, TransactionError> {
         if num_outputs == 0 {
             return Err(TransactionError::SplitWithoutOutputs);
+        }
+        if !self.recipients.is_empty()
+            || !self.custom_outputs.is_empty()
+            || self.withdrawal.is_some()
+        {
+            return Err(TransactionError::SplitWithOtherActions);
         }
         self.split = Some(SplitIntent {
             asset,
@@ -396,6 +411,9 @@ impl Transaction {
     }
 
     pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransaction, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         let spl_asset = self.spl_asset()?;
         let (public_sol, public_spl) = self.public_amounts();
         let sol_change = self.change(&SOL_MINT, public_sol)?;
@@ -546,13 +564,19 @@ impl Transaction {
             .split
             .as_ref()
             .ok_or(TransactionError::SplitWithoutOutputs)?;
+        if !self.recipients.is_empty()
+            || !self.custom_outputs.is_empty()
+            || self.withdrawal.is_some()
+        {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         if self.inputs.len() != 1 {
             return Err(TransactionError::SplitInputCount(self.inputs.len()));
         }
         let num_outputs = intent.num_outputs;
         let shape = canonical_split_shape(usize::from(num_outputs))?;
 
-        let input = &self.inputs[0].utxo;
+        let input = &self.inputs.first().ok_or(TransactionError::NoInputs)?.utxo;
         let requested = u64::from(num_outputs)
             .checked_mul(intent.per_output_amount)
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
@@ -700,14 +724,15 @@ impl Transaction {
 }
 
 impl PreparedTransaction {
-    /// Committed hash of the first REAL output note this transaction appends to
-    /// the state tree, in output order: a recipient output for a transfer, the
-    /// change output for a withdrawal. Callers use it as an "is it indexed yet?"
-    /// probe (a returned merkle proof for the hash means the tx is indexed),
-    /// which is stable under a shared view tag that has more than a page of
-    /// outputs. Falls back to the first output when every output is a dummy
-    /// (e.g. a full-balance withdrawal with no change); every committed hash is
-    /// appended to the tree, so it remains a valid indexing probe.
+    /// Committed hash of the first real output note this transaction appends to
+    /// the state tree, in output order. For a transfer with change this may be a
+    /// sender-owned change note; otherwise it is a recipient or withdrawal-change
+    /// output. Callers use it as an "is it indexed yet?" probe (a returned
+    /// merkle proof for the hash means the tx is indexed), which is stable under
+    /// a shared view tag that has more than a page of outputs. Falls back to the
+    /// first output when every output is a dummy (e.g. a full-balance withdrawal
+    /// with no change); every committed hash is appended to the tree, so it
+    /// remains a valid indexing probe.
     pub fn wait_output_hash(&self) -> Result<[u8; 32], TransactionError> {
         let output = self
             .outputs

@@ -12,6 +12,7 @@ use zolana_transaction::{
     instructions::{
         transact::{
             OutputContext, OutputSlot, ShieldedTransaction, SignedTransaction, Transaction,
+            WithdrawalTarget,
         },
         types::SpendUtxo,
     },
@@ -192,6 +193,77 @@ fn sol_balance(wallet: &Wallet) -> zolana_transaction::AssetBalance {
         .into_iter()
         .find(|b| b.mint == SOL_MINT)
         .expect("sol balance")
+}
+
+#[test]
+fn split_rejects_existing_send_and_prepare_rejects_recorded_split() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let input = sol_utxo(&keypair, 100);
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+
+    tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 40)
+        .unwrap();
+    let err = match tx.split(SOL_MINT, 2, 50) {
+        Ok(_) => panic!("split after send must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
+
+    let input = sol_utxo(&keypair, 100);
+    let mut split_tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    split_tx.split(SOL_MINT, 2, 50).unwrap();
+    let err = match split_tx.prepare(&AssetRegistry::default()) {
+        Ok(_) => panic!("prepare after split must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
+}
+
+#[test]
+fn split_rejects_withdrawal_and_send_after_split() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let recipient = ShieldedKeypair::new().unwrap();
+    let input = sol_utxo(&keypair, 100);
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    tx.withdraw(
+        SOL_MINT,
+        10,
+        WithdrawalTarget::Sol {
+            user_sol_account: Address::default(),
+        },
+    )
+    .unwrap();
+    let err = match tx.split(SOL_MINT, 2, 50) {
+        Ok(_) => panic!("split after withdrawal must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
+
+    let input = sol_utxo(&keypair, 100);
+    let mut split_tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(input, &keypair)],
+        Address::default(),
+    );
+    split_tx.split(SOL_MINT, 2, 50).unwrap();
+    let err = match split_tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 10) {
+        Ok(_) => panic!("send after split must error"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithOtherActions);
 }
 
 #[test]

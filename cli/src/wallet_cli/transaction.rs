@@ -6,7 +6,8 @@ use zolana_client::{
     create_merge_sync, create_split_sync, create_transfer_sync, fetch_user_record_checked,
     prover::merge::MergeProver, prover::transact::assemble, ClientError, CreateMerge, CreateSplit,
     CreateTransfer, InputCommitment, InputSelection, MergeWitness, PreparedMerge, ProofCompressed,
-    ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
+    ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, SpendableUtxo,
+    ZolanaIndexer, MERGE_INPUTS,
 };
 use zolana_interface::instruction::{MergeTransact, Transact, TransactWithdrawal};
 use zolana_transaction::{Address, SOL_MINT};
@@ -14,18 +15,23 @@ use zolana_user_registry_interface::user_record_pda;
 
 use super::{
     material::WalletMaterial,
-    reservation::{inflight_dir, reserve_covering, Reservation},
+    reservation::{
+        inflight_dir, refresh_all, reserve_covering, reserve_hash, reserve_hashes, Reservation,
+    },
     resolve::{get_network_with_config, resolve_sync_with_config},
-    sync::{sync_context, wait_for_indexed_output, SyncContext, WaitOutcome},
+    sync::{sync_context, wait_for_indexed_output_refreshing, SyncContext, WaitOutcome},
     util::{
         ensure_positive, format_address, lamports_to_sol_string, parse_address,
         parse_amount_for_asset, parse_hex_array, parse_sol_amount, resolve_recipient_pubkey,
     },
 };
+
 use crate::{
-    args::{ConsolidateOptions, SplitOptions, TransferOptions, UtxosOptions},
+    args::{ConsolidateOptions, SplitOptions, SyncOptions, TransferOptions, UtxosOptions},
     cli_config::CliConfigFile,
 };
+
+const CLI_MAX_TRANSFER_INPUTS: usize = 5;
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
@@ -60,6 +66,8 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
                 "notice: balance for {} is too fragmented for one transfer; consolidating first",
                 format_address(asset)
             );
+            let (selection, reservations) =
+                resolve_merge_selection(&opts.network.sync, &config, &ctx, asset, &[])?;
             let merge = create_merge_sync(CreateMerge {
                 wallet: &ctx.wallet,
                 keypair: &ctx.material.keypair,
@@ -67,15 +75,16 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
                 payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
                 asset,
                 assets: &ctx.wallet.registry,
-                selection: InputSelection::Auto,
+                selection,
             })?;
-            let (signature, _output_hash, _outcome) = submit_merge_transaction(
+            let (signature, _output_hash, outcome) = submit_merge_transaction(
                 SubmitMergeTx {
                     rpc: &rpc,
                     indexer: &indexer,
                     material: &ctx.material,
                     tree,
                     prover_url: &network.prover_url,
+                    reservations: &reservations,
                 },
                 merge.prepared,
             )?;
@@ -83,6 +92,11 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
                 "notice: consolidated {} notes signature={signature}",
                 merge.num_inputs
             );
+            if outcome == WaitOutcome::ConfirmedPendingIndex {
+                bail!(
+                    "consolidation succeeded but indexing is still pending; retry the transfer after sync catches up"
+                );
+            }
             // Retry once against a re-synced wallet; propagate any error, including a
             // second fragmentation (do not loop).
             let ctx = sync_context(&opts.network.sync)?;
@@ -126,11 +140,11 @@ fn try_transfer(
     amount: u64,
     recipient_owner: Pubkey,
 ) -> Result<()> {
-    // Resolve which note to spend. An explicit `--input` wins; otherwise reserve
-    // a distinct note via the lock dir so concurrent transfers do not collide;
-    // if no reservation dir is usable, fall back to first-fit `Auto`. The
-    // reservation is held (via `_reservation`) until submission completes.
-    let (selection, _reservation) = resolve_transfer_selection(opts, config, ctx, asset, amount)?;
+    // Resolve which notes to spend. An explicit `--input` wins; otherwise reserve
+    // the actual note set selected for the transfer so concurrent commands do not
+    // collide. Held reservations stay alive through proving, submission, and the
+    // indexer wait.
+    let (selection, reservations) = resolve_transfer_selection(opts, config, ctx, asset, amount)?;
 
     let transfer = create_transfer_sync(CreateTransfer {
         rpc,
@@ -153,6 +167,7 @@ fn try_transfer(
             prover_url: &network.prover_url,
             withdrawal: transfer.recipient.withdrawal().cloned(),
             wait_output_hash: transfer.wait_output_hash,
+            reservations: &reservations,
         },
         transfer.signed,
     )?;
@@ -177,39 +192,143 @@ fn try_transfer(
 /// the caller must keep alive until submission completes.
 ///
 /// - `--input <hash>` -> spend exactly that note (`Explicit`), no reservation.
-/// - otherwise, reserve a distinct unspent note covering `amount` under the
-///   wallet's `.inflight` lock dir and spend it (`Explicit`), holding the lock.
-/// - if no reservation dir is usable, or the asset is not SOL (the only asset
-///   `wallet utxos`/reservation enumerate), fall back to `Auto` first-fit.
+/// - otherwise, reserve the selected unspent note set under the wallet's
+///   `.inflight` lock dir and spend it (`Explicit`), holding the locks.
+/// - if no reservation dir is usable, fall back to SDK `Auto` selection.
 fn resolve_transfer_selection(
     opts: &TransferOptions,
     config: &CliConfigFile,
     ctx: &super::sync::SyncContext,
     asset: Address,
     amount: u64,
-) -> Result<(InputSelection, Option<Reservation>)> {
+) -> Result<(InputSelection, Vec<Reservation>)> {
     if let Some(input) = &opts.input {
         let hash = parse_hex_array::<32>(input)?;
-        return Ok((InputSelection::Explicit(vec![hash]), None));
+        return Ok((InputSelection::Explicit(vec![hash]), Vec::new()));
     }
 
-    let sync = resolve_sync_with_config(&opts.network.sync, config)?;
+    resolve_auto_spend_selection(&opts.network.sync, config, ctx, asset, amount)
+}
+
+pub(super) fn resolve_auto_spend_selection(
+    sync_opts: &SyncOptions,
+    config: &CliConfigFile,
+    ctx: &SyncContext,
+    asset: Address,
+    amount: u64,
+) -> Result<(InputSelection, Vec<Reservation>)> {
+    let sync = resolve_sync_with_config(sync_opts, config)?;
     let Some(dir) = inflight_dir(&sync.keypair_path) else {
-        return Ok((InputSelection::Auto, None));
+        return Ok((InputSelection::Auto, Vec::new()));
     };
 
     let candidates = ctx.wallet.spendable_utxos(asset);
-    match reserve_covering(&dir, &candidates, amount) {
-        Ok(Some(reservation)) => Ok((
-            InputSelection::Explicit(vec![reservation.hash]),
-            Some(reservation),
-        )),
-        // No single unreserved note covers the amount (or all are reserved): fall
-        // back to Auto so multi-note first-fit can still cover it.
-        Ok(None) => Ok((InputSelection::Auto, None)),
-        // Lock dir not creatable: single-transfer behavior is unchanged.
-        Err(_) => Ok((InputSelection::Auto, None)),
+    match reserve_transfer_inputs(&dir, &candidates, amount) {
+        Ok((selection, reservations)) => Ok((selection, reservations)),
+        // Lock dir not creatable/readable: single-transfer behavior is unchanged.
+        Err(err) if err.downcast_ref::<std::io::Error>().is_some() => {
+            Ok((InputSelection::Auto, Vec::new()))
+        }
+        Err(err) => Err(err),
     }
+}
+
+fn reserve_transfer_inputs(
+    dir: &std::path::Path,
+    candidates: &[SpendableUtxo],
+    amount: u64,
+) -> Result<(InputSelection, Vec<Reservation>)> {
+    let mut candidates = candidates.to_vec();
+    candidates.sort_by_key(|note| std::cmp::Reverse(note.amount));
+    if let Some(reservation) = reserve_covering(dir, &candidates, amount)? {
+        return Ok((
+            InputSelection::Explicit(vec![reservation.hash]),
+            vec![reservation],
+        ));
+    }
+
+    let mut reservations = Vec::new();
+    let mut total = 0u64;
+    for note in candidates {
+        if total >= amount {
+            break;
+        }
+        if reservations.len() >= CLI_MAX_TRANSFER_INPUTS {
+            return Err(ClientError::FragmentedBalance {
+                requested: amount,
+                notes: CLI_MAX_TRANSFER_INPUTS + 1,
+                max_inputs: CLI_MAX_TRANSFER_INPUTS,
+            }
+            .into());
+        }
+        if let Some(reservation) = reserve_hash(dir, note.hash)? {
+            total = total
+                .checked_add(note.amount)
+                .ok_or(ClientError::SelectedBalanceOverflow)?;
+            reservations.push(reservation);
+        }
+    }
+
+    if total < amount {
+        bail!(
+            "insufficient unreserved balance: requested {amount}, available {total}; another wallet command may be in flight"
+        );
+    }
+
+    let hashes = reservations
+        .iter()
+        .map(|reservation| reservation.hash)
+        .collect();
+    Ok((InputSelection::Explicit(hashes), reservations))
+}
+
+fn resolve_merge_selection(
+    sync_opts: &SyncOptions,
+    config: &CliConfigFile,
+    ctx: &SyncContext,
+    asset: Address,
+    explicit_hashes: &[[u8; 32]],
+) -> Result<(InputSelection, Vec<Reservation>)> {
+    let fallback_selection = if explicit_hashes.is_empty() {
+        InputSelection::Auto
+    } else {
+        InputSelection::Explicit(explicit_hashes.to_vec())
+    };
+    let sync = resolve_sync_with_config(sync_opts, config)?;
+    let Some(dir) = inflight_dir(&sync.keypair_path) else {
+        return Ok((fallback_selection, Vec::new()));
+    };
+
+    if !explicit_hashes.is_empty() {
+        let reservations = reserve_hashes(&dir, explicit_hashes)?;
+        return Ok((
+            InputSelection::Explicit(explicit_hashes.to_vec()),
+            reservations,
+        ));
+    }
+
+    let mut candidates = ctx.wallet.spendable_utxos(asset);
+    candidates.sort_by_key(|note| note.amount);
+
+    let mut reservations = Vec::new();
+    for note in candidates {
+        if reservations.len() >= MERGE_INPUTS {
+            break;
+        }
+        if let Some(reservation) = reserve_hash(&dir, note.hash)? {
+            reservations.push(reservation);
+        }
+    }
+    if reservations.len() < 2 {
+        bail!(
+            "not enough unreserved notes to consolidate; another wallet command may be in flight"
+        );
+    }
+    let hashes = reservations
+        .iter()
+        .map(|reservation| reservation.hash)
+        .collect();
+    Ok((InputSelection::Explicit(hashes), reservations))
 }
 
 pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
@@ -227,7 +346,8 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
 
     // A split rides the SOL note rail. Pick the note to split and derive the
     // per-part amount.
-    let (selection, per_output_amount) = split_selection(&opts, &ctx, parts)?;
+    let (selection, per_output_amount, reservations) =
+        split_selection(&opts, &config, &ctx, parts)?;
 
     let split = create_split_sync(CreateSplit {
         wallet: &ctx.wallet,
@@ -249,6 +369,7 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
             prover_url: &network.prover_url,
             withdrawal: None,
             wait_output_hash: split.wait_output_hash,
+            reservations: &reservations,
         },
         split.signed,
     )?;
@@ -268,34 +389,87 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
 /// must divide by `parts`). `--input <hash>` names the exact note to split.
 fn split_selection(
     opts: &SplitOptions,
+    config: &CliConfigFile,
     ctx: &super::sync::SyncContext,
     parts: u8,
-) -> Result<(InputSelection, u64)> {
+) -> Result<(InputSelection, u64, Vec<Reservation>)> {
     let notes = ctx.wallet.spendable_utxos(SOL_MINT);
     if notes.is_empty() {
         bail!("wallet has no spendable SOL notes to split");
     }
+    let sync = resolve_sync_with_config(&opts.network.sync, config)?;
+    let dir = inflight_dir(&sync.keypair_path);
+    let requested_per_output = opts.part_sol.as_deref().map(parse_sol_amount).transpose()?;
+    if let Some(amount) = requested_per_output {
+        ensure_positive(amount)?;
+    }
+    let requested_total = requested_per_output
+        .map(|amount| {
+            amount
+                .checked_mul(u64::from(parts))
+                .ok_or(ClientError::SelectedBalanceOverflow)
+        })
+        .transpose()?;
 
-    let note = match &opts.input {
+    let (note, reservations) = match &opts.input {
         Some(input) => {
             let hash = parse_hex_array::<32>(input)?;
-            notes
+            let note = notes
                 .iter()
                 .find(|note| note.hash == hash)
                 .copied()
                 .ok_or_else(|| {
                     anyhow::anyhow!("no spendable SOL note with hash {input}; run `wallet utxos`")
-                })?
+                })?;
+            let reservations = match &dir {
+                Some(dir) => reserve_hashes(dir, &[hash])?,
+                None => Vec::new(),
+            };
+            (note, reservations)
         }
-        // Default: the largest note.
-        None => *notes
-            .iter()
-            .max_by_key(|note| note.amount)
-            .expect("non-empty checked above"),
+        None => {
+            let mut candidates = notes;
+            candidates.sort_by_key(|note| std::cmp::Reverse(note.amount));
+            if let Some(total) = requested_total {
+                candidates.retain(|note| note.amount == total);
+            }
+            let mut selected = None;
+            for note in candidates {
+                match &dir {
+                    Some(dir) => {
+                        if let Some(reservation) = reserve_hash(dir, note.hash)? {
+                            selected = Some((note, vec![reservation]));
+                            break;
+                        }
+                    }
+                    None => {
+                        selected = Some((note, Vec::new()));
+                        break;
+                    }
+                }
+            }
+            selected.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no unreserved SOL note is available to split{}",
+                    requested_total
+                        .map(|total| format!(" with total amount {total}"))
+                        .unwrap_or_default()
+                )
+            })?
+        }
     };
 
-    let per_output_amount = match &opts.part_sol {
-        Some(part_sol) => parse_sol_amount(part_sol)?,
+    let per_output_amount = match requested_per_output {
+        Some(part_sol) => {
+            if Some(note.amount) != requested_total {
+                bail!(
+                    "selected note holds {} SOL but split total is {} SOL",
+                    lamports_to_sol_string(note.amount),
+                    lamports_to_sol_string(requested_total.unwrap_or(0))
+                );
+            }
+            part_sol
+        }
         None => {
             if note.amount % u64::from(parts) != 0 {
                 bail!(
@@ -308,7 +482,11 @@ fn split_selection(
     };
     ensure_positive(per_output_amount)?;
 
-    Ok((InputSelection::Explicit(vec![note.hash]), per_output_amount))
+    Ok((
+        InputSelection::Explicit(vec![note.hash]),
+        per_output_amount,
+        reservations,
+    ))
 }
 
 pub(super) fn run_utxos(opts: UtxosOptions) -> Result<()> {
@@ -333,17 +511,19 @@ pub(super) struct SubmitPrivateTx<'a> {
     pub(super) tree: Pubkey,
     pub(super) prover_url: &'a str,
     pub(super) withdrawal: Option<TransactWithdrawal>,
-    /// Committed output hash to wait on for indexing (see
-    /// [`wait_for_indexed_output`]).
+    /// Committed output hash to wait on for indexing.
     pub(super) wait_output_hash: [u8; 32],
+    pub(super) reservations: &'a [Reservation],
 }
 
 pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
     signed: SignedTransaction,
 ) -> Result<(Signature, WaitOutcome)> {
+    refresh_all(request.reservations)?;
     let commitments = signed.input_commitments()?;
     let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
+    refresh_all(request.reservations)?;
     // `assemble` runs the witness build once: the per-input nullifiers, root
     // indices, and dummy padding come out of the prover, so the instruction data
     // and the proof commit to identical values by construction.
@@ -353,6 +533,7 @@ pub(super) fn submit_private_transaction(
         ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
         ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
     };
+    refresh_all(request.reservations)?;
     let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
     let data = assembled.with_proof(proof);
     let ix = Transact {
@@ -373,12 +554,14 @@ pub(super) fn submit_private_transaction(
         Address::new_from_array(request.material.funding.pubkey().to_bytes()),
         &[&request.material.funding],
     )?;
-    let outcome = wait_for_indexed_output(
+    refresh_all(request.reservations)?;
+    let outcome = wait_for_indexed_output_refreshing(
         request.indexer,
         request.rpc,
         request.tree,
         request.wait_output_hash,
         signature,
+        || refresh_all(request.reservations),
     )?;
     Ok((signature, outcome))
 }
@@ -389,6 +572,7 @@ pub(super) struct SubmitMergeTx<'a> {
     pub(super) material: &'a WalletMaterial,
     pub(super) tree: Pubkey,
     pub(super) prover_url: &'a str,
+    pub(super) reservations: &'a [Reservation],
 }
 
 /// Prove and submit a consolidation (`merge_transact`), returning the signature
@@ -399,6 +583,7 @@ pub(super) fn submit_merge_transaction(
     request: SubmitMergeTx<'_>,
     prepared: PreparedMerge,
 ) -> Result<(Signature, [u8; 32], WaitOutcome)> {
+    refresh_all(request.reservations)?;
     let owner = request.material.funding.pubkey();
     // `merge_transact` unconditionally requires the owner to have opted into
     // merging (see programs/shielded-pool/.../merge/processor.rs). Fail fast with
@@ -413,6 +598,7 @@ pub(super) fn submit_merge_transaction(
     }
     let commitments = prepared.input_commitments()?;
     let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
+    refresh_all(request.reservations)?;
     let result = MergeProver::try_from(MergeWitness {
         prepared,
         nullifier_key: request.material.keypair.nullifier_key.clone(),
@@ -421,6 +607,7 @@ pub(super) fn submit_merge_transaction(
     .build()?;
     let prover = ProverClient::new(request.prover_url.to_string());
     let proof = prover.prove_merge(&result.inputs)?;
+    refresh_all(request.reservations)?;
     let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
     let data = result.instruction_data(proof);
     let ix = MergeTransact {
@@ -441,12 +628,14 @@ pub(super) fn submit_merge_transaction(
         Address::new_from_array(owner.to_bytes()),
         &[&request.material.funding],
     )?;
-    let outcome = wait_for_indexed_output(
+    refresh_all(request.reservations)?;
+    let outcome = wait_for_indexed_output_refreshing(
         request.indexer,
         request.rpc,
         request.tree,
         result.output_hash,
         signature,
+        || refresh_all(request.reservations),
     )?;
     Ok((signature, result.output_hash, outcome))
 }
@@ -461,16 +650,13 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
 
-    let selection = if opts.input.is_empty() {
-        InputSelection::Auto
-    } else {
-        InputSelection::Explicit(
-            opts.input
-                .iter()
-                .map(|input| parse_hex_array::<32>(input))
-                .collect::<Result<Vec<_>>>()?,
-        )
-    };
+    let explicit_hashes = opts
+        .input
+        .iter()
+        .map(|input| parse_hex_array::<32>(input))
+        .collect::<Result<Vec<_>>>()?;
+    let (selection, reservations) =
+        resolve_merge_selection(&opts.network.sync, &config, &ctx, asset, &explicit_hashes)?;
 
     let merge = create_merge_sync(CreateMerge {
         wallet: &ctx.wallet,
@@ -490,6 +676,7 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
             material: &ctx.material,
             tree,
             prover_url: &network.prover_url,
+            reservations: &reservations,
         },
         merge.prepared,
     )?;

@@ -126,6 +126,20 @@ pub(super) fn wait_for_indexed_output(
     output_hash: [u8; 32],
     signature: Signature,
 ) -> Result<WaitOutcome> {
+    wait_for_indexed_output_refreshing(indexer, rpc, tree, output_hash, signature, || Ok(()))
+}
+
+pub(super) fn wait_for_indexed_output_refreshing<F>(
+    indexer: &ZolanaIndexer,
+    rpc: &SolanaRpc,
+    tree: Pubkey,
+    output_hash: [u8; 32],
+    signature: Signature,
+    refresh: F,
+) -> Result<WaitOutcome>
+where
+    F: FnMut() -> Result<()>,
+{
     let tree = Address::new_from_array(tree.to_bytes());
     wait_for_indexed_output_with(
         indexer,
@@ -137,13 +151,14 @@ pub(super) fn wait_for_indexed_output(
         INDEXER_POLL,
         // Re-check tx status roughly every ~2s of polling (every 4th 500ms poll).
         4,
+        refresh,
     )
 }
 
 /// Testable core of [`wait_for_indexed_output`], generic over the probes and with
 /// explicit timing so a unit test can drive it with mocks and a short timeout.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe>(
+pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe, F>(
     index: &I,
     status: &S,
     tree: Address,
@@ -152,7 +167,11 @@ pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe>(
     timeout: Duration,
     poll: Duration,
     status_check_every: u32,
-) -> Result<WaitOutcome> {
+    mut refresh: F,
+) -> Result<WaitOutcome>
+where
+    F: FnMut() -> Result<()>,
+{
     let started = Instant::now();
     let mut ticks: u32 = 0;
     loop {
@@ -182,6 +201,7 @@ pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe>(
             };
         }
         ticks = ticks.wrapping_add(1);
+        refresh()?;
         sleep(poll);
     }
 }
@@ -238,6 +258,7 @@ mod tests {
             // Check status on the first poll (ticks % 1 == 0) so Failed aborts
             // without depending on multiple iterations.
             1,
+            || Ok(()),
         )
     }
 

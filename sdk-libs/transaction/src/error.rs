@@ -67,6 +67,9 @@ pub enum TransactionError {
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 
+    #[error("split cannot be combined with send, custom output, or withdrawal")]
+    SplitWithOtherActions,
+
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 
