@@ -74,8 +74,8 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 | `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk P256Pubkey[33])`. The `viewing_pk` is the verifiable-encryption target. See [spec.md](../../docs/spec.md#shielded-address). |
 | `escrow UTXO` | — | The SPP [UTXO](../../docs/spec.md#utxo) holding the source funds: `asset = source_asset_id`, `amount = source_amount`, `owner = escrow-authority PDA` (seeds `[b"escrow_authority"]`), nullifier secret `= 0`, `utxo_data = order terms`. Spendable only by the swap program. See [Order Terms](#order-terms). |
 | `marker UTXO` | — | A 0-value SPP [UTXO](../../docs/spec.md#utxo) owned by the taker's shielded address, appended by `create_swap` as the taker's discovery tag; its recipient ciphertext `data` carries a plaintext [`MarkerData`](#create_swap). Unenforced: a wrong marker only means the taker does not index the trade. |
-| `MarkerData` | Borsh | `{ maker_address: CompressedShieldedAddress, escrow_utxo_hash: [u8;32] }`, the plaintext `create_swap` writes into the marker output's recipient ciphertext `data`. `escrow_utxo_hash` locates the escrow slot; `maker_address` is the maker's public address, the `create_swap` signer. See [create_swap](#create_swap). |
-| `Order terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow `utxo_hash` via `data_hash`: `destination_asset_id`, `destination_amount`, `maker_address`, `expiry`, `taker_pk_fe`. See [Order Terms](#order-terms). |
+| `MarkerData` | Borsh | `{ escrow_utxo_hash: [u8;32], maker_pubkey: [u8;32] }`, the plaintext `create_swap` writes into the marker output's recipient ciphertext `data`. `escrow_utxo_hash` locates the escrow slot; `maker_pubkey` is the `create_swap` signer's Solana pubkey, which the taker resolves to the maker's registered shielded address via the user registry. See [create_swap](#create_swap). |
+| `Order terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow `utxo_hash` via `data_hash`: `destination_asset_id`, `destination_amount`, `maker_address`, `expiry`, `taker_pk_fe`, `fill_mode`. See [Order Terms](#order-terms). |
 | `private_tx_hash` | `[u8; 32]` | Commitment to the SPP `transact` a swap proof authorizes — the binding between a swap proof and the SPP transaction. See [spec.md](../../docs/spec.md#zk-program-interface). |
 | `CreateProof` / `CancelProof` / `FillVerifiableEncryptionProof` | `[u8; 128]` / `[u8; 192]` | Groth16 proofs verified by the swap program, each committing the transaction via `private_tx_hash`. `CreateProof` and `CancelProof` are standard Groth16, 128 B; `FillVerifiableEncryptionProof` adds a BSB22 commitment + PoK for its verifiable encryption and is 192 B (verified with `new_with_commitment`). |
 | `TransactIxData` | — | SPP `transact` instruction data: the SPP proof, input nullifiers, output UTXO hashes, ciphertexts, and routing. See [spec.md](../../docs/spec.md#transact). |
@@ -85,7 +85,8 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 What is public and what is private. The confidentiality is inherited from the SPP confidential
 zone; the swap program does not try to hide which action ran.
 
-- **Public:** `maker_address`, the `create_swap` signer, revealed at create; that a `fill_verifiable_encryption` or
+- **Public:** the maker's Solana signer pubkey, written into the marker at create (the taker resolves
+  the maker's registered shielded address from it via the user registry); that a `fill_verifiable_encryption` or
   `cancel` ran (and which); `source_asset_id` at create and both `source_asset_id` and
   `destination_asset_id` at resolve (`asset_id`s are SPP public inputs); the escrow UTXO hash at
   create; the order `expiry`, revealed at resolve so the program can check it against the Clock; each
@@ -117,10 +118,10 @@ escrow `utxo_hash` through `data_hash` (committed unchecked, interpreted by the 
 order_terms = (
     destination_asset_id,   // asset_id; private until resolve
     destination_amount,     // private; price = destination_amount / source_amount is implicit and private
-    maker_address,           // the maker's CompressedShieldedAddress, the create_swap signer (public): receives destination on fill and source on cancel
+    maker_address,           // the maker's CompressedShieldedAddress, resolved by the taker from the user registry: receives destination on fill and source on cancel
     expiry,                 // unix seconds; revealed at resolve and checked against the Clock by the program
     taker_pk_fe,     // the designated taker; authorizes fill
-    fill_mode,       // which fill instruction may settle this escrow: 3 = fill (derived), 5 = fill_verifiable_encryption
+    fill_mode,       // which fill instruction may settle this escrow: 0 = fill (derived), 1 = fill_verifiable_encryption
 )
 data_hash = Poseidon(order_terms)        // enters the escrow utxo_hash directly
 ```
@@ -144,8 +145,9 @@ capability: the nullifier binds the `blinding` and the in-circuit opening requir
 separate owner key exists. The opening is delivered in the create transaction (see
 [create_swap](#create_swap)): the escrow output's recipient ciphertext carries the order terms other
 than `maker_address`, encrypted to the taker's viewing pubkey, and the maker can decrypt the same
-slot via the transaction viewing key it holds. `maker_address` is public, the `create_swap` signer,
-so it needs no delivery. But holding the opening is
+slot via the transaction viewing key it holds. `maker_address` is not delivered in the ciphertext:
+the taker resolves it from the user registry via the marker's `maker_pubkey`, the `create_swap`
+signer, and verifies the resolution by recomputing the escrow `utxo_hash`. But holding the opening is
 not by itself enough to move the escrow. SPP spends a PDA-owned UTXO only when the swap program
 produces the escrow-authority signer via `invoke_signed`, which it does only through `fill` or
 `fill_verifiable_encryption` (constrained to the committed payout) or `cancel` (after expiry, to
@@ -199,16 +201,19 @@ The escrow output's recipient ciphertext (`TransferRecipientPlaintext { asset_id
 zone_program_id, data }`, with `data` = the order terms other than `maker_address`) is encrypted to
 the taker's viewing pubkey, so the taker recovers the private order terms and the escrow `blinding`;
 the maker can decrypt the same slot via the transaction viewing key it holds. Those two parties are
-exactly who can decrypt the order. `maker_address` is public, the `create_swap` signer, so it is read
-from the transaction rather than encrypted in `data`. The program overwrites the marker output's
-recipient ciphertext `data` with a plaintext [`MarkerData`](#glossary) `{ maker_address,
-escrow_utxo_hash }` (read from transact output index 1), so ordinary wallet sync finds the trade and
+exactly who can decrypt the order. `maker_address` is not carried in the instruction: the taker
+resolves it from the user registry via the marker's `maker_pubkey` and verifies the resolution by
+recomputing the escrow `utxo_hash`. The program overwrites the marker output's
+recipient ciphertext `data` with a plaintext [`MarkerData`](#glossary) `{ escrow_utxo_hash,
+maker_pubkey }` (the escrow hash read from transact output index 1, the pubkey from the signer), so
+ordinary wallet sync finds the trade and
 can locate the sibling escrow slot to decrypt. The marker is unenforced: a wrong marker means the
 taker does not index the trade.
 
 The proof checks that the escrow output's committed terms are well-formed, without revealing them,
-and commits the transaction via `private_tx_hash`. `source_asset_id` and `maker_address` (the signer)
-are public; `source_amount` and the other order terms are private. The program stores no per-order
+and commits the transaction via `private_tx_hash`, its sole public input. The source asset, the
+amounts, and the other order terms are private at the swap layer (the transact's own `asset_id`
+public inputs still reveal `source_asset_id` at the SPP layer). The program stores no per-order
 account and holds no asset allow-list.
 
 **Accounts**
@@ -224,20 +229,13 @@ account and holds no asset allow-list.
 
 ```rust
 struct CreateSwapIxData {
-    /// The create proof; verified by the swap program.
+    /// The create proof; verified by the swap program against the transact's
+    /// `private_tx_hash` as the sole public input.
     proof: CreateProof,
-    /// Escrowed source asset; public input to the proof and the transact.
-    source_asset_id: asset_id,
-    /// The maker's own CompressedShieldedAddress. Public input to the create proof
-    /// (hashed to a field element) and written into the marker so the taker can fill.
-    maker_address: CompressedShieldedAddress,
     /// SPP transact (1-in/3-out): maker source UTXO -> change + escrow UTXO + marker UTXO.
     transact: TransactIxData,
 }
 ```
-
-The maker supplies its own `maker_address`; the payer account is the fee payer and
-signer only.
 
 ---
 
@@ -381,25 +379,24 @@ still comes from the existing SPP prover.
 Proves the escrow UTXO's committed order terms are well-formed. Matches the 1-in/3-out transact
 (source UTXO in; change + escrow + marker out), padded to the SPP `(2, 3)` proving shape.
 
-- **Public inputs:** `private_tx_hash`, `source_asset_id`, and `maker_address` (a
-  `CompressedShieldedAddress` hashed to a field element).
-- **Private inputs:** the remaining order terms (`destination_asset_id`, `destination_amount`,
-  `expiry`, `taker_pk_fe`), the escrow UTXO opening (`source_amount`, `escrow_blinding`), and the
-  change output opening (amount and blinding). The marker output hash enters as a free (unconstrained)
-  witness. There is no `order_secret`: the escrow owner is the program-wide escrow-authority PDA
-  constant.
+- **Public inputs:** `private_tx_hash` only, the same value the transact carries; the program feeds
+  it to the verifier straight from `TransactIxData`.
+- **Private inputs:** the order terms (`destination_asset`, `destination_amount`, the maker's
+  owner hash and viewing pubkey, `expiry`, `taker_pk_fe`, `fill_mode`) and the fully witnessed
+  escrow, change, and marker output UTXOs. There is no `order_secret`: the escrow owner is the
+  program-wide escrow-authority PDA constant.
 - **Constraints:**
   - The `private_tx_hash` recomputation mirrors the padded transact exactly: `chain([source_input,
     0])` over inputs, `chain([change, escrow, marker])` over outputs, `chain([0, 0])` over
-    addresses. The marker hash is a free witness (dummies contribute 0).
-  - The escrow output committed in `private_tx_hash` is `(source_asset_id, source_amount,
-    owner = escrow-authority PDA, data_hash = Poseidon(order terms), escrow_blinding)` with swap
-    `utxo_data` — so the public SPP escrow output carries the committed terms. The owner is the
-    program-wide escrow-authority constant.
-  - The `data_hash` binds the public-input `maker_address`, and the change output committed in
-    `private_tx_hash` is owned by `maker_address`. So the committed recipient equals the public
-    `maker_address` and is not a hidden witness.
-  - `destination_amount > 0`; `source_amount > 0`.
+    addresses. The source input hash is a free witness; the change slot contributes 0 when the
+    change amount is 0.
+  - The escrow output committed in `private_tx_hash` carries `data_hash = Poseidon(order terms)`
+    with `maker_address` folded in as a field element, zone fields 0, and a nonzero amount — so the
+    public SPP escrow output carries the committed terms.
+  - The change output is constrained to the escrow's asset and to `maker_owner_hash`; the marker
+    output is constrained to amount 0, the SOL asset, blinding 0, and empty data (its owner is a
+    free witness, the taker).
+  - `destination_amount > 0` (64-bit range-checked); `fill_mode` is boolean.
 
 ### Fill circuit
 

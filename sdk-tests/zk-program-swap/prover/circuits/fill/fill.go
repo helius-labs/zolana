@@ -1,12 +1,12 @@
 package fill
 
 import (
+	"circuits/orderterms"
+
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
 	spp "zolana/prover/circuits/spp_transaction"
-
-	"circuits/orderterms"
 )
 
 const DestinationBlindingDomain uint64 = 0x46494C4C44455256
@@ -14,26 +14,119 @@ const DestinationBlindingDomain uint64 = 0x46494C4C44455256
 const destinationBlindingBits = 248
 
 type Circuit struct {
+	Public PublicInputs
+
+	Core Core
+}
+
+func (c *Circuit) Define(api frontend.API) error {
+	api.AssertIsEqual(c.Core.Order.FillMode, orderterms.FillModeDerived)
+	api.AssertIsEqual(c.Core.DestinationOutput.Blinding, DeriveDestinationBlinding(api, c.Core.Escrow.Blinding))
+
+	c.Core.Check(api, c.Public.PrivateTxHash)
+
+	c.Public.Check(api, c.Core.Order.Expiry)
+	return nil
+}
+
+type PublicInputs struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
 	PrivateTxHash frontend.Variable
-	Expiry        frontend.Variable
+}
 
-	SourceAsset       frontend.Variable
-	DestinationAsset  frontend.Variable
-	EscrowOwner       frontend.Variable
-	SourceAmount      frontend.Variable
-	EscrowBlinding    frontend.Variable
-	DestinationAmount frontend.Variable
-	MakerOwnerHash    frontend.Variable
-	MakerViewingPk    [33]frontend.Variable
-	TakerPkFe         frontend.Variable
+func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable) {
+	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{p.PrivateTxHash, expiry})
+	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
+}
 
-	TakerAddress         frontend.Variable
-	TakerInBlinding      frontend.Variable
-	SourceOutputBlinding frontend.Variable
+type Core struct {
+	Order orderterms.OrderTerms
+
+	Escrow            spp.UtxoCircuitFields
+	TakerIn           spp.UtxoCircuitFields
+	SourceOutput      spp.UtxoCircuitFields
+	DestinationOutput spp.UtxoCircuitFields
 
 	ExternalDataHash frontend.Variable
+}
+
+func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
+	f.Order.Check(api)
+	makerAddressFe := f.Order.MakerAddressFE(api)
+
+	escrowInputUtxoHash := f.checkEscrowInputUtxo(api, makerAddressFe)
+	takerInputUtxoHash := f.checkTakerInputUtxo(api)
+	sourceOutputUtxoHash := f.checkSourceOutputUtxo(api)
+	destinationOutputUtxoHash := f.checkDestinationOutputUtxo(api)
+
+	privateTxHashInputs{
+		EscrowInputUtxoHash:       escrowInputUtxoHash,
+		TakerInputUtxoHash:        takerInputUtxoHash,
+		SourceOutputUtxoHash:      sourceOutputUtxoHash,
+		DestinationOutputUtxoHash: destinationOutputUtxoHash,
+		ExternalDataHash:          f.ExternalDataHash,
+		PrivateTxHash:             privateTxHash,
+	}.Check(api)
+}
+
+type privateTxHashInputs struct {
+	EscrowInputUtxoHash       frontend.Variable
+	TakerInputUtxoHash        frontend.Variable
+	SourceOutputUtxoHash      frontend.Variable
+	DestinationOutputUtxoHash frontend.Variable
+	ExternalDataHash          frontend.Variable
+	PrivateTxHash             frontend.Variable
+}
+
+func (t privateTxHashInputs) Check(api frontend.API) {
+	inputHashes := []frontend.Variable{t.EscrowInputUtxoHash, t.TakerInputUtxoHash}
+	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash, t.DestinationOutputUtxoHash}
+	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
+
+	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
+}
+
+func (f Core) checkEscrowInputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
+	api.AssertIsEqual(f.Escrow.Domain, spp.UtxoDomain)
+	api.AssertIsEqual(f.Escrow.ZoneDataHash, 0)
+	api.AssertIsEqual(f.Escrow.ZoneProgramID, 0)
+	api.AssertIsEqual(f.Escrow.DataHash, f.Order.DataHash(api, makerAddressFe))
+	api.AssertIsDifferent(f.Escrow.Amount, 0)
+	return spp.UtxoHashCircuit(api, f.Escrow)
+}
+
+func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
+	api.AssertIsEqual(f.TakerIn.Domain, spp.UtxoDomain)
+	api.AssertIsEqual(f.TakerIn.ZoneDataHash, 0)
+	api.AssertIsEqual(f.TakerIn.ZoneProgramID, 0)
+	api.AssertIsEqual(f.TakerIn.DataHash, 0)
+	api.AssertIsEqual(f.TakerIn.Asset, f.Order.DestinationAsset)
+	api.AssertIsEqual(f.TakerIn.Amount, f.Order.DestinationAmount)
+	return spp.UtxoHashCircuit(api, f.TakerIn)
+}
+
+func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
+	api.AssertIsEqual(f.SourceOutput.Domain, spp.UtxoDomain)
+	api.AssertIsEqual(f.SourceOutput.ZoneDataHash, 0)
+	api.AssertIsEqual(f.SourceOutput.ZoneProgramID, 0)
+	api.AssertIsEqual(f.SourceOutput.DataHash, 0)
+	api.AssertIsEqual(f.SourceOutput.Asset, f.Escrow.Asset)
+	api.AssertIsEqual(f.SourceOutput.Amount, f.Escrow.Amount)
+	api.AssertIsEqual(f.SourceOutput.Owner, f.TakerIn.Owner)
+	return spp.UtxoHashCircuit(api, f.SourceOutput)
+}
+
+func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
+	api.AssertIsEqual(f.DestinationOutput.Domain, spp.UtxoDomain)
+	api.AssertIsEqual(f.DestinationOutput.ZoneDataHash, 0)
+	api.AssertIsEqual(f.DestinationOutput.ZoneProgramID, 0)
+	api.AssertIsEqual(f.DestinationOutput.DataHash, 0)
+	api.AssertIsEqual(f.DestinationOutput.Asset, f.Order.DestinationAsset)
+	api.AssertIsEqual(f.DestinationOutput.Amount, f.Order.DestinationAmount)
+	api.AssertIsEqual(f.DestinationOutput.Owner, f.Order.MakerOwnerHash)
+	return spp.UtxoHashCircuit(api, f.DestinationOutput)
 }
 
 func DeriveDestinationBlinding(api frontend.API, escrowBlinding frontend.Variable) frontend.Variable {
@@ -43,81 +136,4 @@ func DeriveDestinationBlinding(api frontend.API, escrowBlinding frontend.Variabl
 	})
 	bits := api.ToBinary(full, 254)
 	return api.FromBinary(bits[:destinationBlindingBits]...)
-}
-
-func (c *Circuit) Define(api frontend.API) error {
-	makerAddressFe := orderterms.MakerAddressFE(api, c.MakerOwnerHash, c.MakerViewingPk)
-
-	dataHash := gadget.PoseidonHash(api, []frontend.Variable{
-		c.DestinationAsset,
-		c.DestinationAmount,
-		makerAddressFe,
-		c.Expiry,
-		c.TakerPkFe,
-		frontend.Variable(orderterms.FillModeDerived),
-	})
-
-	escrow := spp.UtxoCircuitFields{
-		Domain:        frontend.Variable(spp.UtxoDomain),
-		Owner:         c.EscrowOwner,
-		Asset:         c.SourceAsset,
-		Amount:        c.SourceAmount,
-		Blinding:      c.EscrowBlinding,
-		DataHash:      dataHash,
-		ZoneDataHash:  frontend.Variable(0),
-		ZoneProgramID: frontend.Variable(0),
-	}
-	escrowHash := spp.UtxoHashCircuit(api, escrow)
-
-	takerUtxo := spp.UtxoCircuitFields{
-		Domain:        frontend.Variable(spp.UtxoDomain),
-		Owner:         c.TakerAddress,
-		Asset:         c.DestinationAsset,
-		Amount:        c.DestinationAmount,
-		Blinding:      c.TakerInBlinding,
-		DataHash:      frontend.Variable(0),
-		ZoneDataHash:  frontend.Variable(0),
-		ZoneProgramID: frontend.Variable(0),
-	}
-	takerUtxoHash := spp.UtxoHashCircuit(api, takerUtxo)
-
-	destinationOutputBlinding := DeriveDestinationBlinding(api, c.EscrowBlinding)
-
-	destinationOutput := spp.UtxoCircuitFields{
-		Domain:        frontend.Variable(spp.UtxoDomain),
-		Owner:         c.MakerOwnerHash,
-		Asset:         c.DestinationAsset,
-		Amount:        c.DestinationAmount,
-		Blinding:      destinationOutputBlinding,
-		DataHash:      frontend.Variable(0),
-		ZoneDataHash:  frontend.Variable(0),
-		ZoneProgramID: frontend.Variable(0),
-	}
-	destinationOutputHash := spp.UtxoHashCircuit(api, destinationOutput)
-
-	sourceOutput := spp.UtxoCircuitFields{
-		Domain:        frontend.Variable(spp.UtxoDomain),
-		Owner:         c.TakerAddress,
-		Asset:         c.SourceAsset,
-		Amount:        c.SourceAmount,
-		Blinding:      c.SourceOutputBlinding,
-		DataHash:      frontend.Variable(0),
-		ZoneDataHash:  frontend.Variable(0),
-		ZoneProgramID: frontend.Variable(0),
-	}
-	sourceOutputHash := spp.UtxoHashCircuit(api, sourceOutput)
-
-	api.AssertIsDifferent(c.SourceAmount, 0)
-	api.AssertIsDifferent(c.DestinationAmount, 0)
-
-	inputHashes := []frontend.Variable{escrowHash, takerUtxoHash}
-	outputHashes := []frontend.Variable{sourceOutputHash, destinationOutputHash}
-	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
-
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, c.ExternalDataHash)
-	api.AssertIsEqual(privateTxHash, c.PrivateTxHash)
-
-	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{c.PrivateTxHash, c.Expiry})
-	api.AssertIsEqual(c.PublicInputHash, publicInputHash)
-	return nil
 }

@@ -39,13 +39,12 @@ fn sample_inputs() -> CreateProofInputs {
     source_input_hash[31] = 5;
     let mut change_blinding = [0u8; 32];
     change_blinding[31] = 6;
-    let mut marker_output_hash = [0u8; 32];
-    marker_output_hash[31] = 9;
+    let mut marker_owner_hash = [0u8; 32];
+    marker_owner_hash[31] = 9;
     let mut external_data_hash = [0u8; 32];
     external_data_hash[31] = 8;
 
     CreateProofInputs {
-        source_asset_id: 1,
         source_mint: [1u8; 32],
         source_amount: 1_000,
         escrow_authority,
@@ -61,7 +60,7 @@ fn sample_inputs() -> CreateProofInputs {
         source_input_hash,
         change_amount: 750,
         change_blinding,
-        marker_output_hash,
+        marker_owner_hash,
     }
 }
 

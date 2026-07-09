@@ -19,13 +19,13 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"sync"
 	"unsafe"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	fr "github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16_bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/consensys/gnark/constraint"
@@ -47,8 +47,6 @@ const (
 	CircuitFill                     = 3
 	CircuitFillVerifiableEncryption = 4
 )
-
-const publicInputWitnessName = "PublicInputHash"
 
 var (
 	cacheMu sync.RWMutex
@@ -98,20 +96,25 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 }
 
 func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circuit, error) {
+	var circuit frontend.Circuit
 	switch id {
 	case CircuitStub:
-		return witness.AssignStub(witnessValues)
+		circuit = &stub.Circuit{}
 	case CircuitCreate:
-		return witness.AssignCreate(witnessValues)
+		circuit = &create.Circuit{}
 	case CircuitCancel:
-		return witness.AssignCancel(witnessValues)
+		circuit = &cancel.Circuit{}
 	case CircuitFill:
-		return witness.AssignFill(witnessValues)
+		circuit = &fill.Circuit{}
 	case CircuitFillVerifiableEncryption:
-		return witness.AssignFillVerifiableEncryption(witnessValues)
+		circuit = &fill_verifiable_encryption.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}
+	if err := witness.Assign(circuit, witnessValues); err != nil {
+		return nil, err
+	}
+	return circuit, nil
 }
 
 func writeProvingKey(pk groth16.ProvingKey, path string) error {
@@ -307,22 +310,22 @@ func Prove(circuitID C.int, witnessJSON *C.char) (ret *C.C_ProveResult) {
 		}
 	}
 
-	pubVals, ok := witnessValues[publicInputWitnessName]
-	if !ok || len(pubVals) != 1 {
-		result.error = C.CString(fmt.Sprintf("witness: missing public input %q", publicInputWitnessName))
+	publicWitness, err := w.Public()
+	if err != nil {
+		result.error = C.CString(fmt.Sprintf("public witness: %v", err))
 		return result
 	}
-	var pubInputDecimal string
-	for _, v := range pubVals {
-		pubInputDecimal = v
-	}
-	pubInputValue, ok := new(big.Int).SetString(pubInputDecimal, 10)
+	publicVector, ok := publicWitness.Vector().(fr.Vector)
 	if !ok {
-		result.error = C.CString(fmt.Sprintf("witness: invalid decimal %q", pubInputDecimal))
+		result.error = C.CString(fmt.Sprintf("public witness: unexpected vector type %T", publicWitness.Vector()))
 		return result
 	}
-	pubInputBytes := pubInputValue.FillBytes(make([]byte, 32))
-	if err := copyBytes(&result.public_input[0], pubInputBytes); err != nil {
+	if len(publicVector) != 1 {
+		result.error = C.CString(fmt.Sprintf("public witness: expected 1 element, got %d", len(publicVector)))
+		return result
+	}
+	pubInputBytes := publicVector[0].Bytes()
+	if err := copyBytes(&result.public_input[0], pubInputBytes[:]); err != nil {
 		result.error = C.CString(err.Error())
 		return result
 	}

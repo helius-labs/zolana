@@ -28,29 +28,15 @@ use crate::{
     spp_program_meta, tag, CreateProof, MarkerData,
 };
 
-/// Wire layout for an order-lifecycle instruction's body: a Borsh proof-struct
-/// prefix (no enum tag byte), then the create-only `source_asset_id`, then the
-/// wincode-encoded `transact` bytes to the end. The two encodings are
-/// concatenated rather than nested because `TransactIxData` is wincode (not
-/// Borsh); keeping the `transact` bytes contiguous lets the program forward
-/// them to the SPP CPI verbatim without a re-serialization round trip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateSwapIxData {
     pub proof: CreateProof,
-    pub source_asset_id: u64,
-    pub maker_address: [u8; 65],
     pub transact: TransactIxData,
 }
 
 impl CreateSwapIxData {
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = borsh::to_vec(&self.proof).expect("CreateProof serialization is infallible");
-        data.extend_from_slice(
-            &borsh::to_vec(&self.source_asset_id).expect("u64 serialization is infallible"),
-        );
-        data.extend_from_slice(
-            &borsh::to_vec(&self.maker_address).expect("maker address serialization is infallible"),
-        );
         data.extend_from_slice(
             &self
                 .transact
@@ -65,21 +51,12 @@ pub fn create_swap(
     payer: Pubkey,
     spp_accounts: Vec<AccountMeta>,
     proof: CreateProof,
-    source_asset_id: u64,
-    maker_address: [u8; 65],
     mut transact: TransactIxData,
 ) -> Instruction {
-    // marker payload is rebuilt on-chain; clear it so it doesn't ship in the tx
     if let Some(marker) = transact.output_ciphertexts.last_mut() {
         marker.data = Vec::new();
     }
-    let data = CreateSwapIxData {
-        proof,
-        source_asset_id,
-        maker_address,
-        transact,
-    }
-    .serialize();
+    let data = CreateSwapIxData { proof, transact }.serialize();
     let mut accounts = vec![AccountMeta::new(payer, true)];
     accounts.extend(spp_accounts);
     let mut instruction_data = vec![tag::CREATE_SWAP];
@@ -105,7 +82,6 @@ pub struct CreateSwapProofInputs {
 impl CreateSwapProofInputs {
     pub fn create_proof_inputs(&self) -> Result<CreateProofInputs> {
         Ok(CreateProofInputs {
-            source_asset_id: self.terms.source_asset_id,
             source_mint: *self.source_mint.as_array(),
             source_amount: self.terms.source_amount,
             escrow_authority: *escrow_authority_pda().as_array(),
@@ -121,7 +97,7 @@ impl CreateSwapProofInputs {
             source_input_hash: self.source_input_hash,
             change_amount: self.change_amount,
             change_blinding: self.change_blinding,
-            marker_output_hash: self.marker_output_hash()?,
+            marker_owner_hash: self.taker_address.owner_hash().map_err(err)?,
         })
     }
 
@@ -294,40 +270,26 @@ fn input_sum(tx: &Transaction, asset: &Address) -> i128 {
 }
 
 pub struct CreateSwap {
-    pub inputs: CreateSwapProofInputs,
     pub payer: Pubkey,
     pub tree: Pubkey,
     pub proof: CreateProof,
     pub transact: TransactIxData,
-    pub source_asset_id: u64,
 }
 
 impl CreateSwap {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
-            inputs,
             payer,
             tree,
             proof,
             mut transact,
-            source_asset_id,
         } = self;
 
-        // marker payload is rebuilt on-chain; clear it so it doesn't ship in the tx
         if let Some(marker) = transact.output_ciphertexts.last_mut() {
             marker.data = Vec::new();
         }
 
-        let mut maker_address = [0u8; 65]; // TODO: refactor this it doesnt make sense
-        maker_address[0..32].copy_from_slice(&inputs.terms.destination.owner_hash().map_err(err)?);
-        maker_address[32..65].copy_from_slice(inputs.terms.destination.viewing_pubkey.as_bytes());
-        let data = CreateSwapIxData {
-            proof,
-            source_asset_id,
-            maker_address,
-            transact,
-        }
-        .serialize();
+        let data = CreateSwapIxData { proof, transact }.serialize();
 
         let accounts = vec![
             AccountMeta::new(payer, true),

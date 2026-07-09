@@ -7,10 +7,9 @@ use swap_program::instructions::{create_swap::CreateProof, shared::u64_to_field}
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
-    bytes_to_decimal_string, ffi, order_terms::OrderTerms, CircuitId, ProveOutput, WitnessBundle,
+    bytes_to_decimal_string, ffi, order_terms::OrderTerms, CircuitId, ProveOutput,
+    UtxoFieldElements, WitnessBundle,
 };
-
-pub const UTXO_DOMAIN: u64 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateError {
@@ -54,7 +53,6 @@ pub struct CreateProofResult {
 
 #[derive(Debug, Clone)]
 pub struct CreateProofInputs {
-    pub source_asset_id: u64,
     pub source_mint: [u8; 32],
     pub source_amount: u64,
     pub escrow_authority: [u8; 32],
@@ -70,7 +68,7 @@ pub struct CreateProofInputs {
     pub source_input_hash: [u8; 32],
     pub change_amount: u64,
     pub change_blinding: [u8; 32],
-    pub marker_output_hash: [u8; 32],
+    pub marker_owner_hash: [u8; 32],
 }
 
 fn poseidon(inputs: &[&[u8; 32]]) -> Result<[u8; 32], CreateError> {
@@ -111,28 +109,34 @@ impl CreateProofInputs {
         Ok(crate::asset_field(&self.destination_mint)?)
     }
 
-    fn escrow_owner(&self) -> Result<[u8; 32], CreateError> {
-        Ok(crate::escrow_owner_hash(&self.escrow_authority)?)
+    fn escrow(&self) -> Result<UtxoFieldElements, CreateError> {
+        Ok(UtxoFieldElements::plain(
+            crate::escrow_owner_hash(&self.escrow_authority)?,
+            self.source_asset()?,
+            self.source_amount,
+            self.escrow_blinding,
+            self.order_terms()?.data_hash()?,
+        ))
     }
 
-    fn escrow_hash(&self) -> Result<[u8; 32], CreateError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
-        let asset = self.source_asset()?;
-        let amount = u64_to_field(self.source_amount);
-        let data_hash = self.order_terms()?.data_hash()?;
-        let owner = self.escrow_owner()?;
+    fn change(&self) -> Result<UtxoFieldElements, CreateError> {
+        Ok(UtxoFieldElements::plain(
+            self.maker_owner_hash,
+            self.source_asset()?,
+            self.change_amount,
+            self.change_blinding,
+            [0u8; 32],
+        ))
+    }
 
-        let zero = [0u8; 32];
-        let owner_utxo_hash = poseidon(&[&owner, &self.escrow_blinding])?;
-        let zone_hash = poseidon(&[&zero, &zero])?;
-        poseidon(&[
-            &domain,
-            &asset,
-            &amount,
-            &data_hash,
-            &zone_hash,
-            &owner_utxo_hash,
-        ])
+    fn marker(&self) -> Result<UtxoFieldElements, CreateError> {
+        Ok(UtxoFieldElements::plain(
+            self.marker_owner_hash,
+            crate::asset_field(&[0u8; 32])?,
+            0,
+            [0u8; 32],
+            [0u8; 32],
+        ))
     }
 
     fn maker_address_fe(&self) -> Result<[u8; 32], CreateError> {
@@ -144,31 +148,16 @@ impl CreateProofInputs {
         if self.change_amount == 0 {
             return Ok([0u8; 32]);
         }
-        let domain = u64_to_field(UTXO_DOMAIN);
-        let asset = self.source_asset()?;
-        let amount = u64_to_field(self.change_amount);
-        let zero = [0u8; 32];
-        let owner_utxo_hash = poseidon(&[&self.maker_owner_hash, &self.change_blinding])?;
-        let zone_hash = poseidon(&[&zero, &zero])?;
-        poseidon(&[
-            &domain,
-            &asset,
-            &amount,
-            &zero,
-            &zone_hash,
-            &owner_utxo_hash,
-        ])
+        Ok(self.change()?.hash()?)
     }
 
-    fn private_tx_hash(&self, escrow_hash: &[u8; 32]) -> Result<[u8; 32], CreateError> {
-        // Position-sensitive chains over the full 2x3 padded arity: one dummy input
-        // contributes 0, outputs are [change, escrow, marker], addresses are two zeros.
+    fn private_tx_hash(
+        &self,
+        escrow_hash: &[u8; 32],
+        marker_hash: &[u8; 32],
+    ) -> Result<[u8; 32], CreateError> {
         let input_chain = hash_chain(&[self.source_input_hash, [0u8; 32]])?;
-        let output_chain = hash_chain(&[
-            self.change_output_hash()?,
-            *escrow_hash,
-            self.marker_output_hash,
-        ])?;
+        let output_chain = hash_chain(&[self.change_output_hash()?, *escrow_hash, *marker_hash])?;
         let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
         poseidon(&[
             &input_chain,
@@ -179,62 +168,57 @@ impl CreateProofInputs {
     }
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], CreateError> {
-        let escrow_hash = self.escrow_hash()?;
-        let private_tx_hash = self.private_tx_hash(&escrow_hash)?;
-        let source_asset_id = u64_to_field(self.source_asset_id);
-        let maker_address_fe = self.maker_address_fe()?;
-        poseidon(&[&private_tx_hash, &source_asset_id, &maker_address_fe])
+        let escrow_hash = self.escrow()?.hash()?;
+        let marker_hash = self.marker()?.hash()?;
+        self.private_tx_hash(&escrow_hash, &marker_hash)
     }
 
     fn witness(&self) -> Result<WitnessBundle, CreateError> {
-        let escrow_hash = self.escrow_hash()?;
-        let private_tx_hash = self.private_tx_hash(&escrow_hash)?;
-        let source_asset_id = u64_to_field(self.source_asset_id);
-        let maker_address_fe = self.maker_address_fe()?;
-        let public_input_hash = poseidon(&[&private_tx_hash, &source_asset_id, &maker_address_fe])?;
+        let escrow = self.escrow()?;
+        let change = self.change()?;
+        let marker = self.marker()?;
+        let escrow_hash = escrow.hash()?;
+        let marker_hash = marker.hash()?;
+        let private_tx_hash = self.private_tx_hash(&escrow_hash, &marker_hash)?;
 
-        let entries: [(&str, [u8; 32]); 18] = [
-            ("PublicInputHash", public_input_hash),
+        let scalars: [(&str, [u8; 32]); 9] = [
             ("PrivateTxHash", private_tx_hash),
-            ("SourceAssetId", source_asset_id),
-            ("SourceAsset", self.source_asset()?),
-            ("EscrowOwner", self.escrow_owner()?),
-            ("SourceAmount", u64_to_field(self.source_amount)),
-            ("EscrowBlinding", self.escrow_blinding),
-            ("DestinationAsset", self.destination_asset()?),
-            ("DestinationAmount", u64_to_field(self.destination_amount)),
-            ("MakerOwnerHash", self.maker_owner_hash),
-            ("Expiry", u64_to_field(self.expiry)),
-            ("TakerPkFe", self.taker_pk_fe),
-            ("FillMode", u64_to_field(self.fill_mode)),
-            ("ExternalDataHash", self.external_data_hash),
+            ("Order_DestinationAsset", self.destination_asset()?),
+            ("Order_DestinationAmount", u64_to_field(self.destination_amount)),
+            ("Order_MakerOwnerHash", self.maker_owner_hash),
+            ("Order_Expiry", u64_to_field(self.expiry)),
+            ("Order_TakerPkFe", self.taker_pk_fe),
+            ("Order_FillMode", u64_to_field(self.fill_mode)),
             ("SourceInputHash", self.source_input_hash),
-            ("ChangeAmount", u64_to_field(self.change_amount)),
-            ("ChangeBlinding", self.change_blinding),
-            ("MarkerOutputHash", self.marker_output_hash),
+            ("ExternalDataHash", self.external_data_hash),
         ];
 
         let mut map = HashMap::new();
-        for (key, value) in entries.iter() {
+        for (key, value) in scalars.iter() {
             map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
         }
+        for (key, value) in escrow
+            .witness_entries("Escrow")
+            .into_iter()
+            .chain(change.witness_entries("Change"))
+            .chain(marker.witness_entries("Marker"))
+        {
+            map.insert(key, value);
+        }
         map.insert(
-            "MakerViewingPk".to_string(),
-            self.maker_viewing_pk
-                .iter()
-                .map(|b| b.to_string())
-                .collect(),
+            "Order_MakerViewingPk".to_string(),
+            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
         );
 
         Ok(WitnessBundle {
             witness: map,
-            public_input_hash,
+            public_input_hash: private_tx_hash,
             private_tx_hash,
         })
     }
 
     pub fn prove(&self) -> Result<CreateProofResult, CreateError> {
-        let escrow_hash = self.escrow_hash()?;
+        let escrow_hash = self.escrow()?.hash()?;
         let WitnessBundle {
             witness,
             public_input_hash,

@@ -4,6 +4,7 @@ pub mod ffi;
 pub mod fill;
 pub mod fill_verifiable_encryption;
 pub mod order_terms;
+pub mod utxo;
 
 use std::collections::HashMap;
 
@@ -20,6 +21,7 @@ pub use fill_verifiable_encryption::{
 };
 use num_bigint::BigUint;
 pub use order_terms::{OrderTerms, FILL_MODE_DERIVED, FILL_MODE_VERIFIABLE};
+pub use utxo::UtxoFieldElements;
 use zolana_keypair::{
     constants::BLINDING_LEN,
     hash::{hash_field, poseidon},

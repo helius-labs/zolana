@@ -3,244 +3,83 @@ package witness
 import (
 	"fmt"
 	"math/big"
+	"reflect"
 
 	"github.com/consensys/gnark/frontend"
-
-	"circuits/cancel"
-	"circuits/create"
-	"circuits/fill"
-	"circuits/fill_verifiable_encryption"
-	"circuits/stub"
 )
 
-func AssignStub(witnessValues map[string][]string) (frontend.Circuit, error) {
-	c := &stub.Circuit{}
-
-	fieldAssignments := []struct {
-		key string
-		dst *frontend.Variable
-	}{
-		{"PublicInputHash", &c.PublicInputHash},
-		{"A", &c.A},
-		{"B", &c.B},
+func Assign(circuit frontend.Circuit, witnessValues map[string][]string) error {
+	v := reflect.ValueOf(circuit)
+	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("witness: circuit must be a pointer to struct, got %T", circuit)
 	}
 
-	known := make(map[string]bool, len(fieldAssignments))
-	for _, field := range fieldAssignments {
-		v, err := singleField(witnessValues, field.key)
-		if err != nil {
-			return nil, err
-		}
-		*field.dst = v
-		known[field.key] = true
+	known := make(map[string]bool, len(witnessValues))
+	if err := assignStruct(v.Elem(), "", witnessValues, known); err != nil {
+		return err
 	}
-
-	if err := checkUnexpected(witnessValues, known); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return checkUnexpected(witnessValues, known)
 }
 
-func AssignCreate(witnessValues map[string][]string) (frontend.Circuit, error) {
-	c := &create.Circuit{}
-
-	fieldAssignments := []struct {
-		key string
-		dst *frontend.Variable
-	}{
-		{"PublicInputHash", &c.PublicInputHash},
-		{"PrivateTxHash", &c.PrivateTxHash},
-		{"SourceAssetId", &c.SourceAssetId},
-		{"SourceAsset", &c.SourceAsset},
-		{"EscrowOwner", &c.EscrowOwner},
-		{"SourceAmount", &c.SourceAmount},
-		{"EscrowBlinding", &c.EscrowBlinding},
-		{"DestinationAsset", &c.DestinationAsset},
-		{"DestinationAmount", &c.DestinationAmount},
-		{"MakerOwnerHash", &c.MakerOwnerHash},
-		{"Expiry", &c.Expiry},
-		{"TakerPkFe", &c.TakerPkFe},
-		{"FillMode", &c.FillMode},
-		{"ExternalDataHash", &c.ExternalDataHash},
-		{"SourceInputHash", &c.SourceInputHash},
-		{"ChangeAmount", &c.ChangeAmount},
-		{"ChangeBlinding", &c.ChangeBlinding},
-		{"MarkerOutputHash", &c.MarkerOutputHash},
-	}
-
-	known := make(map[string]bool, len(fieldAssignments)+1)
-	for _, field := range fieldAssignments {
-		v, err := singleField(witnessValues, field.key)
-		if err != nil {
-			return nil, err
+func assignStruct(v reflect.Value, prefix string, witnessValues map[string][]string, known map[string]bool) error {
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if sf.PkgPath != "" {
+			continue
 		}
-		*field.dst = v
-		known[field.key] = true
-	}
 
-	if err := assignArray(witnessValues, "MakerViewingPk", c.MakerViewingPk[:]); err != nil {
-		return nil, err
-	}
-	known["MakerViewingPk"] = true
+		key := sf.Name
+		if prefix != "" {
+			key = prefix + "_" + sf.Name
+		}
 
-	if err := checkUnexpected(witnessValues, known); err != nil {
-		return nil, err
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Struct:
+			if err := assignStruct(field, key, witnessValues, known); err != nil {
+				return err
+			}
+		case reflect.Array:
+			if err := assignArrayField(witnessValues, key, field); err != nil {
+				return err
+			}
+			known[key] = true
+		case reflect.Interface:
+			if err := assignScalarField(witnessValues, key, field); err != nil {
+				return err
+			}
+			known[key] = true
+		default:
+			return fmt.Errorf("witness: field %q has unsupported kind %s", key, field.Kind())
+		}
 	}
-	return c, nil
+	return nil
 }
 
-func AssignCancel(witnessValues map[string][]string) (frontend.Circuit, error) {
-	c := &cancel.Circuit{}
-
-	fieldAssignments := []struct {
-		key string
-		dst *frontend.Variable
-	}{
-		{"PublicInputHash", &c.PublicInputHash},
-		{"PrivateTxHash", &c.PrivateTxHash},
-		{"Expiry", &c.Expiry},
-		{"SourceAsset", &c.SourceAsset},
-		{"EscrowOwner", &c.EscrowOwner},
-		{"SourceAmount", &c.SourceAmount},
-		{"EscrowBlinding", &c.EscrowBlinding},
-		{"DestinationAsset", &c.DestinationAsset},
-		{"DestinationAmount", &c.DestinationAmount},
-		{"MakerOwnerHash", &c.MakerOwnerHash},
-		{"MakerOwnerPkField", &c.MakerOwnerPkField},
-		{"MakerNullifierPk", &c.MakerNullifierPk},
-		{"TakerPkFe", &c.TakerPkFe},
-		{"FillMode", &c.FillMode},
-		{"SourceOutputBlinding", &c.SourceOutputBlinding},
-		{"ExternalDataHash", &c.ExternalDataHash},
+func assignScalarField(witnessValues map[string][]string, key string, dst reflect.Value) error {
+	n, err := singleBigInt(witnessValues, key)
+	if err != nil {
+		return err
 	}
-
-	known := make(map[string]bool, len(fieldAssignments)+1)
-	for _, field := range fieldAssignments {
-		v, err := singleField(witnessValues, field.key)
-		if err != nil {
-			return nil, err
-		}
-		*field.dst = v
-		known[field.key] = true
-	}
-
-	if err := assignArray(witnessValues, "MakerViewingPk", c.MakerViewingPk[:]); err != nil {
-		return nil, err
-	}
-	known["MakerViewingPk"] = true
-
-	if err := checkUnexpected(witnessValues, known); err != nil {
-		return nil, err
-	}
-	return c, nil
+	dst.Set(reflect.ValueOf(frontend.Variable(n)))
+	return nil
 }
 
-func AssignFill(witnessValues map[string][]string) (frontend.Circuit, error) {
-	c := &fill.Circuit{}
-
-	fieldAssignments := []struct {
-		key string
-		dst *frontend.Variable
-	}{
-		{"PublicInputHash", &c.PublicInputHash},
-		{"PrivateTxHash", &c.PrivateTxHash},
-		{"Expiry", &c.Expiry},
-		{"SourceAsset", &c.SourceAsset},
-		{"DestinationAsset", &c.DestinationAsset},
-		{"EscrowOwner", &c.EscrowOwner},
-		{"SourceAmount", &c.SourceAmount},
-		{"EscrowBlinding", &c.EscrowBlinding},
-		{"DestinationAmount", &c.DestinationAmount},
-		{"MakerOwnerHash", &c.MakerOwnerHash},
-		{"TakerPkFe", &c.TakerPkFe},
-		{"TakerAddress", &c.TakerAddress},
-		{"TakerInBlinding", &c.TakerInBlinding},
-		{"SourceOutputBlinding", &c.SourceOutputBlinding},
-		{"ExternalDataHash", &c.ExternalDataHash},
-	}
-
-	known := make(map[string]bool, len(fieldAssignments)+1)
-	for _, field := range fieldAssignments {
-		v, err := singleField(witnessValues, field.key)
-		if err != nil {
-			return nil, err
-		}
-		*field.dst = v
-		known[field.key] = true
-	}
-
-	if err := assignArray(witnessValues, "MakerViewingPk", c.MakerViewingPk[:]); err != nil {
-		return nil, err
-	}
-	known["MakerViewingPk"] = true
-
-	if err := checkUnexpected(witnessValues, known); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-func AssignFillVerifiableEncryption(witnessValues map[string][]string) (frontend.Circuit, error) {
-	c := &fill_verifiable_encryption.Circuit{}
-
-	fieldAssignments := []struct {
-		key string
-		dst *frontend.Variable
-	}{
-		{"PublicInputHash", &c.PublicInputHash},
-		{"PrivateTxHash", &c.PrivateTxHash},
-		{"Expiry", &c.Expiry},
-		{"SourceAsset", &c.SourceAsset},
-		{"DestinationAsset", &c.DestinationAsset},
-		{"EscrowOwner", &c.EscrowOwner},
-		{"SourceAmount", &c.SourceAmount},
-		{"EscrowBlinding", &c.EscrowBlinding},
-		{"DestinationAmount", &c.DestinationAmount},
-		{"MakerOwnerHash", &c.MakerOwnerHash},
-		{"TakerPkFe", &c.TakerPkFe},
-		{"TakerNullifierPk", &c.TakerNullifierPk},
-		{"TakerAddress", &c.TakerAddress},
-		{"TakerInBlinding", &c.TakerInBlinding},
-		{"DestinationOutputBlinding", &c.DestinationOutputBlinding},
-		{"SourceOutputBlinding", &c.SourceOutputBlinding},
-		{"ExternalDataHash", &c.ExternalDataHash},
-	}
-
-	known := make(map[string]bool, len(fieldAssignments)+1)
-	for _, field := range fieldAssignments {
-		v, err := singleField(witnessValues, field.key)
-		if err != nil {
-			return nil, err
-		}
-		*field.dst = v
-		known[field.key] = true
-	}
-
-	if err := assignArray(witnessValues, "MakerViewingPk", c.MakerViewingPk[:]); err != nil {
-		return nil, err
-	}
-	known["MakerViewingPk"] = true
-
-	if err := checkUnexpected(witnessValues, known); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-func assignArray(witnessValues map[string][]string, key string, dst []frontend.Variable) error {
+func assignArrayField(witnessValues map[string][]string, key string, dst reflect.Value) error {
 	vals, ok := witnessValues[key]
 	if !ok {
 		return fmt.Errorf("witness: missing key %q", key)
 	}
-	if len(vals) != len(dst) {
-		return fmt.Errorf("witness: key %q expected %d values, got %d", key, len(dst), len(vals))
+	if len(vals) != dst.Len() {
+		return fmt.Errorf("witness: key %q expected %d values, got %d", key, dst.Len(), len(vals))
 	}
 	for i, raw := range vals {
 		n, ok := new(big.Int).SetString(raw, 10)
 		if !ok {
 			return fmt.Errorf("witness: key %q[%d] invalid decimal %q", key, i, raw)
 		}
-		dst[i] = frontend.Variable(n)
+		dst.Index(i).Set(reflect.ValueOf(frontend.Variable(n)))
 	}
 	return nil
 }
@@ -252,14 +91,6 @@ func checkUnexpected(witnessValues map[string][]string, known map[string]bool) e
 		}
 	}
 	return nil
-}
-
-func singleField(witnessValues map[string][]string, key string) (frontend.Variable, error) {
-	n, err := singleBigInt(witnessValues, key)
-	if err != nil {
-		return nil, err
-	}
-	return frontend.Variable(n), nil
 }
 
 func singleBigInt(witnessValues map[string][]string, key string) (*big.Int, error) {

@@ -31,15 +31,10 @@ fn fe(byte: u8) -> [u8; 32] {
     out
 }
 
-fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
+fn build_create_transact() -> (TransactIxData, CreateProof) {
     let assets = AssetRegistry::default();
 
     let maker = ShieldedKeypair::from_seed_ed25519(&fe(0x51)).expect("maker keypair");
-    let maker_owner_hash = maker.owner_hash().expect("maker owner hash");
-    let maker_viewing_pk = *maker.viewing_pubkey().as_bytes();
-    let mut maker_address = [0u8; 65];
-    maker_address[0..32].copy_from_slice(&maker_owner_hash);
-    maker_address[32..65].copy_from_slice(&maker_viewing_pk);
     let taker = ShieldedKeypair::from_seed_ed25519(&fe(0x4d)).expect("taker keypair");
     let taker_recipient = taker.shielded_address().expect("taker address");
 
@@ -135,13 +130,12 @@ fn build_create_transact() -> (TransactIxData, CreateProof, [u8; 65]) {
         proof_b: [0u8; 64],
         proof_c: [0u8; 32],
     };
-    (transact, create_proof, maker_address)
+    (transact, create_proof)
 }
 
 fn create_instruction(
     transact: TransactIxData,
     create_proof: CreateProof,
-    maker_address: [u8; 65],
 ) -> (Instruction, Pubkey) {
     let maker_solana = Keypair::new();
     let tree = Pubkey::new_from_array([3u8; 32]);
@@ -150,14 +144,7 @@ fn create_instruction(
         AccountMeta::new(tree, false),
         AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
     ];
-    let ix = create_swap(
-        maker_solana.pubkey(),
-        spp_accounts,
-        create_proof,
-        SOL_ASSET_ID,
-        maker_address,
-        transact,
-    );
+    let ix = create_swap(maker_solana.pubkey(), spp_accounts, create_proof, transact);
     (ix, maker_solana.pubkey())
 }
 
@@ -189,7 +176,7 @@ fn v0_alt_size(ix: &Instruction, payer: &Pubkey, alt: &AddressLookupTableAccount
 
 #[test]
 fn create_tx_size_breakdown() {
-    let (transact, create_proof, maker_address) = build_create_transact();
+    let (transact, create_proof) = build_create_transact();
 
     let n_ciphertexts = transact.output_ciphertexts.len();
     let slot_lens: Vec<usize> = transact
@@ -200,14 +187,12 @@ fn create_tx_size_breakdown() {
     let transact_len = transact.serialize().expect("serialize transact").len();
     let ix_data_len = CreateSwapIxData {
         proof: create_proof,
-        source_asset_id: SOL_ASSET_ID,
-        maker_address,
         transact: transact.clone(),
     }
     .serialize()
     .len();
 
-    let (ix, payer) = create_instruction(transact, create_proof, maker_address);
+    let (ix, payer) = create_instruction(transact, create_proof);
     let ix_total_data = ix.data.len();
     let n_accounts = ix.accounts.len();
     let legacy = legacy_size(&ix, &payer, 1);

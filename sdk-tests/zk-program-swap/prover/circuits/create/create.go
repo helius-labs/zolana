@@ -10,9 +10,9 @@ import (
 )
 
 type Circuit struct {
-	Public PublicInputs
+	PrivateTxHash frontend.Variable `gnark:",public"`
 
-	Order OrderTerms
+	Order orderterms.OrderTerms
 
 	Escrow spp.UtxoCircuitFields
 	Change spp.UtxoCircuitFields
@@ -36,54 +36,10 @@ func (c *Circuit) Define(api frontend.API) error {
 		EscrowOutputUtxoHash: escrowOutputUtxoHash,
 		MarkerOutputUtxoHash: markerOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
-		PrivateTxHash:        c.Public.PrivateTxHash,
+		PrivateTxHash:        c.PrivateTxHash,
 	}.Check(api)
 
-	c.Public.Check(api, makerAddressFe)
 	return nil
-}
-
-type OrderTerms struct {
-	DestinationAsset  frontend.Variable
-	DestinationAmount frontend.Variable
-	MakerOwnerHash    frontend.Variable
-	MakerViewingPk    [33]frontend.Variable
-	Expiry            frontend.Variable
-	TakerPkFe         frontend.Variable
-	FillMode          frontend.Variable
-}
-
-func (o OrderTerms) Check(api frontend.API) {
-	api.AssertIsDifferent(o.DestinationAmount, 0)
-	api.ToBinary(o.DestinationAmount, 64)
-	api.AssertIsBoolean(o.FillMode)
-}
-
-func (o OrderTerms) MakerAddressFE(api frontend.API) frontend.Variable {
-	return orderterms.MakerAddressFE(api, o.MakerOwnerHash, o.MakerViewingPk)
-}
-
-func (o OrderTerms) DataHash(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
-	return gadget.PoseidonHash(api, []frontend.Variable{
-		o.DestinationAsset,
-		o.DestinationAmount,
-		makerAddressFe,
-		o.Expiry,
-		o.TakerPkFe,
-		o.FillMode,
-	})
-}
-
-type PublicInputs struct {
-	PublicInputHash frontend.Variable `gnark:",public"`
-
-	PrivateTxHash frontend.Variable
-	SourceMint    frontend.Variable
-}
-
-func (p PublicInputs) Check(api frontend.API, makerAddressFe frontend.Variable) {
-	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{p.PrivateTxHash, p.SourceMint, makerAddressFe})
-	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
 type privateTxHashInputs struct {

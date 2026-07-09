@@ -6,7 +6,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::SwapError,
-    instructions::{create_swap::verify::CreatePublicInput, shared::cpi_spp_transact},
+    instructions::{create_swap::verify::verify_create_zk_proof, shared::cpi_spp_transact},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -33,19 +33,10 @@ pub fn process_create_swap(accounts: &mut [AccountView], data: &[u8]) -> Program
     let mut cursor = data;
     let proof =
         CreateProof::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
-    let source_asset_id =
-        u64::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
-    let maker_address =
-        <[u8; 65]>::deserialize(&mut cursor).map_err(|_| SwapError::InvalidInstructionData)?;
     let mut transact =
         TransactIxData::deserialize(cursor).map_err(|_| SwapError::InvalidInstructionData)?;
 
-    CreatePublicInput {
-        private_tx_hash: &transact.private_tx_hash,
-        source_asset_id,
-        maker_address: &maker_address,
-    }
-    .verify(&proof)?;
+    verify_create_zk_proof(&proof, transact.private_tx_hash)?;
 
     let escrow_utxo_hash = *transact
         .output_utxo_hashes

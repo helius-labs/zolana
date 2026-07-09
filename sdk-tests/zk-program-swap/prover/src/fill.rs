@@ -5,11 +5,9 @@ use swap_program::instructions::{fill::FillProof, shared::u64_to_field};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{
-    bytes_to_decimal_string, create::gnark_proof_to_wire, ffi, order_terms::OrderTerms, CircuitId,
-    OrderProof, WitnessBundle,
+    bytes_to_decimal_string, create::gnark_proof_to_wire, ffi, order_terms::OrderTerms,
+    utxo::UtxoFieldElements, CircuitId, OrderProof,
 };
-
-pub const UTXO_DOMAIN: u64 = 1;
 
 pub const DESTINATION_BLINDING_DOMAIN: u64 = 0x46494C4C44455256;
 
@@ -108,25 +106,22 @@ fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], FillError> {
     Ok(acc)
 }
 
-fn plain_utxo_hash(
-    domain: &[u8; 32],
-    asset: &[u8; 32],
-    amount: &[u8; 32],
-    data_hash: &[u8; 32],
-    owner: &[u8; 32],
-    blinding: &[u8; 32],
-) -> Result<[u8; 32], FillError> {
-    let zero = [0u8; 32];
-    let owner_utxo_hash = poseidon(&[owner, blinding])?;
-    let zone_hash = poseidon(&[&zero, &zero])?;
-    poseidon(&[
-        domain,
-        asset,
-        amount,
-        data_hash,
-        &zone_hash,
-        &owner_utxo_hash,
-    ])
+struct FillUtxos {
+    escrow: UtxoFieldElements,
+    taker_in: UtxoFieldElements,
+    source_output: UtxoFieldElements,
+    destination_output: UtxoFieldElements,
+}
+
+struct FillDerivation {
+    utxos: FillUtxos,
+    escrow_hash: [u8; 32],
+    taker_utxo_hash: [u8; 32],
+    source_output_hash: [u8; 32],
+    destination_output_hash: [u8; 32],
+    private_tx_hash: [u8; 32],
+    public_input_hash: [u8; 32],
+    destination_output_blinding: [u8; 32],
 }
 
 impl FillProofInputs {
@@ -160,71 +155,50 @@ impl FillProofInputs {
         Ok(derive_destination_blinding(&self.escrow_blinding)?)
     }
 
-    fn escrow_hash(&self) -> Result<[u8; 32], FillError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
-        plain_utxo_hash(
-            &domain,
-            &self.source_asset()?,
-            &u64_to_field(self.source_amount),
-            &self.order_terms()?.data_hash()?,
-            &self.escrow_owner()?,
-            &self.escrow_blinding,
-        )
-    }
-
-    fn taker_utxo_hash(&self) -> Result<[u8; 32], FillError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
+    fn utxos(&self, destination_output_blinding: &[u8; 32]) -> Result<FillUtxos, FillError> {
+        let source_asset = self.source_asset()?;
+        let destination_asset = self.destination_asset()?;
+        let data_hash = self.order_terms()?.data_hash()?;
         let zero = [0u8; 32];
-        plain_utxo_hash(
-            &domain,
-            &self.destination_asset()?,
-            &u64_to_field(self.destination_amount),
-            &zero,
-            &self.taker_address,
-            &self.taker_in_blinding,
-        )
-    }
 
-    fn destination_output_hash_for(
-        &self,
-        amount: u64,
-        owner: &[u8; 32],
-        blinding: &[u8; 32],
-    ) -> Result<[u8; 32], FillError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
-        let zero = [0u8; 32];
-        plain_utxo_hash(
-            &domain,
-            &self.destination_asset()?,
-            &u64_to_field(amount),
-            &zero,
-            owner,
-            blinding,
-        )
-    }
-
-    fn destination_output_hash(&self) -> Result<[u8; 32], FillError> {
-        self.destination_output_hash_for(
+        let escrow = UtxoFieldElements::plain(
+            self.escrow_owner()?,
+            source_asset,
+            self.source_amount,
+            self.escrow_blinding,
+            data_hash,
+        );
+        let taker_in = UtxoFieldElements::plain(
+            self.taker_address,
+            destination_asset,
             self.destination_amount,
-            &self.maker_owner_hash,
-            &self.destination_output_blinding()?,
-        )
+            self.taker_in_blinding,
+            zero,
+        );
+        let source_output = UtxoFieldElements::plain(
+            self.taker_address,
+            source_asset,
+            self.source_amount,
+            self.source_output_blinding,
+            zero,
+        );
+        let destination_output = UtxoFieldElements::plain(
+            self.maker_owner_hash,
+            destination_asset,
+            self.destination_amount,
+            *destination_output_blinding,
+            zero,
+        );
+
+        Ok(FillUtxos {
+            escrow,
+            taker_in,
+            source_output,
+            destination_output,
+        })
     }
 
-    fn source_output_hash(&self) -> Result<[u8; 32], FillError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
-        let zero = [0u8; 32];
-        plain_utxo_hash(
-            &domain,
-            &self.source_asset()?,
-            &u64_to_field(self.source_amount),
-            &zero,
-            &self.taker_address,
-            &self.source_output_blinding,
-        )
-    }
-
-    fn private_tx_hash_for(
+    fn private_tx_hash(
         &self,
         escrow_hash: &[u8; 32],
         taker_utxo_hash: &[u8; 32],
@@ -242,148 +216,112 @@ impl FillProofInputs {
         ])
     }
 
-    pub fn public_input_hash(&self) -> Result<[u8; 32], FillError> {
-        let escrow_hash = self.escrow_hash()?;
-        let taker_utxo_hash = self.taker_utxo_hash()?;
-        let source_output_hash = self.source_output_hash()?;
-        let destination_output_hash = self.destination_output_hash()?;
-        let private_tx_hash = self.private_tx_hash_for(
+    fn derive(&self, destination_output_blinding: &[u8; 32]) -> Result<FillDerivation, FillError> {
+        let utxos = self.utxos(destination_output_blinding)?;
+        let escrow_hash = utxos.escrow.hash()?;
+        let taker_utxo_hash = utxos.taker_in.hash()?;
+        let source_output_hash = utxos.source_output.hash()?;
+        let destination_output_hash = utxos.destination_output.hash()?;
+        let private_tx_hash = self.private_tx_hash(
             &escrow_hash,
             &taker_utxo_hash,
             &source_output_hash,
             &destination_output_hash,
         )?;
         let expiry = u64_to_field(self.expiry);
-        poseidon(&[&private_tx_hash, &expiry])
+        let public_input_hash = poseidon(&[&private_tx_hash, &expiry])?;
+        Ok(FillDerivation {
+            utxos,
+            escrow_hash,
+            taker_utxo_hash,
+            source_output_hash,
+            destination_output_hash,
+            private_tx_hash,
+            public_input_hash,
+            destination_output_blinding: *destination_output_blinding,
+        })
+    }
+
+    pub fn public_input_hash(&self) -> Result<[u8; 32], FillError> {
+        Ok(self.derive(&self.destination_output_blinding()?)?.public_input_hash)
     }
 
     fn witness_map(
         &self,
-        public_input_hash: &[u8; 32],
-        private_tx_hash: &[u8; 32],
+        derived: &FillDerivation,
     ) -> Result<HashMap<String, Vec<String>>, FillError> {
-        let entries: [(&str, [u8; 32]); 15] = [
-            ("PublicInputHash", *public_input_hash),
-            ("PrivateTxHash", *private_tx_hash),
-            ("Expiry", u64_to_field(self.expiry)),
-            ("SourceAsset", self.source_asset()?),
-            ("DestinationAsset", self.destination_asset()?),
-            ("EscrowOwner", self.escrow_owner()?),
-            ("SourceAmount", u64_to_field(self.source_amount)),
-            ("EscrowBlinding", self.escrow_blinding),
-            ("DestinationAmount", u64_to_field(self.destination_amount)),
-            ("MakerOwnerHash", self.maker_owner_hash),
-            ("TakerPkFe", self.taker_pk_fe),
-            ("TakerAddress", self.taker_address),
-            ("TakerInBlinding", self.taker_in_blinding),
-            ("SourceOutputBlinding", self.source_output_blinding),
-            ("ExternalDataHash", self.external_data_hash),
-        ];
-
         let mut map = HashMap::new();
-        for (key, value) in entries.iter() {
+        for utxo_entries in [
+            derived.utxos.escrow.witness_entries("Core_Escrow"),
+            derived.utxos.taker_in.witness_entries("Core_TakerIn"),
+            derived.utxos.source_output.witness_entries("Core_SourceOutput"),
+            derived
+                .utxos
+                .destination_output
+                .witness_entries("Core_DestinationOutput"),
+        ] {
+            for (key, value) in utxo_entries {
+                map.insert(key, value);
+            }
+        }
+
+        let scalars: [(&str, [u8; 32]); 9] = [
+            ("Public_PublicInputHash", derived.public_input_hash),
+            ("Public_PrivateTxHash", derived.private_tx_hash),
+            ("Core_Order_DestinationAsset", self.destination_asset()?),
+            (
+                "Core_Order_DestinationAmount",
+                u64_to_field(self.destination_amount),
+            ),
+            ("Core_Order_MakerOwnerHash", self.maker_owner_hash),
+            ("Core_Order_Expiry", u64_to_field(self.expiry)),
+            ("Core_Order_TakerPkFe", self.taker_pk_fe),
+            (
+                "Core_Order_FillMode",
+                u64_to_field(crate::order_terms::FILL_MODE_DERIVED),
+            ),
+            ("Core_ExternalDataHash", self.external_data_hash),
+        ];
+        for (key, value) in scalars.iter() {
             map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
         }
         map.insert(
-            "MakerViewingPk".to_string(),
-            self.maker_viewing_pk
-                .iter()
-                .map(|b| b.to_string())
-                .collect(),
+            "Core_Order_MakerViewingPk".to_string(),
+            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
         );
+
         Ok(map)
     }
 
-    fn witness(&self) -> Result<(WitnessBundle, FillHashes), FillError> {
-        let hashes = self.hashes()?;
-        let private_tx_hash = self.private_tx_hash_for(
-            &hashes.escrow_hash,
-            &hashes.taker_utxo_hash,
-            &hashes.source_output_hash,
-            &hashes.destination_output_hash,
-        )?;
-        let expiry = u64_to_field(self.expiry);
-        let public_input_hash = poseidon(&[&private_tx_hash, &expiry])?;
-        let witness = self.witness_map(&public_input_hash, &private_tx_hash)?;
-        Ok((
-            WitnessBundle {
-                witness,
-                public_input_hash,
-                private_tx_hash,
-            },
-            hashes,
-        ))
-    }
-
-    fn hashes(&self) -> Result<FillHashes, FillError> {
-        Ok(FillHashes {
-            escrow_hash: self.escrow_hash()?,
-            taker_utxo_hash: self.taker_utxo_hash()?,
-            destination_output_hash: self.destination_output_hash()?,
-            source_output_hash: self.source_output_hash()?,
-        })
-    }
-
-    pub fn prove(&self) -> Result<FillProofResult, FillError> {
-        let (bundle, hashes) = self.witness()?;
-        let WitnessBundle {
-            witness,
-            public_input_hash,
-            private_tx_hash,
-        } = bundle;
+    fn prove_with_derivation(
+        &self,
+        derived: &FillDerivation,
+    ) -> Result<FillProofResult, FillError> {
+        let witness = self.witness_map(derived)?;
         let out = ffi::prove(CircuitId::Fill, &witness)?;
         let proof = gnark_proof_to_wire(&out)?;
         Ok(FillProofResult {
             proof,
-            public_input_hash,
-            private_tx_hash,
-            escrow_hash: hashes.escrow_hash,
-            taker_utxo_hash: hashes.taker_utxo_hash,
-            destination_output_hash: hashes.destination_output_hash,
-            source_output_hash: hashes.source_output_hash,
-            destination_output_blinding: self.destination_output_blinding()?,
+            public_input_hash: derived.public_input_hash,
+            private_tx_hash: derived.private_tx_hash,
+            escrow_hash: derived.escrow_hash,
+            taker_utxo_hash: derived.taker_utxo_hash,
+            destination_output_hash: derived.destination_output_hash,
+            source_output_hash: derived.source_output_hash,
+            destination_output_blinding: derived.destination_output_blinding,
         })
+    }
+
+    pub fn prove(&self) -> Result<FillProofResult, FillError> {
+        let derived = self.derive(&self.destination_output_blinding()?)?;
+        self.prove_with_derivation(&derived)
     }
 
     pub fn prove_with_destination_output_blinding(
         &self,
         blinding: &[u8; 32],
     ) -> Result<FillProofResult, FillError> {
-        let escrow_hash = self.escrow_hash()?;
-        let taker_utxo_hash = self.taker_utxo_hash()?;
-        let source_output_hash = self.source_output_hash()?;
-        let destination_output_hash = self.destination_output_hash_for(
-            self.destination_amount,
-            &self.maker_owner_hash,
-            blinding,
-        )?;
-        let private_tx_hash = self.private_tx_hash_for(
-            &escrow_hash,
-            &taker_utxo_hash,
-            &source_output_hash,
-            &destination_output_hash,
-        )?;
-        let expiry = u64_to_field(self.expiry);
-        let public_input_hash = poseidon(&[&private_tx_hash, &expiry])?;
-        let witness = self.witness_map(&public_input_hash, &private_tx_hash)?;
-        let out = ffi::prove(CircuitId::Fill, &witness)?;
-        let proof = gnark_proof_to_wire(&out)?;
-        Ok(FillProofResult {
-            proof,
-            public_input_hash,
-            private_tx_hash,
-            escrow_hash,
-            taker_utxo_hash,
-            destination_output_hash,
-            source_output_hash,
-            destination_output_blinding: *blinding,
-        })
+        let derived = self.derive(blinding)?;
+        self.prove_with_derivation(&derived)
     }
-}
-
-struct FillHashes {
-    escrow_hash: [u8; 32],
-    taker_utxo_hash: [u8; 32],
-    destination_output_hash: [u8; 32],
-    source_output_hash: [u8; 32],
 }

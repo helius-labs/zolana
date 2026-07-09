@@ -12,10 +12,9 @@ use crate::{
     create::gnark_proof_to_wire_committed,
     ffi,
     order_terms::{OrderTerms, FILL_ENC_KDF_DOMAIN, FILL_MODE_VERIFIABLE},
+    utxo::UtxoFieldElements,
     CircuitId, OrderProof,
 };
-
-pub const UTXO_DOMAIN: u64 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FillVerifiableEncryptionError {
@@ -117,29 +116,22 @@ fn hash_chain(inputs: &[[u8; 32]]) -> Result<[u8; 32], FillVerifiableEncryptionE
     Ok(acc)
 }
 
-fn plain_utxo_hash(
-    domain: &[u8; 32],
-    asset: &[u8; 32],
-    amount: &[u8; 32],
-    data_hash: &[u8; 32],
-    owner: &[u8; 32],
-    blinding: &[u8; 32],
-) -> Result<[u8; 32], FillVerifiableEncryptionError> {
-    let zero = [0u8; 32];
-    let owner_utxo_hash = poseidon(&[owner, blinding])?;
-    let zone_hash = poseidon(&[&zero, &zero])?;
-    poseidon(&[
-        domain,
-        asset,
-        amount,
-        data_hash,
-        &zone_hash,
-        &owner_utxo_hash,
-    ])
+#[derive(Default)]
+struct FillVerifiableEncryptionOverrides {
+    taker_owner: Option<[u8; 32]>,
+    destination_owner: Option<[u8; 32]>,
+    destination_amount: Option<u64>,
+}
+
+struct FillVerifiableEncryptionUtxos {
+    escrow: UtxoFieldElements,
+    taker_in: UtxoFieldElements,
+    source_output: UtxoFieldElements,
+    destination_output: UtxoFieldElements,
 }
 
 struct FillVerifiableEncryptionDerivation {
-    taker_address: [u8; 32],
+    utxos: FillVerifiableEncryptionUtxos,
     escrow_hash: [u8; 32],
     taker_utxo_hash: [u8; 32],
     destination_output_hash: [u8; 32],
@@ -190,16 +182,13 @@ impl FillVerifiableEncryptionProofInputs {
         Ok((buf, ct_hash))
     }
 
-    fn derive(&self) -> Result<FillVerifiableEncryptionDerivation, FillVerifiableEncryptionError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
+    fn utxos(
+        &self,
+        overrides: &FillVerifiableEncryptionOverrides,
+    ) -> Result<FillVerifiableEncryptionUtxos, FillVerifiableEncryptionError> {
         let source_asset = self.source_asset()?;
         let destination_asset = self.destination_asset()?;
-        let source_amount = u64_to_field(self.source_amount);
-        let destination_amount = u64_to_field(self.destination_amount);
-        let expiry = u64_to_field(self.expiry);
         let zero = [0u8; 32];
-
-        let taker_address = self.taker_address()?;
 
         let data_hash = OrderTerms {
             destination_asset: Address::new_from_array(self.destination_mint),
@@ -213,40 +202,62 @@ impl FillVerifiableEncryptionProofInputs {
             fill_mode: FILL_MODE_VERIFIABLE,
         }
         .data_hash()?;
-        let escrow_owner = self.escrow_owner()?;
 
-        let escrow_hash = plain_utxo_hash(
-            &domain,
-            &source_asset,
-            &source_amount,
-            &data_hash,
-            &escrow_owner,
-            &self.escrow_blinding,
-        )?;
-        let taker_utxo_hash = plain_utxo_hash(
-            &domain,
-            &destination_asset,
-            &destination_amount,
-            &zero,
-            &taker_address,
-            &self.taker_in_blinding,
-        )?;
-        let destination_output_hash = plain_utxo_hash(
-            &domain,
-            &destination_asset,
-            &destination_amount,
-            &zero,
-            &self.maker_owner_hash,
-            &self.destination_output_blinding,
-        )?;
-        let source_output_hash = plain_utxo_hash(
-            &domain,
-            &source_asset,
-            &source_amount,
-            &zero,
-            &taker_address,
-            &self.source_output_blinding,
-        )?;
+        let taker_owner = match overrides.taker_owner {
+            Some(owner) => owner,
+            None => self.taker_address()?,
+        };
+        let destination_owner = overrides.destination_owner.unwrap_or(self.maker_owner_hash);
+        let destination_amount = overrides
+            .destination_amount
+            .unwrap_or(self.destination_amount);
+
+        let escrow = UtxoFieldElements::plain(
+            self.escrow_owner()?,
+            source_asset,
+            self.source_amount,
+            self.escrow_blinding,
+            data_hash,
+        );
+        let taker_in = UtxoFieldElements::plain(
+            taker_owner,
+            destination_asset,
+            self.destination_amount,
+            self.taker_in_blinding,
+            zero,
+        );
+        let source_output = UtxoFieldElements::plain(
+            taker_owner,
+            source_asset,
+            self.source_amount,
+            self.source_output_blinding,
+            zero,
+        );
+        let destination_output = UtxoFieldElements::plain(
+            destination_owner,
+            destination_asset,
+            destination_amount,
+            self.destination_output_blinding,
+            zero,
+        );
+
+        Ok(FillVerifiableEncryptionUtxos {
+            escrow,
+            taker_in,
+            source_output,
+            destination_output,
+        })
+    }
+
+    fn derive(
+        &self,
+        overrides: &FillVerifiableEncryptionOverrides,
+    ) -> Result<FillVerifiableEncryptionDerivation, FillVerifiableEncryptionError> {
+        let utxos = self.utxos(overrides)?;
+        let escrow_hash = utxos.escrow.hash()?;
+        let taker_utxo_hash = utxos.taker_in.hash()?;
+        let source_output_hash = utxos.source_output.hash()?;
+        let destination_output_hash = utxos.destination_output.hash()?;
 
         let input_chain = hash_chain(&[escrow_hash, taker_utxo_hash])?;
         let output_chain = hash_chain(&[source_output_hash, destination_output_hash])?;
@@ -259,10 +270,11 @@ impl FillVerifiableEncryptionProofInputs {
         ])?;
 
         let (ciphertext, ct_hash) = self.ciphertext()?;
+        let expiry = u64_to_field(self.expiry);
         let public_input_hash = poseidon(&[&private_tx_hash, &expiry, &ct_hash])?;
 
         Ok(FillVerifiableEncryptionDerivation {
-            taker_address,
+            utxos,
             escrow_hash,
             taker_utxo_hash,
             destination_output_hash,
@@ -275,85 +287,58 @@ impl FillVerifiableEncryptionProofInputs {
     }
 
     pub fn public_input_hash(&self) -> Result<[u8; 32], FillVerifiableEncryptionError> {
-        Ok(self.derive()?.public_input_hash)
+        Ok(self
+            .derive(&FillVerifiableEncryptionOverrides::default())?
+            .public_input_hash)
     }
 
-    /// The destination-output ciphertext the fill proof commits via `ctHash`.
-    /// Depends only on the escrow blinding and the destination plaintext, not on
-    /// `external_data_hash`, so a caller can place it in the SPP transact's tail
-    /// ciphertext slot before computing `external_data_hash` and proving.
     pub fn destination_ciphertext(&self) -> Result<Vec<u8>, FillVerifiableEncryptionError> {
         Ok(self.ciphertext()?.0)
     }
 
-    fn private_tx_hash_with_destination_output(
-        &self,
-        derived: &FillVerifiableEncryptionDerivation,
-        destination_owner: Option<[u8; 32]>,
-        destination_amount: Option<u64>,
-    ) -> Result<[u8; 32], FillVerifiableEncryptionError> {
-        let domain = u64_to_field(UTXO_DOMAIN);
-        let destination_asset = self.destination_asset()?;
-        let destination_amount_fe =
-            u64_to_field(destination_amount.unwrap_or(self.destination_amount));
-        let zero = [0u8; 32];
-        let owner = destination_owner.unwrap_or(self.maker_owner_hash);
-        let destination_output_hash = plain_utxo_hash(
-            &domain,
-            &destination_asset,
-            &destination_amount_fe,
-            &zero,
-            &owner,
-            &self.destination_output_blinding,
-        )?;
-        let input_chain = hash_chain(&[derived.escrow_hash, derived.taker_utxo_hash])?;
-        let output_chain = hash_chain(&[derived.source_output_hash, destination_output_hash])?;
-        let address_chain = hash_chain(&[[0u8; 32], [0u8; 32]])?;
-        poseidon(&[
-            &input_chain,
-            &output_chain,
-            &address_chain,
-            &self.external_data_hash,
-        ])
-    }
-
-    fn witness(
+    fn witness_map(
         &self,
         derived: &FillVerifiableEncryptionDerivation,
     ) -> Result<HashMap<String, Vec<String>>, FillVerifiableEncryptionError> {
         let mut map = HashMap::new();
+        for utxo_entries in [
+            derived.utxos.escrow.witness_entries("Core_Escrow"),
+            derived.utxos.taker_in.witness_entries("Core_TakerIn"),
+            derived.utxos.source_output.witness_entries("Core_SourceOutput"),
+            derived
+                .utxos
+                .destination_output
+                .witness_entries("Core_DestinationOutput"),
+        ] {
+            for (key, value) in utxo_entries {
+                map.insert(key, value);
+            }
+        }
 
-        let scalars: [(&str, [u8; 32]); 17] = [
-            ("PublicInputHash", derived.public_input_hash),
-            ("PrivateTxHash", derived.private_tx_hash),
-            ("Expiry", u64_to_field(self.expiry)),
-            ("SourceAsset", self.source_asset()?),
-            ("DestinationAsset", self.destination_asset()?),
-            ("EscrowOwner", self.escrow_owner()?),
-            ("SourceAmount", u64_to_field(self.source_amount)),
-            ("EscrowBlinding", self.escrow_blinding),
-            ("DestinationAmount", u64_to_field(self.destination_amount)),
-            ("MakerOwnerHash", self.maker_owner_hash),
-            ("TakerPkFe", self.taker_pk_fe),
-            ("TakerNullifierPk", self.taker_nullifier_pk),
-            ("TakerAddress", derived.taker_address),
-            ("TakerInBlinding", self.taker_in_blinding),
+        let scalars: [(&str, [u8; 32]); 10] = [
+            ("Public_PublicInputHash", derived.public_input_hash),
+            ("Public_PrivateTxHash", derived.private_tx_hash),
+            ("Core_Order_DestinationAsset", self.destination_asset()?),
             (
-                "DestinationOutputBlinding",
-                self.destination_output_blinding,
+                "Core_Order_DestinationAmount",
+                u64_to_field(self.destination_amount),
             ),
-            ("SourceOutputBlinding", self.source_output_blinding),
-            ("ExternalDataHash", self.external_data_hash),
+            ("Core_Order_MakerOwnerHash", self.maker_owner_hash),
+            ("Core_Order_Expiry", u64_to_field(self.expiry)),
+            ("Core_Order_TakerPkFe", self.taker_pk_fe),
+            (
+                "Core_Order_FillMode",
+                u64_to_field(FILL_MODE_VERIFIABLE),
+            ),
+            ("Core_ExternalDataHash", self.external_data_hash),
+            ("TakerNullifierPk", self.taker_nullifier_pk),
         ];
         for (key, value) in scalars.iter() {
             map.insert(key.to_string(), vec![bytes_to_decimal_string(value)]);
         }
         map.insert(
-            "MakerViewingPk".to_string(),
-            self.maker_viewing_pk
-                .iter()
-                .map(|b| b.to_string())
-                .collect(),
+            "Core_Order_MakerViewingPk".to_string(),
+            self.maker_viewing_pk.iter().map(|b| b.to_string()).collect(),
         );
 
         Ok(map)
@@ -362,62 +347,45 @@ impl FillVerifiableEncryptionProofInputs {
     pub fn prove(
         &self,
     ) -> Result<FillVerifiableEncryptionProofResult, FillVerifiableEncryptionError> {
-        self.prove_inner(None, None, None)
+        self.prove_with_overrides(FillVerifiableEncryptionOverrides::default())
     }
 
     pub fn prove_with_destination_output_owner(
         &self,
         destination_output_owner: &[u8; 32],
     ) -> Result<FillVerifiableEncryptionProofResult, FillVerifiableEncryptionError> {
-        self.prove_inner(Some(*destination_output_owner), None, None)
+        self.prove_with_overrides(FillVerifiableEncryptionOverrides {
+            destination_owner: Some(*destination_output_owner),
+            ..Default::default()
+        })
     }
 
     pub fn prove_with_destination_output_amount(
         &self,
         destination_output_amount: u64,
     ) -> Result<FillVerifiableEncryptionProofResult, FillVerifiableEncryptionError> {
-        self.prove_inner(None, Some(destination_output_amount), None)
+        self.prove_with_overrides(FillVerifiableEncryptionOverrides {
+            destination_amount: Some(destination_output_amount),
+            ..Default::default()
+        })
     }
 
     pub fn prove_with_taker_address(
         &self,
         taker_address: &[u8; 32],
     ) -> Result<FillVerifiableEncryptionProofResult, FillVerifiableEncryptionError> {
-        self.prove_inner(None, None, Some(*taker_address))
+        self.prove_with_overrides(FillVerifiableEncryptionOverrides {
+            taker_owner: Some(*taker_address),
+            ..Default::default()
+        })
     }
 
-    fn prove_inner(
+    fn prove_with_overrides(
         &self,
-        destination_owner_override: Option<[u8; 32]>,
-        destination_amount_override: Option<u64>,
-        taker_address_override: Option<[u8; 32]>,
+        overrides: FillVerifiableEncryptionOverrides,
     ) -> Result<FillVerifiableEncryptionProofResult, FillVerifiableEncryptionError> {
-        let derived = self.derive()?;
-        let mut witness = self.witness(&derived)?;
-
-        if let Some(taker_address) = taker_address_override {
-            witness.insert(
-                "TakerAddress".to_string(),
-                vec![bytes_to_decimal_string(&taker_address)],
-            );
-        }
-        if let Some(owner) = destination_owner_override {
-            let tampered_private_tx_hash =
-                self.private_tx_hash_with_destination_output(&derived, Some(owner), None)?;
-            witness.insert(
-                "PrivateTxHash".to_string(),
-                vec![bytes_to_decimal_string(&tampered_private_tx_hash)],
-            );
-        }
-        if let Some(amount) = destination_amount_override {
-            let tampered_private_tx_hash =
-                self.private_tx_hash_with_destination_output(&derived, None, Some(amount))?;
-            witness.insert(
-                "PrivateTxHash".to_string(),
-                vec![bytes_to_decimal_string(&tampered_private_tx_hash)],
-            );
-        }
-
+        let derived = self.derive(&overrides)?;
+        let witness = self.witness_map(&derived)?;
         let out = ffi::prove(CircuitId::FillVerifiableEncryption, &witness)?;
         let proof = gnark_proof_to_wire_committed(&out)?;
         Ok(FillVerifiableEncryptionProofResult {
@@ -433,11 +401,6 @@ impl FillVerifiableEncryptionProofInputs {
         })
     }
 
-    /// The maker recovers the destination output's `(asset, amount)` by
-    /// decrypting the ciphertext with the key derived from the escrow blinding it
-    /// holds. `asset` is the `asset_field(mint)` field element committed in the
-    /// destination UTXO, so the maker can reconstruct the output hash from the
-    /// ciphertext alone. The destination blinding is the remaining plaintext field.
     pub fn decrypt_destination(
         &self,
         ciphertext: &[u8],

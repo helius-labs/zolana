@@ -80,7 +80,6 @@ impl SwapWorld {
 
         // 4. Prove (outside the instruction), then assemble the create instruction.
         let spend_proofs = self.resolve_spend_proofs(&signed)?;
-        let source_asset_id = create_inputs.terms.source_asset_id;
         let (proof, transact) =
             create_inputs.prove(
                 signed,
@@ -89,12 +88,10 @@ impl SwapWorld {
                 &SwapProverClient::new_ffi(),
             )?;
         let ix = CreateSwap {
-            inputs: create_inputs,
             payer: input.solana.pubkey(),
             tree: self.tree,
             proof,
             transact,
-            source_asset_id,
         }
         .instruction()?;
 

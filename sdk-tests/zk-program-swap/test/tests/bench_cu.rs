@@ -545,15 +545,10 @@ fn bench_create(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBen
         AccountMeta::new(tree, false),
         spp_program_meta(),
     ];
-    let mut maker_address = [0u8; 65];
-    maker_address[0..32].copy_from_slice(&maker.owner_hash().expect("maker owner hash"));
-    maker_address[32..65].copy_from_slice(maker.viewing_pubkey().as_bytes());
     let ix = create_swap(
         payer.pubkey(),
         spp_accounts,
         create_result.proof.into(),
-        SOL_ASSET_ID,
-        maker_address,
         transact,
     );
 

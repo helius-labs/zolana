@@ -5,8 +5,8 @@ use zolana_keypair::{
     KeypairError,
 };
 
-pub const FILL_MODE_DERIVED: u64 = 3;
-pub const FILL_MODE_VERIFIABLE: u64 = 5;
+pub const FILL_MODE_DERIVED: u64 = 0;
+pub const FILL_MODE_VERIFIABLE: u64 = 1;
 
 pub const FILL_ENC_KDF_DOMAIN: u64 = 0x5357_4150_4649_4c4c;
 

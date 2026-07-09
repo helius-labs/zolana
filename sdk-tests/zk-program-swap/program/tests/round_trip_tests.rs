@@ -95,13 +95,12 @@ fn create_inputs() -> CreateProofInputs {
     source_input_hash[31] = 5;
     let mut change_blinding = [0u8; 32];
     change_blinding[31] = 6;
-    let mut marker_output_hash = [0u8; 32];
-    marker_output_hash[31] = 9;
+    let mut marker_owner_hash = [0u8; 32];
+    marker_owner_hash[31] = 9;
     let mut external_data_hash = [0u8; 32];
     external_data_hash[31] = 8;
 
     CreateProofInputs {
-        source_asset_id: 1,
         source_mint: [1u8; 32],
         source_amount: 1_000,
         escrow_authority,
@@ -117,7 +116,7 @@ fn create_inputs() -> CreateProofInputs {
         source_input_hash,
         change_amount: 750,
         change_blinding,
-        marker_output_hash,
+        marker_owner_hash,
     }
 }
 
@@ -211,20 +210,9 @@ fn create_public_input_and_proof_round_trip() {
     let inputs = create_inputs();
     let prover_output = inputs.prove().expect("create prove");
 
-    let mut maker_address = [0u8; 65];
-    maker_address[0..32].copy_from_slice(&inputs.maker_owner_hash);
-    maker_address[32..65].copy_from_slice(&inputs.maker_viewing_pk);
-    let create_input = create_verify::CreatePublicInput {
-        private_tx_hash: &prover_output.private_tx_hash,
-        source_asset_id: inputs.source_asset_id,
-        maker_address: &maker_address,
-    };
-    let recomputed = create_input
-        .hash()
-        .expect("program-side create public input");
     assert_eq!(
-        recomputed, prover_output.public_input_hash,
-        "program-side create public input must match the prover"
+        prover_output.public_input_hash, prover_output.private_tx_hash,
+        "create's sole public input must be the private tx hash"
     );
 
     let proof = create_proof(&prover_output.proof);
@@ -237,15 +225,14 @@ fn create_public_input_and_proof_round_trip() {
                 c: &proof.proof_c,
                 commitment: None,
             },
-            recomputed,
+            prover_output.private_tx_hash,
             &vk.as_borrowed(),
         ),
         "create proof must verify against the generated verifying key"
     );
 
     if keys_in_sync(&vk, &swap_program::verifying_keys::create::VERIFYINGKEY) {
-        create_input
-            .verify(&proof)
+        create_verify::verify_create_zk_proof(&proof, prover_output.private_tx_hash)
             .expect("program verify_create_proof must accept a valid proof");
     }
 }
