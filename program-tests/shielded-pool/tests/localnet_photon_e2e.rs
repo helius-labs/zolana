@@ -53,7 +53,8 @@ use zolana_keypair::{
 use zolana_program_test::{
     create_tree_instructions, rpc_state_root, system_create_account_ix, ZolanaProgramTest,
 };
-use zolana_test_utils::smart_account::{self, execute_sync_ix, StandardSigners};
+use zolana_smart_account_client::{execute_sync_ix, SMART_ACCOUNT_PROGRAM_ID};
+use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{
     instructions::transact::{no_address_hashes, private_tx_hash},
     serialization::{confidential::ConfidentialSenderBundle, DecodeCx, UtxoSerialization},
@@ -727,6 +728,31 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
         stdout.contains("matches on-chain"),
         "forester dry-run did not confirm root match:\n{stdout}"
     );
+
+    let output = std::process::Command::new(&forester_bin)
+        .args(["info", "--json", "--tree", &tree_pubkey.to_string()])
+        .env("RPC_URL", &rpc_url)
+        .output()
+        .map_err(|err| anyhow!("run forester {}: {err}", forester_bin.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "forester info --json failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let info: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(
+        info.pointer("/nullifier_queue/ready_to_forest_zkp_batches"),
+        Some(&serde_json::json!(0)),
+        "fresh tree should have no ready nullifier zkp-batches"
+    );
+    assert!(
+        info.pointer("/nullifier_queue/root")
+            .and_then(serde_json::Value::as_str)
+            .is_some(),
+        "forester info JSON should include the nullifier root"
+    );
+
     println!("forester dry-run plumbing smoke passed:\n{stdout}");
     Ok(())
 }
@@ -1574,7 +1600,7 @@ fn restart_localnet() {
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
-    let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
+    let smart_account_id = SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
     let smart_account_account_dir = "/tmp/zolana-photon-smart-account-accounts";
     smart_account::write_program_config_fixture(smart_account_account_dir);

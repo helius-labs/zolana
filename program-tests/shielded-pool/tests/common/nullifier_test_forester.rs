@@ -13,7 +13,7 @@ use zolana_client::{
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_test_utils::smart_account;
+use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::instructions::transact::signed_transaction::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
@@ -42,7 +42,7 @@ impl NullifierTestForester {
     ) -> Result<Signature> {
         let (batch_update, batch_len) =
             self.build_instruction(rpc, authority.vault, pool_tree, queued_nullifiers)?;
-        let execute = smart_account::execute_sync_ix(
+        let execute = execute_sync_ix(
             &authority.settings,
             authority.account_index,
             &[authority.signer.pubkey()],
@@ -53,7 +53,7 @@ impl NullifierTestForester {
         let message = Message::new(&[execute], Some(&fee_payer));
         let tx = Transaction::new(&[authority.signer], message, blockhash);
         let signature = rpc.send_transaction(&tx)?;
-        self.mark_batch_inserted(queued_nullifiers, batch_len);
+        self.mark_batch_inserted(queued_nullifiers, batch_len)?;
         Ok(signature)
     }
 
@@ -75,7 +75,9 @@ impl NullifierTestForester {
                 plan.zkp_batch_size
             ));
         }
-        let batch_values = &queued_nullifiers[start..end];
+        let batch_values = queued_nullifiers
+            .get(start..end)
+            .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
         let (inputs, new_root) = self.build_inputs(&plan, batch_values)?;
         let proof = ProverClient::local().prove_batch_address_append(&inputs)?;
         let compressed = ProofCompressed::try_from(proof)?;
@@ -106,10 +108,20 @@ impl NullifierTestForester {
         ))
     }
 
-    fn mark_batch_inserted(&mut self, queued_nullifiers: &[[u8; 32]], batch_len: usize) {
+    fn mark_batch_inserted(
+        &mut self,
+        queued_nullifiers: &[[u8; 32]],
+        batch_len: usize,
+    ) -> Result<()> {
         let start = self.inserted_nullifiers.len();
-        self.inserted_nullifiers
-            .extend_from_slice(&queued_nullifiers[start..start + batch_len]);
+        let end = start
+            .checked_add(batch_len)
+            .ok_or_else(|| anyhow!("inserted nullifier batch end overflows usize"))?;
+        let batch_values = queued_nullifiers
+            .get(start..end)
+            .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
+        self.inserted_nullifiers.extend_from_slice(batch_values);
+        Ok(())
     }
 
     fn build_inputs(

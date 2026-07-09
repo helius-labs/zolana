@@ -154,7 +154,11 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
 
     let pending = metadata.queue_batches.pending_batch_index as usize;
     let zkp_batch_size = metadata.queue_batches.zkp_batch_size;
-    let batch = metadata.queue_batches.batches[pending];
+    let batch = *metadata
+        .queue_batches
+        .batches
+        .get(pending)
+        .ok_or_else(|| anyhow!("pending_batch_index {pending} out of range"))?;
     let already_applied = batch.get_num_inserted_zkps();
     let ready = batch.get_num_ready_zkp_updates();
     let pending_queued = batch.get_num_inserted_elements();
@@ -229,8 +233,14 @@ fn reconstruct_and_verify(
         values.push(value);
     }
 
+    let applied_len = usize::try_from(applied)
+        .map_err(|_| anyhow!("applied nullifier count {applied} exceeds usize"))?;
+    let applied_values = values
+        .get(..applied_len)
+        .ok_or_else(|| anyhow!("queued nullifier prefix length {applied_len} out of range"))?;
+
     let mut reference = reference_nullifier_tree(snapshot.height)?;
-    for value in &values[..applied as usize] {
+    for value in applied_values {
         reference
             .append(&BigUint::from_bytes_be(value))
             .map_err(|err| anyhow!("replay appended nullifier: {err:?}"))?;
@@ -289,16 +299,32 @@ fn drain_once(
     for i in 0..cap {
         let zkp_index = snapshot.already_applied + i;
         let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
-        let start = (applied + i * snapshot.zkp_batch_size) as usize;
-        let end = start + snapshot.zkp_batch_size as usize;
-        let batch_values = &values[start..end];
+        let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
+            .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
+        let end =
+            start
+                .checked_add(usize::try_from(snapshot.zkp_batch_size).map_err(|_| {
+                    anyhow!("zkp_batch_size {} exceeds usize", snapshot.zkp_batch_size)
+                })?)
+                .ok_or_else(|| anyhow!("zkp-batch {zkp_index} end overflows usize"))?;
+        let batch_values = values
+            .get(start..end)
+            .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
+        let hash_chain = snapshot
+            .hash_chains
+            .get(
+                usize::try_from(i)
+                    .map_err(|_| anyhow!("ready zkp-batch index {i} exceeds usize"))?,
+            )
+            .copied()
+            .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
         let old_root = reference.root();
 
         let (inputs, new_root) = build_inputs(
             &mut reference,
             batch_next_index,
             snapshot.height,
-            snapshot.hash_chains[i as usize],
+            hash_chain,
             old_root,
             batch_values,
         )?;
@@ -498,16 +524,18 @@ mod tests {
 
         // Two zkp-batches of two, starting at leaf index 1 (init at 0).
         let old0 = reference.root();
+        let first_batch = values.get(0..2).unwrap();
         let (inputs0, new0) =
-            build_inputs(&mut reference, 1, 40, [0u8; 32], old0, &values[0..2]).unwrap();
+            build_inputs(&mut reference, 1, 40, [0u8; 32], old0, first_batch).unwrap();
         assert_eq!(inputs0.batch_size, 2);
         assert_eq!(inputs0.start_index, 1);
 
         // The next batch's old_root must chain from the previous new_root.
         let old1 = reference.root();
         assert_eq!(old1, new0);
+        let second_batch = values.get(2..4).unwrap();
         let (inputs1, new1) =
-            build_inputs(&mut reference, 3, 40, [0u8; 32], old1, &values[2..4]).unwrap();
+            build_inputs(&mut reference, 3, 40, [0u8; 32], old1, second_batch).unwrap();
         assert_eq!(inputs1.start_index, 3);
 
         // Appending all four to a fresh tree yields the same final root.

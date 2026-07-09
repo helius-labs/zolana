@@ -90,7 +90,11 @@ pub fn batch_update_nullifier_tree_once(
 
 #[cfg(test)]
 mod tests {
-    use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
+    use solana_instruction::AccountMeta;
+    use zolana_interface::{
+        instruction::{encode_instruction, tag},
+        pda, SHIELDED_POOL_PROGRAM_ID,
+    };
     use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
     use super::*;
@@ -126,21 +130,29 @@ mod tests {
         }
         .instruction();
 
-        assert_eq!(
-            ix.program_id,
-            Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
-        );
-        assert_eq!(ix.data[0], tag::BATCH_UPDATE_NULLIFIER_TREE);
-        assert_eq!(ix.accounts.len(), 4);
-        // The vault is the forester authority and signs (via CPI).
-        assert_eq!(ix.accounts[0].pubkey, vault);
-        assert!(ix.accounts[0].is_signer);
-        assert_eq!(ix.accounts[2].pubkey, tree);
-        assert!(ix.accounts[2].is_writable);
-        assert_eq!(
-            ix.accounts[3].pubkey,
-            Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID)
-        );
+        let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+        let data = BatchUpdateNullifierTreeData {
+            new_root: [1u8; 32],
+            old_root: [5u8; 32],
+            zkp_batch_index: 0,
+            compressed_proof: zolana_interface::instruction::CompressedProof {
+                a: [2u8; 32],
+                b: [3u8; 64],
+                c: [4u8; 32],
+            },
+        };
+        let expected = Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(vault, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(tree, false),
+                AccountMeta::new_readonly(program_id, false),
+            ],
+            data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
+        };
+
+        assert_eq!(ix, expected);
     }
 
     #[test]
@@ -155,7 +167,7 @@ mod tests {
         // Submitted instruction targets the smart-account program, carries the
         // settings account, and the member is an outer signer.
         assert_eq!(execute.program_id, SMART_ACCOUNT_PROGRAM_ID);
-        assert_eq!(execute.accounts[0].pubkey, settings);
+        assert_eq!(execute.accounts.first().unwrap().pubkey, settings);
         assert!(execute
             .accounts
             .iter()

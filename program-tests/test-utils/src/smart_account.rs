@@ -2,19 +2,17 @@
 //!
 //! The client surface (program id, PDA derivations, and the
 //! `create_smart_account_ix` / `execute_sync_ix` builders) lives in
-//! `zolana-smart-account-client` and is re-exported here so existing test
-//! imports keep working. This module adds the localnet `ProgramConfig` fixture
-//! and the standard protocol/forester/tree/zone account layout the SPP tests
-//! share.
+//! `zolana-smart-account-client`. This module adds the localnet `ProgramConfig`
+//! fixture and the standard protocol/forester/tree/zone account layout the SPP
+//! tests share.
 
 use std::{fs, path::Path};
 
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-
-pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
-    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+use zolana_smart_account_client::{
+    create_smart_account_ix, program_config_pda, settings_pda, smart_account_pda, treasury_pda,
+    Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]

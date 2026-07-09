@@ -705,6 +705,22 @@ mod tests {
     }
 
     #[test]
+    fn try_get_state_maps_known_states_and_returns_none_for_invalid() {
+        let mut batch = get_test_batch();
+        for (raw, state) in [
+            (0, BatchState::Fill),
+            (1, BatchState::Inserted),
+            (2, BatchState::Full),
+        ] {
+            batch.state = raw;
+            assert_eq!(batch.try_get_state(), Some(state));
+        }
+
+        batch.state = 3;
+        assert_eq!(batch.try_get_state(), None);
+    }
+
+    #[test]
     fn test_bloom_filter_is_zeroed() {
         let mut batch = get_test_batch();
         assert!(!batch.bloom_filter_is_zeroed());

@@ -213,3 +213,24 @@ fn lamports_to_sol(lamports: u64) -> String {
         lamports % LAMPORTS_PER_SOL
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lamports_to_sol_formats_fractional_and_boundary_values() {
+        assert_eq!(lamports_to_sol(0), "0.000000000");
+        assert_eq!(lamports_to_sol(1), "0.000000001");
+        assert_eq!(lamports_to_sol(LAMPORTS_PER_SOL), "1.000000000");
+        assert_eq!(lamports_to_sol(1_234_567_890), "1.234567890");
+        assert_eq!(lamports_to_sol(u64::MAX), "18446744073.709551615");
+    }
+
+    #[test]
+    fn state_name_covers_all_batch_states() {
+        assert_eq!(state_name(BatchState::Fill), "Fill");
+        assert_eq!(state_name(BatchState::Inserted), "Inserted");
+        assert_eq!(state_name(BatchState::Full), "Full");
+    }
+}
