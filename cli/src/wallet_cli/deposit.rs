@@ -10,8 +10,8 @@ use super::{
     sync::wait_for_indexed_output,
     transaction::maybe_airdrop,
     util::{
-        configured_spl_token_account, ensure_positive, format_address, parse_address,
-        parse_amount_for_asset, resolve_recipient_pubkey,
+        ensure_owner_spl_token_account, ensure_positive, format_address, owner_spl_token_account,
+        parse_address, parse_amount_for_asset, resolve_recipient_pubkey,
     },
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
@@ -21,12 +21,11 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let amount = parse_amount_for_asset(&opts.amount, asset)?;
     ensure_positive(amount)?;
     let config = CliConfigFile::load()?;
-    let spl_token_account = configured_spl_token_account(&config, asset)?;
+    config.local_asset_registry()?.asset_id(&asset)?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
-    maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let tree = network.tree;
     // A self-deposit (no --to) targets the wallet's own shielded address, so it
     // needs no user-registry lookup. Depositing to someone else still resolves
@@ -38,9 +37,10 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         ),
         Some(to) => {
             let pubkey = resolve_recipient_pubkey(to)?;
-            (pubkey, resolve_registered_address(&rpc, pubkey)?.address)
+            (pubkey, resolve_registered_address(&rpc, pubkey)?.address())
         }
     };
+    let spl_token_account = owner_spl_token_account(material.funding.pubkey(), asset);
     let deposit = create_deposit(CreateDeposit {
         recipient: &recipient_address,
         asset,
@@ -48,6 +48,8 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         spl_token_account,
         memo: None,
     })?;
+    maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
+    ensure_owner_spl_token_account(&rpc, &material.funding, material.funding.pubkey(), asset)?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
     let outcome = wait_for_indexed_output(&indexer, &rpc, tree, deposit.utxo_hash, signature)?;
     println!(

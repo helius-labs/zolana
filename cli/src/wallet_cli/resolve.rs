@@ -2,13 +2,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
+use zolana_interface::DEFAULT_TREE_PUBKEY;
 
 use super::util::parse_pubkey;
 use crate::{
     args::{NetworkWalletOptions, SyncOptions},
     cli_config::{
-        resolve_indexer_url, resolve_prover_url, resolve_rpc_url, resolve_tree,
-        resolve_wallet_path, CliConfigFile,
+        resolve_indexer_url, resolve_keypair_path, resolve_prover_url, resolve_rpc_url,
+        resolve_tree, CliConfigFile,
     },
 };
 
@@ -27,21 +28,12 @@ pub(crate) struct ResolvedNetworkOptions {
     pub(crate) airdrop_lamports: Option<u64>,
 }
 
-pub(crate) fn resolve_sync(opts: &SyncOptions) -> Result<ResolvedSyncOptions> {
-    let config = CliConfigFile::load()?;
-    resolve_sync_with_config(opts, &config)
-}
-
 pub(crate) fn resolve_sync_with_config(
     opts: &SyncOptions,
     config: &CliConfigFile,
 ) -> Result<ResolvedSyncOptions> {
     Ok(ResolvedSyncOptions {
-        keypair_path: resolve_wallet_path(
-            opts.keypair.wallet.as_deref(),
-            opts.keypair.keypair.as_deref(),
-            config,
-        )?,
+        keypair_path: resolve_keypair_path(opts.keypair.keypair.as_deref(), config),
         rpc_url: resolve_rpc_url(opts.rpc_url.as_deref(), config),
         indexer_url: resolve_indexer_url(opts.indexer_url.as_deref(), config),
     })
@@ -52,7 +44,10 @@ pub(crate) fn get_network_with_config(
     config: &CliConfigFile,
 ) -> Result<ResolvedNetworkOptions> {
     let sync = resolve_sync_with_config(&opts.sync, config)?;
-    let tree = parse_pubkey(resolve_tree(opts.tree.as_deref(), config))?;
+    let tree = match resolve_tree(opts.tree.as_deref(), config) {
+        Some(tree) => parse_pubkey(tree)?,
+        None => DEFAULT_TREE_PUBKEY,
+    };
     Ok(ResolvedNetworkOptions {
         sync,
         tree,
@@ -93,17 +88,14 @@ mod tests {
     }
 
     #[test]
-    fn write_commands_use_default_tree_when_unset() {
+    fn write_commands_use_protocol_tree_when_unset() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let path = temp_config(None);
         unsafe { std::env::set_var("ZOLANA_CONFIG", &path) };
         let resolved = get_network_with_config(
             &NetworkWalletOptions {
                 sync: SyncOptions {
-                    keypair: WalletKeypairOptions {
-                        wallet: None,
-                        keypair: None,
-                    },
+                    keypair: WalletKeypairOptions { keypair: None },
                     rpc_url: None,
                     indexer_url: None,
                 },
@@ -114,10 +106,7 @@ mod tests {
             &CliConfigFile::load().expect("load config"),
         )
         .expect("resolve network");
-        assert_eq!(
-            resolved.tree.to_string(),
-            "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8"
-        );
+        assert_eq!(resolved.tree, DEFAULT_TREE_PUBKEY);
     }
 
     #[test]
@@ -128,10 +117,7 @@ mod tests {
         let resolved = get_network_with_config(
             &NetworkWalletOptions {
                 sync: SyncOptions {
-                    keypair: WalletKeypairOptions {
-                        wallet: None,
-                        keypair: None,
-                    },
+                    keypair: WalletKeypairOptions { keypair: None },
                     rpc_url: None,
                     indexer_url: None,
                 },
@@ -156,10 +142,7 @@ mod tests {
         let resolved = get_network_with_config(
             &NetworkWalletOptions {
                 sync: SyncOptions {
-                    keypair: WalletKeypairOptions {
-                        wallet: None,
-                        keypair: None,
-                    },
+                    keypair: WalletKeypairOptions { keypair: None },
                     rpc_url: None,
                     indexer_url: None,
                 },
@@ -174,5 +157,24 @@ mod tests {
             resolved.tree.to_string(),
             "So11111111111111111111111111111111111111112"
         );
+    }
+
+    #[test]
+    fn sync_keypair_flag_overrides_configured_path() {
+        let opts = SyncOptions {
+            keypair: WalletKeypairOptions {
+                keypair: Some("/tmp/flag.json".to_string()),
+            },
+            rpc_url: None,
+            indexer_url: None,
+        };
+        let config = CliConfigFile {
+            keypair: Some("/tmp/config.json".to_string()),
+            ..CliConfigFile::default()
+        };
+
+        let resolved = resolve_sync_with_config(&opts, &config).expect("resolve sync");
+
+        assert_eq!(resolved.keypair_path, PathBuf::from("/tmp/flag.json"));
     }
 }

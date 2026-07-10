@@ -26,6 +26,13 @@ pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
+/// Canonical shielded-pool tree deployed by the protocol.
+pub const DEFAULT_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
+
+/// [`DEFAULT_TREE_ADDRESS`] as a `Pubkey`.
+pub const DEFAULT_TREE_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::from_str_const(DEFAULT_TREE_ADDRESS);
+
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
 pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];

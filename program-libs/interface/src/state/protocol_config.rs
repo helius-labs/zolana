@@ -26,6 +26,20 @@ impl ProtocolConfig {
             .ok_or(InterfaceError::InvalidDiscriminator)
     }
 
+    /// Zero-copy view over fetched protocol-config account bytes. The account
+    /// must have exactly [`Self::SIZE`] bytes and the protocol-config
+    /// discriminator.
+    pub fn from_account_bytes(data: &[u8]) -> Result<&Self, InterfaceError> {
+        let bytes = data
+            .get(..Self::SIZE)
+            .filter(|slice| slice.len() == data.len())
+            .ok_or(InterfaceError::InvalidAccountData)?;
+        let config: &Self =
+            bytemuck::try_from_bytes(bytes).map_err(|_| InterfaceError::InvalidAccountData)?;
+        config.check_discriminator()?;
+        Ok(config)
+    }
+
     pub fn check_protocol_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
         address_eq(&self.protocol_authority, authority)
             .then_some(())
@@ -65,3 +79,45 @@ impl ProtocolConfig {
 
 const _: () = assert!(ProtocolConfig::SIZE == 132);
 const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn protocol_config() -> ProtocolConfig {
+        ProtocolConfig {
+            discriminator: PROTOCOL_CONFIG,
+            protocol_authority: Address::new_from_array([1; 32]),
+            tree_creation_authority: Address::new_from_array([2; 32]),
+            forester_authority: Address::new_from_array([3; 32]),
+            zone_creation_authority: Address::new_from_array([4; 32]),
+            tree_creation_is_permissionless: 0,
+            zone_creation_is_permissionless: 0,
+            spl_interface_creation_is_permissionless: 1,
+        }
+    }
+
+    #[test]
+    fn parses_exact_protocol_config_account_bytes() {
+        let config = protocol_config();
+        let parsed = ProtocolConfig::from_account_bytes(bytemuck::bytes_of(&config))
+            .expect("protocol config");
+
+        assert_eq!(parsed, &config);
+    }
+
+    #[test]
+    fn rejects_wrong_size_and_discriminator() {
+        assert_eq!(
+            ProtocolConfig::from_account_bytes(&[0; ProtocolConfig::SIZE - 1]),
+            Err(InterfaceError::InvalidAccountData)
+        );
+
+        let mut config = protocol_config();
+        config.discriminator = 0;
+        assert_eq!(
+            ProtocolConfig::from_account_bytes(bytemuck::bytes_of(&config)),
+            Err(InterfaceError::InvalidDiscriminator)
+        );
+    }
+}

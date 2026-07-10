@@ -13,10 +13,11 @@ use clap::{CommandFactory, Parser};
 
 use crate::{
     args::{Cli, CliCommand},
+    cli_config::set_config_file_override,
     config_cmd::run_config,
     localnet::run_test_validator,
     prover::run_start_prover,
-    wallet_cli::run_wallet,
+    wallet_cli::{run_create_tree, run_test_mint, run_wallet},
 };
 
 fn main() {
@@ -27,10 +28,15 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if let Some(path) = cli.config_file {
+        set_config_file_override(path)?;
+    }
     match cli.command {
         Some(CliCommand::TestValidator(opts)) => run_test_validator(*opts),
         Some(CliCommand::StartProver(opts)) => run_start_prover(opts),
         Some(CliCommand::Config { command }) => run_config(command),
+        Some(CliCommand::CreateTree(opts)) => run_create_tree(opts),
+        Some(CliCommand::TestMint(opts)) => run_test_mint(opts),
         Some(CliCommand::Wallet { command }) => run_wallet(command),
         None => {
             Cli::command().print_help()?;

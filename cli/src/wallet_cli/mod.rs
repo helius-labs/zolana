@@ -37,13 +37,9 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
         WalletCommand::New(opts) => material::run_new(opts),
         WalletCommand::Address(opts) => material::run_address(opts),
-        WalletCommand::List => material::run_list(),
-        WalletCommand::Init(opts) => material::run_init(opts),
-        WalletCommand::CreateTree(opts) => tree::run_create_tree(opts),
-        WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
-        WalletCommand::Sync(opts) => sync::run_sync(opts),
+        WalletCommand::Register(opts) => registry::run_register(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
-        WalletCommand::Merge(opts) => registry::run_merge(opts),
+        WalletCommand::SetMerging(opts) => registry::run_set_merging(opts),
         WalletCommand::Consolidate(opts) => transaction::run_consolidate(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),
         WalletCommand::Transfer(opts) => transaction::run_transfer(opts),
@@ -52,3 +48,6 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
         WalletCommand::Utxos(opts) => transaction::run_utxos(opts),
     }
 }
+
+pub(crate) use test_mint::run_test_mint;
+pub(crate) use tree::run_create_tree;

@@ -113,6 +113,9 @@ pub enum ClientError {
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
 
+    #[error("submission request does not match signed transaction: {0}")]
+    SubmissionMismatch(String),
+
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },
 

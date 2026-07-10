@@ -4,18 +4,19 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     create_merge, create_split_sync, create_transfer_sync, fetch_user_record_checked,
-    prover::merge::MergeProver, prover::transact::assemble, ClientError, CreateMerge, CreateSplit,
-    CreateTransfer, InputCommitment, InputSelection, MergeWitness, PreparedMerge, ProofCompressed,
-    ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof, ZolanaIndexer,
+    resolve_registered_address, submit_merge_transaction as submit_merge_action,
+    submit_private_transaction as submit_private_action, validate_registered_keypair, ClientError,
+    CreateMerge, CreateSplit, CreateTransfer, InputSelection, PreparedMerge, ResolvedAddress, Rpc,
+    SignedTransaction, SolanaRpc, SubmitMergeTransaction as ClientSubmitMergeTransaction,
+    SubmitPrivateTransaction as ClientSubmitPrivateTransaction, ZolanaIndexer,
 };
-use zolana_interface::instruction::{MergeTransact, Transact, TransactWithdrawal};
+use zolana_interface::instruction::TransactWithdrawal;
 use zolana_transaction::{Address, SOL_MINT};
-use zolana_user_registry_interface::user_record_pda;
 
 use super::{
     material::WalletMaterial,
     resolve::get_network_with_config,
-    sync::{sync_context, wait_for_indexed_output, WaitOutcome},
+    sync::{sync_context, sync_context_with_config, wait_for_indexed_output, WaitOutcome},
     util::{
         ensure_positive, format_address, lamports_to_sol_string, parse_address,
         parse_amount_for_asset, parse_hex_array, resolve_recipient_pubkey,
@@ -34,26 +35,26 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let config = CliConfigFile::load()?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let recipient_owner = resolve_recipient_pubkey(&opts.to)?;
+    let recipient = resolve_registered_recipient(&rpc, recipient_owner)?;
+    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let ctx = sync_context_with_config(&opts.network.sync, &config)?;
     let tree = network.tree;
 
     let result: Result<()> = (|| {
         let selection = resolve_transfer_selection(&opts)?;
         let transfer = create_transfer_sync(CreateTransfer {
-            rpc: &rpc,
             wallet: &ctx.wallet,
             authority: &ctx.material,
             owner_pubkey: ctx.material.owner_pubkey(),
             payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-            recipient_owner,
+            recipient,
             asset,
             amount,
             assets: &ctx.wallet.registry,
             selection,
         })?;
+        maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
         let (signature, outcome) = submit_private_transaction(
             SubmitPrivateTx {
                 rpc: &rpc,
@@ -61,22 +62,16 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
                 material: &ctx.material,
                 tree,
                 prover_url: &network.prover_url,
-                withdrawal: transfer.recipient.withdrawal().cloned(),
+                withdrawal: None,
                 wait_output_hash: transfer.wait_output_hash,
             },
             transfer.signed,
         )?;
-        let mode = if transfer.recipient.is_public_withdrawal() {
-            "withdraw"
-        } else {
-            "shielded"
-        };
         println!(
-            "ok transfer amount={} mint={} to={} mode={} signature={}{}",
+            "ok transfer amount={} mint={} to={} mode=shielded signature={}{}",
             opts.amount,
             format_address(asset),
-            transfer.recipient.pubkey(),
-            mode,
+            transfer.recipient.owner(),
             signature,
             outcome.pending_suffix(),
         );
@@ -93,6 +88,37 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         }
         Err(err) => Err(err),
     }
+}
+
+fn resolve_registered_recipient<R: Rpc>(
+    rpc: &R,
+    recipient_owner: Pubkey,
+) -> Result<ResolvedAddress> {
+    registered_recipient_result(
+        recipient_owner,
+        resolve_registered_address(rpc, recipient_owner),
+    )
+}
+
+fn registered_recipient_result<T>(
+    recipient_owner: Pubkey,
+    result: std::result::Result<T, ClientError>,
+) -> Result<T> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(ClientError::UserRegistryRecordNotFound { .. }) => {
+            Err(unregistered_recipient_error(recipient_owner))
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn unregistered_recipient_error(recipient_owner: Pubkey) -> anyhow::Error {
+    anyhow::anyhow!(
+        "recipient {recipient_owner} is not registered for shielded transfers; \
+         `zolana wallet transfer` is private-only, use `zolana wallet withdraw` \
+         for an explicit public withdrawal"
+    )
 }
 
 /// Whether an error is a surfaced [`ClientError::FragmentedBalance`].
@@ -129,8 +155,7 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    let ctx = sync_context_with_config(&opts.network.sync, &config)?;
     let tree = network.tree;
 
     // A split rides the SOL note rail. Pick the note to split and derive the
@@ -148,6 +173,7 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
         assets: &ctx.wallet.registry,
         selection,
     })?;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
@@ -213,17 +239,31 @@ fn split_selection(
 }
 
 pub(super) fn run_utxos(opts: UtxosOptions) -> Result<()> {
+    let asset = parse_address(&opts.mint)?;
     let ctx = sync_context(&opts.sync)?;
-    let notes = ctx.wallet.spendable_utxos(SOL_MINT);
+    let notes = ctx.wallet.spendable_utxos(asset);
     for note in &notes {
-        println!(
-            "ok utxo hash={} sol={} amount={}",
-            hex::encode(note.hash),
-            lamports_to_sol_string(note.amount),
-            note.amount
-        );
+        if asset == SOL_MINT {
+            println!(
+                "ok utxo hash={} mint=SOL sol={} amount={}",
+                hex::encode(note.hash),
+                lamports_to_sol_string(note.amount),
+                note.amount
+            );
+        } else {
+            println!(
+                "ok utxo hash={} mint={} amount={}",
+                hex::encode(note.hash),
+                format_address(asset),
+                note.amount
+            );
+        }
     }
-    println!("ok utxos count={}", notes.len());
+    println!(
+        "ok utxos mint={} count={}",
+        format_address(asset),
+        notes.len()
+    );
     Ok(())
 }
 
@@ -242,37 +282,15 @@ pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
     signed: SignedTransaction,
 ) -> Result<(Signature, WaitOutcome)> {
-    let commitments = signed.input_commitments()?;
-    let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
-    // `assemble` runs the witness build once: the per-input nullifiers, root
-    // indices, and dummy padding come out of the prover, so the instruction data
-    // and the proof commit to identical values by construction.
-    let assembled = assemble(signed, &proofs)?;
-    let prover = ProverClient::new(request.prover_url.to_string());
-    let proof = match &assembled.prover_inputs {
-        ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
-        ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
-    };
-    let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-    let data = assembled.with_proof(proof);
-    let ix = Transact {
-        payer: request.material.funding.pubkey(),
+    let signature = submit_private_action(ClientSubmitPrivateTransaction {
+        rpc: request.rpc,
+        indexer: request.indexer,
+        funding: &request.material.funding,
         tree: request.tree,
+        prover_url: request.prover_url,
         withdrawal: request.withdrawal,
-        data,
-    }
-    .instruction();
-    let instructions = [
-        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-            1_400_000,
-        ),
-        ix,
-    ];
-    let signature = request.rpc.create_and_send_transaction(
-        &instructions,
-        Address::new_from_array(request.material.funding.pubkey().to_bytes()),
-        &[&request.material.funding],
-    )?;
+        signed,
+    })?;
     let outcome = wait_for_indexed_output(
         request.indexer,
         request.rpc,
@@ -299,56 +317,23 @@ pub(super) fn submit_merge_transaction(
     request: SubmitMergeTx<'_>,
     prepared: PreparedMerge,
 ) -> Result<(Signature, [u8; 32], WaitOutcome)> {
-    let owner = request.material.funding.pubkey();
-    // `merge_transact` unconditionally requires the owner to have opted into
-    // merging (see programs/shielded-pool/.../merge/processor.rs). Fail fast with
-    // an actionable hint before the expensive proof, rather than surfacing a raw
-    // on-chain program error after proving + submitting.
-    let record = fetch_user_record_checked(request.rpc, owner)?;
-    if !record.merging_enabled {
-        bail!(
-            "merging is not enabled for this wallet; run `zolana wallet merge --enable` first \
-             (merge_transact requires the owner to opt in)"
-        );
-    }
-    let commitments = prepared.input_commitments()?;
-    let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
-    let result = MergeProver::try_from(MergeWitness {
-        prepared,
-        nullifier_key: request.material.keypair.nullifier_key.clone(),
-        proofs,
-    })?
-    .build()?;
-    let prover = ProverClient::new(request.prover_url.to_string());
-    let proof = prover.prove_merge(&result.inputs)?;
-    let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
-    let data = result.instruction_data(proof);
-    let ix = MergeTransact {
+    let submitted = submit_merge_action(ClientSubmitMergeTransaction {
+        rpc: request.rpc,
+        indexer: request.indexer,
+        funding: &request.material.funding,
+        nullifier_key: &request.material.keypair.nullifier_key,
         tree: request.tree,
-        payer: request.material.funding.pubkey(),
-        user_record: user_record_pda(&owner).0,
-        data,
-    }
-    .instruction();
-    let instructions = [
-        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-            1_400_000,
-        ),
-        ix,
-    ];
-    let signature = request.rpc.create_and_send_transaction(
-        &instructions,
-        Address::new_from_array(owner.to_bytes()),
-        &[&request.material.funding],
-    )?;
+        prover_url: request.prover_url,
+        prepared,
+    })?;
     let outcome = wait_for_indexed_output(
         request.indexer,
         request.rpc,
         request.tree,
-        result.output_hash,
-        signature,
+        submitted.output_hash,
+        submitted.signature,
     )?;
-    Ok((signature, result.output_hash, outcome))
+    Ok((submitted.signature, submitted.output_hash, outcome))
 }
 
 pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
@@ -357,8 +342,8 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    let ctx = sync_context_with_config(&opts.network.sync, &config)?;
+    ensure_merging_enabled(&rpc, &ctx.material)?;
     let tree = network.tree;
 
     let explicit_hashes = opts
@@ -376,6 +361,7 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
     })?;
     let num_inputs = merge.num_inputs;
     let merged_amount = merge.merged_amount;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let (signature, _output_hash, outcome) = submit_merge_transaction(
         SubmitMergeTx {
             rpc: &rpc,
@@ -397,35 +383,17 @@ pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
     Ok(())
 }
 
-fn spend_proofs(
-    indexer: &ZolanaIndexer,
-    tree: Pubkey,
-    commitments: &[InputCommitment],
-) -> Result<Vec<SpendProof>> {
-    let tree_address = Address::new_from_array(tree.to_bytes());
-    let leaves = commitments
-        .iter()
-        .map(|commitment| commitment.utxo_hash)
-        .collect::<Vec<_>>();
-    let nullifiers = commitments
-        .iter()
-        .map(|commitment| commitment.nullifier)
-        .collect::<Vec<_>>();
-    let state_proofs = indexer.get_merkle_proofs(tree_address, leaves)?.proofs;
-    let nullifier_proofs = indexer
-        .get_non_inclusion_proofs(tree_address, nullifiers)?
-        .proofs;
-    if state_proofs.len() != commitments.len() || nullifier_proofs.len() != commitments.len() {
-        bail!("indexer returned incomplete input proofs");
+fn ensure_merging_enabled(rpc: &SolanaRpc, material: &WalletMaterial) -> Result<()> {
+    let owner = material.funding.pubkey();
+    validate_registered_keypair(rpc, owner, &material.keypair)?;
+    let record = fetch_user_record_checked(rpc, owner)?;
+    if !record.merging_enabled {
+        bail!(
+            "merging is not enabled for this wallet; run `zolana wallet set-merging on` first \
+             (merge_transact requires the owner to opt in)"
+        );
     }
-
-    // The indexer's merkle / non-inclusion proofs carry the tree root indices the
-    // witness build resolves placement against; `SpendProof` wraps them directly.
-    Ok(state_proofs
-        .into_iter()
-        .zip(nullifier_proofs)
-        .map(|(state, nullifier)| SpendProof { state, nullifier })
-        .collect())
+    Ok(())
 }
 
 pub(super) fn maybe_airdrop(
@@ -439,4 +407,36 @@ pub(super) fn maybe_airdrop(
     let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
     println!("ok airdrop signature={signature}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_preflight_rejects_unregistered_recipient_with_withdraw_hint() {
+        let recipient = Pubkey::new_unique();
+        let result: std::result::Result<(), ClientError> =
+            Err(ClientError::UserRegistryRecordNotFound {
+                owner: recipient,
+                record: Pubkey::new_unique(),
+            });
+        let err = registered_recipient_result(recipient, result)
+            .expect_err("missing registry record must fail");
+
+        let message = err.to_string();
+        assert!(message.contains(&recipient.to_string()));
+        assert!(message.contains("transfer` is private-only"));
+        assert!(message.contains("wallet withdraw"));
+    }
+
+    #[test]
+    fn transfer_preflight_preserves_non_missing_registry_errors() {
+        let result: std::result::Result<(), ClientError> =
+            Err(ClientError::Rpc("registry unavailable".to_string()));
+        let err = registered_recipient_result(Pubkey::new_unique(), result)
+            .expect_err("RPC failure must surface");
+
+        assert_eq!(err.to_string(), "rpc error: registry unavailable");
+    }
 }

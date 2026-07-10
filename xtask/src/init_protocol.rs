@@ -12,7 +12,7 @@ use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
     pda,
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
-    SHIELDED_POOL_PROGRAM_ID,
+    DEFAULT_TREE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
@@ -45,8 +45,6 @@ pub mod authorities {
         pubkey!("4riGd5piEfB6Ge3TCY8Vk8JGLP5HDyLkDEajN8rvAw4i"),
         pubkey!("E8Dmx8zP1E9xdcCJCZjzSUuFo61LPxSbvmg8a3NQKwMB"),
     ];
-
-    pub const TREE_ACCOUNT: Pubkey = pubkey!("treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8");
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -197,11 +195,11 @@ fn load_signers(options: &Options) -> Result<Signers> {
             protocol_signer.pubkey()
         );
     }
-    if tree_keypair.pubkey() != authorities::TREE_ACCOUNT {
+    if tree_keypair.pubkey() != DEFAULT_TREE_PUBKEY {
         bail!(
-            "tree-keypair {} does not match the hardcoded tree account {}",
+            "tree-keypair {} does not match the protocol default tree account {}",
             tree_keypair.pubkey(),
-            authorities::TREE_ACCOUNT
+            DEFAULT_TREE_PUBKEY
         );
     }
 

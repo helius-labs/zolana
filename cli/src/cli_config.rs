@@ -3,9 +3,10 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::PathBuf,
+    sync::OnceLock,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 use zolana_transaction::{Address, AssetRegistry};
@@ -13,8 +14,8 @@ use zolana_transaction::{Address, AssetRegistry};
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
-pub(crate) const DEFAULT_TREE: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 const CONFIG_VERSION: u8 = 1;
+static CONFIG_FILE_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
 #[cfg(test)]
 pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -23,8 +24,6 @@ pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CliConfigFile {
     pub version: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wallet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keypair: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,8 +42,6 @@ pub(crate) struct CliConfigFile {
 pub(crate) struct LocalAssetConfig {
     pub mint: String,
     pub asset_id: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_account: Option<String>,
 }
 
 impl CliConfigFile {
@@ -85,28 +82,19 @@ impl CliConfigFile {
         self.save()
     }
 
-    pub(crate) fn upsert_asset(
-        &mut self,
-        mint: Pubkey,
-        asset_id: u64,
-        token_account: Option<Pubkey>,
-    ) -> Result<()> {
+    pub(crate) fn upsert_asset(&mut self, mint: Pubkey, asset_id: u64) -> Result<()> {
+        let mut candidate = self.clone();
         let mint = mint.to_string();
-        let token_account = token_account.map(|account| account.to_string());
-        if let Some(asset) = self.assets.iter_mut().find(|asset| asset.mint == mint) {
+        if let Some(asset) = candidate.assets.iter_mut().find(|asset| asset.mint == mint) {
             asset.asset_id = asset_id;
-            if token_account.is_some() {
-                asset.token_account = token_account;
-            }
         } else {
-            self.assets.push(LocalAssetConfig {
-                mint,
-                asset_id,
-                token_account,
-            });
+            candidate.assets.push(LocalAssetConfig { mint, asset_id });
         }
-        self.assets.sort_by_key(|asset| asset.asset_id);
-        self.save()
+        candidate.assets.sort_by_key(|asset| asset.asset_id);
+        candidate.local_asset_registry()?;
+        candidate.save()?;
+        *self = candidate;
+        Ok(())
     }
 
     pub(crate) fn local_asset_registry(&self) -> Result<AssetRegistry> {
@@ -119,17 +107,6 @@ impl CliConfigFile {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(AssetRegistry::new(entries)?)
-    }
-
-    pub(crate) fn token_account_for_mint(&self, mint: Pubkey) -> Result<Option<Pubkey>> {
-        let mint = mint.to_string();
-        self.assets
-            .iter()
-            .find(|asset| asset.mint == mint)
-            .and_then(|asset| asset.token_account.as_deref())
-            .map(str::parse::<Pubkey>)
-            .transpose()
-            .map_err(Into::into)
     }
 }
 
@@ -145,40 +122,23 @@ pub(crate) fn config_dir() -> PathBuf {
 }
 
 pub(crate) fn config_file_path() -> PathBuf {
+    if let Some(path) = CONFIG_FILE_OVERRIDE.get() {
+        return path.clone();
+    }
     if let Ok(path) = env::var("ZOLANA_CONFIG") {
         return PathBuf::from(path);
     }
     config_dir().join("config.json")
 }
 
+pub(crate) fn set_config_file_override(path: impl Into<PathBuf>) -> Result<()> {
+    CONFIG_FILE_OVERRIDE
+        .set(path.into())
+        .map_err(|_| anyhow::anyhow!("CLI config file override was already set"))
+}
+
 pub(crate) fn default_keypair_path() -> PathBuf {
-    config_dir().join("pid.json")
-}
-
-pub(crate) fn wallets_dir() -> PathBuf {
-    config_dir().join("wallets")
-}
-
-pub(crate) fn validate_wallet_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-    {
-        bail!("invalid wallet name `{name}`; use only ASCII letters, digits, `_`, and `-`");
-    }
-    Ok(())
-}
-
-pub(crate) fn wallet_file(name: &str) -> PathBuf {
-    wallets_dir().join(format!("{name}.json"))
-}
-
-pub(crate) fn checked_wallet_file(name: &str) -> Result<PathBuf> {
-    validate_wallet_name(name)?;
-    Ok(wallet_file(name))
+    config_dir().join("id.json")
 }
 
 pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfigFile) -> PathBuf {
@@ -190,28 +150,6 @@ pub(crate) fn resolve_keypair_path(cli_override: Option<&str>, config: &CliConfi
             .map(PathBuf::from)
             .unwrap_or_else(default_keypair_path),
     }
-}
-
-/// Resolve which wallet file to use, in precedence order:
-/// 1. an explicit `--keypair <PATH>` file path,
-/// 2. a `--wallet <NAME>` named wallet (-> `wallets/<name>.json`),
-/// 3. the configured default wallet name (-> `wallets/<name>.json`),
-/// 4. the legacy `resolve_keypair_path` fallback (`config.keypair` or `pid.json`).
-pub(crate) fn resolve_wallet_path(
-    wallet_name: Option<&str>,
-    keypair_path: Option<&str>,
-    config: &CliConfigFile,
-) -> Result<PathBuf> {
-    if let Some(path) = keypair_path {
-        return Ok(PathBuf::from(path));
-    }
-    if let Some(name) = wallet_name {
-        return checked_wallet_file(name);
-    }
-    if let Some(name) = config.wallet.as_deref() {
-        return checked_wallet_file(name);
-    }
-    Ok(resolve_keypair_path(None, config))
 }
 
 pub(crate) fn resolve_rpc_url(cli_override: Option<&str>, config: &CliConfigFile) -> String {
@@ -238,10 +176,8 @@ pub(crate) fn resolve_prover_url(cli_override: Option<&str>, config: &CliConfigF
 pub(crate) fn resolve_tree<'a>(
     cli_override: Option<&'a str>,
     config: &'a CliConfigFile,
-) -> &'a str {
-    cli_override
-        .or(config.tree.as_deref())
-        .unwrap_or(DEFAULT_TREE)
+) -> Option<&'a str> {
+    cli_override.or(config.tree.as_deref())
 }
 
 #[cfg(test)]
@@ -269,7 +205,6 @@ mod tests {
         unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
         let config = CliConfigFile {
             version: CONFIG_VERSION,
-            wallet: Some("alice".to_string()),
             keypair: Some("/tmp/alice.pid.json".to_string()),
             rpc_url: Some("http://127.0.0.1:8900".to_string()),
             indexer_url: Some("http://127.0.0.1:8785".to_string()),
@@ -303,49 +238,57 @@ mod tests {
     }
 
     #[test]
-    fn resolve_wallet_path_follows_precedence() {
-        let base = CliConfigFile {
+    fn resolve_keypair_path_follows_precedence() {
+        let config = CliConfigFile {
             keypair: Some("/tmp/config.pid.json".to_string()),
-            wallet: Some("default".to_string()),
             ..CliConfigFile::default()
         };
 
-        // 1. explicit keypair path wins over everything.
         assert_eq!(
-            resolve_wallet_path(Some("alice"), Some("/tmp/flag.pid.json"), &base).unwrap(),
+            resolve_keypair_path(Some("/tmp/flag.pid.json"), &config),
             PathBuf::from("/tmp/flag.pid.json")
         );
-        // 2. named wallet resolves to wallets/<name>.json.
         assert_eq!(
-            resolve_wallet_path(Some("alice"), None, &base).unwrap(),
-            wallet_file("alice")
-        );
-        // 3. configured default wallet name resolves to wallets/<name>.json.
-        assert_eq!(
-            resolve_wallet_path(None, None, &base).unwrap(),
-            wallet_file("default")
-        );
-        // 4. no wallet configured -> legacy keypair fallback.
-        let no_wallet = CliConfigFile {
-            keypair: Some("/tmp/config.pid.json".to_string()),
-            ..CliConfigFile::default()
-        };
-        assert_eq!(
-            resolve_wallet_path(None, None, &no_wallet).unwrap(),
+            resolve_keypair_path(None, &config),
             PathBuf::from("/tmp/config.pid.json")
         );
-        // 4b. nothing set at all -> default pid.json path.
         assert_eq!(
-            resolve_wallet_path(None, None, &CliConfigFile::default()).unwrap(),
+            resolve_keypair_path(None, &CliConfigFile::default()),
             default_keypair_path()
         );
     }
 
     #[test]
-    fn wallet_names_reject_path_components() {
-        assert!(checked_wallet_file("../pid").is_err());
-        assert!(checked_wallet_file("nested/alice").is_err());
-        assert!(checked_wallet_file("alice").is_ok());
-        assert!(checked_wallet_file("alice-1_ok").is_ok());
+    fn built_in_keypair_path_is_id_json() {
+        assert_eq!(
+            default_keypair_path()
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("id.json")
+        );
+    }
+
+    #[test]
+    fn invalid_asset_update_does_not_replace_saved_config() {
+        let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
+        let (path, path_str) = temp_config();
+        unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
+        let first_mint = Pubkey::new_unique();
+        let mut config = CliConfigFile {
+            version: CONFIG_VERSION,
+            assets: vec![LocalAssetConfig {
+                mint: first_mint.to_string(),
+                asset_id: 2,
+            }],
+            ..CliConfigFile::default()
+        };
+        config.save().expect("save initial config");
+        let before = fs::read(&path).expect("read initial config");
+
+        assert!(config.upsert_asset(Pubkey::new_unique(), 1).is_err());
+        assert_eq!(fs::read(&path).expect("read config after error"), before);
+        assert_eq!(config.assets.len(), 1);
+        assert_eq!(config.assets[0].mint, first_mint.to_string());
+        let _ = fs::remove_file(path);
     }
 }

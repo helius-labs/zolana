@@ -9617,7 +9617,6 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "solana-compute-budget-interface",
  "solana-instruction 3.4.0",
  "solana-keypair",
  "solana-pubkey 4.2.0",

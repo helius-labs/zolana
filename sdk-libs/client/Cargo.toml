@@ -36,6 +36,7 @@ async-trait = { workspace = true }
 bs58 = { workspace = true, optional = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
@@ -55,7 +56,6 @@ zolana-merkle-tree = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 
 [[test]]
 name = "transaction_proving"

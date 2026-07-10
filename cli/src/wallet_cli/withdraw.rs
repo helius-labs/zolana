@@ -7,11 +7,11 @@ use zolana_transaction::Address;
 
 use super::{
     resolve::get_network_with_config,
-    sync::sync_context,
+    sync::sync_context_with_config,
     transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
     util::{
-        ensure_positive, format_address, parse_address, parse_amount_for_asset,
-        resolve_recipient_pubkey,
+        ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_amount_for_asset, resolve_recipient_pubkey,
     },
 };
 use crate::{args::WithdrawOptions, cli_config::CliConfigFile};
@@ -24,8 +24,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
-    let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    let ctx = sync_context_with_config(&opts.network.sync, &config)?;
     let tree = network.tree;
     let recipient = resolve_recipient_pubkey(&opts.to)?;
 
@@ -40,6 +39,8 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         assets: &ctx.wallet.registry,
         selection: InputSelection::Auto,
     })?;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    ensure_owner_spl_token_account(&rpc, &ctx.material.funding, recipient, asset)?;
     let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,

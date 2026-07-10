@@ -1,59 +1,110 @@
 # zolana CLI
 
-Run from repo root:
+Install from the repository root:
 
 ```bash
 cargo install --path cli --force
-```
-
-If `zolana` is not found, add Cargo bin to your PATH:
-
-```bash
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-Verify:
-
-```bash
-which zolana
 zolana --help
 ```
 
-Commands:
+## Configuration
+
+CLI defaults live in `~/.config/zolana/config.json`. Use `-C/--config` to
+select an isolated config file for one invocation:
 
 ```bash
-zolana config get
-zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
-zolana wallet init --airdrop-lamports 1000000000
-zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
-zolana wallet sync --indexer-url http://127.0.0.1:8784
-zolana wallet balance --indexer-url http://127.0.0.1:8784
-zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
-zolana wallet transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
-zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
+zolana -C /tmp/alice-config.json config set \
+  --keypair /tmp/alice.json \
+  --rpc-url http://127.0.0.1:8899 \
+  --indexer-url http://127.0.0.1:8784 \
+  --prover-url http://127.0.0.1:3001
+zolana -C /tmp/alice-config.json config get
+zolana -C /tmp/alice-config.json config unset tree
 ```
 
-Wallet commands use the wallet file's Solana funding key for fees/public SOL
-deposits and its shielded keypair for private ownership. `wallet init` creates
-or loads the wallet file and registers its shielded keys in the on-chain
-user-registry program. `deposit` shields public SOL into the local wallet by
-default and requires that wallet to be registered; `deposit --to <PUBKEY>`
-resolves the recipient from the on-chain user registry and never reads the
-recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
-recipients from the on-chain user registry; if the registry record is absent,
-the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
-<PUBKEY>` always uses a regular public Solana destination.
+Config-file precedence is `-C/--config`, then `ZOLANA_CONFIG`, then
+`~/.config/zolana/config.json`. Wallet selection is `-k/--keypair`, then
+the configured `keypair`, then `~/.config/zolana/id.json`. RPC, indexer, and
+prover flags override their configured values; config values override the
+built-in localnet service defaults. Tree selection is `--tree`, then the
+configured `tree`, then the protocol's canonical deployed tree.
 
-CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
-over config values, and config values win over built-in localnet defaults. The
-`keypair` config field is the path to the wallet file (`pid.json`). `create-tree`
-writes the created tree pubkey into this config file; `deposit`, `transfer`, and
-`withdraw` only require `--tree` when neither the flag nor config has a tree.
+`wallet new --outfile` overrides the configured keypair destination; without it,
+creation uses the configured `keypair` and then the `id.json` default. There are
+no named wallets.
 
-Optional wallet path:
+## Wallet Setup
+
+Creating a wallet is local and does not contact the network. Registration is a
+separate, retryable operation. Creation refuses to overwrite an existing wallet
+file:
 
 ```bash
---keypair /path/to/pid.json
+zolana config set --keypair ~/.config/zolana/id.json
+zolana wallet new
+zolana wallet register --airdrop-lamports 1000000000
 ```
 
+Use `--funding-keypair /path/to/solana/id.json` with `wallet new` to use an
+existing Solana key as the wallet's public owner and fee payer. The wallet file
+stores that funding secret together with its shielded keys and must be protected
+accordingly.
+
+Use `-k` to operate on a wallet other than the configured default:
+
+```bash
+zolana wallet new --outfile /tmp/bob.json
+zolana wallet register -k /tmp/bob.json --airdrop-lamports 1000000000
+zolana wallet address -k /tmp/bob.json
+```
+
+## Local Operator Flow
+
+`create-tree` and `test-mint` are top-level operator commands:
+
+```bash
+zolana create-tree \
+  --tree-keypair /tmp/zolana-tree.json \
+  --airdrop-lamports 20000000000
+
+zolana test-mint \
+  --amount 1000000 \
+  --airdrop-lamports 2000000000
+```
+
+`create-tree` creates a tree for a local or custom deployment and saves it as
+the selected config's tree override. `test-mint`
+saves the mint-to-asset-ID mapping and mints into the selected wallet owner's
+associated token account. SPL deposits derive and use that same owner-specific
+ATA. Asset mappings store only the mint and on-chain asset ID; owner-specific
+token-account addresses are never global config.
+
+Because both commands persist network-specific values, they use the RPC from
+the selected config rather than accepting a one-off RPC override. Use `-C` for
+another local network.
+
+## Transfers
+
+Amounts and destinations are positional. SOL amounts use decimal SOL units;
+SPL amounts use raw base units.
+
+```bash
+zolana wallet balance
+zolana wallet utxos --mint SOL
+zolana wallet deposit 1 --mint SOL
+zolana wallet transfer 0.3 <REGISTERED_RECIPIENT_PUBKEY> --mint SOL
+zolana wallet withdraw 0.2 <PUBLIC_SOLANA_PUBKEY> --mint SOL
+
+zolana wallet deposit 600000 --mint <SPL_MINT>
+zolana wallet utxos --mint <SPL_MINT>
+zolana wallet transfer 250000 <REGISTERED_RECIPIENT_PUBKEY> --mint <SPL_MINT>
+zolana wallet withdraw 100000 <PUBLIC_SOLANA_PUBKEY> --mint <SPL_MINT>
+```
+
+`wallet transfer` is private-only and rejects an unregistered recipient. Use
+`wallet withdraw` for an intentional public settlement. A deposit without
+`--to` shields to the selected wallet; `--to <PUBKEY>` requires a registered
+recipient.
+
+Wallet commands synchronize private state automatically. There is no public
+`wallet sync` command.

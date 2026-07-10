@@ -1,10 +1,10 @@
 use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use zolana_client::{create_associated_token_account, Rpc};
+use zolana_interface::{pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY};
 use zolana_transaction::{Address, SOL_MINT};
-
-use super::material::load_existing_wallet;
-use crate::cli_config::{checked_wallet_file, CliConfigFile};
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
@@ -13,6 +13,25 @@ pub(super) fn ensure_positive(amount: u64) -> Result<()> {
         bail!("amount must be greater than zero");
     }
     Ok(())
+}
+
+pub(super) fn fetch_protocol_config<R: Rpc>(rpc: &R) -> Result<Option<ProtocolConfig>> {
+    let protocol_config = pda::protocol_config();
+    let Some(account) = rpc.get_account(Address::new_from_array(protocol_config.to_bytes()))?
+    else {
+        return Ok(None);
+    };
+    if account.owner != PROGRAM_ID_PUBKEY {
+        bail!(
+            "protocol config {protocol_config} has unexpected owner {}; expected {}",
+            account.owner,
+            PROGRAM_ID_PUBKEY
+        );
+    }
+    let config = ProtocolConfig::from_account_bytes(&account.data).map_err(|err| {
+        anyhow::anyhow!("invalid protocol config account {protocol_config}: {err:?}")
+    })?;
+    Ok(Some(*config))
 }
 
 /// Parse a decimal SOL string into lamports. Rejects negative/NaN input and more
@@ -90,16 +109,7 @@ pub(super) fn parse_amount_for_asset(amount: &str, asset: Address) -> Result<u64
     }
 }
 
-/// Resolve a `<to>` recipient argument to a pubkey. A local wallet name resolves
-/// to that wallet's owner pubkey; anything else is parsed as a Solana pubkey.
 pub(super) fn resolve_recipient_pubkey(value: &str) -> Result<Pubkey> {
-    if let Ok(pubkey) = value.parse::<Pubkey>() {
-        return Ok(pubkey);
-    }
-    let path = checked_wallet_file(value)?;
-    if path.exists() {
-        return Ok(load_existing_wallet(&path)?.owner_pubkey());
-    }
     parse_pubkey(value)
 }
 
@@ -124,18 +134,29 @@ pub(super) fn format_address(address: Address) -> String {
     }
 }
 
-pub(super) fn configured_spl_token_account(
-    config: &CliConfigFile,
+pub(super) fn ensure_owner_spl_token_account<R: Rpc>(
+    rpc: &R,
+    payer: &Keypair,
+    owner: Pubkey,
     asset: Address,
 ) -> Result<Option<Pubkey>> {
-    if asset == SOL_MINT {
+    let Some(expected_token_account) = owner_spl_token_account(owner, asset) else {
         return Ok(None);
-    }
+    };
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    config
-        .token_account_for_mint(mint)?
-        .ok_or_else(|| anyhow::anyhow!("no token account configured for SPL mint {mint}; run `zolana wallet test-mint` or `zolana config add-asset --mint {mint} --asset-id <ID> --token-account <ACCOUNT>`"))
-        .map(Some)
+    let (signature, token_account) = create_associated_token_account(rpc, payer, &owner, &mint)?;
+    debug_assert_eq!(token_account, expected_token_account);
+    println!(
+        "ok associated_token_account account={token_account} owner={owner} mint={mint} signature={signature}"
+    );
+    Ok(Some(token_account))
+}
+
+pub(super) fn owner_spl_token_account(owner: Pubkey, asset: Address) -> Option<Pubkey> {
+    (asset != SOL_MINT).then(|| {
+        let mint = Pubkey::new_from_array(asset.to_bytes());
+        pda::associated_token_address(&owner, &mint)
+    })
 }
 
 pub(super) fn parse_hex_array<const N: usize>(value: &str) -> Result<[u8; N]> {
@@ -175,7 +196,62 @@ pub(super) fn system_create_account_ix(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
+    use solana_signature::Signature;
+    use solana_signer::Signer;
+    use zolana_client::ClientError;
+
+    #[derive(Default)]
+    struct RecordingRpc {
+        sends: Cell<usize>,
+    }
+
+    impl Rpc for RecordingRpc {
+        fn create_and_send_transaction(
+            &self,
+            instructions: &[Instruction],
+            _payer: Address,
+            signers: &[&Keypair],
+        ) -> std::result::Result<Signature, ClientError> {
+            assert_eq!(instructions.len(), 1);
+            assert_eq!(instructions[0].data, vec![1u8]);
+            assert_eq!(signers.len(), 1);
+            self.sends.set(self.sends.get() + 1);
+            Ok(Signature::default())
+        }
+    }
+
+    #[test]
+    fn spl_token_account_is_the_selected_owners_ata() {
+        let rpc = RecordingRpc::default();
+        let payer = Keypair::new();
+        let owner = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let asset = Address::new_from_array(mint.to_bytes());
+
+        let token_account = ensure_owner_spl_token_account(&rpc, &payer, owner, asset)
+            .expect("ensure ATA")
+            .expect("SPL account");
+
+        assert_eq!(token_account, pda::associated_token_address(&owner, &mint));
+        assert_eq!(rpc.sends.get(), 1);
+        assert_ne!(owner, payer.pubkey());
+    }
+
+    #[test]
+    fn sol_does_not_create_a_token_account() {
+        let rpc = RecordingRpc::default();
+        let payer = Keypair::new();
+
+        assert_eq!(
+            ensure_owner_spl_token_account(&rpc, &payer, payer.pubkey(), SOL_MINT)
+                .expect("SOL account resolution"),
+            None
+        );
+        assert_eq!(rpc.sends.get(), 0);
+    }
 
     #[test]
     fn parse_sol_amount_handles_round_and_fractional_values() {
