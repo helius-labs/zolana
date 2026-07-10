@@ -26,7 +26,7 @@ use zolana_transaction::serialization::{
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
-    args::{NewWalletOptions, WalletKeypairOptions},
+    args::{AddressOptions, NewWalletOptions},
     cli_config::{resolve_keypair_path, CliConfigFile},
 };
 
@@ -167,19 +167,20 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     };
     save_wallet(&path, &keypair, &funding)?;
     let material = WalletMaterial { keypair, funding };
+    let address = material.keypair.shielded_address()?;
 
     println!(
-        "ok wallet {} owner_hash={} funding={}",
+        "ok wallet {} address={} funding={}",
         path.display(),
-        hex::encode(material.keypair.owner_hash()?),
+        address,
         material.funding.pubkey()
     );
     Ok(())
 }
 
-pub(super) fn run_address(opts: WalletKeypairOptions) -> Result<()> {
+pub(super) fn run_address(opts: AddressOptions) -> Result<()> {
     let config = CliConfigFile::load()?;
-    let path = resolve_keypair_path(opts.keypair.as_deref(), &config);
+    let path = resolve_keypair_path(opts.keypair.keypair.as_deref(), &config);
     if !path.exists() {
         bail!(
             "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
@@ -188,7 +189,11 @@ pub(super) fn run_address(opts: WalletKeypairOptions) -> Result<()> {
         );
     }
     let material = load_existing_wallet(&path)?;
-    println!("{}", material.owner_pubkey());
+    if opts.funding {
+        println!("{}", material.owner_pubkey());
+    } else {
+        println!("{}", material.keypair.shielded_address()?);
+    }
     Ok(())
 }
 

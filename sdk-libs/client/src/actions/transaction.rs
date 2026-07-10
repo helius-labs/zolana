@@ -7,7 +7,6 @@ use zolana_interface::{
 };
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::ViewTag,
     SignatureType,
 };
 use zolana_transaction::{
@@ -27,35 +26,6 @@ use crate::{
         ApprovalRequest, ConfidentialRecipientSlot, SyncWalletAuthority, WalletAuthority,
     },
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResolvedAddress {
-    owner: Pubkey,
-    address: ShieldedAddress,
-    view_tag: ViewTag,
-}
-
-impl ResolvedAddress {
-    pub(crate) fn from_registry(owner: Pubkey, address: ShieldedAddress) -> Self {
-        Self {
-            owner,
-            view_tag: address.viewing_pubkey.x(),
-            address,
-        }
-    }
-
-    pub fn owner(&self) -> Pubkey {
-        self.owner
-    }
-
-    pub fn address(&self) -> ShieldedAddress {
-        self.address
-    }
-
-    pub fn view_tag(&self) -> ViewTag {
-        self.view_tag
-    }
-}
 
 /// How [`select_inputs`] chooses which wallet notes to spend.
 ///
@@ -84,6 +54,10 @@ fn reject_duplicate_hashes(hashes: &[[u8; 32]]) -> Result<(), ClientError> {
     Ok(())
 }
 
+/// A private transfer prepared for submission.
+///
+/// The recipient is the exact shielded address used to build the output.
+/// Registry aliases must be resolved before constructing [`CreateTransfer`].
 #[derive(Clone)]
 pub struct CreatedTransfer {
     pub signed: SignedTransaction,
@@ -92,7 +66,7 @@ pub struct CreatedTransfer {
     /// that has more than a page of outputs. See
     /// [`zolana_transaction::instructions::transact::PreparedTransaction::wait_output_hash`].
     pub wait_output_hash: [u8; 32],
-    pub recipient: ResolvedAddress,
+    pub recipient: ShieldedAddress,
 }
 
 #[derive(Clone)]
@@ -157,14 +131,18 @@ pub struct CreateSplit<'a, A: ?Sized> {
     pub selection: InputSelection,
 }
 
+/// Build a private transfer to a concrete shielded address.
+///
+/// This action performs no user-registry lookup. Call
+/// [`crate::resolve_registered_address`] first when the recipient is supplied as
+/// a Solana pubkey, or use [`CreateWithdrawal`] for an explicit public
+/// destination.
 pub struct CreateTransfer<'a, A: ?Sized> {
     pub wallet: &'a Wallet,
     pub authority: &'a A,
     pub owner_pubkey: Pubkey,
     pub payer: Address,
-    /// A recipient already resolved through the user registry. Public recipients
-    /// must use [`CreateWithdrawal`] instead.
-    pub recipient: ResolvedAddress,
+    pub recipient: ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
     pub assets: &'a AssetRegistry,
@@ -202,7 +180,7 @@ pub async fn create_transfer<A: WalletAuthority + ?Sized>(
         .shielded_address(request.owner_pubkey)
         .await?;
     let mut tx = Transaction::new(address, inputs, request.payer);
-    tx.send(&request.recipient.address, request.asset, request.amount)?;
+    tx.send(&request.recipient, request.asset, request.amount)?;
     let prepared = tx.prepare(request.assets)?;
     let wait_output_hash = prepared.wait_output_hash()?;
     let signed = sign_prepared(
@@ -213,7 +191,7 @@ pub async fn create_transfer<A: WalletAuthority + ?Sized>(
         request.assets,
         format!(
             "private transfer of {} to {}",
-            request.amount, request.recipient.owner
+            request.amount, request.recipient
         ),
     )
     .await?;
@@ -832,14 +810,10 @@ mod tests {
     }
 
     #[test]
-    fn create_transfer_to_registered_recipient_builds_shielded_transfer() {
+    fn create_transfer_uses_the_supplied_shielded_address() {
         let sender = ShieldedKeypair::new().unwrap();
         let recipient = ShieldedKeypair::new().unwrap();
-        let owner = Pubkey::new_unique();
-        let resolved = ResolvedAddress::from_registry(
-            owner,
-            recipient.shielded_address().expect("recipient address"),
-        );
+        let recipient = recipient.shielded_address().expect("recipient address");
         let wallet = wallet_with_sol(sender.clone(), 10);
 
         let result = create_transfer_sync(CreateTransfer {
@@ -847,7 +821,7 @@ mod tests {
             authority: &sender,
             owner_pubkey: Pubkey::default(),
             payer: Address::default(),
-            recipient: resolved,
+            recipient,
             asset: SOL_MINT,
             amount: 1,
             assets: &AssetRegistry::default(),
@@ -855,7 +829,7 @@ mod tests {
         })
         .expect("transfer");
 
-        assert_eq!(result.recipient, resolved);
+        assert_eq!(result.recipient, recipient);
         assert_eq!(result.signed.public_amounts.sol, [0u8; 32]);
         assert_eq!(result.signed.public_amounts.spl, [0u8; 32]);
     }

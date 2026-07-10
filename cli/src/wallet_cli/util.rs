@@ -4,6 +4,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use zolana_client::{create_associated_token_account, Rpc};
 use zolana_interface::{pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Address, SOL_MINT};
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -113,6 +114,14 @@ pub(super) fn resolve_recipient_pubkey(value: &str) -> Result<Pubkey> {
     parse_pubkey(value)
 }
 
+pub(super) fn parse_shielded_address(value: &str) -> Result<ShieldedAddress> {
+    value.parse::<ShieldedAddress>().with_context(|| {
+        format!(
+            "invalid shielded address `{value}` (use the value printed by `zolana wallet address`)"
+        )
+    })
+}
+
 pub(super) fn parse_address(value: &str) -> Result<Address> {
     if value.eq_ignore_ascii_case("SOL") {
         return Ok(SOL_MINT);
@@ -202,6 +211,7 @@ mod tests {
     use solana_signature::Signature;
     use solana_signer::Signer;
     use zolana_client::ClientError;
+    use zolana_keypair::ShieldedKeypair;
 
     #[derive(Default)]
     struct RecordingRpc {
@@ -251,6 +261,25 @@ mod tests {
             None
         );
         assert_eq!(rpc.sends.get(), 0);
+    }
+
+    #[test]
+    fn shielded_recipient_round_trips_through_cli_parser() {
+        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+
+        assert_eq!(
+            parse_shielded_address(&address.to_string()).unwrap(),
+            address
+        );
+    }
+
+    #[test]
+    fn solana_pubkey_is_not_a_private_recipient() {
+        let pubkey = Pubkey::new_unique().to_string();
+        let error = parse_shielded_address(&pubkey).unwrap_err().to_string();
+
+        assert!(error.contains("invalid shielded address"));
+        assert!(error.contains("zolana wallet address"));
     }
 
     #[test]

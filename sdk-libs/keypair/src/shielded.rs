@@ -1,5 +1,7 @@
+use std::{fmt, str::FromStr};
+
 use crate::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, SALT_LEN},
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
@@ -7,6 +9,10 @@ use crate::{
     signing_key::SigningKey,
     viewing_key::ViewingKey,
 };
+
+const ADDRESS_VERSION: u8 = 1;
+pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + 32 + P256_PUBKEY_LEN;
+const ADDRESS_PAYLOAD_LEN: usize = 1 + SHIELDED_ADDRESS_LEN;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -18,6 +24,75 @@ pub struct ShieldedAddress {
 impl ShieldedAddress {
     pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
         owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
+    }
+
+    pub fn to_bytes(self) -> [u8; SHIELDED_ADDRESS_LEN] {
+        let mut bytes = [0u8; SHIELDED_ADDRESS_LEN];
+        bytes[..PUBLIC_KEY_LEN].copy_from_slice(self.signing_pubkey.as_bytes());
+        bytes[PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + 32].copy_from_slice(&self.nullifier_pubkey);
+        bytes[PUBLIC_KEY_LEN + 32..].copy_from_slice(self.viewing_pubkey.as_bytes());
+        bytes
+    }
+
+    pub fn from_bytes(bytes: [u8; SHIELDED_ADDRESS_LEN]) -> Result<Self, KeypairError> {
+        let signing_pubkey = PublicKey::from_bytes(
+            bytes[..PUBLIC_KEY_LEN]
+                .try_into()
+                .expect("shielded signing key slice has fixed length"),
+        )?;
+        let nullifier_pubkey = bytes[PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + 32]
+            .try_into()
+            .expect("shielded nullifier key slice has fixed length");
+        let viewing_pubkey = P256Pubkey::from_bytes(
+            bytes[PUBLIC_KEY_LEN + 32..]
+                .try_into()
+                .expect("shielded viewing key slice has fixed length"),
+        )?;
+        let address = Self {
+            signing_pubkey,
+            nullifier_pubkey,
+            viewing_pubkey,
+        };
+        address.owner_hash()?;
+        Ok(address)
+    }
+}
+
+/// A versioned Base58Check, self-contained shielded recipient address.
+///
+/// The encoded payload contains the signing, nullifier, and viewing public keys;
+/// no on-chain registry lookup is required to send to it.
+impl fmt::Display for ShieldedAddress {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            &bs58::encode(self.to_bytes())
+                .with_check_version(ADDRESS_VERSION)
+                .into_string(),
+        )
+    }
+}
+
+impl FromStr for ShieldedAddress {
+    type Err = KeypairError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let bytes = bs58::decode(value)
+            .with_check(Some(ADDRESS_VERSION))
+            .into_vec()
+            .map_err(|error| match error {
+                bs58::decode::Error::InvalidChecksum { .. } => KeypairError::InvalidAddressChecksum,
+                bs58::decode::Error::InvalidVersion { ver, .. } => {
+                    KeypairError::UnsupportedAddressVersion(ver)
+                }
+                _ => KeypairError::InvalidAddressEncoding,
+            })?;
+        if bytes.len() != ADDRESS_PAYLOAD_LEN {
+            return Err(KeypairError::InvalidAddressLength {
+                expected: ADDRESS_PAYLOAD_LEN,
+                actual: bytes.len(),
+            });
+        }
+        Self::from_bytes(bytes[1..].try_into().expect("validated address length"))
     }
 }
 
@@ -189,5 +264,81 @@ impl ShieldedKeypair {
     ) -> Result<ViewingKey, KeypairError> {
         self.viewing_key
             .get_transaction_viewing_key(first_nullifier)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shielded_address_string_round_trips() {
+        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let encoded = address.to_string();
+
+        assert_eq!(encoded.parse::<ShieldedAddress>().unwrap(), address);
+    }
+
+    #[test]
+    fn ed25519_shielded_address_string_round_trips() {
+        let keypair = ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).unwrap();
+        let address = keypair.shielded_address().unwrap();
+
+        assert_eq!(
+            address.to_string().parse::<ShieldedAddress>().unwrap(),
+            address
+        );
+    }
+
+    #[test]
+    fn shielded_address_rejects_invalid_base58() {
+        assert_eq!(
+            "not-an-address".parse::<ShieldedAddress>().unwrap_err(),
+            KeypairError::InvalidAddressEncoding
+        );
+    }
+
+    #[test]
+    fn shielded_address_rejects_bad_checksum() {
+        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let encoded = address.to_string();
+        let mut bytes = bs58::decode(encoded).into_vec().unwrap();
+        bytes[1 + PUBLIC_KEY_LEN] ^= 1;
+        let corrupted = bs58::encode(bytes).into_string();
+
+        assert_eq!(
+            corrupted.parse::<ShieldedAddress>().unwrap_err(),
+            KeypairError::InvalidAddressChecksum
+        );
+    }
+
+    #[test]
+    fn shielded_address_rejects_unsupported_version() {
+        let address = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let unsupported = bs58::encode(address.to_bytes())
+            .with_check_version(ADDRESS_VERSION + 1)
+            .into_string();
+
+        assert_eq!(
+            unsupported.parse::<ShieldedAddress>().unwrap_err(),
+            KeypairError::UnsupportedAddressVersion(ADDRESS_VERSION + 1)
+        );
+    }
+
+    #[test]
+    fn shielded_address_encoding_is_stable() {
+        let p256 = P256Pubkey::from_bytes(crate::constants::P_CONST_SEC1).unwrap();
+        let address = ShieldedAddress {
+            signing_pubkey: PublicKey::from_p256(&p256),
+            nullifier_pubkey: [1u8; 32],
+            viewing_pubkey: p256,
+        };
+        let encoded = address.to_string();
+
+        assert_eq!(
+            encoded,
+            "FkYvNS9oCrskJGJVc2aXYqkdMErt96rVfudRRQwh3peWnFRdmjcs2ar17jS4ohnmbqdXAKceJUpVJvJrMk18qx3bMRVyudYaCDFdXqMTN7P2YggUxx9t5JtHHMnoLhBtRzhuXsKv55knX"
+        );
+        assert_eq!(encoded.parse::<ShieldedAddress>().unwrap(), address);
     }
 }

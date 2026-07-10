@@ -53,7 +53,9 @@ pub mod viewing_key;
 pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pubkey::{P256Pubkey, PublicKey, SignatureType};
-pub use shielded::{CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair};
+pub use shielded::{
+    CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
+};
 pub use signing_key::SigningKey;
 pub use traits::{ShieldedKeypairTrait, ViewingKeyTrait};
 pub use viewing_key::{random_blinding, random_salt, ViewingKey};

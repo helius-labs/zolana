@@ -162,7 +162,6 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
@@ -199,7 +198,6 @@ regenerate-photon-fixtures: build-programs build-prover-server build-cli ensure-
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
-    export USER_REGISTRY_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"

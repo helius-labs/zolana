@@ -15,7 +15,7 @@ pub use actions::{
     create_transfer, create_transfer_sync, create_withdrawal, create_withdrawal_sync,
     sign_transaction, sign_transaction_sync, submit_merge_transaction, submit_private_transaction,
     CreateDeposit, CreateMerge, CreateSplit, CreateTransfer, CreateWithdrawal, CreatedMerge,
-    CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection, ResolvedAddress,
+    CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection,
     SubmitMergeTransaction, SubmitPrivateTransaction, SubmittedMerge, MAX_TRANSFER_INPUTS,
 };
 pub use error::ClientError;

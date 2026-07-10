@@ -4,10 +4,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     create_merge, create_split_sync, create_transfer_sync, fetch_user_record_checked,
-    resolve_registered_address, submit_merge_transaction as submit_merge_action,
+    submit_merge_transaction as submit_merge_action,
     submit_private_transaction as submit_private_action, validate_registered_keypair, ClientError,
-    CreateMerge, CreateSplit, CreateTransfer, InputSelection, PreparedMerge, ResolvedAddress, Rpc,
-    SignedTransaction, SolanaRpc, SubmitMergeTransaction as ClientSubmitMergeTransaction,
+    CreateMerge, CreateSplit, CreateTransfer, InputSelection, PreparedMerge, SignedTransaction,
+    SolanaRpc, SubmitMergeTransaction as ClientSubmitMergeTransaction,
     SubmitPrivateTransaction as ClientSubmitPrivateTransaction, ZolanaIndexer,
 };
 use zolana_interface::instruction::TransactWithdrawal;
@@ -19,7 +19,7 @@ use super::{
     sync::{sync_context, sync_context_with_config, wait_for_indexed_output, WaitOutcome},
     util::{
         ensure_positive, format_address, lamports_to_sol_string, parse_address,
-        parse_amount_for_asset, parse_hex_array, resolve_recipient_pubkey,
+        parse_amount_for_asset, parse_hex_array, parse_shielded_address,
     },
 };
 
@@ -35,8 +35,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let config = CliConfigFile::load()?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let recipient_owner = resolve_recipient_pubkey(&opts.to)?;
-    let recipient = resolve_registered_recipient(&rpc, recipient_owner)?;
+    let recipient = parse_shielded_address(&opts.to)?;
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context_with_config(&opts.network.sync, &config)?;
     let tree = network.tree;
@@ -71,7 +70,7 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             "ok transfer amount={} mint={} to={} mode=shielded signature={}{}",
             opts.amount,
             format_address(asset),
-            transfer.recipient.owner(),
+            transfer.recipient,
             signature,
             outcome.pending_suffix(),
         );
@@ -88,37 +87,6 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         }
         Err(err) => Err(err),
     }
-}
-
-fn resolve_registered_recipient<R: Rpc>(
-    rpc: &R,
-    recipient_owner: Pubkey,
-) -> Result<ResolvedAddress> {
-    registered_recipient_result(
-        recipient_owner,
-        resolve_registered_address(rpc, recipient_owner),
-    )
-}
-
-fn registered_recipient_result<T>(
-    recipient_owner: Pubkey,
-    result: std::result::Result<T, ClientError>,
-) -> Result<T> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(ClientError::UserRegistryRecordNotFound { .. }) => {
-            Err(unregistered_recipient_error(recipient_owner))
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn unregistered_recipient_error(recipient_owner: Pubkey) -> anyhow::Error {
-    anyhow::anyhow!(
-        "recipient {recipient_owner} is not registered for shielded transfers; \
-         `zolana wallet transfer` is private-only, use `zolana wallet withdraw` \
-         for an explicit public withdrawal"
-    )
 }
 
 /// Whether an error is a surfaced [`ClientError::FragmentedBalance`].
@@ -407,36 +375,4 @@ pub(super) fn maybe_airdrop(
     let signature = rpc.airdrop(&material.funding.pubkey(), lamports)?;
     println!("ok airdrop signature={signature}");
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn transfer_preflight_rejects_unregistered_recipient_with_withdraw_hint() {
-        let recipient = Pubkey::new_unique();
-        let result: std::result::Result<(), ClientError> =
-            Err(ClientError::UserRegistryRecordNotFound {
-                owner: recipient,
-                record: Pubkey::new_unique(),
-            });
-        let err = registered_recipient_result(recipient, result)
-            .expect_err("missing registry record must fail");
-
-        let message = err.to_string();
-        assert!(message.contains(&recipient.to_string()));
-        assert!(message.contains("transfer` is private-only"));
-        assert!(message.contains("wallet withdraw"));
-    }
-
-    #[test]
-    fn transfer_preflight_preserves_non_missing_registry_errors() {
-        let result: std::result::Result<(), ClientError> =
-            Err(ClientError::Rpc("registry unavailable".to_string()));
-        let err = registered_recipient_result(Pubkey::new_unique(), result)
-            .expect_err("RPC failure must surface");
-
-        assert_eq!(err.to_string(), "rpc error: registry unavailable");
-    }
 }

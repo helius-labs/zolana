@@ -123,14 +123,11 @@ pub(crate) enum WalletCommand {
     #[command(name = "new", about = "Create a local wallet keypair")]
     New(NewWalletOptions),
 
-    #[command(name = "address", about = "Print the selected wallet's owner pubkey")]
-    Address(WalletKeypairOptions),
-
     #[command(
-        name = "register",
-        about = "Register the selected wallet's shielded keys on-chain"
+        name = "address",
+        about = "Print the selected wallet's shielded address"
     )]
-    Register(RegisterWalletOptions),
+    Address(AddressOptions),
 
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
@@ -361,6 +358,18 @@ pub(crate) struct WalletKeypairOptions {
 }
 
 #[derive(Args, Debug, Clone)]
+pub(crate) struct AddressOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long,
+        help = "Print the wallet's public funding/fee-payer pubkey instead"
+    )]
+    pub(crate) funding: bool,
+}
+
+#[derive(Args, Debug, Clone)]
 pub(crate) struct NewWalletOptions {
     #[arg(
         long = "outfile",
@@ -387,18 +396,6 @@ pub(crate) struct RpcWalletOptions {
         help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
     )]
     pub(crate) rpc_url: Option<String>,
-}
-
-#[derive(Args, Debug, Clone)]
-pub(crate) struct RegisterWalletOptions {
-    #[command(flatten)]
-    pub(crate) wallet: RpcWalletOptions,
-
-    #[arg(
-        long = "airdrop-lamports",
-        help = "Request a localnet airdrop for the wallet funding key before registering"
-    )]
-    pub(crate) airdrop_lamports: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -493,7 +490,7 @@ pub(crate) struct DepositOptions {
 
     #[arg(
         long = "to",
-        help = "Optional registered recipient Solana pubkey (defaults to this wallet's owner)"
+        help = "Optional shielded recipient address (defaults to this wallet)"
     )]
     pub(crate) to: Option<String>,
 
@@ -512,7 +509,7 @@ pub(crate) struct TransferOptions {
     )]
     pub(crate) amount: String,
 
-    #[arg(help = "Registered recipient Solana pubkey", value_name = "TO")]
+    #[arg(help = "Shielded recipient address", value_name = "TO")]
     pub(crate) to: String,
 
     #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
@@ -724,7 +721,6 @@ mod tests {
             ["zolana", "wallet", "--help"].as_slice(),
             ["zolana", "wallet", "new", "--help"].as_slice(),
             ["zolana", "wallet", "address", "--help"].as_slice(),
-            ["zolana", "wallet", "register", "--help"].as_slice(),
             ["zolana", "wallet", "set-merging", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
@@ -833,27 +829,14 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_register_options() {
-        let WalletCommand::Register(opts) = parse_wallet(&[
-            "register",
-            "-k",
-            "/tmp/alice.pid.json",
-            "--rpc-url",
-            "http://127.0.0.1:8900",
-            "--airdrop-lamports",
-            "1000000000",
-        ]) else {
-            panic!("expected wallet register command");
+    fn parses_wallet_funding_address_option() {
+        let WalletCommand::Address(opts) =
+            parse_wallet(&["address", "-k", "/tmp/alice.json", "--funding"])
+        else {
+            panic!("expected wallet address command");
         };
-        assert_eq!(
-            opts.wallet.keypair.keypair.as_deref(),
-            Some("/tmp/alice.pid.json")
-        );
-        assert_eq!(
-            opts.wallet.rpc_url.as_deref(),
-            Some("http://127.0.0.1:8900")
-        );
-        assert_eq!(opts.airdrop_lamports, Some(1_000_000_000));
+        assert_eq!(opts.keypair.keypair.as_deref(), Some("/tmp/alice.json"));
+        assert!(opts.funding);
     }
 
     #[test]

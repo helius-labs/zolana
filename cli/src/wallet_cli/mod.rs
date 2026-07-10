@@ -37,7 +37,6 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
         WalletCommand::New(opts) => material::run_new(opts),
         WalletCommand::Address(opts) => material::run_address(opts),
-        WalletCommand::Register(opts) => registry::run_register(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
         WalletCommand::SetMerging(opts) => registry::run_set_merging(opts),
         WalletCommand::Consolidate(opts) => transaction::run_consolidate(opts),

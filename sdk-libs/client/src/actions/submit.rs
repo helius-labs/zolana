@@ -207,8 +207,7 @@ fn validate_merge_submission<R: Rpc + ?Sized>(
     nullifier_key: &NullifierKey,
     prepared: &PreparedMerge,
 ) -> Result<(), ClientError> {
-    let registered = resolve_registered_address(rpc, owner)?;
-    let address = registered.address();
+    let address = resolve_registered_address(rpc, owner)?;
     if prepared.signing_pubkey != address.signing_pubkey {
         return Err(ClientError::SubmissionMismatch(format!(
             "merge signing key does not match funding owner {owner}'s registry record"

@@ -35,14 +35,14 @@ no named wallets.
 
 ## Wallet Setup
 
-Creating a wallet is local and does not contact the network. Registration is a
-separate, retryable operation. Creation refuses to overwrite an existing wallet
-file:
+Creating a wallet is local and does not contact the network. Creation refuses
+to overwrite an existing wallet file and prints a self-contained shielded
+address that can receive immediately:
 
 ```bash
 zolana config set --keypair ~/.config/zolana/id.json
 zolana wallet new
-zolana wallet register --airdrop-lamports 1000000000
+zolana wallet address
 ```
 
 Use `--funding-keypair /path/to/solana/id.json` with `wallet new` to use an
@@ -54,8 +54,8 @@ Use `-k` to operate on a wallet other than the configured default:
 
 ```bash
 zolana wallet new --outfile /tmp/bob.json
-zolana wallet register -k /tmp/bob.json --airdrop-lamports 1000000000
 zolana wallet address -k /tmp/bob.json
+zolana wallet address -k /tmp/bob.json --funding
 ```
 
 ## Local Operator Flow
@@ -92,19 +92,20 @@ SPL amounts use raw base units.
 zolana wallet balance
 zolana wallet utxos --mint SOL
 zolana wallet deposit 1 --mint SOL
-zolana wallet transfer 0.3 <REGISTERED_RECIPIENT_PUBKEY> --mint SOL
+zolana wallet transfer 0.3 <SHIELDED_ADDRESS> --mint SOL
 zolana wallet withdraw 0.2 <PUBLIC_SOLANA_PUBKEY> --mint SOL
 
 zolana wallet deposit 600000 --mint <SPL_MINT>
 zolana wallet utxos --mint <SPL_MINT>
-zolana wallet transfer 250000 <REGISTERED_RECIPIENT_PUBKEY> --mint <SPL_MINT>
+zolana wallet transfer 250000 <SHIELDED_ADDRESS> --mint <SPL_MINT>
 zolana wallet withdraw 100000 <PUBLIC_SOLANA_PUBKEY> --mint <SPL_MINT>
 ```
 
-`wallet transfer` is private-only and rejects an unregistered recipient. Use
-`wallet withdraw` for an intentional public settlement. A deposit without
-`--to` shields to the selected wallet; `--to <PUBKEY>` requires a registered
-recipient.
+`wallet transfer` accepts only the self-contained address printed by `wallet
+address`. Use `wallet withdraw` for an intentional public settlement. A deposit
+without `--to` shields to the selected wallet; `--to <SHIELDED_ADDRESS>` shields
+to someone else. `wallet set-merging on` initializes the on-chain merge-consent
+record when that optional feature is first enabled.
 
 Wallet commands synchronize private state automatically. There is no public
 `wallet sync` command.
