@@ -20,8 +20,8 @@ use solana_signature::Signature;
 use solana_transaction::Transaction;
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
-    EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
-    UiTransactionEncoding,
+    EncodedTransaction, TransactionConfirmationStatus, UiCompiledInstruction, UiInstruction,
+    UiLoadedAddresses, UiMessage, UiTransactionEncoding,
 };
 use zolana_event::{InstructionGroup, ParsedInstruction};
 
@@ -39,6 +39,17 @@ pub struct SolanaRpc {
 #[derive(Clone, Debug)]
 pub struct ConfirmedInstructionGroups {
     pub groups: Vec<InstructionGroup>,
+}
+
+/// On-chain outcome of a submitted signature as seen by the RPC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignatureState {
+    Failed(String),
+    Confirmed,
+    /// Landed at `Processed`, but not yet confirmed. Callers must not resubmit.
+    Pending,
+    /// The RPC has no status for the signature.
+    NotFound,
 }
 
 impl SolanaRpc {
@@ -96,6 +107,27 @@ impl SolanaRpc {
         Err(ClientError::Rpc(format!(
             "signature not confirmed: {signature}"
         )))
+    }
+
+    /// Classify a signature with transaction-history search enabled, preserving
+    /// the distinction between processed-but-pending and wholly unseen.
+    pub fn signature_state(&self, signature: &Signature) -> Result<SignatureState, ClientError> {
+        let statuses = self
+            .client
+            .get_signature_statuses_with_history(&[*signature])
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses {signature}: {err}")))?
+            .value;
+        match statuses.into_iter().next().flatten() {
+            Some(status) => match status.err {
+                Some(err) => Ok(SignatureState::Failed(err.to_string())),
+                None => match status.confirmation_status() {
+                    TransactionConfirmationStatus::Confirmed
+                    | TransactionConfirmationStatus::Finalized => Ok(SignatureState::Confirmed),
+                    TransactionConfirmationStatus::Processed => Ok(SignatureState::Pending),
+                },
+            },
+            None => Ok(SignatureState::NotFound),
+        }
     }
 
     pub fn fetch_confirmed_instruction_groups(

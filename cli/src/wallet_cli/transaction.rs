@@ -1,32 +1,34 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_transfer_sync, prover::transact::assemble, CreateTransfer, InputCommitment,
-    ProofCompressed, ProverClient, ProverInputs, Rpc, SignedTransaction, SolanaRpc, SpendProof,
-    ZolanaIndexer,
+    create_transfer_sync, submit_private_transaction as submit_private_action, CreateTransfer,
+    InputSelection, SignedTransaction, SolanaRpc,
+    SubmitPrivateTransaction as ClientSubmitPrivateTransaction, ZolanaIndexer,
 };
-use zolana_interface::instruction::{Transact, TransactWithdrawal};
+use zolana_interface::instruction::TransactWithdrawal;
 use zolana_transaction::Address;
 
 use super::{
     material::WalletMaterial,
     resolve::get_network,
-    sync::{sync_context, wait_for_indexed_transaction},
-    util::{ensure_positive, format_address, parse_address, parse_shielded_address},
+    sync::{sync_context, wait_for_indexed_output, WaitOutcome},
+    util::{
+        ensure_positive, format_address, parse_address, parse_hex_array, parse_shielded_address,
+    },
 };
-use crate::args::TransferOptions;
+use crate::args::{TransferOptions, UtxosOptions};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
     let recipient = parse_shielded_address(&opts.to)?;
+    let selection = resolve_transfer_selection(&opts)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
-    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let tree = network.tree;
 
     let transfer = create_transfer_sync(CreateTransfer {
@@ -37,8 +39,10 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
         recipient,
         asset,
         amount: opts.amount,
+        selection,
     })?;
-    let signature = submit_private_transaction(
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
             rpc: &rpc,
             indexer: &indexer,
@@ -46,16 +50,46 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             tree,
             prover_url: &network.prover_url,
             withdrawal: None,
-            wait_tag: transfer.wait_tag,
+            wait_output_hash: transfer.wait_output_hash,
         },
         transfer.signed,
     )?;
     println!(
-        "ok transfer amount={} mint={} to={} mode=shielded signature={}",
+        "ok transfer amount={} mint={} to={} mode=shielded signature={}{}",
         opts.amount,
         format_address(asset),
         transfer.recipient,
-        signature
+        signature,
+        outcome.pending_suffix(),
+    );
+    Ok(())
+}
+
+fn resolve_transfer_selection(opts: &TransferOptions) -> Result<InputSelection> {
+    match &opts.input {
+        Some(input) => Ok(InputSelection::Explicit(vec![parse_hex_array::<32>(
+            input,
+        )?])),
+        None => Ok(InputSelection::Auto),
+    }
+}
+
+pub(super) fn run_utxos(opts: UtxosOptions) -> Result<()> {
+    let asset = parse_address(&opts.mint)?;
+    let ctx = sync_context(&opts.sync)?;
+    let notes = ctx.wallet.spendable_utxos(asset);
+    for note in &notes {
+        println!(
+            "ok utxo hash={} mint={} amount={}",
+            hex::encode(note.hash),
+            format_address(asset),
+            note.amount
+        );
+    }
+    println!(
+        "ok utxos mint={} count={}",
+        format_address(asset),
+        notes.len()
     );
     Ok(())
 }
@@ -67,77 +101,30 @@ pub(super) struct SubmitPrivateTx<'a> {
     pub(super) tree: Pubkey,
     pub(super) prover_url: &'a str,
     pub(super) withdrawal: Option<TransactWithdrawal>,
-    pub(super) wait_tag: [u8; 32],
+    pub(super) wait_output_hash: [u8; 32],
 }
 
 pub(super) fn submit_private_transaction(
     request: SubmitPrivateTx<'_>,
     signed: SignedTransaction,
-) -> Result<Signature> {
-    let commitments = signed.input_commitments()?;
-    let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
-    // `assemble` runs the witness build once: the per-input nullifiers, root
-    // indices, and dummy padding come out of the prover, so the instruction data
-    // and the proof commit to identical values by construction.
-    let assembled = assemble(signed, &proofs)?;
-    let prover = ProverClient::new(request.prover_url.to_string());
-    let proof = match &assembled.prover_inputs {
-        ProverInputs::P256(inputs) => prover.prove_transfer_p256(inputs)?,
-        ProverInputs::Eddsa(inputs) => prover.prove_transfer(inputs)?,
-    };
-    let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-    let data = assembled.with_proof(proof);
-    let ix = Transact {
-        payer: request.material.funding.pubkey(),
+) -> Result<(Signature, WaitOutcome)> {
+    let signature = submit_private_action(ClientSubmitPrivateTransaction {
+        rpc: request.rpc,
+        indexer: request.indexer,
+        funding: &request.material.funding,
         tree: request.tree,
+        prover_url: request.prover_url,
         withdrawal: request.withdrawal,
-        data,
-    }
-    .instruction();
-    let instructions = [
-        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-            1_400_000,
-        ),
-        ix,
-    ];
-    let signature = request.rpc.create_and_send_transaction(
-        &instructions,
-        Address::new_from_array(request.material.funding.pubkey().to_bytes()),
-        &[&request.material.funding],
+        signed,
+    })?;
+    let outcome = wait_for_indexed_output(
+        request.indexer,
+        request.rpc,
+        request.tree,
+        request.wait_output_hash,
+        signature,
     )?;
-    wait_for_indexed_transaction(request.indexer, request.wait_tag, signature)?;
-    Ok(signature)
-}
-
-fn spend_proofs(
-    indexer: &ZolanaIndexer,
-    tree: Pubkey,
-    commitments: &[InputCommitment],
-) -> Result<Vec<SpendProof>> {
-    let tree_address = Address::new_from_array(tree.to_bytes());
-    let leaves = commitments
-        .iter()
-        .map(|commitment| commitment.utxo_hash)
-        .collect::<Vec<_>>();
-    let nullifiers = commitments
-        .iter()
-        .map(|commitment| commitment.nullifier)
-        .collect::<Vec<_>>();
-    let state_proofs = indexer.get_merkle_proofs(tree_address, leaves)?.proofs;
-    let nullifier_proofs = indexer
-        .get_non_inclusion_proofs(tree_address, nullifiers)?
-        .proofs;
-    if state_proofs.len() != commitments.len() || nullifier_proofs.len() != commitments.len() {
-        bail!("indexer returned incomplete input proofs");
-    }
-
-    // The indexer's merkle / non-inclusion proofs carry the tree root indices the
-    // witness build resolves placement against; `SpendProof` wraps them directly.
-    Ok(state_proofs
-        .into_iter()
-        .zip(nullifier_proofs)
-        .map(|(state, nullifier)| SpendProof { state, nullifier })
-        .collect())
+    Ok((signature, outcome))
 }
 
 pub(super) fn maybe_airdrop(

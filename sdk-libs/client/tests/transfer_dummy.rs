@@ -33,7 +33,7 @@ use zolana_interface::{
         transfer_confidential_5_4,
     },
 };
-use zolana_keypair::{NullifierKey, PublicKey};
+use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypair};
 use zolana_transaction::{Data, ExternalData, OutputUtxo, Utxo, SOL_MINT};
 
 use crate::test_indexer::TestIndexer;
@@ -126,6 +126,65 @@ fn real_input() -> TransferSpendInput {
     }
 }
 
+fn real_inputs(count: usize) -> (Vec<TransferSpendInput>, u64) {
+    let mut rng = rand::thread_rng();
+    let mut indexer = TestIndexer::new();
+    let mut raw = Vec::with_capacity(count);
+    let mut commitments = Vec::with_capacity(count);
+    let mut total = 0u64;
+
+    for index in 0..count {
+        let mut owner_bytes = [0u8; 32];
+        rng.fill_bytes(&mut owner_bytes);
+        let mut blinding = [0u8; 31];
+        rng.fill_bytes(&mut blinding);
+        let mut secret = [0u8; 31];
+        rng.fill_bytes(&mut secret);
+        let nullifier_key = NullifierKey::from_secret(secret);
+        let amount = 10 + u64::try_from(index).expect("test index fits in u64");
+        total = total.checked_add(amount).expect("test amounts fit");
+
+        let utxo = Utxo {
+            owner: PublicKey::from_ed25519(&owner_bytes),
+            asset: SOL_MINT,
+            amount,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+        let utxo_hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .expect("utxo hash");
+        let nullifier = utxo
+            .nullifier(&utxo_hash, &nullifier_key)
+            .expect("nullifier");
+        indexer.add_utxo(utxo_hash);
+        commitments.push(InputCommitment {
+            index,
+            utxo_hash,
+            nullifier,
+        });
+        raw.push((utxo, nullifier_key));
+    }
+
+    let proofs = indexer
+        .get_input_merkle_proofs(&commitments)
+        .expect("input merkle proofs");
+    let inputs = raw
+        .into_iter()
+        .zip(proofs)
+        .map(|((utxo, nullifier_key), proof)| TransferSpendInput {
+            utxo,
+            nullifier_key,
+            data_hash: None,
+            zone_data_hash: None,
+            proof: Some(proof),
+        })
+        .collect();
+    (inputs, total)
+}
+
 /// A padding input: zero owner, random blinding, no proof. The prover mirrors the
 /// first real input's roots onto it.
 fn dummy_input() -> TransferSpendInput {
@@ -153,6 +212,19 @@ fn dummy_output() -> OutputUtxo {
     let mut blinding = [0u8; 31];
     rand::thread_rng().fill_bytes(&mut blinding);
     OutputUtxo {
+        blinding,
+        ..Default::default()
+    }
+}
+
+fn real_output(amount: u64) -> OutputUtxo {
+    let recipient = ShieldedKeypair::new().expect("recipient");
+    let mut blinding = [0u8; 31];
+    rand::thread_rng().fill_bytes(&mut blinding);
+    OutputUtxo {
+        owner_address: Some(recipient.shielded_address().expect("recipient address")),
+        asset: SOL_MINT,
+        amount,
         blinding,
         ..Default::default()
     }
@@ -198,6 +270,10 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         payer_pubkey_hash: [0u8; 32],
         shape: Some(Shape::new(n_in, n_out)),
     };
+    prove_and_verify_eddsa_prover(prover, n_in, n_out);
+}
+
+fn prove_and_verify_eddsa_prover(prover: TransferProver, n_in: usize, n_out: usize) {
     let result = prover
         .build()
         .unwrap_or_else(|e| panic!("build {n_in}x{n_out} witness: {e:?}"));
@@ -239,6 +315,31 @@ fn eddsa_transfer_all_shapes_proofs_verify() {
         (1, 8),
     ] {
         prove_and_verify_eddsa_shape(n_in, n_out);
+    }
+}
+
+#[test]
+fn eddsa_transfer_multi_real_inputs_proofs_verify() {
+    start_prover();
+    for (shape_inputs, real_count) in [(2usize, 2usize), (3, 3), (4, 4), (5, 5)] {
+        let (inputs, total) = real_inputs(real_count);
+        let mut outputs = vec![real_output(total)];
+        while outputs.len() < 3 {
+            outputs.push(dummy_output());
+        }
+        let prover = TransferProver {
+            inputs,
+            outputs,
+            external_data: dummy_external_data(),
+            public_amounts: PublicAmounts {
+                sol: [0u8; 32],
+                spl: [0u8; 32],
+                asset: [0u8; 32],
+            },
+            payer_pubkey_hash: [0u8; 32],
+            shape: Some(Shape::new(shape_inputs, 3)),
+        };
+        prove_and_verify_eddsa_prover(prover, shape_inputs, 3);
     }
 }
 

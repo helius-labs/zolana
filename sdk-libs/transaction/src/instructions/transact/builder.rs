@@ -37,7 +37,19 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 /// always start at slot 2.
 pub const SENDER_SLOT_COUNT: usize = 2;
 
-pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
+/// Packet-safe proof shapes for confidential transfers. Every shape carries
+/// three outputs (two sender change slots and one recipient) and differs only
+/// in input capacity. The ordering must stay ascending because
+/// [`canonical_shape`] selects the first shape that fits.
+///
+/// Four-output shapes exceed Solana's 1232-byte packet limit without address
+/// lookup tables, so regular transfers deliberately stop at `{5,3}`.
+pub const SUPPORTED_SHAPES: [Shape; 4] = [
+    Shape::new(2, 3),
+    Shape::new(3, 3),
+    Shape::new(4, 3),
+    Shape::new(5, 3),
+];
 
 pub struct PreparedRecipient {
     pub view_tag: ViewTag,
@@ -552,6 +564,20 @@ impl Transaction {
 }
 
 impl PreparedTransaction {
+    /// Committed hash of the first real output note in output order. Callers use
+    /// it as an indexing probe, avoiding pagination ambiguity when many outputs
+    /// share a view tag. A full-balance withdrawal has only dummy outputs, so it
+    /// falls back to the first committed output hash.
+    pub fn wait_output_hash(&self) -> Result<[u8; 32], TransactionError> {
+        let output = self
+            .outputs
+            .iter()
+            .find(|output| !output.is_dummy())
+            .or_else(|| self.outputs.first())
+            .ok_or(TransactionError::MissingOutput)?;
+        output.hash()
+    }
+
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,

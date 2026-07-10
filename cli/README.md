@@ -30,6 +30,7 @@ zolana wallet address
 zolana wallet address --funding
 zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
 zolana wallet balance --indexer-url http://127.0.0.1:8784
+zolana wallet utxos --mint SOL
 zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
 zolana wallet transfer --to <RECIPIENT_SHIELDED_ADDRESS> --amount 300000000 --mint SOL
 zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
@@ -49,6 +50,10 @@ printed by `wallet address`, so receiving private transfers does not require an
 on-chain registry record. Private transfers never fall back to a public
 payment. Use `withdraw --to <PUBKEY>` for an explicit public Solana destination.
 Balance and transaction commands synchronize wallet state automatically.
+
+Transfers select the fewest notes by spending largest-first, up to five inputs.
+`wallet utxos` prints each spendable note's hash and amount; pass one of those
+hashes to `transfer --input <HASH>` when a specific note must be spent.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

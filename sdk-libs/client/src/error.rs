@@ -26,8 +26,24 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("amount must be greater than zero")]
+    ZeroAmount,
+
+    #[error("balance is too fragmented: covering {requested} needs {notes} notes but one transaction spends at most {max_inputs}")]
+    FragmentedBalance {
+        requested: u64,
+        notes: usize,
+        max_inputs: usize,
+    },
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
+
+    #[error("explicitly selected note {hash} is not an unspent note of the requested asset")]
+    InputNoteUnavailable { hash: String },
+
+    #[error("explicit input list contains duplicate note {hash}")]
+    DuplicateInputNote { hash: String },
 
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
@@ -90,6 +106,9 @@ pub enum ClientError {
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
+
+    #[error("submission request does not match signed transaction: {0}")]
+    SubmissionMismatch(String),
 
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },

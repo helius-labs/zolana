@@ -450,7 +450,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--to",
             &alice_address.to_string(),
             "--amount",
-            "400000000",
+            "600000000",
             "--mint",
             "SOL",
             "--rpc-url",
@@ -462,6 +462,23 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
+
+    let bob_spl_utxos = run_cli_with_env(
+        &[
+            "wallet",
+            "utxos",
+            "--keypair",
+            &bob.display().to_string(),
+            "--mint",
+            &spl_mint,
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    let bob_spl_input = parse_field(&bob_spl_utxos, "hash")?;
 
     run_cli_with_env(
         &[
@@ -475,6 +492,8 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "250000",
             "--mint",
             &spl_mint,
+            "--input",
+            &bob_spl_input,
             "--rpc-url",
             &rpc_url,
             "--indexer-url",

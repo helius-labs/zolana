@@ -17,6 +17,7 @@ use p256::{
 };
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
@@ -27,7 +28,11 @@ use zolana_client::{
     STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
+use zolana_interface::instruction::builders::Transact;
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_interface::instruction::{
+    TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
+};
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::signed_transaction::signed_to_field,
@@ -424,6 +429,175 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     assert_eq!(
         change_only.output_ciphertexts.first().unwrap().data.len(),
         one_recipient.output_ciphertexts.first().unwrap().data.len(),
+    );
+}
+
+#[test]
+fn every_transfer_shape_fits_the_packet_limit() {
+    const PACKET_DATA_SIZE: usize = 1232;
+    let p256_proof = TransactProof::P256 {
+        a: [0u8; 32],
+        b: [0u8; 64],
+        c: [0u8; 32],
+        commitment: [0u8; 32],
+        commitment_pok: [0u8; 32],
+    };
+
+    for n_inputs in 1..=5usize {
+        let mut rng = rand::thread_rng();
+        let sender = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new().unwrap();
+        let inputs = (0..n_inputs)
+            .map(|_| p256_input(&sender, 100, &mut rng))
+            .collect();
+        let mut tx = Transaction::new(
+            sender.shielded_address().unwrap(),
+            inputs,
+            Address::default(),
+        );
+        tx.send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
+            .unwrap();
+        let signed = sign(tx, &sender).unwrap();
+        let proofs = signed
+            .input_commitments()
+            .unwrap()
+            .iter()
+            .map(|_| fake_spend_proof(5))
+            .collect::<Vec<_>>();
+        let data = zolana_client::assemble(signed, &proofs)
+            .unwrap()
+            .with_proof(p256_proof);
+
+        let expected_inputs = n_inputs.max(2);
+        assert_eq!(data.inputs.len(), expected_inputs);
+        let payer = Pubkey::new_unique();
+        let instruction = Transact {
+            payer,
+            tree: Pubkey::new_unique(),
+            withdrawal: None,
+            data,
+        }
+        .instruction();
+        let compute_budget =
+            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                1_400_000,
+            );
+        let message = Message::new(&[compute_budget, instruction], Some(&payer));
+        let tx_size = 1
+            + usize::from(message.header.num_required_signatures) * 64
+            + message.serialize().len();
+        assert!(
+            tx_size <= PACKET_DATA_SIZE,
+            "shape {{{expected_inputs},3}} serializes to {tx_size} bytes"
+        );
+    }
+}
+
+fn withdrawal_tx_size(
+    asset: Address,
+    n_inputs: usize,
+    registry: &AssetRegistry,
+    spl: bool,
+) -> usize {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let inputs = (0..n_inputs)
+        .map(|_| {
+            let utxo = Utxo {
+                owner: sender.signing_pubkey(),
+                asset,
+                amount: 10,
+                blinding: blinding(&mut rng),
+                zone_program_id: None,
+                data: Data::default(),
+            };
+            SpendUtxo::from_keypair(utxo, &sender)
+        })
+        .collect();
+    let recipient = Pubkey::new_unique();
+    let (target, withdrawal) = if spl {
+        let user_token = Pubkey::new_unique();
+        let interface = Pubkey::new_unique();
+        (
+            WithdrawalTarget::Spl {
+                user_spl_token: Address::new_from_array(user_token.to_bytes()),
+                spl_token_interface: Address::new_from_array(interface.to_bytes()),
+            },
+            TransactWithdrawal::Spl(TransactSplWithdrawal {
+                cpi_authority: Some(Pubkey::new_unique()),
+                spl_token_interface: interface,
+                recipient,
+                user_token_account: user_token,
+                token_program: Pubkey::new_unique(),
+            }),
+        )
+    } else {
+        (
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
+        )
+    };
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        inputs,
+        Address::default(),
+    );
+    tx.withdraw(asset, 10 * n_inputs as u64, target).unwrap();
+    let signed = tx.sign(&sender, registry).unwrap();
+    let proofs = signed
+        .input_commitments()
+        .unwrap()
+        .iter()
+        .map(|_| fake_spend_proof(5))
+        .collect::<Vec<_>>();
+    let data = zolana_client::assemble(signed, &proofs)
+        .unwrap()
+        .with_proof(TransactProof::P256 {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        });
+    let payer = Pubkey::new_unique();
+    let instruction = Transact {
+        payer,
+        tree: Pubkey::new_unique(),
+        withdrawal: Some(withdrawal),
+        data,
+    }
+    .instruction();
+    let compute_budget =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            1_400_000,
+        );
+    let message = Message::new(&[compute_budget, instruction], Some(&payer));
+    1 + usize::from(message.header.num_required_signatures) * 64 + message.serialize().len()
+}
+
+#[test]
+fn withdrawal_packet_boundaries_justify_the_spl_input_cap() {
+    const PACKET_DATA_SIZE: usize = 1232;
+    let spl_asset = Address::new_from_array([2u8; 32]);
+    let spl_registry = AssetRegistry::new([(2, spl_asset)]).expect("registry");
+
+    let spl_three = withdrawal_tx_size(spl_asset, 3, &spl_registry, true);
+    let spl_four = withdrawal_tx_size(spl_asset, 4, &spl_registry, true);
+    let sol_five = withdrawal_tx_size(SOL_MINT, 5, &registry(), false);
+
+    assert!(
+        spl_three <= PACKET_DATA_SIZE,
+        "SPL withdrawal at the cap must fit: {spl_three} bytes"
+    );
+    assert!(
+        spl_four > PACKET_DATA_SIZE,
+        "SPL withdrawal above the cap must overflow: {spl_four} bytes"
+    );
+    assert!(
+        sol_five <= PACKET_DATA_SIZE,
+        "SOL withdrawal at the regular input cap must fit: {sol_five} bytes"
     );
 }
 

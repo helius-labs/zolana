@@ -4,7 +4,7 @@ use zolana_client::{create_deposit, CreateDeposit, SolanaRpc, ZolanaIndexer};
 use super::{
     material::load_sender_from_resolved_sync,
     resolve::get_network_with_config,
-    sync::wait_for_indexed_utxo,
+    sync::wait_for_indexed_output,
     transaction::maybe_airdrop,
     util::{
         configured_spl_token_account, ensure_positive, format_address, parse_address,
@@ -23,7 +23,6 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
-    maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let tree = network.tree;
     let recipient = match recipient_override {
         None => material.keypair.shielded_address()?,
@@ -36,15 +35,17 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         spl_token_account,
         memo: None,
     })?;
+    maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
-    wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
+    let outcome = wait_for_indexed_output(&indexer, &rpc, tree, deposit.utxo_hash, signature)?;
     println!(
-        "ok deposit amount={} mint={} to={} utxo_hash={} signature={}",
+        "ok deposit amount={} mint={} to={} utxo_hash={} signature={}{}",
         opts.amount,
         format_address(asset),
         recipient,
         hex::encode(deposit.utxo_hash),
-        signature
+        signature,
+        outcome.pending_suffix(),
     );
     Ok(())
 }

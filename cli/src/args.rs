@@ -123,6 +123,9 @@ pub(crate) enum WalletCommand {
     #[command(name = "balance", about = "Show private wallet balances")]
     Balance(BalanceOptions),
 
+    #[command(name = "utxos", about = "List spendable private notes")]
+    Utxos(UtxosOptions),
+
     #[command(name = "merge", about = "Enable or disable merging for this wallet")]
     Merge(MergeOptions),
 
@@ -474,6 +477,13 @@ pub(crate) struct TransferOptions {
 
     #[arg(long, help = "Amount to transfer")]
     pub(crate) amount: u64,
+
+    #[arg(
+        long = "input",
+        help = "Spend this exact note (hash from `wallet utxos`)",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -498,6 +508,15 @@ pub(crate) struct BalanceOptions {
 
     #[arg(long, help = "Optional mint filter (address or SOL)")]
     pub(crate) mint: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub(crate) struct UtxosOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -637,6 +656,7 @@ mod tests {
             ["zolana", "wallet", "create-tree", "--help"].as_slice(),
             ["zolana", "wallet", "test-mint", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
+            ["zolana", "wallet", "utxos", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
             ["zolana", "wallet", "transfer", "--help"].as_slice(),
             ["zolana", "wallet", "withdraw", "--help"].as_slice(),
@@ -975,11 +995,17 @@ mod tests {
             "SOL",
             "--prover-url",
             "http://127.0.0.1:3002",
+            "--input",
+            "0707070707070707070707070707070707070707070707070707070707070707",
         ]) else {
             panic!("expected wallet transfer command");
         };
         assert_eq!(transfer.to, "Recipient1111111111111111111111111111111111");
         assert_eq!(transfer.amount, 400_000_000);
+        assert_eq!(
+            transfer.input.as_deref(),
+            Some("0707070707070707070707070707070707070707070707070707070707070707")
+        );
         assert_eq!(
             transfer.network.prover_url.as_deref(),
             Some("http://127.0.0.1:3002")
@@ -1002,5 +1028,13 @@ mod tests {
         };
         assert_eq!(withdraw.to, "Dest1111111111111111111111111111111111111111");
         assert_eq!(withdraw.amount, 200_000_000);
+
+        let WalletCommand::Utxos(utxos) =
+            parse_wallet(&["utxos", "-k", "/tmp/bob.json", "--mint", "SOL"])
+        else {
+            panic!("expected wallet utxos command");
+        };
+        assert_eq!(utxos.sync.keypair.keypair.as_deref(), Some("/tmp/bob.json"));
+        assert_eq!(utxos.mint, "SOL");
     }
 }

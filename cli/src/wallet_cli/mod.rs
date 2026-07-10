@@ -26,6 +26,7 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
         WalletCommand::CreateTree(opts) => tree::run_create_tree(opts),
         WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
+        WalletCommand::Utxos(opts) => transaction::run_utxos(opts),
         WalletCommand::Merge(opts) => registry::run_merge(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),
         WalletCommand::Transfer(opts) => transaction::run_transfer(opts),
