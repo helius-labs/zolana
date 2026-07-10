@@ -385,11 +385,6 @@ func runCli() {
 						Usage: "Directory where key files will be stored",
 						Value: "./proving-keys/",
 					},
-					&cli.StringFlag{
-						Name:  "download-url",
-						Usage: "Base URL for downloading key files",
-						Value: common.DefaultBaseURL,
-					},
 					&cli.IntFlag{
 						Name:  "max-retries",
 						Usage: "Maximum number of retries for downloading keys",
@@ -413,7 +408,6 @@ func runCli() {
 
 					// Configure download settings
 					downloadConfig := &common.DownloadConfig{
-						BaseURL:       context.String("download-url"),
 						MaxRetries:    context.Int("max-retries"),
 						RetryDelay:    common.DefaultRetryDelay,
 						MaxRetryDelay: common.DefaultMaxRetryDelay,
@@ -425,7 +419,6 @@ func runCli() {
 						Strs("circuits", circuits).
 						Str("keys_dir", keysDirPath).
 						Bool("verify_only", verifyOnly).
-						Str("download_url", downloadConfig.BaseURL).
 						Int("max_retries", downloadConfig.MaxRetries).
 						Msg("Download configuration")
 
@@ -494,11 +487,6 @@ func runCli() {
 						Usage: "Automatically download missing key files",
 						Value: false,
 					},
-					&cli.StringFlag{
-						Name:  "download-url",
-						Usage: "Base URL for downloading key files",
-						Value: common.DefaultBaseURL,
-					},
 					&cli.IntFlag{
 						Name:  "download-max-retries",
 						Usage: "Maximum number of retries for downloading keys",
@@ -514,7 +502,6 @@ func runCli() {
 
 					// Configure download settings
 					downloadConfig := &common.DownloadConfig{
-						BaseURL:       context.String("download-url"),
 						MaxRetries:    context.Int("download-max-retries"),
 						RetryDelay:    common.DefaultRetryDelay,
 						MaxRetryDelay: common.DefaultMaxRetryDelay,
