@@ -1616,7 +1616,12 @@ mod tests {
         let wallet = wallet_with_asset_notes(
             sender.clone(),
             asset,
-            &[(10, [1u8; 31]), (10, [2u8; 31]), (10, [3u8; 31]), (10, [4u8; 31])],
+            &[
+                (10, [1u8; 31]),
+                (10, [2u8; 31]),
+                (10, [3u8; 31]),
+                (10, [4u8; 31]),
+            ],
         );
         let assets = AssetRegistry::new([(2, asset)]).expect("asset registry");
         let err = withdraw_auto(&wallet, &sender, asset, 40, &assets)

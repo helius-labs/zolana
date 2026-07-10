@@ -162,10 +162,9 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
     Ok(())
 }
 
-/// Resolve which SOL note a split spends and the per-part amount. `--input
-/// <hash>` names the exact note to split; otherwise the largest note is split.
-/// Resolve the note to split, the per-part amount, and the note's total (the
-/// amount fanned out across all parts).
+/// Resolve which SOL note a split spends: `--input <hash>` names the exact note,
+/// otherwise the largest note is chosen. Returns the selection, the per-part
+/// amount, and the note's total (the amount fanned out across all parts).
 fn split_selection(
     opts: &SplitOptions,
     ctx: &super::sync::SyncContext,

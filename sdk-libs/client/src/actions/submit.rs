@@ -303,9 +303,7 @@ mod tests {
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::instructions::transact::{PublicAmounts, Shape};
     use zolana_transaction::OutputUtxo;
-    use zolana_user_registry_interface::{
-        user_registry_program_id, SyncDelegateEntry, UserRecord,
-    };
+    use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
 
     use crate::rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse, MerkleContext,

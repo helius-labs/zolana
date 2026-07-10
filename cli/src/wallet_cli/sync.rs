@@ -291,7 +291,8 @@ mod tests {
         let err = wait(&index, &status, Duration::from_millis(0))
             .expect_err("processed-but-unconfirmed on timeout must error");
         assert!(
-            err.to_string().contains("processed on-chain but not confirmed"),
+            err.to_string()
+                .contains("processed on-chain but not confirmed"),
             "unexpected error: {err}"
         );
     }

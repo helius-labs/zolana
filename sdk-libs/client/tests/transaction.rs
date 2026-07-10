@@ -533,7 +533,12 @@ fn every_transfer_shape_fits_the_packet_limit() {
 /// Fully assembled wire size of a withdrawal on the worst-case P256 rail, sized as
 /// a single-signer legacy transaction (compute-budget ix + transact ix). `n_inputs`
 /// notes of 10 are withdrawn in full, resolving to the `{n_inputs,3}` shape.
-fn withdrawal_tx_size(asset: Address, n_inputs: usize, registry: &AssetRegistry, spl: bool) -> usize {
+fn withdrawal_tx_size(
+    asset: Address,
+    n_inputs: usize,
+    registry: &AssetRegistry,
+    spl: bool,
+) -> usize {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
     let inputs: Vec<SpendUtxo> = (0..n_inputs)
@@ -574,7 +579,11 @@ fn withdrawal_tx_size(asset: Address, n_inputs: usize, registry: &AssetRegistry,
             TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
         )
     };
-    let mut tx = Transaction::new(sender.shielded_address().unwrap(), inputs, Address::default());
+    let mut tx = Transaction::new(
+        sender.shielded_address().unwrap(),
+        inputs,
+        Address::default(),
+    );
     tx.withdraw(asset, 10 * n_inputs as u64, target).unwrap();
     let signed = tx.sign(&sender, registry).unwrap();
     let commitments = signed.input_commitments().unwrap();
@@ -598,7 +607,9 @@ fn withdrawal_tx_size(asset: Address, n_inputs: usize, registry: &AssetRegistry,
     }
     .instruction();
     let compute_budget =
-        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            1_400_000,
+        );
     let message = Message::new(&[compute_budget, instruction], Some(&payer));
     let sigs = message.header.num_required_signatures as usize;
     1 + sigs * 64 + message.serialize().len()
