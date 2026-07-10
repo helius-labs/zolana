@@ -115,10 +115,8 @@ fn resolve_merge_selection(explicit_hashes: &[[u8; 32]]) -> InputSelection {
 }
 
 pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
+    // `parts` is constrained to 2..=8 at the arg boundary (clap `value_parser`).
     let parts = opts.parts;
-    if parts < 2 {
-        bail!("split requires at least 2 parts");
-    }
     let config = CliConfigFile::load()?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
@@ -128,7 +126,7 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
 
     // A split rides the SOL note rail. Pick the note to split and derive the
     // per-part amount.
-    let (selection, per_output_amount) = split_selection(&opts, &ctx, parts)?;
+    let (selection, per_output_amount, total_amount) = split_selection(&opts, &ctx, parts)?;
 
     let split = create_split_sync(CreateSplit {
         wallet: &ctx.wallet,
@@ -157,7 +155,7 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
     println!(
         "ok split parts={} amount={} signature={}{}",
         parts,
-        lamports_to_sol_string(per_output_amount * u64::from(parts)),
+        lamports_to_sol_string(total_amount),
         signature,
         outcome.pending_suffix(),
     );
@@ -166,11 +164,13 @@ pub(super) fn run_split(opts: SplitOptions) -> Result<()> {
 
 /// Resolve which SOL note a split spends and the per-part amount. `--input
 /// <hash>` names the exact note to split; otherwise the largest note is split.
+/// Resolve the note to split, the per-part amount, and the note's total (the
+/// amount fanned out across all parts).
 fn split_selection(
     opts: &SplitOptions,
     ctx: &super::sync::SyncContext,
     parts: u8,
-) -> Result<(InputSelection, u64)> {
+) -> Result<(InputSelection, u64, u64)> {
     let notes = ctx.wallet.spendable_utxos(SOL_MINT);
     if notes.is_empty() {
         bail!("wallet has no spendable SOL notes to split");
@@ -203,7 +203,11 @@ fn split_selection(
     let per_output_amount = note.amount / u64::from(parts);
     ensure_positive(per_output_amount)?;
 
-    Ok((InputSelection::Explicit(vec![note.hash]), per_output_amount))
+    Ok((
+        InputSelection::Explicit(vec![note.hash]),
+        per_output_amount,
+        note.amount,
+    ))
 }
 
 pub(super) fn run_utxos(opts: UtxosOptions) -> Result<()> {

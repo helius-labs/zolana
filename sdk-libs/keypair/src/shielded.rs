@@ -326,6 +326,22 @@ mod tests {
     }
 
     #[test]
+    fn shielded_address_rejects_wrong_payload_length() {
+        // Valid Base58Check (correct checksum + supported version) but a payload of
+        // the wrong length must be rejected, not silently truncated.
+        let short = bs58::encode([0u8; 10])
+            .with_check_version(ADDRESS_VERSION)
+            .into_string();
+        assert_eq!(
+            short.parse::<ShieldedAddress>().unwrap_err(),
+            KeypairError::InvalidAddressLength {
+                expected: ADDRESS_PAYLOAD_LEN,
+                actual: 11,
+            }
+        );
+    }
+
+    #[test]
     fn shielded_address_encoding_is_stable() {
         let p256 = P256Pubkey::from_bytes(crate::constants::P_CONST_SEC1).unwrap();
         let address = ShieldedAddress {

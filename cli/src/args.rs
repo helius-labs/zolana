@@ -445,6 +445,12 @@ pub(crate) struct CreateTreeOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
 
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
+
     #[arg(long, help = "Standard Solana tree keypair file to create or reuse")]
     pub(crate) tree_keypair: String,
 
@@ -459,6 +465,12 @@ pub(crate) struct CreateTreeOptions {
 pub(crate) struct TestMintOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
 
     #[arg(long, help = "Raw token units to mint to the wallet owner")]
     pub(crate) amount: u64,
@@ -530,7 +542,8 @@ pub(crate) struct SplitOptions {
 
     #[arg(
         help = "Number of equal self-owned notes to split into (2..=8)",
-        value_name = "PARTS"
+        value_name = "PARTS",
+        value_parser = clap::value_parser!(u8).range(2..=8)
     )]
     pub(crate) parts: u8,
 

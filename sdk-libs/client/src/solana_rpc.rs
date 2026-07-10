@@ -43,17 +43,22 @@ pub struct ConfirmedInstructionGroups {
 
 /// On-chain outcome of a submitted signature, as seen by the RPC.
 ///
-/// Distinguishes a genuine on-chain failure (which the caller should surface
-/// immediately) from a not-yet-visible signature (which may still be
-/// propagating) and a confirmed success. A confirmed transaction is a
-/// successful one even if a downstream indexer has not caught up.
+/// Distinguishes a genuine on-chain failure (surface immediately), a signature
+/// that has landed but is not yet confirmed ([`SignatureState::Pending`]), a
+/// wholly not-yet-visible signature ([`SignatureState::NotFound`]), and a
+/// confirmed success. A confirmed transaction is a successful one even if a
+/// downstream indexer has not caught up.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignatureState {
     /// The transaction landed but executed with an error.
     Failed(String),
     /// The transaction is confirmed (or finalized) with no execution error.
     Confirmed,
-    /// The RPC has no record of the signature yet.
+    /// The transaction has landed and is `Processed` but not yet confirmed. It is
+    /// on-chain, so callers must NOT resubmit it; keep polling for confirmation.
+    Pending,
+    /// The RPC has no record of the signature at all (still propagating, or
+    /// dropped). Unlike [`SignatureState::Pending`], nothing has landed.
     NotFound,
 }
 
@@ -117,8 +122,9 @@ impl SolanaRpc {
     /// Classify a submitted signature via `getSignatureStatuses`
     /// (`searchTransactionHistory = true`), so the wait path can fail fast on a
     /// genuine on-chain failure and treat confirmed-but-unindexed as success.
-    /// A missing status is [`SignatureState::NotFound`] (still propagating), not
-    /// an error.
+    /// A `Processed`-but-unconfirmed signature is [`SignatureState::Pending`] (it
+    /// has landed); a wholly missing status is [`SignatureState::NotFound`] (still
+    /// propagating). Neither is an error.
     pub fn signature_state(&self, signature: &Signature) -> Result<SignatureState, ClientError> {
         let statuses = self
             .client
@@ -131,7 +137,7 @@ impl SolanaRpc {
                 None => match status.confirmation_status() {
                     TransactionConfirmationStatus::Confirmed
                     | TransactionConfirmationStatus::Finalized => Ok(SignatureState::Confirmed),
-                    TransactionConfirmationStatus::Processed => Ok(SignatureState::NotFound),
+                    TransactionConfirmationStatus::Processed => Ok(SignatureState::Pending),
                 },
             },
             None => Ok(SignatureState::NotFound),

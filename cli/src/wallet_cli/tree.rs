@@ -26,7 +26,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let material = load_existing_wallet(&keypair_path)?;
     let tree_keypair = load_or_create_solana_keypair(Path::new(&opts.tree_keypair))?;
     let tree_pubkey = tree_keypair.pubkey();
-    let mut rpc = SolanaRpc::new(resolve_rpc_url(None, &config));
+    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
     let authority = material.funding.pubkey();
     let authority_address = Address::new_from_array(authority.to_bytes());
     let existing_protocol_config = fetch_protocol_config(&rpc)?;

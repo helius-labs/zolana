@@ -113,6 +113,16 @@ mod tests {
             Err(InterfaceError::InvalidAccountData)
         );
 
+        // Too long: valid bytes plus one trailing byte. Only the exact-length
+        // filter rejects this (the discriminator is valid and the first SIZE bytes
+        // would otherwise cast), so this pins that branch.
+        let mut too_long = bytemuck::bytes_of(&protocol_config()).to_vec();
+        too_long.push(0);
+        assert_eq!(
+            ProtocolConfig::from_account_bytes(&too_long),
+            Err(InterfaceError::InvalidAccountData)
+        );
+
         let mut config = protocol_config();
         config.discriminator = 0;
         assert_eq!(

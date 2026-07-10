@@ -39,7 +39,7 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         .transpose()?;
     let authority_material = authority_material.as_ref().unwrap_or(&material);
     let authority = &authority_material.funding;
-    let mut rpc = SolanaRpc::new(resolve_rpc_url(None, &config));
+    let mut rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
 
     preflight_protocol_config(&rpc, authority.pubkey())?;
 

@@ -224,15 +224,42 @@ pub(crate) fn resolved_address_from_record(
     owner: Pubkey,
     record: &UserRecord,
 ) -> Result<ShieldedAddress, ClientError> {
-    let signing_pubkey = match record.owner_p256 {
+    Ok(ShieldedAddress {
+        signing_pubkey: signing_pubkey_from_record(owner, record)?,
+        nullifier_pubkey: record.nullifier_pubkey,
+        viewing_pubkey: P256Pubkey::from_bytes(record.sender_viewing_pubkey())?,
+    })
+}
+
+/// Project a registry record into the owner's own (base) shielded address.
+///
+/// Unlike [`resolved_address_from_record`], this uses the record's base
+/// `viewing_pubkey` rather than the sender-facing [`UserRecord::sender_viewing_pubkey`]
+/// projection (which substitutes an active sync delegate's key). Operations the
+/// owner performs on their own notes -- consolidation in particular -- are
+/// validated on-chain against this base identity (`merge_transact` reads
+/// `record.viewing_pubkey` directly), so preflight must use the base key too.
+pub(crate) fn base_address_from_record(
+    owner: Pubkey,
+    record: &UserRecord,
+) -> Result<ShieldedAddress, ClientError> {
+    Ok(ShieldedAddress {
+        signing_pubkey: signing_pubkey_from_record(owner, record)?,
+        nullifier_pubkey: record.nullifier_pubkey,
+        viewing_pubkey: P256Pubkey::from_bytes(record.viewing_pubkey)?,
+    })
+}
+
+/// The owner's signing key: the record's P256 key for P256-owned wallets, or the
+/// Solana owner as an Ed25519 key otherwise. Neither is affected by a sync
+/// delegate.
+fn signing_pubkey_from_record(
+    owner: Pubkey,
+    record: &UserRecord,
+) -> Result<PublicKey, ClientError> {
+    Ok(match record.owner_p256 {
         Some(owner_p256) => PublicKey::from_p256(&P256Pubkey::from_bytes(owner_p256)?),
         None => PublicKey::from_ed25519(&owner.to_bytes()),
-    };
-    let viewing_pubkey = P256Pubkey::from_bytes(record.sender_viewing_pubkey())?;
-    Ok(ShieldedAddress {
-        signing_pubkey,
-        nullifier_pubkey: record.nullifier_pubkey,
-        viewing_pubkey,
     })
 }
 

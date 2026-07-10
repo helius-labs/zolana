@@ -25,7 +25,7 @@ use crate::{
         ProofCompressed, ProverClient,
     },
     rpc::Rpc,
-    user_registry::resolve_registered_address,
+    user_registry::{base_address_from_record, fetch_user_record_checked},
 };
 
 const PRIVATE_TX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -207,7 +207,12 @@ fn validate_merge_submission<R: Rpc + ?Sized>(
     nullifier_key: &NullifierKey,
     prepared: &PreparedMerge,
 ) -> Result<(), ClientError> {
-    let address = resolve_registered_address(rpc, owner)?;
+    let record = fetch_user_record_checked(rpc, owner)?;
+    // Merge validates against the owner's BASE identity, not the sender-facing
+    // projection: on-chain `merge_transact` reads `record.viewing_pubkey` directly,
+    // so a wallet with an active sync delegate (whose sender viewing key differs)
+    // must still consolidate against its own base key.
+    let address = base_address_from_record(owner, &record)?;
     if prepared.signing_pubkey != address.signing_pubkey {
         return Err(ClientError::SubmissionMismatch(format!(
             "merge signing key does not match funding owner {owner}'s registry record"
@@ -298,7 +303,9 @@ mod tests {
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::instructions::transact::{PublicAmounts, Shape};
     use zolana_transaction::OutputUtxo;
-    use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
+    use zolana_user_registry_interface::{
+        user_registry_program_id, SyncDelegateEntry, UserRecord,
+    };
 
     use crate::rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse, MerkleContext,
@@ -441,9 +448,9 @@ mod tests {
         assert!(matches!(result, Err(ClientError::SubmissionMismatch(_))));
     }
 
-    fn registry_rpc(owner: Pubkey, keypair: &ShieldedKeypair) -> RegistryRpc {
-        let (address, bump) = user_record_pda(&owner);
-        let record = UserRecord {
+    fn base_record(owner: Pubkey, keypair: &ShieldedKeypair) -> UserRecord {
+        let (_, bump) = user_record_pda(&owner);
+        UserRecord {
             owner: owner.to_bytes().into(),
             bump,
             owner_p256: Some(*keypair.signing_pubkey().as_p256().unwrap().as_bytes()),
@@ -452,9 +459,13 @@ mod tests {
             sync_delegate: None,
             entries: Vec::new(),
             merging_enabled: false,
-        };
+        }
+    }
+
+    fn registry_rpc_from_record(owner: Pubkey, record: &UserRecord) -> RegistryRpc {
+        let (address, _) = user_record_pda(&owner);
         let mut data = vec![UserRecord::DISCRIMINATOR];
-        data.extend_from_slice(&to_vec(&record).expect("serialize registry record"));
+        data.extend_from_slice(&to_vec(record).expect("serialize registry record"));
         RegistryRpc {
             address: Address::new_from_array(address.to_bytes()),
             account: Account {
@@ -465,6 +476,10 @@ mod tests {
                 rent_epoch: 0,
             },
         }
+    }
+
+    fn registry_rpc(owner: Pubkey, keypair: &ShieldedKeypair) -> RegistryRpc {
+        registry_rpc_from_record(owner, &base_record(owner, keypair))
     }
 
     fn prepared_merge(keypair: &ShieldedKeypair) -> PreparedMerge {
@@ -597,6 +612,32 @@ mod tests {
 
         validate_merge_submission(&rpc, owner, &keypair.nullifier_key, &prepared)
             .expect("matching merge material");
+    }
+
+    #[test]
+    fn merge_submission_accepts_wallet_with_active_sync_delegate() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut record = base_record(owner, &keypair);
+        // Give the record an active sync delegate whose sender-facing viewing key
+        // differs from the wallet's base viewing key. The merge output is committed
+        // to the base key (what on-chain `merge_transact` validates), so preflight
+        // must accept it even though the sender projection now differs -- the case
+        // that previously false-rejected every delegated wallet's consolidation.
+        record.sync_delegate = Some([9u8; 32]);
+        record.entries.push(SyncDelegateEntry {
+            delegate: [9u8; 32],
+            sync_pubkey: [8u8; 33],
+            viewing_pubkey: [7u8; 33],
+            created_at: 0,
+        });
+        assert_ne!(record.sender_viewing_pubkey(), record.viewing_pubkey);
+
+        let rpc = registry_rpc_from_record(owner, &record);
+        let prepared = prepared_merge(&keypair);
+
+        validate_merge_submission(&rpc, owner, &keypair.nullifier_key, &prepared)
+            .expect("merge validates against the base viewing key despite an active delegate");
     }
 
     #[test]

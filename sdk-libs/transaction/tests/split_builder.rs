@@ -554,3 +554,58 @@ fn split_rejects_more_than_eight_outputs() {
         "unexpected error: {err:?}"
     );
 }
+
+#[test]
+fn split_rejects_multiple_inputs() {
+    // A split spends exactly one note. More than one input is a value-safety error:
+    // a second, unaccounted note could otherwise be consumed by the single-input
+    // conservation check.
+    let keypair = ShieldedKeypair::new().unwrap();
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![
+            SpendUtxo::from_keypair(sol_utxo(&keypair, 50), &keypair),
+            SpendUtxo::from_keypair(sol_utxo(&keypair, 50), &keypair),
+        ],
+        Address::default(),
+    );
+    tx.split(SOL_MINT, 2, 50).unwrap();
+    let err = match tx.prepare_split(&AssetRegistry::default()) {
+        Ok(_) => panic!("split with two inputs must be rejected"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitInputCount(2));
+}
+
+#[test]
+fn split_rejects_zero_outputs() {
+    let keypair = ShieldedKeypair::new().unwrap();
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(sol_utxo(&keypair, 100), &keypair)],
+        Address::default(),
+    );
+    let err = match tx.split(SOL_MINT, 0, 50) {
+        Ok(_) => panic!("split into zero outputs must be rejected"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SplitWithoutOutputs);
+}
+
+#[test]
+fn split_rejects_output_amount_overflow() {
+    // 8 * u64::MAX overflows u64. The arity still maps to the {1,8} shape, so the
+    // checked_mul overflow guard -- not the shape check -- is what must fire.
+    let keypair = ShieldedKeypair::new().unwrap();
+    let mut tx = Transaction::new(
+        keypair.shielded_address().unwrap(),
+        vec![SpendUtxo::from_keypair(sol_utxo(&keypair, 100), &keypair)],
+        Address::default(),
+    );
+    tx.split(SOL_MINT, 8, u64::MAX).unwrap();
+    let err = match tx.prepare_split(&AssetRegistry::default()) {
+        Ok(_) => panic!("output-amount overflow must be rejected"),
+        Err(err) => err,
+    };
+    assert_eq!(err, TransactionError::SelectedBalanceOverflow);
+}

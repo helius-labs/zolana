@@ -30,6 +30,9 @@ use zolana_client::{
 use zolana_event::OutputData;
 use zolana_interface::instruction::builders::Transact;
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
+use zolana_interface::instruction::{
+    TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
+};
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
     instructions::transact::signed_transaction::signed_to_field,
@@ -525,6 +528,109 @@ fn every_transfer_shape_fits_the_packet_limit() {
             "shape with {expected_inputs} inputs serializes to {tx_size} bytes, over the {PACKET_DATA_SIZE}-byte limit",
         );
     }
+}
+
+/// Fully assembled wire size of a withdrawal on the worst-case P256 rail, sized as
+/// a single-signer legacy transaction (compute-budget ix + transact ix). `n_inputs`
+/// notes of 10 are withdrawn in full, resolving to the `{n_inputs,3}` shape.
+fn withdrawal_tx_size(asset: Address, n_inputs: usize, registry: &AssetRegistry, spl: bool) -> usize {
+    let mut rng = rand::thread_rng();
+    let sender = ShieldedKeypair::new().unwrap();
+    let inputs: Vec<SpendUtxo> = (0..n_inputs)
+        .map(|_| {
+            let utxo = Utxo {
+                owner: sender.signing_pubkey(),
+                asset,
+                amount: 10,
+                blinding: blinding(&mut rng),
+                zone_program_id: None,
+                data: Data::default(),
+            };
+            SpendUtxo::from_keypair(utxo, &sender)
+        })
+        .collect();
+    let recipient = Pubkey::new_unique();
+    let (target, withdrawal) = if spl {
+        let user_token = Pubkey::new_unique();
+        let interface = Pubkey::new_unique();
+        (
+            WithdrawalTarget::Spl {
+                user_spl_token: Address::new_from_array(user_token.to_bytes()),
+                spl_token_interface: Address::new_from_array(interface.to_bytes()),
+            },
+            TransactWithdrawal::Spl(TransactSplWithdrawal {
+                cpi_authority: Some(Pubkey::new_unique()),
+                spl_token_interface: interface,
+                recipient,
+                user_token_account: user_token,
+                token_program: Pubkey::new_unique(),
+            }),
+        )
+    } else {
+        (
+            WithdrawalTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+            TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
+        )
+    };
+    let mut tx = Transaction::new(sender.shielded_address().unwrap(), inputs, Address::default());
+    tx.withdraw(asset, 10 * n_inputs as u64, target).unwrap();
+    let signed = tx.sign(&sender, registry).unwrap();
+    let commitments = signed.input_commitments().unwrap();
+    let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
+    let p256_proof = TransactProof::P256 {
+        a: [0u8; 32],
+        b: [0u8; 64],
+        c: [0u8; 32],
+        commitment: [0u8; 32],
+        commitment_pok: [0u8; 32],
+    };
+    let ix = zolana_client::assemble(signed, &proofs)
+        .unwrap()
+        .with_proof(p256_proof);
+    let payer = Pubkey::new_unique();
+    let instruction = Transact {
+        payer,
+        tree: Pubkey::new_unique(),
+        withdrawal: Some(withdrawal),
+        data: ix,
+    }
+    .instruction();
+    let compute_budget =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let message = Message::new(&[compute_budget, instruction], Some(&payer));
+    let sigs = message.header.num_required_signatures as usize;
+    1 + sigs * 64 + message.serialize().len()
+}
+
+/// Pins the packet-limit boundary that justifies the client's SPL-withdrawal input
+/// cap: an SPL settlement appends five account keys, so an SPL withdrawal fits at
+/// three inputs but overflows at four, while a SOL withdrawal still fits at five.
+/// If a future change shifts these boundaries, `MAX_SPL_WITHDRAWAL_INPUTS` (and the
+/// "SOL is not capped" decision) must be revisited.
+#[test]
+fn withdrawal_packet_boundaries_justify_the_spl_input_cap() {
+    const PACKET_DATA_SIZE: usize = 1232;
+    let spl_asset = Address::new_from_array([2u8; 32]);
+    let spl_registry = AssetRegistry::new([(2, spl_asset)]).expect("registry");
+
+    let spl_three = withdrawal_tx_size(spl_asset, 3, &spl_registry, true);
+    let spl_four = withdrawal_tx_size(spl_asset, 4, &spl_registry, true);
+    let sol_five = withdrawal_tx_size(SOL_MINT, 5, &registry(), false);
+
+    assert!(
+        spl_three <= PACKET_DATA_SIZE,
+        "SPL withdrawal at the cap (3 inputs) must fit: {spl_three} bytes"
+    );
+    assert!(
+        spl_four > PACKET_DATA_SIZE,
+        "SPL withdrawal above the cap (4 inputs) must overflow: {spl_four} bytes"
+    );
+    assert!(
+        sol_five <= PACKET_DATA_SIZE,
+        "SOL withdrawal at MAX_TRANSFER_INPUTS (5) must fit: {sol_five} bytes"
+    );
 }
 
 #[test]

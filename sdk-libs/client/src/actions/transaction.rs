@@ -222,6 +222,17 @@ pub async fn create_withdrawal<A: WalletAuthority + ?Sized>(
         &request.selection,
     )
     .await?;
+    // An SPL withdrawal fits fewer inputs than a shielded transfer before crossing
+    // the packet limit (see [`MAX_SPL_WITHDRAWAL_INPUTS`]). Surface
+    // `FragmentedBalance` so the caller consolidates first instead of building a
+    // transaction the network rejects only after the proof is generated.
+    if request.asset != SOL_MINT && inputs.len() > MAX_SPL_WITHDRAWAL_INPUTS {
+        return Err(ClientError::FragmentedBalance {
+            requested: request.amount,
+            notes: inputs.len(),
+            max_inputs: MAX_SPL_WITHDRAWAL_INPUTS,
+        });
+    }
     let (target, withdrawal) = withdrawal_target(request.recipient, request.asset)?;
     let address = request
         .authority
@@ -577,6 +588,16 @@ fn withdrawal_target(
 /// [`ClientError::FragmentedBalance`] instead of building an unsupported shape.
 pub const MAX_TRANSFER_INPUTS: usize = 5;
 
+/// Largest number of input notes an SPL withdrawal can spend in one transaction.
+/// An SPL settlement appends five account keys to the instruction (see
+/// [`zolana_interface::instruction::TransactSplWithdrawal`]), so it crosses
+/// Solana's 1232-byte packet limit sooner than a shielded transfer: measured, the
+/// `{3,3}` SPL withdrawal serializes to 1207 bytes but `{4,3}` to 1245. Spending
+/// more SPL notes than this requires consolidating (via `merge`) first. SOL
+/// withdrawals add only three account keys and stay within the limit at
+/// [`MAX_TRANSFER_INPUTS`], so this cap applies to SPL only.
+pub const MAX_SPL_WITHDRAWAL_INPUTS: usize = 3;
+
 /// Select the notes to spend for `amount` of `asset`, honoring `selection`.
 ///
 /// `Auto` scans unspent notes largest-first so the fewest inputs cover the
@@ -668,6 +689,16 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
                 return Err(ClientError::InsufficientBalance {
                     requested: amount,
                     available: total,
+                });
+            }
+            // Mirror the Auto branch: no transfer shape spends more than
+            // MAX_TRANSFER_INPUTS notes, so surface the precise consolidation hint
+            // rather than failing later with an opaque UnsupportedShape.
+            if selected.len() > MAX_TRANSFER_INPUTS {
+                return Err(ClientError::FragmentedBalance {
+                    requested: amount,
+                    notes: selected.len(),
+                    max_inputs: MAX_TRANSFER_INPUTS,
                 });
             }
             Ok(selected)
@@ -775,37 +806,47 @@ mod tests {
     }
 
     fn wallet_with_asset(keypair: ShieldedKeypair, asset: Address, amount: u64) -> Wallet {
+        wallet_with_asset_notes(keypair, asset, &[(amount, [7u8; 31])])
+    }
+
+    fn wallet_with_asset_notes(
+        keypair: ShieldedKeypair,
+        asset: Address,
+        amounts: &[(u64, [u8; 31])],
+    ) -> Wallet {
         let registry = if asset == SOL_MINT {
             AssetRegistry::default()
         } else {
             AssetRegistry::new([(2, asset)]).expect("asset registry")
         };
         let mut wallet = Wallet::new(keypair.clone(), registry).expect("wallet");
-        let utxo = Utxo {
-            owner: keypair.signing_pubkey(),
-            asset,
-            amount,
-            blinding: [7u8; 31],
-            zone_program_id: None,
-            data: Data::default(),
-        };
-        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
-        let hash = utxo
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
-            .expect("utxo hash");
-        let nullifier = utxo
-            .nullifier(&hash, &keypair.nullifier_key)
-            .expect("nullifier");
-        wallet.utxos.push(WalletUtxo {
-            utxo,
-            output_context: zolana_transaction::instructions::transact::types::OutputContext {
-                hash,
-                tree: Address::default(),
-                leaf_index: 0,
-            },
-            nullifier,
-            spent: false,
-        });
+        for (amount, blinding) in amounts {
+            let utxo = Utxo {
+                owner: keypair.signing_pubkey(),
+                asset,
+                amount: *amount,
+                blinding: *blinding,
+                zone_program_id: None,
+                data: Data::default(),
+            };
+            let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+            let hash = utxo
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .expect("utxo hash");
+            let nullifier = utxo
+                .nullifier(&hash, &keypair.nullifier_key)
+                .expect("nullifier");
+            wallet.utxos.push(WalletUtxo {
+                utxo,
+                output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                    hash,
+                    tree: Address::default(),
+                    leaf_index: 0,
+                },
+                nullifier,
+                spent: false,
+            });
+        }
         wallet
     }
 
@@ -1544,5 +1585,83 @@ mod tests {
                 available: 400
             })
         ));
+    }
+
+    fn withdraw_auto(
+        wallet: &Wallet,
+        sender: &ShieldedKeypair,
+        asset: Address,
+        amount: u64,
+        assets: &AssetRegistry,
+    ) -> Result<CreatedWithdrawal, ClientError> {
+        create_withdrawal_sync(CreateWithdrawal {
+            wallet,
+            authority: sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            recipient: Pubkey::new_unique(),
+            asset,
+            amount,
+            assets,
+            selection: InputSelection::Auto,
+        })
+    }
+
+    #[test]
+    fn spl_withdrawal_rejects_more_than_three_notes() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let asset = Address::new_from_array([2u8; 32]);
+        // Four SPL notes; withdrawing the whole balance needs all four inputs, one
+        // over the SPL packet cap ({4,3} SPL serializes to 1245 > 1232).
+        let wallet = wallet_with_asset_notes(
+            sender.clone(),
+            asset,
+            &[(10, [1u8; 31]), (10, [2u8; 31]), (10, [3u8; 31]), (10, [4u8; 31])],
+        );
+        let assets = AssetRegistry::new([(2, asset)]).expect("asset registry");
+        let err = withdraw_auto(&wallet, &sender, asset, 40, &assets)
+            .err()
+            .expect("four-note SPL withdrawal must exceed the packet cap");
+        assert!(matches!(
+            err,
+            ClientError::FragmentedBalance {
+                requested: 40,
+                notes: 4,
+                max_inputs: MAX_SPL_WITHDRAWAL_INPUTS,
+            }
+        ));
+    }
+
+    #[test]
+    fn spl_withdrawal_allows_three_notes() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let asset = Address::new_from_array([2u8; 32]);
+        let wallet = wallet_with_asset_notes(
+            sender.clone(),
+            asset,
+            &[(10, [1u8; 31]), (10, [2u8; 31]), (10, [3u8; 31])],
+        );
+        let assets = AssetRegistry::new([(2, asset)]).expect("asset registry");
+        withdraw_auto(&wallet, &sender, asset, 30, &assets)
+            .expect("three-note SPL withdrawal is within the packet cap");
+    }
+
+    #[test]
+    fn sol_withdrawal_is_not_capped_at_three_notes() {
+        let sender = ShieldedKeypair::new().unwrap();
+        // SOL withdrawals add fewer settlement accounts, so they stay within the
+        // packet limit at the full MAX_TRANSFER_INPUTS and are not SPL-capped.
+        let wallet = wallet_with_notes(
+            sender.clone(),
+            &[
+                (10, [1u8; 31]),
+                (10, [2u8; 31]),
+                (10, [3u8; 31]),
+                (10, [4u8; 31]),
+                (10, [5u8; 31]),
+            ],
+        );
+        withdraw_auto(&wallet, &sender, SOL_MINT, 50, &AssetRegistry::default())
+            .expect("five-note SOL withdrawal is allowed");
     }
 }

@@ -170,6 +170,9 @@ pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe>(
                     bail!("transaction {signature} failed on-chain: {err}")
                 }
                 SignatureState::Confirmed => Ok(WaitOutcome::ConfirmedPendingIndex),
+                SignatureState::Pending => bail!(
+                    "timed out waiting for {signature}: processed on-chain but not confirmed and not indexed"
+                ),
                 SignatureState::NotFound => bail!(
                     "timed out waiting for {signature}: not indexed and not confirmed on-chain"
                 ),
@@ -277,6 +280,18 @@ mod tests {
             .expect_err("not-found on timeout must error");
         assert!(
             err.to_string().contains("not confirmed on-chain"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn timeout_with_pending_errors() {
+        let index = MockIndex { indexed: false };
+        let status = MockStatus::new(SignatureState::Pending);
+        let err = wait(&index, &status, Duration::from_millis(0))
+            .expect_err("processed-but-unconfirmed on timeout must error");
+        assert!(
+            err.to_string().contains("processed on-chain but not confirmed"),
             "unexpected error: {err}"
         );
     }
