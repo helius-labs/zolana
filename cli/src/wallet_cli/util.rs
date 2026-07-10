@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Address, SOL_MINT};
 
 use crate::cli_config::CliConfigFile;
@@ -23,6 +24,14 @@ pub(super) fn parse_pubkey(value: &str) -> Result<Pubkey> {
     value
         .parse::<Pubkey>()
         .with_context(|| format!("invalid pubkey `{value}`"))
+}
+
+pub(super) fn parse_shielded_address(value: &str) -> Result<ShieldedAddress> {
+    value.parse::<ShieldedAddress>().with_context(|| {
+        format!(
+            "invalid shielded address `{value}`; use the value printed by `zolana wallet address`"
+        )
+    })
 }
 
 pub(super) fn format_address(address: Address) -> String {
@@ -78,5 +87,34 @@ pub(super) fn system_create_account_ix(
             AccountMeta::new(*new_account, true),
         ],
         data,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+
+    #[test]
+    fn shielded_address_round_trips_through_cli_parser() {
+        let address = ShieldedKeypair::new()
+            .expect("keypair")
+            .shielded_address()
+            .expect("address");
+
+        assert_eq!(
+            parse_shielded_address(&address.to_string()).expect("parse address"),
+            address
+        );
+    }
+
+    #[test]
+    fn shielded_address_rejects_solana_pubkey_with_actionable_hint() {
+        let pubkey = Pubkey::new_unique().to_string();
+        let err = parse_shielded_address(&pubkey).expect_err("pubkey is not shielded address");
+
+        assert!(err.to_string().contains("invalid shielded address"));
+        assert!(err.to_string().contains("wallet address"));
     }
 }

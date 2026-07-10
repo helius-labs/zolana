@@ -16,7 +16,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::Address;
 
 #[path = "common/transact.rs"]
@@ -31,11 +32,6 @@ const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
 const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
-
-#[derive(Deserialize)]
-struct WalletFile {
-    funding_pubkey: String,
-}
 
 #[derive(Deserialize)]
 struct WalletFundingKey {
@@ -91,28 +87,25 @@ fn ensure_associated_token_account(
     mint: &Pubkey,
 ) -> Result<Pubkey> {
     let rpc = SolanaRpc::new(rpc_url);
-    let (_sig, ata) = zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
-    Ok(ata)
+    let (_signature, account) =
+        zolana_client::create_associated_token_account(&rpc, payer, owner, mint)?;
+    Ok(account)
 }
 
 /// Restart a fresh local validator + Photon through the `zolana` CLI (the same
 /// launcher the other photon e2e tests use; it owns the validator/photon
-/// orchestration and readiness checks). Deploys the shielded-pool and
-/// user-registry programs the wallet CLI needs; `--skip-prover` leaves the
-/// persistent prover server untouched so its proving keys stay loaded.
+/// orchestration and readiness checks). `--skip-prover` leaves the persistent
+/// prover server untouched so its proving keys stay loaded.
 fn restart_localnet() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let cli =
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
     let program_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let user_registry_program_id =
-        std::env::var("USER_REGISTRY_PROGRAM_ID").expect("USER_REGISTRY_PROGRAM_ID must be set");
     let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
     let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
-    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
 
     let status = Command::new(&cli)
         .current_dir(root)
@@ -130,9 +123,6 @@ fn restart_localnet() {
             "--sbf-program",
             &program_id,
             &program_so,
-            "--sbf-program",
-            &user_registry_program_id,
-            &user_registry_so,
         ])
         .status()
         .expect("run zolana test-validator");
@@ -171,27 +161,72 @@ fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     Ok(stdout)
 }
 
-fn wallet_init(path: &Path, rpc_url: &str, cli_env: &[(&str, &str)]) -> Result<()> {
+fn run_cli_expect_failure(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let mut command = Command::new(cli_bin());
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
+        .args(args)
+        .output()
+        .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
+    if output.status.success() {
+        bail!("zolana {} unexpectedly succeeded", args.join(" "));
+    }
+    Ok(format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
+
+fn wallet_new(path: &Path, config: &Path, cli_env: &[(&str, &str)]) -> Result<()> {
     run_cli_with_env(
         &[
+            "-C",
+            &config.display().to_string(),
             "wallet",
-            "init",
-            "--path",
+            "new",
+            "--outfile",
             &path.display().to_string(),
-            "--rpc-url",
-            rpc_url,
-            "--airdrop-lamports",
-            "1000000000",
         ],
         cli_env,
     )?;
     Ok(())
 }
 
-fn funding_pubkey(path: &Path) -> Result<String> {
-    let file: WalletFile =
-        serde_json::from_slice(&std::fs::read(path).with_context(|| path.display().to_string())?)?;
-    Ok(file.funding_pubkey)
+fn wallet_address(path: &Path, config: &Path, cli_env: &[(&str, &str)]) -> Result<ShieldedAddress> {
+    run_cli_with_env(
+        &[
+            "-C",
+            &config.display().to_string(),
+            "wallet",
+            "address",
+            "-k",
+            &path.display().to_string(),
+        ],
+        cli_env,
+    )?
+    .trim()
+    .parse::<ShieldedAddress>()
+    .context("parse wallet shielded address")
+}
+
+fn funding_pubkey(path: &Path, config: &Path, cli_env: &[(&str, &str)]) -> Result<String> {
+    Ok(run_cli_with_env(
+        &[
+            "-C",
+            &config.display().to_string(),
+            "wallet",
+            "address",
+            "-k",
+            &path.display().to_string(),
+            "--funding",
+        ],
+        cli_env,
+    )?
+    .trim()
+    .to_string())
 }
 
 fn temp_wallet_dir() -> Result<PathBuf> {
@@ -244,8 +279,10 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let config_path_str = config_path.to_string_lossy().into_owned();
     let cli_env = [("ZOLANA_CONFIG", config_path_str.as_str())];
 
-    wallet_init(&alice, &rpc_url, &cli_env)?;
-    wallet_init(&bob, &rpc_url, &cli_env)?;
+    wallet_new(&alice, &config_path, &cli_env)?;
+    wallet_new(&bob, &config_path, &cli_env)?;
+    let alice_address = wallet_address(&alice, &config_path, &cli_env)?;
+    let bob_address = wallet_address(&bob, &config_path, &cli_env)?;
 
     let create_tree_out = run_cli_with_env(
         &[
@@ -286,27 +323,27 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let spl_mint = parse_field(&test_mint_out, "mint")?;
     let alice_token_account = parse_field(&test_mint_out, "token_account")?;
     let spl_mint_pubkey = spl_mint.parse::<Pubkey>()?;
-    let alice_funding_keypair = load_funding_keypair(&alice)?;
-    let unregistered_recipient = Keypair::new();
-    let bob_funding = funding_pubkey(&bob)?;
+    let public_recipient = Keypair::new();
+    let bob_funding = funding_pubkey(&bob, &config_path, &cli_env)?;
     let bob_owner = bob_funding.parse::<Pubkey>()?;
-    let bob_ata = ensure_associated_token_account(
-        &rpc_url,
-        &alice_funding_keypair,
-        &bob_owner,
-        &spl_mint_pubkey,
-    )?;
-    let unregistered_ata = ensure_associated_token_account(
-        &rpc_url,
-        &alice_funding_keypair,
-        &unregistered_recipient.pubkey(),
-        &spl_mint_pubkey,
-    )?;
-    let rpc = SolanaRpc::new(&rpc_url);
+    let bob_funding_keypair = load_funding_keypair(&bob)?;
+    let bob_ata = pda::associated_token_address(&bob_owner, &spl_mint_pubkey);
+    let public_ata = pda::associated_token_address(&public_recipient.pubkey(), &spl_mint_pubkey);
+    let mut rpc = SolanaRpc::new(&rpc_url);
+    rpc.airdrop(&bob_owner, 2_000_000_000)?;
     assert_eq!(
-        spl_token_account_amount(&rpc, &unregistered_ata)?,
-        0,
-        "unregistered ATA should start empty"
+        ensure_associated_token_account(
+            &rpc_url,
+            &bob_funding_keypair,
+            &bob_owner,
+            &spl_mint_pubkey,
+        )?,
+        bob_ata
+    );
+    assert!(
+        rpc.get_account(Address::new_from_array(public_ata.to_bytes()))?
+            .is_none(),
+        "public recipient ATA should not exist before withdrawal"
     );
 
     let asset_registry_out = run_cli_with_env(&["config", "asset-registry"], &cli_env)?;
@@ -324,7 +361,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
                 "--keypair",
                 &alice.display().to_string(),
                 "--to",
-                &bob_funding,
+                &bob_address.to_string(),
                 "--amount",
                 deposit_amount,
                 "--mint",
@@ -339,21 +376,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &cli_env,
         )?;
     }
-
-    let sync_out = run_cli_with_env(
-        &[
-            "wallet",
-            "sync",
-            "--keypair",
-            &bob.display().to_string(),
-            "--rpc-url",
-            &rpc_url,
-            "--indexer-url",
-            &indexer_url,
-        ],
-        &cli_env,
-    )?;
-    assert!(sync_out.contains("ok sync"), "sync failed: {sync_out}");
 
     let balance_out = run_cli_with_env(
         &[
@@ -384,7 +406,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--keypair",
             &alice.display().to_string(),
             "--to",
-            &bob_funding,
+            &bob_address.to_string(),
             "--amount",
             "600000",
             "--mint",
@@ -419,7 +441,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "expected 600000 SPL balance, got: {spl_balance_out}"
     );
 
-    let alice_funding = funding_pubkey(&alice)?;
     run_cli_with_env(
         &[
             "wallet",
@@ -427,7 +448,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--keypair",
             &bob.display().to_string(),
             "--to",
-            &alice_funding,
+            &alice_address.to_string(),
             "--amount",
             "400000000",
             "--mint",
@@ -438,8 +459,6 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &indexer_url,
             "--prover-url",
             &prover_url,
-            "--airdrop-lamports",
-            "2000000000",
         ],
         &cli_env,
     )?;
@@ -451,7 +470,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--keypair",
             &bob.display().to_string(),
             "--to",
-            &alice_funding,
+            &alice_address.to_string(),
             "--amount",
             "250000",
             "--mint",
@@ -462,25 +481,23 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &indexer_url,
             "--prover-url",
             &prover_url,
-            "--airdrop-lamports",
-            "2000000000",
         ],
         &cli_env,
     )?;
 
-    let unregistered_transfer_amount = 50_000u64;
-    let alice_token_before_unregistered =
+    let public_withdraw_amount = 50_000u64;
+    let alice_token_before_public_attempt =
         spl_token_account_amount(&rpc, &alice_token_account.parse()?)?;
-    run_cli_with_env(
+    let failure = run_cli_expect_failure(
         &[
             "wallet",
             "transfer",
             "--keypair",
             &bob.display().to_string(),
             "--to",
-            &unregistered_recipient.pubkey().to_string(),
+            &public_recipient.pubkey().to_string(),
             "--amount",
-            &unregistered_transfer_amount.to_string(),
+            &public_withdraw_amount.to_string(),
             "--mint",
             &spl_mint,
             "--rpc-url",
@@ -489,35 +506,60 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             &indexer_url,
             "--prover-url",
             &prover_url,
-            "--airdrop-lamports",
-            "2000000000",
         ],
         &cli_env,
     )?;
-    assert_eq!(
-        spl_token_account_amount(&rpc, &unregistered_ata)?,
-        unregistered_transfer_amount,
-        "unregistered SPL transfer should settle to recipient ATA"
+    assert!(
+        failure.contains("invalid shielded address"),
+        "private transfer should reject a Solana pubkey locally: {failure}"
+    );
+    assert!(
+        rpc.get_account(Address::new_from_array(public_ata.to_bytes()))?
+            .is_none(),
+        "failed private transfer must not create the recipient ATA"
     );
     assert_eq!(
         spl_token_account_amount(&rpc, &alice_token_account.parse()?)?,
-        alice_token_before_unregistered,
-        "sender-configured deposit token account must not receive unregistered transfer"
+        alice_token_before_public_attempt,
+        "failed private transfer must not move public tokens"
     );
+    assert_eq!(
+        ensure_associated_token_account(
+            &rpc_url,
+            &bob_funding_keypair,
+            &public_recipient.pubkey(),
+            &spl_mint_pubkey,
+        )?,
+        public_ata
+    );
+    assert_eq!(spl_token_account_amount(&rpc, &public_ata)?, 0);
 
     run_cli_with_env(
         &[
             "wallet",
-            "sync",
+            "withdraw",
             "--keypair",
-            &alice.display().to_string(),
+            &bob.display().to_string(),
+            "--to",
+            &public_recipient.pubkey().to_string(),
+            "--amount",
+            &public_withdraw_amount.to_string(),
+            "--mint",
+            &spl_mint,
             "--rpc-url",
             &rpc_url,
             "--indexer-url",
             &indexer_url,
+            "--prover-url",
+            &prover_url,
         ],
         &cli_env,
     )?;
+    assert_eq!(
+        spl_token_account_amount(&rpc, &public_ata)?,
+        public_withdraw_amount,
+        "explicit withdrawal should fund the public recipient ATA"
+    );
 
     run_cli_with_env(
         &[
@@ -564,11 +606,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     );
 
     let spl_withdraw_amount = 100_000u64;
-    assert_eq!(
-        spl_token_account_amount(&rpc, &bob_ata)?,
-        0,
-        "bob ATA should start empty"
-    );
+    assert_eq!(spl_token_account_amount(&rpc, &bob_ata)?, 0);
     run_cli_with_env(
         &[
             "wallet",

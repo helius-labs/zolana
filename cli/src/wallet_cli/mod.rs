@@ -21,10 +21,10 @@ const INDEXER_POLL: Duration = Duration::from_millis(500);
 
 pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
     match command {
-        WalletCommand::Init(opts) => material::run_init(opts),
+        WalletCommand::New(opts) => material::run_new(opts),
+        WalletCommand::Address(opts) => material::run_address(opts),
         WalletCommand::CreateTree(opts) => tree::run_create_tree(opts),
         WalletCommand::TestMint(opts) => test_mint::run_test_mint(opts),
-        WalletCommand::Sync(opts) => sync::run_sync(opts),
         WalletCommand::Balance(opts) => balance::run_balance(opts),
         WalletCommand::Merge(opts) => registry::run_merge(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),

@@ -1,8 +1,5 @@
 use anyhow::Result;
-use solana_signer::Signer;
-use zolana_client::{
-    create_deposit, resolve_registered_address, CreateDeposit, SolanaRpc, ZolanaIndexer,
-};
+use zolana_client::{create_deposit, CreateDeposit, SolanaRpc, ZolanaIndexer};
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -10,7 +7,8 @@ use super::{
     sync::wait_for_indexed_utxo,
     transaction::maybe_airdrop,
     util::{
-        configured_spl_token_account, ensure_positive, format_address, parse_address, parse_pubkey,
+        configured_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_shielded_address,
     },
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
@@ -18,6 +16,7 @@ use crate::{args::DepositOptions, cli_config::CliConfigFile};
 pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
+    let recipient_override = opts.to.as_deref().map(parse_shielded_address).transpose()?;
     let config = CliConfigFile::load()?;
     let spl_token_account = configured_spl_token_account(&config, asset)?;
     let network = get_network_with_config(&opts.network, &config)?;
@@ -26,15 +25,12 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let material = load_sender_from_resolved_sync(&network.sync)?;
     maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let tree = network.tree;
-    let recipient_pubkey = opts
-        .to
-        .as_deref()
-        .map(parse_pubkey)
-        .transpose()?
-        .unwrap_or_else(|| material.funding.pubkey());
-    let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
+    let recipient = match recipient_override {
+        None => material.keypair.shielded_address()?,
+        Some(recipient) => recipient,
+    };
     let deposit = create_deposit(CreateDeposit {
-        recipient: &recipient.address,
+        recipient: &recipient,
         asset,
         amount: opts.amount,
         spl_token_account,
@@ -46,7 +42,7 @@ pub(super) fn run_deposit(opts: DepositOptions) -> Result<()> {
         "ok deposit amount={} mint={} to={} utxo_hash={} signature={}",
         opts.amount,
         format_address(asset),
-        recipient_pubkey,
+        recipient,
         hex::encode(deposit.utxo_hash),
         signature
     );

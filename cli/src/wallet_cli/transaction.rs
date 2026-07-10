@@ -14,28 +14,27 @@ use super::{
     material::WalletMaterial,
     resolve::get_network,
     sync::{sync_context, wait_for_indexed_transaction},
-    util::{ensure_positive, format_address, parse_address, parse_pubkey},
+    util::{ensure_positive, format_address, parse_address, parse_shielded_address},
 };
 use crate::args::TransferOptions;
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
+    let recipient = parse_shielded_address(&opts.to)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
     let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
     let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
-    let recipient_owner = parse_pubkey(&opts.to)?;
     let tree = network.tree;
 
     let transfer = create_transfer_sync(CreateTransfer {
-        rpc: &rpc,
         wallet: &ctx.wallet,
         authority: &ctx.material,
         owner_pubkey: ctx.material.owner_pubkey(),
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient_owner,
+        recipient,
         asset,
         amount: opts.amount,
     })?;
@@ -46,22 +45,16 @@ pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
             material: &ctx.material,
             tree,
             prover_url: &network.prover_url,
-            withdrawal: transfer.recipient.withdrawal().cloned(),
+            withdrawal: None,
             wait_tag: transfer.wait_tag,
         },
         transfer.signed,
     )?;
-    let mode = if transfer.recipient.is_public_withdrawal() {
-        "withdraw"
-    } else {
-        "shielded"
-    };
     println!(
-        "ok transfer amount={} mint={} to={} mode={} signature={}",
+        "ok transfer amount={} mint={} to={} mode=shielded signature={}",
         opts.amount,
         format_address(asset),
-        transfer.recipient.pubkey(),
-        mode,
+        transfer.recipient,
         signature
     );
     Ok(())
