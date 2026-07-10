@@ -9641,6 +9641,7 @@ dependencies = [
  "cucumber",
  "futures",
  "groth16-solana 0.2.0 (git+https://github.com/Lightprotocol/groth16-solana?rev=3fd90b4945b1f1edd9db8afca43e8e7121b2e5d5)",
+ "hex",
  "num-bigint 0.4.6",
  "num-traits",
  "p256",

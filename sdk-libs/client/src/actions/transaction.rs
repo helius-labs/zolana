@@ -30,15 +30,6 @@ use crate::{
     },
 };
 
-/// Lowercase hex of a 32-byte commitment hash, for error messages.
-fn hash_hex(bytes: &[u8; 32]) -> String {
-    let mut out = String::with_capacity(64);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedAddress {
     pub owner: Pubkey,
@@ -66,7 +57,7 @@ fn reject_duplicate_hashes(hashes: &[[u8; 32]]) -> Result<(), ClientError> {
     for hash in hashes {
         if !seen.insert(*hash) {
             return Err(ClientError::DuplicateInputNote {
-                hash: hash_hex(hash),
+                hash: hex::encode(hash),
             });
         }
     }
@@ -452,7 +443,7 @@ fn select_merge_inputs(
                             && &entry.output_context.hash == hash
                     })
                     .ok_or_else(|| ClientError::InputNoteUnavailable {
-                        hash: hash_hex(hash),
+                        hash: hex::encode(hash),
                     })?;
                 selected.push(spend(entry.utxo.clone()));
             }
@@ -719,7 +710,7 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
                             && &entry.output_context.hash == hash
                     })
                     .ok_or_else(|| ClientError::InputNoteUnavailable {
-                        hash: hash_hex(hash),
+                        hash: hex::encode(hash),
                     })?;
                 selected.push(spend(entry.utxo.clone()));
                 total = total

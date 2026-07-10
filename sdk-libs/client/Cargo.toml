@@ -20,6 +20,7 @@ zolana-transaction = { workspace = true }
 zolana-api = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 borsh = { workspace = true }
+hex = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 solana-address = { workspace = true }
