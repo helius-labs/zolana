@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal},
@@ -6,13 +8,17 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
+        transact::{
+            PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget,
+            SENDER_SLOT_COUNT,
+        },
         types::SpendUtxo,
     },
-    Address, AssetRegistry, Wallet,
+    Address, AssetRegistry, Wallet, WalletUtxo,
 };
 
 use crate::{
+    canonical_shape,
     error::ClientError,
     user_registry::TransferRecipient,
     wallet_authority::{
@@ -391,6 +397,91 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
     Ok(selected)
 }
 
+/// UTXO count ceiling for a single shaped transaction: the largest input arity
+/// any supported transfer shape provides.
+pub const MAX_SELECTABLE_INPUTS: usize = 5;
+
+/// Select the fewest unlocked UTXOs of `asset` whose combined value covers
+/// `amount`, such that the resulting transaction — `selected` inputs against
+/// [`SENDER_SLOT_COUNT`] sender-change slots plus `output_count` recipient
+/// outputs — fits a [supported shape](crate::SUPPORTED_SHAPES) within
+/// [`MAX_SELECTABLE_INPUTS`].
+///
+/// Unlike the greedy [`select_inputs`] behind the high-level transfer, this is
+/// shape- and lock-aware: `output_count` is the number of recipient outputs the
+/// caller intends to add (the builder always reserves [`SENDER_SLOT_COUNT`]
+/// change slots on top), and `excluded` holds the commitment hashes
+/// (`WalletUtxo::output_context.hash`) of UTXOs already locked in flight, which
+/// are skipped so concurrent transactions spend disjoint sets.
+///
+/// Picks largest-first to reach `amount` in the fewest inputs, and separates two
+/// failures a caller handles differently:
+/// - [`ClientError::InsufficientBalance`] — the total unlocked balance is below
+///   `amount`; the wallet simply lacks the funds.
+/// - [`ClientError::ShapeExceeded`] — the balance covers `amount` but is too
+///   fragmented (or `output_count` is too large) for any subset of at most
+///   [`MAX_SELECTABLE_INPUTS`] UTXOs to fit a supported shape; the caller should
+///   consolidate/denominate before retrying.
+pub async fn select_inputs_for_shape<A: WalletAuthority + ?Sized>(
+    wallet: &Wallet,
+    authority: &A,
+    asset: Address,
+    amount: u64,
+    output_count: usize,
+    excluded: &HashSet<[u8; 32]>,
+) -> Result<Vec<SpendUtxo>, ClientError> {
+    let nullifier_key = authority.spend_nullifier_key().await?;
+    let required_outputs = SENDER_SLOT_COUNT + output_count;
+
+    // Spendable UTXOs of this asset, largest first, so the running sum reaches
+    // `amount` in the fewest inputs.
+    let mut available: Vec<&WalletUtxo> = wallet
+        .utxos
+        .iter()
+        .filter(|entry| {
+            !entry.spent
+                && entry.utxo.asset == asset
+                && !excluded.contains(&entry.output_context.hash)
+        })
+        .collect();
+    available.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
+
+    let mut total = 0u64;
+    for entry in &available {
+        total = total
+            .checked_add(entry.utxo.amount)
+            .ok_or(ClientError::SelectedBalanceOverflow)?;
+    }
+    if total < amount {
+        return Err(ClientError::InsufficientBalance {
+            requested: amount,
+            available: total,
+        });
+    }
+
+    let mut selected = Vec::new();
+    let mut running = 0u64;
+    for entry in available.iter().take(MAX_SELECTABLE_INPUTS) {
+        selected.push(SpendUtxo {
+            utxo: entry.utxo.clone(),
+            nullifier_key: nullifier_key.clone(),
+            data_hash: None,
+            zone_data_hash: None,
+        });
+        // Bounded by `total`, which was overflow-checked above.
+        running += entry.utxo.amount;
+        if running >= amount && canonical_shape(selected.len(), required_outputs).is_ok() {
+            return Ok(selected);
+        }
+    }
+
+    Err(ClientError::ShapeExceeded {
+        requested: amount,
+        available: total,
+        max_inputs: MAX_SELECTABLE_INPUTS,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
@@ -536,6 +627,145 @@ mod tests {
             result.withdrawal,
             Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }))
         );
+    }
+
+    fn wallet_with_amounts(keypair: ShieldedKeypair, asset: Address, amounts: &[u64]) -> Wallet {
+        let registry = if asset == SOL_MINT {
+            AssetRegistry::default()
+        } else {
+            AssetRegistry::new([(2, asset)]).expect("asset registry")
+        };
+        let mut wallet = Wallet::new(keypair.clone(), registry).expect("wallet");
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+        for (i, &amount) in amounts.iter().enumerate() {
+            let utxo = Utxo {
+                owner: keypair.signing_pubkey(),
+                asset,
+                amount,
+                blinding: [(i + 1) as u8; 31],
+                zone_program_id: None,
+                data: Data::default(),
+            };
+            let hash = utxo
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .expect("utxo hash");
+            let nullifier = utxo
+                .nullifier(&hash, &keypair.nullifier_key)
+                .expect("nullifier");
+            wallet.utxos.push(WalletUtxo {
+                utxo,
+                output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                    hash,
+                    tree: Address::default(),
+                    leaf_index: i as u64,
+                },
+                nullifier,
+                spent: false,
+            });
+        }
+        wallet
+    }
+
+    fn select(
+        wallet: &Wallet,
+        keypair: &ShieldedKeypair,
+        amount: u64,
+        output_count: usize,
+        excluded: &HashSet<[u8; 32]>,
+    ) -> Result<Vec<SpendUtxo>, ClientError> {
+        futures::executor::block_on(select_inputs_for_shape(
+            wallet,
+            keypair,
+            SOL_MINT,
+            amount,
+            output_count,
+            excluded,
+        ))
+    }
+
+    fn selected_amounts(selected: &[SpendUtxo]) -> Vec<u64> {
+        selected.iter().map(|s| s.utxo.amount).collect()
+    }
+
+    #[test]
+    fn shape_selector_picks_fewest_inputs_largest_first() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_amounts(keypair.clone(), SOL_MINT, &[100, 50, 30]);
+
+        let selected = select(&wallet, &keypair, 120, 1, &HashSet::new()).expect("selection");
+
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected_amounts(&selected), vec![100, 50]);
+    }
+
+    #[test]
+    fn shape_selector_skips_locked_utxos() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_amounts(keypair.clone(), SOL_MINT, &[100, 50, 30]);
+        let locked_hash = wallet.utxos[0].output_context.hash;
+        let excluded = HashSet::from([locked_hash]);
+
+        let selected = select(&wallet, &keypair, 60, 1, &excluded).expect("selection");
+
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected_amounts(&selected), vec![50, 30]);
+        assert!(selected.iter().all(|s| s.utxo.amount != 100));
+    }
+
+    #[test]
+    fn shape_selector_reports_insufficient_balance() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_amounts(keypair.clone(), SOL_MINT, &[10, 10]);
+
+        match select(&wallet, &keypair, 100, 1, &HashSet::new())
+            .err()
+            .expect("should fail")
+        {
+            ClientError::InsufficientBalance {
+                requested,
+                available,
+            } => assert_eq!((requested, available), (100, 20)),
+            other => panic!("expected InsufficientBalance, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn shape_selector_reports_shape_exceeded_when_fragmented() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        // Six UTXOs of 10 cover 60, but no <= 5-input subset does.
+        let wallet = wallet_with_amounts(keypair.clone(), SOL_MINT, &[10, 10, 10, 10, 10, 10]);
+
+        match select(&wallet, &keypair, 60, 1, &HashSet::new())
+            .err()
+            .expect("should fail")
+        {
+            ClientError::ShapeExceeded {
+                requested,
+                available,
+                max_inputs,
+            } => assert_eq!((requested, available, max_inputs), (60, 60, 5)),
+            other => panic!("expected ShapeExceeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn shape_selector_reports_shape_exceeded_when_output_count_caps_inputs() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        // Balance is ample, but six recipient outputs force the (1,8) shape, so
+        // only a single input is admissible and one 50 UTXO cannot cover 60.
+        let wallet = wallet_with_amounts(keypair.clone(), SOL_MINT, &[50, 50]);
+
+        match select(&wallet, &keypair, 60, 6, &HashSet::new())
+            .err()
+            .expect("should fail")
+        {
+            ClientError::ShapeExceeded {
+                requested,
+                available,
+                max_inputs,
+            } => assert_eq!((requested, available, max_inputs), (60, 100, 5)),
+            other => panic!("expected ShapeExceeded, got {other:?}"),
+        }
     }
 
     #[test]

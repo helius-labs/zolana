@@ -16,12 +16,12 @@ pub mod wallet_sync;
 pub use actions::{
     create_associated_token_account, create_deposit, create_transfer, create_transfer_sync,
     create_withdrawal, create_withdrawal_sync, fetch_asset_id, register_spl_interface,
-    sign_transaction, sign_transaction_sync, CreatedDeposit, CreatedTransfer, CreatedWithdrawal,
-    Deposit, PrivateTransfer, ResolvedAddress, TransferRecipient, Withdrawal,
-    DEFAULT_DEPOSIT_CU_LIMIT,
+    select_inputs_for_shape, sign_transaction, sign_transaction_sync, CreatedDeposit,
+    CreatedTransfer, CreatedWithdrawal, Deposit, PrivateTransfer, ResolvedAddress,
+    TransferRecipient, Withdrawal, DEFAULT_DEPOSIT_CU_LIMIT, MAX_SELECTABLE_INPUTS,
 };
 #[cfg(feature = "indexer-api")]
-pub use actions::{Sendable, Submit, DEFAULT_TRANSACT_CU_LIMIT};
+pub use actions::{PreparedSubmit, Sendable, Submit, DEFAULT_TRANSACT_CU_LIMIT};
 #[cfg(all(feature = "indexer-api", feature = "solana-rpc"))]
 pub use client::{ZolanaClient, ZolanaClientConfig, DEFAULT_TREE};
 pub use error::ClientError;

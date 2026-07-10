@@ -210,6 +210,61 @@ impl Sendable for CreatedWithdrawal {
     }
 }
 
+/// A hand-built [`SignedTransaction`] paired with the submit metadata a bare
+/// transaction cannot carry, so it can go through [`Submit::execute`] like a
+/// [`CreatedTransfer`] or [`CreatedWithdrawal`].
+///
+/// [`PrivateTransfer`](crate::PrivateTransfer) and
+/// [`Withdrawal`](crate::Withdrawal) are the ordinary path and already produce a
+/// [`Sendable`]. Reach for this only when the transaction was assembled directly
+/// through the [`Transaction`](zolana_transaction::instructions::transact::Transaction)
+/// builder — preselected/locked inputs or a non-default shape the high-level
+/// actions cannot express.
+///
+/// [`Sendable`] is deliberately not implemented for [`SignedTransaction`] on its
+/// own: the payload cannot recover an SPL withdrawal's routing accounts, and
+/// which party's view tag to poll the indexer for is caller context. This
+/// wrapper supplies both explicitly.
+#[derive(Clone)]
+pub struct PreparedSubmit {
+    signed: SignedTransaction,
+    wait_tag: [u8; 32],
+    withdrawal: Option<TransactWithdrawal>,
+}
+
+impl PreparedSubmit {
+    /// Wrap `signed` with the view `wait_tag` [`Submit::execute`] polls the
+    /// indexer for (typically the sender's or recipient's confidential view
+    /// tag). Pass `withdrawal` when the transaction settles a private-to-public
+    /// withdrawal — its routing accounts are not recoverable from `signed` —
+    /// or `None` for a purely private transfer.
+    pub fn new(
+        signed: SignedTransaction,
+        wait_tag: [u8; 32],
+        withdrawal: Option<TransactWithdrawal>,
+    ) -> Self {
+        Self {
+            signed,
+            wait_tag,
+            withdrawal,
+        }
+    }
+}
+
+impl Sendable for PreparedSubmit {
+    fn signed(&self) -> &SignedTransaction {
+        &self.signed
+    }
+
+    fn withdrawal(&self) -> Option<&TransactWithdrawal> {
+        self.withdrawal.as_ref()
+    }
+
+    fn wait_tag(&self) -> [u8; 32] {
+        self.wait_tag
+    }
+}
+
 /// A proven transaction: the ready-to-send `Transact` instruction data plus the
 /// pieces a caller reporting a bare proof needs (compressed proof, public input
 /// hash, circuit id).
@@ -349,5 +404,49 @@ mod tests {
         assert_eq!(instructions.len(), 2);
         assert_eq!(instructions[0].data, cu_expected.data);
         assert_eq!(instructions[1], transact_ix);
+    }
+
+    fn signed_transfer() -> SignedTransaction {
+        use zolana_keypair::ShieldedKeypair;
+        use zolana_transaction::{
+            instructions::{transact::Transaction, types::SpendUtxo},
+            AssetRegistry, Data, Utxo, SOL_MINT,
+        };
+
+        let sender = ShieldedKeypair::new().unwrap();
+        let utxo = Utxo {
+            owner: sender.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: 100,
+            blinding: [7u8; 31],
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let tx = Transaction::new(
+            sender.shielded_address().unwrap(),
+            vec![SpendUtxo::from_keypair(utxo, &sender)],
+            Address::default(),
+        );
+        tx.sign(&sender, &AssetRegistry::default()).unwrap()
+    }
+
+    #[test]
+    fn prepared_submit_preserves_wait_tag_and_withdrawal_metadata() {
+        use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
+
+        let signed = signed_transfer();
+        let tag = [9u8; 32];
+
+        let transfer = PreparedSubmit::new(signed.clone(), tag, None);
+        assert_eq!(transfer.wait_tag(), tag);
+        assert!(transfer.withdrawal().is_none());
+        assert_eq!(transfer.signed().shape, signed.shape);
+        assert_eq!(transfer.signed().inputs.len(), signed.inputs.len());
+
+        let withdrawal = TransactWithdrawal::Sol(TransactSolWithdrawal {
+            recipient: Pubkey::new_unique(),
+        });
+        let settlement = PreparedSubmit::new(signed, tag, Some(withdrawal));
+        assert_eq!(settlement.withdrawal(), Some(&withdrawal));
     }
 }

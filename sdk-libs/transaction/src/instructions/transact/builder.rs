@@ -37,7 +37,29 @@ const RECIPIENT_POSITION_BASE: u8 = 2;
 /// always start at slot 2.
 pub const SENDER_SLOT_COUNT: usize = 2;
 
-pub const SUPPORTED_SHAPES: [Shape; 1] = [Shape::new(2, 3)];
+/// The transfer proof shapes the prover and on-chain verifier serve, in
+/// ascending fit order so [`canonical_shape`] resolves a request to the
+/// smallest shape that holds it. Mirrors the client-side prover set
+/// (`zolana-client`'s `prover::shape::SUPPORTED_SHAPES`).
+///
+/// The `(1, 1)` shape is a valid prover/verifier shape but is unreachable
+/// through this builder: [`Transaction::prepare`] always emits
+/// [`SENDER_SLOT_COUNT`] leading sender-change slots, so the builder never
+/// produces fewer than two outputs. It is listed so [`resolve_shape`] agrees
+/// with the prover on the full supported set; [`canonical_shape`] simply never
+/// selects it for a builder-produced (>= 2 output) transaction.
+pub const SUPPORTED_SHAPES: [Shape; 10] = [
+    Shape::new(1, 1),
+    Shape::new(1, 2),
+    Shape::new(2, 2),
+    Shape::new(2, 3),
+    Shape::new(3, 3),
+    Shape::new(4, 3),
+    Shape::new(4, 4),
+    Shape::new(5, 3),
+    Shape::new(5, 4),
+    Shape::new(1, 8),
+];
 
 pub struct PreparedRecipient {
     pub view_tag: ViewTag,

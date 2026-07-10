@@ -27,6 +27,13 @@ pub enum ClientError {
     #[error("insufficient balance for asset: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },
 
+    #[error("balance of {available} covers {requested} but is too fragmented: no subset of at most {max_inputs} UTXO(s) fits a supported shape")]
+    ShapeExceeded {
+        requested: u64,
+        available: u64,
+        max_inputs: usize,
+    },
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
