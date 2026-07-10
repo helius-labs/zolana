@@ -2,7 +2,6 @@ mod balance;
 mod deposit;
 mod material;
 mod registry;
-mod reservation;
 mod resolve;
 mod sync;
 mod test_mint;
@@ -51,30 +50,5 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
         WalletCommand::Withdraw(opts) => withdraw::run_withdraw(opts),
         WalletCommand::Split(opts) => transaction::run_split(opts),
         WalletCommand::Utxos(opts) => transaction::run_utxos(opts),
-    }
-}
-
-#[cfg(test)]
-mod test_helpers {
-    use std::{
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    use zolana_client::SpendableUtxo;
-
-    pub(super) fn note(amount: u64, tag: u8) -> SpendableUtxo {
-        SpendableUtxo {
-            hash: [tag; 32],
-            amount,
-        }
-    }
-
-    pub(super) fn temp_dir(prefix: &str, name: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("{prefix}-{name}-{}-{stamp}", std::process::id()))
     }
 }

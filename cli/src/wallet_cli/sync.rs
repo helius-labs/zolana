@@ -126,20 +126,6 @@ pub(super) fn wait_for_indexed_output(
     output_hash: [u8; 32],
     signature: Signature,
 ) -> Result<WaitOutcome> {
-    wait_for_indexed_output_refreshing(indexer, rpc, tree, output_hash, signature, || Ok(()))
-}
-
-pub(super) fn wait_for_indexed_output_refreshing<F>(
-    indexer: &ZolanaIndexer,
-    rpc: &SolanaRpc,
-    tree: Pubkey,
-    output_hash: [u8; 32],
-    signature: Signature,
-    refresh: F,
-) -> Result<WaitOutcome>
-where
-    F: FnMut() -> Result<()>,
-{
     let tree = Address::new_from_array(tree.to_bytes());
     wait_for_indexed_output_with(
         indexer,
@@ -151,14 +137,13 @@ where
         INDEXER_POLL,
         // Re-check tx status roughly every ~2s of polling (every 4th 500ms poll).
         4,
-        refresh,
     )
 }
 
 /// Testable core of [`wait_for_indexed_output`], generic over the probes and with
 /// explicit timing so a unit test can drive it with mocks and a short timeout.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe, F>(
+pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe>(
     index: &I,
     status: &S,
     tree: Address,
@@ -167,11 +152,7 @@ pub(super) fn wait_for_indexed_output_with<I: IndexProbe, S: StatusProbe, F>(
     timeout: Duration,
     poll: Duration,
     status_check_every: u32,
-    mut refresh: F,
-) -> Result<WaitOutcome>
-where
-    F: FnMut() -> Result<()>,
-{
+) -> Result<WaitOutcome> {
     let started = Instant::now();
     let mut ticks: u32 = 0;
     loop {
@@ -201,7 +182,6 @@ where
             };
         }
         ticks = ticks.wrapping_add(1);
-        let _ = refresh();
         sleep(poll);
     }
 }
@@ -258,7 +238,6 @@ mod tests {
             // Check status on the first poll (ticks % 1 == 0) so Failed aborts
             // without depending on multiple iterations.
             1,
-            || Ok(()),
         )
     }
 
@@ -293,25 +272,6 @@ mod tests {
         // timeout branch, which reads Confirmed and reports success.
         let outcome =
             wait(&index, &status, Duration::from_millis(0)).expect("confirmed pending index");
-        assert_eq!(outcome, WaitOutcome::ConfirmedPendingIndex);
-    }
-
-    #[test]
-    fn refresh_errors_do_not_fail_wait() {
-        let index = MockIndex { indexed: false };
-        let status = MockStatus::new(SignatureState::Confirmed);
-        let outcome = wait_for_indexed_output_with(
-            &index,
-            &status,
-            Address::default(),
-            [7u8; 32],
-            &Signature::default(),
-            Duration::from_millis(2),
-            Duration::from_millis(1),
-            1,
-            || Err(anyhow::anyhow!("lockfile disappeared")),
-        )
-        .expect("refresh failure should be best-effort");
         assert_eq!(outcome, WaitOutcome::ConfirmedPendingIndex);
     }
 

@@ -173,19 +173,6 @@ pub(super) fn system_create_account_ix(
     }
 }
 
-/// System-program `Transfer` instruction (instruction index 2), mirroring the
-/// raw layout used by `system_create_account_ix`.
-pub(super) fn system_transfer_ix(from: &Pubkey, to: &Pubkey, lamports: u64) -> Instruction {
-    let mut data = Vec::with_capacity(4 + 8);
-    data.extend_from_slice(&2u32.to_le_bytes());
-    data.extend_from_slice(&lamports.to_le_bytes());
-    Instruction {
-        program_id: Pubkey::default(),
-        accounts: vec![AccountMeta::new(*from, true), AccountMeta::new(*to, false)],
-        data,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

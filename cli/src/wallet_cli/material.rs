@@ -13,24 +13,19 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedSplit, EncryptedTransfer, P256Signature, Rpc, SolanaRpc, SyncWalletAuthority,
+    EncryptedSplit, EncryptedTransfer, P256Signature, SolanaRpc, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
     ViewingKey,
 };
-use zolana_transaction::{
-    serialization::{
-        anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
-        split::SplitBundlePlaintext,
-    },
-    Address,
+use zolana_transaction::serialization::{
+    anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+    split::SplitBundlePlaintext,
 };
 
 use super::{
-    registry::register_wallet_on_chain,
-    resolve::ResolvedSyncOptions,
-    util::{parse_hex_array, parse_sol_amount, system_transfer_ix},
+    registry::register_wallet_on_chain, resolve::ResolvedSyncOptions, util::parse_hex_array,
 };
 use crate::{
     args::{InitOptions, NewWalletOptions, WalletKeypairOptions},
@@ -227,44 +222,15 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     let material = WalletMaterial { keypair, funding };
     let owner = material.funding.pubkey();
 
-    // `--fund-from` and `--register` both need a live RPC; only build one when a
-    // network step is actually requested.
-    let needs_rpc = opts.fund_from.is_some() || opts.register;
-    if needs_rpc {
+    if opts.register {
         let config = CliConfigFile::load()?;
         let rpc = SolanaRpc::new(resolve_rpc_url(opts.rpc_url.as_deref(), &config));
 
-        if let Some(fund_from) = opts.fund_from.as_deref() {
-            let sol = opts.fund_sol.as_deref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "--fund-from requires --fund-sol <SOL> to know how much to transfer"
-                )
-            })?;
-            let lamports = parse_sol_amount(sol)?;
-            let payer = load_solana_cli_keypair(Path::new(fund_from))?;
-            let ix = system_transfer_ix(&payer.pubkey(), &owner, lamports);
-            let signature = rpc.create_and_send_transaction(
-                &[ix],
-                Address::new_from_array(payer.pubkey().to_bytes()),
-                &[&payer],
-            )?;
-            println!(
-                "ok fund from={} amount={sol} signature={signature}",
-                payer.pubkey()
-            );
-        } else if opts.fund_sol.is_some() {
-            bail!("--fund-sol requires --fund-from <PATH> to name the source keypair");
+        if let Some(signature) = register_wallet_on_chain(&rpc, &material)? {
+            println!("ok user_registry signature={signature}");
+        } else {
+            println!("ok user_registry already registered");
         }
-
-        if opts.register {
-            if let Some(signature) = register_wallet_on_chain(&rpc, &material)? {
-                println!("ok user_registry signature={signature}");
-            } else {
-                println!("ok user_registry already registered");
-            }
-        }
-    } else if opts.fund_sol.is_some() {
-        bail!("--fund-sol requires --fund-from <PATH> to name the source keypair");
     }
 
     println!(

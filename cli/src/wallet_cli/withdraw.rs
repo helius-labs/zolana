@@ -1,14 +1,14 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{create_withdrawal_sync, CreateWithdrawal, SolanaRpc, ZolanaIndexer};
+use zolana_client::{
+    create_withdrawal_sync, CreateWithdrawal, InputSelection, SolanaRpc, ZolanaIndexer,
+};
 use zolana_transaction::Address;
 
 use super::{
     resolve::get_network_with_config,
     sync::sync_context,
-    transaction::{
-        maybe_airdrop, resolve_auto_spend_selection, submit_private_transaction, SubmitPrivateTx,
-    },
+    transaction::{maybe_airdrop, submit_private_transaction, SubmitPrivateTx},
     util::{
         ensure_positive, format_address, parse_address, parse_amount_for_asset,
         resolve_recipient_pubkey,
@@ -29,8 +29,6 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let tree = network.tree;
     let recipient = resolve_recipient_pubkey(&opts.to)?;
 
-    let (selection, reservations) =
-        resolve_auto_spend_selection(&opts.network.sync, &config, &ctx, asset, amount)?;
     let withdrawal = create_withdrawal_sync(CreateWithdrawal {
         wallet: &ctx.wallet,
         authority: &ctx.material,
@@ -40,7 +38,7 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         asset,
         amount,
         assets: &ctx.wallet.registry,
-        selection,
+        selection: InputSelection::Auto,
     })?;
     let (signature, outcome) = submit_private_transaction(
         SubmitPrivateTx {
@@ -51,7 +49,6 @@ pub(super) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
             prover_url: &network.prover_url,
             withdrawal: Some(withdrawal.withdrawal),
             wait_output_hash: withdrawal.wait_output_hash,
-            reservations: &reservations,
         },
         withdrawal.signed,
     )?;

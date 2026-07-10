@@ -384,28 +384,14 @@ pub(crate) struct NewWalletOptions {
     pub(crate) funding_keypair: Option<String>,
 
     #[arg(
-        long = "fund-from",
-        help = "Solana keypair file to transfer SOL from into the new wallet's funding key (use with --fund-sol)",
-        value_name = "PATH"
-    )]
-    pub(crate) fund_from: Option<String>,
-
-    #[arg(
-        long = "fund-sol",
-        help = "Amount of SOL to transfer from --fund-from into the new wallet's funding key",
-        value_name = "SOL"
-    )]
-    pub(crate) fund_sol: Option<String>,
-
-    #[arg(
         long = "register",
-        help = "Register the new wallet on-chain via the user registry after creating (and optionally funding) it"
+        help = "Register the new wallet on-chain via the user registry after creating it"
     )]
     pub(crate) register: bool,
 
     #[arg(
         long = "rpc-url",
-        help = "Solana RPC URL used for --fund-from and --register (default: configured value or http://127.0.0.1:8899)"
+        help = "Solana RPC URL used for --register (default: configured value or http://127.0.0.1:8899)"
     )]
     pub(crate) rpc_url: Option<String>,
 }
@@ -568,7 +554,7 @@ pub(crate) struct TransferOptions {
 
     #[arg(
         long = "input",
-        help = "Spend this exact note (its utxo hash, hex from `wallet utxos`), skipping automatic reservation-based selection",
+        help = "Spend this exact note (its utxo hash, hex from `wallet utxos`)",
         value_name = "UTXO_HASH"
     )]
     pub(crate) input: Option<String>,
@@ -584,13 +570,6 @@ pub(crate) struct SplitOptions {
         value_name = "PARTS"
     )]
     pub(crate) parts: u8,
-
-    #[arg(
-        long = "part-sol",
-        help = "SOL per output note; omit to split the wallet's largest SOL note evenly into <PARTS>",
-        value_name = "SOL"
-    )]
-    pub(crate) part_sol: Option<String>,
 
     #[arg(
         long = "input",
@@ -1185,21 +1164,18 @@ mod tests {
 
     #[test]
     fn parses_wallet_split_and_utxos_options() {
-        // `parts` is positional; `--part-sol` and `--input` are optional flags.
+        // `parts` is positional; `--input` is an optional flag.
         let WalletCommand::Split(split) = parse_wallet(&[
             "split",
             "4",
             "-w",
             "alice",
-            "--part-sol",
-            "0.25",
             "--tree",
             "Tree111111111111111111111111111111111111111",
         ]) else {
             panic!("expected wallet split command");
         };
         assert_eq!(split.parts, 4);
-        assert_eq!(split.part_sol.as_deref(), Some("0.25"));
         assert_eq!(split.input, None);
         assert_eq!(split.network.sync.keypair.wallet.as_deref(), Some("alice"));
 
@@ -1210,7 +1186,6 @@ mod tests {
             panic!("expected wallet split command");
         };
         assert_eq!(split.parts, 8);
-        assert_eq!(split.part_sol, None);
 
         // Split an explicit note by hash.
         let WalletCommand::Split(split) = parse_wallet(&[
@@ -1254,10 +1229,6 @@ mod tests {
             "alice",
             "--funding-keypair",
             "/tmp/id.json",
-            "--fund-from",
-            "/tmp/payer.json",
-            "--fund-sol",
-            "1.5",
             "--register",
             "--rpc-url",
             "http://127.0.0.1:8900",
@@ -1266,8 +1237,6 @@ mod tests {
         };
         assert_eq!(opts.name, "alice");
         assert_eq!(opts.funding_keypair.as_deref(), Some("/tmp/id.json"));
-        assert_eq!(opts.fund_from.as_deref(), Some("/tmp/payer.json"));
-        assert_eq!(opts.fund_sol.as_deref(), Some("1.5"));
         assert!(opts.register);
         assert_eq!(opts.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
     }

@@ -511,6 +511,24 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &cli_env,
     )?;
 
+    let alice_utxos_out = run_cli_with_env(
+        &[
+            "wallet",
+            "utxos",
+            "--keypair",
+            &alice.display().to_string(),
+            "--rpc-url",
+            &rpc_url,
+            "--indexer-url",
+            &indexer_url,
+        ],
+        &cli_env,
+    )?;
+    assert!(
+        alice_utxos_out.contains("ok utxos count="),
+        "utxos failed: {alice_utxos_out}"
+    );
+
     run_cli_with_env(
         &[
             "wallet",
