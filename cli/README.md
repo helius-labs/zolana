@@ -31,6 +31,8 @@ zolana wallet address --funding
 zolana wallet create-tree --tree-keypair /tmp/zolana-tree.json --airdrop-lamports 20000000000
 zolana wallet balance --indexer-url http://127.0.0.1:8784
 zolana wallet utxos --mint SOL
+zolana wallet set-merging on
+zolana wallet consolidate --mint SOL
 zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
 zolana wallet transfer --to <RECIPIENT_SHIELDED_ADDRESS> --amount 300000000 --mint SOL
 zolana wallet split 4
@@ -57,6 +59,9 @@ Transfers select the fewest notes by spending largest-first, up to five inputs.
 hashes to `transfer --input <HASH>` when a specific note must be spent.
 `wallet split <PARTS>` replaces one SOL note with 2–8 equal self-owned notes;
 it chooses the largest note unless `--input <HASH>` is supplied.
+`wallet consolidate` manually merges 2–8 notes into one, choosing the smallest
+notes first unless repeated `--input <HASH>` flags are supplied. The owner must
+first opt in once with `wallet set-merging on`; no automatic consolidation runs.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

@@ -3,12 +3,13 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{Transact, TransactWithdrawal},
+    instruction::{MergeTransact, Transact, TransactWithdrawal},
     pda, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::hash::sha256_be;
+use zolana_keypair::{hash::sha256_be, NullifierKey};
 use zolana_transaction::{
     instructions::{
+        merge::PreparedMerge,
         transact::{ExternalData, SignedTransaction},
         types::InputCommitment,
     },
@@ -18,11 +19,14 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     prover::{
+        merge::{MergeProver, MergeWitness},
         transact::{assemble, ProverInputs, SpendProof},
         ProofCompressed, ProverClient,
     },
     rpc::Rpc,
+    user_registry::{base_address_from_record, fetch_user_record_checked},
 };
+use zolana_user_registry_interface::user_record_pda;
 
 const PRIVATE_TX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -135,6 +139,97 @@ fn validate_withdrawal(
     }
 }
 
+/// Prove and submit a prepared note consolidation.
+pub struct SubmitMergeTransaction<'a, R: Rpc + ?Sized, I: Rpc + ?Sized> {
+    pub rpc: &'a R,
+    pub indexer: &'a I,
+    /// Registry owner whose notes are being consolidated.
+    pub owner: Pubkey,
+    /// Fee payer and signer. This may differ from `owner` for relayed merges.
+    pub payer: &'a Keypair,
+    pub nullifier_key: &'a NullifierKey,
+    pub tree: Pubkey,
+    pub prover_url: &'a str,
+    pub prepared: PreparedMerge,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubmittedMerge {
+    pub signature: Signature,
+    pub output_hash: [u8; 32],
+}
+
+pub fn submit_merge_transaction<R: Rpc + ?Sized, I: Rpc + ?Sized>(
+    request: SubmitMergeTransaction<'_, R, I>,
+) -> Result<SubmittedMerge, ClientError> {
+    let owner = request.owner;
+    let payer = request.payer.pubkey();
+    validate_merge_submission(request.rpc, owner, request.nullifier_key, &request.prepared)?;
+    let commitments = request.prepared.input_commitments()?;
+    let proofs = spend_proofs(request.indexer, request.tree, &commitments)?;
+    let result = MergeProver::try_from(MergeWitness {
+        prepared: request.prepared,
+        nullifier_key: request.nullifier_key.clone(),
+        proofs,
+    })?
+    .build()?;
+    let prover = ProverClient::new(request.prover_url.to_string());
+    let proof = ProofCompressed::try_from(prover.prove_merge(&result.inputs)?)?.to_merge_proof()?;
+    let instruction = MergeTransact {
+        tree: request.tree,
+        payer,
+        user_record: user_record_pda(&owner).0,
+        data: result.instruction_data(proof),
+    }
+    .instruction();
+    let instructions = [
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            PRIVATE_TX_COMPUTE_UNIT_LIMIT,
+        ),
+        instruction,
+    ];
+    let signature = request.rpc.create_and_send_transaction(
+        &instructions,
+        Address::new_from_array(payer.to_bytes()),
+        &[request.payer],
+    )?;
+    Ok(SubmittedMerge {
+        signature,
+        output_hash: result.output_hash,
+    })
+}
+
+fn validate_merge_submission<R: Rpc + ?Sized>(
+    rpc: &R,
+    owner: Pubkey,
+    nullifier_key: &NullifierKey,
+    prepared: &PreparedMerge,
+) -> Result<(), ClientError> {
+    let record = fetch_user_record_checked(rpc, owner)?;
+    if !record.merging_enabled {
+        return Err(ClientError::MergeDisabled { owner });
+    }
+    // On-chain merge validation reads the record's base viewing key. An active
+    // sync delegate changes only the sender-facing projection.
+    let address = base_address_from_record(owner, &record)?;
+    if prepared.signing_pubkey != address.signing_pubkey {
+        return Err(ClientError::SubmissionMismatch(format!(
+            "merge signing key does not match owner {owner}'s registry record"
+        )));
+    }
+    if prepared.user_viewing_pk != address.viewing_pubkey {
+        return Err(ClientError::SubmissionMismatch(format!(
+            "merge viewing key does not match owner {owner}'s registry record"
+        )));
+    }
+    if nullifier_key.pubkey()? != address.nullifier_pubkey {
+        return Err(ClientError::SubmissionMismatch(format!(
+            "merge nullifier key does not match owner {owner}'s registry record"
+        )));
+    }
+    Ok(())
+}
+
 fn spend_proofs<I: Rpc + ?Sized>(
     indexer: &I,
     tree: Pubkey,
@@ -201,8 +296,13 @@ fn spend_proofs<I: Rpc + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use borsh::to_vec;
+    use solana_account::Account;
     use zolana_interface::instruction::{TransactSolWithdrawal, TransactSplWithdrawal};
+    use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::instructions::transact::{PublicAmounts, Shape};
+    use zolana_transaction::OutputUtxo;
+    use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
 
     use crate::rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse, MerkleContext,
@@ -214,6 +314,11 @@ mod tests {
     struct ProofRpc {
         state: Vec<MerkleProof>,
         nullifier: Vec<NonInclusionProof>,
+    }
+
+    struct RegistryRpc {
+        address: Address,
+        account: Account,
     }
 
     impl Rpc for ProofRpc {
@@ -237,6 +342,12 @@ mod tests {
                 context: Context { slot: 1 },
                 proofs: self.nullifier.clone(),
             })
+        }
+    }
+
+    impl Rpc for RegistryRpc {
+        fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            Ok((address == self.address).then(|| self.account.clone()))
         }
     }
 
@@ -327,6 +438,56 @@ mod tests {
         assert!(matches!(result, Err(ClientError::SubmissionMismatch(_))));
     }
 
+    fn registry_record(
+        owner: Pubkey,
+        keypair: &ShieldedKeypair,
+        merging_enabled: bool,
+    ) -> UserRecord {
+        let (_, bump) = user_record_pda(&owner);
+        UserRecord {
+            owner: owner.to_bytes().into(),
+            bump,
+            owner_p256: Some(*keypair.signing_pubkey().as_p256().unwrap().as_bytes()),
+            nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
+            viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
+            sync_delegate: None,
+            entries: Vec::new(),
+            merging_enabled,
+        }
+    }
+
+    fn registry_rpc(owner: Pubkey, record: &UserRecord) -> RegistryRpc {
+        let (record_address, _) = user_record_pda(&owner);
+        let mut data = vec![UserRecord::DISCRIMINATOR];
+        data.extend_from_slice(&to_vec(record).expect("serialize registry record"));
+        RegistryRpc {
+            address: Address::new_from_array(record_address.to_bytes()),
+            account: Account {
+                lamports: 1,
+                data,
+                owner: user_registry_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        }
+    }
+
+    fn prepared_merge(keypair: &ShieldedKeypair) -> PreparedMerge {
+        let mut scalar = [0u8; 32];
+        scalar[31] = 1;
+        PreparedMerge {
+            inputs: Vec::new(),
+            output: OutputUtxo {
+                owner_address: Some(keypair.shielded_address().unwrap()),
+                ..Default::default()
+            },
+            expiry_unix_ts: u64::MAX,
+            signing_pubkey: keypair.signing_pubkey(),
+            user_viewing_pk: keypair.viewing_pubkey(),
+            tx_viewing_sk: p256::SecretKey::from_slice(&scalar).unwrap(),
+        }
+    }
+
     #[test]
     fn private_submission_rejects_another_funding_key() {
         let signed_for = Keypair::new();
@@ -398,6 +559,82 @@ mod tests {
             }
         });
         assert_submission_mismatch(validate_private_submission(&signed, &funding, Some(&wrong)));
+    }
+
+    #[test]
+    fn merge_submission_requires_explicit_opt_in() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let record = registry_record(owner, &keypair, false);
+        let rpc = registry_rpc(owner, &record);
+
+        assert!(matches!(
+            validate_merge_submission(
+                &rpc,
+                owner,
+                &keypair.nullifier_key,
+                &prepared_merge(&keypair)
+            ),
+            Err(ClientError::MergeDisabled { owner: got }) if got == owner
+        ));
+    }
+
+    #[test]
+    fn merge_submission_uses_base_viewing_key_with_active_delegate() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut record = registry_record(owner, &keypair, true);
+        record.sync_delegate = Some([9u8; 32]);
+        record.entries.push(SyncDelegateEntry {
+            delegate: [9u8; 32],
+            sync_pubkey: [8u8; 33],
+            viewing_pubkey: [7u8; 33],
+            created_at: 0,
+        });
+        assert_ne!(record.sender_viewing_pubkey(), record.viewing_pubkey);
+        let rpc = registry_rpc(owner, &record);
+
+        validate_merge_submission(
+            &rpc,
+            owner,
+            &keypair.nullifier_key,
+            &prepared_merge(&keypair),
+        )
+        .expect("delegate must not replace the owner's base merge identity");
+    }
+
+    #[test]
+    fn merge_submission_rejects_unregistered_owner_material() {
+        let owner = Pubkey::new_unique();
+        let registered = ShieldedKeypair::new().unwrap();
+        let unrelated = ShieldedKeypair::new().unwrap();
+        let record = registry_record(owner, &registered, true);
+        let rpc = registry_rpc(owner, &record);
+
+        let mut wrong_signing = prepared_merge(&registered);
+        wrong_signing.signing_pubkey = unrelated.signing_pubkey();
+        assert_submission_mismatch(validate_merge_submission(
+            &rpc,
+            owner,
+            &registered.nullifier_key,
+            &wrong_signing,
+        ));
+
+        let mut wrong_viewing = prepared_merge(&registered);
+        wrong_viewing.user_viewing_pk = unrelated.viewing_pubkey();
+        assert_submission_mismatch(validate_merge_submission(
+            &rpc,
+            owner,
+            &registered.nullifier_key,
+            &wrong_viewing,
+        ));
+
+        assert_submission_mismatch(validate_merge_submission(
+            &rpc,
+            owner,
+            &unrelated.nullifier_key,
+            &prepared_merge(&registered),
+        ));
     }
 
     #[test]

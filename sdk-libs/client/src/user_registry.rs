@@ -14,10 +14,17 @@ use crate::{error::ClientError, rpc::Rpc};
 /// Derive the on-chain registry record fields from a shielded keypair: the
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
 /// pubkey. Returns the exact `RegisterData` the register/update instructions take.
-fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientError> {
+fn register_fields(owner: Pubkey, keypair: &ShieldedKeypair) -> Result<RegisterData, ClientError> {
     let owner_p256 = match keypair.signing_pubkey().signature_type()? {
         SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
+        SignatureType::Ed25519 => {
+            if keypair.signing_pubkey().as_ed25519()? != owner.to_bytes() {
+                return Err(ClientError::AddressResolution(format!(
+                    "ed25519 shielded signing key does not match funding owner {owner}"
+                )));
+            }
+            None
+        }
     };
     Ok(RegisterData {
         owner_p256,
@@ -32,44 +39,28 @@ fn register_fields(keypair: &ShieldedKeypair) -> Result<RegisterData, ClientErro
 /// confidential transfer to a known shielded address; it is the
 /// pubkey-addressability directory.
 ///
-/// Idempotent: registers if no record exists, updates the record on a key
-/// change, and returns `Ok(None)` if the record already matches (no transaction
-/// sent). The record lives at `user_record_pda(&funding.pubkey()).0`.
+/// Idempotent: registers if no record exists and returns `Ok(None)` if the
+/// record already matches. A different existing record is rejected; use
+/// [`update_registered_keys`] for an intentional key rotation.
 ///
 /// `funding` must sign — the registry keys the record under its pubkey and the
 /// program requires the owner's signature, so only the record's owner can
 /// publish or update it.
-pub fn ensure_registered<R: Rpc>(
+pub fn ensure_registered<R: Rpc + ?Sized>(
     rpc: &R,
     funding: &Keypair,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
     let owner = funding.pubkey();
-    let data = register_fields(keypair)?;
+    let data = register_fields(owner, keypair)?;
     let (user_record, _bump) = user_record_pda(&owner);
     let owner_address = Address::new_from_array(owner.to_bytes());
 
     if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
-        if record.owner_p256 == data.owner_p256
-            && record.nullifier_pubkey == data.nullifier_pubkey
-            && record.viewing_pubkey == data.viewing_pubkey
-        {
+        if record_matches_registration(&record, &data) {
             return Ok(None);
         }
-        let ix = update_keys(
-            user_record,
-            owner,
-            UpdateKeysData {
-                owner_p256: data.owner_p256,
-                nullifier_pubkey: data.nullifier_pubkey,
-                viewing_pubkey: data.viewing_pubkey,
-            },
-        );
-        return Ok(Some(rpc.create_and_send_transaction(
-            &[ix],
-            owner_address,
-            &[funding],
-        )?));
+        return Err(ClientError::RegistryKeysMismatch { owner });
     }
 
     let ix = register(user_record, owner, data);
@@ -80,7 +71,43 @@ pub fn ensure_registered<R: Rpc>(
     )?))
 }
 
-pub fn fetch_user_record_checked<R: Rpc>(
+/// Explicitly replace the shielded keys in an existing registry record.
+pub fn update_registered_keys<R: Rpc + ?Sized>(
+    rpc: &R,
+    funding: &Keypair,
+    keypair: &ShieldedKeypair,
+) -> Result<Option<Signature>, ClientError> {
+    let owner = funding.pubkey();
+    let data = register_fields(owner, keypair)?;
+    let record = fetch_user_record_checked(rpc, owner)?;
+    if record_matches_registration(&record, &data) {
+        return Ok(None);
+    }
+
+    let (user_record, _bump) = user_record_pda(&owner);
+    let ix = update_keys(
+        user_record,
+        owner,
+        UpdateKeysData {
+            owner_p256: data.owner_p256,
+            nullifier_pubkey: data.nullifier_pubkey,
+            viewing_pubkey: data.viewing_pubkey,
+        },
+    );
+    Ok(Some(rpc.create_and_send_transaction(
+        &[ix],
+        Address::new_from_array(owner.to_bytes()),
+        &[funding],
+    )?))
+}
+
+fn record_matches_registration(record: &UserRecord, data: &RegisterData) -> bool {
+    record.owner_p256 == data.owner_p256
+        && record.nullifier_pubkey == data.nullifier_pubkey
+        && record.viewing_pubkey == data.viewing_pubkey
+}
+
+pub fn fetch_user_record_checked<R: Rpc + ?Sized>(
     rpc: &R,
     owner: Pubkey,
 ) -> Result<UserRecord, ClientError> {
@@ -94,7 +121,7 @@ pub fn fetch_user_record_checked<R: Rpc>(
     parse_user_record_account(owner, record_pda, bump, &account)
 }
 
-pub fn fetch_user_record_optional_checked<R: Rpc>(
+pub fn fetch_user_record_optional_checked<R: Rpc + ?Sized>(
     rpc: &R,
     owner: Pubkey,
 ) -> Result<Option<UserRecord>, ClientError> {
@@ -141,64 +168,72 @@ fn parse_user_record_account(
     Ok(record)
 }
 
-pub fn validate_registered_keypair<R: Rpc>(
+pub fn validate_registered_keypair<R: Rpc + ?Sized>(
     rpc: &R,
     owner: Pubkey,
     keypair: &ShieldedKeypair,
 ) -> Result<(), ClientError> {
     let record = fetch_user_record_checked(rpc, owner)?;
-    let expected_owner_p256 = match keypair.signing_pubkey().signature_type()? {
-        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
-    };
-    let expected_nullifier = keypair.nullifier_key.pubkey()?;
-    let expected_viewing = *keypair.viewing_pubkey().as_bytes();
-    if record.owner_p256 != expected_owner_p256
-        || record.nullifier_pubkey != expected_nullifier
-        || record.viewing_pubkey != expected_viewing
+    let expected = register_fields(owner, keypair)?;
+    if record.owner_p256 != expected.owner_p256
+        || record.nullifier_pubkey != expected.nullifier_pubkey
+        || record.viewing_pubkey != expected.viewing_pubkey
     {
-        return Err(ClientError::AddressResolution(format!(
-            "user registry record for {owner} does not match the local wallet"
-        )));
+        return Err(ClientError::RegistryKeysMismatch { owner });
     }
     Ok(())
 }
 
-pub fn resolve_registered_address<R: Rpc>(
+pub fn resolve_registered_address<R: Rpc + ?Sized>(
     rpc: &R,
     owner: Pubkey,
 ) -> Result<ShieldedAddress, ClientError> {
-    let record = fetch_user_record_checked(rpc, owner)
-        .map_err(|err| ClientError::AddressResolution(err.to_string()))?;
+    let record = fetch_user_record_checked(rpc, owner)?;
     resolved_address_from_record(owner, &record)
-        .map_err(|err| ClientError::AddressResolution(err.to_string()))
 }
 
-pub fn try_resolve_registered_address<R: Rpc>(
+pub fn try_resolve_registered_address<R: Rpc + ?Sized>(
     rpc: &R,
     owner: Pubkey,
 ) -> Result<Option<ShieldedAddress>, ClientError> {
     let Some(record) = fetch_user_record_optional_checked(rpc, owner)? else {
         return Ok(None);
     };
-    Ok(Some(resolved_address_from_record(owner, &record).map_err(
-        |err| ClientError::AddressResolution(err.to_string()),
-    )?))
+    Ok(Some(resolved_address_from_record(owner, &record)?))
 }
 
 pub(crate) fn resolved_address_from_record(
     owner: Pubkey,
     record: &UserRecord,
 ) -> Result<ShieldedAddress, ClientError> {
-    let signing_pubkey = match record.owner_p256 {
-        Some(owner_p256) => PublicKey::from_p256(&P256Pubkey::from_bytes(owner_p256)?),
-        None => PublicKey::from_ed25519(&owner.to_bytes()),
-    };
     let viewing_pubkey = P256Pubkey::from_bytes(record.sender_viewing_pubkey())?;
     Ok(ShieldedAddress {
-        signing_pubkey,
+        signing_pubkey: signing_pubkey_from_record(owner, record)?,
         nullifier_pubkey: record.nullifier_pubkey,
         viewing_pubkey,
+    })
+}
+
+/// Project a registry record into the owner's base shielded address. This uses
+/// `record.viewing_pubkey`, not an active sync delegate's sender-facing key.
+pub(crate) fn base_address_from_record(
+    owner: Pubkey,
+    record: &UserRecord,
+) -> Result<ShieldedAddress, ClientError> {
+    Ok(ShieldedAddress {
+        signing_pubkey: signing_pubkey_from_record(owner, record)?,
+        nullifier_pubkey: record.nullifier_pubkey,
+        viewing_pubkey: P256Pubkey::from_bytes(record.viewing_pubkey)?,
+    })
+}
+
+fn signing_pubkey_from_record(
+    owner: Pubkey,
+    record: &UserRecord,
+) -> Result<PublicKey, ClientError> {
+    Ok(match record.owner_p256 {
+        Some(owner_p256) => PublicKey::from_p256(&P256Pubkey::from_bytes(owner_p256)?),
+        None => PublicKey::from_ed25519(&owner.to_bytes()),
     })
 }
 
@@ -378,6 +413,20 @@ mod tests {
     }
 
     #[test]
+    fn validate_registered_keypair_rejects_ed25519_owner_mismatch() {
+        let funding = Keypair::new();
+        let signer = Keypair::new();
+        let keypair = ShieldedKeypair::from_ed25519(signer.secret_bytes(), ViewingKey::new())
+            .expect("ed25519 keypair");
+
+        let err = register_fields(funding.pubkey(), &keypair)
+            .expect_err("unrelated ed25519 signer must not be registered");
+        assert!(err
+            .to_string()
+            .contains("ed25519 shielded signing key does not match funding owner"));
+    }
+
+    #[test]
     fn fetch_user_record_checked_rejects_owner_mismatch() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);
@@ -463,8 +512,7 @@ mod tests {
     }
 
     /// Mock that serves an optional record account and captures the sent
-    /// transaction, so `ensure_registered`'s three branches can be asserted
-    /// without a validator.
+    /// transaction so registry write behavior can be asserted without a validator.
     #[derive(Default)]
     struct SendMockRpc {
         account: Option<(Address, Account)>,
@@ -539,22 +587,40 @@ mod tests {
     }
 
     #[test]
-    fn ensure_registered_updates_when_keys_changed() {
+    fn ensure_registered_refuses_changed_keys() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
-        // Record exists but with stale keys (a different keypair).
         let stale = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &stale)),
             ..Default::default()
         };
-        let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
-        assert!(
-            sig.is_some(),
-            "key change should send an update transaction"
-        );
+
+        assert!(matches!(
+            ensure_registered(&rpc, &funding, &keypair),
+            Err(ClientError::RegistryKeysMismatch { owner: got }) if got == owner
+        ));
+        assert!(rpc.sent.borrow().is_none());
+    }
+
+    #[test]
+    fn update_registered_keys_rotates_changed_keys() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        let stale = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &stale)),
+            ..Default::default()
+        };
+
+        let signature = update_registered_keys(&rpc, &funding, &keypair)
+            .expect("explicit key rotation")
+            .expect("rotation transaction");
+        assert_eq!(signature, Signature::default());
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
             zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS

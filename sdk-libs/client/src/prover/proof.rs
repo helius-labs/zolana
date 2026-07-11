@@ -92,6 +92,61 @@ impl ProofCompressed {
             },
         }
     }
+
+    /// Pack the fixed merge verifier layout:
+    /// `a(32) || b(64) || c(32) || commitment(32) || commitment_pok(32)`.
+    pub fn to_merge_proof(self) -> Result<[u8; 192], ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse("merge proof must carry a BSB22 commitment".to_string())
+        })?;
+        let mut proof = [0u8; 192];
+        proof[..32].copy_from_slice(&self.a);
+        proof[32..96].copy_from_slice(&self.b);
+        proof[96..128].copy_from_slice(&self.c);
+        proof[128..160].copy_from_slice(&commitment.commitment);
+        proof[160..].copy_from_slice(&commitment.commitment_pok);
+        Ok(proof)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_proof_layout_is_fixed_192_bytes() {
+        let proof = ProofCompressed {
+            a: [1u8; 32],
+            b: [2u8; 64],
+            c: [3u8; 32],
+            commitment: Some(CompressedCommitments {
+                commitment: [4u8; 32],
+                commitment_pok: [5u8; 32],
+            }),
+        }
+        .to_merge_proof()
+        .expect("merge proof");
+
+        assert_eq!(proof.get(0..32), Some(&[1u8; 32][..]));
+        assert_eq!(proof.get(32..96), Some(&[2u8; 64][..]));
+        assert_eq!(proof.get(96..128), Some(&[3u8; 32][..]));
+        assert_eq!(proof.get(128..160), Some(&[4u8; 32][..]));
+        assert_eq!(proof.get(160..192), Some(&[5u8; 32][..]));
+    }
+
+    #[test]
+    fn merge_proof_requires_commitment() {
+        let err = ProofCompressed {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
+            commitment: None,
+        }
+        .to_merge_proof()
+        .expect_err("merge proof without commitment");
+
+        assert!(matches!(err, ClientError::ProofParse(message) if message.contains("commitment")));
+    }
 }
 
 fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {

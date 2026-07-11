@@ -3,8 +3,11 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    create_split_sync, create_transfer_sync, submit_private_transaction as submit_private_action,
+    create_merge, create_split_sync, create_transfer_sync, fetch_user_record_checked,
+    submit_merge_transaction as submit_merge_action,
+    submit_private_transaction as submit_private_action, validate_registered_keypair, CreateMerge,
     CreateSplit, CreateTransfer, InputSelection, SignedTransaction, SolanaRpc,
+    SubmitMergeTransaction as ClientSubmitMergeTransaction,
     SubmitPrivateTransaction as ClientSubmitPrivateTransaction, ZolanaIndexer,
 };
 use zolana_interface::instruction::TransactWithdrawal;
@@ -18,7 +21,7 @@ use super::{
         ensure_positive, format_address, parse_address, parse_hex_array, parse_shielded_address,
     },
 };
-use crate::args::{SplitOptions, TransferOptions, UtxosOptions};
+use crate::args::{ConsolidateOptions, SplitOptions, TransferOptions, UtxosOptions};
 
 pub(super) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -154,6 +157,76 @@ fn split_selection(
     let per_output_amount = note.amount / u64::from(parts);
     ensure_positive(per_output_amount)?;
     Ok((note, per_output_amount))
+}
+
+pub(super) fn run_consolidate(opts: ConsolidateOptions) -> Result<()> {
+    let asset = parse_address(&opts.mint)?;
+    let explicit_hashes = opts
+        .input
+        .iter()
+        .map(|input| parse_hex_array::<32>(input))
+        .collect::<Result<Vec<_>>>()?;
+    if !explicit_hashes.is_empty() && !(2..=8).contains(&explicit_hashes.len()) {
+        bail!(
+            "explicit consolidation requires 2 to 8 --input values; got {}",
+            explicit_hashes.len()
+        );
+    }
+
+    let network = get_network(&opts.network)?;
+    let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
+    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let ctx = sync_context(&opts.network.sync)?;
+    let selection = if explicit_hashes.is_empty() {
+        InputSelection::Auto
+    } else {
+        InputSelection::Explicit(explicit_hashes)
+    };
+    let merge = create_merge(CreateMerge {
+        wallet: &ctx.wallet,
+        keypair: &ctx.material.keypair,
+        asset,
+        selection,
+    })?;
+
+    ensure_merging_enabled(&rpc, &ctx.material)?;
+    maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
+    let submitted = submit_merge_action(ClientSubmitMergeTransaction {
+        rpc: &rpc,
+        indexer: &indexer,
+        owner: ctx.material.funding.pubkey(),
+        payer: &ctx.material.funding,
+        nullifier_key: &ctx.material.keypair.nullifier_key,
+        tree: network.tree,
+        prover_url: &network.prover_url,
+        prepared: merge.prepared,
+    })?;
+    let outcome = wait_for_indexed_output(
+        &indexer,
+        &rpc,
+        network.tree,
+        submitted.output_hash,
+        submitted.signature,
+    )?;
+    println!(
+        "ok consolidate mint={} inputs={} amount={} signature={}{}",
+        format_address(asset),
+        merge.num_inputs,
+        merge.merged_amount,
+        submitted.signature,
+        outcome.pending_suffix(),
+    );
+    Ok(())
+}
+
+fn ensure_merging_enabled(rpc: &SolanaRpc, material: &WalletMaterial) -> Result<()> {
+    let owner = material.funding.pubkey();
+    let record = fetch_user_record_checked(rpc, owner)?;
+    if !record.merging_enabled {
+        bail!("merging is not enabled for this wallet; run `zolana wallet set-merging on` first");
+    }
+    validate_registered_keypair(rpc, owner, &material.keypair)?;
+    Ok(())
 }
 
 pub(super) fn run_utxos(opts: UtxosOptions) -> Result<()> {

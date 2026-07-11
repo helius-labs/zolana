@@ -103,6 +103,12 @@ pub enum TransactionError {
     #[error("merge input {index} has a different owner rail")]
     MergeInputRailMismatch { index: usize },
 
+    #[error("merge input {index} is owned by a different signing key")]
+    MergeInputOwnerMismatch { index: usize },
+
+    #[error("merge input {index} uses a different nullifier key")]
+    MergeInputNullifierKeyMismatch { index: usize },
+
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 

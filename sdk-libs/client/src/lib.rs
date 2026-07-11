@@ -11,11 +11,12 @@ pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_associated_token_account, create_deposit, create_split, create_split_sync,
+    create_associated_token_account, create_deposit, create_merge, create_split, create_split_sync,
     create_transfer, create_transfer_sync, create_withdrawal, create_withdrawal_sync,
-    sign_transaction, sign_transaction_sync, submit_private_transaction, CreateDeposit,
-    CreateSplit, CreateTransfer, CreateWithdrawal, CreatedSplit, CreatedTransfer,
-    CreatedWithdrawal, Deposit, InputSelection, SubmitPrivateTransaction, MAX_TRANSFER_INPUTS,
+    sign_transaction, sign_transaction_sync, submit_merge_transaction, submit_private_transaction,
+    CreateDeposit, CreateMerge, CreateSplit, CreateTransfer, CreateWithdrawal, CreatedMerge,
+    CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, InputSelection,
+    SubmitMergeTransaction, SubmitPrivateTransaction, SubmittedMerge, MAX_TRANSFER_INPUTS,
 };
 pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
@@ -44,7 +45,7 @@ pub use solana_rpc::{ConfirmedInstructionGroups, SignatureState, SolanaRpc};
 pub use user_registry::{
     decode_user_record_account, ensure_registered, fetch_user_record_checked,
     fetch_user_record_optional_checked, resolve_registered_address, try_resolve_registered_address,
-    validate_registered_keypair,
+    update_registered_keys, validate_registered_keypair,
 };
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedSplit,

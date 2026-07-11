@@ -1,4 +1,4 @@
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -126,8 +126,14 @@ pub(crate) enum WalletCommand {
     #[command(name = "utxos", about = "List spendable private notes")]
     Utxos(UtxosOptions),
 
-    #[command(name = "merge", about = "Enable or disable merging for this wallet")]
-    Merge(MergeOptions),
+    #[command(name = "set-merging", about = "Set whether this wallet allows merging")]
+    SetMerging(SetMergingOptions),
+
+    #[command(
+        name = "consolidate",
+        about = "Merge several small private notes into one"
+    )]
+    Consolidate(ConsolidateOptions),
 
     #[command(name = "deposit", about = "Deposit into private wallet")]
     Deposit(DepositOptions),
@@ -369,6 +375,18 @@ pub(crate) struct NewWalletOptions {
 }
 
 #[derive(Args, Debug, Clone)]
+pub(crate) struct RpcWalletOptions {
+    #[command(flatten)]
+    pub(crate) keypair: WalletKeypairOptions,
+
+    #[arg(
+        long = "rpc-url",
+        help = "Solana RPC URL (default: configured value or http://127.0.0.1:8899)"
+    )]
+    pub(crate) rpc_url: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
 pub(crate) struct SyncOptions {
     #[command(flatten)]
     pub(crate) keypair: WalletKeypairOptions,
@@ -513,6 +531,22 @@ pub(crate) struct SplitOptions {
 }
 
 #[derive(Args, Debug, Clone)]
+pub(crate) struct ConsolidateOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(long, default_value = "SOL", help = "Mint address or SOL")]
+    pub(crate) mint: String,
+
+    #[arg(
+        long = "input",
+        help = "Consolidate this exact note (repeat for 2..=8 hashes from `wallet utxos`)",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
 pub(crate) struct WithdrawOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -545,29 +579,25 @@ pub(crate) struct UtxosOptions {
     pub(crate) mint: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum MergingSetting {
+    On,
+    Off,
+}
+
 #[derive(Args, Debug, Clone)]
-#[command(group(
-    clap::ArgGroup::new("merge_toggle")
-        .required(true)
-        .args(["enable", "disable"])
-))]
-pub(crate) struct MergeOptions {
+pub(crate) struct SetMergingOptions {
     #[command(flatten)]
-    pub(crate) sync: SyncOptions,
+    pub(crate) wallet: RpcWalletOptions,
+
+    #[arg(value_enum, help = "Merging setting")]
+    pub(crate) setting: MergingSetting,
 
     #[arg(
         long,
-        action = ArgAction::SetTrue,
-        help = "Enable merging for this wallet"
+        help = "Replace the on-chain shielded identity used for future address resolution; this cannot recover notes owned by old keys"
     )]
-    pub(crate) enable: bool,
-
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        help = "Disable merging for this wallet"
-    )]
-    pub(crate) disable: bool,
+    pub(crate) update_keys: bool,
 }
 
 impl TestValidatorOptions {
@@ -683,6 +713,8 @@ mod tests {
             ["zolana", "wallet", "test-mint", "--help"].as_slice(),
             ["zolana", "wallet", "balance", "--help"].as_slice(),
             ["zolana", "wallet", "utxos", "--help"].as_slice(),
+            ["zolana", "wallet", "set-merging", "--help"].as_slice(),
+            ["zolana", "wallet", "consolidate", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
             ["zolana", "wallet", "transfer", "--help"].as_slice(),
             ["zolana", "wallet", "split", "--help"].as_slice(),
@@ -925,40 +957,68 @@ mod tests {
     }
 
     #[test]
-    fn parses_wallet_merge_options() {
-        let WalletCommand::Merge(opts) = parse_wallet(&[
-            "merge",
-            "--keypair",
+    fn parses_wallet_set_merging_options() {
+        let WalletCommand::SetMerging(opts) = parse_wallet(&[
+            "set-merging",
+            "on",
+            "-k",
             "/tmp/alice.pid.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
-            "--indexer-url",
-            "http://127.0.0.1:8785",
-            "--enable",
         ]) else {
-            panic!("expected wallet merge command");
+            panic!("expected wallet set-merging command");
         };
 
         assert_eq!(
-            opts.sync.keypair.keypair.as_deref(),
+            opts.wallet.keypair.keypair.as_deref(),
             Some("/tmp/alice.pid.json")
         );
-        assert_eq!(opts.sync.rpc_url.as_deref(), Some("http://127.0.0.1:8900"));
         assert_eq!(
-            opts.sync.indexer_url.as_deref(),
-            Some("http://127.0.0.1:8785")
+            opts.wallet.rpc_url.as_deref(),
+            Some("http://127.0.0.1:8900")
         );
-        assert!(opts.enable);
-        assert!(!opts.disable);
+        assert_eq!(opts.setting, MergingSetting::On);
+        assert!(!opts.update_keys);
 
-        let WalletCommand::Merge(opts) =
-            parse_wallet(&["merge", "--keypair", "/tmp/alice.pid.json", "--disable"])
+        let WalletCommand::SetMerging(update) =
+            parse_wallet(&["set-merging", "on", "--update-keys"])
         else {
-            panic!("expected wallet merge command");
+            panic!("expected wallet set-merging command");
         };
+        assert!(update.update_keys);
 
-        assert!(!opts.enable);
-        assert!(opts.disable);
+        let WalletCommand::SetMerging(opts) =
+            parse_wallet(&["set-merging", "off", "-k", "/tmp/alice.pid.json"])
+        else {
+            panic!("expected wallet set-merging command");
+        };
+        assert_eq!(opts.setting, MergingSetting::Off);
+    }
+
+    #[test]
+    fn parses_wallet_consolidate_options() {
+        let WalletCommand::Consolidate(auto) =
+            parse_wallet(&["consolidate", "-k", "/tmp/alice.json"])
+        else {
+            panic!("expected wallet consolidate command");
+        };
+        assert_eq!(auto.mint, "SOL");
+        assert!(auto.input.is_empty());
+
+        let WalletCommand::Consolidate(explicit) = parse_wallet(&[
+            "consolidate",
+            "--mint",
+            "SOL",
+            "--input",
+            "aa",
+            "--input",
+            "bb",
+            "-k",
+            "/tmp/alice.json",
+        ]) else {
+            panic!("expected wallet consolidate command");
+        };
+        assert_eq!(explicit.input, ["aa", "bb"]);
     }
 
     #[test]

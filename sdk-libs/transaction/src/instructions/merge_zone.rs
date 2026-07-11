@@ -55,11 +55,19 @@ impl MergeZone {
         let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
         // rail is the owner's rail and every input must match it.
+        let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
+        let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
             if spend.utxo.owner.signature_type()? != owner_rail {
                 return Err(TransactionError::MergeInputRailMismatch { index });
+            }
+            if spend.utxo.owner != owner {
+                return Err(TransactionError::MergeInputOwnerMismatch { index });
+            }
+            if spend.nullifier_key.pubkey()? != nullifier_pubkey {
+                return Err(TransactionError::MergeInputNullifierKeyMismatch { index });
             }
             if spend.utxo.asset != asset {
                 return Err(TransactionError::MergeInputAssetMismatch { index });
@@ -68,6 +76,13 @@ impl MergeZone {
             // calling zone, so every input must carry exactly this zone_program_id.
             if spend.utxo.zone_program_id != Some(zone_program_id) {
                 return Err(TransactionError::MergeInputZoneMismatch { index });
+            }
+            if spend.data_hash.unwrap_or_default() != [0u8; 32]
+                || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
+                || spend.utxo.data.utxo_data().is_some()
+                || spend.utxo.data.zone_data().is_some()
+            {
+                return Err(TransactionError::MergeInputHasData { index });
             }
             total = total
                 .checked_add(spend.utxo.amount)
@@ -176,5 +191,36 @@ impl PreparedMergeZone {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+    use crate::{Data, Utxo, SOL_MINT};
+
+    #[test]
+    fn zone_merge_rejects_another_p256_owners_note_before_proving() {
+        let owner = ShieldedKeypair::new().unwrap();
+        let other = ShieldedKeypair::new().unwrap();
+        let zone = Address::new_unique();
+        let input = SpendUtxo::from_keypair(
+            Utxo {
+                owner: other.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: [1u8; 31],
+                zone_program_id: Some(zone),
+                data: Data::default(),
+            },
+            &owner,
+        );
+
+        assert!(matches!(
+            MergeZone::new(&owner, vec![input], zone),
+            Err(TransactionError::MergeInputOwnerMismatch { index: 0 })
+        ));
     }
 }

@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_keypair::KeypairError;
-use zolana_transaction::TransactionError;
+use zolana_transaction::{Address, TransactionError};
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -29,12 +29,15 @@ pub enum ClientError {
     #[error("amount must be greater than zero")]
     ZeroAmount,
 
-    #[error("balance is too fragmented: covering {requested} needs {notes} notes but one transaction spends at most {max_inputs}")]
+    #[error("balance is too fragmented: covering {requested} needs {notes} notes but one transaction spends at most {max_inputs}; consolidate notes first")]
     FragmentedBalance {
         requested: u64,
         notes: usize,
         max_inputs: usize,
     },
+
+    #[error("nothing to consolidate for asset {asset}: a merge needs at least two unspent notes")]
+    NothingToConsolidate { asset: Address },
 
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
@@ -56,6 +59,12 @@ pub enum ClientError {
 
     #[error("user registry record not found for {owner}: {record}")]
     UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
+
+    #[error("merging is disabled for user registry owner {owner}")]
+    MergeDisabled { owner: Pubkey },
+
+    #[error("user registry record for {owner} has different shielded keys; explicit key rotation is required")]
+    RegistryKeysMismatch { owner: Pubkey },
 
     #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
     MultiplePublicSplAssets,

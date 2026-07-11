@@ -48,14 +48,32 @@ impl Merge {
         let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
         // The proof binds every input to one shared owner identity, so the merge
         // rail is the owner's rail and every input must match it.
+        let owner = keypair.signing_pubkey();
         let owner_rail = keypair.curve()?;
+        let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
         let mut total = 0u64;
         for (index, spend) in inputs.iter().enumerate() {
             if spend.utxo.owner.signature_type()? != owner_rail {
                 return Err(TransactionError::MergeInputRailMismatch { index });
             }
+            if spend.utxo.owner != owner {
+                return Err(TransactionError::MergeInputOwnerMismatch { index });
+            }
+            if spend.nullifier_key.pubkey()? != nullifier_pubkey {
+                return Err(TransactionError::MergeInputNullifierKeyMismatch { index });
+            }
             if spend.utxo.asset != asset {
                 return Err(TransactionError::MergeInputAssetMismatch { index });
+            }
+            if spend.utxo.zone_program_id.is_some() {
+                return Err(TransactionError::MergeInputZoneMismatch { index });
+            }
+            if spend.data_hash.unwrap_or_default() != [0u8; 32]
+                || spend.zone_data_hash.unwrap_or_default() != [0u8; 32]
+                || spend.utxo.data.utxo_data().is_some()
+                || spend.utxo.data.zone_data().is_some()
+            {
+                return Err(TransactionError::MergeInputHasData { index });
             }
             total = total
                 .checked_add(spend.utxo.amount)
@@ -158,5 +176,94 @@ impl PreparedMerge {
                 })
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_address::Address;
+    use zolana_keypair::ShieldedKeypair;
+
+    use super::*;
+    use crate::{Data, DataRecord, Utxo, SOL_MINT};
+
+    #[test]
+    fn merge_rejects_another_p256_owners_note_before_proving() {
+        let owner = ShieldedKeypair::new().unwrap();
+        let other = ShieldedKeypair::new().unwrap();
+        let input = SpendUtxo::from_keypair(
+            Utxo {
+                owner: other.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: [1u8; 31],
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            &owner,
+        );
+
+        assert!(matches!(
+            Merge::new(&owner, vec![input]),
+            Err(TransactionError::MergeInputOwnerMismatch { index: 0 })
+        ));
+    }
+
+    #[test]
+    fn merge_rejects_another_nullifier_key_before_proving() {
+        let owner = ShieldedKeypair::new().unwrap();
+        let other = ShieldedKeypair::new().unwrap();
+        let input = SpendUtxo::from_keypair(
+            Utxo {
+                owner: owner.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: [1u8; 31],
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            &other,
+        );
+
+        assert!(matches!(
+            Merge::new(&owner, vec![input]),
+            Err(TransactionError::MergeInputNullifierKeyMismatch { index: 0 })
+        ));
+    }
+
+    #[test]
+    fn merge_rejects_zone_and_data_notes_before_proving() {
+        let owner = ShieldedKeypair::new().unwrap();
+        let input = |zone_program_id, data| {
+            SpendUtxo::from_keypair(
+                Utxo {
+                    owner: owner.signing_pubkey(),
+                    asset: SOL_MINT,
+                    amount: 10,
+                    blinding: [1u8; 31],
+                    zone_program_id,
+                    data,
+                },
+                &owner,
+            )
+        };
+
+        assert!(matches!(
+            Merge::new(
+                &owner,
+                vec![input(
+                    Some(Address::new_from_array([9u8; 32])),
+                    Data::default()
+                )]
+            ),
+            Err(TransactionError::MergeInputZoneMismatch { index: 0 })
+        ));
+        assert!(matches!(
+            Merge::new(
+                &owner,
+                vec![input(None, Data::new(vec![DataRecord::UtxoData(vec![1])]))]
+            ),
+            Err(TransactionError::MergeInputHasData { index: 0 })
+        ));
     }
 }

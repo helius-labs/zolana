@@ -28,7 +28,10 @@ use zolana_client::{
     STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputData;
-use zolana_interface::instruction::builders::Transact;
+use zolana_interface::instruction::builders::{MergeTransact, Transact};
+use zolana_interface::instruction::instruction_data::merge_transact::{
+    MergeTransactIxData, MERGE_ENCRYPTED_UTXO_LEN, MERGE_INPUT_COUNT,
+};
 use zolana_interface::instruction::instruction_data::transact::TransactProof;
 use zolana_interface::instruction::{
     TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
@@ -670,6 +673,41 @@ fn every_split_arity_fits_with_one_bundle_ciphertext() {
             "{parts}-way split serializes to {tx_size} bytes"
         );
     }
+}
+
+#[test]
+fn full_eight_input_merge_fits_the_packet_limit() {
+    const PACKET_DATA_SIZE: usize = 1232;
+    let payer = Pubkey::new_unique();
+    let instruction = MergeTransact {
+        tree: Pubkey::new_unique(),
+        payer,
+        user_record: Pubkey::new_unique(),
+        data: MergeTransactIxData {
+            expiry_unix_ts: u64::MAX,
+            proof: [0u8; 192],
+            output_utxo_hash: [0u8; 32],
+            nullifiers: vec![[0u8; 32]; MERGE_INPUT_COUNT],
+            utxo_tree_root_index: vec![0u16; MERGE_INPUT_COUNT],
+            nullifier_tree_root_index: vec![0u16; MERGE_INPUT_COUNT],
+            private_tx_hash: [0u8; 32],
+            encrypted_utxo: vec![0u8; MERGE_ENCRYPTED_UTXO_LEN],
+            eddsa_owner: false,
+        },
+    }
+    .instruction();
+    let compute_budget =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            1_400_000,
+        );
+    let message = Message::new(&[compute_budget, instruction], Some(&payer));
+    let tx_size =
+        1 + usize::from(message.header.num_required_signatures) * 64 + message.serialize().len();
+
+    assert!(
+        tx_size <= PACKET_DATA_SIZE,
+        "eight-input merge serializes to {tx_size} bytes"
+    );
 }
 
 #[test]
