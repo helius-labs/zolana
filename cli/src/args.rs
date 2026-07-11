@@ -135,6 +135,12 @@ pub(crate) enum WalletCommand {
     #[command(name = "transfer", about = "Send a private transfer")]
     Transfer(TransferOptions),
 
+    #[command(
+        name = "split",
+        about = "Split one private SOL note into equal self-owned notes"
+    )]
+    Split(SplitOptions),
+
     #[command(name = "withdraw", about = "Withdraw to public address")]
     Withdraw(WithdrawOptions),
 }
@@ -487,6 +493,26 @@ pub(crate) struct TransferOptions {
 }
 
 #[derive(Args, Debug, Clone)]
+pub(crate) struct SplitOptions {
+    #[command(flatten)]
+    pub(crate) network: NetworkWalletOptions,
+
+    #[arg(
+        help = "Number of equal self-owned notes to create (2..=8)",
+        value_name = "PARTS",
+        value_parser = clap::value_parser!(u8).range(2..=8)
+    )]
+    pub(crate) parts: u8,
+
+    #[arg(
+        long = "input",
+        help = "Split this note (hash from `wallet utxos`) instead of the largest",
+        value_name = "UTXO_HASH"
+    )]
+    pub(crate) input: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
 pub(crate) struct WithdrawOptions {
     #[command(flatten)]
     pub(crate) network: NetworkWalletOptions,
@@ -659,6 +685,7 @@ mod tests {
             ["zolana", "wallet", "utxos", "--help"].as_slice(),
             ["zolana", "wallet", "deposit", "--help"].as_slice(),
             ["zolana", "wallet", "transfer", "--help"].as_slice(),
+            ["zolana", "wallet", "split", "--help"].as_slice(),
             ["zolana", "wallet", "withdraw", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
@@ -1036,5 +1063,27 @@ mod tests {
         };
         assert_eq!(utxos.sync.keypair.keypair.as_deref(), Some("/tmp/bob.json"));
         assert_eq!(utxos.mint, "SOL");
+    }
+
+    #[test]
+    fn parses_and_bounds_wallet_split() {
+        let hash = "0707070707070707070707070707070707070707070707070707070707070707";
+        let WalletCommand::Split(split) =
+            parse_wallet(&["split", "8", "-k", "/tmp/alice.json", "--input", hash])
+        else {
+            panic!("expected wallet split command");
+        };
+        assert_eq!(split.parts, 8);
+        assert_eq!(split.input.as_deref(), Some(hash));
+        assert_eq!(
+            split.network.sync.keypair.keypair.as_deref(),
+            Some("/tmp/alice.json")
+        );
+
+        for parts in ["1", "9"] {
+            let err = Cli::try_parse_from(["zolana", "wallet", "split", parts])
+                .expect_err("out-of-range split must fail in clap");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+        }
     }
 }

@@ -33,6 +33,7 @@ zolana wallet balance --indexer-url http://127.0.0.1:8784
 zolana wallet utxos --mint SOL
 zolana wallet deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
 zolana wallet transfer --to <RECIPIENT_SHIELDED_ADDRESS> --amount 300000000 --mint SOL
+zolana wallet split 4
 zolana wallet withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
@@ -54,6 +55,8 @@ Balance and transaction commands synchronize wallet state automatically.
 Transfers select the fewest notes by spending largest-first, up to five inputs.
 `wallet utxos` prints each spendable note's hash and amount; pass one of those
 hashes to `transfer --input <HASH>` when a specific note must be spent.
+`wallet split <PARTS>` replaces one SOL note with 2–8 equal self-owned notes;
+it chooses the largest note unless `--input <HASH>` is supplied.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

@@ -121,6 +121,22 @@ impl WalletAuthority for AsyncTestAuthority {
         )
     }
 
+    async fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: [u8; 32],
+        bundle: &zolana_transaction::serialization::split::SplitBundlePlaintext,
+    ) -> Result<zolana_client::EncryptedSplit, ClientError> {
+        SyncWalletAuthority::encrypt_split(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            view_tag,
+            bundle,
+        )
+    }
+
     async fn request_user_approval(&self, request: ApprovalRequest) -> Result<(), ClientError> {
         assert_eq!(request.owner_pubkey, Pubkey::default());
         assert!(request.summary.contains("private transaction"));
@@ -599,6 +615,61 @@ fn withdrawal_packet_boundaries_justify_the_spl_input_cap() {
         sol_five <= PACKET_DATA_SIZE,
         "SOL withdrawal at the regular input cap must fit: {sol_five} bytes"
     );
+}
+
+#[test]
+fn every_split_arity_fits_with_one_bundle_ciphertext() {
+    const PACKET_DATA_SIZE: usize = 1232;
+
+    for parts in 2u8..=8 {
+        let mut rng = rand::thread_rng();
+        let sender = ShieldedKeypair::new().unwrap();
+        let input = p256_input(&sender, u64::from(parts) * 100, &mut rng);
+        let mut split = Transaction::new(
+            sender.shielded_address().unwrap(),
+            vec![input],
+            Address::default(),
+        );
+        split.split(SOL_MINT, parts, 100).unwrap();
+        let signed = sign(split, &sender).unwrap();
+        assert_eq!(signed.external_data.output_ciphertexts.len(), 1);
+
+        let proofs = signed
+            .input_commitments()
+            .unwrap()
+            .iter()
+            .map(|_| fake_spend_proof(5))
+            .collect::<Vec<_>>();
+        let data = zolana_client::assemble(signed, &proofs)
+            .unwrap()
+            .with_proof(TransactProof::P256 {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            });
+        let payer = Pubkey::new_unique();
+        let instruction = Transact {
+            payer,
+            tree: Pubkey::new_unique(),
+            withdrawal: None,
+            data,
+        }
+        .instruction();
+        let compute_budget =
+            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                1_400_000,
+            );
+        let message = Message::new(&[compute_budget, instruction], Some(&payer));
+        let tx_size = 1
+            + usize::from(message.header.num_required_signatures) * 64
+            + message.serialize().len();
+        assert!(
+            tx_size <= PACKET_DATA_SIZE,
+            "{parts}-way split serializes to {tx_size} bytes"
+        );
+    }
 }
 
 #[test]

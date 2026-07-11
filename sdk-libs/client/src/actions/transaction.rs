@@ -8,10 +8,12 @@ use zolana_interface::{
 use zolana_keypair::{shielded::ShieldedAddress, SignatureType};
 use zolana_transaction::{
     instructions::{
-        transact::{PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget},
+        transact::{
+            PreparedSplit, PreparedTransaction, SignedTransaction, Transaction, WithdrawalTarget,
+        },
         types::SpendUtxo,
     },
-    Address, AssetRegistry, Wallet, SOL_MINT,
+    Address, AssetRegistry, TransactionError, Wallet, SOL_MINT,
 };
 
 /// How a private spend chooses wallet notes.
@@ -59,6 +61,15 @@ pub struct CreatedWithdrawal {
     pub withdrawal: TransactWithdrawal,
 }
 
+#[derive(Clone)]
+pub struct CreatedSplit {
+    pub signed: SignedTransaction,
+    /// Committed hash of one real self-owned output.
+    pub wait_output_hash: [u8; 32],
+    pub num_outputs: u8,
+    pub per_output_amount: u64,
+}
+
 /// Build a private transfer to a concrete shielded address.
 ///
 /// This action performs no user-registry lookup. Resolve an optional registry
@@ -83,6 +94,19 @@ pub struct CreateWithdrawal<'a, A: ?Sized> {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+    pub selection: InputSelection,
+}
+
+pub struct CreateSplit<'a, A: ?Sized> {
+    pub wallet: &'a Wallet,
+    pub authority: &'a A,
+    pub owner_pubkey: Pubkey,
+    pub payer: Address,
+    pub asset: Address,
+    pub num_outputs: u8,
+    pub per_output_amount: u64,
+    /// A split spends exactly one note. `Auto` finds an exact-value note;
+    /// `Explicit` must name exactly one note.
     pub selection: InputSelection,
 }
 
@@ -183,6 +207,97 @@ pub fn create_withdrawal_sync<A: SyncWalletAuthority + ?Sized>(
     request: CreateWithdrawal<'_, A>,
 ) -> Result<CreatedWithdrawal, ClientError> {
     futures::executor::block_on(create_withdrawal(request))
+}
+
+/// Split one selected note into 2..=8 equal self-owned notes.
+pub async fn create_split<A: WalletAuthority + ?Sized>(
+    request: CreateSplit<'_, A>,
+) -> Result<CreatedSplit, ClientError> {
+    if !(2..=8).contains(&request.num_outputs) {
+        return Err(TransactionError::InvalidSplitOutputCount(request.num_outputs).into());
+    }
+    if request.per_output_amount == 0 {
+        return Err(ClientError::ZeroAmount);
+    }
+    let total = u64::from(request.num_outputs)
+        .checked_mul(request.per_output_amount)
+        .ok_or(ClientError::SelectedBalanceOverflow)?;
+    let inputs = select_split_inputs(
+        request.wallet,
+        request.authority,
+        request.owner_pubkey,
+        request.asset,
+        total,
+        &request.selection,
+    )
+    .await?;
+    let address = request
+        .authority
+        .shielded_address(request.owner_pubkey)
+        .await?;
+    let mut tx = Transaction::new(address, inputs, request.payer);
+    tx.split(
+        request.asset,
+        request.num_outputs,
+        request.per_output_amount,
+    )?;
+    let prepared = tx.prepare_split(&request.wallet.registry)?;
+    let wait_output_hash = prepared.wait_output_hash()?;
+    let signed = sign_prepared_split(
+        prepared,
+        &address,
+        request.owner_pubkey,
+        request.authority,
+        format!(
+            "split into {} notes of {}",
+            request.num_outputs, request.per_output_amount
+        ),
+    )
+    .await?;
+    Ok(CreatedSplit {
+        signed,
+        wait_output_hash,
+        num_outputs: request.num_outputs,
+        per_output_amount: request.per_output_amount,
+    })
+}
+
+/// Blocking adapter for CLI and unit-test flows.
+pub fn create_split_sync<A: SyncWalletAuthority + ?Sized>(
+    request: CreateSplit<'_, A>,
+) -> Result<CreatedSplit, ClientError> {
+    futures::executor::block_on(create_split(request))
+}
+
+async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
+    prepared: PreparedSplit,
+    address: &ShieldedAddress,
+    owner_pubkey: Pubkey,
+    authority: &A,
+    approval_summary: String,
+) -> Result<SignedTransaction, ClientError> {
+    let view_tag = prepared.view_tag()?;
+    let bundle = prepared.bundle_plaintext()?;
+    let encrypted = authority
+        .encrypt_split(owner_pubkey, &prepared.first_nullifier, view_tag, &bundle)
+        .await?;
+    authority
+        .request_user_approval(ApprovalRequest {
+            owner_pubkey,
+            summary: approval_summary,
+        })
+        .await?;
+    let mut signed =
+        prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.bundle)?;
+    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
+        let message_hash = signed.message_hash()?;
+        let sig = authority.sign_p256(owner_pubkey, &message_hash).await?;
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&sig.sig_r);
+        bytes[32..].copy_from_slice(&sig.sig_s);
+        signed.p256_owner = Some(bytes);
+    }
+    Ok(signed)
 }
 
 /// Sign a prepared transaction through a wallet authority (encrypt, approve,
@@ -398,6 +513,58 @@ async fn select_inputs<A: WalletAuthority + ?Sized>(
                 });
             }
             Ok(selected)
+        }
+    }
+}
+
+async fn select_split_inputs<A: WalletAuthority + ?Sized>(
+    wallet: &Wallet,
+    authority: &A,
+    owner_pubkey: Pubkey,
+    asset: Address,
+    amount: u64,
+    selection: &InputSelection,
+) -> Result<Vec<SpendUtxo>, ClientError> {
+    match selection {
+        InputSelection::Explicit(hashes) => {
+            if hashes.len() != 1 {
+                return Err(TransactionError::SplitInputCount(hashes.len()).into());
+            }
+            select_inputs(wallet, authority, owner_pubkey, asset, amount, selection).await
+        }
+        InputSelection::Auto => {
+            let nullifier_key = authority.spend_nullifier_key(owner_pubkey).await?;
+            let mut available = 0u64;
+            let mut exact = None;
+            for entry in wallet
+                .utxos
+                .iter()
+                .filter(|entry| !entry.spent && entry.utxo.asset == asset)
+            {
+                available = available
+                    .checked_add(entry.utxo.amount)
+                    .ok_or(ClientError::SelectedBalanceOverflow)?;
+                if entry.utxo.amount == amount {
+                    exact = Some(entry.utxo.clone());
+                    break;
+                }
+            }
+            let utxo = match exact {
+                Some(utxo) => utxo,
+                None if available < amount => {
+                    return Err(ClientError::InsufficientBalance {
+                        requested: amount,
+                        available,
+                    })
+                }
+                None => return Err(ClientError::SplitInputUnavailable { requested: amount }),
+            };
+            Ok(vec![SpendUtxo {
+                utxo,
+                nullifier_key,
+                data_hash: None,
+                zone_data_hash: None,
+            }])
         }
     }
 }
@@ -747,5 +914,60 @@ mod tests {
             ],
         );
         withdraw_auto(&five_sol, &sender, SOL_MINT, 50).expect("five SOL inputs");
+    }
+
+    #[test]
+    fn create_split_uses_one_exact_input_and_one_bundle() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(400, [1u8; 31]), (50, [2u8; 31])]);
+        let split = create_split_sync(CreateSplit {
+            wallet: &wallet,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            asset: SOL_MINT,
+            num_outputs: 4,
+            per_output_amount: 100,
+            selection: InputSelection::Auto,
+        })
+        .expect("split exact note");
+
+        assert_eq!(split.num_outputs, 4);
+        assert_eq!(split.per_output_amount, 100);
+        assert_eq!(
+            (split.signed.shape.n_inputs, split.signed.shape.n_outputs),
+            (1, 8)
+        );
+        assert_eq!(split.signed.external_data.output_ciphertexts.len(), 1);
+        assert_eq!(split.signed.external_data.output_utxo_hashes.len(), 8);
+    }
+
+    #[test]
+    fn create_split_rejects_invalid_arity_and_missing_exact_note() {
+        let sender = ShieldedKeypair::new().unwrap();
+        let wallet = wallet_with_notes(sender.clone(), &[(300, [1u8; 31]), (200, [2u8; 31])]);
+        let request = |num_outputs| CreateSplit {
+            wallet: &wallet,
+            authority: &sender,
+            owner_pubkey: Pubkey::default(),
+            payer: Address::default(),
+            asset: SOL_MINT,
+            num_outputs,
+            per_output_amount: 100,
+            selection: InputSelection::Auto,
+        };
+
+        for count in [0, 1, 9] {
+            assert!(matches!(
+                create_split_sync(request(count)),
+                Err(ClientError::Transaction(
+                    TransactionError::InvalidSplitOutputCount(value)
+                )) if value == count
+            ));
+        }
+        assert!(matches!(
+            create_split_sync(request(4)),
+            Err(ClientError::SplitInputUnavailable { requested: 400 })
+        ));
     }
 }

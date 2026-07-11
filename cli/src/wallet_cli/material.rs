@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     AnonymousRecipientSlot, ApprovalRequest, ClientError, ConfidentialRecipientSlot,
-    EncryptedTransfer, P256Signature, SyncWalletAuthority,
+    EncryptedSplit, EncryptedTransfer, P256Signature, SyncWalletAuthority,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
@@ -21,6 +21,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::serialization::{
     anonymous::AnonymousTransferSenderPlaintext, confidential::TransferSenderPlaintext,
+    split::SplitBundlePlaintext,
 };
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
@@ -112,6 +113,23 @@ impl SyncWalletAuthority for WalletMaterial {
             sender_view_tag,
             sender,
             recipients,
+        )
+    }
+
+    fn encrypt_split(
+        &self,
+        owner_pubkey: Pubkey,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> std::result::Result<EncryptedSplit, ClientError> {
+        self.check_owner_pubkey(owner_pubkey)?;
+        SyncWalletAuthority::encrypt_split(
+            &self.keypair,
+            owner_pubkey,
+            first_nullifier,
+            view_tag,
+            bundle,
         )
     }
 

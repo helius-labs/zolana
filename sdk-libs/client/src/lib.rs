@@ -11,9 +11,10 @@ pub mod wallet_authority;
 pub mod wallet_sync;
 
 pub use actions::{
-    create_associated_token_account, create_deposit, create_transfer, create_transfer_sync,
-    create_withdrawal, create_withdrawal_sync, sign_transaction, sign_transaction_sync,
-    submit_private_transaction, CreateDeposit, CreateTransfer, CreateWithdrawal, CreatedTransfer,
+    create_associated_token_account, create_deposit, create_split, create_split_sync,
+    create_transfer, create_transfer_sync, create_withdrawal, create_withdrawal_sync,
+    sign_transaction, sign_transaction_sync, submit_private_transaction, CreateDeposit,
+    CreateSplit, CreateTransfer, CreateWithdrawal, CreatedSplit, CreatedTransfer,
     CreatedWithdrawal, Deposit, InputSelection, SubmitPrivateTransaction, MAX_TRANSFER_INPUTS,
 };
 pub use error::ClientError;
@@ -46,8 +47,8 @@ pub use user_registry::{
     validate_registered_keypair,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedTransfer,
-    P256Signature, SyncWalletAuthority, WalletAuthority,
+    AnonymousRecipientSlot, ApprovalRequest, ConfidentialRecipientSlot, EncryptedSplit,
+    EncryptedTransfer, P256Signature, SyncWalletAuthority, WalletAuthority,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_with_config,

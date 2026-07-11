@@ -67,6 +67,24 @@ pub enum TransactionError {
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
 
+    #[error("split cannot be combined with send, custom output, or withdrawal")]
+    SplitWithOtherActions,
+
+    #[error("split output count must be between 2 and 8; got {0}")]
+    InvalidSplitOutputCount(u8),
+
+    #[error("no split was configured")]
+    SplitNotConfigured,
+
+    #[error("split asset mismatch: input has {input}, split requested {requested}")]
+    SplitAssetMismatch { input: Address, requested: Address },
+
+    #[error("split output amounts sum to {requested} but the selected input holds {available}")]
+    SplitAmountMismatch { requested: u64, available: u64 },
+
+    #[error("a split spends exactly one input; got {0}")]
+    SplitInputCount(usize),
+
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 

@@ -21,6 +21,7 @@ use crate::{
             ConfidentialRecipient, ConfidentialRecipientEncode, ConfidentialSenderBundle,
             ConfidentialSenderEncode, TransferRecipientPlaintext, TransferSenderPlaintext,
         },
+        split::{Split, SplitBundlePlaintext, SplitEncode},
         OwnerCx, UtxoSerialization,
     },
     utxo::{derive_blinding, Utxo},
@@ -50,6 +51,9 @@ pub const SUPPORTED_SHAPES: [Shape; 4] = [
     Shape::new(4, 3),
     Shape::new(5, 3),
 ];
+
+/// Fixed proof shape for splitting one note into 2..=8 equal self-owned notes.
+const SPLIT_SHAPE: Shape = Shape::new(1, 8);
 
 pub struct PreparedRecipient {
     pub view_tag: ViewTag,
@@ -92,6 +96,12 @@ struct Recipient {
     address: ShieldedAddress,
     asset: Address,
     amount: u64,
+}
+
+struct SplitIntent {
+    asset: Address,
+    num_outputs: u8,
+    per_output_amount: u64,
 }
 
 pub enum WithdrawalTarget {
@@ -173,6 +183,7 @@ pub struct Transaction {
     /// verbatim, so the caller controls `data` and the zone/program ids.
     custom_outputs: Vec<OutputUtxo>,
     withdrawal: Option<Withdrawal>,
+    split: Option<SplitIntent>,
     payer_pubkey_hash: [u8; 32],
     blinding_seed: [u8; BLINDING_LEN],
     shape: Option<Shape>,
@@ -187,6 +198,7 @@ impl Transaction {
             recipients: Vec::new(),
             custom_outputs: Vec::new(),
             withdrawal: None,
+            split: None,
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
             shape: None,
@@ -200,6 +212,9 @@ impl Transaction {
     /// shape like a [`Self::send`] recipient and is encoded into its own
     /// ciphertext slot. The output must name its recipient via `owner_address`.
     pub fn add_output(&mut self, output: OutputUtxo) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         if output.owner_address.is_none() {
             return Err(TransactionError::MissingOutput);
         }
@@ -227,6 +242,9 @@ impl Transaction {
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
@@ -241,6 +259,9 @@ impl Transaction {
         amount: u64,
         target: WithdrawalTarget,
     ) -> Result<&mut Self, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         if self.withdrawal.is_some() {
             return Err(TransactionError::WithdrawalAlreadySet);
         }
@@ -248,6 +269,30 @@ impl Transaction {
             asset,
             amount,
             target,
+        });
+        Ok(self)
+    }
+
+    /// Split one selected note into 2..=8 equal self-owned notes.
+    pub fn split(
+        &mut self,
+        asset: Address,
+        num_outputs: u8,
+        per_output_amount: u64,
+    ) -> Result<&mut Self, TransactionError> {
+        if !(2..=8).contains(&num_outputs) {
+            return Err(TransactionError::InvalidSplitOutputCount(num_outputs));
+        }
+        if !self.recipients.is_empty()
+            || !self.custom_outputs.is_empty()
+            || self.withdrawal.is_some()
+        {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
+        self.split = Some(SplitIntent {
+            asset,
+            num_outputs,
+            per_output_amount,
         });
         Ok(self)
     }
@@ -261,7 +306,27 @@ impl Transaction {
         keypair: &K,
         assets: &AssetRegistry,
     ) -> Result<SignedTransaction, TransactionError> {
+        if self.split.is_some() {
+            return self.sign_split(keypair, assets);
+        }
         let mut signed = self.assemble(keypair, assets)?;
+        if keypair.curve()? == SignatureType::P256 {
+            let message_hash = signed.message_hash()?;
+            signed.p256_owner = Some(keypair.sign(&message_hash));
+        }
+        Ok(signed)
+    }
+
+    fn sign_split<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+        self,
+        keypair: &K,
+        assets: &AssetRegistry,
+    ) -> Result<SignedTransaction, TransactionError> {
+        let prepared = self.prepare_split(assets)?;
+        let tx = keypair.get_transaction_viewing_key(&prepared.first_nullifier)?;
+        let salt = zolana_keypair::random_salt();
+        let bundle = prepared.encode_bundle(assets, &tx, keypair.viewing_pubkey(), salt, 0)?;
+        let mut signed = prepared.finalize(tx.pubkey(), salt, bundle)?;
         if keypair.curve()? == SignatureType::P256 {
             let message_hash = signed.message_hash()?;
             signed.p256_owner = Some(keypair.sign(&message_hash));
@@ -313,6 +378,9 @@ impl Transaction {
     }
 
     pub fn prepare(self, assets: &AssetRegistry) -> Result<PreparedTransaction, TransactionError> {
+        if self.split.is_some() {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
         let spl_asset = self.spl_asset()?;
         let (public_sol, public_spl) = self.public_amounts();
         let sol_change = self.change(&SOL_MINT, public_sol)?;
@@ -451,6 +519,64 @@ impl Transaction {
             user_sol_account,
             user_spl_token,
             spl_token_interface,
+        })
+    }
+
+    /// Prepare a one-input split for authority-controlled bundle encryption.
+    pub fn prepare_split(self, assets: &AssetRegistry) -> Result<PreparedSplit, TransactionError> {
+        let intent = self
+            .split
+            .as_ref()
+            .ok_or(TransactionError::SplitNotConfigured)?;
+        if !self.recipients.is_empty()
+            || !self.custom_outputs.is_empty()
+            || self.withdrawal.is_some()
+        {
+            return Err(TransactionError::SplitWithOtherActions);
+        }
+        if self.inputs.len() != 1 {
+            return Err(TransactionError::SplitInputCount(self.inputs.len()));
+        }
+
+        let input = &self.inputs.first().ok_or(TransactionError::NoInputs)?.utxo;
+        if input.asset != intent.asset {
+            return Err(TransactionError::SplitAssetMismatch {
+                input: input.asset,
+                requested: intent.asset,
+            });
+        }
+        let requested = u64::from(intent.num_outputs)
+            .checked_mul(intent.per_output_amount)
+            .ok_or(TransactionError::SelectedBalanceOverflow)?;
+        let available = self.input_sum(&intent.asset);
+        if i128::from(requested) != available {
+            return Err(TransactionError::SplitAmountMismatch {
+                requested,
+                available: available.max(0) as u64,
+            });
+        }
+
+        let asset_id = self.asset_id(assets, &intent.asset)?;
+        let outputs = (0..intent.num_outputs)
+            .map(|position| OutputUtxo {
+                owner_address: Some(self.owner),
+                asset: intent.asset,
+                amount: intent.per_output_amount,
+                blinding: derive_blinding(&self.blinding_seed, position),
+                ..Default::default()
+            })
+            .collect();
+        let first_nullifier = self.first_nullifier()?;
+
+        Ok(PreparedSplit {
+            inputs: self.inputs,
+            outputs,
+            owner: self.owner,
+            asset_id,
+            blinding_seed: self.blinding_seed,
+            first_nullifier,
+            payer_pubkey_hash: self.payer_pubkey_hash,
+            expiry_unix_ts: self.expiry_unix_ts,
         })
     }
 
@@ -670,6 +796,136 @@ impl PreparedTransaction {
             external_data,
             payer_pubkey_hash,
             shape,
+            p256_owner: None,
+        })
+    }
+}
+
+/// A split prepared for one bundle ciphertext and a fixed `{1,8}` proof shape.
+pub struct PreparedSplit {
+    pub inputs: Vec<SpendUtxo>,
+    pub outputs: Vec<OutputUtxo>,
+    pub owner: ShieldedAddress,
+    pub asset_id: u64,
+    pub blinding_seed: [u8; BLINDING_LEN],
+    pub first_nullifier: [u8; 32],
+    pub payer_pubkey_hash: [u8; 32],
+    pub expiry_unix_ts: u64,
+}
+
+impl PreparedSplit {
+    pub fn bundle_plaintext(&self) -> Result<SplitBundlePlaintext, TransactionError> {
+        let num_outputs =
+            u8::try_from(self.outputs.len()).map_err(|_| TransactionError::TooManyOutputs)?;
+        Ok(SplitBundlePlaintext {
+            owner_pubkey: self.owner.signing_pubkey,
+            num_outputs,
+            asset_id: self.asset_id,
+            asset_amount: self
+                .outputs
+                .first()
+                .map(|output| output.amount)
+                .unwrap_or(0),
+            blinding_seed: self.blinding_seed,
+            data: Data::default(),
+        })
+    }
+
+    pub fn wait_output_hash(&self) -> Result<[u8; 32], TransactionError> {
+        self.outputs
+            .first()
+            .ok_or(TransactionError::MissingOutput)?
+            .hash()
+    }
+
+    pub fn view_tag(&self) -> Result<ViewTag, TransactionError> {
+        Ok(self.owner.signing_pubkey.confidential_view_tag()?)
+    }
+
+    fn encode_bundle(
+        &self,
+        assets: &AssetRegistry,
+        tx: &zolana_keypair::ViewingKey,
+        recipient_pubkey: P256Pubkey,
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        slot_index: u32,
+    ) -> Result<OutputCiphertext, TransactionError> {
+        let owner_cx = OwnerCx {
+            owner: self.owner.signing_pubkey,
+            assets,
+            zone_program_id: None,
+        };
+        Split::encode(
+            &self.bundle_plaintext()?.into_utxos(assets, None)?,
+            &owner_cx,
+            self.view_tag()?,
+            &SplitEncode {
+                tx: tx.clone(),
+                recipient_pubkey,
+                salt,
+                slot_index,
+                blinding_seed: self.blinding_seed,
+            },
+        )
+    }
+
+    /// Finalize the fixed `{1,8}` split. Real outputs are padded to eight
+    /// commitments, while the single encrypted bundle remains the only
+    /// ciphertext. The program therefore maps every output position to the
+    /// bundle view tag.
+    pub fn finalize(
+        self,
+        tx_viewing_pk: P256Pubkey,
+        salt: [u8; zolana_keypair::constants::SALT_LEN],
+        bundle: OutputCiphertext,
+    ) -> Result<SignedTransaction, TransactionError> {
+        let PreparedSplit {
+            inputs,
+            mut outputs,
+            payer_pubkey_hash,
+            expiry_unix_ts,
+            ..
+        } = self;
+
+        while outputs.len() < SPLIT_SHAPE.n_outputs {
+            outputs.push(OutputUtxo {
+                blinding: random_blinding(),
+                owner_tag: Some(bundle.view_tag),
+                ..Default::default()
+            });
+        }
+        let output_utxo_hashes = outputs
+            .iter()
+            .map(OutputUtxo::hash)
+            .collect::<Result<Vec<_>, _>>()?;
+        let external_data = ExternalData {
+            instruction_discriminator: TRANSACT_DISCRIMINATOR,
+            expiry_unix_ts,
+            relayer_fee: 0,
+            public_sol_amount: None,
+            public_spl_amount: None,
+            user_sol_account: Address::default(),
+            user_spl_token: Address::default(),
+            spl_token_interface: Address::default(),
+            data_hash: None,
+            zone_data_hash: None,
+            tx_viewing_pk: *tx_viewing_pk.as_bytes(),
+            salt,
+            output_utxo_hashes,
+            output_ciphertexts: vec![bundle],
+        };
+
+        Ok(SignedTransaction {
+            inputs,
+            outputs,
+            public_amounts: PublicAmounts {
+                sol: [0u8; 32],
+                spl: [0u8; 32],
+                asset: [0u8; 32],
+            },
+            external_data,
+            payer_pubkey_hash,
+            shape: SPLIT_SHAPE,
             p256_owner: None,
         })
     }

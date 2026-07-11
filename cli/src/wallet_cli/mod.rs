@@ -30,6 +30,7 @@ pub(crate) fn run_wallet(command: WalletCommand) -> Result<()> {
         WalletCommand::Merge(opts) => registry::run_merge(opts),
         WalletCommand::Deposit(opts) => deposit::run_deposit(opts),
         WalletCommand::Transfer(opts) => transaction::run_transfer(opts),
+        WalletCommand::Split(opts) => transaction::run_split(opts),
         WalletCommand::Withdraw(opts) => withdraw::run_withdraw(opts),
     }
 }
