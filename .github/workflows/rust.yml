@@ -28,6 +28,7 @@ env:
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
+  SBF_TOOLS_VERSION: v1.54
 
 jobs:
   fmt:
@@ -117,7 +118,8 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - run: cargo build-sbf --version
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -159,7 +161,8 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - run: cargo build-sbf --version
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -223,7 +226,8 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - run: cargo build-sbf --version
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -273,7 +277,8 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - run: cargo build-sbf --version
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-user-registry-litesvm
 
   test-client-integration:
