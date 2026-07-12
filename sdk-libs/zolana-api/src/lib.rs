@@ -1,6 +1,6 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 
-use std::{error::Error as StdError, fmt, sync::Once};
+use std::{error::Error as StdError, fmt};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
@@ -20,19 +20,6 @@ pub use zolana_indexer_api::{
     NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
     SerializablePubkey, SerializableSignature, ShieldedTransaction,
 };
-
-/// Compatibility module for callers that imported generated value types through
-/// `zolana_api::types`. The values now come from the shared contract crate.
-pub mod types {
-    pub use zolana_indexer_api::*;
-}
-
-/// Compatibility path for the former generated client's value module.
-pub mod generated {
-    pub mod types {
-        pub use zolana_indexer_api::*;
-    }
-}
 
 const JSON_RPC_VERSION: &str = "2.0";
 const REQUEST_ID: &str = "test-account";
@@ -145,7 +132,6 @@ struct JsonRpcError {
 
 impl ZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -156,7 +142,6 @@ impl ZolanaApi {
     }
 
     pub fn with_client(url: impl AsRef<str>, client: reqwest::Client) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -285,7 +270,6 @@ impl ZolanaApi {
 
 impl BlockingZolanaApi {
     pub fn new(url: impl AsRef<str>) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -296,7 +280,6 @@ impl BlockingZolanaApi {
     }
 
     pub fn with_client(url: impl AsRef<str>, client: reqwest::blocking::Client) -> Self {
-        ensure_ring_provider();
         let (base_path, api_key) = parse_url(url.as_ref());
         Self {
             base_path,
@@ -504,17 +487,15 @@ fn parse_json_response<R>(status: reqwest::StatusCode, body: String) -> Result<R
 where
     R: DeserializeOwned,
 {
-    serde_json::from_str(&body).map_err(|error| ApiError::Response {
+    let mut deserializer = serde_json::Deserializer::from_str(&body);
+    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| ApiError::Response {
         status,
-        body: format!("failed to decode JSON response: {error}; body: {body}"),
+        body: format!(
+            "failed to decode JSON response at {}: {}; body: {body}",
+            error.path(),
+            error.inner()
+        ),
     })
-}
-
-fn ensure_ring_provider() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
 }
 
 #[cfg(test)]

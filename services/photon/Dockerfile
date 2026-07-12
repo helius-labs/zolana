@@ -6,7 +6,6 @@ RUN apt-get update \
         ca-certificates \
         cmake \
         git \
-        libssl-dev \
         pkg-config \
         protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
@@ -28,7 +27,6 @@ FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 photon \
     && useradd --system --uid 10001 --gid photon \

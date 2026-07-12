@@ -9,7 +9,10 @@ use futures::future::{select, Either};
 use futures::sink::SinkExt;
 use futures::{pin_mut, Stream, StreamExt};
 use log::{error, info};
-use rand::distr::{Alphanumeric, SampleString};
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    thread_rng,
+};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -337,7 +340,7 @@ async fn build_geyser_client(
 }
 
 fn generate_random_string(len: usize) -> String {
-    Alphanumeric.sample_string(&mut rand::rng(), len)
+    Alphanumeric.sample_string(&mut thread_rng(), len)
 }
 
 fn get_block_subscribe_request(from_slot: Option<u64>) -> SubscribeRequest {

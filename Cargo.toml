@@ -86,13 +86,13 @@ borsh = { version = "1.5", default-features = false, features = ["derive"] }
 solana-account = "3.4"
 solana-account-info = "3.1"
 solana-account-view = "2.0"
-solana-account-decoder = "4.0.0-rc.0"
-solana-account-decoder-client-types = "4.0.0-rc.0"
+solana-account-decoder = "=4.0.0-rc.0"
+solana-account-decoder-client-types = "=4.0.0-rc.0"
 solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
 solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
-solana-banks-client = { version = "4.0.0-rc.0", features = ["agave-unstable-api"] }
+solana-banks-client = { version = "=4.0.0-rc.0", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
-solana-client = "4.0.0-rc.0"
+solana-client = "=4.0.0-rc.0"
 solana-clock = "3.0"
 solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
@@ -110,8 +110,8 @@ solana-program-error = "3.0"
 solana-program-pack = "3.1"
 solana-pubkey = { version = "4.2", features = ["curve25519"] }
 solana-rent = "4.2"
-solana-rpc-client = "4.0.0-rc.0"
-solana-rpc-client-api = "4.0.0-rc.0"
+solana-rpc-client = "=4.0.0-rc.0"
+solana-rpc-client-api = "=4.0.0-rc.0"
 solana-security-txt = "1.1.2"
 solana-sdk = "3.0"
 solana-signature = "3.4"
@@ -120,8 +120,8 @@ solana-system-interface = { version = "3.2", features = ["bincode"] }
 solana-sysvar = { version = "4.0", features = ["bincode"] }
 solana-transaction = "3.1"
 solana-transaction-error = "3.0"
-solana-transaction-status = "4.0.0-rc.0"
-solana-transaction-status-client-types = "4.0.0-rc.0"
+solana-transaction-status = "=4.0.0-rc.0"
+solana-transaction-status-client-types = "=4.0.0-rc.0"
 spl-token = "9.0"
 spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
 spl-token-2022-interface = "2.0"
@@ -137,7 +137,7 @@ async-channel = "2.5"
 async-stream = "0.3.6"
 async-trait = "0.1.82"
 arrayvec = "0.7"
-base64 = "0.13"
+base64 = "0.22.1"
 bb8 = "0.8.6"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitvec = { version = "1.0.1", default-features = false }
@@ -148,7 +148,7 @@ cadence = "1.8.0"
 cadence-macros = "1.8.0"
 chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
-cloud-storage = "0.11.1"
+cloud-storage = { version = "0.11.1", default-features = false, features = ["rustls-tls"] }
 dashmap = "6.1.0"
 darling = "0.21"
 env_logger = "0.11"
@@ -173,11 +173,12 @@ quote = "1.0"
 rand = "0.8.5"
 rayon = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-s3 = { package = "rust-s3", version = "0.37.2" }
+s3 = { package = "rust-s3", version = "0.37.2", default-features = false, features = ["fail-on-err", "tags", "tokio-rustls-tls"] }
 sea-orm = { version = "1.1.20", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_path_to_error = "0.1"
 serial_test = "3.2.0"
 sha2 = "0.10"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "sqlite", "rust_decimal"] }

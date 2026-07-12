@@ -93,6 +93,22 @@ block batch until the underlying data or code is fixed. Alert on stale `getIndex
 `block_batch_index_failures`, and errors containing `Cannot reconstruct nullifier batch` or
 `Reconstructed nullifier root mismatch`.
 
+### Container releases
+
+Production images are published by `.github/workflows/photon-image.yml` through
+the protected `photon-production` environment. Configure
+`ECR_HELIUS_PROD_AWS_ROLE_ARN` as an environment variable containing an AWS IAM
+role that trusts GitHub's OIDC provider only for
+`repo:helius-labs/zolana:environment:photon-production`, and restrict that role
+to the Photon ECR Public repository. Restrict the environment's deployment tags
+to `photon-v*` and require approval for manual releases.
+
+ECR Public does not provide server-side immutable tags. The workflow serializes
+production releases, refuses tags that already exist, publishes a commit tag
+first, and verifies both remote tags resolve to the same digest. These checks
+narrow but cannot eliminate a race with a publisher outside this workflow;
+production access must therefore remain exclusive to this role.
+
 ## Development
 
 Run the Rings integration tests:

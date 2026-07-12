@@ -11,7 +11,7 @@ default = []
 openapi = ["dep:utoipa"]
 
 [dependencies]
-base64 = "0.22.1"
+base64 = { workspace = true }
 bs58 = { workspace = true }
 serde = { workspace = true }
 solana-pubkey = { workspace = true }

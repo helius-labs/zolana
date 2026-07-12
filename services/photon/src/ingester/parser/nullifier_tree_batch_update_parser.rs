@@ -1,7 +1,7 @@
 use crate::ingester::error::IngesterError;
 use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdate};
 use crate::ingester::typedefs::block_info::{Instruction, TransactionInfo};
-use borsh1::BorshDeserialize;
+use borsh::BorshDeserialize;
 use zolana_interface::{
     instruction::{tag, BatchUpdateNullifierTreeData},
     pda,

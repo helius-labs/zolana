@@ -130,13 +130,6 @@ impl<'de> Deserialize<'de> for Base64String {
 pub struct Hash(pub [u8; 32]);
 
 impl Hash {
-    pub fn new(bytes: &[u8]) -> Result<Self, ParseHashError> {
-        bytes
-            .try_into()
-            .map(Self)
-            .map_err(|_| ParseHashError::WrongSize)
-    }
-
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }
@@ -487,7 +480,7 @@ impl<'de> Deserialize<'de> for Limit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
     pub slot: u64,

@@ -4,8 +4,8 @@ use solana_address::Address;
 #[cfg(test)]
 use solana_signature::Signature;
 use zolana_api::{
-    types::{Base64String, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot, SerializablePubkey},
-    BlockingZolanaApi,
+    Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
+    SerializablePubkey,
 };
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 
@@ -151,9 +151,7 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
 }
 
 fn convert_context(context: zolana_api::Context) -> Context {
-    Context {
-        slot: context.slot,
-    }
+    Context { slot: context.slot }
 }
 
 fn convert_encrypted_utxo_match(
@@ -304,6 +302,7 @@ mod tests {
         time::Duration,
     };
 
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
     use serde_json::{json, Value};
 
@@ -336,14 +335,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_hash_length() {
-        let encoded = bs58::encode([1u8; 31]).into_string();
-        let err =
-            serde_json::from_value::<ApiHash>(json!(encoded)).expect_err("short hash must fail");
-        assert!(err.to_string().contains("wrong size"));
-    }
-
-    #[test]
     fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         let tag_a = bytes32(1);
         let tag_b = bytes32(2);
@@ -363,11 +354,11 @@ mod tests {
                         "tree": encode_pubkey_string(output_tree),
                         "leaf_index": 11,
                     },
-                    "payload": base64::encode([8, 9, 10]),
+                    "payload": STANDARD.encode([8, 9, 10]),
                 },
-                "tx_viewing_pk": base64::encode(&tx_viewing_pk_bytes),
+                "tx_viewing_pk": STANDARD.encode(&tx_viewing_pk_bytes),
             }],
-            "next_cursor": base64::encode([5, 6]),
+            "next_cursor": STANDARD.encode([5, 6]),
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -383,7 +374,7 @@ mod tests {
             request.body["params"],
             json!({
                 "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-                "cursor": base64::encode([1, 2, 3]),
+                "cursor": STANDARD.encode([1, 2, 3]),
                 "limit": 7,
             })
         );
@@ -431,12 +422,12 @@ mod tests {
                         "tree": encode_pubkey_string(output_tree),
                         "leaf_index": 16,
                     },
-                    "payload": base64::encode([21, 22]),
+                    "payload": STANDARD.encode([21, 22]),
                 }],
                 "nullifiers": [encode_hash_string(nullifier)],
                 "proofless": true,
             }],
-            "next_cursor": base64::encode([23]),
+            "next_cursor": STANDARD.encode([23]),
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -638,7 +629,7 @@ mod tests {
                         "tree": encode_pubkey_string(Address::new_from_array(bytes32(53))),
                         "leaf_index": 1,
                     },
-                    "payload": base64::encode([1]),
+                    "payload": STANDARD.encode([1]),
                 }],
                 "nullifiers": [],
                 "proofless": true,
@@ -653,7 +644,9 @@ mod tests {
             .expect_err("short output hash must fail");
         let _ = server.request();
 
-        assert!(err.to_string().contains("wrong size"));
+        let message = err.to_string();
+        assert!(message.contains("wrong size"));
+        assert!(message.contains("result.transactions[0].output_slots[0].output_context.hash"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {

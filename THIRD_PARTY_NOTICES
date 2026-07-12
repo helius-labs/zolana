@@ -7,6 +7,14 @@ repository. It is not a complete inventory of transitive dependency licenses.
 Zolana is licensed under the Apache License, Version 2.0, except where a
 component states otherwise.
 
+services/photon
+---------------
+
+Photon was imported from `helius-labs/photon-privacy` at commit
+`756e89347bb7943abbddfca4cad6c4f8a93c8894`. Its source remains licensed under
+the Apache License, Version 2.0. See `services/photon/IMPORT.md` for provenance
+and history details.
+
 prover/server
 -------------
 

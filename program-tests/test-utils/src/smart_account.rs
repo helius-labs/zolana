@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -55,7 +56,7 @@ pub fn write_program_config_fixture(account_dir: impl AsRef<Path>) {
     data[..PROGRAM_CONFIG_DISCRIMINATOR_END].copy_from_slice(&PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR);
     data[PROGRAM_CONFIG_TREASURY_START..PROGRAM_CONFIG_TREASURY_END]
         .copy_from_slice(&treasury_pda().to_bytes());
-    let encoded = base64::encode(data);
+    let encoded = STANDARD.encode(data);
 
     let json = format!(
         r#"{{"pubkey":"{pda}","account":{{"lamports":1000000,"data":["{encoded}","base64"],"owner":"{SMART_ACCOUNT_PROGRAM_ID}","executable":false,"rentEpoch":18446744073709551615}}}}"#,

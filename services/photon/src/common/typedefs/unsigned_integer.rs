@@ -66,19 +66,3 @@ impl<'de> Deserialize<'de> for UnsignedInteger {
         deserializer.deserialize_any(UnsignedIntegerVisitor)
     }
 }
-
-impl borsh::BorshDeserialize for UnsignedInteger {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        borsh::BorshDeserialize::deserialize(buf).map(UnsignedInteger)
-    }
-
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> Result<Self, std::io::Error> {
-        borsh::BorshDeserialize::deserialize_reader(reader).map(UnsignedInteger)
-    }
-}
-
-impl borsh::BorshSerialize for UnsignedInteger {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        borsh::BorshSerialize::serialize(&self.0, writer)
-    }
-}

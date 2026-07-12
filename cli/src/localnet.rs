@@ -1,12 +1,11 @@
 use std::{thread, time::Duration};
 
 use anyhow::{bail, Context, Result};
-use zolana_indexer_api::GET_ENCRYPTED_UTXOS_BY_TAGS;
 
 use crate::{
     args::TestValidatorOptions,
     config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
-    http::{wait_for_rpc_method_with_child, wait_for_rpc_with_child},
+    http::{wait_for_http_get_with_child, wait_for_rpc_with_child},
     process::{find_binary, remove_launchd_validators, spawn_service, stop_name, stop_port},
     prover::start_prover_service,
 };
@@ -175,7 +174,7 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
 
     let photon = find_binary(
         &["PHOTON_BIN", "ZOLANA_PHOTON_BIN"],
-        &["target/debug/photon", "target/release/photon"],
+        &["target/release/photon", "target/debug/photon"],
         &["photon"],
     )?;
     let rpc_url = format!("http://127.0.0.1:{}", opts.rpc_port);
@@ -194,9 +193,9 @@ fn start_photon_service(opts: &TestValidatorOptions) -> Result<()> {
 
     println!("Starting Photon: {} {}", photon.display(), args.join(" "));
     let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
-    wait_for_rpc_method_with_child(
+    wait_for_http_get_with_child(
         opts.photon_port,
-        GET_ENCRYPTED_UTXOS_BY_TAGS,
+        "/readiness",
         READINESS_TIMEOUT,
         READINESS_STABLE_CHECKS,
         &mut child,

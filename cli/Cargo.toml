@@ -22,7 +22,6 @@ solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-indexer-api.workspace = true
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }

@@ -35,8 +35,7 @@ ark-bn254 = { workspace = true }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-borsh = "0.10.4"
-borsh1 = { package = "borsh", version = "1.7.0" }
+borsh = { workspace = true }
 bs58 = { workspace = true }
 cadence-macros = { workspace = true }
 clap = { workspace = true }
@@ -69,7 +68,7 @@ num-bigint = { workspace = true }
 
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-reqwest = { version = "0.13.4", features = ["form", "json", "stream"] }
+reqwest = { workspace = true, features = ["stream"] }
 tokio = { workspace = true, features = ["time", "net", "signal"] }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -79,7 +78,7 @@ yellowstone-grpc-client = { workspace = true }
 yellowstone-grpc-proto = { workspace = true }
 cadence = { workspace = true }
 async-stream = { workspace = true }
-rand = "0.10.1"
+rand = { workspace = true }
 bincode = { workspace = true }
 s3 = { workspace = true }
 cloud-storage = { workspace = true }

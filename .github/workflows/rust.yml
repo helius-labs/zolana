@@ -20,6 +20,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
@@ -32,14 +35,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Configure git auth for private cargo git deps
         env:
           TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
         run: |
           git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@eac0f66a48bc4b70a10b9acd4c4e930f835d95ff # 1.95.0
         with:
+          toolchain: 1.95.0
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -48,13 +52,13 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: machete
           install-just: "false"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
         with:
           tool: cargo-machete
       - run: cargo machete --skip-target-dir
@@ -64,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy
@@ -76,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
@@ -87,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
@@ -103,8 +107,8 @@ jobs:
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
@@ -118,7 +122,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
       - name: Cache proving keys
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
           key: proving-keys-transfer-keys-v10
@@ -128,7 +132,7 @@ jobs:
     name: tests / sdk-libs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
@@ -144,8 +148,8 @@ jobs:
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
@@ -159,7 +163,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
       - name: Cache proving keys
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
           key: proving-keys-transfer-keys-v10
@@ -170,14 +174,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           install-just: "false"
           shared-key: localnet-photon
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: cargo build --locked --release -p photon-indexer --bin photon
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: photon-linux-x86_64-${{ github.sha }}
           path: target/release/photon
@@ -208,8 +212,8 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
@@ -223,18 +227,18 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - run: cargo build-sbf --version
       - name: Cache proving keys
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
           key: proving-keys-transfer-keys-v10
       - name: Download workspace Photon
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: photon-linux-x86_64-${{ github.sha }}
           path: target/bin
       - run: chmod 0755 "$ZOLANA_PHOTON_BIN"
       - name: Cache Squads smart account binary
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: squads-cache
         with:
           path: target/deploy/squads_smart_account_program.so
@@ -262,7 +266,7 @@ jobs:
     env:
       AGAVE_VERSION: v4.0.2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: litesvm
@@ -283,10 +287,10 @@ jobs:
       # release via the GitHub REST API using GH_TOKEN.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: prover/server/go.mod
           cache-dependency-path: prover/server/go.sum
@@ -296,7 +300,7 @@ jobs:
       # Avoid re-downloading proving keys every run; the prover's offline
       # CHECKSUM path reuses them on a cache hit.
       - name: Cache proving keys
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: prover/server/proving-keys
           key: proving-keys-transfer-keys-v10

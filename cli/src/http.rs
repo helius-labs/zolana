@@ -19,21 +19,6 @@ pub(crate) fn wait_for_rpc_with_child(
     wait_until_with_child(timeout, stable_checks, child, label, || rpc_health(port))
 }
 
-pub(crate) fn wait_for_rpc_method_with_child(
-    port: u16,
-    method: &str,
-    timeout: Duration,
-    stable_checks: u32,
-    child: &mut Child,
-    label: &str,
-) -> Result<()> {
-    wait_until_with_child(timeout, stable_checks, child, label, || {
-        rpc_request(port, method)
-            .map(|response| rpc_method_is_available(&response))
-            .unwrap_or(false)
-    })
-}
-
 pub(crate) fn wait_for_http_get_with_child(
     port: u16,
     path: &str,
@@ -86,14 +71,6 @@ fn rpc_health(port: u16) -> bool {
         .and_then(|value| value.as_str().map(str::to_string))
         .as_deref()
         == Some("ok")
-}
-
-fn rpc_method_is_available(response: &Value) -> bool {
-    response
-        .get("error")
-        .and_then(|error| error.get("code"))
-        .and_then(Value::as_i64)
-        != Some(-32601)
 }
 
 fn rpc_request(port: u16, method: &str) -> Result<Value> {
@@ -183,28 +160,4 @@ fn http_status(response: &str) -> Option<u16> {
 
 fn http_body(response: &str) -> &str {
     response.split_once("\r\n\r\n").map_or("", |(_, body)| body)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn method_probe_rejects_json_rpc_method_not_found_only() {
-        assert!(!rpc_method_is_available(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": { "code": -32601, "message": "Method not found" }
-        })));
-        assert!(rpc_method_is_available(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": "ok"
-        })));
-        assert!(rpc_method_is_available(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": { "code": -32000, "message": "not indexed yet" }
-        })));
-    }
 }
