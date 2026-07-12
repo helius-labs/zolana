@@ -87,7 +87,7 @@ pub fn verify_groth16(
     let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
     let public_inputs = [public_input_hash];
 
-    match (proof.commitment, verifying_key.vk_commitment_g2.is_some()) {
+    match (proof.commitment, verifying_key.vk_commitment.is_some()) {
         (Some((commitment, commitment_pok)), true) => {
             let commitment = decompress_g1(commitment).map_err(|_| encoding_err)?;
             let commitment_pok = decompress_g1(commitment_pok).map_err(|_| encoding_err)?;

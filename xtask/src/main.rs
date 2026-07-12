@@ -27,7 +27,7 @@ fn main() {
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
-            groth16_solana::gnark_vk_parser::generate_bsb22_vk_file(
+            groth16_solana::vk::gnark::generate_bsb22_vk_file(
                 &vk_bin,
                 Path::new(&out_dir),
                 &filename,
@@ -46,9 +46,8 @@ fn main() {
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("vk-json missing <filename>"));
-            groth16_solana::vk_parser::generate_vk_file(&vk_json, &out_dir, &filename)
+            groth16_solana::vk::circom::generate_vk_file(&vk_json, &out_dir, &filename)
                 .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
-            add_vanilla_commitment_fields(Path::new(&out_dir).join(&filename));
             println!("wrote {out_dir}/{filename}");
         }
         Some("program-ids") => print_program_ids(),
@@ -218,26 +217,6 @@ fn create_verifying_keys(options: CreateVerifyingKeysOptions) {
 
     fs::write(out_dir.join("MANIFEST.txt"), manifest)
         .expect("failed to write verifying key manifest");
-}
-
-fn add_vanilla_commitment_fields(path: PathBuf) {
-    let mut rust = fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("failed to read generated vk {}: {error}", path.display()));
-    if rust.contains("vk_commitment_g2") {
-        return;
-    }
-    let replacement = ",\n    vk_commitment_g2: None,\n    vk_commitment_g_sigma_neg_g2: None,\n};";
-    if !rust.ends_with("\n};\n") {
-        panic!(
-            "generated vk has unexpected ending, cannot add commitment fields: {}",
-            path.display()
-        );
-    }
-    rust.truncate(rust.len() - "\n};\n".len());
-    rust.push_str(replacement);
-    rust.push('\n');
-    fs::write(&path, rust)
-        .unwrap_or_else(|error| panic!("failed to write generated vk {}: {error}", path.display()));
 }
 
 fn read_proving_keys(keys_dir: &Path) -> Vec<PathBuf> {
