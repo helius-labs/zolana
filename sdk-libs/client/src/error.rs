@@ -114,6 +114,14 @@ pub enum ClientError {
         signature: Signature,
     },
 
+    #[error(
+        "transaction {signature} confirmed but was not indexed after {timeout_seconds} seconds"
+    )]
+    TransactionNotIndexed {
+        signature: Signature,
+        timeout_seconds: u64,
+    },
+
     #[error("asset registry entry not found for mint {mint}; the mint has no SPL interface on this deployment")]
     AssetNotRegistered { mint: Pubkey },
 

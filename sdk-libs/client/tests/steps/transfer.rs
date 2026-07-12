@@ -13,7 +13,10 @@ use zolana_client::{CircuitType, PublicAmounts, Rpc, SpendUtxo, Transaction, Wit
 use zolana_event::OutputData;
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
 use zolana_transaction::{
-    instructions::transact::signed_transaction::{asset_field, signed_to_field},
+    instructions::transact::{
+        signed_transaction::{asset_field, signed_to_field},
+        SENDER_SLOT_COUNT,
+    },
     serialization::{
         confidential::{
             ConfidentialRecipient, ConfidentialSenderBundle, TransferRecipientPlaintext,
@@ -99,14 +102,14 @@ impl TransferWorld {
             .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
             .collect();
 
+        // These feature files are the established (2,3) proof baseline. The
+        // dedicated shape sweep covers every other prover/verifier shape.
         let mut tx = Transaction::new(
             sender.shielded_address().expect("sender address"),
             inputs,
             Address::default(),
-        );
-        if plan.declared_shape {
-            tx = tx.with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
-        }
+        )
+        .with_shape(zolana_transaction::instructions::transact::Shape::new(2, 3));
         for (recipient, send) in recipients.iter().zip(&plan.sends) {
             tx.send(
                 &recipient.shielded_address().expect("recipient address"),
@@ -130,6 +133,13 @@ impl TransferWorld {
         }
 
         let signed = tx.sign(&sender, &assets).expect("sign");
+        if plan.declared_shape {
+            assert_eq!(
+                signed.shape,
+                zolana_transaction::instructions::transact::Shape::new(2, 3)
+            );
+        }
+        let max_recipients = signed.shape.n_outputs - SENDER_SLOT_COUNT;
 
         let commitments = signed.input_commitments().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
@@ -154,6 +164,7 @@ impl TransferWorld {
                     &sender,
                     &recipients,
                     &first_nullifier,
+                    max_recipients,
                 );
                 prove_and_verify_p256(&prover.build().expect("build"));
             }
@@ -166,6 +177,7 @@ impl TransferWorld {
                     &sender,
                     &recipients,
                     &first_nullifier,
+                    max_recipients,
                 );
                 prove_and_verify_eddsa(&prover.build().expect("build"));
             }
@@ -185,6 +197,7 @@ fn assert_outputs(
     sender: &ShieldedKeypair,
     recipients: &[ShieldedKeypair],
     first_nullifier: &[u8; 32],
+    max_recipients: usize,
 ) {
     let net_public = |asset: Asset| -> i128 {
         match &plan.withdraw {
@@ -304,7 +317,7 @@ fn assert_outputs(
             ..Default::default()
         });
     }
-    // The builder pads to the fixed (2,3) shape: the real outputs are the prefix,
+    // The builder pads to the resolved shape: the real outputs are the prefix,
     // and any trailing slots are dummy padding (owner = 0, amount = 0, random
     // blinding), which cannot be asserted by value.
     let real = outputs
@@ -382,13 +395,12 @@ fn assert_outputs(
             spl_amount: change(Asset::Spl),
             sol_amount: change(Asset::Sol),
             blinding_seed: seed,
-            // Padded to MAX_RECIPIENTS (1 for the (2,3) shape) with the sender's own
-            // viewing key so the bundle is fixed-size and hides the recipient count.
+            // Padded to the resolved shape's recipient capacity with the sender's
+            // own viewing key so the bundle hides the real recipient count.
             recipient_viewing_pks: {
-                const MAX_RECIPIENTS: usize = 1;
                 let mut pks: Vec<P256Pubkey> =
                     recipients.iter().map(|r| r.viewing_pubkey()).collect();
-                while pks.len() < MAX_RECIPIENTS {
+                while pks.len() < max_recipients {
                     pks.push(sender.viewing_pubkey());
                 }
                 pks

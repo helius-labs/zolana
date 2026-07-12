@@ -359,9 +359,10 @@ fn wait_for_indexed_transaction(
             return Ok(());
         }
         if started.elapsed() >= INDEXER_TIMEOUT {
-            return Err(ClientError::Rpc(format!(
-                "timed out after {INDEXER_TIMEOUT:?} waiting for the indexer to pick up {signature}"
-            )));
+            return Err(ClientError::TransactionNotIndexed {
+                signature,
+                timeout_seconds: INDEXER_TIMEOUT.as_secs(),
+            });
         }
         sleep(INDEXER_POLL);
     }
